@@ -1,0 +1,15 @@
+Folder PATH listing
+Volume serial number is 1AAF-4616
+C:\USERS\ADMIN\DESKTOP\WANASAH\WANASAH_FRONTEND\LIB
+|   main.dart
+|   
++---screens
+|       add_shop_screen.dart
+|       dashboard_screen.dart
+|       login_screen.dart
+|       visit_list_screen.dart
+|       visit_screen.dart
+|       
+\---services
+        auth_utils.dart
+        

@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+.conda/
+venv/
+*.db
+.env
+
+# Flutter
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
