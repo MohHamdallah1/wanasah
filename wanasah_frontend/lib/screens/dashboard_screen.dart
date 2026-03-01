@@ -32,13 +32,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double? _totalDebtPaid;
   int? _debtPaymentsCount;
   double? _totalCashOverall;
-  int? _startingCartons;
-  int? _remainingCartons;
+  List<dynamic> _inventoryList = [];
   // ignore: prefer_final_fields
   bool _isActiveSession = false;
   String? _activeSessionStartTime;
   bool _isSessionLoading = false; // لتحميل أزرار البدء/الإنهاء
-  int? _remainingPacks;
+  
   // لا نحتاج لتعريف storage هنا لأن الدوال المساعدة تستخدمه داخلياً
 
   // --- دالة مساعدة لعرض مربع حوار التأكيد ---
@@ -161,14 +160,13 @@ Future<void> _logout() async {
           final double totalDebtPaid = (financials?['total_debt_paid'] as num?)?.toDouble() ?? 0.0;
           final int debtPaymentsCount = financials?['debt_payments_count'] as int? ?? 0;
           final double totalCashOverall = (financials?['total_cash_overall'] as num?)?.toDouble() ?? 0.0;
-          String? startTimeStr; int? startCartons; int? remainingCartons; int? remainingPacks;
+          String? startTimeStr; 
+          List<dynamic> inventoryList = [];
           if (sessionData != null) {
              startTimeStr = sessionData['start_time'] as String?;
-             startCartons = sessionData['starting_cartons'] as int?;
-             remainingCartons = sessionData['remaining_cartons'] as int?;
-             remainingPacks = sessionData['remaining_packs'] as int?;
+             inventoryList = sessionData['inventory'] as List<dynamic>? ?? [];
           } else {
-             startTimeStr = null; startCartons = null; remainingCartons = null; remainingPacks = null;
+             startTimeStr = null;
           }
           final Map<String, dynamic>? countsData = data['counts'] as Map<String, dynamic>?;
           final Map<String, int> counts = {
@@ -188,9 +186,7 @@ Future<void> _logout() async {
             _totalCashOverall = totalCashOverall;
             _isActiveSession = sessionIsActive;
             _activeSessionStartTime = startTimeStr;
-            _startingCartons = startCartons;
-            _remainingCartons = remainingCartons;
-            _remainingPacks = remainingPacks;
+            _inventoryList = inventoryList;
             _isLoading = false;
             _errorMessage = null;
           });
@@ -484,7 +480,7 @@ return RefreshIndicator(
       const SizedBox(height: 8),
       Text('المنطقة المخصصة: $_assignedRegion', style: TextStyle(fontSize: 17, color: Colors.blueGrey[700])),
       const SizedBox(height: 8),
-      Text('تاريخ اليوم: ${DateFormat('EEEE, d MMMM Backdrop', 'ar').format(DateTime.now())}', style: TextStyle(fontSize: 15, color: Colors.grey[600])), // Corrected DateFormat pattern
+      Text('تاريخ اليوم: ${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}', style: TextStyle(fontSize: 15, color: Colors.grey[600])),
       const Divider(height: 30, thickness: 1),
       Center(
         child: Text(
@@ -564,7 +560,7 @@ return RefreshIndicator(
       Text('ملخص الجولة:', style: Theme.of(context).textTheme.titleLarge),
       const SizedBox(height: 12),
       Text(' - الزيارات المكتملة: ${_counts['total_completed'] ?? 0}', style: const TextStyle(fontSize: 16)),
-      Text(' - المحلات المستلمة: ${_counts['sales_in_completed'] ?? 0}', style: const TextStyle(fontSize: 16)),
+      Text(' - الزيارات الناجحة (مبيعات): ${_counts['sales_in_completed'] ?? 0}', style: const TextStyle(fontSize: 16)),
       Text(' - الزيارات المعلقة: ${_counts['total_pending'] ?? 0}', style: const TextStyle(fontSize: 16)),
       const SizedBox(height: 15),
       Text('الملخص المالي:', style: Theme.of(context).textTheme.titleLarge),
@@ -585,30 +581,8 @@ return RefreshIndicator(
           ],
         ),
       ),
-      if (_isActiveSession && _startingCartons != null && _remainingCartons != null) ...[
-  const Divider(height: 30, thickness: 1),
-  Text('مخزون الكراتين والباكيتات:', style: Theme.of(context).textTheme.titleLarge),
-  const SizedBox(height: 12),
-  Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-    child: Column( // أو يمكنك استخدام Row إذا أردت عرضهم بنفس السطر
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'مخزون البداية: ${_startingCartons ?? '--'} كرتونة',
-          style: const TextStyle(fontSize: 16)
-        ),
-        const SizedBox(height: 4), // مسافة صغيرة
-        // --- تعديل هنا لعرض الكراتين والباكيتات المتبقية ---
-        Text(
-          'المخزون المتبقي: ${_remainingCartons ?? '--'} كرتونة، ${_remainingPacks ?? '0'} باكيت',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueAccent), // تنسيق مميز للمتبقي
-        ),
-            ],
-          ),
-        ),
-      ],
-      const Divider(height: 30, thickness: 1),
+      // --- زر عرض قائمة الزيارات (تم رفعه للأعلى) ---
+      const SizedBox(height: 10),
       Center(
         child: ElevatedButton.icon(
           icon: const Icon(Icons.list_alt_rounded),
@@ -631,8 +605,70 @@ return RefreshIndicator(
         ),
       ),
       const SizedBox(height: 20),
-    ],
-  ),
-);
-}
+
+      // --- قسم المخزون الدائم (أصبح في الأسفل) ---
+      const Divider(height: 30, thickness: 1),
+      Text('مخزون سيارة المندوب:', style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 12),
+
+      if (_inventoryList.isEmpty)
+        Container(
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: Colors.red[50],
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(color: Colors.red.shade200),
+          ),
+          child: const Center(
+            child: Text(
+              'لا يوجد بضاعة في السيارة حالياً.',
+              style: TextStyle(fontSize: 16, color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+
+      if (_inventoryList.isNotEmpty)
+        ..._inventoryList.map((item) {
+          // حساب المباع برمجياً
+          int starting = item['starting_cartons'] ?? 0;
+          int remaining = item['remaining_cartons'] ?? 0;
+          int sold = starting - remaining;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: Container(
+              padding: const EdgeInsets.all(12.0),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${item['product_name']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('الاستلام: $starting كرتونة', style: const TextStyle(fontSize: 14)),
+                      Text('المباع: $sold كرتونة', style: TextStyle(fontSize: 14, color: Colors.green[700], fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'المتبقي: $remaining كرتونة، ${item['remaining_packs']} باكيت',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      const SizedBox(height: 20),
+        ], // نهاية الـ children
+      ), // نهاية الـ ListView
+    ); // نهاية الـ RefreshIndicator
+  } // نهاية دالة _buildDashboardContent
 } // نهاية كلاس _DashboardScreenState
+      // --- نهاية قسم المخزون ---

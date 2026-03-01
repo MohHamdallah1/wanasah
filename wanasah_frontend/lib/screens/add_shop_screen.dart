@@ -19,9 +19,9 @@ class _AddShopScreenState extends State<AddShopScreen> {
   // --- Controllers للحقول (تم تعديل الأسماء والوظائف) ---
   final _nameController = TextEditingController(); // اسم المحل (إجباري)
   final _contactPersonController = TextEditingController(); // اسم المسؤول (إجباري)
-  final _governorateAreaController = TextEditingController(); // المحافظة/المنطقة (اختياري) - كان للرابط سابقاً
-  final _locationFieldController = TextEditingController(); // الموقع (رابط أو زر) (اختياري) - كان للعنوان سابقاً
-  final _phoneController = TextEditingController(); // الهاتف (اختياري)
+  final _governorateAreaController = TextEditingController(); // المحافظة/المنطقة (إجباري) - كان للرابط سابقاً
+  final _locationFieldController = TextEditingController(); // الموقع (رابط أو زر) (إجباري) - كان للعنوان سابقاً
+  final _phoneController = TextEditingController(); // الهاتف (إجباري)
   final _notesController = TextEditingController(); // الملاحظات (اختياري)
 
   // --- متغيرات الحالة ---
@@ -128,13 +128,22 @@ class _AddShopScreenState extends State<AddShopScreen> {
       }
     }
   }
-
+ 
   // --- دالة حفظ المحل (تم تعديلها لتناسب الحقول الجديدة) ---
   Future<void> _saveShop() async {
     // 1. التحقق من صحة الفورم (سيتحقق فقط من اسم المحل والمسؤول الآن)
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    // +++ التعديل الجديد: التحقق الإجباري من الموقع الجغرافي +++
+    if (_currentLatitude == null && _currentLongitude == null && _locationFieldController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('الرجاء تحديد الموقع عبر الـ GPS أو وضع رابط الموقع!'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
     if (_isSaving) return;
     setState(() { _isSaving = true; });
 
@@ -149,9 +158,9 @@ class _AddShopScreenState extends State<AddShopScreen> {
         'contact_person': _contactPersonController.text.trim(),
       };
 
-      // إضافة الحقول الاختيارية النصية الأخرى إذا كانت غير فارغة
+      // إضافة الحقول إجباري النصية الأخرى إذا كانت غير فارغة
       if (_governorateAreaController.text.trim().isNotEmpty) {
-        requestBody['region_name'] = _governorateAreaController.text.trim();
+        requestBody['address'] = _governorateAreaController.text.trim();
       }
        if (_phoneController.text.trim().isNotEmpty) {
         requestBody['phone_number'] = _phoneController.text.trim();
@@ -295,19 +304,24 @@ Widget build(BuildContext context) {
             ),
              const SizedBox(height: 16), // const
 
-            // --- حقل المحافظة / المنطقة (اختياري) ---
+           // --- حقل المحافظة / المنطقة (إجباري) ---
             TextFormField(
               controller: _governorateAreaController,
-              decoration: const InputDecoration( // يمكن أن تكون const
-                labelText: 'المحافظة / المنطقة (اختياري)',
-                border: OutlineInputBorder(), // const
-                prefixIcon: Icon(Icons.map_outlined), // const
+              decoration: const InputDecoration(
+                labelText: 'المحافظة / المنطقة / خط السير *',
+                border: OutlineInputBorder(), 
+                prefixIcon: Icon(Icons.map_outlined), 
               ),
-              // لا يوجد validator لأنه اختياري
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'الرجاء إدخال المنطقة أو خط السير';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16), // const
 
-            // --- حقل الموقع (رابط أو زر) (اختياري) ---
+            // --- حقل الموقع (رابط أو زر) (إجباري) ---
             TextFormField(
               controller: _locationFieldController,
               // لا يمكن أن تكون const بسبب suffixIcon المتغير
@@ -328,15 +342,21 @@ Widget build(BuildContext context) {
             ),
             const SizedBox(height: 16), // const
 
-            // --- حقل رقم الهاتف (اختياري) ---
+            // --- حقل رقم الهاتف (إجباري) ---
             TextFormField(
               controller: _phoneController,
               decoration: const InputDecoration(
-                labelText: 'رقم الهاتف',
-                 border: OutlineInputBorder(), // const
-                 prefixIcon: Icon(Icons.phone_outlined), // const
+                labelText: 'رقم الهاتف *',
+                 border: OutlineInputBorder(), 
+                 prefixIcon: Icon(Icons.phone_outlined), 
               ),
               keyboardType: TextInputType.phone,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'الرجاء إدخال رقم الهاتف';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16), // const
 

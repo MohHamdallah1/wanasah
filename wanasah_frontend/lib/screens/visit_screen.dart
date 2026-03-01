@@ -32,7 +32,6 @@ class VisitScreen extends StatefulWidget {
 
 // --- تعريف الكلاس State ---
 class _VisitScreenState extends State<VisitScreen> {
-  static const String _defaultProductName = 'شيبس لولو - جبنة حجم كبير'; // <--- تأكد من مطابقة الاسم
 
   final _formKey = GlobalKey<FormState>();
 
@@ -49,7 +48,6 @@ class _VisitScreenState extends State<VisitScreen> {
   bool _isFetchingProducts = true;
   String? _fetchProductsError;
   int? _selectedProductVariantId;
-  String? _bonusInfo;
   double? _expectedSaleValue;
   bool _isLoading = true; // للتحكم في مؤشر التحميل العام للشاشة
   String? _error; // لعرض الأخطاء العامة أثناء التحميل الأولي
@@ -61,21 +59,12 @@ class _VisitScreenState extends State<VisitScreen> {
   String? _shopAddr; // العنوان النصي المحمل
   // ++++++++++++++++++++++++++++++++++++++++++++++++
 
-  // --- دالة مساعدة لإيجاد ID المنتج الافتراضي بالاسم ---
+  // --- دالة مساعدة لإيجاد ID المنتج الافتراضي بمرونة ---
   int? _findDefaultProductId() {
-     // ... (الكود كما هو بدون تغيير) ...
-     try {
-       final defaultVariant = _productVariants.firstWhere(
-         (variant) => variant['variant_name'] == _defaultProductName &&
-                      variant['id'] != null &&
-                      variant['id'] is int,
-                      // orElse: () => null, // Consider adding orElse: null for safety if needed later
-       );
-       return defaultVariant['id'] as int?;
-     } catch (e) {
-       developer.log('Helper: Default product name "$_defaultProductName" not found.');
-       return null;
+     if (_productVariants.isNotEmpty) {
+         return _productVariants.first['id'] as int?;
      }
+     return null;
   }
 
 
@@ -280,53 +269,10 @@ class _VisitScreenState extends State<VisitScreen> {
   }
 
 
-  // --- دالة حساب وعرض البونص (معدلة لتطابق المنطق التكراري للـ Backend) ---
-  String? _calculateBonusInfo(int quantity) {
-    if (quantity <= 0) {
-      return null; // لا يوجد بونص لكمية صفر أو أقل
-    }
-
-    int bonusCartons = 0;
-    int bonusPacks = 0;
-    int q = quantity; // متغير مؤقت للكمية المتبقية
-
-    // --- !!! قائمة الشرائح وقيم البونص (يجب أن تطابق تماماً ما في Backend) !!! ---
-    // --- !!! راجع هذه القائمة بعناية وعدّلها حسب قواعد البونص النهائية لديكم !!! ---
-    final tiers = [
-      // الترتيب مهم: من الأكبر للأصغر
-      {'threshold': 50, 'bonus_cartons': 7, 'bonus_packs': 0},
-      {'threshold': 25, 'bonus_cartons': 3, 'bonus_packs': 0},
-      {'threshold': 10, 'bonus_cartons': 1, 'bonus_packs': 0},
-      {'threshold': 5,  'bonus_cartons': 0, 'bonus_packs': 15}, // بونص باكيت خاص
-    ];
-    // -----------------------------------------------------------------------
-
-    // تطبيق الشرائح بشكل تكراري
-    for (final tier in tiers) {
-      final int threshold = tier['threshold'] as int;
-      if (q >= threshold) {
-        final int numTiers = q ~/ threshold; // القسمة الصحيحة في Dart
-        bonusCartons += numTiers * (tier['bonus_cartons'] as int);
-        bonusPacks += numTiers * (tier['bonus_packs'] as int);
-        q %= threshold; // حساب المتبقي
-      }
-    }
-
-    // تطبيق القاعدة الأساسية (+2 باكيت/كرتونة) على المتبقي النهائي (0-4)
-    bonusPacks += q * 2;
-
-    // --- تنسيق النص النهائي للعرض ---
-    if (bonusCartons > 0 && bonusPacks > 0) {
-      return 'Bonus: +$bonusCartons كرتونة و +$bonusPacks بكيت';
-    } else if (bonusCartons > 0) {
-      return 'Bonus: +$bonusCartons كرتونة';
-    } else if (bonusPacks > 0) {
-      return 'Bonus: +$bonusPacks بكيت';
-    } else {
-      return null; // لا يوجد أي بونص لهذه الكمية
-    }
+  // --- دالة تحديث المعلومات المحسوبة ---
+  void _updateCalculatedInfo() {
+     _updateExpectedSaleValue(); // حساب القيمة فقط، البونص صار مسؤولية السيرفر
   }
-  // --- نهاية دالة حساب البونص ---
 
   
   // --- دالة حساب قيمة البيع المتوقعة ---
@@ -351,16 +297,6 @@ class _VisitScreenState extends State<VisitScreen> {
       }
   }
 
-  // --- دالة تحديث المعلومات المحسوبة ---
-  void _updateCalculatedInfo() {
-    // ... (الكود كما هو بدون تغيير) ...
-     _updateExpectedSaleValue(); // حساب القيمة
-     final int? quantity = int.tryParse(_quantityController.text.trim());
-     String? calculatedBonus = (quantity != null && quantity > 0) ? _calculateBonusInfo(quantity) : null;
-     if (mounted && _bonusInfo != calculatedBonus) {
-        setState(() { _bonusInfo = calculatedBonus; }); // تحديث البونص
-     }
-  }
 
   // --- دالة بناء الواجهة الرئيسية ---
   @override
@@ -443,7 +379,6 @@ class _VisitScreenState extends State<VisitScreen> {
            _buildProductDropdown(),
            const SizedBox(height: 10),
            _buildNumericTextFormField( controller: _quantityController, labelText: 'عدد الكراتين *', icon: Icons.shopping_cart, validator: (value) { if (value == null || value.trim().isEmpty) { return 'الرجاء إدخال عدد الكراتين'; } final quantity = int.tryParse(value.trim()); if (quantity == null) { return 'الرجاء إدخال رقم صحيح'; } if (quantity <= 0) { return 'الرجاء إدخال كمية أكبر من صفر';} return null; }, onChanged: (value) { _updateCalculatedInfo(); }, ),
-           if (_bonusInfo != null && _bonusInfo!.isNotEmpty) Padding( padding: const EdgeInsets.only(top: 8.0, right: 8.0, left: 8.0), child: Text( _bonusInfo!, style: TextStyle(color: Colors.indigo[700], fontWeight: FontWeight.bold,), textAlign: TextAlign.center,),),
            const SizedBox(height: 10),
            if (_expectedSaleValue != null) Padding( padding: const EdgeInsets.only(bottom: 8.0), child: Text( 'المبلغ المطلوب للبضاعة: ${_expectedSaleValue!.toStringAsFixed(2)} د.أ', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontStyle: FontStyle.italic), textAlign: TextAlign.center, ), ),
            _buildNumericTextFormField( controller: _cashController, labelText: 'الكاش المستلم *', icon: Icons.money, validator: (value) { if (value == null || value.trim().isEmpty) { return 'الرجاء إدخال الكاش المستلم'; } if (double.tryParse(value.trim()) == null) { return 'الرجاء إدخال مبلغ صحيح'; } if (double.parse(value.trim()) < 0) { return 'المبلغ لا يمكن أن يكون سالباً'; } return null; }, onChanged: (_) {} ),
@@ -476,14 +411,14 @@ class _VisitScreenState extends State<VisitScreen> {
            ),
            ChoiceChip(
              label: const Text('لم يتم البيع (إنهاء)'), selected: _selectedOutcome == 'NoSale',
-             onSelected: (selected) { if (selected) { setState(() { _selectedOutcome = 'NoSale'; /*_notesController.clear(); لا نمسح الملاحظات هنا */ _expectedSaleValue = null; _bonusInfo = null; }); } },
+             onSelected: (selected) { if (selected) { setState(() { _selectedOutcome = 'NoSale'; _expectedSaleValue = null; }); } },
              selectedColor: Colors.orangeAccent[100], shape: const StadiumBorder(),
              side: BorderSide(color: _selectedOutcome == 'NoSale' ? Colors.orange : Colors.grey),
              avatar: _selectedOutcome == 'NoSale' ? Icon(Icons.cancel, color: Colors.red[700], size: 18) : null,
            ),
            ChoiceChip(
               label: const Text('تأجيل / متابعة'), selected: _selectedOutcome == 'Postponed',
-              onSelected: (selected) { if (selected) { setState(() { _selectedOutcome = 'Postponed'; /* _notesController.clear(); لا نمسح الملاحظات هنا */ _expectedSaleValue = null; _bonusInfo = null; }); } },
+              onSelected: (selected) { if (selected) { setState(() { _selectedOutcome = 'Postponed'; _expectedSaleValue = null; }); } },
               selectedColor: Colors.lightBlueAccent[100], shape: const StadiumBorder(),
               side: BorderSide(color: _selectedOutcome == 'Postponed' ? Colors.blue : Colors.grey),
               avatar: _selectedOutcome == 'Postponed' ? Icon(Icons.watch_later, color: Colors.blue[700], size: 18) : null,
