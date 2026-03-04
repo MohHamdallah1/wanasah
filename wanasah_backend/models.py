@@ -127,8 +127,17 @@ class WorkSession(db.Model):
     session_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
     start_latitude = db.Column(db.Float, nullable=True)
     start_longitude = db.Column(db.Float, nullable=True)
+    
+    # +++ الحقول الجديدة: الضوء الأخضر والاستراحة +++
+    is_authorized_to_sell = db.Column(db.Boolean, nullable=False, default=False) # يبدأ مغلقاً (False)
+    break_start_time = db.Column(db.DateTime, nullable=True)
+    break_end_time = db.Column(db.DateTime, nullable=True)
+    # ++++++++++++++++++++++++++++++++++++++++++++++
+    # +++ حقل الاعتماد الإداري للتسوية +++
+    is_settled = db.Column(db.Boolean, nullable=False, default=False)
+    # ++++++++++++++++++++++++++++++++++++++++++++++
     driver = db.relationship('Driver', backref=db.backref('work_sessions', lazy=True))
-    inventory = db.relationship('SessionInventory', backref='work_session', lazy=True) # ربط الجلسة بالمخزون
+    inventory = db.relationship('SessionInventory', backref='work_session', lazy=True) # ربط الجلسة بالمخزونن
 
 class SessionInventory(db.Model):
     __tablename__ = 'session_inventory'
@@ -141,6 +150,33 @@ class SessionInventory(db.Model):
     current_remaining_packs = db.Column(db.Integer, nullable=False, default=0)
     product_variant = db.relationship('ProductVariant')
 
+
+# ================= تفاصيل الفاتورة (سلة الزيارة) =================
+# هذا الجدول يربط الزيارة الواحدة بعدة منتجات (كراتين وحبات) مع حفظ أسعار البيع اللحظية
+class VisitItem(db.Model):
+    __tablename__ = 'visit_items'
+    id = db.Column(db.Integer, primary_key=True)
+    # إضافة index=True لتسريع البحث عن محتويات زيارة معينة ومنع N+1
+    visit_id = db.Column(db.Integer, db.ForeignKey('visits.id'), nullable=False, index=True)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)
+    
+    # الكميات (كراتين وحبات)
+    quantity_cartons = db.Column(db.Integer, nullable=False, default=0)
+    quantity_packs = db.Column(db.Integer, nullable=False, default=0)
+    
+    # البونص (كراتين وحبات)
+    bonus_cartons = db.Column(db.Integer, nullable=False, default=0)
+    bonus_packs = db.Column(db.Integer, nullable=False, default=0)
+    
+    # الأسعار وقت البيع (لضمان عدم تأثر الفواتير القديمة لو تغير السعر مستقبلا)
+    price_per_carton_at_sale = db.Column(db.Float, nullable=True)
+    price_per_pack_at_sale = db.Column(db.Float, nullable=True)
+    total_price = db.Column(db.Float, nullable=False, default=0.0)
+
+    product_variant = db.relationship('ProductVariant')
+
+
+
 # ================= الزيارات =================
 class Visit(db.Model):
     __tablename__ = 'visits'
@@ -150,9 +186,6 @@ class Visit(db.Model):
     work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=True)
     visit_timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     outcome = db.Column(db.String(50), nullable=True, default='Pending')
-    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=True)
-    quantity_sold = db.Column(db.Integer, nullable=True, default=0)
-    price_per_carton_at_sale = db.Column(db.Float, nullable=True)
     amount_before_tax_and_discount = db.Column(db.Float, nullable=True, default=0.0)
     discount_applied = db.Column(db.Float, nullable=True, default=0.0)
     tax_percentage_applied = db.Column(db.Float, nullable=True, default=0.0)
@@ -172,4 +205,4 @@ class Visit(db.Model):
     
     work_session = db.relationship('WorkSession', backref=db.backref('visits', lazy='dynamic'))
     driver = db.relationship('Driver', backref=db.backref('visits', lazy='dynamic'))
-    product_variant = db.relationship('ProductVariant', backref=db.backref('sales', lazy=True))
+    items = db.relationship('VisitItem', backref='visit', lazy='dynamic', cascade="all, delete-orphan")

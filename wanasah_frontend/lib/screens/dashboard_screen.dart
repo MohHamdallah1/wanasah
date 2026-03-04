@@ -37,7 +37,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isActiveSession = false;
   String? _activeSessionStartTime;
   bool _isSessionLoading = false; // لتحميل أزرار البدء/الإنهاء
-  
+  // +++ متغيرات الاستراحة والصلاحية +++
+  bool _isOnBreak = false;
+  // +++++++++++++++++++++++++++++++++
+
   // لا نحتاج لتعريف storage هنا لأن الدوال المساعدة تستخدمه داخلياً
 
   // --- دالة مساعدة لعرض مربع حوار التأكيد ---
@@ -154,6 +157,18 @@ Future<void> _logout() async {
           final Map<String, dynamic>? sessionData = data['active_session'] as Map<String, dynamic>?;
           bool sessionIsActive = (sessionData != null);
 
+          // +++ قراءة الضوء الأخضر والاستراحة وحفظها بأمان +++
+          bool isAuthorized = false;
+          bool isOnBreak = false;
+          if (sessionData != null) {
+              isAuthorized = sessionData['is_authorized_to_sell'] == true;
+              isOnBreak = sessionData['break_start_time'] != null && sessionData['break_end_time'] == null;
+          }
+          // +++ التعديل الأهم: نكتب حالة الصلاحية (مقفل/مفتوح) دائماً وبكل الحالات +++
+          const storage = FlutterSecureStorage();
+          await storage.write(key: 'is_authorized', value: isAuthorized.toString());
+          // +++++++++++++++++++++++++++++++++++++++++++++ 
+
           // استخلاص باقي البيانات
           final Map<String, dynamic>? financials = data['financials'] as Map<String, dynamic>?;
           final double totalSalesCash = (financials?['total_sales_cash'] as num?)?.toDouble() ?? 0.0;
@@ -189,6 +204,12 @@ Future<void> _logout() async {
             _inventoryList = inventoryList;
             _isLoading = false;
             _errorMessage = null;
+            _isActiveSession = sessionIsActive;
+            _activeSessionStartTime = startTimeStr;
+            _inventoryList = inventoryList;
+            // +++ تحديث واجهة الاستراحة والصلاحية +++
+            _isOnBreak = isOnBreak;
+            // ++++++++++++++++++++++++++++++++++++
           });
 
         } catch (decodeError, stacktrace) { // خطأ فك التشفير
@@ -359,6 +380,41 @@ Future<void> _startWork() async {
           if (mounted) { setState(() { _isSessionLoading = false; }); }
       }
   }
+
+// --- دالة تسجيل الاستراحة ---
+  Future<void> _toggleBreak(String action) async {
+    if (_isSessionLoading) return;
+    setState(() { _isSessionLoading = true; _errorMessage = null; });
+
+    final url = Uri.parse('http://10.0.2.2:5000/driver/${widget.driverId}/sessions/break');
+    try {
+      final headers = await getAuthenticatedHeaders();
+      // إرسال الطلب (start أو end)
+      final response = await http.put(url, headers: headers, body: jsonEncode({'action': action})).timeout(const Duration(seconds: 15));
+
+      if (!mounted) return;
+      if (response.statusCode == 401) {
+        await handleUnauthorized(context);
+        return;
+      }
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(action == 'start' ? 'تم بدء الاستراحة' : 'تم إنهاء الاستراحة (العودة للعمل)'), backgroundColor: Colors.blue));
+        }
+        await _fetchDashboardData(); // تحديث الشاشة لتغيير الأزرار
+      } else {
+        String errorMsg = 'فشل تسجيل الاستراحة';
+        try { final errorData = jsonDecode(response.body); if (errorData['message'] != null) errorMsg = errorData['message']; } catch (_) {}
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $errorMsg'), backgroundColor: Colors.red));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('حدث خطأ في الاتصال'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() { _isSessionLoading = false; });
+    }
+  }
+  // --- نهاية دالة الاستراحة ---
 
 // --- +++ دالة مساعدة جديدة لجلب الموقع الحالي +++ ---
   Future<Position?> _getDeviceLocation() async {
@@ -556,6 +612,24 @@ return RefreshIndicator(
           )
         )
       ),
+      // +++ زر الاستراحة (يظهر فقط إذا الجلسة نشطة) +++
+      if (_isActiveSession) ...[
+        const SizedBox(height: 10),
+        Center(
+          child: ElevatedButton.icon(
+            onPressed: _isSessionLoading ? null : () => _toggleBreak(_isOnBreak ? 'end' : 'start'),
+            icon: Icon(_isOnBreak ? Icons.free_breakfast_outlined : Icons.free_breakfast),
+            label: Text(_isOnBreak ? 'إنهاء الاستراحة (العودة للعمل)' : 'بدء الاستراحة'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _isOnBreak ? Colors.orange[700] : Colors.blue[600],
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+              textStyle: const TextStyle(fontSize: 16)
+            ),
+          ),
+        ),
+      ],
+      // ++++++++++++++++++++++++++++++++++++++++
+
       const Divider(height: 30, thickness: 1),
       Text('ملخص الجولة:', style: Theme.of(context).textTheme.titleLarge),
       const SizedBox(height: 12),

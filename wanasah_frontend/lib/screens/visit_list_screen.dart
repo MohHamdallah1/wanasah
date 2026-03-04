@@ -5,6 +5,8 @@ import 'dart:developer' as developer;
 import 'visit_screen.dart'; // نحتاج هذا للانتقال
 import '../services/auth_utils.dart';
 import 'package:wanasah_frontend/screens/add_shop_screen.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 // تم حذف import 'package:flutter/services.dart'; لأنه غير مستخدم هنا <<<---
 
 class VisitListScreen extends StatefulWidget {
@@ -197,21 +199,38 @@ class _VisitListScreenState extends State<VisitListScreen> {
       ),
       // +++ إضافة الزر العائم هنا +++
       floatingActionButton: FloatingActionButton(
-        onPressed: () async { // <-- لاحظ إضافة كلمة async هنا
-  // الكود الذي ينتقل لشاشة إضافة المحل
-  // تأكد من استيراد AddShopScreen في الأعلى
-  final result = await Navigator.push<bool>( // نستخدم await ونحدد النوع <bool>
-    context,
-    MaterialPageRoute(builder: (context) => const AddShopScreen()),
-  );
+        onPressed: () async { 
+          // +++ التحقق من الضوء الأخضر قبل فتح صفحة الإضافة +++
+          const storage = FlutterSecureStorage();
+          String? authStr = await storage.read(key: 'is_authorized');
+          
+          // الحماية السحرية الأولى: التأكد أن الشاشة ما زالت موجودة بعد القراءة
+          if (!context.mounted) return; 
 
-  // التحقق من النتيجة بعد العودة من AddShopScreen
-  // تأكد من أن الويدجت لا يزال موجوداً قبل استدعاء fetchVisits
-  if (mounted && result == true) {
-     developer.log('AddShopScreen closed with success, refreshing visits...'); // يمكنك إضافة هذا للتحقق
-    _fetchVisits(); // استدعاء الدالة التي تجلب الزيارات
-  }
-},
+          if (authStr != 'true') {
+             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+               content: Text('غير مصرح لك بإضافة محلات حالياً. بانتظار تفعيل خط السير من الإدارة.'),
+               backgroundColor: Colors.orange,
+             ));
+             return; // إيقاف العملية فوراً ومنع فتح الشاشة
+          }
+          // ++++++++++++++++++++++++++++++++++++++++++++++
+
+          // --- الكود الأصلي لفتح شاشة إضافة المحل ---
+          final result = await Navigator.push<bool>( 
+            context,
+            MaterialPageRoute(builder: (context) => const AddShopScreen()),
+          );
+          
+          // الحماية السحرية الثانية: التأكد أن الشاشة موجودة بعد العودة من الإضافة
+          if (!context.mounted) return; 
+          
+          if (result == true) {
+             developer.log('AddShopScreen closed with success, refreshing visits...');
+            _fetchVisits(); 
+          }
+        },
+
         tooltip: 'إضافة محل جديد', // يظهر عند الضغط المطول
         child: const Icon(Icons.add), // أيقونة علامة زائد
         // يمكنك تغيير لونه أو شكله باستخدام backgroundColor أو shape

@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+
+@layer base {
+  :root {
+    --background: 222 47% 97%;
+    --foreground: 215 25% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 15%;
+
+    --primary: 48 100% 50%;
+    --primary-foreground: 215 25% 15%;
+
+    --secondary: 215 15% 92%;
+    --secondary-foreground: 215 25% 15%;
+
+    --muted: 220 20% 96%;
+    --muted-foreground: 215 12% 55%;
+
+    --accent: 48 100% 50%;
+    --accent-foreground: 215 25% 15%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 20% 93%;
+    --input: 220 20% 93%;
+    --ring: 48 100% 50%;
+
+    --radius: 2rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 215 25% 15%;
+    --sidebar-primary: 48 100% 50%;
+    --sidebar-primary-foreground: 215 25% 15%;
+    --sidebar-accent: 48 100% 94%;
+    --sidebar-accent-foreground: 215 25% 15%;
+    --sidebar-border: 220 20% 93%;
+    --sidebar-ring: 48 100% 50%;
+
+    --shadow-card: 0 8px 30px rgb(0 0 0 / 0.04);
+    --shadow-card-hover: 0 12px 40px rgb(0 0 0 / 0.07);
+
+    --nav-dark: 220 20% 12%;
+    --nav-dark-foreground: 0 0% 100%;
+
+    --success: 152 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 36 95% 55%;
+    --warning-foreground: 215 25% 15%;
+
+    --info: 210 80% 55%;
+    --info-foreground: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'DM Sans', sans-serif;
+  }
+}
