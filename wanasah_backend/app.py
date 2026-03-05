@@ -5,6 +5,7 @@ from config import Config
 from models import db
 from routes import api
 
+
 def create_app():
     # إنشاء تطبيق فلاسك
     app = Flask(__name__)
@@ -14,6 +15,8 @@ def create_app():
 
     # ربط قاعدة البيانات بالتطبيق
     db.init_app(app)
+    from flask_migrate import Migrate
+    migrate = Migrate(app, db)
     
     # تهيئة نظام التحديثات (Migrations)
     Migrate(app, db, render_as_batch=True)

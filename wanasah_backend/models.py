@@ -86,6 +86,7 @@ class ProductVariant(db.Model):
     price_per_carton = db.Column(db.Float, nullable=False)
     price_per_pack = db.Column(db.Float, nullable=True) # سعر الحبة للفرط
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    default_max_samples_per_day = db.Column(db.Integer, nullable=False, default=0) # سقف العينات اليومي المسموح للمندوب
 
 # ================= العروض والمحلات =================
 class OfferRule(db.Model):
@@ -175,6 +176,10 @@ class VisitItem(db.Model):
 
     product_variant = db.relationship('ProductVariant')
 
+    # العينات المجانية (تخصم من السيارة ولا تحسب بالفاتورة)
+    sample_cartons = db.Column(db.Integer, nullable=False, default=0)
+    sample_packs = db.Column(db.Integer, nullable=False, default=0)
+
 
 
 # ================= الزيارات =================
@@ -202,7 +207,27 @@ class Visit(db.Model):
     status = db.Column(db.String(50), nullable=False, default='Pending')
     notes = db.Column(db.Text, nullable=True)
     tax_qr_code = db.Column(db.String(500), nullable=True)
+    is_emergency = db.Column(db.Boolean, nullable=False, default=False) # لفرز الطلبات الطارئة بشاشة منفصلة
     
     work_session = db.relationship('WorkSession', backref=db.backref('visits', lazy='dynamic'))
     driver = db.relationship('Driver', backref=db.backref('visits', lazy='dynamic'))
     items = db.relationship('VisitItem', backref='visit', lazy='dynamic', cascade="all, delete-orphan")
+
+
+    # ================= المرتجعات والتوالف =================
+class VisitReturn(db.Model):
+    __tablename__ = 'visit_returns'
+    id = db.Column(db.Integer, primary_key=True)
+    visit_id = db.Column(db.Integer, db.ForeignKey('visits.id'), nullable=False, index=True)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)
+    
+    # الكميات المستلمة كتالف
+    quantity_cartons = db.Column(db.Integer, nullable=False, default=0)
+    quantity_packs = db.Column(db.Integer, nullable=False, default=0)
+    
+    # تصنيف التالف (مثال: 'Factory_Defect' للمصنع، 'Expired' للشركة)
+    return_type = db.Column(db.String(50), nullable=False) 
+    reason = db.Column(db.Text, nullable=True) # ملاحظات إضافية
+    
+    product_variant = db.relationship('ProductVariant')
+    visit = db.relationship('Visit', backref=db.backref('returns', lazy='dynamic', cascade="all, delete-orphan"))

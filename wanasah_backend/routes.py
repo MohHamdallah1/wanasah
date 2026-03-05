@@ -189,16 +189,15 @@ def update_visit(visit_id):
         visit.latitude = data.get('latitude', visit.latitude)
         visit.longitude = data.get('longitude', visit.longitude)
         visit.shop_balance_before = original_shop_balance
-        
+        visit.is_emergency = data.get('is_emergency', False) # +++ تسجيل الطوارئ +++
+
         if active_session:
             visit.work_session_id = active_session.id
 
         if outcome == 'Sale':
             cart_items = data.get('cart_items', [])
+            returns_data = data.get('returns', []) # +++ استقبال التوالف +++
             cash_collected = float(data.get('cash_collected', 0.0))
-            
-            if not cart_items:
-                return jsonify({"message": "السلة فارغة، لا يوجد منتجات للبيع"}), 400
 
             total_final_amount = 0.0
             total_base_amount = 0.0
@@ -206,28 +205,30 @@ def update_visit(visit_id):
             total_tax = 0.0
             total_quantity_cartons = 0
 
-            from models import VisitItem # استيراد الجدول الجديد
+            from models import VisitItem, VisitReturn # استيراد الجداول الجديدة
 
+            # 1. معالجة المبيعات والعينات
             for item in cart_items:
                 variant_id = item.get('product_variant_id')
                 quantity_cartons = int(item.get('quantity', 0))
                 quantity_packs = int(item.get('packs', 0))
+                sample_cartons = int(item.get('sample_cartons', 0)) # +++ العينات +++
+                sample_packs = int(item.get('sample_packs', 0))     # +++ العينات +++
                 
-                if (quantity_cartons <= 0 and quantity_packs <= 0) or not variant_id:
+                if (quantity_cartons <= 0 and quantity_packs <= 0 and sample_cartons <= 0 and sample_packs <= 0) or not variant_id:
                     continue
                     
                 variant = db.get_or_404(ProductVariant, variant_id)
                 invoice = calculate_invoice(quantity_cartons, variant.price_per_carton)
                 
-                # تعديل المخزون لكل منتج في السلة
+                # خصم (المبيعات + البونص + العينات) من جرد السيارة
                 if active_session:
-                    net_cartons = -(quantity_cartons + invoice['bonus_cartons'])
-                    net_packs = -(invoice['bonus_packs'])
+                    net_cartons = -(quantity_cartons + invoice['bonus_cartons'] + sample_cartons)
+                    net_packs = -(quantity_packs + invoice['bonus_packs'] + sample_packs)
                     inv_success, inv_msg = adjust_inventory(active_session.id, variant_id, net_cartons, net_packs)
                     if not inv_success:
-                        return jsonify({"message": f"خطأ في المخزون للمنتج {variant.variant_name}: {inv_msg}"}), 409
+                        return jsonify({"message": f"مخزونك لا يكفي من {variant.variant_name}. {inv_msg}"}), 409
 
-                # إنشاء تفاصيل الفاتورة (VisitItem)
                 new_visit_item = VisitItem(
                     visit_id=visit.id,
                     product_variant_id=variant_id,
@@ -235,6 +236,8 @@ def update_visit(visit_id):
                     quantity_packs=quantity_packs,
                     bonus_cartons=invoice['bonus_cartons'],
                     bonus_packs=invoice['bonus_packs'],
+                    sample_cartons=sample_cartons, # +++ حفظ العينات +++
+                    sample_packs=sample_packs,     # +++ حفظ العينات +++
                     price_per_carton_at_sale=variant.price_per_carton,
                     price_per_pack_at_sale=variant.price_per_pack,
                     total_price=invoice['final_amount']
@@ -247,7 +250,34 @@ def update_visit(visit_id):
                 total_tax += invoice['tax_amount']
                 total_quantity_cartons += quantity_cartons
 
-            # فحص سقف الذمم للإجمالي
+            # 2. معالجة التوالف (تبديل التالف بجديد)
+            for ret in returns_data:
+                ret_variant_id = ret.get('product_variant_id')
+                ret_cartons = int(ret.get('cartons', 0))
+                ret_packs = int(ret.get('packs', 0))
+                ret_type = ret.get('return_type')
+                ret_reason = ret.get('reason', '')
+
+                if (ret_cartons <= 0 and ret_packs <= 0) or not ret_variant_id:
+                    continue
+                
+                # خصم (البضاعة السليمة اللي عطيناها للمحل بدل التالف) من جرد السيارة
+                if active_session:
+                    inv_success, inv_msg = adjust_inventory(active_session.id, ret_variant_id, -ret_cartons, -ret_packs)
+                    if not inv_success:
+                        return jsonify({"message": f"مخزونك لا يكفي لتبديل التوالف. {inv_msg}"}), 409
+                
+                new_return = VisitReturn(
+                    visit_id=visit.id,
+                    product_variant_id=ret_variant_id,
+                    quantity_cartons=ret_cartons,
+                    quantity_packs=ret_packs,
+                    return_type=ret_type,
+                    reason=ret_reason
+                )
+                db.session.add(new_return)
+
+            # فحص سقف الذمم
             new_debt = total_final_amount - cash_collected
             if new_debt > 0:
                 is_allowed, msg = check_debt_limits(visit.driver_id, shop.id, new_debt)
@@ -257,6 +287,7 @@ def update_visit(visit_id):
             # تحديث معلومات الزيارة الرئيسية
             visit.outcome = 'Sale'
             visit.status = 'Completed'
+            visit.quantity_sold = total_quantity_cartons
             visit.amount_before_tax_and_discount = total_base_amount
             visit.discount_applied = total_discount
             visit.tax_amount = total_tax
@@ -267,6 +298,7 @@ def update_visit(visit_id):
             new_balance = original_shop_balance + new_debt - debt_paid_input
             shop.current_balance = new_balance
             visit.shop_balance_after = new_balance
+
 
         elif outcome == 'NoSale':
             visit.outcome = 'NoSale'
@@ -433,7 +465,8 @@ def get_products():
         "variant_name": v.variant_name, 
         "price_per_carton": v.price_per_carton,
         "packs_per_carton": v.packs_per_carton,
-        "price_per_pack": v.price_per_pack
+        "price_per_pack": v.price_per_pack,
+        "max_samples": v.default_max_samples_per_day # +++ إرسال سقف العينات للتطبيق +++
     } for v in variants]), 200
 
 @api.route('/driver/<int:driver_id>/visits', methods=['GET'])
@@ -441,9 +474,14 @@ def get_products():
 def get_visits(driver_id):
     visits = Visit.query.filter_by(driver_id=driver_id).order_by(Visit.sequence.asc().nulls_last()).all()
     return jsonify([{
-        "visit_id": v.id, "shop_id": v.shop_id, "shop_name": v.shop.name,
-        "shop_location_link": v.shop.location_link, "shop_balance": v.shop.current_balance,
-        "visit_status": v.status, "visit_sequence": v.sequence
+        "visit_id": v.id, 
+        "shop_id": v.shop_id, 
+        "shop_name": v.shop.name,
+        "shop_location_link": v.shop.location_link, 
+        "shop_balance": v.shop.current_balance,
+        "visit_status": v.status, 
+        "visit_sequence": v.sequence,
+        "is_emergency": getattr(v, 'is_emergency', False) # +++ إرسال حالة الطوارئ للتطبيق +++
     } for v in visits]), 200
 
 # =========================================

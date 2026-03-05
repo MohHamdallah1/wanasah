@@ -159,13 +159,29 @@ class _VisitListScreenState extends State<VisitListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('قائمة المحلات'), // <-- النص المطلوب فقط
-        centerTitle: true,
-        actions: [ IconButton(onPressed: _fetchVisits, icon: const Icon(Icons.refresh), tooltip: 'تحديث القائمة') ],
-      ),
-      body: Column(
+    // +++ تغليف الشاشة بمتحكم التبويبات +++
+    return DefaultTabController(
+      length: 2, 
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('قائمة المحلات'),
+          centerTitle: true,
+          actions: [ IconButton(onPressed: _fetchVisits, icon: const Icon(Icons.refresh), tooltip: 'تحديث القائمة') ],
+          // +++ شريط التبويبات الحديث +++
+          bottom: const TabBar(
+            labelColor: Color.fromARGB(255, 17, 5, 5),
+            unselectedLabelColor: Color.fromARGB(179, 14, 7, 7),
+            indicatorColor: Color.fromARGB(255, 73, 16, 16),
+            indicatorWeight: 4,
+            labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            tabs: [
+              Tab(icon: Icon(Icons.route), text: 'جولة اليوم 📍'),
+              Tab(icon: Icon(Icons.warning_amber_rounded), text: 'طلبات عاجلة 🚨'),
+            ],
+          ),
+          // ++++++++++++++++++++++++++++++
+        ),
+        body: Column(
         children: [
           // --- أزرار الفلترة مع الأعداد ---
           Padding(
@@ -231,13 +247,11 @@ class _VisitListScreenState extends State<VisitListScreen> {
           }
         },
 
-        tooltip: 'إضافة محل جديد', // يظهر عند الضغط المطول
-        child: const Icon(Icons.add), // أيقونة علامة زائد
-        // يمكنك تغيير لونه أو شكله باستخدام backgroundColor أو shape
-        // backgroundColor: Theme.of(context).primaryColor,
+        tooltip: 'إضافة محل جديد', 
+        child: const Icon(Icons.add), 
       ),
-      // ++++++++++++++++++++++++++++++
-    );
+    ), // +++ إغلاق Scaffold +++
+    ); // +++ إغلاق DefaultTabController +++
   }
 
 
@@ -255,113 +269,174 @@ class _VisitListScreenState extends State<VisitListScreen> {
          ),
        );
     }
-    // ثم عرض مؤشر التحميل إذا كانت البيانات لا تزال تُجلب لأول مرة
+    // ثم عرض مؤشر التحميل
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    // ثم عرض رسالة القائمة الفارغة (بناءً على الفلتر المختار)
-    if (_filteredVisits.isEmpty) {
-      String emptyMessage = 'لا توجد زيارات لعرضها بهذا الفلتر.';
-       if (_selectedStatusFilter == 'Pending') {
-  emptyMessage = 'لا توجد زيارات متبقية.';
-       }
-       else if (_selectedStatusFilter == 'Completed') {
-  emptyMessage = 'لم تقم بإكمال أي زيارات بعد.';
-}
-       else if (_selectedStatusFilter == null && _allVisits.isEmpty) {
-  emptyMessage = 'لا توجد زيارات مجدولة لك حالياً.';
-}
-        return RefreshIndicator(onRefresh: _fetchVisits, child: ListView(children: [Padding(padding: const EdgeInsets.only(top: 50.0), child: Center(child: Text(emptyMessage)))]));
+
+    // +++ فصل الزيارات بعد فلترتها (حفاظاً على منطقك الأصلي) +++
+    final List<dynamic> normalVisits = _filteredVisits.where((v) => v['is_emergency'] != true).toList();
+    final List<dynamic> emergencyVisits = _filteredVisits.where((v) => v['is_emergency'] == true).toList();
+
+    // +++ عرض التبويبات +++
+    return TabBarView(
+      children: [
+        _buildListView(normalVisits, isEmergencyTab: false),
+        _buildListView(emergencyVisits, isEmergencyTab: true),
+      ],
+    );
+  }
+
+  // --- دالة مساعدة لبناء القائمة بتصميم "البطاقات" الحديث ---
+  Widget _buildListView(List<dynamic> visitsList, {required bool isEmergencyTab}) {
+    if (visitsList.isEmpty) {
+      String emptyMessage = isEmergencyTab ? 'لا يوجد طلبات طارئة حالياً 🚨' : 'لا توجد زيارات مجدولة لك حالياً 📍';
+      if (_selectedStatusFilter == 'Pending') {
+        emptyMessage = isEmergencyTab ? 'لا يوجد طلبات طارئة متبقية.' : 'لا توجد زيارات متبقية.';
+      } else if (_selectedStatusFilter == 'Completed') {
+        emptyMessage = isEmergencyTab ? 'لم تقم بإكمال أي طلب طارئ بعد.' : 'لم تقم بإكمال أي زيارة بعد.';
+      }
+      return RefreshIndicator(
+        onRefresh: _fetchVisits, 
+        child: ListView(children: [Padding(padding: const EdgeInsets.only(top: 50.0), child: Center(child: Text(emptyMessage, style: const TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.bold))))])
+      );
     }
-    // أخيراً، عرض القائمة المفلتَرة
+
     return RefreshIndicator(
-        onRefresh: _fetchVisits, // السحب للأسفل يجلب كل البيانات من جديد
-        child: ListView.builder(
-          key: PageStorageKey<String>('visitListScroll'),
-          itemCount: _filteredVisits.length,
-          itemBuilder: (context, index) {
-          final visit = _filteredVisits[index] as Map<String, dynamic>;
+      onRefresh: _fetchVisits,
+      child: ListView.builder(
+        key: PageStorageKey<String>('visitListScroll_${isEmergencyTab ? "emg" : "norm"}'),
+        padding: const EdgeInsets.all(12.0),
+        itemCount: visitsList.length,
+        itemBuilder: (context, index) {
+          final visit = visitsList[index] as Map<String, dynamic>;
+          
           final shopName = visit['shop_name'] ?? 'اسم المحل غير متوفر';
           final visitStatus = visit['visit_status'] ?? 'غير محدد';
-          // كود تحويل الحالة للعربية
-    String statusInArabic;
-    if (visitStatus == 'Completed') {
-      statusInArabic = 'مكتملة';
-    } else if (visitStatus == 'Pending') {
-      statusInArabic = 'قيد الانتظار';
-      // يمكنك إضافة حالات أخرى هنا مثل 'Attempted' -> 'تمت المحاولة'
-    } else {
-      statusInArabic = visitStatus; // عرض القيمة كما هي للحالات غير المتوقعة
-    }
+          
+          String statusInArabic;
+          if (visitStatus == 'Completed') {
+            statusInArabic = 'مكتملة';
+          } else if (visitStatus == 'Pending') {
+            statusInArabic = 'قيد الانتظار';
+          } else {
+            statusInArabic = visitStatus; 
+          }
+          
           final shopBalance = (visit['shop_balance'] ?? 0.0).toDouble();
           final bool hasNotes = visit['visit_notes'] != null && visit['visit_notes'].toString().isNotEmpty;
-
-          // <<<--- الخطوة 3: استخراج رقم التسلسل المستلم من الـ API --->>>
-          final int? sequence = visit['visit_sequence']; // قد يكون null
-          // تحويل الرقم إلى نص للعرض، أو عرض "-" إذا كان null
+          final int? sequence = visit['visit_sequence'];
           final String sequenceDisplay = sequence?.toString() ?? '-';
 
-          // ... (كود تحديد الأيقونة واللون يبقى كما هو) ...
-          IconData leadingIcon = Icons.storefront; // القيمة الافتراضية (Pending بدون ملاحظات)
-          Color iconColor = Colors.blueGrey;    // القيمة الافتراضية
-          // ... (if/else if/else لتحديد الأيقونة واللون) ...
-          // الأسطر التالية لتحديد إذا كانت مكتملة أو محاولة
-      bool isCompleted = visitStatus == 'Completed';
-      bool isAttempted = visitStatus == 'Pending' && hasNotes; // نفترض hasNotes معرفة قبلها
+          bool isCompleted = visitStatus == 'Completed';
+          bool isAttempted = visitStatus == 'Pending' && hasNotes;
 
-      // تغيير القيم فقط للحالات الخاصة
-      if (isCompleted) {
-        leadingIcon = Icons.check_circle;
-        iconColor = Colors.green;
-      } else if (isAttempted) {
-        leadingIcon = Icons.history;
-        iconColor = Colors.orange;
-      }
-      // لا نحتاج else هنا
+          // --- تصميم الألوان والأيقونات الذكي ---
+          IconData leadingIcon = isEmergencyTab ? Icons.warning_amber_rounded : Icons.storefront;
+          Color iconColor = Colors.blueGrey;
+          Color cardBorderColor = Colors.grey.shade300;
+          Color cardBgColor = isEmergencyTab ? Colors.red.shade50.withValues(alpha: 0.3) : Colors.white;
 
+          if (isCompleted) {
+            leadingIcon = Icons.check_circle;
+            iconColor = Colors.green;
+            cardBorderColor = Colors.green.shade300;
+            cardBgColor = Colors.green.shade50.withValues(alpha: 0.4);
+          } else if (isAttempted) {
+            leadingIcon = Icons.history;
+            iconColor = Colors.orange;
+            cardBorderColor = Colors.orange.shade300;
+          } else if (isEmergencyTab) {
+            iconColor = Colors.red.shade600;
+            cardBorderColor = Colors.red.shade300;
+            cardBgColor = Colors.red.shade50;
+          }
 
-          return ListTile(
-            leading: Icon(leadingIcon, color: iconColor),
-
-            // <<<--- الخطوة 4: تم تعديل title هنا لعرض الرقم التسلسلي المستلم --->>>
-            title: Text('$sequenceDisplay. $shopName'), // عرض الرقم ثم نقطة ثم مسافة ثم الاسم
-
-            subtitle: Text('الحالة: $statusInArabic - الذمة: $shopBalance'), // <-- استخدم statusInArabic هنا
-            onTap: () async {
+          // --- البطاقة الحديثة (Modern Card) ---
+          return Card(
+            elevation: isCompleted ? 0 : 2,
+            margin: const EdgeInsets.only(bottom: 12.0),
+            color: cardBgColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: cardBorderColor, width: 1.2),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () async {
+                 // --- تم الاحتفاظ بالكود الأصلي للانتقال 100% لضمان عدم حدوث أي خلل ---
                  final int visitId = visit['visit_id'] ?? 0;
                  final String currentStatus = visitStatus;
-                 final double currentBalance = shopBalance; // تمرير الرصيد الحالي
+                 final double currentBalance = shopBalance; 
 
                  developer.log('Navigating to VisitScreen for visit ID: $visitId');
 
-                 // الانتقال وانتظار النتيجة
                  final result = await Navigator.push(
                    context,
                    MaterialPageRoute(
                      builder: (context) => VisitScreen(
                        visitId: visitId,
                        shopName: shopName,
-                       shopBalance: currentBalance, // استخدام الرصيد الحالي
+                       shopBalance: currentBalance, 
                        visitStatus: currentStatus,
                      ),
                    ),
                  );
 
-                 // ---<<< التحقق من النتيجة وإعادة تحميل الكل لضمان الدقة >>>---
-                 // هذا أبسط ويضمن تحديث الحالة والأعداد بشكل صحيح دائماً
-                 // لكنه قد يعيد المستخدم لأعلى القائمة
                  if (result == true && mounted) {
                     developer.log('Returned from VisitScreen with success, performing full refresh...');
-                    _fetchVisits(); // <<<--- استدعاء fetchVisits لتحديث كل شيء
+                    _fetchVisits(); 
                  }
-                 // ---<<< نهاية التحقق وإعادة التحميل >>>---
-
-              }, // نهاية onTap
-            ); // نهاية ListTile
-          },
-        ),
-      );
-    }
+                 // -------------------------------------------------------------------
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    // الأيقونة داخل دائرة ملونة
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isCompleted ? Colors.green.shade100 : (isEmergencyTab ? Colors.red.shade100 : Colors.blue.shade50),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(leadingIcon, color: iconColor, size: 26),
+                    ),
+                    const SizedBox(width: 14),
+                    
+                    // التفاصيل النصية
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('$sequenceDisplay. $shopName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isCompleted ? Colors.green : (isAttempted ? Colors.orange : Colors.blueGrey), 
+                                  borderRadius: BorderRadius.circular(8)
+                                ),
+                                child: Text(statusInArabic, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 10),
+                              Text('الذمة: ${shopBalance.toStringAsFixed(2)} د.أ', style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w600)),
+                            ],
+                          )
+                        ],
+                      ),
+                    ),
+                    
+                    Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
-
- // نهاية كلاس _HomeScreenState
+  }

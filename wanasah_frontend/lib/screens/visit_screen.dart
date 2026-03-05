@@ -45,6 +45,8 @@ class _VisitScreenState extends State<VisitScreen> {
   // +++ العقل الجديد: خريطة سلة المشتريات (تدعم كراتين وحبات) +++
   // المفتاح: Product Variant ID | القيمة: خريطة تحتوي 'cartons' و 'packs'
   final Map<int, Map<String, int>> _cartQuantities = {}; 
+  // قائمة لتخزين المرتجعات (يمكن إضافة أكثر من نوع تلف لنفس المنتج)
+  final List<Map<String, dynamic>> _returnsList = [];
   
   // متغيرات الحسابات المباشرة
   double _totalExpectedValue = 0.0;
@@ -133,8 +135,10 @@ class _VisitScreenState extends State<VisitScreen> {
         // +++ قراءة الصلاحية من الخزنة الآمنة +++
         const storage = FlutterSecureStorage();
         String? authStr = await storage.read(key: 'is_authorized');
-        _isAuthorizedToSell = (authStr == 'true');
-        // ++++++++++++++++++++++++++++++++++++++
+        setState(() {
+          // هذا السطر بيقفل الدنيا (False) إذا كانت الخزنة فارغة أو فيها أي إشي غير الكلمة 'true'
+          _isAuthorizedToSell = (authStr == 'true'); 
+        });
 
         // أولاً: جلب قائمة المنتجات
         await _fetchProductVariants();
@@ -360,7 +364,7 @@ class _VisitScreenState extends State<VisitScreen> {
            AnimatedSwitcher( duration: const Duration(milliseconds: 300), child: _buildConditionalFields(),),
            if (_selectedOutcome != null && _isAuthorizedToSell) const SizedBox(height: 30),
            if (_selectedOutcome != null && _isAuthorizedToSell) ElevatedButton(
-              onPressed: _isSubmitting ? null : _validateAndSubmit,
+             onPressed: _isSubmitting ? null : _validateAndSubmit,
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15)),
               child: _isSubmitting
                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
@@ -501,13 +505,13 @@ class _VisitScreenState extends State<VisitScreen> {
             border: Border.all(color: isSelected ? Colors.blue.shade300 : Colors.grey.shade300, width: isSelected ? 1.5 : 1),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
-              if (isSelected) BoxShadow(color: Colors.blue.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 4))
+              if (isSelected) BoxShadow(color: Colors.blue..withValues(alpha: 0.5), blurRadius: 8, offset: const Offset(0, 4))
             ]
           ),
           padding: const EdgeInsets.all(12.0),
           child: Column(
             children: [
-              // 1. اسم المنتج والأسعار
+              // 1. اسم المنتج والأسعار مع زر التوالف والعينات
               Row(
                 children: [
                   Container(
@@ -526,6 +530,13 @@ class _VisitScreenState extends State<VisitScreen> {
                       ],
                     ),
                   ),
+                  // +++ زر التوالف والعينات +++
+                  TextButton.icon(
+                    onPressed: () => _showExtraOptionsSheet(id, name, variant['max_samples'] as int? ?? 0),
+                    icon: const Icon(Icons.more_vert, size: 18),
+                    label: const Text('توالف/عينات', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(foregroundColor: Colors.orange.shade700, padding: const EdgeInsets.symmetric(horizontal: 8)),
+                  )
                 ],
               ),
               const Padding(padding: EdgeInsets.symmetric(vertical: 8.0), child: Divider(height: 1)),
@@ -782,19 +793,23 @@ class _VisitScreenState extends State<VisitScreen> {
   Future<void> _performSubmit(double cashCollected, double debtPaid, String? notes) async {
     setState(() { _isSubmitting = true; });
 
-    // بناء سلة المشتريات (تتضمن كراتين وحبات)
+    // بناء سلة المشتريات (تتضمن كراتين، حبات، وعينات)
     List<Map<String, dynamic>> cartItems = [];
     int totalCartons = 0;
     
     _cartQuantities.forEach((id, qtyMap) {
-      int cartons = qtyMap['cartons']!;
-      int packs = qtyMap['packs']!;
+      int cartons = qtyMap['cartons'] ?? 0;
+      int packs = qtyMap['packs'] ?? 0;
+      int sampleCartons = qtyMap['sample_cartons'] ?? 0;
+      int samplePacks = qtyMap['sample_packs'] ?? 0;
       
-      if (cartons > 0 || packs > 0) {
+      if (cartons > 0 || packs > 0 || sampleCartons > 0 || samplePacks > 0) {
         cartItems.add({
           'product_variant_id': id, 
-          'quantity': cartons, // للكراتين (كما يتوقع السيرفر حالياً)
-          'packs': packs       // للحبات (سيقرأها السيرفر بعد التعديل القادم)
+          'quantity': cartons, 
+          'packs': packs,
+          'sample_cartons': sampleCartons, // +++ إرسال العينات +++
+          'sample_packs': samplePacks      // +++ إرسال العينات +++
         });
         totalCartons += cartons;
       }
@@ -809,6 +824,7 @@ class _VisitScreenState extends State<VisitScreen> {
 
     if (_selectedOutcome == 'Sale') {
       payload['cart_items'] = cartItems; 
+      payload['returns'] = _returnsList; // +++ إرسال التوالف +++
       payload['total_quantity_sold'] = totalCartons; // كمعلومة إضافية للباك إند
     } else if (_selectedOutcome == 'NoSale') {
       payload['no_sale_reason'] = notes;
@@ -879,7 +895,7 @@ class _VisitScreenState extends State<VisitScreen> {
     try {
       if (lat != null && lng != null) {
         developer.log('Coordinates found, attempting to use map_launcher');
-        // لا حاجة لجلب الخريطة المثبتة هنا، showMarker يتعامل معها
+        // لا حاجة لجلب الخرائط المثبتة هنا، showMarker يتعامل معها
         // final availableMaps = await MapLauncher.installedMaps;
 
         // استخدام showMarker مباشرةً لعرض دبوس الموقع والسماح للمستخدم باختيار التطبيق
@@ -917,5 +933,131 @@ class _VisitScreenState extends State<VisitScreen> {
     }
   }
   // --- نهاية دالة فتح الخريطة ---
+
+// --- نافذة التوالف والعينات (Bottom Sheet) ---
+  void _showExtraOptionsSheet(int variantId, String productName, int maxSamples) {
+    int sampleCartons = _cartQuantities[variantId]?['sample_cartons'] ?? 0;
+    int samplePacks = _cartQuantities[variantId]?['sample_packs'] ?? 0;
+    
+    int returnCartons = 0;
+    int returnPacks = 0;
+    String returnType = 'Factory_Defect';
+    final returnReasonController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('خيارات إضافية: $productName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                    const Divider(height: 30),
+                    
+                    // --- قسم العينات ---
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.purple.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.purple.shade200)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('🎁 صرف عينات مجانية:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+                              Text('السقف المسموح: $maxSamples', style: TextStyle(fontSize: 12, color: Colors.purple.shade700)),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _buildCompactCounter('كرتونة', '📦', sampleCartons, () => setModalState(() => sampleCartons--), () => setModalState(() => sampleCartons++), () {}),
+                              _buildCompactCounter('حبة', '🍬', samplePacks, () => setModalState(() => samplePacks--), () => setModalState(() => samplePacks++), () {}),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+
+                    // --- قسم التوالف والمرتجعات ---
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.red.shade200)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('♻️ استلام توالف وتبديلها:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _buildCompactCounter('كرتونة', '📦', returnCartons, () => setModalState(() => returnCartons--), () => setModalState(() => returnCartons++), () {}),
+                              _buildCompactCounter('حبة', '🍬', returnPacks, () => setModalState(() => returnPacks--), () => setModalState(() => returnPacks++), () {}),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<String>(
+                            value: returnType,
+                            decoration: const InputDecoration(labelText: 'سبب التلف', border: OutlineInputBorder(), isDense: true),
+                            items: const [
+                              DropdownMenuItem(value: 'Factory_Defect', child: Text('تالف مصنع (منفس/فاقع)')),
+                              DropdownMenuItem(value: 'Expired', child: Text('تالف شركة (انتهاء صلاحية)')),
+                            ],
+                            onChanged: (val) => setModalState(() => returnType = val!),
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(controller: returnReasonController, decoration: const InputDecoration(labelText: 'ملاحظات (اختياري)', border: OutlineInputBorder(), isDense: true)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // --- زر الحفظ ---
+                    ElevatedButton(
+                      onPressed: () {
+                        // 1. حفظ العينات
+                        setState(() {
+                          _cartQuantities[variantId] ??= {'cartons': 0, 'packs': 0};
+                          _cartQuantities[variantId]!['sample_cartons'] = sampleCartons;
+                          _cartQuantities[variantId]!['sample_packs'] = samplePacks;
+                        });
+
+                        // 2. حفظ التوالف
+                        if (returnCartons > 0 || returnPacks > 0) {
+                          setState(() {
+                            _returnsList.add({
+                              'product_variant_id': variantId,
+                              'cartons': returnCartons,
+                              'packs': returnPacks,
+                              'return_type': returnType,
+                              'reason': returnReasonController.text.trim()
+                            });
+                          });
+                        }
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إدراج الإضافات بنجاح'), backgroundColor: Colors.green));
+                      },
+                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                      child: const Text('اعتماد التعديلات'),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ),
+              ),
+            );
+          }
+        );
+      }
+    );
+  }
 
 } // نهاية كلاس _VisitScreenState
