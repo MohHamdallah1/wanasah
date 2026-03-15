@@ -164,9 +164,9 @@ Future<void> _logout() async {
               isAuthorized = sessionData['is_authorized_to_sell'] == true;
               isOnBreak = sessionData['break_start_time'] != null && sessionData['break_end_time'] == null;
           }
-          // +++ التعديل الأهم: نكتب حالة الصلاحية (مقفل/مفتوح) دائماً وبكل الحالات +++
+          // +++ كتب حالة الصلاحية (مقفل/مفتوح) دائماً وبكل الحالات +++
           const storage = FlutterSecureStorage();
-          await storage.write(key: 'is_authorized', value: isAuthorized.toString());
+          storage.write(key: 'is_authorized', value: (isAuthorized && !isOnBreak).toString());
           // +++++++++++++++++++++++++++++++++++++++++++++ 
 
           // استخلاص باقي البيانات
@@ -518,13 +518,8 @@ Widget build(BuildContext context) {
   // --- دالة بناء محتوى الـ Dashboard (تبقى كما هي من آخر تعديل) ---
   // --- تتضمن عرض البيانات المالية والمخزون بالشكل الجديد ---
   Widget _buildDashboardContent() {
-
-// ... (نفس كود _buildDashboardContent الذي يعرض كل البيانات المالية والمخزون) ...
-
 if (_isLoading) { return const Center(child: CircularProgressIndicator()); }
-
 if (_errorMessage != null) { return Center( child: Padding( padding: const EdgeInsets.all(16.0), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [ Text('حدث خطأ: $_errorMessage', style: const TextStyle(color: Colors.red), textAlign: TextAlign.center,), const SizedBox(height: 10), ElevatedButton(onPressed: _fetchDashboardData, child: const Text('إعادة المحاولة')) ]), ), ); }
-
 String startTimeFormatted = ''; if (_isActiveSession && _activeSessionStartTime != null) { try { final startTime = DateTime.parse(_activeSessionStartTime!).toLocal(); startTimeFormatted = DateFormat('hh:mm a', 'ar').format(startTime); } catch (e) { developer.log("Error parsing/formatting session start time for display: $e"); startTimeFormatted = "غير معروف"; } }
 
 return RefreshIndicator(
@@ -565,6 +560,13 @@ return RefreshIndicator(
             : () async { // <-- بداية الكود الجديد: حوّلنا الـ callback إلى async
                 // التحقق من حالة الجلسة لتحديد أي رسالة تأكيد وأي دالة نستدعي
                 if (_isActiveSession) {
+                  // +++ منع إنهاء العمل أثناء الاستراحة +++
+                  if (_isOnBreak) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('يجب إنهاء الاستراحة أولاً قبل إنهاء العمل!'), backgroundColor: Colors.orange)
+                    );
+                    return;
+                  }
                   // --- الحالة: الجلسة نشطة (نريد إنهاء العمل) ---
                   final bool? confirmed = await _showConfirmationDialog(
                     context, // <-- تمرير الـ context

@@ -1,0 +1,199 @@
+2026-03-13 00:34:42,769 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:35:36,581 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:36:19,516 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:36:28,707 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:36:35,974 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:36:39,781 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:37:28,325 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:38:10,702 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:38:36,301 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:39:01,066 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-13 00:39:05,547 - ERROR - حدث خطأ غير متوقع: type object 'DispatchRoute' has no attribute 'zone'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 1020, in get_active_routes
+    joinedload(DispatchRoute.zone),
+               ^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'DispatchRoute' has no attribute 'zone'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-14 08:49:40,288 - ERROR - حدث خطأ غير متوقع: 404 Not Found: The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 891, in dispatch_request
+    self.raise_routing_exception(req)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 500, in raise_routing_exception
+    raise request.routing_exception  # type: ignore[misc]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\ctx.py", line 362, in match_request
+    result = self.url_adapter.match(return_rule=True)  # type: ignore
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\werkzeug\routing\map.py", line 629, in match
+    raise NotFound() from None
+werkzeug.exceptions.NotFound: 404 Not Found: The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-14 08:49:41,209 - ERROR - حدث خطأ غير متوقع: 404 Not Found: The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 891, in dispatch_request
+    self.raise_routing_exception(req)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 500, in raise_routing_exception
+    raise request.routing_exception  # type: ignore[misc]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\ctx.py", line 362, in match_request
+    result = self.url_adapter.match(return_rule=True)  # type: ignore
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\werkzeug\routing\map.py", line 629, in match
+    raise NotFound() from None
+werkzeug.exceptions.NotFound: 404 Not Found: The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50

@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import bcrypt
 
 convention = {
@@ -35,12 +35,23 @@ class Governorate(db.Model):
     country_id = db.Column(db.Integer, db.ForeignKey('countries.id'), nullable=False)
     zones = db.relationship('Zone', backref='governorate', lazy=True)
 
+# ================= التوزيع الجغرافي والمناطق (Zones) =================
+#   يمثل المناطق الجغرافية التي يتم تغطيتها في عمليات التوزيع.
+# يحتوي على إعدادات الجدولة الشاملة (أسبوعي، مخصص، إلخ) 
+# لتنظيم وترتيب مواعيد الزيارات الدورية لأسطول المندوبين.
 class Zone(db.Model):
     __tablename__ = 'zones'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    governorate_id = db.Column(db.Integer, db.ForeignKey('governorates.id'), nullable=False)
+    governorate_id = db.Column(db.Integer, db.ForeignKey('governorates.id'), nullable=True)
     sequence_number = db.Column(db.Integer, nullable=True) # لترتيب خطوط السير
+    
+    # +++ حقول الجدولة الشاملة +++
+    schedule_frequency = db.Column(db.String(50), nullable=True) # أسبوعي، شهري، مخصص
+    visit_day = db.Column(db.String(20), nullable=True) # السبت، الأحد..
+    start_date = db.Column(db.Date, nullable=True)
+    custom_days = db.Column(db.Integer, nullable=True) # عدد الأيام للجدولة المخصصة
+    
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     shops = db.relationship('Shop', backref='zone', lazy=True)
 
@@ -88,14 +99,71 @@ class ProductVariant(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     default_max_samples_per_day = db.Column(db.Integer, nullable=False, default=0) # سقف العينات اليومي المسموح للمندوب
 
+
+# ================= إدارة الأسطول والسيارات =================
+class Vehicle(db.Model):
+    __tablename__ = 'vehicles'
+    id = db.Column(db.Integer, primary_key=True)
+    plate_number = db.Column(db.String(20), unique=True, nullable=False)
+    vehicle_type = db.Column(db.String(50), nullable=True) # نوع الباص وسعته
+    current_mileage = db.Column(db.Integer, nullable=False, default=0)
+    next_oil_change = db.Column(db.Integer, nullable=True)
+    license_expiry_date = db.Column(db.Date, nullable=True)
+    maintenance_status = db.Column(db.String(50), nullable=False, default='Active') # Active, In_Maintenance
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+class VehicleLoad(db.Model):
+    # مسودة الحمولة التي يجهزها أمين المستودع ليلاً
+    __tablename__ = 'vehicle_loads'
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=0) # الوحدة الأساسية فقط
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+# ================= خطوط السير اليومية (التوزيع) =================
+class DispatchRoute(db.Model):
+    __tablename__ = 'dispatch_routes'
+    id = db.Column(db.Integer, primary_key=True)
+    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=False)
+    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=True)
+    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=True)
+    dispatch_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
+    status = db.Column(db.String(50), nullable=False, default='waiting') # waiting, active, postponed, closed
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    
+    zone = db.relationship('Zone')
+    driver = db.relationship('Driver')
+    vehicle = db.relationship('Vehicle')
+
+# ================= الطلبات والنواقص (Shortages) =================
+class ShortageRequest(db.Model):
+    __tablename__ = 'shortage_requests'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=False)
+    shop_id = db.Column(db.Integer, db.ForeignKey('shops.id'), nullable=False)
+    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True) # قد يكون الطلب لمنطقة معلقة بدون مندوب
+    
+    product_name = db.Column(db.String(150), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(50), default='pending') # pending, fulfilled
+    wait_time = db.Column(db.String(50), default='الآن')
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # العلاقات (Relationships)
+    zone = db.relationship('Zone')
+    shop = db.relationship('Shop')
+    driver = db.relationship('Driver')
+    
 # ================= العروض والمحلات =================
 class OfferRule(db.Model):
     __tablename__ = 'offer_rules'
     id = db.Column(db.Integer, primary_key=True)
-    threshold_cartons = db.Column(db.Integer, nullable=False)
+    threshold_quantity = db.Column(db.Integer, nullable=False) # الكمية المطلوبة بالوحدة الأساسية
     offer_type = db.Column(db.String(50), nullable=False)
-    bonus_cartons = db.Column(db.Integer, nullable=False, default=0)
-    bonus_packs = db.Column(db.Integer, nullable=False, default=0)
+    bonus_quantity = db.Column(db.Integer, nullable=False, default=0) # البونص المجاني بالوحدة الأساسية
     discount_value = db.Column(db.Float, nullable=False, default=0.0)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
@@ -116,6 +184,9 @@ class Shop(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     notes = db.Column(db.Text, nullable=True)
     location_link = db.Column(db.String(500), nullable=True)
+    sequence = db.Column(db.Integer, nullable=True, default=0) # رقم الترتيب داخل المنطقة
+    is_archived = db.Column(db.Boolean, nullable=False, default=False) # سلة المحذوفات
+
     visits = db.relationship('Visit', backref='shop', lazy='dynamic')
 
 # ================= الجلسة والجرد المفصل =================
@@ -145,10 +216,8 @@ class SessionInventory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=False)
     product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False)
-    starting_cartons = db.Column(db.Integer, nullable=False, default=0)
-    starting_packs = db.Column(db.Integer, nullable=False, default=0)
-    current_remaining_cartons = db.Column(db.Integer, nullable=False, default=0)
-    current_remaining_packs = db.Column(db.Integer, nullable=False, default=0)
+    starting_quantity = db.Column(db.Integer, nullable=False, default=0)
+    current_remaining_quantity = db.Column(db.Integer, nullable=False, default=0)
     product_variant = db.relationship('ProductVariant')
 
 
@@ -159,26 +228,17 @@ class VisitItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     # إضافة index=True لتسريع البحث عن محتويات زيارة معينة ومنع N+1
     visit_id = db.Column(db.Integer, db.ForeignKey('visits.id'), nullable=False, index=True)
-    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)
-    
-    # الكميات (كراتين وحبات)
-    quantity_cartons = db.Column(db.Integer, nullable=False, default=0)
-    quantity_packs = db.Column(db.Integer, nullable=False, default=0)
-    
-    # البونص (كراتين وحبات)
-    bonus_cartons = db.Column(db.Integer, nullable=False, default=0)
-    bonus_packs = db.Column(db.Integer, nullable=False, default=0)
-    
-    # الأسعار وقت البيع (لضمان عدم تأثر الفواتير القديمة لو تغير السعر مستقبلا)
-    price_per_carton_at_sale = db.Column(db.Float, nullable=True)
-    price_per_pack_at_sale = db.Column(db.Float, nullable=True)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)   
+    # الكمية المباعة بالوحدة الأساسية
+    quantity = db.Column(db.Integer, nullable=False, default=0)  
+    # البونص بالوحدة الأساسية
+    bonus_quantity = db.Column(db.Integer, nullable=False, default=0)
+    # الأسعار وقت البيع للوحدة الأساسية
+    price_per_unit_at_sale = db.Column(db.Float, nullable=True)
     total_price = db.Column(db.Float, nullable=False, default=0.0)
-
     product_variant = db.relationship('ProductVariant')
-
-    # العينات المجانية (تخصم من السيارة ولا تحسب بالفاتورة)
-    sample_cartons = db.Column(db.Integer, nullable=False, default=0)
-    sample_packs = db.Column(db.Integer, nullable=False, default=0)
+    # العينات المجانية بالوحدة الأساسية
+    sample_quantity = db.Column(db.Integer, nullable=False, default=0)
 
 
 
@@ -221,9 +281,8 @@ class VisitReturn(db.Model):
     visit_id = db.Column(db.Integer, db.ForeignKey('visits.id'), nullable=False, index=True)
     product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)
     
-    # الكميات المستلمة كتالف
-    quantity_cartons = db.Column(db.Integer, nullable=False, default=0)
-    quantity_packs = db.Column(db.Integer, nullable=False, default=0)
+    # الكمية المستلمة كتالف بالوحدة الأساسية
+    quantity = db.Column(db.Integer, nullable=False, default=0)
     
     # تصنيف التالف (مثال: 'Factory_Defect' للمصنع، 'Expired' للشركة)
     return_type = db.Column(db.String(50), nullable=False) 
@@ -231,3 +290,21 @@ class VisitReturn(db.Model):
     
     product_variant = db.relationship('ProductVariant')
     visit = db.relationship('Visit', backref=db.backref('returns', lazy='dynamic', cascade="all, delete-orphan"))
+
+
+# ================= سجل التدقيق للعمليات الجماعية (Audit Log) =================
+# الهدف: توثيق كل عمليات استيراد المحلات الجماعية (من ملفات أو لصق).
+# الفائدة: يحمي النظام بتسجيل (الموظف المسؤول، تاريخ الرفع، المنطقة، وعدد السجلات الناجحة أو الفاشلة) لتتبع الأخطاء ومنع التلاعب.
+class ImportLog(db.Model):
+    __tablename__ = 'import_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False)
+    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=False)
+    file_name = db.Column(db.String(255), nullable=True) # اسم ملف الإكسل أو "إدخال يدوي"
+    total_records = db.Column(db.Integer, nullable=False, default=0)
+    success_count = db.Column(db.Integer, nullable=False, default=0)
+    status = db.Column(db.String(50), nullable=False) # 'Success', 'Failed'
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    admin = db.relationship('Driver')
+    zone = db.relationship('Zone')

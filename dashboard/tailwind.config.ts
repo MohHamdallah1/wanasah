@@ -14,7 +14,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['"DM Sans"', 'sans-serif'],
+        sans: ['"Tajawal"', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -87,6 +87,7 @@ export default {
       boxShadow: {
         card: "var(--shadow-card)",
         "card-hover": "var(--shadow-card-hover)",
+        "command": "0 20px 50px -12px rgba(255,191,0,0.5)",
       },
       keyframes: {
         "accordion-down": {

@@ -1,0 +1,12 @@
+الخادم الخلفي
+cd wanasah_backend
+.\venv\Scripts\activate
+python app.py
+الخادم الامامي
+اول اشي بتشغل المحاكي من الشريط تحت عاليمين بعدين التيرمنال
+cd wanasah_frontend
+flutter run
+deactivate
+لوحة التحكم من wsl
+cd dashboard
+npm run dev

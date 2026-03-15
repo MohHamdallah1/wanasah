@@ -1,0 +1,8 @@
+{
+    "java.import.exclusions": [
+        "**/android/**",
+        "**/test_app/**",
+        "C:/flutter/**"
+    ],
+    "java.configuration.updateBuildConfiguration": "disabled"
+}

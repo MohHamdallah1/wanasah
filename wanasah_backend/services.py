@@ -11,27 +11,25 @@ def get_setting(key, default_value, value_type=str):
     except ValueError:
         return default_value
 
-def calculate_invoice(quantity, price_per_carton):
+def calculate_invoice(quantity, price_per_unit):
     """حساب تفاصيل الفاتورة الشاملة (بضاعة، خصومات، ضريبة، بونص مجاني)"""
     if quantity <= 0:
         return None
 
     tax_percentage = get_setting('tax_percentage', 0.0, float)
-    base_amount = quantity * price_per_carton
+    base_amount = quantity * price_per_unit
     discount_value = 0.0
-    bonus_cartons = 0
-    bonus_packs = 0
+    bonus_units = 0
 
     best_offer = OfferRule.query.filter(
         OfferRule.is_active == True,
-        OfferRule.threshold_cartons <= quantity
-    ).order_by(OfferRule.threshold_cartons.desc()).first()
+        OfferRule.threshold_quantity <= quantity
+    ).order_by(OfferRule.threshold_quantity.desc()).first()
 
     if best_offer:
-        num_tiers = quantity // best_offer.threshold_cartons
+        num_tiers = quantity // best_offer.threshold_quantity
         if best_offer.offer_type == 'free_items':
-            bonus_cartons = num_tiers * best_offer.bonus_cartons
-            bonus_packs = num_tiers * best_offer.bonus_packs
+            bonus_units = num_tiers * best_offer.bonus_quantity
         elif best_offer.offer_type == 'fixed_discount':
             discount_value = num_tiers * best_offer.discount_value
         elif best_offer.offer_type == 'percentage_discount':
@@ -50,8 +48,7 @@ def calculate_invoice(quantity, price_per_carton):
         'tax_percentage': tax_percentage,
         'tax_amount': round(tax_amount, 2),
         'final_amount': round(final_amount, 2),
-        'bonus_cartons': bonus_cartons,
-        'bonus_packs': bonus_packs
+        'bonus_units': bonus_units
     }
 
 def check_debt_limits(driver_id, shop_id, new_debt_amount):
@@ -77,9 +74,9 @@ def check_debt_limits(driver_id, shop_id, new_debt_amount):
 
     return True, ""
 
-def adjust_inventory(session_id, variant_id, net_cartons_change, net_packs_change):
-    """التعديل الذكي لجرد كل منتج على حدة في سيارة المندوب"""
-    if net_cartons_change == 0 and net_packs_change == 0:
+def adjust_inventory(session_id, variant_id, net_quantity_change):
+    """التعديل المباشر لجرد كل منتج على حدة في سيارة المندوب (وحدة واحدة)"""
+    if net_quantity_change == 0:
         return True, ""
 
     # البحث عن سجل المنتج المحدد في سيارة المندوب
@@ -90,44 +87,26 @@ def adjust_inventory(session_id, variant_id, net_cartons_change, net_packs_chang
 
     if not inventory_record:
         # إذا لم يكن المنتج في سيارته أصلاً ويحاول البيع
-        if net_cartons_change < 0 or net_packs_change < 0:
+        if net_quantity_change < 0:
             return False, "لا يوجد مخزون من هذا المنتج في سيارتك حالياً."
         # إذا كان يرجع بضاعة لم تكن معه، ننشئ سجل جديد
         inventory_record = SessionInventory(
             work_session_id=session_id, product_variant_id=variant_id,
-            starting_cartons=0, starting_packs=0,
-            current_remaining_cartons=0, current_remaining_packs=0
+            starting_quantity=0,
+            current_remaining_quantity=0
         )
         db.session.add(inventory_record)
 
-    # جلب خصائص المنتج (مثل حجم الكرتونة)
+    # جلب خصائص المنتج
     variant = db.session.get(ProductVariant, variant_id)
     if not variant:
         return False, "بيانات المنتج غير متوفرة."
 
-    packs_per_carton = variant.packs_per_carton
-    current_cartons = inventory_record.current_remaining_cartons
-    current_packs = inventory_record.current_remaining_packs
+    final_quantity = inventory_record.current_remaining_quantity + net_quantity_change
 
-    packs_after_change = current_packs + net_packs_change
-    cartons_to_adjust = 0
-
-    if packs_after_change < 0:
-        packs_needed = abs(packs_after_change)
-        cartons_to_open = math.ceil(packs_needed / packs_per_carton)
-        cartons_to_adjust -= cartons_to_open
-        packs_after_change = (cartons_to_open * packs_per_carton) - packs_needed
-    elif packs_after_change >= packs_per_carton:
-        cartons_to_pack = packs_after_change // packs_per_carton
-        cartons_to_adjust += cartons_to_pack
-        packs_after_change = packs_after_change % packs_per_carton
-
-    final_cartons = current_cartons + net_cartons_change + cartons_to_adjust
-
-    if final_cartons < 0:
+    if final_quantity < 0:
         return False, f"المخزون المتوفر من ({variant.variant_name}) لا يكفي لهذه العملية."
 
-    inventory_record.current_remaining_cartons = final_cartons
-    inventory_record.current_remaining_packs = packs_after_change
+    inventory_record.current_remaining_quantity = final_quantity
     
     return True, ""

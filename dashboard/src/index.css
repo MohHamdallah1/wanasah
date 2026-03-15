@@ -1,12 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
-
 @layer base {
   :root {
-    --background: 222 47% 97%;
+    --background: 220 30% 96%;
     --foreground: 215 25% 15%;
 
     --card: 0 0% 100%;
@@ -15,7 +15,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 215 25% 15%;
 
-    --primary: 48 100% 50%;
+    --primary: 43 100% 50%;
     --primary-foreground: 215 25% 15%;
 
     --secondary: 215 15% 92%;
@@ -24,7 +24,7 @@
     --muted: 220 20% 96%;
     --muted-foreground: 215 12% 55%;
 
-    --accent: 48 100% 50%;
+    --accent: 43 100% 50%;
     --accent-foreground: 215 25% 15%;
 
     --destructive: 0 84% 60%;
@@ -32,26 +32,27 @@
 
     --border: 220 20% 93%;
     --input: 220 20% 93%;
-    --ring: 48 100% 50%;
+    --ring: 43 100% 50%;
 
-    --radius: 2rem;
+    --radius: 1rem;
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 215 25% 15%;
-    --sidebar-primary: 48 100% 50%;
+    --sidebar-primary: 43 100% 50%;
     --sidebar-primary-foreground: 215 25% 15%;
-    --sidebar-accent: 48 100% 94%;
+    --sidebar-accent: 43 100% 94%;
     --sidebar-accent-foreground: 215 25% 15%;
     --sidebar-border: 220 20% 93%;
-    --sidebar-ring: 48 100% 50%;
+    --sidebar-ring: 43 100% 50%;
 
     --shadow-card: 0 8px 30px rgb(0 0 0 / 0.04);
-    --shadow-card-hover: 0 12px 40px rgb(0 0 0 / 0.07);
+    --shadow-card-hover: 0 8px 30px rgb(0 0 0 / 0.1);
+    --shadow-glass: 0 8px 30px rgb(0 0 0 / 0.06);
 
     --nav-dark: 220 20% 12%;
     --nav-dark-foreground: 0 0% 100%;
 
-    --success: 152 60% 45%;
+    --success: 160 60% 45%;
     --success-foreground: 0 0% 100%;
 
     --warning: 36 95% 55%;
@@ -68,7 +69,131 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'DM Sans', sans-serif;
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Tajawal', sans-serif;
   }
+}
+
+/* Glass card utility */
+@layer components {
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-xl border border-white/60 rounded-2xl;
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass-card-hover {
+    @apply transition-all duration-300;
+  }
+
+  .glass-card-hover:hover {
+    @apply bg-white/90;
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .glass-sidebar {
+    @apply bg-white/40 backdrop-blur-2xl border border-white/60;
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass-row {
+    @apply bg-white/60 backdrop-blur-md border border-white/40;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-row:hover {
+    @apply bg-white/90;
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-2px);
+  }
+}
+
+/* Animated mesh gradient background */
+@keyframes mesh-move {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.mesh-gradient-bg {
+  background: linear-gradient(
+    -45deg,
+    hsl(220 30% 96%),
+    hsl(220 25% 94%),
+    hsl(43 60% 96% / 0.5),
+    hsl(220 30% 96%),
+    hsl(220 25% 95%),
+    hsl(43 40% 97% / 0.3)
+  );
+  background-size: 400% 400%;
+  animation: mesh-move 20s ease infinite;
+}
+
+/* Pulsing border for alerts */
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: hsl(0 84% 60% / 0.2);
+    box-shadow: 0 0 0 0 hsl(0 84% 60% / 0);
+  }
+  50% {
+    border-color: hsl(0 84% 60% / 0.5);
+    box-shadow: 0 0 12px 0 hsl(0 84% 60% / 0.1);
+  }
+}
+
+.pulse-border-red {
+  animation: pulse-border 2.5s ease-in-out infinite;
+}
+
+/* RTL-aware switch fix */
+[dir="rtl"] .switch-thumb[data-state="checked"] {
+  transform: translateX(-20px);
+}
+[dir="rtl"] .switch-thumb[data-state="unchecked"] {
+  transform: translateX(0);
+}
+
+/* Command center glossy overlay */
+.command-glossy::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8rem;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.25), transparent);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+
+/* ==========================================
+   Madar Login Theme Effects
+   ========================================== */
+.cosmic-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #0a0118 0%, #1a0b2e 25%, #16213e 50%, #1a0b2e 75%, #0a0118 100%);
+  z-index: -2;
+}
+
+@keyframes slideRight {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-\\[slideRight_10s_linear_infinite\\] {
+  animation: slideRight 10s linear infinite;
+}
+.animate-\\[slideRight_10s_linear_infinite_reverse\\] {
+  animation: slideRight 10s linear infinite reverse;
+}
+
+.text-shadow-glow {
+  text-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
 }
