@@ -1,4 +1,4 @@
-import { Banknote, Package, Store, Users, RefreshCw } from "lucide-react";
+import { Banknote, Package, Store, Users, RefreshCw, Eye } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
 
@@ -11,12 +11,13 @@ interface PulseBarProps {
   totalVisits: number;
   activeDrivers: number;
   onBreakDrivers: number;
+  onOpenSalesDetails?: () => void;
 }
 
 export function PulseBar({
   totalCash, cashFromSales, cashFromDebts,
   totalSoldCartons, completedVisits, totalVisits,
-  activeDrivers, onBreakDrivers,
+  activeDrivers, onBreakDrivers, onOpenSalesDetails,
 }: PulseBarProps) {
   const [refreshSpin, setRefreshSpin] = useState(false);
   const completionPct = totalVisits > 0 ? Math.round((completedVisits / totalVisits) * 100) : 0;
@@ -101,6 +102,15 @@ export function PulseBar({
                     className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-500 ${refreshSpin ? "rotate-180" : ""}`}
                     strokeWidth={1.5}
                   />
+                </button>
+              )}
+              {i === 1 && onOpenSalesDetails && (
+                <button
+                  onClick={onOpenSalesDetails}
+                  className="w-7 h-7 rounded-lg bg-muted/60 flex items-center justify-center hover:bg-muted transition-colors"
+                  title="عرض تفاصيل المبيعات"
+                >
+                  <Eye className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={1.5} />
                 </button>
               )}
               <div className={`w-9 h-9 rounded-xl ${card.iconBg} flex items-center justify-center`}>

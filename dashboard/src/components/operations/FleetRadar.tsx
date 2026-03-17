@@ -61,22 +61,20 @@ export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, search
               <div className="flex items-center justify-between gap-3">
                 {/* Avatar + Name + Status */}
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-extrabold shrink-0 ${
-                    isSelected ? "bg-gradient-to-br from-primary to-warning text-primary-foreground shadow-command" : "bg-secondary text-foreground"
-                  }`}>
-                    {driver.avatar}
+                  <div className={`w-11 h-11 rounded-full flex items-center justify-center text-xl font-extrabold shrink-0 ${isSelected ? "bg-gradient-to-br from-primary to-warning text-primary-foreground shadow-command" : "bg-secondary text-foreground"
+                    }`}>
+                    {s.driver_name ? s.driver_name.charAt(0) : "م"}
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-foreground truncate">{s.driver_name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className={`w-2 h-2 rounded-full ${
-                        driver.settlement.status === "في الطريق" ? "bg-success animate-pulse" :
-                        driver.settlement.status === "استراحة" ? "bg-warning" :
-                        driver.settlement.status === "مغلقة بانتظار التسوية" ? "bg-muted" :
-                        "bg-destructive"
-                      }`} />
+                      <span className={`w-2 h-2 rounded-full ${driver.settlement.status === "في الطريق" ? "bg-success animate-pulse" :
+                          driver.settlement.status === "استراحة" ? "bg-warning" :
+                            driver.settlement.status === "مغلقة بانتظار التسوية" ? "bg-muted" :
+                              "bg-destructive"
+                        }`} />
                       <span className="text-[11px] text-muted-foreground">
-                        {driver.settlement.status} {s.start_time ? `• ${s.start_time}` : ""}
+                        {driver.settlement.status} {s.start_time ? `• ${new Date(s.start_time).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}` : ""}
                       </span>
                     </div>
                   </div>
@@ -91,14 +89,12 @@ export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, search
                 <div className="flex flex-col items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button
                     onClick={() => onToggleAuth(s.session_id)}
-                    className={`relative w-11 h-6 rounded-full transition-colors duration-300 ${
-                      s.is_authorized_to_sell ? "bg-success" : "bg-muted"
-                    }`}
+                    className={`relative w-11 h-6 rounded-full transition-colors duration-300 ${s.is_authorized_to_sell ? "bg-success" : "bg-muted"
+                      }`}
                   >
                     <span
-                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-all duration-300 ${
-                        s.is_authorized_to_sell ? "start-0.5" : "end-0.5"
-                      }`}
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-all duration-300 ${s.is_authorized_to_sell ? "start-0.5" : "end-0.5"
+                        }`}
                     />
                   </button>
                   <span className="text-[10px] text-muted-foreground">الضوء الأخضر</span>

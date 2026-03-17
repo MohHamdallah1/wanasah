@@ -64,7 +64,7 @@ export function RouteManagementModal({
             ) : (
               <CustomSelect
                 label=""
-                options={drivers.map(d => ({ id: d.id, label: d.name }))}
+                options={drivers.filter(d => d.id !== activeRoute?.driverId).map(d => ({ id: d.id, label: d.name }))}
                 value={transferDriverId}
                 onChange={onTransferDriverChange}
               />

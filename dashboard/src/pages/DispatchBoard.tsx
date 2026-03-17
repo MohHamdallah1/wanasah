@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, FileDown, Eye, Eraser, CheckCircle2, Save, XCircle, Loader2, AlertCircle } from "lucide-react";
+import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle } from "lucide-react";
 import { OperationsSidebar } from "@/components/operations/OperationsSidebar";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
@@ -310,8 +310,8 @@ export default function DispatchBoard() {
         body: JSON.stringify({
           status: "active",
           driverId: newDriverId,
-          vehicleId: selectedVehicleId, // +++ إرسال السيارة +++
-          inventory: preloadQuantities  // +++ إرسال الحمولة +++
+          vehicleId: selectedVehicleId,
+          inventory: preloadQuantities
         })
       });
 
@@ -322,7 +322,7 @@ export default function DispatchBoard() {
       toast.success("تم تفعيل خط السير بنجاح");
       setIsRouteModalOpen(false);
     } catch (err: any) {
-      toast.error("خطأ: " + err.message);
+      toast.error(err.message);
     }
   };
 
@@ -392,16 +392,9 @@ export default function DispatchBoard() {
 
     const token = localStorage.getItem("admin_token") || localStorage.getItem("token");
 
-    // الاحتفاظ بنسخة من الحالة القديمة للرجوع إليها في حال الفشل
-    const previousShops = [...shops];
-
     if (editingShopId) {
-      // --- حالة التعديل: تحديث متفائل (Optimistic) ---
-      setShops(prev => prev.map(s => s.id === editingShopId ? { ...s, ...shopForm } : s));
-      setIsShopModalOpen(false);
-      toast.success("جاري حفظ التعديلات...");
-
       try {
+        toast.success("جاري حفظ التعديلات...");
         const res = await fetch(`${import.meta.env.VITE_API_URL}/dispatch/shops/${editingShopId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
@@ -413,10 +406,11 @@ export default function DispatchBoard() {
           throw new Error(errData?.message || "فشل المزامنة مع السيرفر");
         }
 
+        setShops(prev => prev.map(s => s.id === editingShopId ? { ...s, ...shopForm } : s));
+        setIsShopModalOpen(false);
         toast.success("تم التعديل بنجاح");
       } catch (error: any) {
         toast.error(`❌ خطأ: ${error.message}`);
-        setShops(previousShops); // تراجع عن التغيير في الواجهة (Rollback)
       }
 
     } else {
@@ -591,7 +585,18 @@ export default function DispatchBoard() {
                   <PendingRoutesTable
                     routes={pendingRoutes.filter(r => r.status !== "postponed")}
                     onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setIsRouteModalOpen(true); }}
-                    onPostponeRoute={async (id) => { try { await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify({ status: "postponed" }) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r)); toast.info("تم تأجيل المنطقة"); } catch (e: any) { toast.error(e.message); } }}
+                    onPostponeRoute={async (id) => {
+                      try {
+                        await authenticatedFetch(`/dispatch/route/${id}/status`, {
+                          method: "PUT",
+                          body: JSON.stringify({ status: "postponed" })
+                        });
+                        setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
+                        toast.info("تم تأجيل المنطقة");
+                      } catch (e: any) {
+                        toast.error(e.message);
+                      }
+                    }}
                     onCloseZone={route => {
                       const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
                       const message = isAlmostDone
@@ -604,13 +609,17 @@ export default function DispatchBoard() {
                         message: message,
                         onConfirm: async () => {
                           try {
-                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, { method: "PUT", body: JSON.stringify({ status: "closed" }) });
+                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
+                              method: "PUT",
+                              body: JSON.stringify({ status: "closed" })
+                            });
                             setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
-                            setConfirmDialog(d => ({ ...d, isOpen: false }));
                             fetchInitialData();
                             toast.success("تم إغلاق المنطقة وتصفير السيارة");
                           } catch (e: any) {
-                            toast.error(e.message); setConfirmDialog(d => ({ ...d, isOpen: false }));
+                            toast.error(e.message);
+                          } finally {
+                            setConfirmDialog(d => ({ ...d, isOpen: false }));
                           }
                         }
                       })
@@ -627,12 +636,16 @@ export default function DispatchBoard() {
                         message: message,
                         onConfirm: async () => {
                           try {
-                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, { method: "PUT", body: JSON.stringify({ status: "waiting" }) });
+                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
+                              method: "PUT",
+                              body: JSON.stringify({ status: "waiting" })
+                            });
                             setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting" } : r));
-                            setConfirmDialog(d => ({ ...d, isOpen: false }));
                             toast.info("تم إيقاف المنطقة وإعادتها للانتظار");
                           } catch (e: any) {
-                            toast.error(e.message); setConfirmDialog(d => ({ ...d, isOpen: false }));
+                            toast.error(e.message);
+                          } finally {
+                            setConfirmDialog(d => ({ ...d, isOpen: false }));
                           }
                         }
                       })

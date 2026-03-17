@@ -62,41 +62,83 @@ def login():
     return jsonify({"message": "Invalid username or password"}), 401
 
 # =========================================
-# 2. بدء جلسة العمل
+# 2. بدء جلسة العمل (مربوطة بالتوزيع والجرد)
 # =========================================
 @api.route('/driver/<int:driver_id>/sessions/start', methods=['POST'])
 @token_required
 def start_work_session(driver_id):
     if getattr(g, 'current_driver_id', None) != driver_id:
-         return jsonify({"message": "Forbidden"}), 403
+         return jsonify({"message": "مرفوض: غير مصرح لك."}), 403
+
+    # 1. الحماية من تراكم العهدة
+    unsettled_session = WorkSession.query.filter_by(driver_id=driver_id, is_settled=False).first()
+    if unsettled_session:
+        return jsonify({
+            "message": "لا يمكنك بدء يوم عمل جديد. لديك عهدة سابقة معلقة لم يتم تسويتها من قبل الإدارة."
+        }), 403
 
     today_date = date.today()
-    active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=today_date, end_time=None).first()
 
-    if active_session:
-        return jsonify({"message": "Session already active", "session_id": active_session.id}), 409
+    # 2. +++ منع بدء العمل بدون خط سير (حماية التوزيع) +++
+    active_route = DispatchRoute.query.filter_by(driver_id=driver_id, status='active').first()
+    if not active_route:
+        return jsonify({
+            "message": "لا يوجد لديك خط سير مخصص اليوم. الرجاء مراجعة مدير التوزيع."
+        }), 403
 
-    data = request.get_json() or {}
+    # 3. التحقق من عدم وجود جلسة نشطة لنفس اليوم
+    existing_session = WorkSession.query.filter(
+        WorkSession.driver_id == driver_id,
+        func.date(WorkSession.start_time) == today_date
+    ).first()
+
+    if existing_session:
+        return jsonify({"message": "لديك جلسة عمل نشطة بالفعل لهذا اليوم."}), 409
 
     try:
+        data = request.get_json() or {}
+        lat = data.get('latitude')
+        lng = data.get('longitude')
+
+        # 4. إنشاء الجلسة الجديدة
         new_session = WorkSession(
             driver_id=driver_id,
-            session_date=today_date,
             start_time=datetime.now(timezone.utc),
-            start_latitude=data.get('latitude'),
-            start_longitude=data.get('longitude')
+            start_latitude=lat,
+            start_longitude=lng,
+            is_authorized_to_sell=False # يبدأ بدون صلاحية بيع (الضوء الأحمر)
         )
         db.session.add(new_session)
-        db.session.commit()
+        db.session.flush() # للحصول على new_session.id
 
+        # 5. +++ ربط خط السير بالجلسة ونقل حمولة السيارة لتصبح جرد المندوب +++
+        active_route.work_session_id = new_session.id
+        
+        vehicle_loads = VehicleLoad.query.filter_by(vehicle_id=active_route.vehicle_id).all()
+        for load in vehicle_loads:
+            inventory_item = SessionInventory(
+                work_session_id=new_session.id,
+                product_variant_id=load.product_variant_id,
+                starting_quantity=load.quantity,
+                current_remaining_quantity=load.quantity
+            )
+            db.session.add(inventory_item)
+            
+        # 6. تحديث حالة المحلات المعلقة لترتبط بهذه الجلسة
+        pending_visits = Visit.query.filter_by(driver_id=driver_id, status='Pending').all()
+        for visit in pending_visits:
+            visit.work_session_id = new_session.id
+
+        db.session.commit()
         return jsonify({
-            "message": "Session started successfully", 
+            "message": "تم بدء الجلسة بنجاح، وتم استلام جرد السيارة.", 
             "session_id": new_session.id
         }), 201
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error starting session", "error": str(e)}), 500
+        import traceback; traceback.print_exc()
+        return jsonify({"message": "خطأ داخلي أثناء بدء الجلسة."}), 500
 
 # =========================================
 # 3. إنهاء جلسة العمل
@@ -170,6 +212,12 @@ def update_visit(visit_id):
 
     shop = visit.shop
     active_session = WorkSession.query.filter_by(driver_id=visit.driver_id, session_date=date.today(), end_time=None).first()
+
+    # +++ قفل الحماية الصارم: منع البيع أو التعديل بدون جلسة نشطة وضوء أخضر +++
+    if not active_session:
+        return jsonify({"message": "لا يمكنك تنفيذ العملية. الرجاء بدء يوم العمل أولاً."}), 403
+    if not active_session.is_authorized_to_sell:
+        return jsonify({"message": "مرفوض: ليس لديك صلاحية للبيع حالياً. يرجى انتظار الضوء الأخضر من الإدارة."}), 403
 
     try:
         debt_paid_input = float(data.get('debt_paid', 0.0))
@@ -319,53 +367,114 @@ def update_visit(visit_id):
 # =========================================
 @api.route('/driver/<int:driver_id>/dashboard', methods=['GET'])
 @token_required
-def dashboard(driver_id):
+def get_driver_dashboard(driver_id):
+    if getattr(g, 'current_driver_id', None) != driver_id:
+        return jsonify({"message": "Forbidden"}), 403
+
     driver = db.session.get(Driver, driver_id)
-    if not driver: return jsonify({"message": "Not found"}), 404
+    if not driver:
+        return jsonify({"message": "المندوب غير موجود"}), 404
 
-    active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=date.today(), end_time=None).first()
+    today_date = date.today()
     
-    stats = db.session.query(
-        func.count(Visit.id).label('completed_count'),
-        func.sum(Visit.cash_collected).label('total_cash'),
-        func.sum(Visit.debt_paid).label('total_debt')
-    ).filter(Visit.driver_id == driver_id, Visit.status == 'Completed').first()
+    # 1. البحث عن خط سير نشط (حتى لو لم يبدأ العمل بعد)
+    active_route = DispatchRoute.query.filter_by(driver_id=driver_id, status='active').first()
+    
+    # 2. البحث عن جلسة عمل نشطة اليوم
+    active_session = WorkSession.query.filter(
+        WorkSession.driver_id == driver_id,
+        func.date(WorkSession.start_time) == today_date
+    ).order_by(WorkSession.id.desc()).first()
 
-    sales_count = db.session.query(func.count(Visit.id)).filter(
-        Visit.driver_id == driver_id, Visit.status == 'Completed', Visit.outcome == 'Sale'
-    ).scalar() or 0
-
-    pending_count = Visit.query.filter_by(driver_id=driver_id, status='Pending').count()
-    
-    total_sales_cash = float(stats.total_cash or 0.0)
-    total_debt_paid = float(stats.total_debt or 0.0)
-    
+    assigned_region = "غير محددة"
     inventory_list = []
+
+    # +++ اللوجيك الجديد: إذا تم إطلاق خط سير، أرسل المنطقة والحمولة +++
+    if active_route:
+        # جلب اسم المنطقة
+        zone = db.session.get(Zone, active_route.zone_id)
+        if zone:
+            assigned_region = zone.name
+
+        # جلب الحمولة من السيارة (VehicleLoad) إذا لم تبدأ الجلسة بعد
+        if not active_session:
+            vehicle_loads = db.session.query(VehicleLoad, ProductVariant).join(
+                ProductVariant, VehicleLoad.product_variant_id == ProductVariant.id
+            ).filter(VehicleLoad.vehicle_id == active_route.vehicle_id).all()
+            
+            for load, variant in vehicle_loads:
+                inventory_list.append({
+                    "product_id": variant.id,
+                    "product_name": variant.variant_name,
+                    "starting_cartons": load.quantity,
+                    "remaining_cartons": load.quantity,
+                    "remaining_packs": 0 
+                })
+
+    # إذا بدأت الجلسة الفعلية، نعتمد على جرد الجلسة (SessionInventory)
     if active_session:
         inventories = SessionInventory.query.options(
             joinedload(SessionInventory.product_variant)
         ).filter_by(work_session_id=active_session.id).all()
         
+        inventory_list = [] # تفريغ القائمة لملئها بالجرد الفعلي
         for inv in inventories:
             inventory_list.append({
+                "product_id": inv.product_variant_id,
                 "product_name": inv.product_variant.variant_name,
-                "starting_quantity": inv.starting_quantity,
-                "remaining_quantity": inv.current_remaining_quantity
+                "starting_cartons": inv.starting_quantity,
+                "remaining_cartons": inv.current_remaining_quantity,
+                "remaining_packs": 0 # (يمكن حساب الباكيتات لاحقاً إذا لزم الأمر)
             })
 
-    return jsonify({
+    # حساب الماليات والزيارات
+    total_sales_cash = 0.0
+    total_debt_paid = 0.0
+    debt_payments_count = 0
+    total_completed = 0
+    sales_in_completed = 0
+    total_pending = 0
+
+    if active_session:
+        stats = db.session.query(
+            func.count(Visit.id).label('total_visits'),
+            func.sum(Visit.cash_collected).label('total_cash'),
+            func.sum(Visit.debt_paid).label('total_debt')
+        ).filter(Visit.work_session_id == active_session.id, Visit.status == 'Completed').first()
+
+        total_completed = stats.total_visits or 0
+        total_sales_cash = float(stats.total_cash or 0.0)
+        total_debt_paid = float(stats.total_debt or 0.0)
+        
+        debt_payments_count = Visit.query.filter(
+            Visit.work_session_id == active_session.id, 
+            Visit.status == 'Completed',
+            Visit.debt_paid > 0
+        ).count()
+        
+        sales_in_completed = Visit.query.filter(
+            Visit.work_session_id == active_session.id, 
+            Visit.status == 'Completed',
+            Visit.cash_collected > 0
+        ).count()
+
+        total_pending = Visit.query.join(Shop).filter(
+            Visit.work_session_id == active_session.id, 
+            Visit.status == 'Pending',
+            Shop.zone_id == active_route.zone_id
+        ).count()
+
+    # إذا كان هناك خط سير ولكن الجلسة لم تبدأ، نحسب المحلات المعلقة المربوطة بخط السير
+    elif active_route:
+        total_pending = Visit.query.join(Shop).filter(
+            Visit.driver_id == driver_id, 
+            Visit.status == 'Pending',
+            Shop.zone_id == active_route.zone_id
+        ).count()
+
+    response_data = {
         "driver_name": driver.full_name,
-        "assigned_region": "قطر (ميداني)",
-        "financials": {
-            "total_sales_cash": total_sales_cash,
-            "total_debt_paid": total_debt_paid,
-            "total_cash_overall": total_sales_cash + total_debt_paid
-        },
-        "counts": {
-            "total_completed": stats.completed_count or 0,
-            "total_pending": pending_count,
-            "sales_in_completed": sales_count
-        },
+        "assigned_region": assigned_region,
         "active_session": {
             "session_id": active_session.id,
             "start_time": active_session.start_time.isoformat() if active_session.start_time else None,
@@ -373,8 +482,30 @@ def dashboard(driver_id):
             "break_start_time": active_session.break_start_time.isoformat() if active_session.break_start_time else None,
             "break_end_time": active_session.break_end_time.isoformat() if active_session.break_end_time else None,
             "inventory": inventory_list
-        } if active_session else None
-    }), 200
+        } if active_session else None,
+        "financials": {
+            "total_sales_cash": total_sales_cash,
+            "total_debt_paid": total_debt_paid,
+            "debt_payments_count": debt_payments_count,
+            "total_cash_overall": total_sales_cash + total_debt_paid
+        },
+        "counts": {
+            "total_pending": total_pending,
+            "total_completed": total_completed,
+            "sales_in_completed": sales_in_completed
+        }
+    }
+    
+    # +++ حل مشكلة إرسال الحمولة حتى لو الجلسة لم تبدأ +++
+    if not active_session and active_route:
+        response_data['active_session'] = {
+            "session_id": None,
+            "start_time": None,
+            "is_authorized_to_sell": False,
+            "inventory": inventory_list
+        }
+
+    return jsonify(response_data), 200
 
 # =========================================
 # 6. إضافة محل جديد
@@ -451,15 +582,25 @@ def get_visits(driver_id):
     # 1. جلب الجلسة النشطة حالياً للمندوب
     active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=date.today(), end_time=None).first()
     
+    # +++ سد ثغرة تسرب المحلات: جلب المحلات التابعة لخطة السير النشطة فقط +++
+    active_route = DispatchRoute.query.filter_by(driver_id=driver_id, status='active').first()
+    if not active_route:
+        return jsonify([]), 200 # لا نعرض أي محلات إذا لم يكن هناك خط سير نشط
+
     # 2. اللوجيك المؤسسي: جلب المحلات المعلقة + المحلات المكتملة في الجلسة الحالية فقط
+    visits_query = Visit.query.join(Shop).options(joinedload(Visit.shop)).filter(
+        Visit.driver_id == driver_id,
+        Shop.zone_id == active_route.zone_id
+    )
+
     if active_session:
-        visits = Visit.query.filter(
-            (Visit.driver_id == driver_id) & 
-            ((Visit.status == 'Pending') | (Visit.work_session_id == active_session.id))
+        visits = visits_query.filter(
+            (Visit.status == 'Pending') |
+            (Visit.work_session_id == active_session.id)
         ).order_by(Visit.sequence.asc().nulls_last()).all()
     else:
         # إذا لا توجد جلسة نشطة، نعرض المعلقات فقط
-        visits = Visit.query.filter_by(driver_id=driver_id, status='Pending').order_by(Visit.sequence.asc().nulls_last()).all()
+        visits = visits_query.filter(Visit.status == 'Pending').order_by(Visit.sequence.asc().nulls_last()).all()
 
     return jsonify([{
         "visit_id": v.id, 
@@ -476,12 +617,18 @@ def get_visits(driver_id):
 @api.route('/visits/<int:visit_id>', methods=['GET'])
 @token_required
 def get_visit_details(visit_id):
-    visit = db.session.get(Visit, visit_id)
+    # استخدام joinedload لمنع N+1 عند جلب المحل فقط (items dynamic lazy relation)
+    visit = Visit.query.options(
+        joinedload(Visit.shop)
+    ).filter_by(id=visit_id).first()
+    
     if not visit: return jsonify({"message": "Visit not found"}), 404
     shop = visit.shop
     
     cart_items = []
-    for item in visit.items:
+    # +++ حل خطأ Eager Loading بجلب العناصر كقائمة منفصلة +++
+    items = visit.items.options(joinedload(VisitItem.product_variant)).all()
+    for item in items:
         cart_items.append({
             "product_variant_id": item.product_variant_id,
             "variant_name": item.product_variant.variant_name if item.product_variant else "غير معروف",
@@ -541,81 +688,73 @@ def authorize_session(session_id):
 
 # 8.2 جلب ملخص كل الجلسات النشطة اليوم (لشاشة المدير الرئيسية / غرفة العمليات)
 @api.route('/admin/sessions/today', methods=['GET'])
-# @token_required
+@token_required
 def get_admin_dashboard_data():
     today_date = date.today()
     
-    # 1. جلب جميع المناديب الفعالين (باستثناء المدراء لعدم عرضهم بالرادار)
-    drivers = Driver.query.filter_by(is_active=True, is_admin=False).all()
+    # +++ اللوجيك المعماري الصحيح: جلب جلسات اليوم، أو أي جلسة سابقة لم يتم تسويتها (لحل مشكلة نسيان التسوية) +++
+    sessions = WorkSession.query.filter(
+        (func.date(WorkSession.start_time) == today_date) | 
+        (WorkSession.is_settled == False)
+    ).all()
     
     drivers_data = []
     
-    for driver in drivers:
-        # 2. جلب أحدث جلسة للمندوب لليوم الحالي فقط (لمنع التكرار نهائياً)
-        session = WorkSession.query.filter(
-            WorkSession.driver_id == driver.id,
-            func.date(WorkSession.start_time) == today_date
-        ).order_by(WorkSession.id.desc()).first()
-        
-        # 3. إعطاء قيم افتراضية (بحال المندوب نايم بالبيت وما كبس بدء العمل)
-        session_id = -driver.id  # رقم وهمي بالسالب عشان React ما يضرب خطأ
-        start_time = None
-        is_authorized = False
-        is_on_break = False
-        status = "غير متصل"
-        completed_total = 0
-        pending_remaining = 0
-        cash_from_sales = 0.0
-        cash_from_debts = 0.0
-        expected_cash_in_hand = 0.0
-        inv_list = []
-        
-        # 4. إذا المندوب عنده جلسة اليوم، بنسحب أرقامها الحقيقية
-        if session:
-            session_id = session.id
-            start_time = session.start_time.isoformat() if session.start_time else None
-            is_authorized = session.is_authorized_to_sell
-            is_on_break = bool(session.break_start_time and not session.break_end_time)
+    for session in sessions:
+        driver = session.driver
+        if not driver or not driver.is_active or driver.is_admin:
+            continue
             
-            # حساب الزيارات والمالية بطلب واحد
-            stats = db.session.query(
-                func.count(Visit.id).label('total_visits'),
-                func.sum(Visit.cash_collected).label('total_cash'),
-                func.sum(Visit.debt_paid).label('total_debt')
-            ).filter(Visit.work_session_id == session.id, Visit.status == 'Completed').first()
+        session_id = session.id
+        start_time = session.start_time.isoformat() if session.start_time else None
+        is_authorized = session.is_authorized_to_sell
+        is_on_break = bool(session.break_start_time and not session.break_end_time)
+        
+        # حساب الزيارات والمالية
+        stats = db.session.query(
+            func.count(Visit.id).label('total_visits'),
+            func.sum(Visit.cash_collected).label('total_cash'),
+            func.sum(Visit.debt_paid).label('total_debt')
+        ).filter(Visit.work_session_id == session.id, Visit.status == 'Completed').first()
 
-            completed_total = stats.total_visits or 0
-            cash_from_sales = float(stats.total_cash or 0.0)
-            cash_from_debts = float(stats.total_debt or 0.0)
-            expected_cash_in_hand = cash_from_sales + cash_from_debts
-            
-            pending_remaining = Visit.query.filter_by(work_session_id=session.id, status='Pending').count()
-            
-            # جرد المخزون
-            inventories = SessionInventory.query.options(
-                joinedload(SessionInventory.product_variant)
-            ).filter_by(work_session_id=session.id).all()
-            
-            for inv in inventories:
-                started = inv.starting_quantity
-                remaining = inv.current_remaining_quantity
-                inv_list.append({
-                    "product_id": inv.product_variant_id,
-                    "product_name": inv.product_variant.variant_name,
-                    "starting_quantity": started,
-                    "sold_quantity": started - remaining,
-                    "remaining_quantity": remaining
-                })
-            
-            # تحديد الحالة الفعلية للجلسة
-            if session.end_time:
-                status = "مغلقة بانتظار التسوية"
-            elif is_on_break:
-                status = "استراحة"
-            else:
-                status = "في الطريق"
+        completed_total = stats.total_visits or 0
+        cash_from_sales = float(stats.total_cash or 0.0)
+        cash_from_debts = float(stats.total_debt or 0.0)
+        expected_cash_in_hand = cash_from_sales + cash_from_debts
         
-        # 5. بناء الهيكل اللي بيقرأه React
+        pending_remaining = Visit.query.filter_by(work_session_id=session.id, status='Pending').count()
+        
+        # جرد المخزون
+        inventories = SessionInventory.query.options(
+            joinedload(SessionInventory.product_variant)
+        ).filter_by(work_session_id=session.id).all()
+        
+        inv_list = []
+        for inv in inventories:
+            started = inv.starting_quantity
+            remaining = inv.current_remaining_quantity
+            inv_list.append({
+                "product_id": inv.product_variant_id,
+                "product_name": inv.product_variant.variant_name,
+                "starting_quantity": started,
+                "sold_quantity": started - remaining,
+                "remaining_quantity": remaining
+            })
+        
+        # تحديد الحالة
+        if session.is_settled:
+            status = "تمت التسوية"
+        elif session.end_time:
+            status = "مغلقة بانتظار التسوية"
+        elif is_on_break:
+            status = "استراحة"
+        else:
+            status = "في الطريق"
+            
+        # إذا تمت التسوية وهي ليست من اليوم، لا نعرضها لعدم زحمة الشاشة
+        if session.is_settled and func.date(session.start_time) != today_date:
+            continue
+
         drivers_data.append({
             "session": {
                 "session_id": session_id,
@@ -641,13 +780,12 @@ def get_admin_dashboard_data():
             }
         })
         
-    # 6. فرز القائمة (Sorting) لإعطاء الأولوية للنشطين
     def get_status_rank(d):
         s = d['settlement']['status']
         if s == "في الطريق": return 1
         if s == "استراحة": return 2
         if s == "مغلقة بانتظار التسوية": return 3
-        return 4 # غير متصل ينزل بآخر القائمة
+        return 4
         
     drivers_data.sort(key=get_status_rank)
     
@@ -710,7 +848,7 @@ def get_session_settlement_report(session_id):
         "inventory": inv_list
     }), 200
 
-# 8.4 اعتماد التسوية اليومية لجلسة المندوب
+# 8.4 اعتماد التسوية اليومية لجلسة المندوب واستلام الجرد الفعلي
 @api.route('/admin/sessions/<int:session_id>/settle', methods=['PUT'])
 @token_required
 def settle_session(session_id):
@@ -728,12 +866,58 @@ def settle_session(session_id):
     if not session.end_time:
         return jsonify({"message": "مرفوض: لا يمكن تسوية الجلسة لأن المندوب لم يقم بإنهاء العمل من تطبيقه."}), 400
 
+    data = request.get_json() or {}
+    actual_cash = float(data.get('actual_cash', 0.0))
+    inventory_jard = data.get('inventory_jard', [])
+
     try:
+        # 1. حساب العجز/الزيادة المالية
+        stats = db.session.query(
+            func.sum(Visit.cash_collected).label('total_cash'),
+            func.sum(Visit.debt_paid).label('total_debt')
+        ).filter(Visit.work_session_id == session.id, Visit.status == 'Completed').first()
+        
+        expected_cash = float(stats.total_cash or 0.0) + float(stats.total_debt or 0.0)
+        cash_difference = actual_cash - expected_cash
+
+        # 2. معالجة الجرد المستودعي (مقارنة المتوقع بالفعلي)
+        for item in inventory_jard:
+            prod_id = item.get('product_id')
+            actual_qty = int(item.get('actual', 0))
+            
+            inv_record = SessionInventory.query.filter_by(
+                work_session_id=session.id, 
+                product_variant_id=prod_id
+            ).first()
+            
+            if inv_record:
+                # تحديث الكمية المتبقية الفعلية في الجلسة لتطابق الجرد
+                inv_record.current_remaining_quantity = actual_qty
+
+        # 3. إغلاق العهدة
         session.is_settled = True
+        
+        # 4. إغلاق خط السير وتفريغ المحلات المعلقة للغد
+        route = DispatchRoute.query.filter_by(work_session_id=session.id, status='active').first()
+        if route:
+            # +++ تعديل لمنع إغلاق المنطقة إذا كان هناك محلات متبقية +++
+            remaining_visits = Visit.query.filter_by(work_session_id=session.id, status='Pending').count()
+            if remaining_visits > 0:
+                route.status = 'postponed' # أو waiting حسب الدعم الفني، لكن postponed هي الأنسب للتأجيل للغد
+            else:
+                route.status = 'closed'
+
         db.session.commit()
-        return jsonify({"message": "تم اعتماد التسوية وإغلاق العهدة بنجاح", "is_settled": True}), 200
+        return jsonify({
+            "message": "تم اعتماد التسوية بنجاح", 
+            "cash_difference": cash_difference,
+            "is_settled": True
+        }), 200
+
     except Exception as e:
         db.session.rollback()
+        import traceback
+        traceback.print_exc()
         return jsonify({"message": "خطأ في اعتماد التسوية", "error": str(e)}), 500
 
 # =========================================
@@ -824,6 +1008,19 @@ def dispatch_route():
         for prod_id, qty in inventory.items():
             if int(qty) > 0:
                 db.session.add(VehicleLoad(vehicle_id=vehicle_id, product_variant_id=int(prod_id), quantity=int(qty)))
+
+        # +++ اللوجيك المعماري: توليد مهام الزيارات (المحلات) للمندوب بناءً على منطقته +++
+        shops_in_zone = Shop.query.filter_by(zone_id=zone_id, is_active=True, is_archived=False).all()
+        for shop in shops_in_zone:
+            existing_visit = Visit.query.filter_by(driver_id=driver_id, shop_id=shop.id, status='Pending').first()
+            if not existing_visit:
+                new_visit = Visit(
+                    driver_id=driver_id,
+                    shop_id=shop.id,
+                    status='Pending',
+                    sequence=shop.sequence
+                )
+                db.session.add(new_visit)
 
         db.session.commit()
         return jsonify({"message": "تم إطلاق خط السير بنجاح"}), 201
@@ -1088,6 +1285,12 @@ def update_route_status(route_id):
     new_vehicle_id = data.get('vehicleId') # +++ استلام السيارة الجديدة +++
     inventory = data.get('inventory')      # +++ استلام الجرد المُحدث +++
     
+    # +++ قفل معماري صارم: منع تكرار خط السير لنفس المندوب +++
+    if new_driver_id:
+        existing_active = DispatchRoute.query.filter_by(driver_id=new_driver_id, status='active').first()
+        if existing_active and existing_active.id != route.id:
+            return jsonify({"message": "كارثة مرفوضة: هذا المندوب يمتلك خط سير نشط حالياً. يجب إغلاق منطقته الحالية أولاً!"}), 400
+
     try:
         if new_status: 
             route.status = new_status
@@ -1110,7 +1313,25 @@ def update_route_status(route_id):
                             
                     zone.start_date = zone.start_date + timedelta(days=days_to_add)
 
-        if new_driver_id: route.driver_id = new_driver_id
+            # +++ تصفير المحلات عند سحب أو إنهاء أو تأجيل المنطقة +++
+            if new_status in ['waiting', 'closed', 'postponed'] and route.driver_id:
+                pending_visits = Visit.query.join(Shop).filter(
+                    Visit.driver_id == route.driver_id,
+                    Shop.zone_id == route.zone_id,
+                    Visit.status == 'Pending'
+                ).all()
+                for v in pending_visits:
+                    db.session.delete(v)
+
+        if new_driver_id: 
+            # +++ نقل المحلات المعلقة للمندوب الجديد عند تحويل خط السير +++
+            if new_driver_id != route.driver_id:
+                pending_visits = Visit.query.filter_by(driver_id=route.driver_id, status='Pending').all()
+                for v in pending_visits:
+                    if v.shop and v.shop.zone_id == route.zone_id:
+                        v.driver_id = new_driver_id
+            route.driver_id = new_driver_id
+            
         if new_vehicle_id: route.vehicle_id = new_vehicle_id
         
         if inventory is not None and route.vehicle_id:
@@ -1369,8 +1590,20 @@ def bulk_import_shops():
         db.session.add(import_log)
         db.session.flush()
 
-        # +++ سحب كل المحلات النشطة للذاكرة مرة واحدة لمنع الضغط على قاعدة البيانات +++
-        all_existing_shops = Shop.query.filter_by(is_archived=False).all()
+        # +++ تفكيك قنبلة الذاكرة: جلب المحلات التي قد تتطابق فقط (بدل جلب كامل الداتا بيز) +++
+        incoming_names = {s.get('name', '').strip().lower() for s in shops_list if s.get('name')}
+        incoming_phones = {str(s.get('phone', '')).strip() for s in shops_list if s.get('phone')}
+        incoming_links = {s.get('mapLink', '').strip().lower() for s in shops_list if s.get('mapLink')}
+
+        filters = []
+        if incoming_names: filters.append(func.lower(Shop.name).in_(incoming_names))
+        if incoming_phones: filters.append(Shop.phone_number.in_(incoming_phones))
+        if incoming_links: filters.append(func.lower(Shop.location_link).in_(incoming_links))
+
+        if filters:
+            all_existing_shops = Shop.query.filter(Shop.is_archived == False, db.or_(*filters)).all()
+        else:
+            all_existing_shops = []
         
         new_shops = []
         ignored_count = 0

@@ -37,18 +37,17 @@ export function CommandCenter({ driver, onApproveSettlement }: CommandCenterProp
           >
             {/* Header */}
             <div className="flex items-center gap-3">
-              <div className="w-14 h-14 rounded-full bg-nav-dark text-nav-dark-foreground flex items-center justify-center font-extrabold text-base shadow-lg">
-                {driver.avatar}
+              <div className="w-14 h-14 rounded-full bg-nav-dark text-nav-dark-foreground flex items-center justify-center font-extrabold text-2xl shadow-lg">
+                {driver.session.driver_name ? driver.session.driver_name.charAt(0) : "م"}
               </div>
               <div>
                 <p className="text-lg font-extrabold">{driver.session.driver_name}</p>
-                <span className={`inline-block text-xs font-bold rounded-full px-3 py-1 mt-0.5 ${
-                  driver.settlement.status === "مغلقة بانتظار التسوية"
+                <span className={`inline-block text-xs font-bold rounded-full px-3 py-1 mt-0.5 ${driver.settlement.status === "مغلقة بانتظار التسوية"
                     ? "bg-info/20 text-info"
-                    : driver.settlement.status === "في استراحة"
-                    ? "bg-warning/30 text-foreground"
-                    : "bg-success/20 text-success"
-                }`}>
+                    : driver.settlement.status === "استراحة"
+                      ? "bg-warning/30 text-foreground"
+                      : "bg-success/20 text-success"
+                  }`}>
                   {driver.settlement.status}
                 </span>
               </div>
@@ -76,10 +75,10 @@ export function CommandCenter({ driver, onApproveSettlement }: CommandCenterProp
               <p className="text-xs font-bold text-foreground/60 mb-2">المخزون</p>
               <div className="flex flex-col gap-1.5">
                 {driver.settlement.inventory.map((item) => (
-                  <div key={item.product_id} className="flex items-center justify-between text-xs">
+                  <div key={item.product_id} className="flex items-center justify-between text-xs border-b border-white/10 pb-1.5 last:border-0">
                     <span className="font-medium">{item.product_name}</span>
                     <span className="tabular-nums font-bold text-foreground/70">
-                      {item.starting_cartons} ← {item.sold_cartons} بيع ← {item.remaining_cartons} متبقي
+                      {item.starting_quantity} ← {item.sold_quantity} بيع ← <span className="text-foreground font-extrabold">{item.remaining_quantity} متبقي</span>
                     </span>
                   </div>
                 ))}
@@ -101,11 +100,10 @@ export function CommandCenter({ driver, onApproveSettlement }: CommandCenterProp
               <button
                 onClick={onApproveSettlement}
                 disabled={!canApprove}
-                className={`flex items-center justify-center gap-2 w-full bg-nav-dark text-nav-dark-foreground rounded-xl h-14 text-sm font-bold transition-all ${
-                  canApprove
+                className={`flex items-center justify-center gap-2 w-full bg-nav-dark text-nav-dark-foreground rounded-xl h-14 text-sm font-bold transition-all ${canApprove
                     ? "hover:opacity-90 cursor-pointer shadow-lg"
                     : "opacity-50 cursor-not-allowed grayscale pointer-events-none"
-                }`}
+                  }`}
               >
                 <CheckCircle2 className="w-5 h-5" strokeWidth={1.5} />
                 اعتماد التسوية وإغلاق العهدة

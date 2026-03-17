@@ -10,7 +10,7 @@ IGNORE_DIRS = {
 # الامتدادات اللي بدنا نستثنيها لأنها ملفات تشغيلية وما بتهم الذكاء الاصطناعي
 IGNORE_EXTENSIONS = {'.dll', '.pdb', '.pyd', '.h'}
 
-MAX_DEPTH = 4  # نزلنا للعمق الرابع بناءً على طلبك
+MAX_DEPTH = 5  # نزلنا للعمق الرابع بناءً على طلبك
 
 def generate_tree(dir_path, prefix="", current_depth=1):
     if current_depth > MAX_DEPTH:

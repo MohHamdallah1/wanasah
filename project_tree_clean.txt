@@ -1,6 +1,6 @@
 ├── .gitignore
+├── .rules
 ├── .vscode
-│   └── settings.json
 ├── RUN.txt
 ├── dashboard
 │   ├── .env
@@ -24,18 +24,91 @@
 │   │   ├── components
 │   │   │   ├── NavLink.tsx
 │   │   │   ├── dashboard
+│   │   │   │   ├── ActiveOperationsTable.tsx
+│   │   │   │   ├── DriverSidebar.tsx
+│   │   │   │   ├── HeroSettlement.tsx
+│   │   │   │   ├── MetricCards.tsx
+│   │   │   │   └── TopNav.tsx
 │   │   │   ├── dispatch
+│   │   │   │   ├── BulkTransferModal.tsx
+│   │   │   │   ├── PendingRoutesTable.tsx
+│   │   │   │   ├── PostponedRoutesModal.tsx
+│   │   │   │   ├── RecycleBinModal.tsx
+│   │   │   │   ├── RouteManagementModal.tsx
+│   │   │   │   ├── ScheduleModal.tsx
+│   │   │   │   ├── ShopBulkImportModal.tsx
+│   │   │   │   ├── ShopFormModal.tsx
+│   │   │   │   ├── ShopTable.tsx
+│   │   │   │   ├── ShortageModal.tsx
+│   │   │   │   ├── ZoneModal.tsx
+│   │   │   │   └── ZoneRecycleBinModal.tsx
 │   │   │   ├── operations
+│   │   │   │   ├── CommandCenter.tsx
+│   │   │   │   ├── FleetRadar.tsx
+│   │   │   │   ├── OperationsSidebar.tsx
+│   │   │   │   ├── PulseBar.tsx
+│   │   │   │   ├── SettlementModal.tsx
+│   │   │   │   └── TopBar.tsx
 │   │   │   └── ui
+│   │   │       ├── accordion.tsx
+│   │   │       ├── alert-dialog.tsx
+│   │   │       ├── alert.tsx
+│   │   │       ├── aspect-ratio.tsx
+│   │   │       ├── avatar.tsx
+│   │   │       ├── badge.tsx
+│   │   │       ├── breadcrumb.tsx
+│   │   │       ├── button.tsx
+│   │   │       ├── calendar.tsx
+│   │   │       ├── card.tsx
+│   │   │       ├── carousel.tsx
+│   │   │       ├── chart.tsx
+│   │   │       ├── checkbox.tsx
+│   │   │       ├── collapsible.tsx
+│   │   │       ├── command.tsx
+│   │   │       ├── context-menu.tsx
+│   │   │       ├── custom-select.tsx
+│   │   │       ├── dialog.tsx
+│   │   │       ├── drawer.tsx
+│   │   │       ├── dropdown-menu.tsx
+│   │   │       ├── form.tsx
+│   │   │       ├── hover-card.tsx
+│   │   │       ├── input-otp.tsx
+│   │   │       ├── input.tsx
+│   │   │       ├── label.tsx
+│   │   │       ├── menubar.tsx
+│   │   │       ├── modal.tsx
+│   │   │       ├── navigation-menu.tsx
+│   │   │       ├── pagination.tsx
+│   │   │       ├── popover.tsx
+│   │   │       ├── progress.tsx
+│   │   │       ├── quantity-input.tsx
+│   │   │       ├── radio-group.tsx
+│   │   │       ├── resizable.tsx
+│   │   │       ├── scroll-area.tsx
+│   │   │       ├── select.tsx
+│   │   │       ├── separator.tsx
+│   │   │       ├── sequence-input.tsx
+│   │   │       ├── sheet.tsx
+│   │   │       ├── sidebar.tsx
+│   │   │       ├── skeleton.tsx
+│   │   │       ├── slider.tsx
+│   │   │       ├── sonner.tsx
+│   │   │       ├── switch.tsx
+│   │   │       ├── table.tsx
+│   │   │       ├── tabs.tsx
+│   │   │       ├── textarea.tsx
+│   │   │       ├── toast.tsx
+│   │   │       ├── toaster.tsx
+│   │   │       ├── toggle-group.tsx
+│   │   │       ├── toggle.tsx
+│   │   │       ├── tooltip.tsx
+│   │   │       └── use-toast.ts
 │   │   ├── data
 │   │   │   ├── dashboard-data.ts
 │   │   │   └── operations-data.ts
 │   │   ├── hooks
-│   │   │   ├── use-mobile.tsx
-│   │   │   └── use-toast.ts
 │   │   ├── index.css
 │   │   ├── lib
-│   │   │   └── utils.ts
 │   │   ├── main.tsx
 │   │   ├── pages
 │   │   │   ├── DispatchBoard.tsx
@@ -43,10 +116,7 @@
 │   │   │   ├── NotFound.tsx
 │   │   │   └── OperationsDashboard.tsx
 │   │   ├── test
-│   │   │   ├── example.test.ts
-│   │   │   └── setup.ts
 │   │   ├── types
-│   │   │   └── dispatch.ts
 │   │   └── vite-env.d.ts
 │   ├── tailwind.config.ts
 │   ├── tsconfig.app.json
@@ -54,289 +124,10 @@
 │   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   └── vitest.config.ts
-├── documentation
-│   ├── New Microsoft Word Document.docx
-│   ├── ~$ة العمل الجديدة.docx
-│   ├── ~WRL3084.tmp
-│   ├── التقنيات المستخدمة.docx
-│   ├── الية العمل.txt
-│   ├── تطبيق مندوبين.docx
-│   ├── خطة العمل الجديدة.docx
-│   └── ملخص + خطة.docx
 ├── wanasah_backend
 │   ├── .env
 │   ├── .vscode
-│   │   └── extensions.json
 │   ├── _conda_old
-│   │   ├── .gitignore
-│   │   ├── .nonadmin
-│   │   ├── DLLs
-│   │   │   ├── py.ico
-│   │   │   └── pyc.ico
-│   │   ├── LICENSE_PYTHON.txt
-│   │   ├── Lib
-│   │   │   ├── __future__.py
-│   │   │   ├── __phello__.foo.py
-│   │   │   ├── _aix_support.py
-│   │   │   ├── _bootsubprocess.py
-│   │   │   ├── _collections_abc.py
-│   │   │   ├── _compat_pickle.py
-│   │   │   ├── _compression.py
-│   │   │   ├── _markupbase.py
-│   │   │   ├── _osx_support.py
-│   │   │   ├── _py_abc.py
-│   │   │   ├── _pydecimal.py
-│   │   │   ├── _pyio.py
-│   │   │   ├── _sitebuiltins.py
-│   │   │   ├── _strptime.py
-│   │   │   ├── _threading_local.py
-│   │   │   ├── _weakrefset.py
-│   │   │   ├── abc.py
-│   │   │   ├── aifc.py
-│   │   │   ├── antigravity.py
-│   │   │   ├── argparse.py
-│   │   │   ├── ast.py
-│   │   │   ├── asynchat.py
-│   │   │   ├── asyncio
-│   │   │   ├── asyncore.py
-│   │   │   ├── base64.py
-│   │   │   ├── bdb.py
-│   │   │   ├── binhex.py
-│   │   │   ├── bisect.py
-│   │   │   ├── bz2.py
-│   │   │   ├── cProfile.py
-│   │   │   ├── calendar.py
-│   │   │   ├── cgi.py
-│   │   │   ├── cgitb.py
-│   │   │   ├── chunk.py
-│   │   │   ├── cmd.py
-│   │   │   ├── code.py
-│   │   │   ├── codecs.py
-│   │   │   ├── codeop.py
-│   │   │   ├── collections
-│   │   │   ├── colorsys.py
-│   │   │   ├── compileall.py
-│   │   │   ├── concurrent
-│   │   │   ├── configparser.py
-│   │   │   ├── contextlib.py
-│   │   │   ├── contextvars.py
-│   │   │   ├── copy.py
-│   │   │   ├── copyreg.py
-│   │   │   ├── crypt.py
-│   │   │   ├── csv.py
-│   │   │   ├── ctypes
-│   │   │   ├── curses
-│   │   │   ├── dataclasses.py
-│   │   │   ├── datetime.py
-│   │   │   ├── dbm
-│   │   │   ├── decimal.py
-│   │   │   ├── difflib.py
-│   │   │   ├── dis.py
-│   │   │   ├── distutils
-│   │   │   ├── doctest.py
-│   │   │   ├── email
-│   │   │   ├── encodings
-│   │   │   ├── ensurepip
-│   │   │   ├── enum.py
-│   │   │   ├── filecmp.py
-│   │   │   ├── fileinput.py
-│   │   │   ├── fnmatch.py
-│   │   │   ├── fractions.py
-│   │   │   ├── ftplib.py
-│   │   │   ├── functools.py
-│   │   │   ├── genericpath.py
-│   │   │   ├── getopt.py
-│   │   │   ├── getpass.py
-│   │   │   ├── gettext.py
-│   │   │   ├── glob.py
-│   │   │   ├── graphlib.py
-│   │   │   ├── gzip.py
-│   │   │   ├── hashlib.py
-│   │   │   ├── heapq.py
-│   │   │   ├── hmac.py
-│   │   │   ├── html
-│   │   │   ├── http
-│   │   │   ├── idlelib
-│   │   │   ├── imaplib.py
-│   │   │   ├── imghdr.py
-│   │   │   ├── imp.py
-│   │   │   ├── importlib
-│   │   │   ├── inspect.py
-│   │   │   ├── io.py
-│   │   │   ├── ipaddress.py
-│   │   │   ├── json
-│   │   │   ├── keyword.py
-│   │   │   ├── lib2to3
-│   │   │   ├── linecache.py
-│   │   │   ├── locale.py
-│   │   │   ├── logging
-│   │   │   ├── lzma.py
-│   │   │   ├── mailbox.py
-│   │   │   ├── mailcap.py
-│   │   │   ├── mimetypes.py
-│   │   │   ├── modulefinder.py
-│   │   │   ├── msilib
-│   │   │   ├── multiprocessing
-│   │   │   ├── netrc.py
-│   │   │   ├── nntplib.py
-│   │   │   ├── ntpath.py
-│   │   │   ├── nturl2path.py
-│   │   │   ├── numbers.py
-│   │   │   ├── opcode.py
-│   │   │   ├── operator.py
-│   │   │   ├── optparse.py
-│   │   │   ├── os.py
-│   │   │   ├── pathlib.py
-│   │   │   ├── pdb.py
-│   │   │   ├── pickle.py
-│   │   │   ├── pickletools.py
-│   │   │   ├── pipes.py
-│   │   │   ├── pkgutil.py
-│   │   │   ├── platform.py
-│   │   │   ├── plistlib.py
-│   │   │   ├── poplib.py
-│   │   │   ├── posixpath.py
-│   │   │   ├── pprint.py
-│   │   │   ├── profile.py
-│   │   │   ├── pstats.py
-│   │   │   ├── pty.py
-│   │   │   ├── py_compile.py
-│   │   │   ├── pyclbr.py
-│   │   │   ├── pydoc.py
-│   │   │   ├── pydoc_data
-│   │   │   ├── queue.py
-│   │   │   ├── quopri.py
-│   │   │   ├── random.py
-│   │   │   ├── re.py
-│   │   │   ├── reprlib.py
-│   │   │   ├── rlcompleter.py
-│   │   │   ├── runpy.py
-│   │   │   ├── sched.py
-│   │   │   ├── secrets.py
-│   │   │   ├── selectors.py
-│   │   │   ├── shelve.py
-│   │   │   ├── shlex.py
-│   │   │   ├── shutil.py
-│   │   │   ├── signal.py
-│   │   │   ├── site-packages
-│   │   │   ├── site.py
-│   │   │   ├── smtpd.py
-│   │   │   ├── smtplib.py
-│   │   │   ├── sndhdr.py
-│   │   │   ├── socket.py
-│   │   │   ├── socketserver.py
-│   │   │   ├── sqlite3
-│   │   │   ├── sre_compile.py
-│   │   │   ├── sre_constants.py
-│   │   │   ├── sre_parse.py
-│   │   │   ├── ssl.py
-│   │   │   ├── stat.py
-│   │   │   ├── statistics.py
-│   │   │   ├── string.py
-│   │   │   ├── stringprep.py
-│   │   │   ├── struct.py
-│   │   │   ├── subprocess.py
-│   │   │   ├── sunau.py
-│   │   │   ├── symtable.py
-│   │   │   ├── sysconfig.py
-│   │   │   ├── tabnanny.py
-│   │   │   ├── tarfile.py
-│   │   │   ├── telnetlib.py
-│   │   │   ├── tempfile.py
-│   │   │   ├── test
-│   │   │   ├── textwrap.py
-│   │   │   ├── this.py
-│   │   │   ├── threading.py
-│   │   │   ├── timeit.py
-│   │   │   ├── tkinter
-│   │   │   ├── token.py
-│   │   │   ├── tokenize.py
-│   │   │   ├── trace.py
-│   │   │   ├── traceback.py
-│   │   │   ├── tracemalloc.py
-│   │   │   ├── tty.py
-│   │   │   ├── turtle.py
-│   │   │   ├── turtledemo
-│   │   │   ├── types.py
-│   │   │   ├── typing.py
-│   │   │   ├── unittest
-│   │   │   ├── urllib
-│   │   │   ├── uu.py
-│   │   │   ├── uuid.py
-│   │   │   ├── warnings.py
-│   │   │   ├── wave.py
-│   │   │   ├── weakref.py
-│   │   │   ├── webbrowser.py
-│   │   │   ├── wsgiref
-│   │   │   ├── xdrlib.py
-│   │   │   ├── xml
-│   │   │   ├── xmlrpc
-│   │   │   ├── zipapp.py
-│   │   │   ├── zipfile.py
-│   │   │   ├── zipimport.py
-│   │   │   └── zoneinfo
-│   │   ├── Library
-│   │   │   ├── bin
-│   │   │   ├── include
-│   │   │   ├── lib
-│   │   │   ├── share
-│   │   │   └── ssl
-│   │   ├── Scripts
-│   │   │   ├── 2to3-script.py
-│   │   │   ├── 2to3.exe
-│   │   │   ├── alembic.exe
-│   │   │   ├── dotenv.exe
-│   │   │   ├── flask.exe
-│   │   │   ├── idle-script.py
-│   │   │   ├── idle.exe
-│   │   │   ├── mako-render.exe
-│   │   │   ├── pip-script.py
-│   │   │   ├── pip.exe
-│   │   │   ├── pip3-script.py
-│   │   │   ├── pip3.exe
-│   │   │   ├── pydoc-script.py
-│   │   │   ├── pydoc.exe
-│   │   │   ├── wheel-script.py
-│   │   │   └── wheel.exe
-│   │   ├── Tools
-│   │   │   ├── demo
-│   │   │   ├── i18n
-│   │   │   ├── pynche
-│   │   │   └── scripts
-│   │   ├── conda-meta
-│   │   │   ├── bzip2-1.0.8-h2bbff1b_6.json
-│   │   │   ├── ca-certificates-2025.2.25-haa95532_0.json
-│   │   │   ├── history
-│   │   │   ├── libffi-3.4.4-hd77b12b_1.json
-│   │   │   ├── openssl-3.0.16-h3f729d1_0.json
-│   │   │   ├── pip-25.0-py310haa95532_0.json
-│   │   │   ├── python-3.10.16-h4607a30_1.json
-│   │   │   ├── setuptools-75.8.0-py310haa95532_0.json
-│   │   │   ├── sqlite-3.45.3-h2bbff1b_0.json
-│   │   │   ├── tk-8.6.14-h0416ee5_0.json
-│   │   │   ├── tzdata-2025a-h04d1e81_0.json
-│   │   │   ├── vc-14.42-haa95532_4.json
-│   │   │   ├── vs2015_runtime-14.42.34433-he0abc0d_4.json
-│   │   │   ├── wheel-0.45.1-py310haa95532_0.json
-│   │   │   ├── xz-5.6.4-h4754444_1.json
-│   │   │   └── zlib-1.2.13-h8cc25b3_1.json
-│   │   ├── etc
-│   │   │   ├── aau_token
-│   │   │   └── conda
-│   │   ├── include
-│   │   │   ├── README.rst
-│   │   │   ├── cpython
-│   │   │   ├── greenlet
-│   │   │   ├── internal
-│   │   │   └── pydtrace.d
-│   │   ├── libs
-│   │   │   ├── _tkinter.lib
-│   │   │   ├── python3.lib
-│   │   │   └── python310.lib
-│   │   ├── python.exe
-│   │   ├── pythonw.exe
-│   │   └── share
-│   │       └── zoneinfo
 │   ├── app.py
 │   ├── backend_files.txt
 │   ├── clean_db.py
@@ -344,15 +135,6 @@
 │   ├── error.log
 │   ├── force_reset.py
 │   ├── migrations
-│   │   ├── README
-│   │   ├── alembic.ini
-│   │   ├── env.py
-│   │   ├── script.py.mako
-│   │   └── versions
-│   │       ├── 025110d60cff_initial_clean_start.py
-│   │       ├── 23b70a07cc17_add_importlog_table.py
-│   │       ├── 8f62fe6d8644_add_shortagerequest_table.py
-│   │       └── dc9d12aaab29_add_shortagerequest_table1.py
 │   ├── models.py
 │   ├── routes.py
 │   ├── seed_db.py
@@ -374,6 +156,7 @@
     │   │   ├── visit_list_screen.dart
     │   │   └── visit_screen.dart
     │   └── services
+    │       ├── api_constants.dart
     │       └── auth_utils.dart
     ├── pubspec.lock
     ├── pubspec.yaml
