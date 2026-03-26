@@ -5,6 +5,7 @@ import 'dart:developer' as developer;
 import 'dart:async'; // لاستخدام TimeoutException
 import 'package:geolocator/geolocator.dart'; // لاستخدام geolocator
 import '../services/auth_utils.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AddShopScreen extends StatefulWidget {
   const AddShopScreen({super.key});
@@ -32,6 +33,24 @@ class _AddShopScreenState extends State<AddShopScreen> {
   bool _isGettingLocation = false;
   double? _currentLatitude;
   double? _currentLongitude;
+  bool _isOnBreak = false; // +++ حالة الاستراحة
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBreakStatus();
+  }
+
+  Future<void> _checkBreakStatus() async {
+    final breakStr = await const FlutterSecureStorage().read(
+      key: 'is_on_break',
+    );
+    if (mounted) {
+      setState(() {
+        _isOnBreak = breakStr == 'true';
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -302,154 +321,160 @@ class _AddShopScreenState extends State<AddShopScreen> {
       ),
       // SingleChildScrollView يمكن أن تكون const إذا كان الـ child والـ padding هما const
       // لكن الـ child (Form) ليس const بسبب المفتاح key
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0), // EdgeInsets.all ثابتة = const
-        child: Form(
-          key: _formKey, // وجود key يمنع Form من أن تكون const
-          // Column ليست const لأن أبناءها (TextFormField) ليسوا const
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.stretch, // هذه الخاصية لا تقبل const عادة
-            children: [
-              // --- حقل اسم المحل (إجباري) ---
-              TextFormField(
-                controller: _nameController,
-                // يمكن أن تكون const لأن كل خصائصها ثوابت
-                decoration: const InputDecoration(
-                  labelText: 'اسم المحل *',
-                  border: OutlineInputBorder(), // ثابتة = const
-                  prefixIcon: Icon(
-                    Icons.storefront_outlined,
-                  ), // أيقونة ثابتة = const
+      body: IgnorePointer(
+        ignoring:
+            _isOnBreak, // +++ شل حركة إضافة المحل بالكامل وقت الاستراحة +++
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0), // EdgeInsets.all ثابتة = const
+          child: Form(
+            key: _formKey, // وجود key يمنع Form من أن تكون const
+            // Column ليست const لأن أبناءها (TextFormField) ليسوا const
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.stretch, // هذه الخاصية لا تقبل const عادة
+              children: [
+                // --- حقل اسم المحل (إجباري) ---
+                TextFormField(
+                  controller: _nameController,
+                  // يمكن أن تكون const لأن كل خصائصها ثوابت
+                  decoration: const InputDecoration(
+                    labelText: 'اسم المحل *',
+                    border: OutlineInputBorder(), // ثابتة = const
+                    prefixIcon: Icon(
+                      Icons.storefront_outlined,
+                    ), // أيقونة ثابتة = const
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'الرجاء إدخال اسم المحل';
+                    }
+                    return null; // لا تنسَ إرجاع null في حالة النجاح
+                  },
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'الرجاء إدخال اسم المحل';
-                  }
-                  return null; // لا تنسَ إرجاع null في حالة النجاح
-                },
-              ),
-              const SizedBox(height: 16), // ثابتة = const
-              // --- حقل اسم الشخص المسؤول (إجباري) ---
-              TextFormField(
-                controller: _contactPersonController,
-                decoration: const InputDecoration(
-                  labelText: 'اسم الشخص المسؤول *',
-                  border: OutlineInputBorder(), // const
-                  prefixIcon: Icon(Icons.person_outline), // const
+                const SizedBox(height: 16), // ثابتة = const
+                // --- حقل اسم الشخص المسؤول (إجباري) ---
+                TextFormField(
+                  controller: _contactPersonController,
+                  decoration: const InputDecoration(
+                    labelText: 'اسم الشخص المسؤول *',
+                    border: OutlineInputBorder(), // const
+                    prefixIcon: Icon(Icons.person_outline), // const
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'الرجاء إدخال اسم الشخص المسؤول';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'الرجاء إدخال اسم الشخص المسؤول';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16), // const
-              // --- حقل المحافظة / المنطقة (إجباري) ---
-              TextFormField(
-                controller: _governorateAreaController,
-                decoration: const InputDecoration(
-                  labelText: 'المحافظة / المنطقة / خط السير *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.map_outlined),
+                const SizedBox(height: 16), // const
+                // --- حقل المحافظة / المنطقة (إجباري) ---
+                TextFormField(
+                  controller: _governorateAreaController,
+                  decoration: const InputDecoration(
+                    labelText: 'المحافظة / المنطقة / خط السير *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.map_outlined),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'الرجاء إدخال المنطقة أو خط السير';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'الرجاء إدخال المنطقة أو خط السير';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16), // const
-              // --- حقل الموقع (رابط أو زر) (إجباري) ---
-              TextFormField(
-                controller: _locationFieldController,
-                // لا يمكن أن تكون const بسبب suffixIcon المتغير
-                decoration: InputDecoration(
-                  labelText: 'الموقع (رابط أو اضغط الزر)',
-                  hintText: 'الصق رابط الموقع هنا أو استخدم الزر ->',
-                  border: const OutlineInputBorder(), // const
-                  prefixIcon: const Icon(Icons.link), // const
-                  suffixIcon: IconButton(
-                    // هذا الويدجت يعتمد على الحالة
-                    icon:
-                        _isGettingLocation
-                            ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ) // الجزء داخل الشرط يمكن أن يكون const
-                            : const Icon(
-                              Icons.my_location,
-                            ), // الجزء الآخر يمكن أن يكون const
-                    tooltip: 'تحديد الموقع الحالي',
-                    onPressed:
-                        _isGettingLocation
-                            ? null
-                            : _getCurrentLocation, // يعتمد على الحالة
+                const SizedBox(height: 16), // const
+                // --- حقل الموقع (رابط أو زر) (إجباري) ---
+                TextFormField(
+                  controller: _locationFieldController,
+                  // لا يمكن أن تكون const بسبب suffixIcon المتغير
+                  decoration: InputDecoration(
+                    labelText: 'الموقع (رابط أو اضغط الزر)',
+                    hintText: 'الصق رابط الموقع هنا أو استخدم الزر ->',
+                    border: const OutlineInputBorder(), // const
+                    prefixIcon: const Icon(Icons.link), // const
+                    suffixIcon: IconButton(
+                      // هذا الويدجت يعتمد على الحالة
+                      icon:
+                          _isGettingLocation
+                              ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ) // الجزء داخل الشرط يمكن أن يكون const
+                              : const Icon(
+                                Icons.my_location,
+                              ), // الجزء الآخر يمكن أن يكون const
+                      tooltip: 'تحديد الموقع الحالي',
+                      onPressed:
+                          _isGettingLocation
+                              ? null
+                              : _getCurrentLocation, // يعتمد على الحالة
+                    ),
+                  ),
+                  keyboardType: TextInputType.url,
+                ),
+                const SizedBox(height: 16), // const
+                // --- حقل رقم الهاتف (إجباري) ---
+                TextFormField(
+                  controller: _phoneController,
+                  decoration: const InputDecoration(
+                    labelText: 'رقم الهاتف *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.phone_outlined),
+                  ),
+                  keyboardType: TextInputType.phone,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'الرجاء إدخال رقم الهاتف';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16), // const
+                // --- حقل الملاحظات (اختياري) ---
+                TextFormField(
+                  controller: _notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'ملاحظات إضافية',
+                    border: OutlineInputBorder(), // const
+                    prefixIcon: Icon(Icons.notes), // const
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 32), // const
+                // --- زر الحفظ ---
+                // لا يمكن أن يكون const بسبب onPressed و icon المتغيرين
+                ElevatedButton.icon(
+                  onPressed: _isSaving ? null : _saveShop,
+                  icon:
+                      _isSaving
+                          // الويدجتس داخل الشرط يمكن أن تكون const
+                          ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                          : const Icon(Icons.save_alt_outlined),
+                  label: const Text('حفظ المحل'), // النص ثابت = const
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 15,
+                    ), // EdgeInsets ثابت = const
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                    ), // TextStyle ثابت = const
+                    // backgroundColor قد يعتمد على الـ Theme لذا لا نجعله const هنا
                   ),
                 ),
-                keyboardType: TextInputType.url,
-              ),
-              const SizedBox(height: 16), // const
-              // --- حقل رقم الهاتف (إجباري) ---
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(
-                  labelText: 'رقم الهاتف *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone_outlined),
-                ),
-                keyboardType: TextInputType.phone,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'الرجاء إدخال رقم الهاتف';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16), // const
-              // --- حقل الملاحظات (اختياري) ---
-              TextFormField(
-                controller: _notesController,
-                decoration: const InputDecoration(
-                  labelText: 'ملاحظات إضافية',
-                  border: OutlineInputBorder(), // const
-                  prefixIcon: Icon(Icons.notes), // const
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 32), // const
-              // --- زر الحفظ ---
-              // لا يمكن أن يكون const بسبب onPressed و icon المتغيرين
-              ElevatedButton.icon(
-                onPressed: _isSaving ? null : _saveShop,
-                icon:
-                    _isSaving
-                        // الويدجتس داخل الشرط يمكن أن تكون const
-                        ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                        : const Icon(Icons.save_alt_outlined),
-                label: const Text('حفظ المحل'), // النص ثابت = const
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 15,
-                  ), // EdgeInsets ثابت = const
-                  textStyle: const TextStyle(
-                    fontSize: 16,
-                  ), // TextStyle ثابت = const
-                  // backgroundColor قد يعتمد على الـ Theme لذا لا نجعله const هنا
-                ),
-              ),
-              // --- نهاية زر الحفظ ---
-            ],
+                // --- نهاية زر الحفظ ---
+              ],
+            ),
           ),
         ),
       ),

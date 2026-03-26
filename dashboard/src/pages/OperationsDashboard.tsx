@@ -9,12 +9,15 @@ import { FleetRadar } from "@/components/operations/FleetRadar";
 import { CommandCenter } from "@/components/operations/CommandCenter";
 import { SettlementModal } from "@/components/operations/SettlementModal";
 
+import { AlertTriangle, RotateCcw } from "lucide-react";
+
 const Index = () => {
   const [drivers, setDrivers] = useState<DriverData[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
+  const [undoSessionId, setUndoSessionId] = useState<number | null>(null);
 
   const fetchLiveOperations = async () => {
     try {
@@ -90,12 +93,35 @@ const Index = () => {
         throw new Error(errorData.message || 'فشل الاعتماد');
       }
 
-      alert(`تم اعتماد تسوية ${selectedDriver.session.driver_name} وإغلاق العهدة بنجاح!`);
+      toast.success(`تم اعتماد تسوية ${selectedDriver.session.driver_name} وإغلاق العهدة بنجاح!`);
       setIsSettlementModalOpen(false);
       fetchLiveOperations();
 
     } catch (error: any) {
-      alert(error.message);
+      toast.error(error.message);
+    }
+  };
+
+  // دالة التراجع عن إنهاء العمل (تُستدعى بعد تأكيد المودال)
+  const handleUndoEndWork = async () => {
+    if (!undoSessionId) return;
+    try {
+      const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/dispatch/session/${undoSessionId}/undo_end_work`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        toast.success("تم التراجع بنجاح. يمكن للمندوب متابعة عمله.");
+        fetchLiveOperations();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.message || "حدث خطأ أثناء التراجع.");
+      }
+    } catch {
+      toast.error("خطأ في الاتصال بالسيرفر");
+    } finally {
+      setUndoSessionId(null);
     }
   };
 
@@ -132,6 +158,10 @@ const Index = () => {
             <CommandCenter
               driver={selectedDriver}
               onApproveSettlement={() => setIsSettlementModalOpen(true)}
+              onUndoEndWork={() => {
+                if (!selectedDriver) return;
+                setUndoSessionId(selectedDriver.session.session_id);
+              }}
             />
           </div>
         </div>
@@ -143,6 +173,55 @@ const Index = () => {
         driver={selectedDriver}
         onConfirmSettlement={handleConfirmSettlement}
       />
+
+      {/* ═══ Custom Undo Confirmation Modal ═══ */}
+      {undoSessionId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            onClick={() => setUndoSessionId(null)}
+          />
+          {/* Dialog */}
+          <div className="relative z-10 w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-6 pt-6 pb-4 border-b border-slate-100">
+              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-800">تأكيد إعادة فتح الجلسة</h2>
+                <p className="text-xs text-slate-400 mt-0.5">هذا الإجراء يتطلب موافقة إدارية</p>
+              </div>
+            </div>
+            {/* Body */}
+            <div className="px-6 py-5">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                هل أنت متأكد من <span className="font-bold text-amber-700">إعادة فتح الجلسة المالية</span> وإعادة المندوب لحالة نشط؟
+              </p>
+              <p className="text-xs text-red-500 mt-3 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                ⚠️ سيتمكن المندوب من مواصلة تسجيل المبيعات بعد هذا الإجراء.
+              </p>
+            </div>
+            {/* Footer */}
+            <div className="flex items-center gap-3 px-6 pb-6">
+              <button
+                onClick={() => setUndoSessionId(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-all"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleUndoEndWork}
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4" />
+                نعم، إعادة الفتح
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

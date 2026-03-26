@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 # توحيد الاستيرادات وحذف التكرار
-from models import db, Driver, Shop, Visit, VisitItem, VisitReturn, WorkSession, ProductVariant, SessionInventory, Zone, Vehicle, DispatchRoute, VehicleLoad, ShortageRequest, ImportLog
+from models import db, Driver, Shop, Visit, VisitItem, VisitReturn, WorkSession, ProductVariant, SessionInventory, Zone, Vehicle, DispatchRoute, VehicleLoad, ShortageRequest, ImportLog, InventoryLedger, SystemAuditLog, WorkBreakLog
 from services import calculate_invoice, check_debt_limits, adjust_inventory
 from config import Config
 
@@ -86,14 +86,14 @@ def start_work_session(driver_id):
             "message": "لا يوجد لديك خط سير مخصص اليوم. الرجاء مراجعة مدير التوزيع."
         }), 403
 
-    # 3. التحقق من عدم وجود جلسة نشطة لنفس اليوم
-    existing_session = WorkSession.query.filter(
-        WorkSession.driver_id == driver_id,
-        func.date(WorkSession.start_time) == today_date
+    # 3. التحقق من عدم وجود جلسة نشطة (لم يتم إنهاؤها) بغض النظر عن التاريخ
+    existing_session = WorkSession.query.filter_by(
+        driver_id=driver_id,
+        end_time=None
     ).first()
 
     if existing_session:
-        return jsonify({"message": "لديك جلسة عمل نشطة بالفعل لهذا اليوم."}), 409
+        return jsonify({"message": "لديك جلسة عمل نشطة بالفعل لم يتم إنهاؤها."}), 409
 
     try:
         data = request.get_json() or {}
@@ -146,7 +146,7 @@ def start_work_session(driver_id):
 @api.route('/driver/<int:driver_id>/sessions/end', methods=['PUT'])
 @token_required
 def end_work_session(driver_id):
-    active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=date.today(), end_time=None).first()
+    active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
     if not active_session:
         return jsonify({"message": "No active session"}), 404
 
@@ -167,7 +167,7 @@ def toggle_break(driver_id):
     if getattr(g, 'current_driver_id', None) != driver_id:
          return jsonify({"message": "Forbidden"}), 403
 
-    active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=date.today(), end_time=None).first()
+    active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
     if not active_session:
         return jsonify({"message": "No active session"}), 404
 
@@ -184,8 +184,29 @@ def toggle_break(driver_id):
         elif action == 'end':
             if not active_session.break_start_time or active_session.break_end_time:
                  return jsonify({"message": "لا يوجد استراحة نشطة لإنهائها"}), 400
-            active_session.break_end_time = datetime.now(timezone.utc)
-            msg = "تم إنهاء الاستراحة"
+            
+            # +++ تصحيح الميثود المهجورة لضمان التوافق المستقبلي +++
+            end_t = datetime.now(timezone.utc).replace(tzinfo=None)
+            break_start = active_session.break_start_time
+            
+            # +++ حل مشكلة تعارض المناطق الزمنية (Timezone Naive vs Aware) +++
+            if break_start and break_start.tzinfo is not None:
+                break_start = break_start.replace(tzinfo=None)
+                
+            duration = int((end_t - break_start).total_seconds() / 60) if break_start else 0
+            break_log = WorkBreakLog(
+                work_session_id=active_session.id,
+                break_start=active_session.break_start_time,
+                break_end=end_t,
+                duration_minutes=duration
+            )
+            db.session.add(break_log)
+            
+            # +++ تصفير الحقول الأساسية لتسمح باستراحة جديدة لاحقاً +++
+            active_session.break_start_time = None
+            active_session.break_end_time = None
+            
+            msg = "تم إنهاء الاستراحة وتوثيقها"
         else:
             return jsonify({"message": "إجراء غير صالح"}), 400
 
@@ -201,7 +222,13 @@ def toggle_break(driver_id):
 @api.route('/visits/<int:visit_id>', methods=['PUT'])
 @token_required
 def update_visit(visit_id):
-    visit = db.get_or_404(Visit, visit_id)
+    # +++ نسف ثغرة N+1 في نظام الارتجاع والتحديث +++
+    visit = Visit.query.options(
+        joinedload(Visit.shop),
+        joinedload(Visit.items).joinedload(VisitItem.product_variant),
+        joinedload(Visit.returns)
+    ).filter_by(id=visit_id).first_or_404()
+    
     if visit.driver_id != getattr(g, 'current_driver_id', None):
          return jsonify({"message": "Forbidden"}), 403
 
@@ -211,28 +238,110 @@ def update_visit(visit_id):
         return jsonify({"message": "Invalid outcome"}), 400
 
     shop = visit.shop
-    active_session = WorkSession.query.filter_by(driver_id=visit.driver_id, session_date=date.today(), end_time=None).first()
+    active_session = WorkSession.query.filter_by(driver_id=visit.driver_id, end_time=None).first()
 
-    # +++ قفل الحماية الصارم: منع البيع أو التعديل بدون جلسة نشطة وضوء أخضر +++
+    # +++ قفل الحماية الصارم: التحقق من الجلسة، المنطقة، والاستراحة +++
     if not active_session:
         return jsonify({"message": "لا يمكنك تنفيذ العملية. الرجاء بدء يوم العمل أولاً."}), 403
+        
+    # +++ حماية الـ Ghost Sale (معمارية Zero Trust) +++
+    current_route = DispatchRoute.query.filter_by(work_session_id=active_session.id, status='active').first()
+    if not current_route:
+         return jsonify({"message": "تم سحب خط السير أو إيقافه من قبل الإدارة. لا يمكنك إتمام العملية."}), 403
+         
+    # +++ حماية معمارية ديناميكية: التحقق اللحظي من وجود طلب عاجل حتى لو لم يكن مختوماً على الزيارة +++
+    has_active_shortage = ShortageRequest.query.filter_by(shop_id=shop.id, status='pending').first() is not None
+    if shop.zone_id != current_route.zone_id and not (visit.is_emergency or has_active_shortage):
+         return jsonify({"message": "مرفوض أمنياً: لا يمكنك البيع لمحل خارج منطقة عملك المخصصة إلا بتصريح طلب عاجل."}), 403
+
+    # حماية الاستراحة (إرجاع الرسالة الصحيحة للموبايل)
+    if active_session.break_start_time and not active_session.break_end_time:
+        return jsonify({"message": "أنت الآن في وقت الاستراحة. قم بإنهاء الاستراحة لمتابعة العمل."}), 403
+        
+    # حماية الضوء الأخضر
     if not active_session.is_authorized_to_sell:
-        return jsonify({"message": "مرفوض: ليس لديك صلاحية للبيع حالياً. يرجى انتظار الضوء الأخضر من الإدارة."}), 403
+        return jsonify({"message": "غير مصرح لك بإجراء عمليات بيع حالياً. بانتظار تفعيل خط السير من الإدارة."}), 403
 
     try:
-        debt_paid_input = float(data.get('debt_paid', 0.0))
-        original_shop_balance = shop.current_balance or 0.0
-        new_shop_balance = original_shop_balance
+        from decimal import Decimal
+        
+        # +++ نظام الارتجاع الشامل (Universal Reversal Logic) +++
+        # يعمل على تفكيك أي زيارة مكتملة مسبقاً (سواء كانت بيع أو لم يتم البيع) لإرجاع الأمور لنقطة الصفر
+        if visit.status == 'Completed':
+            # 1. التراجع المستودعي للبضاعة المباعة (فقط إذا كانت الزيارة السابقة بيع)
+            if visit.outcome == 'Sale':
+                for item in visit.items:
+                    if active_session:
+                        # +++ نظام الارتجاع الشامل: إرجاع بضاعة الفاتورة السابقة للسيارة (بوحدة الحبات/الفرط بدقة) +++
+                        packs_to_return = ((item.quantity + item.bonus_quantity + item.sample_quantity) * item.product_variant.packs_per_carton) + getattr(item, 'packs_quantity', 0)
+                        
+                        adjust_inventory(active_session.id, item.product_variant_id, packs_to_return)
+                        
+                        # توثيق الحركة العكسية في دفتر الأستاذ لغايات التدقيق
+                        db.session.add(InventoryLedger(
+                            work_session_id=active_session.id, driver_id=visit.driver_id,
+                            product_variant_id=item.product_variant_id, transaction_type='Adjustment (Reversal)',
+                            expected_quantity=0, actual_quantity=packs_to_return,
+                            difference=packs_to_return,
+                            admin_id=visit.driver_id, notes=f"إلغاء بيع سابق للمحل: {shop.name}"
+                        ))
+            
+            # 2. إرجاع المرتجعات التي استلمها المندوب (يُنفذ دائماً لأن المرتجعات مسموحة في NoSale أيضاً)
+            for ret in visit.returns:
+                if active_session:
+                    adjust_inventory(active_session.id, ret.product_variant_id, -ret.quantity)
+            
+            # 3. مسح سطور الفاتورة والمرتجعات نهائياً من قاعدة البيانات لبدء صفحة جديدة
+            for item in visit.items: db.session.delete(item)
+            for ret in visit.returns: db.session.delete(ret)
 
-        if debt_paid_input > 0 and debt_paid_input > original_shop_balance:
-             return jsonify({"message": f"مرفوض: لا يمكن تحصيل مبلغ ({debt_paid_input}) أكبر من الذمة الحالية للمحل ({original_shop_balance})."}), 400
+            # 4. التراجع المالي الشامل (استرجاع رصيد المحل بدقة الميزان لجميع الحالات)
+            if visit.shop_balance_before is not None:
+                shop.current_balance = visit.shop_balance_before
+            else:
+                # حماية طوارئ: استرجاع الرصيد بعملية حسابية عكسية في حال فقدان السجل المرجعي
+                if visit.outcome == 'Sale':
+                    old_debt = Decimal(str(visit.final_amount_due or 0.0)) - Decimal(str(visit.cash_collected or 0.0))
+                    if old_debt > Decimal('0.0'): shop.current_balance -= old_debt # إلغاء الدين الجديد
+                    shop.current_balance += Decimal(str(visit.debt_paid or 0.0))
+                elif visit.outcome == 'NoSale':
+                    shop.current_balance += Decimal(str(visit.debt_paid or 0.0))
+
+            # 5. تصفير وتطهير العدادات المالية للزيارة في الداتابيز
+            visit.amount_before_tax_and_discount = 0.0
+            visit.discount_applied = 0.0
+            visit.tax_amount = 0.0
+            visit.final_amount_due = 0.0
+            visit.cash_collected = 0.0
+            visit.debt_paid = 0.0
+            visit.shop_balance_before = None
+            visit.shop_balance_after = None
+            visit.tax_qr_code = None
+            
+            # 6. إعادة الزيارة لحالة "الانتظار" ليتم معالجتها بالبيانات الجديدة
+            visit.outcome = 'Pending'
+            visit.status = 'Pending'
+            db.session.commit() # اعتماد "النسف" الكامل قبل بناء البيانات الجديدة
+
+        # +++ المعالجة المالية الصارمة بالـ Decimal (ممنوع استخدام Float هنا نهائياً) +++
+        debt_paid_input = Decimal(str(data.get('debt_paid', 0.0)))
+        original_shop_balance = Decimal(str(shop.current_balance or 0.0))
+
+        # +++ اللوجيك المحاسبي الذكي للذمم السالبة +++
+        if debt_paid_input > Decimal('0'):
+            if original_shop_balance <= Decimal('0'):
+                return jsonify({"message": f"مرفوض: المحل رصيده دائن أو مُصفر ({original_shop_balance}). لا توجد ذمم لتحصيلها."}), 400
+            if debt_paid_input > original_shop_balance:
+                 return jsonify({"message": f"مرفوض: المبلغ المحصل ({debt_paid_input}) أكبر من ذمة المحل الحالية ({original_shop_balance})."}), 400
+                 
+        new_shop_balance = original_shop_balance
 
         visit.visit_timestamp = datetime.now(timezone.utc)
         visit.notes = data.get('notes')
         visit.latitude = data.get('latitude', visit.latitude)
         visit.longitude = data.get('longitude', visit.longitude)
         visit.shop_balance_before = original_shop_balance
-        visit.is_emergency = data.get('is_emergency', False)
+        visit.is_emergency = data.get('is_emergency', visit.is_emergency)
 
         if active_session:
             visit.work_session_id = active_session.id
@@ -241,6 +350,9 @@ def update_visit(visit_id):
             cart_items = data.get('cart_items', [])
             returns_data = data.get('returns', []) 
             cash_collected = float(data.get('cash_collected', 0.0))
+            
+            current_route = DispatchRoute.query.filter_by(work_session_id=active_session.id).first() if active_session else None
+            vehicle_id = current_route.vehicle_id if current_route else None
 
             total_final_amount = 0.0
             total_base_amount = 0.0
@@ -248,16 +360,37 @@ def update_visit(visit_id):
             total_tax = 0.0
             total_quantity = 0
 
+            # +++ النسف المعماري لـ N+1 (Bulk Fetch in Memory) +++
+            all_var_ids = [i.get('product_variant_id') for i in cart_items] + [r.get('product_variant_id') for r in returns_data]
+            all_var_ids = list(set([vid for vid in all_var_ids if vid]))
+            
+            variants_map = {v.id: v for v in ProductVariant.query.filter(ProductVariant.id.in_(all_var_ids)).all()}
+            
+            inv_map = {}
+            if active_session and all_var_ids:
+                inv_records = SessionInventory.query.filter(
+                    SessionInventory.work_session_id == active_session.id,
+                    SessionInventory.product_variant_id.in_(all_var_ids)
+                ).all()
+                inv_map = {inv.product_variant_id: inv for inv in inv_records}
+            # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
             for item in cart_items:
                 variant_id = item.get('product_variant_id')
-                quantity = int(item.get('quantity', 0))
+                quantity = int(item.get('quantity', 0)) # عدد الكراتين
+                packs_quantity = int(item.get('packs_quantity', 0)) # +++ عدد حبات الفرط +++
                 sample_quantity = int(item.get('sample_quantity', 0)) 
                 
-                if (quantity <= 0 and sample_quantity <= 0) or not variant_id:
+                # السماح بالمرور إذا كان هناك كراتين، فرط، أو عينات
+                if (quantity <= 0 and packs_quantity <= 0 and sample_quantity <= 0) or not variant_id:
                     continue
                     
-                variant = db.get_or_404(ProductVariant, variant_id)
-                invoice = calculate_invoice(quantity, variant.price_per_carton) # price_per_carton is the unit price now
+                variant = variants_map.get(variant_id)
+                if not variant:
+                    return jsonify({"message": f"المنتج رقم {variant_id} غير موجود."}), 404
+                    
+                # +++ استدعاء الدالة المحدثة مع أسعار الكرتونة والحبة +++
+                invoice = calculate_invoice(quantity, packs_quantity, variant.price_per_carton, variant.price_per_pack)
                 
                 if invoice is None:
                     invoice = {
@@ -269,15 +402,36 @@ def update_visit(visit_id):
                     }
                 
                 if active_session:
-                    net_quantity = -(quantity + invoice['bonus_units'] + sample_quantity)
-                    inv_success, inv_msg = adjust_inventory(active_session.id, variant_id, net_quantity)
+                    # +++ تحويل كل الكميات (كراتين + بونص + عينات + فرط) إلى "إجمالي حبات" لخصمها من الجرد بدقة +++
+                    total_packs_to_deduct = (quantity * variant.packs_per_carton) + packs_quantity + (invoice['bonus_units'] * variant.packs_per_carton) + (sample_quantity * variant.packs_per_carton)
+                    net_quantity_in_packs = -total_packs_to_deduct
+                    
+                    inv_record = inv_map.get(variant_id)
+                    expected_qty = inv_record.current_remaining_quantity if inv_record else 0
+                    
+                    inv_success, inv_msg = adjust_inventory(active_session.id, variant_id, net_quantity_in_packs)
                     if not inv_success:
                         return jsonify({"message": f"مخزونك لا يكفي من {variant.variant_name}. {inv_msg}"}), 409
+                        
+                    # +++ الربط اللحظي: تسجيل حركة البيع في دفتر الأستاذ (Ledger) +++
+                    db.session.add(InventoryLedger(
+                        work_session_id=active_session.id,
+                        driver_id=visit.driver_id,
+                        vehicle_id=vehicle_id,
+                        product_variant_id=variant_id,
+                        transaction_type='Sale',
+                        expected_quantity=expected_qty,
+                        actual_quantity=expected_qty + net_quantity_in_packs,
+                        difference=net_quantity_in_packs, # +++ تصحيح المتغير القاتل +++
+                        admin_id=visit.driver_id, # المندوب هو من قام بالحركة
+                        notes=f"فاتورة بيع للمحل: {shop.name}"
+                    ))
 
                 new_visit_item = VisitItem(
                     visit_id=visit.id,
                     product_variant_id=variant_id,
                     quantity=quantity,
+                    packs_quantity=packs_quantity, # +++ حفظ حبات الفرط في الداتابيز لحل لغز التبخر +++
                     bonus_quantity=invoice['bonus_units'],
                     sample_quantity=sample_quantity,     
                     price_per_unit_at_sale=variant.price_per_carton,
@@ -285,10 +439,10 @@ def update_visit(visit_id):
                 )
                 db.session.add(new_visit_item)
                
-                total_final_amount += invoice['final_amount']
-                total_base_amount += invoice['base_amount']
-                total_discount += invoice['discount_applied']
-                total_tax += invoice['tax_amount']
+                total_final_amount += float(invoice['final_amount'] or 0.0)
+                total_base_amount += float(invoice['base_amount'] or 0.0)
+                total_discount += float(invoice['discount_applied'] or 0.0)
+                total_tax += float(invoice['tax_amount'] or 0.0)
                 total_quantity += quantity
 
             for ret in returns_data:
@@ -301,10 +455,26 @@ def update_visit(visit_id):
                     continue
                 
                 if active_session:
-                    # Returns add back to inventory if they are not damaged, but here we just adjust
+                    inv_record = inv_map.get(ret_variant_id)
+                    expected_qty = inv_record.current_remaining_quantity if inv_record else 0
+                    
                     inv_success, inv_msg = adjust_inventory(active_session.id, ret_variant_id, ret_quantity)
                     if not inv_success:
                         return jsonify({"message": f"خطأ في تعديل المخزون للمرتجعات. {inv_msg}"}), 409
+
+                    # +++ الربط اللحظي: تسجيل حركة الإرجاع في دفتر الأستاذ (Ledger) +++
+                    db.session.add(InventoryLedger(
+                        work_session_id=active_session.id,
+                        driver_id=visit.driver_id,
+                        vehicle_id=vehicle_id,
+                        product_variant_id=ret_variant_id,
+                        transaction_type='Return',
+                        expected_quantity=expected_qty,
+                        actual_quantity=expected_qty + ret_quantity,
+                        difference=ret_quantity, # سيكون بالموجب لأنه إضافة
+                        admin_id=visit.driver_id,
+                        notes=f"مرتجع من المحل: {shop.name} - السبب: {ret_reason}"
+                    ))
                 
                 new_return = VisitReturn(
                     visit_id=visit.id,
@@ -315,8 +485,12 @@ def update_visit(visit_id):
                 )
                 db.session.add(new_return)
 
-            new_debt = total_final_amount - cash_collected
-            if new_debt > 0:
+            # +++ توحيد الأنواع: تحويل ناتج الفاتورة إلى Decimal قبل جمعه مع الرصيد +++
+            from decimal import Decimal
+            new_debt = Decimal(str(total_final_amount)) - Decimal(str(cash_collected))
+            
+            if new_debt > Decimal('0'):
+                # +++ نصيحة الصديق الخبير: إرسال القيمة مباشرة كـ Decimal لمنع هدر القروش +++
                 is_allowed, msg = check_debt_limits(visit.driver_id, shop.id, new_debt)
                 if not is_allowed:
                     return jsonify({"message": msg}), 403
@@ -338,8 +512,9 @@ def update_visit(visit_id):
         elif outcome == 'NoSale':
             visit.outcome = 'NoSale'
             visit.status = 'Completed'
-            visit.debt_paid = debt_paid_input
+            visit.debt_paid = float(debt_paid_input) # تخزين كـ Float في الكائن مؤقتاً
             visit.no_sale_reason = data.get('notes')
+            # +++ طرح دقيق باستخدام Decimal +++
             new_balance = original_shop_balance - debt_paid_input
             shop.current_balance = new_balance
             visit.shop_balance_after = new_balance
@@ -350,10 +525,24 @@ def update_visit(visit_id):
             visit.no_sale_reason = data.get('notes')
             visit.shop_balance_after = original_shop_balance
 
+        # +++ إغلاق الطلب العاجل في غرفة العمليات فور إنجاز الزيارة +++
+        if visit.status == 'Completed':
+            shortage = ShortageRequest.query.filter_by(shop_id=shop.id, status='pending').first()
+            if shortage:
+                shortage.status = 'fulfilled'
+            
+            # +++ اللوجيك الدقيق (فرز المحلات العاجلة بعد إنجازها) +++
+            # إذا كان المحل العاجل يتبع أساساً لمنطقة خط السير الحالي، نعيده لقائمة (جولة اليوم).
+            # أما إذا كان من منطقة خارجية، نُبقي ختم الطوارئ ليبقى في قائمة (الطلبات العاجلة).
+            current_route = DispatchRoute.query.filter_by(work_session_id=active_session.id, status='active').first() if active_session else None
+            if current_route and shop.zone_id == current_route.zone_id:
+                visit.is_emergency = False
+                
         db.session.commit()
         return jsonify({
             "message": "Visit updated successfully",
-            "new_balance": shop.current_balance
+            # +++ تحويل الـ Decimal إلى Float صريح +++
+            "new_balance": float(shop.current_balance or 0.0)
         }), 200
 
     except Exception as e:
@@ -381,9 +570,9 @@ def get_driver_dashboard(driver_id):
     active_route = DispatchRoute.query.filter_by(driver_id=driver_id, status='active').first()
     
     # 2. البحث عن جلسة عمل نشطة اليوم
-    active_session = WorkSession.query.filter(
-        WorkSession.driver_id == driver_id,
-        func.date(WorkSession.start_time) == today_date
+    active_session = WorkSession.query.filter_by(
+        driver_id=driver_id,
+        end_time=None
     ).order_by(WorkSession.id.desc()).first()
 
     assigned_region = "غير محددة"
@@ -458,11 +647,16 @@ def get_driver_dashboard(driver_id):
             Visit.cash_collected > 0
         ).count()
 
-        total_pending = Visit.query.join(Shop).filter(
-            Visit.work_session_id == active_session.id, 
-            Visit.status == 'Pending',
-            Shop.zone_id == active_route.zone_id
-        ).count()
+        # +++ إصلاح الانهيار: التحقق من وجود خط سير نشط قبل محاولة قراءة منطقته +++
+        if active_route:
+            total_pending = Visit.query.join(Shop).filter(
+                Visit.work_session_id == active_session.id, 
+                Visit.status == 'Pending',
+                Shop.zone_id == active_route.zone_id,
+                Shop.is_archived == False # +++ العلاج الذاتي: تجاهل المحلات المؤرشفة +++
+            ).count()
+        else:
+            total_pending = 0
 
     # إذا كان هناك خط سير ولكن الجلسة لم تبدأ، نحسب المحلات المعلقة المربوطة بخط السير
     elif active_route:
@@ -514,9 +708,13 @@ def get_driver_dashboard(driver_id):
 @token_required
 def add_new_shop():
     driver_id = getattr(g, 'current_driver_id', None)
-    active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=date.today(), end_time=None).first()
-    if not active_session or not active_session.is_authorized_to_sell:
-        return jsonify({"message": "مرفوض: غير مصرح لك بإضافة محلات جديدة قبل تفعيل خط السير من الإدارة."}), 403
+    active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
+    if not active_session:
+        return jsonify({"message": "مرفوض: الرجاء بدء يوم العمل أولاً."}), 403
+    if active_session.break_start_time and not active_session.break_end_time:
+        return jsonify({"message": "أنت الآن في وقت الاستراحة. قم بإنهاء الاستراحة لمتابعة العمل."}), 403
+    if not active_session.is_authorized_to_sell:
+        return jsonify({"message": "مرفوض: غير مصرح لك بإضافة محلات حالياً. بانتظار تفعيل خط السير من الإدارة."}), 403
         
     data = request.get_json()
     name = data.get('name', '').strip() if data.get('name') else ''
@@ -569,10 +767,10 @@ def get_products():
     return jsonify([{
         "id": v.id, 
         "variant_name": v.variant_name, 
-        "price_per_carton": v.price_per_carton,
+        # +++ تحويل القيمة المالية إلى float لمنع خطأ النوع في فلاتر +++
+        "price_per_carton": float(v.price_per_carton or 0.0), 
         "packs_per_carton": v.packs_per_carton,
-        "price_per_pack": v.price_per_pack,
-        "max_samples": v.default_max_samples_per_day 
+        "price_per_pack": float(v.price_per_pack or 0.0),
     } for v in variants]), 200
 
 
@@ -580,54 +778,56 @@ def get_products():
 @token_required
 def get_visits(driver_id):
     # 1. جلب الجلسة النشطة حالياً للمندوب
-    active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=date.today(), end_time=None).first()
+    active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
     
     # +++ سد ثغرة تسرب المحلات: جلب المحلات التابعة لخطة السير النشطة فقط +++
     active_route = DispatchRoute.query.filter_by(driver_id=driver_id, status='active').first()
     if not active_route:
         return jsonify([]), 200 # لا نعرض أي محلات إذا لم يكن هناك خط سير نشط
 
-    # 2. اللوجيك المؤسسي: جلب المحلات المعلقة + المحلات المكتملة في الجلسة الحالية فقط
+    # +++ الهندسة الصحيحة والتنظيف (نصيحة الصديق الخبير لإزالة N+1 والاستعلامات المهدرة) +++
+    # الزيارة تعتبر ملكاً للمندوب بمجرد ربطها به (سواء كانت في منطقته أو طلب عاجل خارجي).
     visits_query = Visit.query.join(Shop).options(joinedload(Visit.shop)).filter(
         Visit.driver_id == driver_id,
-        Shop.zone_id == active_route.zone_id
+        Shop.is_archived == False
     )
 
+    # +++ التطابق المطلق: إجبار الموبايل على فرز الزيارات بناءً على الترتيب الحي للمحلات (Shop.sequence) +++
     if active_session:
-        visits = visits_query.filter(
-            (Visit.status == 'Pending') |
-            (Visit.work_session_id == active_session.id)
-        ).order_by(Visit.sequence.asc().nulls_last()).all()
+        visits = visits_query.filter((Visit.status == 'Pending') | (Visit.work_session_id == active_session.id)).order_by(Shop.sequence.asc().nulls_last(), Visit.id.asc()).all()
     else:
-        # إذا لا توجد جلسة نشطة، نعرض المعلقات فقط
-        visits = visits_query.filter(Visit.status == 'Pending').order_by(Visit.sequence.asc().nulls_last()).all()
+        visits = visits_query.filter(Visit.status == 'Pending').order_by(Shop.sequence.asc().nulls_last(), Visit.id.asc()).all()
 
     return jsonify([{
         "visit_id": v.id, 
         "shop_id": v.shop_id, 
         "shop_name": v.shop.name,
         "shop_location_link": v.shop.location_link, 
-        "shop_balance": v.shop.current_balance,
+        "shop_latitude": v.shop.latitude,   # +++ إرسال خط العرض للخارج +++
+        "shop_longitude": v.shop.longitude, # +++ إرسال خط الطول للخارج +++
+        "shop_balance": float(v.shop.current_balance or 0.0),
         "visit_status": v.status, 
         "visit_sequence": v.sequence,
-        "is_emergency": getattr(v, 'is_emergency', False)
+        "is_emergency": v.is_emergency # +++ الاعتماد على ختم الداتابيز لكي لا يختفي المحل بعد إنجازه +++
     } for v in visits]), 200
 
 
 @api.route('/visits/<int:visit_id>', methods=['GET'])
 @token_required
 def get_visit_details(visit_id):
-    # استخدام joinedload لمنع N+1 عند جلب المحل فقط (items dynamic lazy relation)
+    # +++ الحل المعماري الشامل: Eager Loading متسلسل لنسف N+1 بالكامل +++
     visit = Visit.query.options(
-        joinedload(Visit.shop)
+        joinedload(Visit.shop),
+        joinedload(Visit.items).joinedload(VisitItem.product_variant),
+        joinedload(Visit.returns) # +++ جلب التوالف لكي لا تتصفر في شاشة المندوب +++
     ).filter_by(id=visit_id).first()
     
     if not visit: return jsonify({"message": "Visit not found"}), 404
     shop = visit.shop
     
     cart_items = []
-    # +++ حل خطأ Eager Loading بجلب العناصر كقائمة منفصلة +++
-    items = visit.items.options(joinedload(VisitItem.product_variant)).all()
+    # تم جلب العناصر مع تفاصيل منتجاتها مسبقاً في الاستعلام الرئيسي بكفاءة O(1)
+    items = visit.items
     for item in items:
         cart_items.append({
             "product_variant_id": item.product_variant_id,
@@ -639,22 +839,25 @@ def get_visit_details(visit_id):
         })
 
     return jsonify({
-        "visit_id": visit.id, 
-        "driver_id": visit.driver_id, 
+        "visit_id": visit.id,
+        "driver_id": visit.driver_id,
         "outcome": visit.outcome,
-        "cart_items": cart_items, 
-        "cash_collected": visit.cash_collected, 
-        "debt_paid": visit.debt_paid,
-        "notes": visit.notes, 
-        "no_sale_reason": visit.no_sale_reason, 
+        "cart_items": cart_items,
+        # +++ تحويل الـ Decimal إلى Float صريح +++
+        "cash_collected": float(visit.cash_collected or 0.0),
+        "debt_paid": float(visit.debt_paid or 0.0),
+        "notes": visit.notes,
+        "no_sale_reason": visit.no_sale_reason,
         "status": visit.status,
-        "shop": {"latitude": shop.latitude, "longitude": shop.longitude, "location_link": shop.location_link}
+        "shop": {"latitude": shop.latitude, "longitude": shop.longitude, "location_link": shop.location_link},
+        # +++ تزويد الموبايل ببيانات التوالف المحفوظة لكي يعرضها بدلاً من الصفر +++
+        "returns": [{"product_variant_id": r.product_variant_id, "quantity": r.quantity, "return_type": r.return_type, "reason": r.reason} for r in visit.returns]
     }), 200
 
 @api.route('/driver/<int:driver_id>/sessions/active', methods=['GET'])
 @token_required
 def get_active_session(driver_id):
-    active_session = WorkSession.query.filter_by(driver_id=driver_id, session_date=date.today(), end_time=None).first()
+    active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
     if active_session:
         return jsonify({"active_session_found": True, "session_id": active_session.id, "start_time": active_session.start_time.isoformat()}), 200
     return jsonify({"active_session_found": False}), 200
@@ -693,13 +896,39 @@ def get_admin_dashboard_data():
     today_date = date.today()
     
     # +++ اللوجيك المعماري الصحيح: جلب جلسات اليوم، أو أي جلسة سابقة لم يتم تسويتها (لحل مشكلة نسيان التسوية) +++
-    sessions = WorkSession.query.filter(
+    sessions = WorkSession.query.options(joinedload(WorkSession.driver)).filter(
         (func.date(WorkSession.start_time) == today_date) | 
         (WorkSession.is_settled == False)
     ).all()
     
-    drivers_data = []
+    # +++ النسف المعماري لـ N+1 في الداشبورد +++
+    session_ids = [s.id for s in sessions]
+    stats_map = {}
+    pending_map = {}
+    inv_map = {}
     
+    if session_ids:
+        stats_query = db.session.query(
+            Visit.work_session_id,
+            func.count(Visit.id).label('total_visits'),
+            func.sum(Visit.cash_collected).label('total_cash'),
+            func.sum(Visit.debt_paid).label('total_debt')
+        ).filter(Visit.work_session_id.in_(session_ids), Visit.status == 'Completed').group_by(Visit.work_session_id).all()
+        stats_map = {r.work_session_id: r for r in stats_query}
+        
+        driver_ids = [s.driver_id for s in sessions]
+        pending_query = db.session.query(
+            Visit.driver_id, func.count(Visit.id)
+        ).filter(Visit.driver_id.in_(driver_ids), Visit.status == 'Pending').group_by(Visit.driver_id).all()
+        pending_map = {r.driver_id: r[1] for r in pending_query}
+        
+        inventories = SessionInventory.query.options(joinedload(SessionInventory.product_variant)).filter(SessionInventory.work_session_id.in_(session_ids)).all()
+        for inv in inventories:
+            if inv.work_session_id not in inv_map: inv_map[inv.work_session_id] = []
+            inv_map[inv.work_session_id].append(inv)
+    # ++++++++++++++++++++++++++++++++++++++++
+
+    drivers_data = []
     for session in sessions:
         driver = session.driver
         if not driver or not driver.is_active or driver.is_admin:
@@ -710,24 +939,18 @@ def get_admin_dashboard_data():
         is_authorized = session.is_authorized_to_sell
         is_on_break = bool(session.break_start_time and not session.break_end_time)
         
-        # حساب الزيارات والمالية
-        stats = db.session.query(
-            func.count(Visit.id).label('total_visits'),
-            func.sum(Visit.cash_collected).label('total_cash'),
-            func.sum(Visit.debt_paid).label('total_debt')
-        ).filter(Visit.work_session_id == session.id, Visit.status == 'Completed').first()
+        # حساب الزيارات والمالية باستخدام الذاكرة O(1)
+        stats = stats_map.get(session.id)
 
-        completed_total = stats.total_visits or 0
-        cash_from_sales = float(stats.total_cash or 0.0)
-        cash_from_debts = float(stats.total_debt or 0.0)
+        completed_total = stats.total_visits if stats else 0
+        cash_from_sales = float(stats.total_cash or 0.0) if (stats and stats.total_cash) else 0.0
+        cash_from_debts = float(stats.total_debt or 0.0) if (stats and stats.total_debt) else 0.0
         expected_cash_in_hand = cash_from_sales + cash_from_debts
         
-        pending_remaining = Visit.query.filter_by(work_session_id=session.id, status='Pending').count()
+        pending_remaining = pending_map.get(session.driver_id, 0)
         
-        # جرد المخزون
-        inventories = SessionInventory.query.options(
-            joinedload(SessionInventory.product_variant)
-        ).filter_by(work_session_id=session.id).all()
+        # جرد المخزون باستخدام الذاكرة O(1)
+        inventories = inv_map.get(session.id, [])
         
         inv_list = []
         for inv in inventories:
@@ -880,32 +1103,58 @@ def settle_session(session_id):
         expected_cash = float(stats.total_cash or 0.0) + float(stats.total_debt or 0.0)
         cash_difference = actual_cash - expected_cash
 
-        # 2. معالجة الجرد المستودعي (مقارنة المتوقع بالفعلي)
+        # 2. معالجة الجرد المستودعي (اكتشاف العجز/الزيادة وتسجيلها)
+        # نحتاج معرفة السيارة المرتبطة بالجلسة لتسجيلها في الدفتر
+        route = DispatchRoute.query.filter_by(work_session_id=session.id).first()
+        
+        # +++ النسف المعماري لـ N+1: جلب جرد الجلسة دفعة واحدة +++
+        prod_ids_in_jard = [item.get('product_id') for item in inventory_jard if item.get('product_id')]
+        bulk_inv_records = {inv.product_variant_id: inv for inv in SessionInventory.query.filter(
+            SessionInventory.work_session_id == session.id,
+            SessionInventory.product_variant_id.in_(prod_ids_in_jard)
+        ).all()} if prod_ids_in_jard else {}
+
         for item in inventory_jard:
             prod_id = item.get('product_id')
             actual_qty = int(item.get('actual', 0))
             
-            inv_record = SessionInventory.query.filter_by(
-                work_session_id=session.id, 
-                product_variant_id=prod_id
-            ).first()
+            inv_record = bulk_inv_records.get(prod_id)
             
             if inv_record:
+                # +++ الذكاء المالي: المتوقع هو الرصيد المتبقي بعد طرح كل المبيعات +++
+                expected_qty = inv_record.current_remaining_quantity
+                difference = actual_qty - expected_qty
+                
+                # إذا كان هناك عجز أو زيادة، وثّق ذلك فوراً في دفتر الحركات
+                if difference != 0:
+                    t_type = 'Surplus' if difference > 0 else 'Deficit'
+                    notes = f"تسوية نهاية اليوم. المتوقع: {expected_qty}، الفعلي المستلم: {actual_qty}"
+                    
+                    ledger_entry = InventoryLedger(
+                        work_session_id=session.id,
+                        driver_id=session.driver_id,
+                        vehicle_id=route.vehicle_id if route else None,
+                        product_variant_id=prod_id,
+                        transaction_type=t_type,
+                        expected_quantity=expected_qty,
+                        actual_quantity=actual_qty,
+                        difference=difference,
+                        admin_id=admin.id,
+                        notes=notes
+                    )
+                    db.session.add(ledger_entry)
+
                 # تحديث الكمية المتبقية الفعلية في الجلسة لتطابق الجرد
                 inv_record.current_remaining_quantity = actual_qty
 
         # 3. إغلاق العهدة
         session.is_settled = True
         
-        # 4. إغلاق خط السير وتفريغ المحلات المعلقة للغد
+        # 4. فصل الجلسة المالية عن خط السير، مع إبقاء المنطقة للمندوب لليوم التالي
         route = DispatchRoute.query.filter_by(work_session_id=session.id, status='active').first()
         if route:
-            # +++ تعديل لمنع إغلاق المنطقة إذا كان هناك محلات متبقية +++
-            remaining_visits = Visit.query.filter_by(work_session_id=session.id, status='Pending').count()
-            if remaining_visits > 0:
-                route.status = 'postponed' # أو waiting حسب الدعم الفني، لكن postponed هي الأنسب للتأجيل للغد
-            else:
-                route.status = 'closed'
+            route.work_session_id = None
+            # +++ تم حذف تغيير حالة المنطقة (status). ستبقى 'active' وظاهرة للمندوب +++
 
         db.session.commit()
         return jsonify({
@@ -947,7 +1196,8 @@ def dispatch_init():
     today = date.today()
     zones_data = []
     for z in zones:
-        shops_count = Shop.query.filter_by(zone_id=z.id, is_archived=False).count()
+        # +++ استخدام الذاكرة المسبقة (O(1)) بدلاً من استعلام مهدر داخل الحلقة +++
+        shops_count = shop_count_map.get(z.id, 0)
         
         # +++ تحديد حالة الجدولة للترتيب واللون الأحمر +++
         schedule_status = "null"
@@ -992,35 +1242,109 @@ def dispatch_route():
     if not all([zone_id, driver_id, vehicle_id]):
         return jsonify({"message": "يرجى توفير المنطقة، المندوب، والسيارة."}), 400
 
-    if DispatchRoute.query.filter_by(status='active', zone_id=zone_id).first():
-        return jsonify({"message": "⚠️ المنطقة المحددة قيد العمل أو مؤجلة."}), 409
-    if DispatchRoute.query.filter_by(status='active', driver_id=driver_id).first():
-        return jsonify({"message": "⚠️ المندوب المختار مشغول بخط سير آخر."}), 409
-    if DispatchRoute.query.filter_by(status='active', vehicle_id=vehicle_id).first():
-        return jsonify({"message": "⚠️ السيارة المحددة مستخدمة حالياً."}), 409
+    # +++ الحماية المعمارية المرنة (Senior Logic) +++
+    # 1. المنطقة (Zone): تقفل تماماً إذا كانت (نشطة، انتظار، أو مؤجلة) لمنع التضارب الجغرافي.
+    if DispatchRoute.query.filter(DispatchRoute.status.in_(['active', 'waiting', 'postponed']), DispatchRoute.zone_id == zone_id).first():
+        return jsonify({"message": "⚠️ المنطقة المحددة قيد العمل أو مؤجلة مسبقاً. الرجاء إغلاقها أو تحويلها أولاً."}), 409
+    
+    # 2. المندوب (Driver): يُقفل فقط إذا كان لديه خط (نشط أو قيد الانتظار). يُسمح له بخط جديد إذا كان خطه القديم (مؤجل).
+    if DispatchRoute.query.filter(DispatchRoute.status.in_(['active', 'waiting']), DispatchRoute.driver_id == driver_id).first():
+        return jsonify({"message": "⚠️ المندوب المختار لديه خط سير نشط أو قيد الانتظار حالياً."}), 409
+        
+    # 3. السيارة (Vehicle): تُقفل فقط إذا كانت في خط (نشط أو قيد الانتظار).
+    if DispatchRoute.query.filter(DispatchRoute.status.in_(['active', 'waiting']), DispatchRoute.vehicle_id == vehicle_id).first():
+        return jsonify({"message": "⚠️ السيارة المحددة مستخدمة في خط سير نشط أو قيد الانتظار حالياً."}), 409
 
     try:
         new_route = DispatchRoute(zone_id=zone_id, driver_id=driver_id, vehicle_id=vehicle_id, status='active')
         db.session.add(new_route)
 
-        # +++ مسح الحمولة القديمة للسيارة وإضافة الحمولة الجديدة +++
-        VehicleLoad.query.filter_by(vehicle_id=vehicle_id).delete()
-        for prod_id, qty in inventory.items():
-            if int(qty) > 0:
-                db.session.add(VehicleLoad(vehicle_id=vehicle_id, product_variant_id=int(prod_id), quantity=int(qty)))
+        # +++ حماية العهدة والجرد (السيناريو المعماري الجديد) +++
+        # نتحقق: هل المندوب لديه جلسة عمل (عهدة) نشطة حالياً؟
+        active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
+        
+        # +++ النسف المعماري لـ N+1 أثناء الجرد وتوحيد القياس (الكراتين إلى حبات) +++
+        if inventory is not None:
+            prod_ids = [int(p) for p, q in inventory.items() if int(q) > 0]
+            bulk_variants = {v.id: v for v in ProductVariant.query.filter(ProductVariant.id.in_(prod_ids)).all()} if prod_ids else {}
+            
+            if not active_session:
+                # إذا لم يبدأ يومه بعد (صباحاً)، نعتمد الجرد المدخل كحمولة جديدة للسيارة
+                VehicleLoad.query.filter_by(vehicle_id=vehicle_id).delete()
+                for prod_id, qty in inventory.items():
+                    qty_cartons = int(qty)
+                    if qty_cartons > 0:
+                        db.session.add(VehicleLoad(vehicle_id=vehicle_id, product_variant_id=int(prod_id), quantity=qty_cartons))
+                        # (تحويل الكراتين إلى حبات سيتم عند بدء الجلسة في start_work_session)
+            else:
+                # +++ المعالجة الذكية لتزويد السيارة منتصف اليوم (Mid-day Restock) +++
+                bulk_vloads = {vl.product_variant_id: vl for vl in VehicleLoad.query.filter(VehicleLoad.vehicle_id == vehicle_id, VehicleLoad.product_variant_id.in_(prod_ids)).all()} if prod_ids and vehicle_id else {}
+                bulk_sinvs = {si.product_variant_id: si for si in SessionInventory.query.filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids)).all()} if prod_ids else {}
 
-        # +++ اللوجيك المعماري: توليد مهام الزيارات (المحلات) للمندوب بناءً على منطقته +++
+                for prod_id, new_qty_str in inventory.items():
+                    new_actual_qty_cartons = int(new_qty_str)
+                    if new_actual_qty_cartons > 0:
+                        p_id = int(prod_id)
+                        variant = bulk_variants.get(p_id)
+                        if not variant: continue
+                        
+                        new_actual_qty_packs = new_actual_qty_cartons * variant.packs_per_carton
+                        
+                        # 1. تحديث حمولة السيارة الأساسية (تبقى بالكراتين لشاشة الإدارة)
+                        v_load = bulk_vloads.get(p_id)
+                        if v_load: v_load.quantity = new_actual_qty_cartons
+                        else: db.session.add(VehicleLoad(vehicle_id=vehicle_id, product_variant_id=p_id, quantity=new_actual_qty_cartons))
+
+                        # 2. تحديث عهدة المندوب اللحظية وتوثيق الفرق (بالحبات)
+                        sess_inv = bulk_sinvs.get(p_id)
+                        if sess_inv:
+                            difference_in_packs = new_actual_qty_packs - sess_inv.current_remaining_quantity
+                            if difference_in_packs != 0:
+                                sess_inv.current_remaining_quantity = new_actual_qty_packs
+                                sess_inv.starting_quantity += difference_in_packs 
+                                db.session.add(InventoryLedger(
+                                    work_session_id=active_session.id, driver_id=driver_id, vehicle_id=vehicle_id,
+                                    product_variant_id=p_id, transaction_type='Mid-day Restock' if difference_in_packs > 0 else 'Mid-day Withdraw',
+                                    expected_quantity=sess_inv.current_remaining_quantity - difference_in_packs, actual_quantity=new_actual_qty_packs,
+                                    difference=difference_in_packs, admin_id=admin.id, notes="تعديل حمولة السيارة منتصف اليوم عند إطلاق خط السير"
+                                ))
+                        else:
+                            db.session.add(SessionInventory(work_session_id=active_session.id, product_variant_id=p_id, starting_quantity=new_actual_qty_packs, current_remaining_quantity=new_actual_qty_packs))
+
+        # +++ التوليد الذكي والمضاد للاستنساخ (Bulk Fetch) أثناء إطلاق الخط +++
         shops_in_zone = Shop.query.filter_by(zone_id=zone_id, is_active=True, is_archived=False).all()
+        shop_ids = [s.id for s in shops_in_zone]
+
+        # 1. جلب كل الزيارات الموجودة اليوم لهذا المندوب في هذه المحلات
+        today = date.today()
+        existing_visits = Visit.query.filter(
+            Visit.driver_id == driver_id, 
+            Visit.shop_id.in_(shop_ids), 
+            db.or_(Visit.status == 'Pending', func.date(Visit.visit_timestamp) == today)
+        ).all()
+        visited_shop_ids = {v.shop_id for v in existing_visits}
+
+        # 2. جلب الطلبات العاجلة المعلقة لهذه المحلات
+        pending_shortages = ShortageRequest.query.filter(ShortageRequest.shop_id.in_(shop_ids), ShortageRequest.status == 'pending').all()
+        shortage_shop_ids = {s.shop_id for s in pending_shortages}
+
         for shop in shops_in_zone:
-            existing_visit = Visit.query.filter_by(driver_id=driver_id, shop_id=shop.id, status='Pending').first()
-            if not existing_visit:
+            is_emerg = shop.id in shortage_shop_ids
+            if shop.id not in visited_shop_ids:
+                # إنشاء زيارة جديدة فقط إذا لم تكن هناك زيارة مسبقة
                 new_visit = Visit(
                     driver_id=driver_id,
                     shop_id=shop.id,
                     status='Pending',
-                    sequence=shop.sequence
+                    sequence=shop.sequence,
+                    is_emergency=is_emerg
                 )
                 db.session.add(new_visit)
+            else:
+                # إذا كانت الزيارة موجودة، نقوم فقط بتحديث حالة الطوارئ الخاصة بها
+                visit_to_update = next((v for v in existing_visits if v.shop_id == shop.id), None)
+                if visit_to_update and is_emerg:
+                     visit_to_update.is_emergency = True
 
         db.session.commit()
         return jsonify({"message": "تم إطلاق خط السير بنجاح"}), 201
@@ -1037,42 +1361,18 @@ def get_vehicle_inventory(vehicle_id):
     if not admin or not admin.is_admin:
         return jsonify({"message": "مرفوض: هذه العملية تتطلب صلاحيات إدارة."}), 403
 
-    # 1. جلب الحمولة الأساسية
+    # 1. جلب الحمولة الحالية للسيارة (دون طرح أي مبيعات لأن الجرد يجب أن يعكس الواقع اللحظي للسيارة)
     loads = VehicleLoad.query.filter_by(vehicle_id=vehicle_id).all()
     inventory = {l.product_variant_id: l.quantity for l in loads}
 
-    # 2. طرح المبيعات المكتملة اليوم
-    today = date.today()
-    routes = DispatchRoute.query.filter(
-        DispatchRoute.vehicle_id == vehicle_id,
-        DispatchRoute.dispatch_date == today
-    ).all()
-    
-    session_ids = [r.work_session_id for r in routes if r.work_session_id]
-    
-    if session_ids:
-        sales = db.session.query(
-            VisitItem.product_variant_id,
-            func.sum(VisitItem.quantity + VisitItem.bonus_quantity + VisitItem.sample_quantity).label('total_out')
-        ).join(Visit).filter(
-            Visit.work_session_id.in_(session_ids),
-            Visit.status == 'Completed'
-        ).group_by(VisitItem.product_variant_id).all()
-
-        for s in sales:
-            if s.product_variant_id in inventory:
-                inventory[s.product_variant_id] -= int(s.total_out)
-            else:
-                inventory[s.product_variant_id] = -int(s.total_out)
-
-    # 3. إرجاع النتائج
-    variants = ProductVariant.query.filter(ProductVariant.id.in_(inventory.keys())).all()
+    # 2. إرجاع النتائج بناءً على الأصناف النشطة
+    variants = ProductVariant.query.filter_by(is_active=True).all()
     result = []
     for v in variants:
         result.append({
             "product_id": str(v.id),
             "product_name": v.variant_name,
-            "current_quantity": inventory.get(v.id, 0)
+            "current_quantity": inventory.get(v.id, 0) # إذا لم تكن في السيارة نرسل 0
         })
 
     return jsonify(result), 200
@@ -1089,7 +1389,8 @@ def get_dispatch_shops():
     if not admin or not admin.is_admin:
         return jsonify({"message": "مرفوض: تتطلب صلاحيات إدارة."}), 403
         
-    shops = Shop.query.all()
+    # +++ إجبار قاعدة البيانات على ترتيب المحلات حسب التسلسل المعتمد لضمان التطابق +++
+    shops = Shop.query.order_by(Shop.sequence.asc().nulls_last(), Shop.id.asc()).all()
     return jsonify([{
         "id": str(s.id),
         "name": s.name,
@@ -1097,8 +1398,9 @@ def get_dispatch_shops():
         "phone": s.phone_number or "",
         "mapLink": s.location_link or "",
         "zoneId": str(s.zone_id) if s.zone_id else "",
-        "initialDebt": s.current_balance,
-        "maxDebtLimit": s.max_debt_limit,
+        # +++ تحويل الـ Decimal إلى Float صريح +++
+        "initialDebt": float(s.current_balance or 0.0),
+        "maxDebtLimit": float(s.max_debt_limit or 0.0),
         "sequence": getattr(s, 'sequence', 0),
         "archived": getattr(s, 'is_archived', False)
     } for s in shops]), 200
@@ -1113,19 +1415,32 @@ def bulk_update_shops():
         
     data = request.get_json()
     try:
+        # +++ النسف المعماري لـ N+1: جلب المحلات والمناطق دفعة واحدة في الذاكرة +++
+        shop_ids = [str(s.get('id')).replace('s', '') for s in data if s.get('id')]
+        bulk_shops = {str(sh.id): sh for sh in Shop.query.filter(Shop.id.in_(shop_ids)).all()} if shop_ids else {}
+        
+        zone_ids_to_check = list(set([s.get('zoneId', bulk_shops[str(s.get('id')).replace('s', '')].zone_id if str(s.get('id')).replace('s', '') in bulk_shops else None) for s in data if 'archived' in s and s['archived'] == False]))
+        zone_ids_to_check = [z for z in zone_ids_to_check if z is not None]
+        bulk_zones = {z.id: z for z in Zone.query.filter(Zone.id.in_(zone_ids_to_check)).all()} if zone_ids_to_check else {}
+
         for s_data in data:
-            shop = db.session.get(Shop, str(s_data.get('id')).replace('s', ''))
+            shop_id_str = str(s_data.get('id')).replace('s', '')
+            shop = bulk_shops.get(shop_id_str)
             if shop:
                 # الحماية الذكية: منع استعادة المحل إذا كانت منطقته مؤرشفة أو محذوفة
                 is_restoring = 'archived' in s_data and s_data['archived'] == False
                 if is_restoring:
                     zone_to_check = s_data.get('zoneId', shop.zone_id)
-                    zone_exists = db.session.get(Zone, zone_to_check)
+                    zone_exists = bulk_zones.get(zone_to_check)
                     if not zone_exists or not getattr(zone_exists, 'is_active', True):
                         return jsonify({"message": f"لا يمكن استعادة المحل '{shop.name}' لأن منطقته مؤرشفة. يرجى نقله لمنطقة نشطة أولاً."}), 400
 
                 if 'sequence' in s_data: shop.sequence = s_data['sequence']
-                if 'archived' in s_data: shop.is_archived = s_data['archived']
+                if 'archived' in s_data: 
+                    shop.is_archived = s_data['archived']
+                    # +++ حماية التقارير: إلغاء الزيارات المعلقة فوراً بدلاً من مسحها عند الأرشفة +++
+                    if s_data['archived']:
+                        Visit.query.filter_by(shop_id=shop.id, status='Pending').update({'status': 'Cancelled'}, synchronize_session=False)
                 if 'zoneId' in s_data: shop.zone_id = s_data['zoneId']
         db.session.commit()
         return jsonify({"message": "تم تحديث المحلات بنجاح"}), 200
@@ -1201,7 +1516,7 @@ def admin_add_shop():
             latitude=lat,
             longitude=lng,
             zone_id=zone_id,
-            current_balance=float(data.get('initialDebt', 0.0)),
+            current_balance=max(0.0, float(data.get('initialDebt', 0.0))),
             max_debt_limit=float(data.get('maxDebtLimit', 0.0)),
             added_by_driver_id=admin.id,
             sequence=int(data.get('sequence', 999))
@@ -1235,33 +1550,51 @@ def get_active_routes():
 
     session_ids = [r.work_session_id for r in routes if r.work_session_id]
     pending_visits_map = {}
-    if session_ids:
-        pending_counts = db.session.query(
-            Visit.work_session_id, func.count(Visit.id)
-        ).filter(Visit.work_session_id.in_(session_ids), Visit.status == 'Pending').group_by(Visit.work_session_id).all()
-        pending_visits_map = {ws_id: count for ws_id, count in pending_counts}
+    session_ended_map = {} # +++ خريطة لمعرفة حالة إنهاء العمل +++
     
-    zones_without_session = [r.zone_id for r in routes if not r.work_session_id]
-    zone_shops_map = {}
-    if zones_without_session:
-        shop_counts = db.session.query(
-            Shop.zone_id, func.count(Shop.id)
-        ).filter(Shop.zone_id.in_(zones_without_session), Shop.is_active == True, Shop.is_archived == False).group_by(Shop.zone_id).all()
-        zone_shops_map = {z_id: count for z_id, count in shop_counts}
+    if driver_ids:
+        pending_counts = db.session.query(
+            Visit.driver_id, func.count(Visit.id)
+        ).filter(Visit.driver_id.in_(driver_ids), Visit.status == 'Pending').group_by(Visit.driver_id).all()
+        pending_visits_map = {d_id: count for d_id, count in pending_counts}
+        
+        # +++ جلب حالات نهاية الجلسة +++
+        sessions_info = db.session.query(WorkSession.id, WorkSession.end_time).filter(WorkSession.id.in_(session_ids)).all()
+        session_ended_map = {s_id: (end_t is not None) for s_id, end_t in sessions_info}
+    
+    # +++ حساب المحلات (المتبقية فقط) في المنطقة التي ليس لها مندوب +++
+    # نعد فقط الزيارات المحررة (الأيتام) التي لم تنجز بعد، لكي لا نظهر المحلات المنجزة كأنها متبقية
+    shop_counts = db.session.query(
+        Shop.zone_id, func.count(Visit.id)
+    ).join(Visit, Shop.id == Visit.shop_id).filter(
+        Shop.is_active == True,
+        Shop.is_archived == False,
+        Visit.status == 'Pending',
+        Visit.driver_id == None
+    ).group_by(Shop.zone_id).all()
+    zone_shops_map = {z_id: count for z_id, count in shop_counts}
 
     res = []
     for r in routes:
-        shops_remaining = pending_visits_map.get(r.work_session_id, 0) if r.work_session_id else zone_shops_map.get(r.zone_id, 0)
+        # إذا كان الخط نشطاً والمندوب موجوداً، احسب الزيارات المعلقة للمندوب.
+        # أما إذا كان موقوفاً أو بدون مندوب، فالمحلات المتبقية هي كل محلات المنطقة.
+        if r.status == 'active' and r.driver_id:
+            shops_remaining = pending_visits_map.get(r.driver_id, 0)
+        else:
+            shops_remaining = zone_shops_map.get(r.zone_id, 0)
+            
+        session_ended = session_ended_map.get(r.work_session_id, False) if r.work_session_id else False
             
         res.append({
             "id": str(r.id),
             "zoneId": str(r.zone_id),
             "zoneName": zones_map.get(r.zone_id, "منطقة محذوفة"),
-            "driverId": str(r.driver_id),
-            "driverName": drivers_map.get(r.driver_id, "مندوب محذوف"),
+            "driverId": str(r.driver_id) if r.driver_id else "",
+            "driverName": drivers_map.get(r.driver_id, "بدون مندوب") if r.driver_id else "بدون مندوب",
             "vehicleId": str(r.vehicle_id),
             "shopsRemaining": shops_remaining,
-            "status": r.status
+            "status": r.status,
+            "sessionEnded": session_ended # +++ إضافة الحالة للواجهة الأمامية +++
         })
     return jsonify(res), 200
 
@@ -1313,15 +1646,14 @@ def update_route_status(route_id):
                             
                     zone.start_date = zone.start_date + timedelta(days=days_to_add)
 
-            # +++ تصفير المحلات عند سحب أو إنهاء أو تأجيل المنطقة +++
-            if new_status in ['waiting', 'closed', 'postponed'] and route.driver_id:
-                pending_visits = Visit.query.join(Shop).filter(
-                    Visit.driver_id == route.driver_id,
-                    Shop.zone_id == route.zone_id,
-                    Visit.status == 'Pending'
-                ).all()
-                for v in pending_visits:
-                    db.session.delete(v)
+            # +++ المعالجة الذكية (المدمجة) لحالات إغلاق، تأجيل، وسحب المنطقة +++
+            if new_status in ['closed', 'waiting', 'postponed'] and route.driver_id:
+                # الحل المعماري الجذري والمرن: تحرير الزيارات وجعلها (أيتام) تنتظر مندوباً جديداً
+                # هذا يحافظ على المحلات المنجزة للمندوب، ويسحب منه فقط المحلات التي لم يزرها (Pending)
+                subq = db.session.query(Visit.id).join(Shop).filter(
+                    Visit.driver_id == route.driver_id, Shop.zone_id == route.zone_id, Visit.status == 'Pending'
+                ).subquery()
+                Visit.query.filter(Visit.id.in_(subq)).update({'driver_id': None, 'work_session_id': None}, synchronize_session=False)
 
         if new_driver_id: 
             # +++ نقل المحلات المعلقة للمندوب الجديد عند تحويل خط السير +++
@@ -1335,11 +1667,110 @@ def update_route_status(route_id):
         if new_vehicle_id: route.vehicle_id = new_vehicle_id
         
         if inventory is not None and route.vehicle_id:
-            VehicleLoad.query.filter_by(vehicle_id=route.vehicle_id).delete()
-            for prod_id, qty in inventory.items():
-                if int(qty) > 0:
-                    db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=int(prod_id), quantity=int(qty)))
+            active_session = WorkSession.query.filter_by(driver_id=route.driver_id, end_time=None).first() if route.driver_id else None
             
+            if not active_session:
+                # الاعتماد الكلي على جرد المشرف لأن السيارة فارغة أو اليوم لم يبدأ
+                VehicleLoad.query.filter_by(vehicle_id=route.vehicle_id).delete()
+                for prod_id, qty in inventory.items():
+                    if int(qty) > 0:
+                        db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=int(prod_id), quantity=int(qty)))
+            else:
+                # +++ المعالجة الذكية لتزويد السيارة مع نسف ثغرة الـ N+1 (Bulk Fetch) +++
+                admin_user_id = getattr(g, 'current_driver_id', None)
+                
+                prod_ids_to_update = [int(p) for p, q in inventory.items() if int(q) > 0]
+                bulk_vloads = {vl.product_variant_id: vl for vl in VehicleLoad.query.filter(VehicleLoad.vehicle_id == route.vehicle_id, VehicleLoad.product_variant_id.in_(prod_ids_to_update)).all()} if prod_ids_to_update and route.vehicle_id else {}
+                bulk_sinvs = {si.product_variant_id: si for si in SessionInventory.query.filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids_to_update)).all()} if prod_ids_to_update else {}
+
+                # جلب المنتجات لمعرفة كم حبة في الكرتونة
+                variants_map = {v.id: v for v in ProductVariant.query.filter(ProductVariant.id.in_(prod_ids_to_update)).all()}
+                
+                for prod_id, new_qty_str in inventory.items():
+                    new_actual_qty_cartons = int(new_qty_str)
+                    if new_actual_qty_cartons > 0:
+                        p_id = int(prod_id)
+                        variant = variants_map.get(p_id)
+                        if not variant: continue
+                        
+                        # +++ توحيد القياس: تحويل الكراتين التي أدخلها المشرف إلى حبات (Packs) للتعامل الدقيق +++
+                        new_actual_qty_packs = new_actual_qty_cartons * variant.packs_per_carton
+                        
+                        v_load = bulk_vloads.get(p_id)
+                        if v_load: v_load.quantity = new_actual_qty_cartons # حمولة السيارة تبقى بالكرتونة للمشرف
+                        else: db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=p_id, quantity=new_actual_qty_cartons))
+
+                        sess_inv = bulk_sinvs.get(p_id)
+                        # +++ النسخة المعمارية النظيفة: تحديث الجرد ودفتر الأستاذ بوحدة (الحبة) حصراً في بلوك واحد +++
+                        if sess_inv:
+                            difference_in_packs = new_actual_qty_packs - sess_inv.current_remaining_quantity
+                            if difference_in_packs != 0:
+                                expected_qty = sess_inv.current_remaining_quantity
+                                sess_inv.current_remaining_quantity = new_actual_qty_packs
+                                sess_inv.starting_quantity += difference_in_packs 
+                                
+                                db.session.add(InventoryLedger(
+                                    work_session_id=active_session.id, 
+                                    driver_id=route.driver_id, 
+                                    vehicle_id=route.vehicle_id,
+                                    product_variant_id=p_id, 
+                                    transaction_type='Mid-day Restock' if difference_in_packs > 0 else 'Mid-day Withdraw',
+                                    expected_quantity=expected_qty, 
+                                    actual_quantity=new_actual_qty_packs,
+                                    difference=difference_in_packs, 
+                                    admin_id=admin_user_id, 
+                                    notes="تعديل حمولة السيارة من شاشة التوزيع (بوحدة الحبات)"
+                                ))
+                        else:
+                            db.session.add(SessionInventory(work_session_id=active_session.id, product_variant_id=p_id, starting_quantity=new_actual_qty_packs, current_remaining_quantity=new_actual_qty_packs))
+
+        # +++ إعادة التوليد بدون N+1 ومضاد للاستنساخ (تبني الأيتام) +++
+        if route.status == 'active' and route.driver_id:
+            from datetime import date
+            today = date.today()
+            
+            shops_in_zone = Shop.query.filter_by(zone_id=route.zone_id, is_active=True, is_archived=False).all()
+            shop_ids = [s.id for s in shops_in_zone]
+            
+            # 1. المطالبة بالزيارات المعلقة (الأيتام) التي تم تحريرها سابقاً عند سحب المنطقة
+            orphaned_visits = Visit.query.filter(
+                Visit.shop_id.in_(shop_ids),
+                Visit.status == 'Pending',
+                Visit.driver_id == None
+            ).all()
+            for v in orphaned_visits:
+                v.driver_id = route.driver_id # تبني اليتيم وإعادته للمندوب الحالي
+                
+            # 2. جلب جميع زيارات هذا المندوب (بما فيها التي للتو تبناها)
+            existing_visits = Visit.query.filter(
+                Visit.driver_id == route.driver_id,
+                Visit.shop_id.in_(shop_ids),
+                db.or_(Visit.status == 'Pending', func.date(Visit.visit_timestamp) == today)
+            ).all()
+            visited_shop_ids = {v.shop_id for v in existing_visits}
+            
+            pending_shortages = ShortageRequest.query.filter(
+                ShortageRequest.shop_id.in_(shop_ids), 
+                ShortageRequest.status == 'pending'
+            ).all()
+            shortage_shop_ids = {s.shop_id for s in pending_shortages}
+            
+            for shop in shops_in_zone:
+                is_emerg = shop.id in shortage_shop_ids
+                if shop.id not in visited_shop_ids:
+                    # بناء زيارة جديدة فقط إذا لم تكن موجودة نهائياً (لا كيتيم ولا كمنجزة)
+                    db.session.add(Visit(
+                        driver_id=route.driver_id, 
+                        shop_id=shop.id, 
+                        status='Pending', 
+                        sequence=shop.sequence,
+                        is_emergency=is_emerg
+                    ))
+                else:
+                    visit_to_update = next((v for v in existing_visits if v.shop_id == shop.id), None)
+                    if visit_to_update and is_emerg:
+                         visit_to_update.is_emergency = True
+ 
         db.session.commit()
         return jsonify({"message": "تم تحديث خط السير بنجاح"}), 200
         
@@ -1347,6 +1778,52 @@ def update_route_status(route_id):
         db.session.rollback()
         import traceback; traceback.print_exc()
         return jsonify({"message": "خطأ في التحديث", "error": str(e)}), 500
+
+# =========================================
+# تراجع عن إنهاء العمل (Admin Override)
+# =========================================
+@api.route('/dispatch/session/<int:session_id>/undo_end_work', methods=['PUT'])
+@token_required
+def undo_end_work(session_id):
+    admin = db.session.get(Driver, getattr(g, 'current_driver_id', None))
+    if not admin or not admin.is_admin:
+        return jsonify({"message": "مرفوض: تتطلب صلاحيات إدارة"}), 403
+
+    session = db.session.get(WorkSession, session_id)
+    if not session:
+        return jsonify({"message": "الجلسة غير موجودة."}), 404
+
+    if session.is_settled:
+        return jsonify({"message": "لا يمكن التراجع، تم اعتماد التسوية لهذه الجلسة مسبقاً."}), 400
+
+    try:
+        old_end_time = session.end_time.isoformat() if session.end_time else "None"
+        
+        # 1. إرجاع الجلسة لحالة نشطة بإزالة وقت النهاية
+        session.end_time = None
+        
+        # 2. إرجاع حالة خط السير إلى نشط (إن وجد)
+        route = DispatchRoute.query.filter_by(work_session_id=session.id).first()
+        if route:
+            route.status = 'active'
+            
+        # +++ تسجيل الحركة الحساسة في دفتر النظام (System Audit Log) +++
+        audit_log = SystemAuditLog(
+            admin_id=admin.id,
+            target_id=str(session.id),
+            action_type='UNDO_END_WORK',
+            old_value=f"end_time: {old_end_time}",
+            new_value="end_time: NULL (Session Reopened)"
+        )
+        db.session.add(audit_log)
+        
+        db.session.commit()
+        return jsonify({"message": "تم التراجع عن إنهاء العمل بنجاح. يمكن للمندوب متابعة عمله الآن."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback; traceback.print_exc()
+        return jsonify({"message": "خطأ أثناء التراجع عن إنهاء العمل", "error": str(e)}), 500
 
 # =========================================
 # 12. إدارة المناطق (شاشة التوزيع)
@@ -1524,48 +2001,115 @@ def edit_shop_details(shop_id):
 @api.route('/dispatch/shortages', methods=['GET', 'POST'])
 @token_required
 def manage_shortages():
+    import traceback # تم نقله للأعلى
     admin = db.session.get(Driver, getattr(g, 'current_driver_id', None))
     if not admin or not admin.is_admin:
         return jsonify({"message": "مرفوض"}), 403
 
     if request.method == 'GET':
-        shortages = ShortageRequest.query.filter_by(status='pending').all()
-        result = []
-        for s in shortages:
-            result.append({
-                "id": str(s.id),
-                "zoneId": str(s.zone_id),
-                "zoneName": s.zone.name if s.zone else "",
-                "shopId": str(s.shop_id),
-                "shopName": s.shop.name if s.shop else "",
-                "driverId": str(s.driver_id) if s.driver_id else "",
-                "driverName": s.driver.full_name if s.driver else "",
-                "productName": s.product_name,
-                "quantity": s.quantity,
-                "status": s.status,
-                "waitTime": s.wait_time
-            })
+        # +++ التعديل المعماري: القضاء على N+1 عبر joinedload +++
+        shortages = ShortageRequest.query.options(
+            joinedload(ShortageRequest.zone),
+            joinedload(ShortageRequest.shop),
+            joinedload(ShortageRequest.driver)
+        ).filter_by(status='pending').all()
+        
+        result = [{
+            "id": str(s.id),
+            "zoneId": str(s.zone_id),
+            "zoneName": s.zone.name if s.zone else "",
+            "shopId": str(s.shop_id),
+            "shopName": s.shop.name if s.shop else "",
+            "driverId": str(s.driver_id) if s.driver_id else "",
+            "driverName": s.driver.full_name if s.driver else "",
+            "productName": s.product_name,
+            "quantity": s.quantity,
+            "status": s.status,
+            "waitTime": s.wait_time,
+            "createdAt": s.created_at.isoformat() if s.created_at else None
+        } for s in shortages]
         return jsonify(result), 200
 
     if request.method == 'POST':
-        data = request.get_json() # Array of shortages
+        data = request.get_json()
         try:
+            # +++ التعديل المعماري: القضاء على N+1 في التحقق من التكرار +++
+            shop_ids = [item.get('shopId') for item in data if item.get('shopId')]
+            existing_requests = {}
+            if shop_ids:
+                existing_reqs = ShortageRequest.query.options(joinedload(ShortageRequest.shop)).filter(
+                    ShortageRequest.shop_id.in_(shop_ids), 
+                    ShortageRequest.status == 'pending'
+                ).all()
+                # +++ التعديل الجراحي: تحويل المفتاح لنص ليتطابق مع ما ترسله React +++
+                existing_requests = {str(req.shop_id): req for req in existing_reqs}
+
+            processed_shop_ids = set() # +++ تتبع المحلات في نفس الطلب لمنع الإضافة المزدوجة +++
             for item in data:
+                shop_id = str(item.get('shopId'))
+                if shop_id and (shop_id in existing_requests or shop_id in processed_shop_ids):
+                    shop_name = existing_requests[shop_id].shop.name if (shop_id in existing_requests and existing_requests[shop_id].shop) else shop_id
+                    return jsonify({"message": f"مرفوض: لا يمكن تقديم أكثر من طلب عاجل واحد لنفس المحل (المحل: {shop_name})"}), 409
+
+                processed_shop_ids.add(shop_id)
                 new_shortage = ShortageRequest(
                     zone_id=item.get('zoneId'),
-                    shop_id=item.get('shopId'),
+                    shop_id=shop_id,
                     driver_id=item.get('driverId') or None,
                     product_name=item.get('productName'),
                     quantity=item.get('quantity', 1)
                 )
                 db.session.add(new_shortage)
+                
+                # +++ التعديل الجراحي: إنشاء زيارة فعلية إذا تم توجيه الطلب لمندوب لضمان ظهورها بتطبيقه +++
+                target_driver_id = item.get('driverId')
+                # +++ هندسة منع الاستنساخ: تحديث الزيارة الحالية لتصبح عاجلة بدلاً من خلق زيارة جديدة +++
+                if target_driver_id:
+                    existing_visit = Visit.query.filter(
+                        Visit.driver_id == target_driver_id, 
+                        Visit.shop_id == shop_id,
+                        Visit.status.in_(['Pending', 'Completed']) # نبحث عن زيارة اليوم سواء تمت أو لا
+                    ).order_by(Visit.id.desc()).first()
+                    
+                    if existing_visit:
+                        existing_visit.is_emergency = True # نختمها كعاجلة فقط
+                    else:
+                        shop_record = db.session.get(Shop, shop_id)
+                        new_visit = Visit(
+                            driver_id=target_driver_id,
+                            shop_id=shop_id,
+                            status='Pending',
+                            sequence=shop_record.sequence if shop_record else 999,
+                            is_emergency=True
+                        )
+                        db.session.add(new_visit)
+                # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
             db.session.commit()
             return jsonify({"message": "تم تسجيل الطلبات بنجاح"}), 201
         except Exception as e:
             db.session.rollback()
-            import traceback
             traceback.print_exc()
             return jsonify({"message": "خطأ في حفظ الطلبات", "error": str(e)}), 500
+
+# +++ مسار حذف الطلب العاجل +++
+@api.route('/dispatch/shortages/<int:shortage_id>', methods=['DELETE'])
+@token_required
+def delete_shortage(shortage_id):
+    admin = db.session.get(Driver, getattr(g, 'current_driver_id', None))
+    if not admin or not admin.is_admin: return jsonify({"message": "مرفوض"}), 403
+    shortage = db.session.get(ShortageRequest, shortage_id)
+    if shortage:
+        shop_id = shortage.shop_id
+        db.session.delete(shortage)
+        db.session.flush() # لتحديث الجرد المؤقت قبل فحص المتبقي
+        
+        # +++ التزامن المعماري: سحب ختم (عاجل) من هاتف المندوب إذا لم يتبقَ أي طلبات أخرى لهذا المحل +++
+        remaining = ShortageRequest.query.filter_by(shop_id=shop_id, status='pending').count()
+        if remaining == 0:
+            Visit.query.filter(Visit.shop_id == shop_id, Visit.status == 'Pending').update({'is_emergency': False}, synchronize_session=False)
+            
+        db.session.commit()
+    return jsonify({"message": "تم حذف الطلب"}), 200
 
 # =========================================
 # 14. الاستيراد الآمن للمحلات بالجملة (Bulk Import)
@@ -1605,6 +2149,18 @@ def bulk_import_shops():
         else:
             all_existing_shops = []
         
+        # +++ هندسة الخوارزميات: تحويل O(N^2) إلى O(N) باستخدام Hash Maps و Counter +++
+        from collections import Counter
+        name_idx, phone_idx, link_idx = {}, {}, {}
+        
+        for ext in all_existing_shops:
+            n = (ext.name or '').strip().lower()
+            p = str(ext.phone_number or '').strip()
+            l = (ext.location_link or '').strip().lower()
+            if n: name_idx.setdefault(n, []).append(ext.id)
+            if p: phone_idx.setdefault(p, []).append(ext.id)
+            if l: link_idx.setdefault(l, []).append(ext.id)
+
         new_shops = []
         ignored_count = 0
 
@@ -1613,25 +2169,17 @@ def bulk_import_shops():
             s_phone = str(s.get('phone', '')).strip()
             s_link = s.get('mapLink', '').strip().lower()
 
-            # +++ تطبيق قاعدة التكرار الذكية (2 من 3) +++
-            is_duplicate = False
-            for ext in all_existing_shops:
-                ext_name = (ext.name or '').strip().lower()
-                ext_phone = str(ext.phone_number or '').strip()
-                ext_link = (ext.location_link or '').strip().lower()
-                
-                matches = 0
-                if s_name and ext_name and s_name == ext_name: matches += 1
-                if s_phone and ext_phone and s_phone == ext_phone: matches += 1
-                if s_link and ext_link and s_link == ext_link: matches += 1
-                
-                if matches >= 2:
-                    is_duplicate = True
-                    break
+            candidate_ids = []
+            if s_name in name_idx: candidate_ids.extend(name_idx[s_name])
+            if s_phone in phone_idx: candidate_ids.extend(phone_idx[s_phone])
+            if s_link in link_idx: candidate_ids.extend(link_idx[s_link])
+            
+            # إذا تكرر ID المحل القديم مرتين أو أكثر في مصفوفة التطابقات، إذن تحقق شرط "2 من 3"
+            is_duplicate = any(count >= 2 for count in Counter(candidate_ids).values())
             
             if is_duplicate:
                 ignored_count += 1
-                continue # تجاهل المحل وانتقل للي بعده
+                continue
 
             new_shop = Shop(
                 name=s.get('name', '').strip(),
@@ -1639,7 +2187,7 @@ def bulk_import_shops():
                 phone_number=s_phone,
                 location_link=s.get('mapLink', '').strip(),
                 zone_id=zone_id,
-                current_balance=float(s.get('initialDebt', 0.0) or 0.0),
+                current_balance=max(0.0, float(s.get('initialDebt', 0.0) or 0.0)),
                 added_by_driver_id=admin.id,
                 sequence=int(s.get('sequence', 999))
             )

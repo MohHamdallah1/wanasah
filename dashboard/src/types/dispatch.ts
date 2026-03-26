@@ -11,6 +11,7 @@ export interface PendingRoute {
   vehicleId: string;
   shopsRemaining: number;
   status: RouteStatus;
+  sessionEnded?: boolean; // +++ إضافة حالة الجلسة (للتراجع عن إنهاء العمل) +++
 }
 
 export interface Shop {
@@ -38,6 +39,7 @@ export interface Shortage {
   quantity: number;
   status: "pending" | "fulfilled";
   waitTime?: string;
+  createdAt?: string;
 }
 
 export interface Zone {

@@ -1,13 +1,14 @@
-import { Radar, StopCircle, CheckCircle2 } from "lucide-react";
+import { Radar, StopCircle, CheckCircle2, RotateCcw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { DriverData } from "@/data/operations-data";
 
 interface CommandCenterProps {
   driver: DriverData | null;
   onApproveSettlement: () => void;
+  onUndoEndWork?: () => void; // +++ إضافة دالة التراجع +++
 }
 
-export function CommandCenter({ driver, onApproveSettlement }: CommandCenterProps) {
+export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: CommandCenterProps) {
   const canApprove = driver?.settlement.status === "مغلقة بانتظار التسوية";
 
   return (
@@ -43,10 +44,10 @@ export function CommandCenter({ driver, onApproveSettlement }: CommandCenterProp
               <div>
                 <p className="text-lg font-extrabold">{driver.session.driver_name}</p>
                 <span className={`inline-block text-xs font-bold rounded-full px-3 py-1 mt-0.5 ${driver.settlement.status === "مغلقة بانتظار التسوية"
-                    ? "bg-info/20 text-info"
-                    : driver.settlement.status === "استراحة"
-                      ? "bg-warning/30 text-foreground"
-                      : "bg-success/20 text-success"
+                  ? "bg-info/20 text-info"
+                  : driver.settlement.status === "استراحة"
+                    ? "bg-warning/30 text-foreground"
+                    : "bg-success/20 text-success"
                   }`}>
                   {driver.settlement.status}
                 </span>
@@ -97,12 +98,23 @@ export function CommandCenter({ driver, onApproveSettlement }: CommandCenterProp
 
             {/* Actions */}
             <div className="mt-auto flex flex-col gap-2">
+              {/* +++ زر التراجع يظهر فقط عندما تكون الجلسة مغلقة وتنتظر التسوية +++ */}
+              {canApprove && onUndoEndWork && (
+                <button
+                  onClick={onUndoEndWork}
+                  className="flex items-center justify-center gap-2 w-full bg-red-50 text-red-600 border border-red-200 rounded-xl h-12 text-sm font-bold hover:bg-red-100 transition-all shadow-sm mb-1"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                  تراجع عن إنهاء العمل
+                </button>
+              )}
+
               <button
                 onClick={onApproveSettlement}
                 disabled={!canApprove}
                 className={`flex items-center justify-center gap-2 w-full bg-nav-dark text-nav-dark-foreground rounded-xl h-14 text-sm font-bold transition-all ${canApprove
-                    ? "hover:opacity-90 cursor-pointer shadow-lg"
-                    : "opacity-50 cursor-not-allowed grayscale pointer-events-none"
+                  ? "hover:opacity-90 cursor-pointer shadow-lg"
+                  : "opacity-50 cursor-not-allowed grayscale pointer-events-none"
                   }`}
               >
                 <CheckCircle2 className="w-5 h-5" strokeWidth={1.5} />

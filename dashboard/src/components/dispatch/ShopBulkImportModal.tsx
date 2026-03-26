@@ -204,6 +204,9 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops }: Sho
             if (!l) row.errors.push("رابط الخريطة مفقود");
             else if (!linkRegex.test(l)) row.errors.push("الرابط غير صالح (يجب أن يحتوي على http أو joo.gl)");
 
+            // فحص الذمة الافتتاحية السالبة
+            if (row.initialDebt < 0) row.errors.push("الذمة الافتتاحية لا يمكن أن تكون بالسالب");
+
             // فحص التكرار (2 من 3) داخل الملف نفسه
             for (let j = 0; j < i; j++) {
                 const prev = gridData[j];
@@ -379,7 +382,7 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops }: Sho
                                                     <input value={row.owner} onChange={e => updateCell(row._id, 'owner', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e87bb]/20" disabled={isConflict} />
                                                 </td>
                                                 <td className="p-2">
-                                                    <input type="number" value={row.initialDebt} onChange={e => updateCell(row._id, 'initialDebt', parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1e87bb]/20" disabled={isConflict} />
+                                                    <input type="number" value={row.initialDebt} onChange={e => updateCell(row._id, 'initialDebt', Math.max(0, parseFloat(e.target.value) || 0))} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1e87bb]/20" disabled={isConflict} />
                                                 </td>
                                                 <td className="p-2 text-center">
                                                     <button onClick={(e) => { e.stopPropagation(); removeRow(row._id); }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>

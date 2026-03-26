@@ -58,7 +58,8 @@ class _VisitScreenState extends State<VisitScreen> {
   String? _fetchProductsError;
   bool _isLoading = true;
   String? _error;
-
+  bool _isOnBreak = false; // إضافة هذا السطر لتعريف حالة الاستراحة
+  bool _hasChanges = false; // +++ متغير يراقب أي لمسة من المندوب للشاشة +++
   // --- متغيرات حالة بيانات الموقع ---
   double? _shopLatitude;
   double? _shopLongitude;
@@ -73,6 +74,7 @@ class _VisitScreenState extends State<VisitScreen> {
   // تحديث كمية صنف معين (كراتين أو حبات)
   void _updateCartItem(int variantId, {int? cartons, int? packs}) {
     setState(() {
+      _hasChanges = true;
       _cartQuantities[variantId] ??= {'cartons': 0, 'packs': 0};
 
       if (cartons != null) _cartQuantities[variantId]!['cartons'] = cartons;
@@ -141,12 +143,13 @@ class _VisitScreenState extends State<VisitScreen> {
     try {
       developer.log("Starting initial data fetch...");
 
-      // +++ قراءة الصلاحية من الخزنة الآمنة +++
+      // +++ قراءة الصلاحية والاستراحة من الخزنة الآمنة (Frontend Lock) +++
       const storage = FlutterSecureStorage();
       String? authStr = await storage.read(key: 'is_authorized');
+      String? breakStr = await storage.read(key: 'is_on_break');
       setState(() {
-        // هذا السطر بيقفل الدنيا (False) إذا كانت الخزنة فارغة أو فيها أي إشي غير الكلمة 'true'
         _isAuthorizedToSell = (authStr == 'true');
+        _isOnBreak = (breakStr == 'true');
       });
 
       // أولاً: جلب قائمة المنتجات
@@ -291,14 +294,34 @@ class _VisitScreenState extends State<VisitScreen> {
         setState(() {
           _selectedOutcome = visitData['outcome'];
 
-          // +++ تعبئة سلة المشتريات (العقل الجديد) بدلا من الحقل القديم +++
-          final num? quantityValue = visitData['quantity_sold'];
-          final int? variantId = visitData['product_variant_id'] as int?;
-          if (quantityValue != null && quantityValue > 0 && variantId != null) {
-            _cartQuantities[variantId] = {
-              'cartons': quantityValue.toInt(),
-              'packs': 0,
-            };
+          // +++ تعبئة السلة والعينات من الفاتورة المحفوظة +++
+          _cartQuantities.clear();
+          _returnsList.clear(); // تنظيف التوالف قبل التعبئة
+
+          if (visitData['cart_items'] != null &&
+              visitData['cart_items'] is List) {
+            for (var item in visitData['cart_items']) {
+              final int variantId = item['product_variant_id'];
+              _cartQuantities[variantId] = {
+                'cartons': item['quantity'] ?? 0,
+                'packs': item['packs_quantity'] ?? 0, // قراءة الفرط بدقة
+                'sample_cartons': item['sample_quantity'] ?? 0,
+                'sample_packs': item['sample_packs_quantity'] ?? 0,
+              };
+            }
+          }
+
+          // +++ العقل الجديد: استرجاع التوالف المحفوظة لكي لا تتصفر +++
+          if (visitData['returns'] != null && visitData['returns'] is List) {
+            for (var ret in visitData['returns']) {
+              _returnsList.add({
+                'product_variant_id': ret['product_variant_id'],
+                'cartons': ret['quantity'] ?? 0, // السيرفر يرسلها كـ quantity
+                'packs': ret['packs_quantity'] ?? 0,
+                'return_type': ret['return_type'],
+                'reason': ret['reason'] ?? '',
+              });
+            }
           }
 
           final num? cashValue = visitData['cash_collected'];
@@ -361,139 +384,220 @@ class _VisitScreenState extends State<VisitScreen> {
   }
 
   // --- دالة بناء الواجهة الرئيسية ---
+  // دالة الحماية عند محاولة الرجوع
+  Future<bool> _onWillPop() async {
+    // +++ اللوجيك الذكي: إذا لم يغير المندوب أي شيء بيده، يخرج بهدوء تام +++
+    if (!_hasChanges) {
+      return true;
+    }
+
+    // إذا اختار نتيجة ولم يحفظ، نظهر له تحذيراً
+    final shouldPop = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('تغييرات غير محفوظة!'),
+            content: const Text(
+              'لقد قمت بإجراء تغييرات. هل أنت متأكد من رغبتك بالخروج وإلغاء هذه التغييرات؟',
+            ),
+            actions: [
+              TextButton(
+                onPressed:
+                    () => Navigator.of(context).pop(false), // لا، ابق في الشاشة
+                child: const Text(
+                  'إلغاء الخروج',
+                  style: TextStyle(color: Colors.blue),
+                ),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.of(context).pop(true), // نعم، اخرج
+                child: const Text('نعم، الغِ التغييرات واخرج'),
+              ),
+            ],
+          ),
+    );
+    return shouldPop ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.shopName),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.map_outlined),
-            tooltip: 'عرض الموقع على الخريطة',
-            onPressed:
-                (_shopLatitude == null &&
-                        _shopLongitude == null &&
-                        (_shopLink == null || _shopLink!.isEmpty))
-                    ? null // تعطيل الزر إذا لم تتوفر أي بيانات موقع
-                    : _openMap,
-          ),
-        ],
-      ),
-      body:
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: Colors.red,
-                        size: 50,
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'حدث خطأ: $_error',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.red[700]),
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('إعادة المحاولة'),
-                        onPressed: _fetchDataOnInit,
-                      ),
-                    ],
+    // +++ التحديث الحديث في فلاتر: استخدام PopScope بدلاً من WillPopScope +++
+    return PopScope(
+      canPop: false, // نمنع الخروج التلقائي لكي نتحكم به نحن
+      onPopInvokedWithResult: (bool didPop, Object? result) async {
+        if (didPop) return; // إذا خرج بالفعل، لا تفعل شيئاً
+
+        final bool shouldPop = await _onWillPop();
+        if (shouldPop && context.mounted) {
+          Navigator.of(context).pop(); // نخرج يدوياً إذا وافق المستخدم
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.shopName),
+          centerTitle: true,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.map_outlined),
+              tooltip: 'عرض الموقع على الخريطة',
+              onPressed:
+                  (_shopLatitude == null &&
+                          _shopLongitude == null &&
+                          (_shopLink == null || _shopLink!.isEmpty))
+                      ? null // تعطيل الزر إذا لم تتوفر أي بيانات موقع
+                      : _openMap,
+            ),
+          ],
+        ),
+        body:
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.red,
+                          size: 50,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'حدث خطأ: $_error',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.red[700]),
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('إعادة المحاولة'),
+                          onPressed: _fetchDataOnInit,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              )
-              : _buildVisitForm(), // عرض الفورم
+                )
+                : _buildVisitForm(), // عرض الفورم
+      ),
     );
   }
 
   // --- دالة بناء محتوى الفورم ---
   Widget _buildVisitForm() {
-    // ... (الكود كما هو مع إضافة const حيث أمكن) ...
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'الذمة الحالية: ${widget.shopBalance.toStringAsFixed(2)} د.أ',
-          ), // استخدام widget للذمة الممررة
-          const Divider(height: 30),
-          Text(
-            'نتيجة التفاعل الحالي:',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+    return IgnorePointer(
+      ignoring:
+          _isOnBreak, // +++ هذا السطر يشل حركة الشاشة بالكامل وقت الاستراحة +++
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'الذمة الحالية: ${widget.shopBalance.toStringAsFixed(2)} د.أ',
+            ), // استخدام widget للذمة الممررة
+            const Divider(height: 30),
+            Text(
+              'نتيجة التفاعل الحالي:',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
 
-          // +++ قفل الشاشة بناءً على الصلاحية +++
-          _isAuthorizedToSell
-              ? _buildOutcomeSelectionChips()
-              : Container(
-                margin: const EdgeInsets.symmetric(vertical: 10),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.lock_outline, color: Colors.orange[800]),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'غير مصرح لك بإجراء عمليات بيع حالياً. بانتظار تفعيل خط السير من الإدارة.',
-                        style: TextStyle(
-                          color: Colors.orange[800],
-                          fontWeight: FontWeight.bold,
+            // +++ قفل الشاشة الصارم (الاستراحة أولاً، ثم الصلاحية) +++
+            _isOnBreak
+                ? Container(
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.coffee, color: Colors.red[800]),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'أنت الآن في وقت الاستراحة. تم إقفال العمليات، يرجى إنهاء الاستراحة لمتابعة البيع.',
+                          style: TextStyle(
+                            color: Colors.red[800],
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-
-          // +++++++++++++++++++++++++++++++++++++
-          const Divider(height: 30),
-          // استخدام Form فقط حول حقول البيع لتطبيق التحقق عند البيع فقط
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            child: _buildConditionalFields(),
-          ),
-          if (_selectedOutcome != null && _isAuthorizedToSell)
-            const SizedBox(height: 30),
-          if (_selectedOutcome != null && _isAuthorizedToSell)
-            ElevatedButton(
-              onPressed: _isSubmitting ? null : _validateAndSubmit,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 15),
-              ),
-              child:
-                  _isSubmitting
-                      ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
+                    ],
+                  ),
+                )
+                : _isAuthorizedToSell
+                ? _buildOutcomeSelectionChips()
+                : Container(
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.lock_outline, color: Colors.orange[800]),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'غير مصرح لك بإجراء عمليات بيع حالياً. بانتظار تفعيل خط السير من الإدارة.',
+                          style: TextStyle(
+                            color: Colors.orange[800],
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      )
-                      : const Text('حفظ النتيجة'),
+                      ),
+                    ],
+                  ),
+                ),
+
+            // +++++++++++++++++++++++++++++++++++++
+            const Divider(height: 30),
+            // استخدام Form فقط حول حقول البيع لتطبيق التحقق عند البيع فقط
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: _buildConditionalFields(),
             ),
-        ],
+            if (_selectedOutcome != null && _isAuthorizedToSell && !_isOnBreak)
+              const SizedBox(height: 30),
+            if (_selectedOutcome != null && _isAuthorizedToSell && !_isOnBreak)
+              ElevatedButton(
+                onPressed: _isSubmitting ? null : _validateAndSubmit,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                ),
+                child:
+                    _isSubmitting
+                        ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                        : const Text('حفظ النتيجة'),
+              ),
+          ],
+        ),
       ),
     );
   }
 
   // --- دالة بناء الأجزاء الشرطية (الجديدة كلياً) ---
   Widget _buildConditionalFields() {
+    // +++ شل حركة الحقول تماماً وقت الاستراحة لمنع إحباط المندوب (Frontend Lock) +++
+    return IgnorePointer(ignoring: _isOnBreak, child: _buildOutcomeContent());
+  }
+
+  Widget _buildOutcomeContent() {
     if (_selectedOutcome == 'Sale') {
       return Form(
         key: _formKey,
@@ -776,13 +880,10 @@ class _VisitScreenState extends State<VisitScreen> {
                       cartons: currentCartons > 0 ? currentCartons - 1 : 0,
                     ),
                     () => _updateCartItem(id, cartons: currentCartons + 1),
-                    () => _showNumpadDialog(
+                    (newVal) => _updateCartItem(
                       id,
-                      name,
-                      'كرتونة',
-                      currentCartons,
-                      isCarton: true,
-                    ),
+                      cartons: newVal,
+                    ), // +++ إدخال مباشر +++
                   ),
                   Container(
                     width: 1,
@@ -799,13 +900,10 @@ class _VisitScreenState extends State<VisitScreen> {
                       packs: currentPacks > 0 ? currentPacks - 1 : 0,
                     ),
                     () => _updateCartItem(id, packs: currentPacks + 1),
-                    () => _showNumpadDialog(
+                    (newVal) => _updateCartItem(
                       id,
-                      name,
-                      'حبة',
-                      currentPacks,
-                      isCarton: false,
-                    ),
+                      packs: newVal,
+                    ), // +++ إدخال مباشر للحبات +++
                   ),
                 ],
               ),
@@ -816,14 +914,14 @@ class _VisitScreenState extends State<VisitScreen> {
     );
   }
 
-  // --- ويدجت مساعدة للعداد المصغر ---
+  // --- ويدجت العداد المصغر (نسخة الإدخال المباشر بدون نوافذ) ---
   Widget _buildCompactCounter(
     String label,
     String emoji,
     int qty,
     VoidCallback onMinus,
     VoidCallback onPlus,
-    VoidCallback onTapNum,
+    Function(int) onDirectInput, // +++ تمرير دالة بدلاً من مجرد ضغطة +++
   ) {
     final bool hasQty = qty > 0;
     return Column(
@@ -854,19 +952,31 @@ class _VisitScreenState extends State<VisitScreen> {
                 ),
               ),
             ),
-            GestureDetector(
-              onTap: onTapNum,
-              child: Container(
-                width: 45,
-                alignment: Alignment.center,
-                child: Text(
-                  '$qty',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: hasQty ? Colors.green.shade700 : Colors.black87,
-                  ),
+            // +++ حقل إدخال مباشر (Inline Editable Text) يفتح الكيبورد فوراً +++
+            SizedBox(
+              width: 45,
+              child: TextFormField(
+                key: ValueKey(
+                  qty.toString() + label,
+                ), // لإجبار التحديث عند النقر على الأزرار
+                initialValue: qty > 0 ? '$qty' : '',
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: hasQty ? Colors.green.shade700 : Colors.black87,
                 ),
+                decoration: const InputDecoration(
+                  hintText: '0',
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onFieldSubmitted: (val) {
+                  final int? parsed = int.tryParse(val.trim());
+                  onDirectInput(parsed ?? 0);
+                },
               ),
             ),
             InkWell(
@@ -883,69 +993,6 @@ class _VisitScreenState extends State<VisitScreen> {
           ],
         ),
       ],
-    );
-  }
-
-  // --- نافذة الإدخال اليدوي للسرعة (محدثة) ---
-  Future<void> _showNumpadDialog(
-    int variantId,
-    String productName,
-    String unitName,
-    int currentQty, {
-    required bool isCarton,
-  }) async {
-    final TextEditingController qtyController = TextEditingController(
-      text: currentQty > 0 ? currentQty.toString() : '',
-    );
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          title: Text(
-            'إدخال عدد الـ $unitName',
-            style: const TextStyle(fontSize: 16),
-          ),
-          content: TextField(
-            controller: qtyController,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              hintText: 'الكمية',
-              border: OutlineInputBorder(),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-            autofocus: true,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء', style: TextStyle(color: Colors.red)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final int? newQty = int.tryParse(qtyController.text.trim());
-                if (newQty != null && newQty >= 0) {
-                  isCarton
-                      ? _updateCartItem(variantId, cartons: newQty)
-                      : _updateCartItem(variantId, packs: newQty);
-                } else if (qtyController.text.trim().isEmpty) {
-                  isCarton
-                      ? _updateCartItem(variantId, cartons: 0)
-                      : _updateCartItem(variantId, packs: 0);
-                }
-                Navigator.pop(context);
-              },
-              child: const Text('تأكيد'),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -1017,6 +1064,7 @@ class _VisitScreenState extends State<VisitScreen> {
           onSelected: (selected) {
             if (selected) {
               setState(() {
+                _hasChanges = true;
                 _selectedOutcome = 'Sale';
                 _calculateLiveTotals(); // تحديث الحسابات للجديد
               });
@@ -1038,6 +1086,7 @@ class _VisitScreenState extends State<VisitScreen> {
           onSelected: (selected) {
             if (selected) {
               setState(() {
+                _hasChanges = true;
                 _selectedOutcome = 'NoSale';
                 _cartQuantities.clear(); // تفريغ السلة بدل تصفير المتغير القديم
                 _calculateLiveTotals();
@@ -1060,6 +1109,7 @@ class _VisitScreenState extends State<VisitScreen> {
           onSelected: (selected) {
             if (selected) {
               setState(() {
+                _hasChanges = true;
                 _selectedOutcome = 'Postponed';
                 _cartQuantities.clear();
                 _calculateLiveTotals();
@@ -1500,17 +1550,25 @@ class _VisitScreenState extends State<VisitScreen> {
                                 'كرتونة',
                                 '📦',
                                 sampleCartons,
-                                () => setModalState(() => sampleCartons--),
+                                () => setModalState(() {
+                                  if (sampleCartons > 0) sampleCartons--;
+                                }),
                                 () => setModalState(() => sampleCartons++),
-                                () {},
+                                (v) => setModalState(
+                                  () => sampleCartons = v,
+                                ), // +++ إدخال مباشر +++
                               ),
                               _buildCompactCounter(
                                 'حبة',
                                 '🍬',
                                 samplePacks,
-                                () => setModalState(() => samplePacks--),
+                                () => setModalState(() {
+                                  if (samplePacks > 0) samplePacks--;
+                                }),
                                 () => setModalState(() => samplePacks++),
-                                () {},
+                                (v) => setModalState(
+                                  () => samplePacks = v,
+                                ), // +++ إدخال مباشر لعينات الحبات +++
                               ),
                             ],
                           ),
@@ -1545,17 +1603,25 @@ class _VisitScreenState extends State<VisitScreen> {
                                 'كرتونة',
                                 '📦',
                                 returnCartons,
-                                () => setModalState(() => returnCartons--),
+                                () => setModalState(() {
+                                  if (returnCartons > 0) returnCartons--;
+                                }),
                                 () => setModalState(() => returnCartons++),
-                                () {},
+                                (v) => setModalState(
+                                  () => returnCartons = v,
+                                ), // +++ إدخال مباشر لكراتين التوالف +++
                               ),
                               _buildCompactCounter(
                                 'حبة',
                                 '🍬',
                                 returnPacks,
-                                () => setModalState(() => returnPacks--),
+                                () => setModalState(() {
+                                  if (returnPacks > 0) returnPacks--;
+                                }),
                                 () => setModalState(() => returnPacks++),
-                                () {},
+                                (v) => setModalState(
+                                  () => returnPacks = v,
+                                ), // +++ إدخال مباشر لحبات التوالف +++
                               ),
                             ],
                           ),

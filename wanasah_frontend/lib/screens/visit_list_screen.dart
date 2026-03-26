@@ -7,6 +7,8 @@ import '../services/auth_utils.dart';
 import 'package:wanasah_frontend/screens/add_shop_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/api_constants.dart';
+import 'package:url_launcher/url_launcher.dart'; // +++ للخرائط +++
+import 'package:map_launcher/map_launcher.dart'; // +++ للخرائط +++
 
 class VisitListScreen extends StatefulWidget {
   final int driverId;
@@ -16,8 +18,10 @@ class VisitListScreen extends StatefulWidget {
   State<VisitListScreen> createState() => _VisitListScreenState();
 }
 
-class _VisitListScreenState extends State<VisitListScreen> {
+class _VisitListScreenState extends State<VisitListScreen>
+    with SingleTickerProviderStateMixin {
   // --- متغيرات الحالة ---
+  late TabController _tabController;
   bool _isLoading = true;
   List<dynamic> _allVisits = [];
   List<dynamic> _filteredVisits = [];
@@ -26,21 +30,36 @@ class _VisitListScreenState extends State<VisitListScreen> {
   // ignore: prefer_final_fields
   List<bool> _isSelected = [true, false, false]; // الكل, المكتملة, المتبقية
   final List<String?> _filterValues = [null, 'Completed', 'Pending'];
-  int _totalCount = 0;
-  int _completedCount = 0;
-  int _pendingCount = 0;
+  bool _isOnBreak = false;
   // --- نهاية متغيرات الحالة ---
 
   @override
   void initState() {
     super.initState();
+    // إعداد متحكم التبويبات وربطه بتحديث الشاشة لتتغير العدادات فوراً عند النقر
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _fetchVisits();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   // --- دالة جلب البيانات (معدلة لاستخدام التوكن والتحقق منه + الاحتفاظ بمنطقك) ---
   Future<void> _fetchVisits() async {
     // تأكد من أن الويدجت لا يزال موجوداً
     if (!mounted) return;
+
+    // +++ التحديث اللحظي لحالة الاستراحة في الذاكرة لمنع تجميد الواجهة +++
+    final breakStr = await const FlutterSecureStorage().read(
+      key: 'is_on_break',
+    );
+    _isOnBreak = breakStr == 'true';
 
     // إظهار مؤشر التحميل ومسح أي خطأ سابق
     setState(() {
@@ -64,6 +83,43 @@ class _VisitListScreenState extends State<VisitListScreen> {
           .get(url, headers: headers)
           .timeout(const Duration(seconds: 20));
 
+      // +++ المزامنة اللحظية (الخفية) للضوء الأخضر من الداشبورد لمنع تجميد الصلاحيات +++
+      try {
+        final dashUrl = Uri.parse(
+          '${ApiConstants.baseUrl}/driver/${widget.driverId}/dashboard',
+        );
+        final dashRes = await http
+            .get(dashUrl, headers: headers)
+            .timeout(const Duration(seconds: 5));
+        if (dashRes.statusCode == 200) {
+          final dashData = jsonDecode(dashRes.body);
+          final sessionData = dashData['active_session'];
+          if (sessionData != null) {
+            // +++ مزامنة الصلاحية والاستراحة مع الذاكرة المحلية فوراً (Frontend Lock Sync) +++
+            bool isAuth = sessionData['is_authorized_to_sell'] == true;
+            bool onBreak =
+                sessionData['break_start_time'] != null &&
+                sessionData['break_end_time'] == null;
+
+            await const FlutterSecureStorage().write(
+              key: 'is_authorized',
+              value: isAuth.toString(),
+            );
+            await const FlutterSecureStorage().write(
+              key: 'is_on_break',
+              value: onBreak.toString(),
+            );
+
+            if (mounted) {
+              setState(() {
+                _isOnBreak = onBreak;
+              });
+            }
+          }
+        }
+      } catch (_) {}
+      // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
       if (!mounted) return;
 
       // +++ الخطوة 3: التحقق من خطأ 401 أولاً +++
@@ -86,33 +142,22 @@ class _VisitListScreenState extends State<VisitListScreen> {
         final List<dynamic> decodedData = jsonDecode(response.body);
         developer.log('All visits data received: ${decodedData.length} items');
 
-        // --- الاحتفاظ بمنطق حساب الأعداد وتحديث الحالة لديك ---
-        int pending = 0;
-        int completed = 0;
         // استخدام النوع الصحيح للقائمة الكاملة
         final List<Map<String, dynamic>> allVisitsData =
             List<Map<String, dynamic>>.from(
               decodedData.whereType<Map<String, dynamic>>(),
             );
 
-        for (var visit in allVisitsData) {
-          // لا حاجة للتحقق is Map هنا
-          if (visit['visit_status'] == 'Completed') {
-            completed++;
-          } else if (visit['visit_status'] == 'Pending') {
-            pending++;
-          }
-        }
-
         // تحديث الحالة بعد جلب البيانات بنجاح
+        final bool onBreak =
+            (await const FlutterSecureStorage().read(key: 'is_on_break')) ==
+            'true';
         setState(() {
-          _allVisits = allVisitsData; // استخدام متغير القائمة الكاملة لديك
-          _totalCount = allVisitsData.length; // استخدام متغير العدد الكلي لديك
-          _completedCount = completed; // استخدام متغير العدد المكتمل لديك
-          _pendingCount = pending; // استخدام متغير العدد المعلق لديك
-          _applyFilter(); // استخدام دالة الفلترة لديك (تأكد من وجودها)
-          _isLoading = false; // إيقاف التحميل
-          _error = null; // مسح الخطأ
+          _isOnBreak = onBreak;
+          _allVisits = allVisitsData;
+          _applyFilter();
+          _isLoading = false;
+          _error = null;
         });
         // --- نهاية منطقك الحالي ---
       } else {
@@ -127,8 +172,7 @@ class _VisitListScreenState extends State<VisitListScreen> {
             _isLoading = false;
             // استخدام متغيراتك ودالتك الصحيحة للتصفير
             _allVisits = [];
-            _filteredVisits = []; // افترض أن الفلتر يصفرها أيضاً
-            _resetCounts(); // تأكد من وجود هذه الدالة أو صفر المتغيرات يدوياً
+            _filteredVisits = [];
           });
         }
       }
@@ -143,10 +187,8 @@ class _VisitListScreenState extends State<VisitListScreen> {
       setState(() {
         _error = 'حدث خطأ في الاتصال: ${error.toString()}';
         _isLoading = false;
-        // استخدام متغيراتك ودالتك الصحيحة للتصفير
         _allVisits = [];
         _filteredVisits = [];
-        _resetCounts(); // تأكد من وجود هذه الدالة أو صفر المتغيرات يدوياً
       });
     }
     // لا حاجة لـ finally لإيقاف التحميل لأنه يتم في كل مسار
@@ -169,138 +211,162 @@ class _VisitListScreenState extends State<VisitListScreen> {
     // لا نحتاج setState هنا لأنها تُستدعى من مكان آخر
   }
 
-  // --- دالة تصفير العدادات ---
-  void _resetCounts() {
-    _totalCount = 0;
-    _completedCount = 0;
-    _pendingCount = 0;
-  }
-
   @override
   Widget build(BuildContext context) {
-    // +++ تغليف الشاشة بمتحكم التبويبات +++
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('قائمة المحلات'),
-          centerTitle: true,
-          actions: [
-            IconButton(
-              onPressed: _fetchVisits,
-              icon: const Icon(Icons.refresh),
-              tooltip: 'تحديث القائمة',
-            ),
-          ],
-          // +++ شريط التبويبات الحديث +++
-          bottom: const TabBar(
-            labelColor: Color.fromARGB(255, 17, 5, 5),
-            unselectedLabelColor: Color.fromARGB(179, 14, 7, 7),
-            indicatorColor: Color.fromARGB(255, 73, 16, 16),
-            indicatorWeight: 4,
-            labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            tabs: [
-              Tab(icon: Icon(Icons.route), text: 'جولة اليوم 📍'),
-              Tab(
-                icon: Icon(Icons.warning_amber_rounded),
-                text: 'طلبات عاجلة 🚨',
-              ),
-            ],
+    // +++ فصل العدادات ديناميكياً بناءً على التبويب النشط لحل لغز الترقيم الخاطئ +++
+    bool isEmergencyActive = _tabController.index == 1;
+
+    final List<dynamic> currentTabVisits =
+        _allVisits.where((v) {
+          if (v == null || v is! Map) return false;
+          final isEmerg =
+              v['is_emergency'] == true ||
+              v['is_emergency'] == 1 ||
+              v['is_emergency'] == 'true';
+          return isEmergencyActive ? isEmerg : !isEmerg;
+        }).toList();
+
+    int currentTotal = currentTabVisits.length;
+    int currentCompleted =
+        currentTabVisits.where((v) => v['visit_status'] == 'Completed').length;
+    int currentPending =
+        currentTabVisits.where((v) => v['visit_status'] == 'Pending').length;
+    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('قائمة المحلات'),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            onPressed: _fetchVisits,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'تحديث القائمة',
           ),
-          // ++++++++++++++++++++++++++++++
-        ),
-        body: Column(
-          children: [
-            // --- أزرار الفلترة مع الأعداد ---
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: 8.0,
-                horizontal: 8.0,
-              ),
-              child: ToggleButtons(
-                isSelected: _isSelected,
-                onPressed: (int index) {
-                  if (_isSelected[index]) return;
-                  setState(() {
-                    for (int i = 0; i < _isSelected.length; i++) {
-                      _isSelected[i] = i == index;
-                    }
-                    _selectedStatusFilter = _filterValues[index];
-                    _applyFilter(); // تطبيق الفلتر محلياً
-                  });
-                },
-                borderRadius: BorderRadius.circular(8.0),
-                constraints: BoxConstraints(
-                  minHeight: 40.0,
-                  minWidth: (MediaQuery.of(context).size.width - 32) / 3.1,
-                ),
-                children: <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('الكل ($_totalCount)'),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('المكتملة ($_completedCount)'),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('المتبقية ($_pendingCount)'),
-                  ),
-                ],
-              ),
+        ],
+        // +++ شريط التبويبات الحديث (تم إزالة const لحل خطأ الكومبايلر وربط المتحكم) +++
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: const Color.fromARGB(255, 17, 5, 5),
+          unselectedLabelColor: const Color.fromARGB(179, 14, 7, 7),
+          indicatorColor: const Color.fromARGB(255, 73, 16, 16),
+          indicatorWeight: 4,
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
+          tabs: [
+            const Tab(icon: Icon(Icons.route), text: 'جولة اليوم 📍'),
+            Tab(
+              icon: const Icon(Icons.warning_amber_rounded),
+              text:
+                  'طلبات عاجلة 🚨 (${_allVisits.where((v) => v != null && v is Map && (v['is_emergency'] == true || v['is_emergency'] == 1 || v['is_emergency'] == 'true')).length})',
             ),
-            const Divider(height: 1, thickness: 1),
-
-            // --- عرض المحتوى (القائمة أو الرسائل الأخرى) ---
-            Expanded(child: _buildContent()),
           ],
         ),
-        // +++ إضافة الزر العائم هنا +++
-        floatingActionButton: FloatingActionButton(
-          onPressed: () async {
-            // +++ التحقق من الضوء الأخضر قبل فتح صفحة الإضافة +++
-            const storage = FlutterSecureStorage();
-            String? authStr = await storage.read(key: 'is_authorized');
-
-            // الحماية السحرية الأولى: التأكد أن الشاشة ما زالت موجودة بعد القراءة
-            if (!context.mounted) return;
-
-            if (authStr != 'true') {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'غير مصرح لك بإضافة محلات حالياً. بانتظار تفعيل خط السير من الإدارة.',
-                  ),
-                  backgroundColor: Colors.orange,
+        // ++++++++++++++++++++++++++++++
+      ),
+      body: Column(
+        children: [
+          // --- أزرار الفلترة مع الأعداد ---
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+            child: ToggleButtons(
+              isSelected: _isSelected,
+              onPressed: (int index) {
+                if (_isSelected[index]) return;
+                setState(() {
+                  for (int i = 0; i < _isSelected.length; i++) {
+                    _isSelected[i] = i == index;
+                  }
+                  _selectedStatusFilter = _filterValues[index];
+                  _applyFilter(); // تطبيق الفلتر محلياً
+                });
+              },
+              borderRadius: BorderRadius.circular(8.0),
+              constraints: BoxConstraints(
+                minHeight: 40.0,
+                minWidth: (MediaQuery.of(context).size.width - 32) / 3.1,
+              ),
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('الكل ($currentTotal)'),
                 ),
-              );
-              return; // إيقاف العملية فوراً ومنع فتح الشاشة
-            }
-            // ++++++++++++++++++++++++++++++++++++++++++++++
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('المكتملة ($currentCompleted)'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('المتبقية ($currentPending)'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, thickness: 1),
 
-            // --- الكود الأصلي لفتح شاشة إضافة المحل ---
-            final result = await Navigator.push<bool>(
-              context,
-              MaterialPageRoute(builder: (context) => const AddShopScreen()),
+          // --- عرض المحتوى (القائمة أو الرسائل الأخرى) ---
+          Expanded(child: _buildContent()),
+        ],
+      ),
+      // +++ إضافة الزر العائم هنا +++
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          // +++ الحماية المعمارية 1: فحص الاستراحة بشكل مستقل وأولاً +++
+          if (_isOnBreak) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'أنت الآن في وقت الاستراحة. قم بإنهاء الاستراحة لمتابعة العمل.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
             );
+            return;
+          }
 
-            // الحماية السحرية الثانية: التأكد أن الشاشة موجودة بعد العودة من الإضافة
-            if (!context.mounted) return;
+          // +++ الحماية المعمارية 2: التحقق من الضوء الأخضر (الصلاحية) +++
+          const storage = FlutterSecureStorage();
+          String? authStr = await storage.read(key: 'is_authorized');
 
-            if (result == true) {
-              developer.log(
-                'AddShopScreen closed with success, refreshing visits...',
-              );
-              _fetchVisits();
-            }
-          },
+          if (!context.mounted) return;
 
-          tooltip: 'إضافة محل جديد',
-          child: const Icon(Icons.add),
-        ),
-      ), // +++ إغلاق Scaffold +++
-    ); // +++ إغلاق DefaultTabController +++
+          if (authStr != 'true') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'غير مصرح لك بإضافة محلات حالياً. بانتظار تفعيل خط السير من الإدارة.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            return;
+          }
+          // ++++++++++++++++++++++++++++++++++++++++++++++
+
+          if (!context.mounted) return; // الحماية قبل فتح الروتر
+          // --- الكود الأصلي لفتح شاشة إضافة المحل ---
+          final result = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(builder: (context) => const AddShopScreen()),
+          );
+
+          // الحماية السحرية الثانية: التأكد أن الشاشة موجودة بعد العودة من الإضافة
+          if (!context.mounted) return;
+
+          if (result == true) {
+            developer.log(
+              'AddShopScreen closed with success, refreshing visits...',
+            );
+            _fetchVisits();
+          }
+        },
+
+        tooltip: 'إضافة محل جديد',
+        child: const Icon(Icons.add),
+      ),
+    ); // +++ إغلاق Scaffold +++
   }
 
   Widget _buildContent() {
@@ -331,14 +397,31 @@ class _VisitListScreenState extends State<VisitListScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // +++ فصل الزيارات بعد فلترتها (حفاظاً على منطقك الأصلي) +++
+    // +++ فصل الزيارات بعد فلترتها مع حماية صارمة وتحويل ذكي للأنواع (Type Casting) +++
     final List<dynamic> normalVisits =
-        _filteredVisits.where((v) => v['is_emergency'] != true).toList();
-    final List<dynamic> emergencyVisits =
-        _filteredVisits.where((v) => v['is_emergency'] == true).toList();
+        _filteredVisits.where((v) {
+          if (v == null || v is! Map) return false;
+          // دعم كل أنواع الاستجابة (boolean, int, string) من السيرفر
+          final isEmerg =
+              v['is_emergency'] == true ||
+              v['is_emergency'] == 1 ||
+              v['is_emergency'] == 'true';
+          return !isEmerg;
+        }).toList();
 
-    // +++ عرض التبويبات +++
+    final List<dynamic> emergencyVisits =
+        _filteredVisits.where((v) {
+          if (v == null || v is! Map) return false;
+          final isEmerg =
+              v['is_emergency'] == true ||
+              v['is_emergency'] == 1 ||
+              v['is_emergency'] == 'true';
+          return isEmerg;
+        }).toList();
+
+    // +++ عرض التبويبات مع ربطها بالمتحكم +++
     return TabBarView(
+      controller: _tabController,
       children: [
         _buildListView(normalVisits, isEmergencyTab: false),
         _buildListView(emergencyVisits, isEmergencyTab: true),
@@ -412,7 +495,9 @@ class _VisitListScreenState extends State<VisitListScreen> {
             statusInArabic = visitStatus;
           }
 
-          final shopBalance = (visit['shop_balance'] ?? 0.0).toDouble();
+          final shopBalance =
+              double.tryParse(visit['shop_balance']?.toString() ?? '0.0') ??
+              0.0;
           final bool hasNotes =
               visit['visit_notes'] != null &&
               visit['visit_notes'].toString().isNotEmpty;
@@ -459,6 +544,19 @@ class _VisitListScreenState extends State<VisitListScreen> {
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () async {
+                // +++ الحماية اللحظية من الاستراحة (Live Reactivity) +++
+                if (_isOnBreak) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'أنت الآن في وقت الاستراحة. قم بإنهاء الاستراحة لمتابعة العمل.',
+                      ),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+
                 // --- تم الاحتفاظ بالكود الأصلي للانتقال 100% لضمان عدم حدوث أي خلل ---
                 final int visitId = visit['visit_id'] ?? 0;
                 final String currentStatus = visitStatus;
@@ -468,7 +566,7 @@ class _VisitListScreenState extends State<VisitListScreen> {
                   'Navigating to VisitScreen for visit ID: $visitId',
                 );
 
-                final result = await Navigator.push(
+                await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder:
@@ -481,9 +579,10 @@ class _VisitListScreenState extends State<VisitListScreen> {
                   ),
                 );
 
-                if (result == true && mounted) {
+                // +++ تحديث لحظي إجباري عند العودة من أي زيارة لضمان تحديث الأيقونات والحالة +++
+                if (mounted) {
                   developer.log(
-                    'Returned from VisitScreen with success, performing full refresh...',
+                    'Returned from VisitScreen, refreshing data to sync states...',
                   );
                   _fetchVisits();
                 }
@@ -562,10 +661,63 @@ class _VisitListScreenState extends State<VisitListScreen> {
                       ),
                     ),
 
-                    Icon(
-                      Icons.arrow_forward_ios,
-                      size: 16,
-                      color: Colors.grey.shade400,
+                    // +++ زر الخريطة الذكي بدلاً من السهم الرمادي +++
+                    IconButton(
+                      icon: const Icon(
+                        Icons.map_outlined,
+                        color: Colors.blue,
+                        size: 28,
+                      ),
+                      tooltip: 'عرض الموقع',
+                      onPressed: () async {
+                        final double? lat = visit['shop_latitude'];
+                        final double? lng = visit['shop_longitude'];
+                        final String? link = visit['shop_location_link'];
+
+                        try {
+                          if (lat != null && lng != null) {
+                            await MapLauncher.showMarker(
+                              mapType: MapType.google,
+                              coords: Coords(lat, lng),
+                              title: shopName,
+                            );
+                          } else if (link != null && link.trim().isNotEmpty) {
+                            final Uri url = Uri.parse(link.trim());
+                            if (!await launchUrl(
+                              url,
+                              mode: LaunchMode.externalApplication,
+                            )) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('لا يمكن فتح الرابط'),
+                                  ),
+                                );
+                              }
+                            }
+                          } else {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'لا يتوفر موقع مسجل لهذا المحل',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'خطأ في الخريطة: ${e.toString()}',
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      },
                     ),
                   ],
                 ),

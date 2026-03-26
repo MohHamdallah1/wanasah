@@ -66,8 +66,8 @@ class Driver(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
     can_allow_debt = db.Column(db.Boolean, nullable=False, default=False)
-    max_debt_limit = db.Column(db.Float, nullable=False, default=0.0)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    max_debt_limit = db.Column(db.Numeric(10, 2), nullable=False, default=0.0)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     def set_password(self, password):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -82,7 +82,7 @@ class Product(db.Model):
     base_name = db.Column(db.String(150), nullable=False)
     brand = db.Column(db.String(100), nullable=True)
     category = db.Column(db.String(100), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     variants = db.relationship('ProductVariant', backref='product', lazy=True)
 
 class ProductVariant(db.Model):
@@ -94,9 +94,9 @@ class ProductVariant(db.Model):
     size = db.Column(db.String(50), nullable=True)
     sku = db.Column(db.String(100), nullable=True, unique=True)
     packs_per_carton = db.Column(db.Integer, nullable=False, default=50) # حجم الكرتونة خاص بكل منتج
-    price_per_carton = db.Column(db.Float, nullable=False)
-    price_per_pack = db.Column(db.Float, nullable=True) # سعر الحبة للفرط
-    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    price_per_carton = db.Column(db.Numeric(10, 2), nullable=False)
+    price_per_pack = db.Column(db.Numeric(10, 2), nullable=True) # سعر الحبة للفرط
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True) # +++ فهرس لتسريع جلب المنتجات المتاحة فقط
     default_max_samples_per_day = db.Column(db.Integer, nullable=False, default=0) # سقف العينات اليومي المسموح للمندوب
 
 
@@ -115,23 +115,24 @@ class Vehicle(db.Model):
 class VehicleLoad(db.Model):
     # مسودة الحمولة التي يجهزها أمين المستودع ليلاً
     __tablename__ = 'vehicle_loads'
+    __table_args__ = (db.UniqueConstraint('vehicle_id', 'product_variant_id', name='uq_vehicle_variant_load'),) # +++ قيد الفرادة
     id = db.Column(db.Integer, primary_key=True)
-    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False, index=True) # +++ فهرس
     product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False, default=0) # الوحدة الأساسية فقط
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)) # +++ توحيد التواريخ
 
 # ================= خطوط السير اليومية (التوزيع) =================
 class DispatchRoute(db.Model):
     __tablename__ = 'dispatch_routes'
     id = db.Column(db.Integer, primary_key=True)
-    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=False)
-    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True)
-    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=True)
-    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=True)
-    dispatch_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
-    status = db.Column(db.String(50), nullable=False, default='waiting') # waiting, active, postponed, closed
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=False, index=True) # +++ فهرس المنطقة
+    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True, index=True) # +++ فهرس المندوب
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=True, index=True)
+    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=True, index=True)
+    dispatch_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now(timezone.utc).date(), index=True)
+    status = db.Column(db.String(50), nullable=False, default='waiting', index=True) # +++ فهرس الحالة (مهم جداً للسرعة)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     
     zone = db.relationship('Zone')
     driver = db.relationship('Driver')
@@ -142,13 +143,13 @@ class ShortageRequest(db.Model):
     __tablename__ = 'shortage_requests'
     
     id = db.Column(db.Integer, primary_key=True)
-    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=False)
-    shop_id = db.Column(db.Integer, db.ForeignKey('shops.id'), nullable=False)
-    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True) # قد يكون الطلب لمنطقة معلقة بدون مندوب
+    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=False, index=True)
+    shop_id = db.Column(db.Integer, db.ForeignKey('shops.id'), nullable=False, index=True)
+    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True, index=True) 
     
     product_name = db.Column(db.String(150), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
-    status = db.Column(db.String(50), default='pending') # pending, fulfilled
+    status = db.Column(db.String(50), default='pending', index=True)
     wait_time = db.Column(db.String(50), default='الآن')
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -176,46 +177,47 @@ class Shop(db.Model):
     longitude = db.Column(db.Float, nullable=True)
     phone_number = db.Column(db.String(20), nullable=True)
     contact_person = db.Column(db.String(100), nullable=True)
-    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id'), nullable=True)
-    current_balance = db.Column(db.Float, nullable=False, default=0.0)
-    max_debt_limit = db.Column(db.Float, nullable=False, default=0.0)
+    zone_id = db.Column(db.Integer, db.ForeignKey('zones.id', ondelete='SET NULL'), nullable=True, index=True) # +++ حماية اليُتم والفهرسة
+    current_balance = db.Column(db.Numeric(10, 2), nullable=False, default=0.0)
+    max_debt_limit = db.Column(db.Numeric(10, 2), nullable=False, default=0.0)
     added_by_driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     notes = db.Column(db.Text, nullable=True)
     location_link = db.Column(db.String(500), nullable=True)
     sequence = db.Column(db.Integer, nullable=True, default=0) # رقم الترتيب داخل المنطقة
     is_archived = db.Column(db.Boolean, nullable=False, default=False) # سلة المحذوفات
 
-    visits = db.relationship('Visit', backref='shop', lazy='dynamic')
+    visits = db.relationship('Visit', backref='shop', lazy='select') # +++ التخلص من dynamic للسماح بالـ joinedload ومنع N+1
 
 # ================= الجلسة والجرد المفصل =================
 class WorkSession(db.Model):
     __tablename__ = 'work_sessions'
     id = db.Column(db.Integer, primary_key=True)
-    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False)
-    start_time = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    end_time = db.Column(db.DateTime, nullable=True)
-    session_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
+    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False, index=True)
+    start_time = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    end_time = db.Column(db.DateTime, nullable=True, index=True)
+    session_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now(timezone.utc).date(), index=True)
     start_latitude = db.Column(db.Float, nullable=True)
     start_longitude = db.Column(db.Float, nullable=True)
     
     # +++ الحقول الجديدة: الضوء الأخضر والاستراحة +++
-    is_authorized_to_sell = db.Column(db.Boolean, nullable=False, default=False) # يبدأ مغلقاً (False)
+    is_authorized_to_sell = db.Column(db.Boolean, nullable=False, default=False) 
     break_start_time = db.Column(db.DateTime, nullable=True)
     break_end_time = db.Column(db.DateTime, nullable=True)
-    # ++++++++++++++++++++++++++++++++++++++++++++++
+    
     # +++ حقل الاعتماد الإداري للتسوية +++
-    is_settled = db.Column(db.Boolean, nullable=False, default=False)
+    is_settled = db.Column(db.Boolean, nullable=False, default=False, index=True)
     # ++++++++++++++++++++++++++++++++++++++++++++++
     driver = db.relationship('Driver', backref=db.backref('work_sessions', lazy=True))
     inventory = db.relationship('SessionInventory', backref='work_session', lazy=True) # ربط الجلسة بالمخزونن
 
 class SessionInventory(db.Model):
     __tablename__ = 'session_inventory'
+    __table_args__ = (db.UniqueConstraint('work_session_id', 'product_variant_id', name='uq_session_variant_inv'),) # +++ قيد الفرادة للعهدة
     id = db.Column(db.Integer, primary_key=True)
-    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=False)
-    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False)
+    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=False, index=True) # +++ فهرس
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True) # +++ فهرس
     starting_quantity = db.Column(db.Integer, nullable=False, default=0)
     current_remaining_quantity = db.Column(db.Integer, nullable=False, default=0)
     product_variant = db.relationship('ProductVariant')
@@ -228,50 +230,50 @@ class VisitItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     # إضافة index=True لتسريع البحث عن محتويات زيارة معينة ومنع N+1
     visit_id = db.Column(db.Integer, db.ForeignKey('visits.id'), nullable=False, index=True)
-    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)   
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)   
     # الكمية المباعة بالوحدة الأساسية
     quantity = db.Column(db.Integer, nullable=False, default=0)  
+    # +++ الدرج الجديد لحفظ حبات الفرط وعدم ضياعها +++
+    packs_quantity = db.Column(db.Integer, nullable=False, default=0)
     # البونص بالوحدة الأساسية
     bonus_quantity = db.Column(db.Integer, nullable=False, default=0)
     # الأسعار وقت البيع للوحدة الأساسية
-    price_per_unit_at_sale = db.Column(db.Float, nullable=True)
-    total_price = db.Column(db.Float, nullable=False, default=0.0)
+    price_per_unit_at_sale = db.Column(db.Numeric(10, 2), nullable=True)
+    total_price = db.Column(db.Numeric(10, 2), nullable=False, default=0.0)
     product_variant = db.relationship('ProductVariant')
     # العينات المجانية بالوحدة الأساسية
     sample_quantity = db.Column(db.Integer, nullable=False, default=0)
-
-
 
 # ================= الزيارات =================
 class Visit(db.Model):
     __tablename__ = 'visits'
     id = db.Column(db.Integer, primary_key=True)
-    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False)
-    shop_id = db.Column(db.Integer, db.ForeignKey('shops.id'), nullable=False)
-    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=True)
-    visit_timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    outcome = db.Column(db.String(50), nullable=True, default='Pending')
-    amount_before_tax_and_discount = db.Column(db.Float, nullable=True, default=0.0)
-    discount_applied = db.Column(db.Float, nullable=True, default=0.0)
-    tax_percentage_applied = db.Column(db.Float, nullable=True, default=0.0)
-    tax_amount = db.Column(db.Float, nullable=True, default=0.0)
-    final_amount_due = db.Column(db.Float, nullable=True, default=0.0)
-    cash_collected = db.Column(db.Float, nullable=True, default=0.0)
-    debt_paid = db.Column(db.Float, nullable=False, default=0.0)
+    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True, index=True)
+    shop_id = db.Column(db.Integer, db.ForeignKey('shops.id'), nullable=False, index=True)
+    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=True, index=True)
+    visit_timestamp = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True) # +++ فهرس للتقارير الزمنية
+    outcome = db.Column(db.String(50), nullable=True, default='Pending', index=True)
+    amount_before_tax_and_discount = db.Column(db.Numeric(10, 2), nullable=True, default=0.0)
+    discount_applied = db.Column(db.Numeric(10, 2), nullable=True, default=0.0)
+    tax_percentage_applied = db.Column(db.Numeric(10, 2), nullable=True, default=0.0)
+    tax_amount = db.Column(db.Numeric(10, 2), nullable=True, default=0.0)
+    final_amount_due = db.Column(db.Numeric(10, 2), nullable=True, default=0.0)
+    cash_collected = db.Column(db.Numeric(10, 2), nullable=True, default=0.0)
+    debt_paid = db.Column(db.Numeric(10, 2), nullable=False, default=0.0)
     no_sale_reason = db.Column(db.String(200), nullable=True)
-    shop_balance_before = db.Column(db.Float, nullable=True)
-    shop_balance_after = db.Column(db.Float, nullable=True)
+    shop_balance_before = db.Column(db.Numeric(10, 2), nullable=True)
+    shop_balance_after = db.Column(db.Numeric(10, 2), nullable=True)
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
     sequence = db.Column(db.Integer, nullable=True)
-    status = db.Column(db.String(50), nullable=False, default='Pending')
+    status = db.Column(db.String(50), nullable=False, default='Pending', index=True) # +++ فهرس لتسريع عمليات الفرز وحساب الإنجاز
     notes = db.Column(db.Text, nullable=True)
     tax_qr_code = db.Column(db.String(500), nullable=True)
     is_emergency = db.Column(db.Boolean, nullable=False, default=False) # لفرز الطلبات الطارئة بشاشة منفصلة
     
     work_session = db.relationship('WorkSession', backref=db.backref('visits', lazy='dynamic'))
     driver = db.relationship('Driver', backref=db.backref('visits', lazy='dynamic'))
-    items = db.relationship('VisitItem', backref='visit', lazy='dynamic', cascade="all, delete-orphan")
+    items = db.relationship('VisitItem', backref='visit', lazy='select', cascade="all, delete-orphan")
 
 
     # ================= المرتجعات والتوالف =================
@@ -279,7 +281,7 @@ class VisitReturn(db.Model):
     __tablename__ = 'visit_returns'
     id = db.Column(db.Integer, primary_key=True)
     visit_id = db.Column(db.Integer, db.ForeignKey('visits.id'), nullable=False, index=True)
-    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
     
     # الكمية المستلمة كتالف بالوحدة الأساسية
     quantity = db.Column(db.Integer, nullable=False, default=0)
@@ -289,7 +291,7 @@ class VisitReturn(db.Model):
     reason = db.Column(db.Text, nullable=True) # ملاحظات إضافية
     
     product_variant = db.relationship('ProductVariant')
-    visit = db.relationship('Visit', backref=db.backref('returns', lazy='dynamic', cascade="all, delete-orphan"))
+    visit = db.relationship('Visit', backref=db.backref('returns', lazy='select', cascade="all, delete-orphan")) # +++ تم تغيير dynamic إلى select لدعم الـ joinedload ومنع الانهيار +++
 
 
 # ================= سجل التدقيق للعمليات الجماعية (Audit Log) =================
@@ -304,7 +306,59 @@ class ImportLog(db.Model):
     total_records = db.Column(db.Integer, nullable=False, default=0)
     success_count = db.Column(db.Integer, nullable=False, default=0)
     status = db.Column(db.String(50), nullable=False) # 'Success', 'Failed'
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     admin = db.relationship('Driver')
     zone = db.relationship('Zone')
+
+
+
+# ================= سجل حركات وتدقيق المخزون (Inventory Ledger) =================
+# الهدف: توثيق العجز والزيادة وأي تسوية تتم على سيارة المندوب لحماية الجرد المالي.
+class InventoryLedger(db.Model):
+    __tablename__ = 'inventory_ledgers'
+    id = db.Column(db.Integer, primary_key=True)
+    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=True)
+    driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=True)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False)
+    
+    transaction_type = db.Column(db.String(50), nullable=False) # 'Deficit' (عجز), 'Surplus' (زيادة), 'Adjustment' (تعديل)
+    expected_quantity = db.Column(db.Integer, nullable=False)   # الكمية التي كان يجب أن تكون في السيارة
+    actual_quantity = db.Column(db.Integer, nullable=False)     # الكمية الفعلية التي جردها المحاسب
+    difference = db.Column(db.Integer, nullable=False)          # الفارق (سالب للعجز، موجب للزيادة)
+    
+    admin_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False) # المحاسب/المشرف الذي قام بالتسوية
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    notes = db.Column(db.Text, nullable=True)
+
+    product_variant = db.relationship('ProductVariant')
+    driver = db.relationship('Driver', foreign_keys=[driver_id])
+    admin = db.relationship('Driver', foreign_keys=[admin_id])
+
+
+# ================= سجل النظام الشامل (System Audit Log) =================
+# يسجل الحركات الحساسة (مثل التراجع عن إنهاء العمل) لمنع التلاعب
+class SystemAuditLog(db.Model):
+    __tablename__ = 'system_audit_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False, index=True)
+    target_id = db.Column(db.String(100), nullable=False, index=True) # رقم الجلسة أو المندوب
+    action_type = db.Column(db.String(100), nullable=False, index=True) # مثال: UNDO_END_WORK
+    old_value = db.Column(db.Text, nullable=True)
+    new_value = db.Column(db.Text, nullable=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    admin = db.relationship('Driver', foreign_keys=[admin_id])
+
+# ================= أرشيف الاستراحات (Work Break Log) =================
+# يحل مشكلة ضياع الاستراحة الأولى إذا قام المندوب باستراحة ثانية
+class WorkBreakLog(db.Model):
+    __tablename__ = 'work_break_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id'), nullable=False, index=True)
+    break_start = db.Column(db.DateTime, nullable=False)
+    break_end = db.Column(db.DateTime, nullable=True)
+    duration_minutes = db.Column(db.Integer, nullable=True) # يحسب تلقائياً عند الإنهاء
+
+    work_session = db.relationship('WorkSession', backref=db.backref('break_logs', lazy='dynamic'))

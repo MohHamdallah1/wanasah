@@ -193,7 +193,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const storage = FlutterSecureStorage();
           storage.write(
             key: 'is_authorized',
-            value: (isAuthorized && !isOnBreak).toString(),
+            value: isAuthorized.toString(), // تسجيل الصلاحية الأصلية فقط
           );
           // +++++++++++++++++++++++++++++++++++++++++++++
 
@@ -320,27 +320,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       // إذا فشل جلب الموقع (لأي سبب)، أوقف العملية وأظهر الخطأ (تم عرضه في _getDeviceLocation)
       if (currentPosition == null) {
-        developer.log("Failed to get location, aborting start work session.");
-        // لا تقم بتحديث الحالة هنا، رسالة الخطأ ظهرت بالفعل
-        // setState(() { _isSessionLoading = false; }); // سيتم في finally
-        return; // اخرج من الدالة
+        developer.log(
+          "Failed to get location, but proceeding without it to prevent blocking work.",
+        );
+      } else {
+        developer.log(
+          "Location obtained: Lat: ${currentPosition.latitude}, Lng: ${currentPosition.longitude}.",
+        );
       }
-
-      developer.log(
-        "Location obtained: Lat: ${currentPosition.latitude}, Lng: ${currentPosition.longitude}. Proceeding to start session API call...",
-      );
 
       // --- الخطوة 2: استدعاء API بدء الجلسة مع إرسال الإحداثيات ---
       final url = Uri.parse(
         '${ApiConstants.baseUrl}/driver/${widget.driverId}/sessions/start',
-      ); // تأكد من driverId
-      final headers =
-          await getAuthenticatedHeaders(); // يفترض أنها تضيف Content-Type للـ POST
+      );
+      final headers = await getAuthenticatedHeaders();
 
-      // بناء الجسم متضمناً الإحداثيات
+      // بناء الجسم متضمناً الإحداثيات (حتى لو كانت null)
       final body = jsonEncode({
-        'latitude': currentPosition.latitude,
-        'longitude': currentPosition.longitude,
+        'latitude': currentPosition?.latitude,
+        'longitude': currentPosition?.longitude,
       });
 
       final response = await http
@@ -464,12 +462,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (response.statusCode == 200) {
         // ... (نفس كود معالجة النجاح) ...
         developer.log('End session response: ${response.body}');
-        
+
         // +++ التعديل الجراحي: تحديث حالة الواجهة فوراً لتعطيل زر إنهاء العمل لمنع الضغط المتكرر +++
         if (mounted) {
           setState(() {
-             _isActiveSession = false;
-             _isSessionLoading = false;
+            _isActiveSession = false;
+            _isSessionLoading = false;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -478,7 +476,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           );
         }
-        
+
         await _fetchDashboardData();
       } else {
         // ... (نفس كود معالجة الأخطاء الأخرى) ...
@@ -550,13 +548,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       if (response.statusCode == 200) {
+        // +++ الضربة الجراحية: حفظ حالة الاستراحة في الذاكرة المحلية فوراً (Frontend Lock) +++
+        final String breakStatus = (action == 'start') ? 'true' : 'false';
+        await const FlutterSecureStorage().write(
+          key: 'is_on_break',
+          value: breakStatus,
+        );
+        // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
                 action == 'start'
-                    ? 'تم بدء الاستراحة'
-                    : 'تم إنهاء الاستراحة (العودة للعمل)',
+                    ? 'تم بدء الاستراحة، تم إقفال شاشات البيع.'
+                    : 'تم إنهاء الاستراحة، يمكنك العودة للعمل.',
               ),
               backgroundColor: Colors.blue,
             ),
@@ -659,23 +665,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // الأذونات ممنوحة والخدمة مفعلة، جلب الموقع
     developer.log("Location permissions granted, getting current position...");
     try {
-      // +++ تعيين مهلة باستدعاء timeout لمنع تجمد التطبيق (ANR) +++
+      // +++ التعديل الجراحي: الاعتماد على آخر موقع معروف أولاً لتجنب تجميد الهاردوير +++
+      Position? lastPosition = await Geolocator.getLastKnownPosition();
+      if (lastPosition != null) {
+        return lastPosition;
+      }
       return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      ).timeout(const Duration(seconds: 5));
+        desiredAccuracy: LocationAccuracy.low,
+      ).timeout(const Duration(seconds: 4));
     } on TimeoutException {
-      developer.log(
-        "Location request timed out. Please enable GPS manually.",
-      );
+      developer.log("Location request timed out. Proceeding without GPS.");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('فشل في التقاط إحداثيات الموقع أوتوماتيكياً (انتهت المهلة). الرجاء تفعيل الـ GPS يدوياً والمحاولة مرة أخرى.'),
-            backgroundColor: Colors.red,
+            content: Text(
+              'تأخر التقاط الـ GPS. سيتم بدء العمل بالاعتماد على آخر موقع معروف لتسهيل عملك.',
+            ),
+            backgroundColor: Colors.orange,
           ),
         );
       }
-      return null;
+      return null; // +++ سيسمح هذا للتطبيق بفتح الجلسة وإرسال الطلب بدلاً من تجميد المندوب +++
     } catch (e) {
       developer.log("Error getting current position: $e");
       if (mounted) {
@@ -911,11 +921,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ? Icons.free_breakfast_outlined
                       : Icons.free_breakfast,
                 ),
-                label: Text(
-                  _isOnBreak
-                      ? 'إنهاء الاستراحة (العودة للعمل)'
-                      : 'بدء الاستراحة',
-                ),
+                label: Text(_isOnBreak ? 'إنهاء الاستراحة' : 'بدء الاستراحة'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor:
                       _isOnBreak ? Colors.orange[700] : Colors.blue[600],

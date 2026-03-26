@@ -7,6 +7,7 @@ interface PendingRoutesTableProps {
   onPostponeRoute: (id: string) => void;
   onCloseZone: (route: PendingRoute) => void;
   onForceWithdraw: (route: PendingRoute) => void;
+  onUndoEndWork: (id: string) => void;
   getDriverShortages: (driverId: string) => number;
 }
 
@@ -16,6 +17,7 @@ export function PendingRoutesTable({
   onPostponeRoute,
   onCloseZone,
   onForceWithdraw,
+  onUndoEndWork,
   getDriverShortages,
 }: PendingRoutesTableProps) {
   if (routes.length === 0) {
@@ -56,8 +58,8 @@ export function PendingRoutesTable({
             </div>
             <div className="flex items-center gap-2">
               {route.shopsRemaining === 0 ? (
-                <button 
-                  onClick={() => onCloseZone(route)} 
+                <button
+                  onClick={() => onCloseZone(route)}
                   className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 shadow-lg animate-pulse"
                 >
                   إغلاق وتصفير المنطقة ✅
@@ -82,7 +84,7 @@ export function PendingRoutesTable({
                     className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
                   >
                     <Clock className="w-3.5 h-3.5" />
-                    تأجيل للغد 🕒
+                    تأجيل المنطقة⏸️
                   </button>
                   <button
                     onClick={() => onCloseZone(route)}
@@ -90,6 +92,31 @@ export function PendingRoutesTable({
                   >
                     <AlertTriangle className="w-3.5 h-3.5" />
                     إغلاق وتصفير
+                  </button>
+                </>
+              ) : route.sessionEnded ? (
+                <>
+                  {/* +++ أزرار الطوارئ بعد إنهاء المندوب لعمله +++ */}
+                  <button
+                    onClick={() => onOpenRouteModal(route, "transfer")}
+                    className="px-4 py-2 rounded-xl border border-emerald-200 text-emerald-600 text-xs font-bold hover:bg-emerald-50 transition-colors flex items-center gap-2 shadow-sm"
+                  >
+                    <UserMinus className="w-3.5 h-3.5" />
+                    تحويل لمندوب آخر 🔄
+                  </button>
+                  <button
+                    onClick={() => onPostponeRoute(route.id)}
+                    className="px-4 py-2 rounded-xl border border-amber-200 text-amber-600 text-xs font-bold hover:bg-amber-50 transition-colors flex items-center gap-2 shadow-sm"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    تأجيل المنطقة ⏸️
+                  </button>
+                  <button
+                    onClick={() => onCloseZone(route)}
+                    className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2 shadow-sm"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    إغلاق وتصفير 🛑
                   </button>
                 </>
               ) : (

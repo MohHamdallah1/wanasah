@@ -109,6 +109,7 @@ export default function DispatchBoard() {
   const [shortageShopId, setShortageShopId] = useState("");
   const [shortageDraft, setShortageDraft] = useState<{ productId: string; productName: string; quantity: number }[]>([]);
   const [newShortage, setNewShortage] = useState<Partial<Shortage>>({});
+  const [editingShortageIds, setEditingShortageIds] = useState<string[]>([]); // IDs to delete on confirm
 
   const [isSchedulingModalOpen, setIsSchedulingModalOpen] = useState(false);
   const [schedulingType, setSchedulingType] = useState<"bulk" | "local">("bulk");
@@ -168,7 +169,16 @@ export default function DispatchBoard() {
 
   useEffect(() => {
     const controller = fetchInitialData();
-    return () => controller.abort();
+    // +++ التحديث اللحظي (Real-time Sync) للوحة التحكم بدون ريفرش +++
+    const interval = setInterval(() => {
+      authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(data)).catch(() => { });
+      authenticatedFetch("/dispatch/shortages").then(data => setShortages(data)).catch(() => { });
+    }, 60000); // سيتم تعديله عند بناء WebSockets
+
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [fetchInitialData]);
 
   useEffect(() => {
@@ -517,6 +527,15 @@ export default function DispatchBoard() {
       waitTime: "الآن"
     }));
     try {
+      // إذا كنا في وضع التعديل: احذف الطلبات القديمة أولاً ثم أنشئ الجديدة (Delete-then-Insert)
+      if (editingShortageIds.length > 0) {
+        await Promise.all(
+          editingShortageIds.map(id =>
+            authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" })
+          )
+        );
+        setEditingShortageIds([]);
+      }
       await authenticatedFetch("/dispatch/shortages", {
         method: "POST",
         body: JSON.stringify(newShortages)
@@ -534,15 +553,39 @@ export default function DispatchBoard() {
   const handleAddProductToDraft = () => {
     if (!newShortage.productName || !newShortage.quantity) return toast.error("⚠️ اختر منتج وكمية");
     const product = products.find(pr => pr.name === newShortage.productName);
-    setShortageDraft(prev => [
-      ...prev,
-      {
-        productId: product?.id || "",
-        productName: newShortage.productName!,
-        quantity: newShortage.quantity!
+    setShortageDraft(prev => {
+      const existing = prev.findIndex(d => d.productName === newShortage.productName);
+      if (existing !== -1) {
+        // دمج الكمية بدل إضافة سطر جديد
+        return prev.map((d, i) => i === existing ? { ...d, quantity: d.quantity + newShortage.quantity! } : d);
       }
-    ]);
+      return [...prev, { productId: product?.id || "", productName: newShortage.productName!, quantity: newShortage.quantity! }];
+    });
     setNewShortage(p => ({ ...p, quantity: 1 }));
+  };
+
+  const handleEditShortageGroup = (shopId: string) => {
+    const shopShortages = shortages.filter(s => s.shopId === shopId);
+    if (shopShortages.length === 0) return;
+
+    const first = shopShortages[0];
+
+    // 1. تحديد المنطقة والمحل في قوائم الاختيار
+    setShortageZoneId(first.zoneId);
+    setShortageShopId(first.shopId);
+
+    // 2. نقل المنتجات للـ Draft
+    const draft = shopShortages.map(s => ({
+      productId: products.find(p => p.name === s.productName)?.id || "",
+      productName: s.productName,
+      quantity: s.quantity,
+    }));
+    setShortageDraft(draft);
+
+    // 3. حفظ IDs القديمة للحذف لاحقاً عند تأكيد الطلب فقط (لا حذف الآن)
+    setEditingShortageIds(shopShortages.map(s => s.id));
+
+    toast.info("تم تحميل الطلب للتعديل — عدّل الكميات ثم اضغط تأكيد الطلب");
   };
 
   const handleCloseShortageModal = () => {
@@ -550,6 +593,7 @@ export default function DispatchBoard() {
     setShortageDraft([]);
     setShortageZoneId("");
     setShortageShopId("");
+    setEditingShortageIds([]);
   };
 
   return (
@@ -580,7 +624,24 @@ export default function DispatchBoard() {
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <h2 className="text-lg font-bold text-slate-800">مناطق قيد العمل (معلقة)</h2>
-                    <button onClick={() => setIsShowPostponedModalOpen(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm"><Eye className="w-4 h-4" /> 👁️ عرض المؤجل ({pendingRoutes.filter(r => r.status === "postponed").length})</button>
+                    {(() => {
+                      const hasPostponed = pendingRoutes.some(r => r.status === "postponed");
+                      return (
+                        <button
+                          onClick={() => setIsShowPostponedModalOpen(true)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                        >
+                          <Eye className="w-4 h-4" />
+                          {hasPostponed && (
+                            <span className="relative flex h-2.5 w-2.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500" />
+                            </span>
+                          )}
+                          👁️ عرض المؤجل ({pendingRoutes.filter(r => r.status === "postponed").length})
+                        </button>
+                      );
+                    })()}
                   </div>
                   <PendingRoutesTable
                     routes={pendingRoutes.filter(r => r.status !== "postponed")}
@@ -640,8 +701,9 @@ export default function DispatchBoard() {
                               method: "PUT",
                               body: JSON.stringify({ status: "waiting" })
                             });
-                            setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting" } : r));
-                            toast.info("تم إيقاف المنطقة وإعادتها للانتظار");
+                            setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting", driverId: "", vehicleId: "" } : r));
+                            fetchInitialData();
+                            toast.success("تم إيقاف المنطقة وسحبها بنجاح");
                           } catch (e: any) {
                             toast.error(e.message);
                           } finally {
@@ -650,7 +712,27 @@ export default function DispatchBoard() {
                         }
                       })
                     }}
-                    getDriverShortages={id => shortages.filter(s => s.driverId === id && s.status === "pending").length}
+                    onUndoEndWork={id => {
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: "تراجع عن إنهاء العمل",
+                        message: "هل أنت متأكد من التراجع عن إنهاء العمل وإعادة المندوب لحالة نشط؟ (لا يمكن التراجع إذا تم اعتماد التسوية)",
+                        onConfirm: async () => {
+                          try {
+                            await authenticatedFetch(`/dispatch/route/${id}/undo_end_work`, {
+                              method: "PUT"
+                            });
+                            toast.success("تم التراجع بنجاح. يمكن للمندوب متابعة عمله.");
+                            fetchInitialData(); // Refresh UI to reset status
+                          } catch (e: any) {
+                            toast.error(e.message);
+                          } finally {
+                            setConfirmDialog(d => ({ ...d, isOpen: false }));
+                          }
+                        }
+                      })
+                    }}
+                    getDriverShortages={id => new Set(shortages.filter(s => s.driverId === id && s.status === "pending").map(s => s.shopId)).size}
                   />
                 </div>
                 <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xl">
@@ -757,20 +839,26 @@ export default function DispatchBoard() {
         activeShops={activeShops}
         shortageZoneId={shortageZoneId}
         shortageShopId={shortageShopId}
-        onZoneChange={id => { setShortageZoneId(id); setShortageShopId(""); setShortageDraft([]); }}
-        onShopChange={id => { setShortageShopId(id); setShortageDraft([]); }}
+        onZoneChange={id => { setShortageZoneId(id); setShortageShopId(""); }}
+        onShopChange={id => { setShortageShopId(id); }}
         products={products}
         newShortage={newShortage}
         onNewShortageChange={setNewShortage}
         shortageDraft={shortageDraft}
         onAddProductToDraft={handleAddProductToDraft}
         onRemoveProductFromDraft={idx => setShortageDraft(p => p.filter((_, i) => i !== idx))}
+        onUpdateDraftQty={(idx, qty) => setShortageDraft(p => p.map((d, i) => i === idx ? { ...d, quantity: qty } : d))}
+        onClearDraft={() => setShortageDraft([])}
         onConfirmShortages={handleAddShortage}
         shortages={shortages}
         drivers={drivers}
         shortageDriverId={shortageDriverId}
         onDriverChange={setShortageDriverId}
-        onDeleteShortage={id => setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "حذف؟", onConfirm: () => { setShortages(prev => prev.filter(s => s.id !== id)); setConfirmDialog(d => ({ ...d, isOpen: false })); } })}
+        editingShortageIds={editingShortageIds}
+        onCancelEdit={() => { setShortageDraft([]); setEditingShortageIds([]); setShortageZoneId(""); setShortageShopId(""); }}
+        onDeleteShortage={id => setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try { await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: any) { toast.error("خطأ في الحذف: " + e.message); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })}
+        onDeleteShortageGroup={ids => setConfirmDialog({ isOpen: true, title: "حذف طلبات المحل", message: `هل أنت متأكد من حذف جميع طلبات هذا المحل (${ids.length} منتجات) نهائياً؟`, onConfirm: async () => { try { await Promise.all(ids.map(id => authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }))); setShortages(prev => prev.filter(s => !ids.includes(s.id))); toast.success("تم حذف جميع طلبات المحل بنجاح"); } catch (e: any) { toast.error("خطأ في الحذف: " + e.message); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })}
+        onEditShortageGroup={handleEditShortageGroup}
       />
       <ScheduleModal isOpen={isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
       <RouteManagementModal

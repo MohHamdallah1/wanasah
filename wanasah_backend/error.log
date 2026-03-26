@@ -1,0 +1,209 @@
+2026-03-24 06:47:23,195 - ERROR - حدث خطأ غير متوقع: 'InstrumentedList' object has no attribute 'options'
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 807, in get_visit_details
+    items = visit.items.options(joinedload(VisitItem.product_variant)).all()
+            ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'InstrumentedList' object has no attribute 'options'
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-24 10:52:25,702 - ERROR - حدث خطأ غير متوقع: 'Visit.returns' does not support object population - eager loading cannot be applied.
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 816, in get_visit_details
+    ).filter_by(id=visit_id).first()
+                             ~~~~~^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\query.py", line 2759, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2351, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 309, in orm_execute_statement
+    return cls.orm_setup_cursor_result(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        session,
+        ^^^^^^^^
+    ...<4 lines>...
+        result,
+        ^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 616, in orm_setup_cursor_result
+    return loading.instances(result, querycontext)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 133, in instances
+    with util.safe_reraise():
+         ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 121, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 115, in instances
+    query_entity.row_processor(context, cursor)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 2786, in row_processor
+    _instance = loading._instance_processor(
+        self,
+    ...<7 lines>...
+        polymorphic_discriminator=self._polymorphic_discriminator,
+    )
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 959, in _instance_processor
+    prop.create_row_processor(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        context, query_entity, path, mapper, result, adapter, populators
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\interfaces.py", line 1099, in create_row_processor
+    strat.create_row_processor(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        context,
+        ^^^^^^^^
+    ...<6 lines>...
+        populators,
+        ^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\strategies.py", line 2808, in create_row_processor
+    raise sa_exc.InvalidRequestError(
+    ...<2 lines>...
+    )
+sqlalchemy.exc.InvalidRequestError: 'Visit.returns' does not support object population - eager loading cannot be applied.
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
+2026-03-24 10:53:48,519 - ERROR - حدث خطأ غير متوقع: 'Visit.returns' does not support object population - eager loading cannot be applied.
+Traceback (most recent call last):
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\flask\app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 39, in decorated_function
+    return f(*args, **kwargs)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\routes.py", line 816, in get_visit_details
+    ).filter_by(id=visit_id).first()
+                             ~~~~~^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\query.py", line 2759, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+        params,
+        ^^^^^^^
+        execution_options={"_sa_orm_load_options": self.load_options},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2351, in execute
+    return self._execute_internal(
+           ~~~~~~~~~~~~~~~~~~~~~~^
+        statement,
+        ^^^^^^^^^^
+    ...<4 lines>...
+        _add_event=_add_event,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2249, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<4 lines>...
+        conn,
+        ^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 309, in orm_execute_statement
+    return cls.orm_setup_cursor_result(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        session,
+        ^^^^^^^^
+    ...<4 lines>...
+        result,
+        ^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 616, in orm_setup_cursor_result
+    return loading.instances(result, querycontext)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 133, in instances
+    with util.safe_reraise():
+         ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 121, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 115, in instances
+    query_entity.row_processor(context, cursor)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 2786, in row_processor
+    _instance = loading._instance_processor(
+        self,
+    ...<7 lines>...
+        polymorphic_discriminator=self._polymorphic_discriminator,
+    )
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 959, in _instance_processor
+    prop.create_row_processor(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        context, query_entity, path, mapper, result, adapter, populators
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\interfaces.py", line 1099, in create_row_processor
+    strat.create_row_processor(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        context,
+        ^^^^^^^^
+    ...<6 lines>...
+        populators,
+        ^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\Desktop\wanasah\wanasah_backend\venv\Lib\site-packages\sqlalchemy\orm\strategies.py", line 2808, in create_row_processor
+    raise sa_exc.InvalidRequestError(
+    ...<2 lines>...
+    )
+sqlalchemy.exc.InvalidRequestError: 'Visit.returns' does not support object population - eager loading cannot be applied.
+
+C:\Users\admin\Desktop\wanasah\wanasah_backend\app.py:50
