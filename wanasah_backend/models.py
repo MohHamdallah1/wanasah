@@ -362,3 +362,23 @@ class WorkBreakLog(db.Model):
     duration_minutes = db.Column(db.Integer, nullable=True) # يحسب تلقائياً عند الإنهاء
 
     work_session = db.relationship('WorkSession', backref=db.backref('break_logs', lazy='dynamic'))
+
+# =========================================
+# جدول الحوالات المعلقة (تأكيد استلام منتصف اليوم)
+# =========================================
+class InventoryTransfer(db.Model):
+    __tablename__ = 'inventory_transfers'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    work_session_id = db.Column(db.Integer, db.ForeignKey('work_sessions.id', ondelete='CASCADE'), nullable=False)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id', ondelete='CASCADE'), nullable=False)
+    
+    quantity_packs = db.Column(db.Integer, nullable=False) # الكمية بالحبات (موجب للزيادة، سالب للسحب)
+    status = db.Column(db.String(20), nullable=False, default='pending') # pending, accepted, rejected
+    
+    admin_id = db.Column(db.Integer, db.ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True) # المسؤول الذي أرسل التعديل
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    
+    # العلاقات
+    product_variant = db.relationship('ProductVariant')
+    work_session = db.relationship('WorkSession', backref=db.backref('transfers', lazy='select', cascade="all, delete-orphan"))

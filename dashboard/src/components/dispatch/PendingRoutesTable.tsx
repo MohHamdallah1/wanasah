@@ -1,4 +1,4 @@
-import { Truck, UserMinus, Clock, AlertTriangle, CircleStop } from "lucide-react";
+import { Truck, UserMinus, Clock, AlertTriangle, CircleStop, Package } from "lucide-react";
 import { PendingRoute } from "@/types/dispatch";
 
 interface PendingRoutesTableProps {
@@ -9,6 +9,7 @@ interface PendingRoutesTableProps {
   onForceWithdraw: (route: PendingRoute) => void;
   onUndoEndWork: (id: string) => void;
   getDriverShortages: (driverId: string) => number;
+  onAdjustInventory: (route: PendingRoute) => void;
 }
 
 export function PendingRoutesTable({
@@ -19,6 +20,7 @@ export function PendingRoutesTable({
   onForceWithdraw,
   onUndoEndWork,
   getDriverShortages,
+  onAdjustInventory,
 }: PendingRoutesTableProps) {
   if (routes.length === 0) {
     return <p className="text-sm text-slate-500 p-6 text-center">لا توجد مناطق معلقة حالياً.</p>;
@@ -120,13 +122,22 @@ export function PendingRoutesTable({
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={() => onForceWithdraw(route)}
-                  className="px-6 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 text-xs font-bold hover:bg-red-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
-                >
-                  <CircleStop className="w-4 h-4" />
-                  🛑 إيقاف وسحب المنطقة
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onAdjustInventory(route)}
+                    className="px-6 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
+                  >
+                    <Package className="w-4 h-4" />
+                    📦 تعديل الحمولة
+                  </button>
+                  <button
+                    onClick={() => onForceWithdraw(route)}
+                    className="px-6 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 text-xs font-bold hover:bg-red-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
+                  >
+                    <CircleStop className="w-4 h-4" />
+                    🛑 إيقاف وسحب
+                  </button>
+                </div>
               )}
             </div>
           </div>

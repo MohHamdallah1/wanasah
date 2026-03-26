@@ -608,12 +608,16 @@ def get_driver_dashboard(driver_id):
         
         inventory_list = [] # تفريغ القائمة لملئها بالجرد الفعلي
         for inv in inventories:
+            variant = inv.product_variant
+            # +++ تحويل الحبات إلى كراتين للعرض الدقيق في شاشة المندوب +++
+            packs = variant.packs_per_carton if variant.packs_per_carton and variant.packs_per_carton > 0 else 1
+            
             inventory_list.append({
-                "product_id": inv.product_variant_id,
-                "product_name": inv.product_variant.variant_name,
-                "starting_cartons": inv.starting_quantity,
-                "remaining_cartons": inv.current_remaining_quantity,
-                "remaining_packs": 0 # (يمكن حساب الباكيتات لاحقاً إذا لزم الأمر)
+                "product_id": variant.id,
+                "product_name": variant.variant_name,
+                "starting_cartons": inv.starting_quantity // packs,
+                "remaining_cartons": inv.current_remaining_quantity // packs,
+                "remaining_packs": inv.current_remaining_quantity % packs
             })
 
     # حساب الماليات والزيارات
@@ -701,6 +705,77 @@ def get_driver_dashboard(driver_id):
 
     return jsonify(response_data), 200
 
+# =========================================
+# 5.5 تأكيد استلام حوالة منتصف اليوم (للمندوب)
+# =========================================
+@api.route('/driver/transfers/<int:transfer_id>/respond', methods=['PUT'])
+@token_required
+def respond_to_transfer(transfer_id):
+    driver_id = getattr(g, 'current_driver_id', None)
+    
+    transfer = db.session.get(InventoryTransfer, transfer_id)
+    if not transfer or transfer.work_session.driver_id != driver_id:
+        return jsonify({"message": "الحوالة غير موجودة أو لا تخصك."}), 404
+        
+    if transfer.status != 'pending':
+        return jsonify({"message": f"هذه الحوالة تمت معالجتها مسبقاً ({transfer.status})."}), 400
+
+    data = request.get_json()
+    response = data.get('response') # 'accepted' or 'rejected'
+    
+    if response not in ['accepted', 'rejected']:
+        return jsonify({"message": "رد غير صالح."}), 400
+
+    try:
+        transfer.status = response
+        
+        if response == 'accepted':
+            # إذا وافق، نضيفها لعهدته ونوثقها في دفتر الأستاذ
+            sess_inv = SessionInventory.query.filter_by(
+                work_session_id=transfer.work_session_id, 
+                product_variant_id=transfer.product_variant_id
+            ).first()
+            
+            expected_qty = sess_inv.current_remaining_quantity if sess_inv else 0
+            
+            if sess_inv:
+                sess_inv.current_remaining_quantity += transfer.quantity_packs
+                sess_inv.starting_quantity += transfer.quantity_packs
+            else:
+                sess_inv = SessionInventory(
+                    work_session_id=transfer.work_session_id, 
+                    product_variant_id=transfer.product_variant_id, 
+                    starting_quantity=transfer.quantity_packs, 
+                    current_remaining_quantity=transfer.quantity_packs
+                )
+                db.session.add(sess_inv)
+                
+            # التوثيق في الدفتر اللحظة التي يوافق فيها المندوب!
+            route = DispatchRoute.query.filter_by(work_session_id=transfer.work_session_id).first()
+            trans_type = 'تأكيد استلام حمولة (زيادة)' if transfer.quantity_packs > 0 else 'تأكيد سحب حمولة (نقصان)'
+            
+            db.session.add(InventoryLedger(
+                work_session_id=transfer.work_session_id, 
+                driver_id=driver_id, 
+                vehicle_id=route.vehicle_id if route else None,
+                product_variant_id=transfer.product_variant_id, 
+                transaction_type=trans_type,
+                expected_quantity=expected_qty, 
+                actual_quantity=expected_qty + transfer.quantity_packs,
+                difference=transfer.quantity_packs, 
+                admin_id=transfer.admin_id, 
+                notes="موافقة المندوب اللحظية من التطبيق"
+            ))
+
+        db.session.commit()
+        return jsonify({"message": f"تم {response} الحوالة بنجاح."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback; traceback.print_exc()
+        return jsonify({"message": "خطأ في معالجة الحوالة", "error": str(e)}), 500
+
+        
 # =========================================
 # 6. إضافة محل جديد
 # =========================================
@@ -1311,20 +1386,30 @@ def dispatch_route():
                         else:
                             db.session.add(SessionInventory(work_session_id=active_session.id, product_variant_id=p_id, starting_quantity=new_actual_qty_packs, current_remaining_quantity=new_actual_qty_packs))
 
-        # +++ التوليد الذكي والمضاد للاستنساخ (Bulk Fetch) أثناء إطلاق الخط +++
+        # +++ التوليد الذكي والمضاد للاستنساخ (تبني الأيتام) أثناء إطلاق الخط +++
         shops_in_zone = Shop.query.filter_by(zone_id=zone_id, is_active=True, is_archived=False).all()
         shop_ids = [s.id for s in shops_in_zone]
-
-        # 1. جلب كل الزيارات الموجودة اليوم لهذا المندوب في هذه المحلات
+        
         today = date.today()
+        
+        # 1. المطالبة بالزيارات المعلقة (الأيتام) التي تم تحريرها سابقاً عند سحب المنطقة
+        orphaned_visits = Visit.query.filter(
+            Visit.shop_id.in_(shop_ids),
+            Visit.status == 'Pending',
+            Visit.driver_id == None
+        ).all()
+        for v in orphaned_visits:
+            v.driver_id = driver_id # المندوب الجديد يتبنى المحل اليتيم
+            
+        # 2. جلب كل الزيارات الموجودة اليوم لهذا المندوب (بما فيها التي تبناها للتو)
         existing_visits = Visit.query.filter(
-            Visit.driver_id == driver_id, 
-            Visit.shop_id.in_(shop_ids), 
+            Visit.driver_id == driver_id,
+            Visit.shop_id.in_(shop_ids),
             db.or_(Visit.status == 'Pending', func.date(Visit.visit_timestamp) == today)
         ).all()
         visited_shop_ids = {v.shop_id for v in existing_visits}
 
-        # 2. جلب الطلبات العاجلة المعلقة لهذه المحلات
+        # 3. جلب الطلبات العاجلة المعلقة لهذه المحلات
         pending_shortages = ShortageRequest.query.filter(ShortageRequest.shop_id.in_(shop_ids), ShortageRequest.status == 'pending').all()
         shortage_shop_ids = {s.shop_id for s in pending_shortages}
 
@@ -1353,7 +1438,9 @@ def dispatch_route():
         import traceback; traceback.print_exc()
         return jsonify({"message": "خطأ في إطلاق خط السير", "error": str(e)}), 500
 
-
+# =========================================
+# 9.1 جلب الحمولة الافتتاحية للسيارة (للإدارة والمستودع)
+# =========================================
 @api.route('/dispatch/inventory/<int:vehicle_id>', methods=['GET'])
 @token_required
 def get_vehicle_inventory(vehicle_id):
@@ -1376,6 +1463,157 @@ def get_vehicle_inventory(vehicle_id):
         })
 
     return jsonify(result), 200
+
+# =========================================
+# 9.2 جلب الجرد اللحظي (الحي) لسيارة المندوب بالشارع (In-Van)
+# =========================================
+@api.route('/dispatch/route/<int:route_id>/live_inventory', methods=['GET'])
+@token_required
+def get_route_live_inventory(route_id):
+    admin = db.session.get(Driver, getattr(g, 'current_driver_id', None))
+    if not admin or not admin.is_admin:
+        return jsonify({"message": "مرفوض: هذه العملية تتطلب صلاحيات إدارة."}), 403
+
+    route = db.session.get(DispatchRoute, route_id)
+    if not route or not route.driver_id:
+        return jsonify({"message": "خط السير غير موجود أو غير مرتبط بمندوب."}), 404
+
+    active_session = WorkSession.query.filter_by(driver_id=route.driver_id, end_time=None).first()
+    
+    # +++ المعالجة الذكية: إذا لم يبدأ المندوب، نقرأ من حمولة السيارة. إذا بدأ، نقرأ من عهدته +++
+    inventory_map = {}
+    if active_session:
+        inventories = SessionInventory.query.filter_by(work_session_id=active_session.id).all()
+        inventory_map = {inv.product_variant_id: inv for inv in inventories}
+    else:
+        loads = VehicleLoad.query.filter_by(vehicle_id=route.vehicle_id).all()
+        # نضعها في شكل وهمي يشبه الـ SessionInventory لتوحيد الرد
+        class DummyInv:
+            def __init__(self, qty, packs_per_carton):
+                self.current_remaining_quantity = qty * (packs_per_carton if packs_per_carton else 1)
+        
+        variants_for_load = {v.id: v for v in ProductVariant.query.filter(ProductVariant.id.in_([l.product_variant_id for l in loads])).all()}
+        inventory_map = {l.product_variant_id: DummyInv(l.quantity, variants_for_load.get(l.product_variant_id).packs_per_carton if variants_for_load.get(l.product_variant_id) else 1) for l in loads}
+
+    variants = ProductVariant.query.filter_by(is_active=True).all()
+    result = []
+    for v in variants:
+        inv = inventory_map.get(v.id)
+        packs = v.packs_per_carton if v.packs_per_carton and v.packs_per_carton > 0 else 1
+        
+        current_cartons = inv.current_remaining_quantity // packs if inv else 0
+        current_packs = inv.current_remaining_quantity % packs if inv else 0
+        
+        result.append({
+            "product_id": str(v.id),
+            "product_name": v.variant_name,
+            "current_cartons": current_cartons,
+            "current_packs": current_packs
+        })
+
+    return jsonify(result), 200
+
+# =========================================
+# 9.3 تعديل الحمولة اللحظي (بالزيادة والنقصان) مع توثيق الحركة
+# =========================================
+@api.route('/dispatch/route/<int:route_id>/adjust_inventory', methods=['PUT'])
+@token_required
+def adjust_route_inventory(route_id):
+    admin = db.session.get(Driver, getattr(g, 'current_driver_id', None))
+    if not admin or not admin.is_admin:
+        return jsonify({"message": "مرفوض: هذه العملية تتطلب صلاحيات إدارة."}), 403
+
+    route = db.session.get(DispatchRoute, route_id)
+    if not route or not route.driver_id:
+        return jsonify({"message": "خط السير غير موجود أو غير مرتبط بمندوب."}), 404
+
+    active_session = WorkSession.query.filter_by(driver_id=route.driver_id, end_time=None).first()
+    
+    data = request.get_json()
+    deltas = data.get('deltas', []) # List of {product_id, delta_cartons}
+    
+    if not deltas:
+        return jsonify({"message": "لم يتم إرسال أي تعديلات."}), 400
+
+    try:
+        # +++ النسف المعماري لـ N+1: جلب البيانات دفعة واحدة +++
+        prod_ids = [int(item['product_id']) for item in deltas]
+        variants_map = {v.id: v for v in ProductVariant.query.filter(ProductVariant.id.in_(prod_ids)).all()}
+        bulk_vloads = {vl.product_variant_id: vl for vl in VehicleLoad.query.filter(VehicleLoad.vehicle_id == route.vehicle_id, VehicleLoad.product_variant_id.in_(prod_ids)).all()}
+        
+        # جلب عهدة المندوب فقط إذا كان يعمل حالياً
+        bulk_sinvs = {}
+        if active_session:
+            bulk_sinvs = {si.product_variant_id: si for si in SessionInventory.query.filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids)).all()}
+
+        ledgers_to_add = []
+
+        # +++ مرحلة التحقق الصارم لمنع السالب +++
+        for item in deltas:
+            p_id = int(item['product_id'])
+            delta_cartons = int(item['delta_cartons'])
+            if delta_cartons == 0: continue
+
+            variant = variants_map.get(p_id)
+            if not variant: continue
+
+            # التحقق يختلف حسب حالة المندوب (نشط أم لا)
+            if active_session:
+                delta_packs = delta_cartons * variant.packs_per_carton
+                sess_inv = bulk_sinvs.get(p_id)
+                current_packs = sess_inv.current_remaining_quantity if sess_inv else 0
+                if current_packs + delta_packs < 0:
+                    max_withdraw_cartons = current_packs // variant.packs_per_carton
+                    return jsonify({"message": f"عذراً، المندوب باع جزءاً من ({variant.variant_name}). الكمية المتاحة للسحب هي {max_withdraw_cartons} كرتونة فقط."}), 400
+            else:
+                v_load = bulk_vloads.get(p_id)
+                current_cartons = v_load.quantity if v_load else 0
+                if current_cartons + delta_cartons < 0:
+                    return jsonify({"message": f"عذراً، حمولة السيارة المبدئية من ({variant.variant_name}) لا تكفي لهذا السحب."}), 400
+
+        # +++ مرحلة التنفيذ (تعديل السيارة، وإرسال حوالة معلقة للمندوب النشط) +++
+        for item in deltas:
+            p_id = int(item['product_id'])
+            delta_cartons = int(item['delta_cartons'])
+            if delta_cartons == 0: continue
+            
+            variant = variants_map[p_id]
+
+            # 1. تحديث حمولة السيارة للإدارة (دائماً تُحدث لكي يراها المسؤول)
+            v_load = bulk_vloads.get(p_id)
+            if v_load:
+                v_load.quantity += delta_cartons
+            else:
+                db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=p_id, quantity=delta_cartons))
+
+            # 2. إذا كانت الجلسة نشطة، لا نفرض البضاعة، بل نرسلها كـ "حوالة معلقة" ليوافق عليها المندوب
+            if active_session:
+                delta_packs = delta_cartons * variant.packs_per_carton
+                new_transfer = InventoryTransfer(
+                    work_session_id=active_session.id,
+                    product_variant_id=p_id,
+                    quantity_packs=delta_packs,
+                    status='pending',
+                    admin_id=admin.id
+                )
+                db.session.add(new_transfer)
+
+        db.session.commit()
+        
+        msg = "تم تحديث حمولة السيارة."
+        if active_session:
+            msg += " تم إرسال الحوالة للمندوب، بانتظار تأكيده للاستلام لتحديث عهدته المالية."
+            
+        return jsonify({"message": msg}), 200
+            
+        db.session.commit()
+        return jsonify({"message": "تم تعديل الحمولة بنجاح."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback; traceback.print_exc()
+        return jsonify({"message": "خطأ في تعديل الحمولة", "error": str(e)}), 500
+
 
 # =========================================
 # 10. استرجاع وتحديث المحلات (شاشة التوزيع)

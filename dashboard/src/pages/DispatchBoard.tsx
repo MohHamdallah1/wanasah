@@ -19,6 +19,7 @@ import { ZoneModal } from "@/components/dispatch/ZoneModal";
 import { PostponedRoutesModal } from "@/components/dispatch/PostponedRoutesModal";
 import { ZoneRecycleBinModal } from "@/components/dispatch/ZoneRecycleBinModal";
 import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
+import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 
@@ -56,6 +57,10 @@ export default function DispatchBoard() {
   const [activeTab, setActiveTab] = useState<TabId>(() => (localStorage.getItem("activeTab") as TabId) || "routes");
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void }>({ isOpen: false, title: "", message: "", onConfirm: () => { } });
   const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<TabId | null>(null);
+
+  // +++ حالات نافذة تعديل الحمولة +++
+  const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
+  const [inventoryRoute, setInventoryRoute] = useState<PendingRoute | null>(null);
 
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
@@ -645,6 +650,10 @@ export default function DispatchBoard() {
                   </div>
                   <PendingRoutesTable
                     routes={pendingRoutes.filter(r => r.status !== "postponed")}
+                    onAdjustInventory={(route) => {
+                      setInventoryRoute(route);
+                      setIsInventoryModalOpen(true);
+                    }}
                     onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setIsRouteModalOpen(true); }}
                     onPostponeRoute={async (id) => {
                       try {
@@ -907,6 +916,14 @@ export default function DispatchBoard() {
         }}
       />
       <BulkTransferModal isOpen={isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999 })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); toast.success("تم نقل المحلات بنجاح"); } catch (err: any) { toast.error("خطأ في النقل: " + err.message); } }} />
+      {/* +++ نافذة تعديل الحمولة +++ */}
+      <AdjustInventoryModal
+        isOpen={isInventoryModalOpen}
+        onClose={() => setIsInventoryModalOpen(false)}
+        route={inventoryRoute}
+        onSuccess={fetchInitialData}
+      />
+
       <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
       <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed")} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify({ status: "waiting" }) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة بنجاح"); } catch (e: any) { toast.error(e.message); } }} />
       <ZoneRecycleBinModal isOpen={isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
