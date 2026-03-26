@@ -111,16 +111,20 @@ def start_work_session(driver_id):
         db.session.add(new_session)
         db.session.flush() # للحصول على new_session.id
 
-        # 5. +++ ربط خط السير بالجلسة ونقل حمولة السيارة لتصبح جرد المندوب +++
+        # 5. +++ ربط خط السير بالجلسة ونقل حمولة السيارة لتصبح جرد المندوب (مصافحة الصباح الدقيقة) +++
         active_route.work_session_id = new_session.id
-        
-        vehicle_loads = VehicleLoad.query.filter_by(vehicle_id=active_route.vehicle_id).all()
+
+        vehicle_loads = VehicleLoad.query.options(joinedload(VehicleLoad.product_variant)).filter_by(vehicle_id=active_route.vehicle_id).all()
         for load in vehicle_loads:
+            variant = load.product_variant
+            packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton else 1
+            total_packs = load.quantity * packs_per_carton
+            
             inventory_item = SessionInventory(
                 work_session_id=new_session.id,
                 product_variant_id=load.product_variant_id,
-                starting_quantity=load.quantity,
-                current_remaining_quantity=load.quantity
+                starting_quantity=total_packs,
+                current_remaining_quantity=total_packs
             )
             db.session.add(inventory_item)
             
@@ -763,14 +767,14 @@ def respond_to_transfer(transfer_id):
             ))
 
         elif response == 'rejected':
-            # +++ الدرع القانوني: توثيق كذبة/رفض المندوب في دفتر الأستاذ +++
-            trans_type = 'رفض استلام حمولة' if transfer.quantity_packs > 0 else 'رفض سحب حمولة'
+            # +++ الدرع القانوني: توثيق (حالة التعارض) بحيادية تامة +++
+            trans_type = 'تعارض: رفض استلام حمولة' if transfer.quantity_packs > 0 else 'تعارض: رفض سحب حمولة'
             db.session.add(InventoryLedger(
                 work_session_id=transfer.work_session_id, driver_id=driver_id, vehicle_id=route.vehicle_id if route else None,
                 product_variant_id=transfer.product_variant_id, transaction_type=trans_type,
-                expected_quantity=expected_qty, actual_quantity=expected_qty, # الرصيد لم يتغير لأنه رفض
+                expected_quantity=expected_qty, actual_quantity=expected_qty, # الرصيد لم يتغير لأن المندوب رفضها
                 difference=0, admin_id=transfer.admin_id, 
-                notes=f"المندوب رفض الحوالة المرسلة بقيمة ({transfer.quantity_packs} حبة)"
+                notes=f"سجل النظام تعارضاً: الإدارة أرسلت تعديلاً، والمندوب رفض استلامه من التطبيق."
             ))
 
         db.session.commit()
@@ -781,6 +785,40 @@ def respond_to_transfer(transfer_id):
         import traceback; traceback.print_exc()
         return jsonify({"message": "خطأ في معالجة الحوالة", "error": str(e)}), 500
 
+# =========================================
+# 5.6 التحقق من وجود حوالات معلقة (للمندوب - Polling)
+# =========================================
+@api.route('/driver/transfers/pending', methods=['GET'])
+@token_required
+def get_pending_transfers():
+    driver_id = getattr(g, 'current_driver_id', None)
+    
+    # البحث عن جلسة المندوب النشطة
+    active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
+    if not active_session:
+        return jsonify([]), 200
+        
+    # جلب الحوالات التي حالتها pending فقط
+    pending_transfers = InventoryTransfer.query.options(joinedload(InventoryTransfer.product_variant)).filter_by(
+        work_session_id=active_session.id, 
+        status='pending'
+    ).all()
+    
+    result = []
+    for t in pending_transfers:
+        variant = t.product_variant
+        packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton else 1
+        delta_cartons = t.quantity_packs // packs_per_carton
+        
+        result.append({
+            "transfer_id": t.id,
+            "product_name": variant.variant_name if variant else "غير معروف",
+            "delta_cartons": delta_cartons,
+            "delta_packs": t.quantity_packs % packs_per_carton,
+            "created_at": t.created_at.isoformat() if t.created_at else None
+        })
+        
+    return jsonify(result), 200
 
 # =========================================
 # 6. إضافة محل جديد
@@ -1358,39 +1396,40 @@ def dispatch_route():
                         db.session.add(VehicleLoad(vehicle_id=vehicle_id, product_variant_id=int(prod_id), quantity=qty_cartons))
                         # (تحويل الكراتين إلى حبات سيتم عند بدء الجلسة في start_work_session)
             else:
-                # +++ المعالجة الذكية لتزويد السيارة منتصف اليوم (Mid-day Restock) +++
+                # +++ المعالجة الذكية والموحدة لتزويد السيارة منتصف اليوم عبر إطلاق السير (نظام المصافحة) +++
                 bulk_vloads = {vl.product_variant_id: vl for vl in VehicleLoad.query.filter(VehicleLoad.vehicle_id == vehicle_id, VehicleLoad.product_variant_id.in_(prod_ids)).all()} if prod_ids and vehicle_id else {}
                 bulk_sinvs = {si.product_variant_id: si for si in SessionInventory.query.filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids)).all()} if prod_ids else {}
 
                 for prod_id, new_qty_str in inventory.items():
                     new_actual_qty_cartons = int(new_qty_str)
-                    if new_actual_qty_cartons > 0:
-                        p_id = int(prod_id)
-                        variant = bulk_variants.get(p_id)
-                        if not variant: continue
-                        
-                        new_actual_qty_packs = new_actual_qty_cartons * variant.packs_per_carton
-                        
-                        # 1. تحديث حمولة السيارة الأساسية (تبقى بالكراتين لشاشة الإدارة)
-                        v_load = bulk_vloads.get(p_id)
-                        if v_load: v_load.quantity = new_actual_qty_cartons
-                        else: db.session.add(VehicleLoad(vehicle_id=vehicle_id, product_variant_id=p_id, quantity=new_actual_qty_cartons))
+                    if new_actual_qty_cartons == 0: continue
+                    
+                    p_id = int(prod_id)
+                    variant = bulk_variants.get(p_id)
+                    if not variant: continue
 
-                        # 2. تحديث عهدة المندوب اللحظية وتوثيق الفرق (بالحبات)
-                        sess_inv = bulk_sinvs.get(p_id)
-                        if sess_inv:
-                            difference_in_packs = new_actual_qty_packs - sess_inv.current_remaining_quantity
-                            if difference_in_packs != 0:
-                                sess_inv.current_remaining_quantity = new_actual_qty_packs
-                                sess_inv.starting_quantity += difference_in_packs 
-                                db.session.add(InventoryLedger(
-                                    work_session_id=active_session.id, driver_id=driver_id, vehicle_id=vehicle_id,
-                                    product_variant_id=p_id, transaction_type='Mid-day Restock' if difference_in_packs > 0 else 'Mid-day Withdraw',
-                                    expected_quantity=sess_inv.current_remaining_quantity - difference_in_packs, actual_quantity=new_actual_qty_packs,
-                                    difference=difference_in_packs, admin_id=admin.id, notes="تعديل حمولة السيارة منتصف اليوم عند إطلاق خط السير"
-                                ))
-                        else:
-                            db.session.add(SessionInventory(work_session_id=active_session.id, product_variant_id=p_id, starting_quantity=new_actual_qty_packs, current_remaining_quantity=new_actual_qty_packs))
+                    # 1. تحديث حمولة السيارة للإدارة (دائماً تُحدث لكي يراها المسؤول)
+                    v_load = bulk_vloads.get(p_id)
+                    current_vload_cartons = v_load.quantity if v_load else 0
+                    
+                    # حساب الفرق (الدلتا) بين ما أدخله المشرف الآن وبين ما هو موجود في السيارة
+                    delta_cartons = new_actual_qty_cartons - current_vload_cartons
+                    
+                    if delta_cartons == 0: continue # لم يحدث تغيير فعلي
+
+                    if v_load: v_load.quantity = new_actual_qty_cartons
+                    else: db.session.add(VehicleLoad(vehicle_id=vehicle_id, product_variant_id=p_id, quantity=new_actual_qty_cartons))
+
+                    # 2. إرسال الدلتا كحوالة معلقة للمندوب (نفس منطق تعديل الحمولة)
+                    delta_packs = delta_cartons * variant.packs_per_carton
+                    new_transfer = InventoryTransfer(
+                        work_session_id=active_session.id,
+                        product_variant_id=p_id,
+                        quantity_packs=delta_packs,
+                        status='pending',
+                        admin_id=admin.id
+                    )
+                    db.session.add(new_transfer)
 
         # +++ التوليد الذكي والمضاد للاستنساخ (تبني الأيتام) أثناء إطلاق الخط +++
         shops_in_zone = Shop.query.filter_by(zone_id=zone_id, is_active=True, is_archived=False).all()
