@@ -20,6 +20,7 @@ import { PostponedRoutesModal } from "@/components/dispatch/PostponedRoutesModal
 import { ZoneRecycleBinModal } from "@/components/dispatch/ZoneRecycleBinModal";
 import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
+import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 
@@ -61,6 +62,10 @@ export default function DispatchBoard() {
   // +++ حالات نافذة تعديل الحمولة +++
   const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
   const [inventoryRoute, setInventoryRoute] = useState<PendingRoute | null>(null);
+
+  // +++ حالات رادار الحوالات +++
+  const [isRadarModalOpen, setIsRadarModalOpen] = useState(false);
+  const [radarRoute, setRadarRoute] = useState<PendingRoute | null>(null);
 
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
@@ -654,6 +659,10 @@ export default function DispatchBoard() {
                       setInventoryRoute(route);
                       setIsInventoryModalOpen(true);
                     }}
+                    onOpenRadar={(route) => {
+                      setRadarRoute(route);
+                      setIsRadarModalOpen(true);
+                    }}
                     onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setIsRouteModalOpen(true); }}
                     onPostponeRoute={async (id) => {
                       try {
@@ -922,6 +931,13 @@ export default function DispatchBoard() {
         onClose={() => setIsInventoryModalOpen(false)}
         route={inventoryRoute}
         onSuccess={fetchInitialData}
+      />
+
+      {/* +++ رادار الحوالات +++ */}
+      <TransfersRadarModal
+        isOpen={isRadarModalOpen}
+        onClose={() => setIsRadarModalOpen(false)}
+        route={radarRoute}
       />
 
       <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />

@@ -1,4 +1,4 @@
-import { Truck, UserMinus, Clock, AlertTriangle, CircleStop, Package } from "lucide-react";
+import { Truck, UserMinus, Clock, AlertTriangle, CircleStop, Package, Radar } from "lucide-react";
 import { PendingRoute } from "@/types/dispatch";
 
 interface PendingRoutesTableProps {
@@ -10,6 +10,7 @@ interface PendingRoutesTableProps {
   onUndoEndWork: (id: string) => void;
   getDriverShortages: (driverId: string) => number;
   onAdjustInventory: (route: PendingRoute) => void;
+  onOpenRadar: (route: PendingRoute) => void;
 }
 
 export function PendingRoutesTable({
@@ -21,6 +22,7 @@ export function PendingRoutesTable({
   onUndoEndWork,
   getDriverShortages,
   onAdjustInventory,
+  onOpenRadar,
 }: PendingRoutesTableProps) {
   if (routes.length === 0) {
     return <p className="text-sm text-slate-500 p-6 text-center">لا توجد مناطق معلقة حالياً.</p>;
@@ -124,11 +126,18 @@ export function PendingRoutesTable({
               ) : (
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => onOpenRadar(route)}
+                    className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-600 text-xs font-bold hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
+                    title="رادار الحوالات"
+                  >
+                    <Radar className="w-4 h-4" />
+                  </button>
+                  <button
                     onClick={() => onAdjustInventory(route)}
-                    className="px-6 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
+                    className="px-4 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
                   >
                     <Package className="w-4 h-4" />
-                    📦 تعديل الحمولة
+                    تعديل الحمولة
                   </button>
                   <button
                     onClick={() => onForceWithdraw(route)}

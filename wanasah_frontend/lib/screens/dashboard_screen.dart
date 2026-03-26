@@ -46,8 +46,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isOnBreak = false;
   // +++++++++++++++++++++++++++++++++
 
-  // لا نحتاج لتعريف storage هنا لأن الدوال المساعدة تستخدمه داخلياً
-
   // --- دالة مساعدة لعرض مربع حوار التأكيد ---
   Future<bool?> _showConfirmationDialog(
     BuildContext context,
@@ -293,6 +291,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _errorMessage = errorMsgForState;
           }
         });
+      }
+      // +++ التحقق من وجود حوالات معلقة بعد انتهاء جلب البيانات +++
+      if (errorMsgForState == null && _isActiveSession) {
+        _checkPendingTransfers();
       }
     }
   }
@@ -701,7 +703,135 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
   // --- +++ نهاية الدالة المساعدة +++ ---
 
-  // --- دالة بناء الواجهة (تبقى كما هي) ---
+  // ==========================================
+  // دوال "المصافحة" (Handshake) للحوالات المعلقة
+  // ==========================================
+  bool _isCheckingTransfers = false;
+
+  Future<void> _checkPendingTransfers() async {
+    if (_isCheckingTransfers || !_isActiveSession || !mounted) return;
+    _isCheckingTransfers = true;
+
+    try {
+      final url = Uri.parse('${ApiConstants.baseUrl}/driver/transfers/pending');
+      final headers = await getAuthenticatedHeaders(needsContentType: false);
+      final response = await http.get(url, headers: headers);
+
+      if (response.statusCode == 200 && mounted) {
+        final List<dynamic> transfers = jsonDecode(response.body);
+        if (transfers.isNotEmpty) {
+          // نعرض أول حوالة معلقة فقط
+          _showTransferDialog(transfers.first);
+        }
+      }
+    } catch (e) {
+      developer.log('Error checking transfers: $e');
+    } finally {
+      if (mounted) {
+        _isCheckingTransfers = false;
+      }
+    }
+  }
+
+  void _showTransferDialog(Map<String, dynamic> transfer) {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // إجبار المندوب على الرد
+      builder: (dialogContext) {
+        final int deltaCartons = transfer['delta_cartons'] ?? 0;
+        final String productName = transfer['product_name'] ?? 'منتج غير معروف';
+        final bool isAddition = deltaCartons > 0;
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                isAddition ? Icons.add_box : Icons.remove_circle_outline,
+                color: isAddition ? Colors.green : Colors.red,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isAddition ? 'استلام بضاعة' : 'سحب بضاعة',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            isAddition
+                ? 'الإدارة أرسلت (${deltaCartons.abs()} كرتونة) من $productName لسيارتك. هل تؤكد استلامها لتدخل عهدتك؟'
+                : 'الإدارة تطلب سحب (${deltaCartons.abs()} كرتونة) من $productName من سيارتك. هل توافق؟',
+            style: const TextStyle(fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _respondToTransfer(transfer['transfer_id'], 'rejected');
+              },
+              child: const Text(
+                'رفض ❌',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isAddition ? Colors.green : Colors.blue,
+              ),
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _respondToTransfer(transfer['transfer_id'], 'accepted');
+              },
+              child: const Text(
+                'موافق ✅',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _respondToTransfer(int transferId, String responseStatus) async {
+    try {
+      final url = Uri.parse(
+        '${ApiConstants.baseUrl}/driver/transfers/$transferId/respond',
+      );
+      final headers = await getAuthenticatedHeaders(needsContentType: true);
+      final response = await http.put(
+        url,
+        headers: headers,
+        body: jsonEncode({'response': responseStatus}),
+      );
+
+      if (!mounted) return; // الحماية الصارمة من Async Gaps
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم تسجيل الرد بنجاح. جاري التحديث...')),
+        );
+        _fetchDashboardData(); // تحديث شاشة المندوب فوراً ليرى العهدة الجديدة
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('خطأ: ${error['message']}')));
+      }
+    } catch (e) {
+      developer.log('Error responding to transfer: $e');
+    }
+  }
+
+  // --- دالة بناء الواجهة ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
