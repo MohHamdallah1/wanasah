@@ -729,42 +729,48 @@ def respond_to_transfer(transfer_id):
     try:
         transfer.status = response
         
+        # جلب البيانات الأساسية للتوثيق
+        route = DispatchRoute.query.filter_by(work_session_id=transfer.work_session_id).first()
+        sess_inv = SessionInventory.query.filter_by(work_session_id=transfer.work_session_id, product_variant_id=transfer.product_variant_id).first()
+        expected_qty = sess_inv.current_remaining_quantity if sess_inv else 0
+
         if response == 'accepted':
-            # إذا وافق، نضيفها لعهدته ونوثقها في دفتر الأستاذ
-            sess_inv = SessionInventory.query.filter_by(
-                work_session_id=transfer.work_session_id, 
-                product_variant_id=transfer.product_variant_id
-            ).first()
-            
-            expected_qty = sess_inv.current_remaining_quantity if sess_inv else 0
-            
+            # 1. تحديث عهدة المندوب المالية (بالحبات)
             if sess_inv:
                 sess_inv.current_remaining_quantity += transfer.quantity_packs
                 sess_inv.starting_quantity += transfer.quantity_packs
             else:
-                sess_inv = SessionInventory(
-                    work_session_id=transfer.work_session_id, 
-                    product_variant_id=transfer.product_variant_id, 
-                    starting_quantity=transfer.quantity_packs, 
-                    current_remaining_quantity=transfer.quantity_packs
-                )
+                sess_inv = SessionInventory(work_session_id=transfer.work_session_id, product_variant_id=transfer.product_variant_id, starting_quantity=transfer.quantity_packs, current_remaining_quantity=transfer.quantity_packs)
                 db.session.add(sess_inv)
                 
-            # التوثيق في الدفتر اللحظة التي يوافق فيها المندوب!
-            route = DispatchRoute.query.filter_by(work_session_id=transfer.work_session_id).first()
-            trans_type = 'تأكيد استلام حمولة (زيادة)' if transfer.quantity_packs > 0 else 'تأكيد سحب حمولة (نقصان)'
-            
+            # 2. تحديث حمولة السيارة لتراها الإدارة (بالكراتين)
+            if route:
+                v_load = VehicleLoad.query.filter_by(vehicle_id=route.vehicle_id, product_variant_id=transfer.product_variant_id).first()
+                variant = db.session.get(ProductVariant, transfer.product_variant_id)
+                packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton else 1
+                delta_cartons = transfer.quantity_packs // packs_per_carton
+                
+                if v_load: v_load.quantity += delta_cartons
+                else: db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=transfer.product_variant_id, quantity=delta_cartons))
+
+            # 3. التوثيق في الدفتر (موافقة)
+            trans_type = 'تأكيد استلام حمولة' if transfer.quantity_packs > 0 else 'تأكيد سحب حمولة'
             db.session.add(InventoryLedger(
-                work_session_id=transfer.work_session_id, 
-                driver_id=driver_id, 
-                vehicle_id=route.vehicle_id if route else None,
-                product_variant_id=transfer.product_variant_id, 
-                transaction_type=trans_type,
-                expected_quantity=expected_qty, 
-                actual_quantity=expected_qty + transfer.quantity_packs,
-                difference=transfer.quantity_packs, 
-                admin_id=transfer.admin_id, 
-                notes="موافقة المندوب اللحظية من التطبيق"
+                work_session_id=transfer.work_session_id, driver_id=driver_id, vehicle_id=route.vehicle_id if route else None,
+                product_variant_id=transfer.product_variant_id, transaction_type=trans_type,
+                expected_quantity=expected_qty, actual_quantity=expected_qty + transfer.quantity_packs,
+                difference=transfer.quantity_packs, admin_id=transfer.admin_id, notes="موافقة المندوب الرقمية"
+            ))
+
+        elif response == 'rejected':
+            # +++ الدرع القانوني: توثيق كذبة/رفض المندوب في دفتر الأستاذ +++
+            trans_type = 'رفض استلام حمولة' if transfer.quantity_packs > 0 else 'رفض سحب حمولة'
+            db.session.add(InventoryLedger(
+                work_session_id=transfer.work_session_id, driver_id=driver_id, vehicle_id=route.vehicle_id if route else None,
+                product_variant_id=transfer.product_variant_id, transaction_type=trans_type,
+                expected_quantity=expected_qty, actual_quantity=expected_qty, # الرصيد لم يتغير لأنه رفض
+                difference=0, admin_id=transfer.admin_id, 
+                notes=f"المندوب رفض الحوالة المرسلة بقيمة ({transfer.quantity_packs} حبة)"
             ))
 
         db.session.commit()
@@ -775,7 +781,7 @@ def respond_to_transfer(transfer_id):
         import traceback; traceback.print_exc()
         return jsonify({"message": "خطأ في معالجة الحوالة", "error": str(e)}), 500
 
-        
+
 # =========================================
 # 6. إضافة محل جديد
 # =========================================
@@ -1571,7 +1577,7 @@ def adjust_route_inventory(route_id):
                 if current_cartons + delta_cartons < 0:
                     return jsonify({"message": f"عذراً، حمولة السيارة المبدئية من ({variant.variant_name}) لا تكفي لهذا السحب."}), 400
 
-        # +++ مرحلة التنفيذ (تعديل السيارة، وإرسال حوالة معلقة للمندوب النشط) +++
+        # +++ مرحلة التنفيذ (إنشاء حوالة معلقة فقط - Zero Trust Model) +++
         for item in deltas:
             p_id = int(item['product_id'])
             delta_cartons = int(item['delta_cartons'])
@@ -1579,15 +1585,8 @@ def adjust_route_inventory(route_id):
             
             variant = variants_map[p_id]
 
-            # 1. تحديث حمولة السيارة للإدارة (دائماً تُحدث لكي يراها المسؤول)
-            v_load = bulk_vloads.get(p_id)
-            if v_load:
-                v_load.quantity += delta_cartons
-            else:
-                db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=p_id, quantity=delta_cartons))
-
-            # 2. إذا كانت الجلسة نشطة، لا نفرض البضاعة، بل نرسلها كـ "حوالة معلقة" ليوافق عليها المندوب
             if active_session:
+                # الإدارة لا تلمس أي جرد هنا! فقط ترمي الطلب في غرفة الانتظار
                 delta_packs = delta_cartons * variant.packs_per_carton
                 new_transfer = InventoryTransfer(
                     work_session_id=active_session.id,
@@ -1597,6 +1596,13 @@ def adjust_route_inventory(route_id):
                     admin_id=admin.id
                 )
                 db.session.add(new_transfer)
+            else:
+                # تحديث السيارة مسموح فقط إذا كان المندوب نائماً (قبل بدء العمل)
+                v_load = bulk_vloads.get(p_id)
+                if v_load:
+                    v_load.quantity += delta_cartons
+                else:
+                    db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=p_id, quantity=delta_cartons))
 
         db.session.commit()
         
@@ -1614,6 +1620,42 @@ def adjust_route_inventory(route_id):
         import traceback; traceback.print_exc()
         return jsonify({"message": "خطأ في تعديل الحمولة", "error": str(e)}), 500
 
+# =========================================
+# 9.4 مراقبة حالة الحوالات المعلقة والمرفوضة (للمسؤول)
+# =========================================
+@api.route('/dispatch/route/<int:route_id>/transfers', methods=['GET'])
+@token_required
+def get_route_transfers(route_id):
+    admin = db.session.get(Driver, getattr(g, 'current_driver_id', None))
+    if not admin or not admin.is_admin:
+        return jsonify({"message": "مرفوض"}), 403
+
+    route = db.session.get(DispatchRoute, route_id)
+    if not route or not route.driver_id:
+        return jsonify([]), 200
+
+    active_session = WorkSession.query.filter_by(driver_id=route.driver_id, end_time=None).first()
+    if not active_session:
+        return jsonify([]), 200
+
+    # جلب جميع الحوالات لهذه الجلسة
+    transfers = InventoryTransfer.query.options(joinedload(InventoryTransfer.product_variant)).filter_by(work_session_id=active_session.id).order_by(InventoryTransfer.created_at.desc()).all()
+    
+    result = []
+    for t in transfers:
+        variant = t.product_variant
+        packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton else 1
+        delta_cartons = t.quantity_packs // packs_per_carton
+        
+        result.append({
+            "transfer_id": t.id,
+            "product_name": variant.variant_name if variant else "غير معروف",
+            "delta_cartons": delta_cartons,
+            "status": t.status, # 'pending', 'accepted', 'rejected'
+            "created_at": t.created_at.strftime("%Y-%m-%d %H:%M:%S") if t.created_at else None
+        })
+
+    return jsonify(result), 200
 
 # =========================================
 # 10. استرجاع وتحديث المحلات (شاشة التوزيع)
