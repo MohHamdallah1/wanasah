@@ -1,6 +1,7 @@
 ├── .gitignore
 ├── .rules
 ├── .vscode
+│   └── settings.json
 ├── RUN.txt
 ├── dashboard
 │   ├── .env
@@ -14,10 +15,6 @@
 │   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
-│   ├── public
-│   │   ├── favicon.ico
-│   │   ├── placeholder.svg
-│   │   └── robots.txt
 │   ├── src
 │   │   ├── App.css
 │   │   ├── App.tsx
@@ -30,6 +27,7 @@
 │   │   │   │   ├── MetricCards.tsx
 │   │   │   │   └── TopNav.tsx
 │   │   │   ├── dispatch
+│   │   │   │   ├── AdjustInventoryModal.tsx
 │   │   │   │   ├── BulkTransferModal.tsx
 │   │   │   │   ├── PendingRoutesTable.tsx
 │   │   │   │   ├── PostponedRoutesModal.tsx
@@ -40,6 +38,7 @@
 │   │   │   │   ├── ShopFormModal.tsx
 │   │   │   │   ├── ShopTable.tsx
 │   │   │   │   ├── ShortageModal.tsx
+│   │   │   │   ├── TransfersRadarModal.tsx
 │   │   │   │   ├── ZoneModal.tsx
 │   │   │   │   └── ZoneRecycleBinModal.tsx
 │   │   │   ├── operations
@@ -50,65 +49,15 @@
 │   │   │   │   ├── SettlementModal.tsx
 │   │   │   │   └── TopBar.tsx
 │   │   │   └── ui
-│   │   │       ├── accordion.tsx
-│   │   │       ├── alert-dialog.tsx
-│   │   │       ├── alert.tsx
-│   │   │       ├── aspect-ratio.tsx
-│   │   │       ├── avatar.tsx
-│   │   │       ├── badge.tsx
-│   │   │       ├── breadcrumb.tsx
-│   │   │       ├── button.tsx
-│   │   │       ├── calendar.tsx
-│   │   │       ├── card.tsx
-│   │   │       ├── carousel.tsx
-│   │   │       ├── chart.tsx
-│   │   │       ├── checkbox.tsx
-│   │   │       ├── collapsible.tsx
-│   │   │       ├── command.tsx
-│   │   │       ├── context-menu.tsx
-│   │   │       ├── custom-select.tsx
-│   │   │       ├── dialog.tsx
-│   │   │       ├── drawer.tsx
-│   │   │       ├── dropdown-menu.tsx
-│   │   │       ├── form.tsx
-│   │   │       ├── hover-card.tsx
-│   │   │       ├── input-otp.tsx
-│   │   │       ├── input.tsx
-│   │   │       ├── label.tsx
-│   │   │       ├── menubar.tsx
-│   │   │       ├── modal.tsx
-│   │   │       ├── navigation-menu.tsx
-│   │   │       ├── pagination.tsx
-│   │   │       ├── popover.tsx
-│   │   │       ├── progress.tsx
-│   │   │       ├── quantity-input.tsx
-│   │   │       ├── radio-group.tsx
-│   │   │       ├── resizable.tsx
-│   │   │       ├── scroll-area.tsx
-│   │   │       ├── select.tsx
-│   │   │       ├── separator.tsx
-│   │   │       ├── sequence-input.tsx
-│   │   │       ├── sheet.tsx
-│   │   │       ├── sidebar.tsx
-│   │   │       ├── skeleton.tsx
-│   │   │       ├── slider.tsx
-│   │   │       ├── sonner.tsx
-│   │   │       ├── switch.tsx
-│   │   │       ├── table.tsx
-│   │   │       ├── tabs.tsx
-│   │   │       ├── textarea.tsx
-│   │   │       ├── toast.tsx
-│   │   │       ├── toaster.tsx
-│   │   │       ├── toggle-group.tsx
-│   │   │       ├── toggle.tsx
-│   │   │       ├── tooltip.tsx
-│   │   │       └── use-toast.ts
 │   │   ├── data
 │   │   │   ├── dashboard-data.ts
 │   │   │   └── operations-data.ts
 │   │   ├── hooks
+│   │   │   ├── use-mobile.tsx
+│   │   │   └── use-toast.ts
 │   │   ├── index.css
 │   │   ├── lib
+│   │   │   └── utils.ts
 │   │   ├── main.tsx
 │   │   ├── pages
 │   │   │   ├── DispatchBoard.tsx
@@ -124,17 +73,27 @@
 │   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   └── vitest.config.ts
+├── documentation
+│   ├── ~$ة العمل الجديدة.docx
+│   ├── ~WRL3084.tmp
+│   └── مقدمة تعريفية.docx
 ├── wanasah_backend
 │   ├── .env
 │   ├── .vscode
+│   │   └── extensions.json
 │   ├── _conda_old
+│   │   ├── .gitignore
+│   │   ├── .nonadmin
+│   │   ├── DLLs
+│   │   │   ├── py.ico
+│   │   │   └── pyc.ico
+│   │   ├── LICENSE_PYTHON.txt
+│   │   ├── Lib
 │   ├── app.py
-│   ├── backend_files.txt
 │   ├── clean_db.py
 │   ├── config.py
 │   ├── error.log
 │   ├── force_reset.py
-│   ├── migrations
 │   ├── models.py
 │   ├── routes.py
 │   ├── seed_db.py
@@ -148,11 +107,27 @@
     ├── analysis_options.yaml
     ├── frontend_tree.txt
     ├── lib
+    │   ├── blocs
+    │   │   └── auth
+    │   │       ├── auth_bloc.dart
+    │   │       ├── auth_event.dart
+    │   │       └── auth_state.dart
+    │   ├── core
+    │   │   ├── db
+    │   │   │   └── local_database.dart
+    │   │   └── network
+    │   │       └── api_client.dart
     │   ├── main.dart
+    │   ├── models
+    │   │   ├── product_model.dart
+    │   │   └── visit_model.dart
+    │   ├── repositories
+    │   │   └── sync_repository.dart
     │   ├── screens
     │   │   ├── add_shop_screen.dart
     │   │   ├── dashboard_screen.dart
     │   │   ├── login_screen.dart
+    │   │   ├── splash_screen.dart
     │   │   ├── visit_list_screen.dart
     │   │   └── visit_screen.dart
     │   └── services

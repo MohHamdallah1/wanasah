@@ -42,6 +42,12 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   http: ^1.2.1          # <--- أضف هذا السطر هنا
+  dio: ^5.7.0            # بديل HTTP متقدم مع دعم Interceptors
+  sqflite: ^2.4.1        # قاعدة البيانات المحلية SQLite (Offline-First)
+  path: ^1.9.1           # بناء مسارات الملفات بشكل آمن عبر المنصات
+  path_provider: ^2.1.5  # الحصول على مسار التخزين الصحيح على الجهاز
+  flutter_bloc: ^9.1.1   # State Management — BLoC Pattern
+  equatable: ^2.0.7      # مقارنة الحالات بشكل آمن بدون override يدوي
   map_launcher: ^3.3.0 # استخدم أحدث إصدار متوفر على pub.dev
   url_launcher: ^6.3.0
 dev_dependencies:

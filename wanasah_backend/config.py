@@ -6,7 +6,9 @@ load_dotenv()
 
 class Config:
     # مفتاح الأمان للتطبيقات والتوكن (يتغير في السيرفر الحقيقي)
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'super-secure-key-for-qatar-app-production'
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise ValueError("خطأ أمني قاتل: لم يتم العثور على SECRET_KEY في بيئة التشغيل!")
     
     # إعدادات قاعدة البيانات PostgreSQL
     # يتم قراءة الرابط من متغيرات البيئة، وإذا لم يوجد يستخدم هذا الرابط الافتراضي

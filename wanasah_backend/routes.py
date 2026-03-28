@@ -30,7 +30,14 @@ def token_required(f):
 
         try:
             data = token_serializer.loads(token, max_age=86400)
-            g.current_driver_id = data['driver_id']
+            driver_id = data['driver_id']
+            
+            # +++ الدرع الأمني: منع المندوبين الموقوفين من التسلل بالتوكن القديم +++
+            driver = db.session.get(Driver, driver_id)
+            if not driver or not driver.is_active:
+                return jsonify({"message": "حسابك موقوف أو محذوف من قبل الإدارة"}), 403
+                
+            g.current_driver_id = driver_id
         except (SignatureExpired, BadSignature):
             return jsonify({"message": "Token is invalid or expired"}), 401
         except Exception:
@@ -142,7 +149,7 @@ def start_work_session(driver_id):
 
     except Exception as e:
         db.session.rollback()
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return jsonify({"message": "خطأ داخلي أثناء بدء الجلسة."}), 500
 
 # =========================================
@@ -201,13 +208,12 @@ def toggle_break(driver_id):
             if not active_session.break_start_time or active_session.break_end_time:
                  return jsonify({"message": "لا يوجد استراحة نشطة لإنهائها"}), 400
             
-            # +++ تصحيح الميثود المهجورة لضمان التوافق المستقبلي +++
-            end_t = datetime.now(timezone.utc).replace(tzinfo=None)
+            # +++ توحيد الوقت: استخدام Aware Datetime بالكامل +++
+            end_t = datetime.now(timezone.utc)
             break_start = active_session.break_start_time
             
-            # +++ حل مشكلة تعارض المناطق الزمنية (Timezone Naive vs Aware) +++
-            if break_start and break_start.tzinfo is not None:
-                break_start = break_start.replace(tzinfo=None)
+            if break_start and break_start.tzinfo is None:
+                break_start = break_start.replace(tzinfo=timezone.utc)
                 
             duration = int((end_t - break_start).total_seconds() / 60) if break_start else 0
             break_log = WorkBreakLog(
@@ -513,7 +519,7 @@ def update_visit(visit_id):
 
             visit.outcome = 'Sale'
             visit.status = 'Completed'
-            visit.quantity_sold = total_quantity
+            # تم إزالة quantity_sold لأن الكميات مسجلة بدقة داخل VisitItem
             visit.amount_before_tax_and_discount = total_base_amount
             visit.discount_applied = total_discount
             visit.tax_amount = total_tax
@@ -800,7 +806,7 @@ def respond_to_transfer(transfer_id):
 
     except Exception as e:
         db.session.rollback()
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return jsonify({"message": "خطأ في معالجة الحوالة", "error": str(e)}), 500
 
 # =========================================
@@ -1112,7 +1118,7 @@ def get_admin_dashboard_data():
             status = "في الطريق"
             
         # إذا تمت التسوية وهي ليست من اليوم، لا نعرضها لعدم زحمة الشاشة
-        if session.is_settled and func.date(session.start_time) != today_date:
+        if session.is_settled and session.start_time and session.start_time.date() != today_date:
             continue
 
         drivers_data.append({
@@ -1302,7 +1308,6 @@ def settle_session(session_id):
 
     except Exception as e:
         db.session.rollback()
-        import traceback
         traceback.print_exc()
         return jsonify({"message": "خطأ في اعتماد التسوية", "error": str(e)}), 500
 
@@ -1498,7 +1503,7 @@ def dispatch_route():
         return jsonify({"message": "تم إطلاق خط السير بنجاح"}), 201
     except Exception as e:
         db.session.rollback()
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return jsonify({"message": "خطأ في إطلاق خط السير", "error": str(e)}), 500
 
 # =========================================
@@ -1688,7 +1693,7 @@ def adjust_route_inventory(route_id):
 
     except Exception as e:
         db.session.rollback()
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return jsonify({"message": "خطأ في تعديل الحمولة", "error": str(e)}), 500
 
 # =========================================
@@ -2127,7 +2132,7 @@ def update_route_status(route_id):
         
     except Exception as e:
         db.session.rollback()
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return jsonify({"message": "خطأ في التحديث", "error": str(e)}), 500
 
 # =========================================
@@ -2173,7 +2178,7 @@ def undo_end_work(session_id):
 
     except Exception as e:
         db.session.rollback()
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return jsonify({"message": "خطأ أثناء التراجع عن إنهاء العمل", "error": str(e)}), 500
 
 # =========================================
@@ -2219,7 +2224,6 @@ def add_zone():
         return jsonify({"message": "تم إضافة المنطقة بنجاح", "zone_id": new_zone.id}), 201
     except Exception as e:
         db.session.rollback()
-        import traceback
         traceback.print_exc() # طباعة الخطأ في التيرمنال
         return jsonify({"message": "خطأ في إضافة المنطقة", "error": str(e)}), 500
 
@@ -2248,7 +2252,7 @@ def manage_zone(zone_id):
             return jsonify({"message": "تم أرشفة المنطقة بنجاح"}), 200
         except Exception as e:
             db.session.rollback()
-            import traceback; traceback.print_exc()
+            traceback.print_exc()
             return jsonify({"message": f"خطأ في أرشفة المنطقة: {str(e)}"}), 500
 
     if request.method == 'PUT':
@@ -2278,7 +2282,6 @@ def manage_zone(zone_id):
             return jsonify({"message": "تم التعديل بنجاح"}), 200
         except Exception as e:
             db.session.rollback()
-            import traceback
             traceback.print_exc() # هذا السطر سيفضح الخطأ في التيرمنال
             return jsonify({"message": "خطأ في التعديل", "error": str(e)}), 500
 
@@ -2352,7 +2355,6 @@ def edit_shop_details(shop_id):
 @api.route('/dispatch/shortages', methods=['GET', 'POST'])
 @token_required
 def manage_shortages():
-    import traceback # تم نقله للأعلى
     admin = db.session.get(Driver, getattr(g, 'current_driver_id', None))
     if not admin or not admin.is_admin:
         return jsonify({"message": "مرفوض"}), 403
@@ -2373,7 +2375,7 @@ def manage_shortages():
             "shopName": s.shop.name if s.shop else "",
             "driverId": str(s.driver_id) if s.driver_id else "",
             "driverName": s.driver.full_name if s.driver else "",
-            "productName": s.product_name,
+            "productName": s.product_variant.variant_name if s.product_variant else "غير معروف",
             "quantity": s.quantity,
             "status": s.status,
             "waitTime": s.wait_time,
@@ -2403,11 +2405,12 @@ def manage_shortages():
                     return jsonify({"message": f"مرفوض: لا يمكن تقديم أكثر من طلب عاجل واحد لنفس المحل (المحل: {shop_name})"}), 409
 
                 processed_shop_ids.add(shop_id)
+                # +++ التعديل المعماري: الاعتماد على ID المنتج وليس اسمه النصي +++
                 new_shortage = ShortageRequest(
                     zone_id=item.get('zoneId'),
                     shop_id=shop_id,
                     driver_id=item.get('driverId') or None,
-                    product_name=item.get('productName'),
+                    product_variant_id=int(item.get('productId')), 
                     quantity=item.get('quantity', 1)
                 )
                 db.session.add(new_shortage)
@@ -2481,9 +2484,10 @@ def bulk_import_shops():
         return jsonify({"message": "المنطقة وقائمة المحلات مطلوبة"}), 400
 
     try:
+        # +++ المهمة 2: حفظ السجل مبدئياً بـ Commit منفصل لضمان عدم ضياعه إذا حدث خطأ (Rollback) لاحقاً +++
         import_log = ImportLog(admin_id=admin.id, zone_id=zone_id, file_name=file_name, total_records=len(shops_list), status='Processing')
         db.session.add(import_log)
-        db.session.flush()
+        db.session.commit()
 
         # +++ تفكيك قنبلة الذاكرة: جلب المحلات التي قد تتطابق فقط (بدل جلب كامل الداتا بيز) +++
         incoming_names = {s.get('name', '').strip().lower() for s in shops_list if s.get('name')}
@@ -2558,16 +2562,16 @@ def bulk_import_shops():
         return jsonify({"message": msg, "log_id": import_log.id}), 201
 
     except Exception as e:
-        # +++ الحماية القصوى: تراجع عن كل شيء في حال فشل أي سجل +++
+        # +++ الحماية القصوى: تراجع عن المحلات المرفوعة فقط +++
         db.session.rollback()
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         
-        # محاولة تسجيل الفشل في سجل التدقيق بشكل منفصل
+        # +++ المهمة 2: تحديث السجل الأصلي المحفوظ مسبقاً بدلاً من إنشاء واحد جديد في جلسة منهارة +++
         try:
-            failed_log = ImportLog(admin_id=admin.id, zone_id=zone_id, file_name=file_name, total_records=len(shops_list), status='Failed')
-            db.session.add(failed_log)
+            import_log.status = 'Failed'
+            db.session.add(import_log)
             db.session.commit()
         except:
-            pass # تجاهل إذا فشل السجل أيضاً
+            db.session.rollback()
 
         return jsonify({"message": "فشل في رفع البيانات، تم إلغاء العملية بالكامل لحماية قاعدة البيانات.", "error": str(e)}), 500

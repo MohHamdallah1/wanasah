@@ -94,10 +94,11 @@ def adjust_inventory(session_id, variant_id, net_quantity_change_in_packs):
     if net_quantity_change_in_packs == 0:
         return True, ""
 
+    # استخدام with_for_update() لعمل قفل حصري للصف (Row-level lock) لمنع أخطاء السباق الزمني
     inventory_record = SessionInventory.query.filter_by(
         work_session_id=session_id, 
         product_variant_id=variant_id
-    ).first()
+    ).with_for_update().first()
 
     if not inventory_record:
         if net_quantity_change_in_packs < 0:

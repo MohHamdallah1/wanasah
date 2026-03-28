@@ -22,10 +22,9 @@ def create_app():
     # ربط قاعدة البيانات بالتطبيق
     db.init_app(app)
     from flask_migrate import Migrate
-    migrate = Migrate(app, db)
     
-    # تهيئة نظام التحديثات (Migrations)
-    Migrate(app, db, render_as_batch=True)
+    # تهيئة نظام التحديثات (Migrations) مع دعم SQLite
+    migrate = Migrate(app, db, render_as_batch=True)
 
     # تسجيل كل الروابط اللي عملناها في ملف routes.py
     app.register_blueprint(api)
