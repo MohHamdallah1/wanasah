@@ -736,67 +736,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _showTransferDialog(Map<String, dynamic> transfer) {
     showDialog(
       context: context,
-      barrierDismissible: false, // إجبار المندوب على الرد
+      barrierDismissible: false, // يمنع الضغط خارج النافذة لإغلاقها
       builder: (dialogContext) {
         final int deltaCartons = transfer['delta_cartons'] ?? 0;
         final String productName = transfer['product_name'] ?? 'منتج غير معروف';
         final bool isAddition = deltaCartons > 0;
 
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Row(
-            children: [
-              Icon(
-                isAddition ? Icons.add_box : Icons.remove_circle_outline,
-                color: isAddition ? Colors.green : Colors.red,
+        // +++ الدرع الحديدي الحديث: منع زر الرجوع (PopScope) +++
+        return PopScope(
+          canPop: false, // يمنع إغلاق الشاشة نهائياً بزر الرجوع
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Icon(
+                  isAddition ? Icons.add_box : Icons.remove_circle_outline,
+                  color: isAddition ? Colors.green : Colors.red,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isAddition ? 'استلام بضاعة' : 'سحب بضاعة',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              isAddition
+                  ? 'الإدارة أرسلت (${deltaCartons.abs()} كرتونة) من $productName لسيارتك. هل تؤكد استلامها لتدخل عهدتك؟'
+                  : 'الإدارة تطلب سحب (${deltaCartons.abs()} كرتونة) من $productName من سيارتك. هل توافق؟',
+              style: const TextStyle(fontSize: 16),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  _respondToTransfer(transfer['transfer_id'], 'rejected');
+                },
+                child: const Text(
+                  'رفض ❌',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                isAddition ? 'استلام بضاعة' : 'سحب بضاعة',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isAddition ? Colors.green : Colors.blue,
+                ),
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  _respondToTransfer(transfer['transfer_id'], 'accepted');
+                },
+                child: const Text(
+                  'موافق ✅',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
             ],
-          ),
-          content: Text(
-            isAddition
-                ? 'الإدارة أرسلت (${deltaCartons.abs()} كرتونة) من $productName لسيارتك. هل تؤكد استلامها لتدخل عهدتك؟'
-                : 'الإدارة تطلب سحب (${deltaCartons.abs()} كرتونة) من $productName من سيارتك. هل توافق؟',
-            style: const TextStyle(fontSize: 16),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _respondToTransfer(transfer['transfer_id'], 'rejected');
-              },
-              child: const Text(
-                'رفض ❌',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isAddition ? Colors.green : Colors.blue,
-              ),
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                _respondToTransfer(transfer['transfer_id'], 'accepted');
-              },
-              child: const Text(
-                'موافق ✅',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        );
+          ), // إغلاق AlertDialog
+        ); // إغلاق WillPopScope
       },
     );
   }

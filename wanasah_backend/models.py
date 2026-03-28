@@ -122,6 +122,9 @@ class VehicleLoad(db.Model):
     quantity = db.Column(db.Integer, nullable=False, default=0) # الوحدة الأساسية فقط
     updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)) # +++ توحيد التواريخ
 
+    # +++ الدرع المعماري: تعريف العلاقة لكي تعمل دوال الجلب السريعة (joinedload) +++
+    product_variant = db.relationship('ProductVariant')
+
 # ================= خطوط السير اليومية (التوزيع) =================
 class DispatchRoute(db.Model):
     __tablename__ = 'dispatch_routes'

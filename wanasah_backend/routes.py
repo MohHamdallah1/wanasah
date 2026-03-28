@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 # توحيد الاستيرادات وحذف التكرار
-from models import db, Driver, Shop, Visit, VisitItem, VisitReturn, WorkSession, ProductVariant, SessionInventory, Zone, Vehicle, DispatchRoute, VehicleLoad, ShortageRequest, ImportLog, InventoryLedger, SystemAuditLog, WorkBreakLog
+from models import db, Driver, Shop, Visit, VisitItem, VisitReturn, WorkSession, ProductVariant, SessionInventory, Zone, Vehicle, DispatchRoute, VehicleLoad, ShortageRequest, ImportLog, InventoryLedger, SystemAuditLog, WorkBreakLog, InventoryTransfer
 from services import calculate_invoice, check_debt_limits, adjust_inventory
 from config import Config
 
@@ -113,7 +113,8 @@ def start_work_session(driver_id):
 
         # 5. +++ ربط خط السير بالجلسة ونقل حمولة السيارة لتصبح جرد المندوب (مصافحة الصباح الدقيقة) +++
         active_route.work_session_id = new_session.id
-
+        
+        # جلب الحمولة مع تفاصيل المنتج لضرب الكراتين في عدد الحبات
         vehicle_loads = VehicleLoad.query.options(joinedload(VehicleLoad.product_variant)).filter_by(vehicle_id=active_route.vehicle_id).all()
         for load in vehicle_loads:
             variant = load.product_variant
@@ -154,13 +155,24 @@ def end_work_session(driver_id):
     if not active_session:
         return jsonify({"message": "No active session"}), 404
 
+    # +++ الدرع الحديدي: منع إنهاء العمل إذا كان هناك مصافحات معلقة +++
+    pending_transfers = InventoryTransfer.query.filter_by(
+        work_session_id=active_session.id, 
+        status='pending'
+    ).first()
+    
+    if pending_transfers:
+        return jsonify({
+            "message": "لا يمكنك إنهاء العمل! لديك حوالات معلقة من الإدارة (مصافحة) يجب الموافقة عليها أو رفضها أولاً."
+        }), 400
+
     try:
         active_session.end_time = datetime.now(timezone.utc)
         db.session.commit()
-        return jsonify({"message": "Session ended"}), 200
+        return jsonify({"message": "تم إنهاء الجلسة بنجاح."}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": "Error ending session"}), 500
+        return jsonify({"message": "خطأ داخلي أثناء إنهاء الجلسة."}), 500
     
 # =========================================
 # 3.5 تسجيل وقت الاستراحة
@@ -710,7 +722,7 @@ def get_driver_dashboard(driver_id):
     return jsonify(response_data), 200
 
 # =========================================
-# 5.5 تأكيد استلام حوالة منتصف اليوم (للمندوب)
+# 5.5 تأكيد استلام/رفض حوالة منتصف اليوم (المصافحة)
 # =========================================
 @api.route('/driver/transfers/<int:transfer_id>/respond', methods=['PUT'])
 @token_required
@@ -733,7 +745,7 @@ def respond_to_transfer(transfer_id):
     try:
         transfer.status = response
         
-        # جلب البيانات الأساسية للتوثيق
+        # جلب البيانات الأساسية (المنطقة والعهدة) مرة واحدة
         route = DispatchRoute.query.filter_by(work_session_id=transfer.work_session_id).first()
         sess_inv = SessionInventory.query.filter_by(work_session_id=transfer.work_session_id, product_variant_id=transfer.product_variant_id).first()
         expected_qty = sess_inv.current_remaining_quantity if sess_inv else 0
@@ -757,7 +769,7 @@ def respond_to_transfer(transfer_id):
                 if v_load: v_load.quantity += delta_cartons
                 else: db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=transfer.product_variant_id, quantity=delta_cartons))
 
-            # 3. التوثيق في الدفتر (موافقة)
+            # 3. الدرع القانوني: التوثيق في الدفتر (موافقة)
             trans_type = 'تأكيد استلام حمولة' if transfer.quantity_packs > 0 else 'تأكيد سحب حمولة'
             db.session.add(InventoryLedger(
                 work_session_id=transfer.work_session_id, driver_id=driver_id, vehicle_id=route.vehicle_id if route else None,
@@ -767,18 +779,24 @@ def respond_to_transfer(transfer_id):
             ))
 
         elif response == 'rejected':
-            # +++ الدرع القانوني: توثيق (حالة التعارض) بحيادية تامة +++
+            # +++ علاج "الرفض اليتيم": عمل Reverse Transaction للمستودع المستقبلي، وتحديث الحيادية +++
+            
+            # (هنا سيتم لاحقاً كتابة كود إرجاع البضاعة لمستودع الشركة الرئيسي لعدم ضياعها)
+            # Warehouse.query.filter_by(...).first().quantity += transfer.quantity_packs
+            
+            # الدرع القانوني: توثيق (حالة التعارض) بحيادية تامة
             trans_type = 'تعارض: رفض استلام حمولة' if transfer.quantity_packs > 0 else 'تعارض: رفض سحب حمولة'
             db.session.add(InventoryLedger(
                 work_session_id=transfer.work_session_id, driver_id=driver_id, vehicle_id=route.vehicle_id if route else None,
                 product_variant_id=transfer.product_variant_id, transaction_type=trans_type,
                 expected_quantity=expected_qty, actual_quantity=expected_qty, # الرصيد لم يتغير لأن المندوب رفضها
                 difference=0, admin_id=transfer.admin_id, 
-                notes=f"سجل النظام تعارضاً: الإدارة أرسلت تعديلاً، والمندوب رفض استلامه من التطبيق."
+                notes="سجل النظام تعارضاً: الإدارة أرسلت تعديلاً، والمندوب رفض استلامه."
             ))
 
+        # +++ Commit واحد فقط في نهاية العملية لضمان عدم وجود فخ التعدد +++
         db.session.commit()
-        return jsonify({"message": f"تم {response} الحوالة بنجاح."}), 200
+        return jsonify({"message": f"تم تسجيل الرد ({response}) بنجاح."}), 200
 
     except Exception as e:
         db.session.rollback()
@@ -1642,6 +1660,20 @@ def adjust_route_inventory(route_id):
                     v_load.quantity += delta_cartons
                 else:
                     db.session.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=p_id, quantity=delta_cartons))
+
+        # +++ الدرع الرقابي: توثيق العملية الحساسة في SystemAuditLog +++
+        audit_details = " | ".join([
+            f"المنتج ID:{item['product_id']} (تغير: {item['delta_cartons']} كرتونة)" 
+            for item in deltas if int(item['delta_cartons']) != 0
+        ])
+        
+        db.session.add(SystemAuditLog(
+            admin_id=admin.id,
+            target_id=f"Route_{route.id}_Driver_{route.driver_id}",
+            action_type="MANUAL_INVENTORY_ADJUSTMENT",
+            old_value="تعديل يدوي للحمولة من المشرف",
+            new_value=audit_details
+        ))
 
         db.session.commit()
         
