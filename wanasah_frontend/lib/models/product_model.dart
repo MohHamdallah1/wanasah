@@ -19,14 +19,14 @@ class ProductModel {
     this.currentPacks = 0,
   });
 
-  // دالة تحويل البيانات القادمة من السيرفر (JSON) إلى كائن آمن
+  // دالة الاستقبال (الدرع المؤقت): تمتص فوضى مسميات السيرفر، وتقرأ من SQLite
   factory ProductModel.fromJson(Map<String, dynamic> json) {
     return ProductModel(
       id: json['id'] ?? json['product_variant_id'] ?? 0,
       name:
           json['name'] ??
-          json['productName'] ??
           json['variant_name'] ??
+          json['productName'] ??
           'منتج غير معروف',
       pricePerCarton: (json['price_per_carton'] ?? 0).toDouble(),
       pricePerPack: (json['price_per_pack'] ?? 0).toDouble(),
@@ -36,7 +36,7 @@ class ProductModel {
     );
   }
 
-  // دالة لتحويل الكائن إلى JSON لإرساله للسيرفر
+  // +++ الدالة الجديدة (المعيار الموحد): تجبر التطبيق على التحدث بلغة واحدة عند الحفظ في SQLite +++
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -44,6 +44,8 @@ class ProductModel {
       'price_per_carton': pricePerCarton,
       'price_per_pack': pricePerPack,
       'packs_per_carton': packsPerCarton,
+      'current_cartons': currentCartons,
+      'current_packs': currentPacks,
     };
   }
 }

@@ -47,7 +47,7 @@ export function PendingRoutesTable({
                 <p className="text-sm text-slate-500 font-medium">المندوب: {route.driverName}</p>
                 {driverShortageCount > 0 && (
                   <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
-                    +{driverShortageCount} طلبية خارجية
+                    +{driverShortageCount} طلبات عاجلة
                   </span>
                 )}
                 <span className="text-slate-300">|</span>

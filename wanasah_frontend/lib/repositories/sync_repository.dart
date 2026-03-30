@@ -7,15 +7,15 @@
 //   syncUp()         — إعادة إرسال العمليات المعلقة عند عودة الإنترنت
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:developer' as developer;
 
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // +++ لجلب رقم المندوب المطلوب للسيرفر +++
 
 import '../core/network/api_client.dart';
 import '../core/db/local_database.dart';
 import '../models/product_model.dart';
-import '../models/visit_model.dart';
+import '../models/visit_model.dart'; // +++ الاستيراد المفقود الذي تسبب بالخطأ الأول +++
 
 class SyncRepository {
   // -----------------------------------------------------------------------
@@ -34,188 +34,143 @@ class SyncRepository {
   /// يُستدعى عند بداية كل جلسة عمل (أو عند تحديث يدوي).
   /// الترتيب: جلب البيانات → تفريغ الجداول القديمة → حفظ الجديدة.
   Future<void> syncDown() async {
-    developer.log('[SyncRepository] syncDown() started...');
-
+    developer.log('[SyncRepository] Starting syncDown...');
     try {
-      // +++ الدرع المعماري: تفريغ الخزنة السرية ورفع المبيعات الأوفلاين للسيرفر أولاً +++
-      // لمنع السيرفر من الكتابة فوق مبيعات المندوب التي لم تُرفع بعد
-      developer.log('[SyncRepository] Running pre-sync upload...');
-      await syncUp();
-      // ── 1. جلب المنتجات (حمولة الشاحنة) من السيرفر ──────────────────
-      final productsResponse = await _api.get<Map<String, dynamic>>(
-        '/driver/load',
+      final String? driverIdStr = await const FlutterSecureStorage().read(
+        key: 'driver_id',
       );
+      if (driverIdStr == null) throw Exception('Driver ID not found');
+      final int driverId = int.parse(driverIdStr);
 
-      final List<dynamic> rawProducts =
-          (productsResponse.data?['load'] as List?) ?? [];
+      // +++ 1. جلب البيانات من السيرفر أولاً (البيانات القديمة لا تزال بأمان) +++
+      final response = await _api.get('/driver/$driverId/visits');
 
-      final List<Map<String, dynamic>> products =
-          rawProducts
-              .map(
-                (e) =>
-                    ProductModel.fromJson(e as Map<String, dynamic>).toJson(),
-              )
-              .toList();
+      final List<Map<String, dynamic>> visitsData =
+          List<Map<String, dynamic>>.from(response.data['visits'] ?? []);
+      final List<Map<String, dynamic>> productsData =
+          List<Map<String, dynamic>>.from(response.data['inventory'] ?? []);
 
-      // ── 2. جلب الزيارات المخطط لها من السيرفر ────────────────────────
-      final visitsResponse = await _api.get<Map<String, dynamic>>(
-        '/driver/visits',
-      );
+      // +++ 2. تحويل البيانات إلى كائنات ذكية (تطبيقاً للتعديل السابق) +++
+      final List<VisitModel> visitModels =
+          visitsData.map((v) => VisitModel.fromJson(v)).toList();
+      final List<ProductModel> productModels =
+          productsData.map((p) => ProductModel.fromJson(p)).toList();
 
-      final List<dynamic> rawVisits =
-          (visitsResponse.data?['visits'] as List?) ?? [];
-
-      final List<Map<String, dynamic>> visits =
-          rawVisits.map((e) {
-            final vm = VisitModel.fromJson(e as Map<String, dynamic>);
-            return {
-              'id': vm.id,
-              'shop_id': vm.shopId,
-              'shop_name': vm.shopName,
-              'shop_balance': vm.shopBalance,
-              'status': vm.status,
-              'outcome': vm.outcome,
-            };
-          }).toList();
-
-      // ── 3. تفريغ بيانات الجلسة السابقة وحفظ الجديدة ──────────────────
+      // +++ 3. تفريغ الجداول القديمة والحفظ (تفكيك اللغم: لا يحدث إلا إذا نجح الجلب والتحويل) +++
       await _db.clearSessionData();
-      await _db.insertProducts(products);
-      await _db.insertVisits(visits);
+      await _db.insertVisits(visitModels);
+      await _db.insertProducts(productModels);
 
-      developer.log(
-        '[SyncRepository] syncDown() done — '
-        '${products.length} products, ${visits.length} visits cached.',
-      );
-    } on DioException catch (e) {
-      developer.log('[SyncRepository] syncDown() network error: ${e.message}');
-      // لا نرمي الخطأ — التطبيق يعمل من البيانات المحلية القديمة
+      developer.log('[SyncRepository] syncDown completed successfully.');
     } catch (e) {
-      developer.log('[SyncRepository] syncDown() unexpected error: $e');
+      developer.log('[SyncRepository] Error in syncDown: $e');
       rethrow;
     }
   }
 
   // -----------------------------------------------------------------------
-  // saveInvoice — حفظ فاتورة مع Fallback تلقائي للوضع Offline
+  // saveInvoice — إرسال فاتورة مع Fallback تلقائي
   // -----------------------------------------------------------------------
-  /// [payload] : بيانات الفاتورة كاملة (ستُرسل كـ JSON للسيرفر)
-  /// [visitId] : معرّف الزيارة لتحديث حالتها محلياً
-  ///
-  /// النتيجة: يُعيد `true` إذا تمّ الإرسال Online، أو `false` إذا حُفظ Offline.
-  Future<bool> saveInvoice(Map<String, dynamic> payload, int visitId) async {
-    developer.log('[SyncRepository] saveInvoice() for visit #$visitId...');
+  Future<void> saveInvoice({
+    required int visitId,
+    required Map<String, dynamic> payload,
+  }) async {
+    // +++ 1. ترجمة المفاتيح المحاسبية (إصلاح الكارثة: مطابقة السيرفر لمنع العجز المالي) +++
+    if (payload['items'] != null) {
+      for (var item in payload['items']) {
+        item['quantity'] = item['cartons'] ?? 0;
+        item['packs_quantity'] = item['packs'] ?? 0;
+      }
+    }
+    if (payload['returns'] != null) {
+      for (var ret in payload['returns']) {
+        ret['quantity'] = ret['cartons'] ?? 0;
+        ret['packs_quantity'] = ret['packs'] ?? 0; // تم إضافة الحبات للمرتجعات
+      }
+    }
+    if (payload['samples'] != null) {
+      for (var sample in payload['samples']) {
+        sample['sample_quantity'] = sample['sample_cartons'] ?? 0;
+        sample['sample_packs_quantity'] = sample['sample_packs'] ?? 0;
+      }
+    }
 
     try {
-      // ── محاولة الإرسال للسيرفر ────────────────────────────────────────
-      await _api.post<Map<String, dynamic>>(
-        '/driver/visits/$visitId/submit',
-        data: payload,
+      // 2. محاولة الإرسال المباشر للسيرفر
+      await _dispatchPendingRecord(
+        type: 'submit_sale',
+        payload: {...payload, 'visitId': visitId},
       );
 
-      // ── نجح الإرسال: تحديث الحالة محلياً ─────────────────────────────
+      // 3. تحديث الحالة محلياً
       await _db.updateVisitStatus(
         visitId: visitId,
         status: 'Completed',
-        outcome: 'Sale',
+        outcome: payload['outcome'] ?? 'Sale',
       );
-
-      developer.log('[SyncRepository] Invoice #$visitId sent online ✓');
-      return true;
-    } on DioException catch (e) {
-      // ── التقاط أخطاء الشبكة / الاتصال فقط ───────────────────────────
-      final isConnectionError =
-          e.type == DioExceptionType.connectionError ||
-          e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.receiveTimeout ||
-          e.type == DioExceptionType.sendTimeout ||
-          e.error is SocketException;
-
-      if (isConnectionError) {
-        developer.log(
-          '[SyncRepository] No connection — saving invoice #$visitId to pending_sync.',
-        );
-
-        // حفظ الـ payload في الخزنة السرية
-        await _db.addPendingSync(
-          type: 'submit_sale',
-          payload: jsonEncode({'visitId': visitId, ...payload}),
-        );
-
-        // تحديث حالة الزيارة محلياً كـ Offline
-        await _db.updateVisitStatus(
-          visitId: visitId,
-          status: 'Completed (Offline)',
-          outcome: 'Sale',
-        );
-
-        developer.log('[SyncRepository] Invoice #$visitId queued offline ✓');
-        return false;
-      }
-
-      // أخطاء أخرى (4xx, 5xx) — نرميها للـ UI ليعالجها
-      developer.log(
-        '[SyncRepository] Server error for invoice #$visitId: '
-        '${e.response?.statusCode} ${e.response?.data}',
-      );
-      rethrow;
+      developer.log('[SyncRepository] Invoice #$visitId synced immediately.');
     } catch (e) {
-      developer.log('[SyncRepository] saveInvoice() unexpected error: $e');
-      rethrow;
+      // 4. في حال فشل الاتصال، نحفظها في الخزنة السرية (Offline)
+      developer.log(
+        '[SyncRepository] Offline mode: queueing invoice #$visitId. Error: $e',
+      );
+      await _db.addPendingSync(
+        type: 'submit_sale',
+        payload: jsonEncode({...payload, 'visitId': visitId}),
+      );
+      // +++ إصلاح ثغرة الشاشة الرمادية: جعل الحالة Completed لكي تتعرف عليها واجهة المستخدم +++
+      await _db.updateVisitStatus(
+        visitId: visitId,
+        status: 'Completed',
+        outcome: payload['outcome'] ?? 'Sale',
+      );
     }
   }
 
   // -----------------------------------------------------------------------
-  // syncUp — إرسال العمليات المعلقة عند عودة الإنترنت
+  // syncUp — إرسال كل العمليات المعلقة
   // -----------------------------------------------------------------------
-  /// يُستدعى عند اكتشاف عودة الاتصال (أو عند فتح التطبيق).
-  /// يُعيد عدد العمليات التي تمّ إرسالها بنجاح.
   Future<int> syncUp() async {
-    developer.log('[SyncRepository] syncUp() started...');
-
     final pending = await _db.getPendingSyncs();
-    if (pending.isEmpty) {
-      developer.log('[SyncRepository] No pending operations to sync.');
-      return 0;
-    }
+    if (pending.isEmpty) return 0;
 
     developer.log(
-      '[SyncRepository] Found ${pending.length} pending operation(s).',
+      '[SyncRepository] Found ${pending.length} pending records to syncUp.',
     );
-
     int successCount = 0;
 
     for (final record in pending) {
-      final int recordId = record['id'] as int;
-      final String type = record['type'] as String;
-      final Map<String, dynamic> payload =
-          jsonDecode(record['payload'] as String) as Map<String, dynamic>;
+      final recordId = record['id'] as int;
+      final type = record['type'] as String;
+      final payload = jsonDecode(record['payload'] as String);
 
       try {
         await _dispatchPendingRecord(type: type, payload: payload);
         await _db.deletePendingSync(recordId);
         successCount++;
-        developer.log('[SyncRepository] Pending #$recordId ($type) synced ✓');
       } on DioException catch (e) {
-        // إذا فشل بسبب الشبكة مجدداً: نوقف الـ loop ونحاول لاحقاً
-        if (e.type == DioExceptionType.connectionError ||
-            e.type == DioExceptionType.connectionTimeout ||
-            e.error is SocketException) {
-          developer.log(
-            '[SyncRepository] Still offline — stopping syncUp after '
-            '$successCount success(es).',
-          );
-          break;
+        if (e.response != null && e.response!.statusCode != null) {
+          final statusCode = e.response!.statusCode!;
+          // +++ إصلاح ثغرة اللูป اللانهائي: حذف السجل إذا رفضه السيرفر نهائياً بسبب خطأ بالبيانات (4xx) +++
+          if (statusCode >= 400 && statusCode < 500) {
+            developer.log(
+              '[SyncRepository] Server rejected pending #$recordId with $statusCode — Deleting to prevent infinite loop.',
+            );
+            await _db.deletePendingSync(recordId);
+            continue; // تجاوز هذا الملف وانتقل للتالي بدون أن توقف المزامنة
+          }
         }
-        // أخطاء السيرفر (4xx): نسجّل ونتجاوز لنحاول التالي
+        // في حال انقطاع النت (لا يوجد response) أو سيرفر متعطل (500) نتوقف ونحاول لاحقاً
         developer.log(
-          '[SyncRepository] Server rejected pending #$recordId: '
-          '${e.response?.statusCode} — skipping.',
+          '[SyncRepository] Still offline or Server Error (5xx) — stopping syncUp after '
+          '$successCount success(es).',
         );
+        break;
       } catch (e) {
         developer.log(
-          '[SyncRepository] Unexpected error for pending #$recordId: $e — skipping.',
+          '[SyncRepository] Unexpected error for pending #$recordId: $e — stopping.',
         );
+        break;
       }
     }
 
@@ -237,10 +192,7 @@ class SyncRepository {
         final visitId = payload['visitId'] as int;
         // إزالة visitId من الـ payload قبل الإرسال (هو جزء من الـ URL)
         final body = Map<String, dynamic>.from(payload)..remove('visitId');
-        await _api.post<Map<String, dynamic>>(
-          '/driver/visits/$visitId/submit',
-          data: body,
-        );
+        await _api.put('/visits/$visitId', data: body);
         break;
 
       // قابل للتوسع: أضف أنواع عمليات جديدة هنا (return_visit, shortage, ...)

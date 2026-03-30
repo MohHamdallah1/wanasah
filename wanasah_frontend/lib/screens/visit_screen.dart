@@ -1,16 +1,16 @@
 // --- الاستيرادات الأساسية ---
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'dart:developer' as developer;
-import 'dart:async'; // لاستخدام TimeoutException و Future
-import 'package:map_launcher/map_launcher.dart'; // لاستخدام MapLauncher و Coords
-import 'package:url_launcher/url_launcher.dart'; // لفتح الروابط اليدوية
-import 'dart:io'; // <-- أضف هذا السطر
-// --- استيرادات التوثيق وشاشة الدخول (استخدم اسم مشروعك) ---
-import 'package:wanasah_frontend/services/auth_utils.dart';
+import 'dart:async';
+import 'package:map_launcher/map_launcher.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:dio/dio.dart'; // +++ للتعامل مع رفض السيرفر الفوري +++
+import '../core/network/api_client.dart'; // +++ للاتصال الأساسي +++
+import '../core/db/local_database.dart';
+import '../repositories/sync_repository.dart';
+import '../services/auth_utils.dart'; // +++ لمعالجة الطرد 401 +++
 
 // --- تعريف الكلاس StatefulWidget (بدون معلمات الموقع) ---
 class VisitScreen extends StatefulWidget {
@@ -129,11 +129,9 @@ class _VisitScreenState extends State<VisitScreen> {
     super.dispose();
   }
 
-  // --- دالة تنظيم جلب البيانات ---
+  // --- دالة تنظيم جلب البيانات (هجينة: Network-First then Offline-Fallback) ---
   Future<void> _fetchDataOnInit() async {
     if (!mounted) return;
-    // بدء التحميل الكلي للشاشة (نعيد تعيين الأخطاء)
-    // نضعها هنا لضمان ظهور المؤشر عند إعادة المحاولة
     setState(() {
       _isLoading = true;
       _error = null;
@@ -141,9 +139,6 @@ class _VisitScreenState extends State<VisitScreen> {
     });
 
     try {
-      developer.log("Starting initial data fetch...");
-
-      // +++ قراءة الصلاحية والاستراحة من الخزنة الآمنة (Frontend Lock) +++
       const storage = FlutterSecureStorage();
       String? authStr = await storage.read(key: 'is_authorized');
       String? breakStr = await storage.read(key: 'is_on_break');
@@ -152,233 +147,151 @@ class _VisitScreenState extends State<VisitScreen> {
         _isOnBreak = (breakStr == 'true');
       });
 
-      // أولاً: جلب قائمة المنتجات
-      await _fetchProductVariants();
+      await _fetchProductVariantsHybrid();
 
-      // ثانياً: جلب تفاصيل الزيارة (إذا نجحت المنتجات)
       if (mounted && _fetchProductsError == null) {
-        developer.log(
-          "Product fetch successful, proceeding to load visit details...",
-        );
-        await _loadVisitDetails();
+        await _loadVisitDetailsHybrid();
       } else if (mounted && _fetchProductsError != null) {
-        developer.log("Product fetch failed, setting screen error.");
-        setState(() {
-          _error = _fetchProductsError;
-        });
-      }
-    } catch (e, s) {
-      developer.log(
-        "Unexpected error during initial data fetch.",
-        error: e,
-        stackTrace: s,
-      );
-      if (mounted) {
-        setState(() {
-          _error = 'خطأ غير متوقع أثناء تحميل بيانات الشاشة';
-        });
-      }
-    } finally {
-      // إيقاف التحميل الكلي
-      if (mounted) {
-        developer.log(
-          "Finished initial data fetch. Setting isLoading to false.",
-        );
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  // --- دالة جلب المنتجات ---
-  Future<void> _fetchProductVariants() async {
-    if (!mounted) return;
-    setState(() {
-      _isFetchingProducts = true;
-      _fetchProductsError = null;
-    });
-
-    final url = Uri.parse('http://10.0.2.2:5000/product_variants');
-    developer.log('Fetching product variants from: $url');
-
-    try {
-      final headers = await getAuthenticatedHeaders(needsContentType: false);
-      final response = await http
-          .get(url, headers: headers)
-          .timeout(const Duration(seconds: 15));
-      if (!mounted) return;
-
-      if (response.statusCode == 401) {
-        await handleUnauthorized(context);
-        if (mounted) {
-          setState(() {
-            _fetchProductsError = 'الجلسة غير صالحة';
-            _isFetchingProducts = false;
-          });
-          return;
-        }
-      }
-
-      if (response.statusCode == 200) {
-        final List<dynamic> decodedData = jsonDecode(response.body);
-        final List<Map<String, dynamic>> variantsList =
-            List<Map<String, dynamic>>.from(
-              decodedData.whereType<Map<String, dynamic>>(),
-            );
-
-        setState(() {
-          _productVariants = variantsList;
-          _isFetchingProducts = false;
-          _fetchProductsError = null;
-          // لا نحدد الافتراضي هنا، نتركه لـ _loadVisitDetails أو للقيمة الأولية
-        });
-      } else {
-        developer.log(
-          'Failed to load product variants. Status: ${response.statusCode}',
-        );
-        if (mounted) {
-          setState(() {
-            _fetchProductsError =
-                'فشل تحميل قائمة المنتجات (${response.statusCode})';
-            _isFetchingProducts = false;
-          });
-        }
-      }
-    } catch (error, stacktrace) {
-      developer.log(
-        'Error fetching product variants: ${error.toString()}',
-        error: error,
-        stackTrace: stacktrace,
-      );
-      if (!mounted) return;
-      setState(() {
-        _fetchProductsError = 'خطأ في الاتصال عند تحميل المنتجات';
-        _isFetchingProducts = false;
-      });
-    }
-  }
-
-  // --- دالة جلب تفاصيل الزيارة الحالية (معدلة لتخزين بيانات الموقع) ---
-  Future<void> _loadVisitDetails() async {
-    if (!mounted) return;
-
-    final url = Uri.parse(
-      'http://10.0.2.2:5000/visits/${widget.visitId}',
-    ); // <-- تأكد من الـ Base URL
-    developer.log('Fetching visit details from: $url');
-
-    try {
-      final headers = await getAuthenticatedHeaders(needsContentType: false);
-      final response = await http
-          .get(url, headers: headers)
-          .timeout(const Duration(seconds: 15));
-      if (!mounted) return;
-
-      if (response.statusCode == 401) {
-        await handleUnauthorized(context);
-        if (mounted) {
-          setState(() {
-            _error = 'الجلسة غير صالحة';
-          });
-        }
-        return;
-      }
-
-      if (response.statusCode == 200) {
-        final visitData = jsonDecode(response.body);
-        developer.log('Visit details received: $visitData');
-
-        // --- تحديث الحالة بالبيانات المستلمة لتعبئة الحقول ---
-        // --- تحديث الحالة بالبيانات المستلمة لتعبئة الحقول ---
-        setState(() {
-          _selectedOutcome = visitData['outcome'];
-
-          // +++ تعبئة السلة والعينات من الفاتورة المحفوظة +++
-          _cartQuantities.clear();
-          _returnsList.clear(); // تنظيف التوالف قبل التعبئة
-
-          if (visitData['cart_items'] != null &&
-              visitData['cart_items'] is List) {
-            for (var item in visitData['cart_items']) {
-              final int variantId = item['product_variant_id'];
-              _cartQuantities[variantId] = {
-                'cartons': item['quantity'] ?? 0,
-                'packs': item['packs_quantity'] ?? 0, // قراءة الفرط بدقة
-                'sample_cartons': item['sample_quantity'] ?? 0,
-                'sample_packs': item['sample_packs_quantity'] ?? 0,
-              };
-            }
-          }
-
-          // +++ العقل الجديد: استرجاع التوالف المحفوظة لكي لا تتصفر +++
-          if (visitData['returns'] != null && visitData['returns'] is List) {
-            for (var ret in visitData['returns']) {
-              _returnsList.add({
-                'product_variant_id': ret['product_variant_id'],
-                'cartons': ret['quantity'] ?? 0, // السيرفر يرسلها كـ quantity
-                'packs': ret['packs_quantity'] ?? 0,
-                'return_type': ret['return_type'],
-                'reason': ret['reason'] ?? '',
-              });
-            }
-          }
-
-          final num? cashValue = visitData['cash_collected'];
-          final double cashDouble = (cashValue?.toDouble()) ?? 0.0;
-          _cashController.text =
-              (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(2);
-
-          final num? debtValue = visitData['debt_paid'];
-          final double debtDouble = (debtValue?.toDouble()) ?? 0.0;
-          _debtPaidController.text =
-              (debtDouble == 0.0) ? '' : debtDouble.toStringAsFixed(2);
-
-          _notesController.text =
-              (visitData['notes'] ?? visitData['no_sale_reason'] ?? '');
-
-          // +++ استخلاص بيانات الموقع +++
-          final shopData = visitData['shop'];
-          if (shopData is Map<String, dynamic>) {
-            _shopLatitude = (shopData['latitude'] as num?)?.toDouble();
-            _shopLongitude = (shopData['longitude'] as num?)?.toDouble();
-            _shopLink = shopData['location_link'] as String?;
-            _shopAddr = shopData['address'] as String?;
-          } else {
-            _shopLatitude = null;
-            _shopLongitude = null;
-            _shopLink = null;
-            _shopAddr = null;
-          }
-
-          _error = null;
-          _fetchProductsError = null;
-
-          _calculateLiveTotals(); // استدعاء الحسابات الجديدة
-        });
-      } else if (response.statusCode == 404) {
-        if (mounted) {
-          setState(() {
-            _cartQuantities.clear(); // تصفير السلة للزيارة الجديدة
-            _shopLatitude = null;
-            _shopLongitude = null;
-            _shopLink = null;
-            _shopAddr = null;
-          });
-          _calculateLiveTotals(); // استدعاء الحسابات الجديدة
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _error = 'فشل تحميل تفاصيل الزيارة (${response.statusCode})';
-          });
-        }
+        setState(() => _error = _fetchProductsError);
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted) setState(() => _error = 'خطأ غير متوقع.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- جلب المنتجات (أونلاين، وإن فشل نقرأ الخزنة) ---
+  Future<void> _fetchProductVariantsHybrid() async {
+    try {
+      final response = await ApiClient.instance.get('/product_variants');
+      setState(() {
+        _productVariants = List<Map<String, dynamic>>.from(response.data);
+        _isFetchingProducts = false;
+      });
+    } catch (e) {
+      developer.log('Network failed for products, loading local...');
+      try {
+        final localProducts = await LocalDatabase.instance.getProducts();
+        if (localProducts.isNotEmpty) {
+          setState(() {
+            _productVariants = List<Map<String, dynamic>>.from(localProducts);
+            _isFetchingProducts = false;
+          });
+        } else {
+          setState(() {
+            _fetchProductsError =
+                'لا يوجد اتصال، ولا توجد منتجات محفوظة محلياً.';
+            _isFetchingProducts = false;
+          });
+        }
+      } catch (localErr) {
         setState(() {
-          _error = 'خطأ في تحميل تفاصيل الزيارة';
+          _fetchProductsError = 'فشل قراءة المنتجات المحلية.';
+          _isFetchingProducts = false;
         });
+      }
+    }
+  }
+
+  // --- جلب تفاصيل الزيارة (أونلاين للمسودات والخريطة، وإن فشل نقرأ الخزنة) ---
+  Future<void> _loadVisitDetailsHybrid() async {
+    try {
+      final response = await ApiClient.instance.get(
+        '/driver/visits/${widget.visitId}',
+      ); // استخدم المسار الصحيح للسيرفر
+      final visitData = response.data;
+
+      setState(() {
+        _selectedOutcome = visitData['outcome'];
+        _cartQuantities.clear();
+        _returnsList.clear();
+
+        if (visitData['cart_items'] != null) {
+          for (var item in visitData['cart_items']) {
+            _cartQuantities[item['product_variant_id']] = {
+              'cartons': item['quantity'] ?? 0,
+              'packs': item['packs_quantity'] ?? 0,
+              'sample_cartons': item['sample_quantity'] ?? 0,
+              'sample_packs': item['sample_packs_quantity'] ?? 0,
+            };
+          }
+        }
+
+        if (visitData['returns'] != null) {
+          for (var ret in visitData['returns']) {
+            _returnsList.add({
+              'product_variant_id': ret['product_variant_id'],
+              'cartons': ret['quantity'] ?? 0,
+              'packs': ret['packs_quantity'] ?? 0,
+              'return_type': ret['return_type'],
+              'reason': ret['reason'] ?? '',
+            });
+          }
+        }
+
+        final cashDouble =
+            (visitData['cash_collected'] as num?)?.toDouble() ?? 0.0;
+        _cashController.text =
+            (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(2);
+        final debtDouble = (visitData['debt_paid'] as num?)?.toDouble() ?? 0.0;
+        _debtPaidController.text =
+            (debtDouble == 0.0) ? '' : debtDouble.toStringAsFixed(2);
+        _notesController.text =
+            (visitData['notes'] ?? visitData['no_sale_reason'] ?? '');
+
+        final shopData = visitData['shop'];
+        if (shopData is Map) {
+          _shopLatitude = (shopData['latitude'] as num?)?.toDouble();
+          _shopLongitude = (shopData['longitude'] as num?)?.toDouble();
+          _shopLink = shopData['location_link'] as String?;
+          _shopAddr = shopData['address'] as String?;
+        }
+
+        _calculateLiveTotals();
+      });
+    } catch (e) {
+      developer.log(
+        'Network failed for visit details, loading local fallback...',
+      );
+      try {
+        final localVisits = await LocalDatabase.instance.getVisits();
+        final visitData = localVisits.firstWhere(
+          (v) => v['id'] == widget.visitId,
+          orElse: () => {},
+        );
+
+        if (visitData.isNotEmpty) {
+          setState(() {
+            _selectedOutcome =
+                (visitData['outcome'] == 'None' || visitData['outcome'] == null)
+                    ? null
+                    : visitData['outcome'];
+            _cartQuantities.clear();
+            _returnsList.clear();
+            _shopLatitude = null;
+            _shopLongitude = null;
+            _shopLink = null;
+            _shopAddr = null;
+            _calculateLiveTotals();
+          });
+          // +++ حماية سياق الشاشة (context) بعد الـ await لمنع الخطأ التحذيري +++
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'أنت أوفلاين: تم جلب البيانات الأساسية، لن تظهر المسودات.',
+                ),
+              ),
+            );
+          }
+        } else {
+          setState(
+            () => _error = 'لا يوجد اتصال، ولم يتم العثور على الزيارة محلياً.',
+          );
+        }
+      } catch (localErr) {
+        setState(() => _error = 'فشل قراءة الزيارة المحلية.');
       }
     }
   }
@@ -1279,7 +1192,7 @@ class _VisitScreenState extends State<VisitScreen> {
     }
   }
 
-  // --- دالة الإرسال الفعلية للـ API (بصيغة السلة الجديدة) ---
+  // --- دالة حفظ الفاتورة (هجينة: أونلاين أولاً، ثم أوفلاين) ---
   Future<void> _performSubmit(
     double cashCollected,
     double debtPaid,
@@ -1289,7 +1202,6 @@ class _VisitScreenState extends State<VisitScreen> {
       _isSubmitting = true;
     });
 
-    // بناء سلة المشتريات (تتضمن كراتين، حبات، وعينات)
     List<Map<String, dynamic>> cartItems = [];
     int totalCartons = 0;
 
@@ -1304,14 +1216,15 @@ class _VisitScreenState extends State<VisitScreen> {
           'product_variant_id': id,
           'quantity': cartons,
           'packs': packs,
-          'sample_cartons': sampleCartons, // +++ إرسال العينات +++
-          'sample_packs': samplePacks, // +++ إرسال العينات +++
+          'sample_cartons': sampleCartons,
+          'sample_packs': samplePacks,
         });
         totalCartons += cartons;
       }
     });
 
     Map<String, dynamic> payload = {
+      'visitId': widget.visitId,
       'outcome': _selectedOutcome!,
       'cash_collected': cashCollected,
       'debt_paid': debtPaid,
@@ -1320,67 +1233,66 @@ class _VisitScreenState extends State<VisitScreen> {
 
     if (_selectedOutcome == 'Sale') {
       payload['cart_items'] = cartItems;
-      payload['returns'] = _returnsList; // +++ إرسال التوالف +++
-      payload['total_quantity_sold'] = totalCartons; // كمعلومة إضافية للباك إند
+      payload['returns'] = _returnsList;
+      payload['total_quantity_sold'] = totalCartons;
     } else if (_selectedOutcome == 'NoSale') {
       payload['no_sale_reason'] = notes;
     }
 
-    final url = Uri.parse(
-      'http://10.0.2.2:5000/visits/${widget.visitId}',
-    ); // استخدم IP جهازك
-
     try {
-      Map<String, String> headers = await getAuthenticatedHeaders(
-        needsContentType: false,
+      // +++ المحاولة الهجينة (Online First) من خلال محرك المزامنة +++
+      final bool isOnlineSuccess = await SyncRepository().saveInvoice(
+        payload,
+        widget.visitId,
       );
-      headers = {...headers, 'Content-Type': 'application/json; charset=UTF-8'};
-
-      final response = await http
-          .put(url, headers: headers, body: jsonEncode(payload))
-          .timeout(const Duration(seconds: 20));
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
+      if (isOnlineSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم حفظ نتيجة الزيارة بنجاح!'),
+            content: Text('تم حفظ الفاتورة بالسيرفر بنجاح!'),
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pop(context, true);
-      } else if (response.statusCode == 401) {
-        await handleUnauthorized(context);
       } else {
-        String errorMessage = 'فشل حفظ الزيارة (رمز: ${response.statusCode})';
-        try {
-          final errorData = jsonDecode(response.body);
-          if (errorData is Map && errorData.containsKey('message')) {
-            errorMessage = errorData['message'];
-          }
-        } catch (_) {}
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطأ: $errorMessage'),
-            backgroundColor: Colors.red,
+          const SnackBar(
+            content: Text(
+              'أنت أوفلاين: تم حفظ الفاتورة بالخزنة لحين عودة الإنترنت.',
+            ),
+            backgroundColor: Colors.orange,
           ),
         );
       }
-    } catch (error) {
+      Navigator.pop(context, true);
+    } on DioException catch (e) {
+      // +++ التقاط رفض السيرفر الفوري (401 طرد أو 400 رفض بضاعة) +++
       if (!mounted) return;
-      String errorMsg = 'حدث خطأ في الاتصال بالخادم.';
 
-      if (error is TimeoutException) {
-        errorMsg = 'انتهت مهلة الاتصال بالخادم.';
-      } else if (error is SocketException) {
-        errorMsg = 'خطأ في الشبكة، تأكد من اتصالك بالإنترنت.';
-      } else {
-        errorMsg = error.toString().replaceFirst("Exception: ", "");
+      if (e.response?.statusCode == 401) {
+        await handleUnauthorized(context);
+        return;
+      }
+
+      String errorMsg = 'رفض السيرفر العملية.';
+      if (e.response?.data != null && e.response?.data is Map) {
+        errorMsg = e.response?.data['message'] ?? errorMsg;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('خطأ من السيرفر: $errorMsg'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ داخلي: $error'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) {

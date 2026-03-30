@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:developer' as developer;
 
-import '../../screens/login_screen.dart';
 import '../../services/api_constants.dart';
 
 // -----------------------------------------------------------------------
@@ -16,13 +15,11 @@ import '../../services/api_constants.dart';
 class AuthInterceptor extends Interceptor {
   final FlutterSecureStorage _storage;
 
-  /// [navigatorKey] يُستخدم للوصول إلى NavigationContext بدون BuildContext.
-  final GlobalKey<NavigatorState> navigatorKey;
+  /// دالة تُستدعى عند حدوث خطأ 401 لإبلاغ الـ BLoC
+  final VoidCallback onUnauthorized;
 
-  AuthInterceptor({
-    required this.navigatorKey,
-    FlutterSecureStorage? storage,
-  }) : _storage = storage ?? const FlutterSecureStorage();
+  AuthInterceptor({required this.onUnauthorized, FlutterSecureStorage? storage})
+    : _storage = storage ?? const FlutterSecureStorage();
 
   // --- حقن التوكن في كل طلب ---
   @override
@@ -51,45 +48,19 @@ class AuthInterceptor extends Interceptor {
     return handler.next(options);
   }
 
-  // --- التقاط خطأ 401 وطرد المستخدم ---
+  // --- التقاط خطأ 401 وإبلاغ العقل المدبر (BLoC) ---
   @override
-  void onError(DioException err, ErrorInterceptorHandler handler) {
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
     if (err.response?.statusCode == 401) {
       developer.log(
-        '[AuthInterceptor] 401 Unauthorized → triggering handleUnauthorized',
+        '[AuthInterceptor] 401 Unauthorized → triggering onUnauthorized callback',
       );
-      handleUnauthorized();
+      // إطلاق الإشعار للـ BLoC ليتولى هو مسح الذاكرة والتوجيه
+      onUnauthorized();
     }
 
-    // تمرير الخطأ للطبقات الأعلى (لا نبتلعه)
+    // تمرير الخطأ للطبقات الأعلى
     return handler.next(err);
-  }
-
-  // -----------------------------------------------------------------------
-  // handleUnauthorized
-  // حذف بيانات الجلسة والتوجيه إلى شاشة تسجيل الدخول.
-  // -----------------------------------------------------------------------
-  Future<void> handleUnauthorized() async {
-    try {
-      await _storage.delete(key: 'auth_token');
-      await _storage.delete(key: 'driver_id');
-      developer.log('[AuthInterceptor] Session cleared due to 401.');
-    } catch (e) {
-      developer.log('[AuthInterceptor] Error clearing storage: $e');
-    }
-
-    // استخدام navigatorKey للوصول إلى NavigationContext بأمان
-    final NavigatorState? navigator = navigatorKey.currentState;
-    if (navigator != null) {
-      navigator.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (Route<dynamic> route) => false,
-      );
-    } else {
-      developer.log(
-        '[AuthInterceptor] NavigatorState is null — cannot navigate to Login.',
-      );
-    }
   }
 }
 
@@ -113,9 +84,9 @@ class ApiClient {
     return _instance!;
   }
 
-  /// تهيئة ApiClient مع الـ navigatorKey من MaterialApp.
-  /// استدعِ هذه الدالة مرة واحدة في main() أو في بداية التطبيق.
-  static void init({required GlobalKey<NavigatorState> navigatorKey}) {
+  /// تهيئة ApiClient.
+  /// يجب تمرير دالة onUnauthorized ليتم استدعاء LogoutEvent في الـ AuthBloc
+  static void init({required VoidCallback onUnauthorized}) {
     if (_instance != null) return; // تجنب التهيئة المزدوجة
 
     final dio = Dio(
@@ -131,9 +102,7 @@ class ApiClient {
     );
 
     // إضافة AuthInterceptor
-    dio.interceptors.add(
-      AuthInterceptor(navigatorKey: navigatorKey),
-    );
+    dio.interceptors.add(AuthInterceptor(onUnauthorized: onUnauthorized));
 
     // (اختياري) إضافة LogInterceptor في وضع التطوير
     assert(() {
@@ -150,7 +119,9 @@ class ApiClient {
     _dio = dio;
     _instance = ApiClient._();
 
-    developer.log('[ApiClient] Initialized with baseUrl: ${ApiConstants.baseUrl}');
+    developer.log(
+      '[ApiClient] Initialized with baseUrl: ${ApiConstants.baseUrl}',
+    );
   }
 
   // -----------------------------------------------------------------------

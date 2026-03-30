@@ -923,10 +923,14 @@ def get_visits(driver_id):
     # 1. جلب الجلسة النشطة حالياً للمندوب
     active_session = WorkSession.query.filter_by(driver_id=driver_id, end_time=None).first()
     
-    # +++ سد ثغرة تسرب المحلات: جلب المحلات التابعة لخطة السير النشطة فقط +++
-    active_route = DispatchRoute.query.filter_by(driver_id=driver_id, status='active').first()
+    # +++ سد ثغرة تسرب المحلات: جلب المحلات المخصصة للمندوب فقط +++
+    active_route = DispatchRoute.query.filter(
+        DispatchRoute.driver_id == driver_id, 
+        DispatchRoute.status.in_(['active', 'waiting', 'postponed'])
+    ).first()
+    
     if not active_route:
-        return jsonify([]), 200 # لا نعرض أي محلات إذا لم يكن هناك خط سير نشط
+        return jsonify([]), 200 # نمنع المحلات فقط إذا تم سحب المنطقة منه بالكامل
 
     # +++ الهندسة الصحيحة والتنظيف (نصيحة الصديق الخبير لإزالة N+1 والاستعلامات المهدرة) +++
     # الزيارة تعتبر ملكاً للمندوب بمجرد ربطها به (سواء كانت في منطقته أو طلب عاجل خارجي).
@@ -1097,14 +1101,20 @@ def get_admin_dashboard_data():
         
         inv_list = []
         for inv in inventories:
-            started = inv.starting_quantity
-            remaining = inv.current_remaining_quantity
+            variant = inv.product_variant
+            # +++ استخراج التعبئة للتحويل من حبات إلى كراتين +++
+            packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton > 0 else 1
+            
+            started_cartons = inv.starting_quantity // packs_per_carton
+            remaining_cartons = inv.current_remaining_quantity // packs_per_carton
+            sold_cartons = started_cartons - remaining_cartons
+
             inv_list.append({
                 "product_id": inv.product_variant_id,
-                "product_name": inv.product_variant.variant_name,
-                "starting_quantity": started,
-                "sold_quantity": started - remaining,
-                "remaining_quantity": remaining
+                "product_name": variant.variant_name,
+                "starting_quantity": started_cartons,
+                "sold_quantity": sold_cartons,
+                "remaining_quantity": remaining_cartons
             })
         
         # تحديد الحالة
@@ -2405,12 +2415,18 @@ def manage_shortages():
                     return jsonify({"message": f"مرفوض: لا يمكن تقديم أكثر من طلب عاجل واحد لنفس المحل (المحل: {shop_name})"}), 409
 
                 processed_shop_ids.add(shop_id)
-                # +++ التعديل المعماري: الاعتماد على ID المنتج وليس اسمه النصي +++
+                
+                # +++ علاج الـ NoneType: الواجهة ترسل اسم المنتج (productName) ولا ترسل הID +++
+                product_name = item.get('productName') or item.get('productId') # fallback للحماية
+                variant = ProductVariant.query.filter_by(variant_name=product_name).first()
+                if not variant:
+                    return jsonify({"message": f"المنتج '{product_name}' غير موجود في النظام."}), 404
+                
                 new_shortage = ShortageRequest(
                     zone_id=item.get('zoneId'),
                     shop_id=shop_id,
                     driver_id=item.get('driverId') or None,
-                    product_variant_id=int(item.get('productId')), 
+                    product_variant_id=variant.id, 
                     quantity=item.get('quantity', 1)
                 )
                 db.session.add(new_shortage)

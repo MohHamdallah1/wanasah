@@ -1,12 +1,10 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:developer' as developer;
 import 'visit_screen.dart'; // نحتاج هذا للانتقال
-import '../services/auth_utils.dart';
+import '../core/db/local_database.dart';
+import '../repositories/sync_repository.dart';
 import 'package:wanasah_frontend/screens/add_shop_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../services/api_constants.dart';
 import 'package:url_launcher/url_launcher.dart'; // +++ للخرائط +++
 import 'package:map_launcher/map_launcher.dart'; // +++ للخرائط +++
 
@@ -50,148 +48,49 @@ class _VisitListScreenState extends State<VisitListScreen>
     super.dispose();
   }
 
-  // --- دالة جلب البيانات (معدلة لاستخدام التوكن والتحقق منه + الاحتفاظ بمنطقك) ---
-  Future<void> _fetchVisits() async {
-    // تأكد من أن الويدجت لا يزال موجوداً
+  // --- دالة جلب البيانات (معمارية Offline-First من الخزنة المحلية) ---
+  Future<void> _fetchVisits({bool forceSync = false}) async {
     if (!mounted) return;
 
-    // +++ التحديث اللحظي لحالة الاستراحة في الذاكرة لمنع تجميد الواجهة +++
-    final breakStr = await const FlutterSecureStorage().read(
-      key: 'is_on_break',
-    );
-    _isOnBreak = breakStr == 'true';
-
-    // إظهار مؤشر التحميل ومسح أي خطأ سابق
     setState(() {
       _isLoading = true;
-      _error = null; // استخدام اسم متغير الخطأ لديك
+      _error = null;
     });
 
-    // بناء الـ URL (استخدم متغير الفلتر الحالي لديك)
-    final url = Uri.parse(
-      '${ApiConstants.baseUrl}/driver/${widget.driverId}/visits',
-    ); // URL الأساسي
-    developer.log('Fetching visits from: $url');
-
     try {
-      // +++ الخطوة 1: الحصول على الهيدرز بالتوكن +++
-      // تأكد أنك أضفت import للملف المساعد أو الدالة معرفة هنا
-      final headers = await getAuthenticatedHeaders(needsContentType: false);
+      // 1. المزامنة مع السيرفر فقط عند الطلب (سحب الشاشة أو إضافة محل)
+      if (forceSync) {
+        developer.log('Forcing sync from API...');
+        await SyncRepository().syncDown();
+      }
 
-      // +++ الخطوة 2: إرسال الطلب مع الهيدرز +++
-      final response = await http
-          .get(url, headers: headers)
-          .timeout(const Duration(seconds: 20));
+      // 2. القراءة الصاروخية من قاعدة البيانات المحلية (SQLite)
+      final localVisits = await LocalDatabase.instance.getVisits();
 
-      // +++ المزامنة اللحظية (الخفية) للضوء الأخضر من الداشبورد لمنع تجميد الصلاحيات +++
-      try {
-        final dashUrl = Uri.parse(
-          '${ApiConstants.baseUrl}/driver/${widget.driverId}/dashboard',
-        );
-        final dashRes = await http
-            .get(dashUrl, headers: headers)
-            .timeout(const Duration(seconds: 5));
-        if (dashRes.statusCode == 200) {
-          final dashData = jsonDecode(dashRes.body);
-          final sessionData = dashData['active_session'];
-          if (sessionData != null) {
-            // +++ مزامنة الصلاحية والاستراحة مع الذاكرة المحلية فوراً (Frontend Lock Sync) +++
-            bool isAuth = sessionData['is_authorized_to_sell'] == true;
-            bool onBreak =
-                sessionData['break_start_time'] != null &&
-                sessionData['break_end_time'] == null;
-
-            await const FlutterSecureStorage().write(
-              key: 'is_authorized',
-              value: isAuth.toString(),
-            );
-            await const FlutterSecureStorage().write(
-              key: 'is_on_break',
-              value: onBreak.toString(),
-            );
-
-            if (mounted) {
-              setState(() {
-                _isOnBreak = onBreak;
-              });
-            }
-          }
-        }
-      } catch (_) {}
-      // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      // 3. قراءة حالة الاستراحة المحفوظة مسبقاً من الذاكرة
+      final breakStr = await const FlutterSecureStorage().read(
+        key: 'is_on_break',
+      );
 
       if (!mounted) return;
 
-      // +++ الخطوة 3: التحقق من خطأ 401 أولاً +++
-      if (response.statusCode == 401) {
-        // تأكد أنك أضفت import للملف المساعد أو الدالة معرفة هنا
-        await handleUnauthorized(context); // التعامل مع التوكن غير الصالح
-        // لا داعي لـ setState هنا لأن handleUnauthorized سيقوم بالانتقال
-        // لكن قد تحتاج لإيقاف التحميل إذا لم يتم الانتقال فوراً
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
-        return; // الخروج مبكراً
-      }
-      // +++++++++++++++++++++++++++++++++++++++
-
-      // --- إذا لم يكن 401، أكمل معالجة الرد ---
-      if (response.statusCode == 200) {
-        final List<dynamic> decodedData = jsonDecode(response.body);
-        developer.log('All visits data received: ${decodedData.length} items');
-
-        // استخدام النوع الصحيح للقائمة الكاملة
-        final List<Map<String, dynamic>> allVisitsData =
-            List<Map<String, dynamic>>.from(
-              decodedData.whereType<Map<String, dynamic>>(),
-            );
-
-        // تحديث الحالة بعد جلب البيانات بنجاح
-        final bool onBreak =
-            (await const FlutterSecureStorage().read(key: 'is_on_break')) ==
-            'true';
-        setState(() {
-          _isOnBreak = onBreak;
-          _allVisits = allVisitsData;
-          _applyFilter();
-          _isLoading = false;
-          _error = null;
-        });
-        // --- نهاية منطقك الحالي ---
-      } else {
-        // التعامل مع أخطاء السيرفر الأخرى
-        developer.log(
-          'Failed to load visits. Status code: ${response.statusCode}',
-        );
-        developer.log('Response body: ${response.body}');
-        if (mounted) {
-          setState(() {
-            _error = 'فشل تحميل الزيارات (رمز: ${response.statusCode})';
-            _isLoading = false;
-            // استخدام متغيراتك ودالتك الصحيحة للتصفير
-            _allVisits = [];
-            _filteredVisits = [];
-          });
-        }
-      }
-    } catch (error, s) {
-      // التعامل مع أخطاء الاتصال أو المهلة أو فك التشفير
-      developer.log(
-        'Error fetching visits: ${error.toString()}',
-        error: error,
-        stackTrace: s,
-      );
+      // 4. عرض البيانات فوراً للمندوب
+      setState(() {
+        _isOnBreak = breakStr == 'true';
+        _allVisits = localVisits;
+        _applyFilter();
+        _isLoading = false;
+        _error = null;
+      });
+      developer.log('Loaded ${localVisits.length} visits from Local DB.');
+    } catch (error) {
+      developer.log('Error fetching local visits: $error');
       if (!mounted) return;
       setState(() {
-        _error = 'حدث خطأ في الاتصال: ${error.toString()}';
+        _error = 'حدث خطأ أثناء تحميل البيانات المخبأة.';
         _isLoading = false;
-        _allVisits = [];
-        _filteredVisits = [];
       });
     }
-    // لا حاجة لـ finally لإيقاف التحميل لأنه يتم في كل مسار
   }
   // --- نهاية الدالة المعدلة ---
 
@@ -239,7 +138,8 @@ class _VisitListScreenState extends State<VisitListScreen>
         centerTitle: true,
         actions: [
           IconButton(
-            onPressed: _fetchVisits,
+            // +++ إجبار المزامنة مع السيرفر عند الضغط اليدوي +++
+            onPressed: () => _fetchVisits(forceSync: true),
             icon: const Icon(Icons.refresh),
             tooltip: 'تحديث القائمة',
           ),
@@ -356,10 +256,9 @@ class _VisitListScreenState extends State<VisitListScreen>
           if (!context.mounted) return;
 
           if (result == true) {
-            developer.log(
-              'AddShopScreen closed with success, refreshing visits...',
-            );
-            _fetchVisits();
+            developer.log('AddShopScreen closed with success, forcing sync...');
+            // +++ جلب المحل الجديد من السيرفر وتحديث الخزنة +++
+            _fetchVisits(forceSync: true);
           }
         },
 
@@ -451,7 +350,7 @@ class _VisitListScreenState extends State<VisitListScreen>
                 : 'لم تقم بإكمال أي زيارة بعد.';
       }
       return RefreshIndicator(
-        onRefresh: _fetchVisits,
+        onRefresh: () => _fetchVisits(forceSync: true),
         child: ListView(
           children: [
             Padding(
@@ -473,7 +372,7 @@ class _VisitListScreenState extends State<VisitListScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: _fetchVisits,
+      onRefresh: () => _fetchVisits(forceSync: true),
       child: ListView.builder(
         key: PageStorageKey<String>(
           'visitListScroll_${isEmergencyTab ? "emg" : "norm"}',
@@ -582,9 +481,10 @@ class _VisitListScreenState extends State<VisitListScreen>
                 // +++ تحديث لحظي إجباري عند العودة من أي زيارة لضمان تحديث الأيقونات والحالة +++
                 if (mounted) {
                   developer.log(
-                    'Returned from VisitScreen, refreshing data to sync states...',
+                    'Returned from VisitScreen, loading fast from local DB...',
                   );
-                  _fetchVisits();
+                  // +++ تحديث الشاشة من الخزنة المحلية فقط وبسرعة +++
+                  _fetchVisits(forceSync: false);
                 }
                 // -------------------------------------------------------------------
               },

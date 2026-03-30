@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:dio/dio.dart';
+import 'package:http/http.dart' as http; // +++ استرجاع مكتبتك الموثوقة +++
+import 'dart:convert';
+import '../services/api_constants.dart'; // +++ لجلب رابط السيرفر الصحيح +++
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
 import '../blocs/auth/auth_state.dart';
-import '../core/network/api_client.dart';
 import 'dashboard_screen.dart';
-// +++++++++++++++++++++++++++++++++++
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,49 +25,51 @@ class _LoginScreenState extends State<LoginScreen> {
   String _message = ''; // لعرض رسائل الحالة أو الخطأ
   bool _isLoading = false; // لتتبع حالة التحميل وعرض المؤشر
 
-  // --- دالة تسجيل الدخول (معمارية نظيفة باستخدام ApiClient و AuthBloc) ---
+  // --- دالة تسجيل الدخول (مستقرة ومضادة لخطأ الـ BuildContext) ---
   Future<void> _login() async {
     if (_isLoading) return;
 
     setState(() {
       _isLoading = true;
-      _message = 'جاري تسجيل الدخول...';
+      _message = 'جاري التحقق من البيانات...';
     });
 
     try {
-      // 1. استخدام ApiClient بدلاً من http المباشر
-      final response = await ApiClient.instance.post(
-        '/driver/login',
-        data: {
-          'username': _usernameController.text.trim(),
-          'password': _passwordController.text.trim(),
-        },
-      );
+      // 1. استخدام طريقتك الموثوقة والمباشرة للاتصال
+      final url = Uri.parse('${ApiConstants.baseUrl}/login');
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'username': _usernameController.text.trim(),
+              'password': _passwordController.text.trim(),
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200 && response.data != null) {
-        final data = response.data;
+      // +++ الدرع المعماري: حماية الـ BuildContext من خطأ async gaps +++
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
         if (data['token'] != null && data['driver_id'] != null) {
-          // 2. توجيه الحدث لـ "العقل المدبر" (AuthBloc) ليتولى الحفظ وتحديث الحالة
-          if (mounted) {
-            context.read<AuthBloc>().add(
-              LoginEvent(token: data['token'], driverId: data['driver_id']),
-            );
-          }
+          // هنا الـ context محمي تماماً ومسموح استخدامه
+          context.read<AuthBloc>().add(
+            LoginEvent(token: data['token'], driverId: data['driver_id']),
+          );
         } else {
-          setState(() => _message = 'خطأ: بيانات الدخول غير مكتملة من السيرفر');
+          setState(() => _message = 'خطأ: بيانات السيرفر غير مكتملة.');
         }
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() => _message = 'اسم المستخدم أو كلمة المرور غير صحيحة');
+      } else {
+        setState(() => _message = 'فشل الاتصال (${response.statusCode})');
       }
-    } on DioException catch (e) {
-      // التقاط أخطاء الـ API بذكاء
-      setState(() {
-        if (e.response?.statusCode == 401) {
-          _message = 'اسم المستخدم أو كلمة المرور غير صحيحة';
-        } else {
-          _message = 'فشل الاتصال بالسيرفر: ${e.message}';
-        }
-      });
     } catch (e) {
-      setState(() => _message = 'حدث خطأ غير متوقع: $e');
+      if (mounted) {
+        setState(() => _message = 'تأكد من اتصالك بالإنترنت وحالة السيرفر.');
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

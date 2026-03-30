@@ -1,18 +1,18 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../blocs/dashboard/dashboard_bloc.dart';
+import '../blocs/dashboard/dashboard_event.dart';
+import '../blocs/auth/auth_bloc.dart';
+import '../blocs/auth/auth_event.dart';
+import '../core/network/api_client.dart';
 import 'dart:developer' as developer;
 import 'package:intl/intl.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-// استيراد الملف المساعد للتوثيق (تأكد من المسار الصحيح)
-import '../services/auth_utils.dart';
-// استيراد شاشة الدخول (للعودة إليها عند خطأ 401)
 import 'login_screen.dart';
 import 'visit_list_screen.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
-import 'dart:io';
-import '../services/api_constants.dart';
 
 class DashboardScreen extends StatefulWidget {
   final int driverId;
@@ -106,12 +106,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // التأكد أن الويدجت لا يزال موجوداً قبل الانتقال
         if (!mounted) return;
 
-        // الانتقال لشاشة تسجيل الدخول وإزالة كل الشاشات السابقة
+        context.read<AuthBloc>().add(const LogoutEvent());
+
+        // +++ الحل الجذري: إجبار الواجهة على الانتقال لشاشة الدخول فوراً وقتل الزومبي +++
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => const LoginScreen(),
-          ), // اذهب لشاشة الدخول
-          (Route<dynamic> route) => false, // هذا الشرط يحذف كل الطرق السابقة
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (Route<dynamic> route) => false,
         );
       } catch (e) {
         developer.log('Error during logout: $e');
@@ -137,152 +137,124 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _fetchDashboardData();
   }
 
-  // --- دالة جلب بيانات الـ Dashboard  ---
+  // --- دالة جلب بيانات الـ Dashboard (نسخة معمارية متقدمة) ---
   Future<void> _fetchDashboardData() async {
     if (!mounted) return;
 
-    // تعيين حالة التحميل دائماً عند بدء الجلب
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    // تأكد من أن widget.driverId متوفر وأن baseUrl صحيح
-    final url = Uri.parse(
-      '${ApiConstants.baseUrl}/driver/${widget.driverId}/dashboard',
-    );
-
-    String? errorMsgForState; // متغير محلي لتخزين رسائل الخطأ
+    String? errorMsgForState;
 
     try {
-      final headers = await getAuthenticatedHeaders(needsContentType: false);
-      final response = await http
-          .get(url, headers: headers)
-          .timeout(const Duration(seconds: 15));
+      // +++ استخدام ApiClient الذي يعالج التوكن وخطأ 401 تلقائياً +++
+      final response = await ApiClient.instance.get(
+        '/driver/${widget.driverId}/dashboard',
+      );
 
-      if (!mounted) return; // التحقق بعد await
+      if (!mounted) return;
 
-      if (response.statusCode == 401) {
-        await handleUnauthorized(context);
-        return; // الخروج بعد الانتقال
+      // البيانات تأتي مفكوكة التشفير (Map) جاهزة من Dio
+      final Map<String, dynamic> data = response.data;
+
+      // استخلاص بيانات الجلسة النشطة
+      final Map<String, dynamic>? sessionData =
+          data['active_session'] as Map<String, dynamic>?;
+      bool sessionIsActive =
+          (sessionData != null && sessionData['session_id'] != null);
+
+      bool isAuthorized = false;
+      bool isOnBreak = false;
+      if (sessionData != null) {
+        isAuthorized = sessionData['is_authorized_to_sell'] == true;
+        isOnBreak =
+            sessionData['break_start_time'] != null &&
+            sessionData['break_end_time'] == null;
       }
 
-      if (response.statusCode == 200) {
-        try {
-          final Map<String, dynamic> data = jsonDecode(response.body);
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'is_authorized', value: isAuthorized.toString());
 
-          // استخلاص بيانات الجلسة النشطة
-          final Map<String, dynamic>? sessionData =
-              data['active_session'] as Map<String, dynamic>?;
-          // قفل الحماية: الجلسة تعتبر نشطة فقط إذا كان هناك ID حقيقي، وليس مجرد هيكل لعرض الجرد المسبق
-          bool sessionIsActive =
-              (sessionData != null && sessionData['session_id'] != null);
+      // استخلاص باقي البيانات
+      final Map<String, dynamic>? financials =
+          data['financials'] as Map<String, dynamic>?;
+      final double totalSalesCash =
+          (financials?['total_sales_cash'] as num?)?.toDouble() ?? 0.0;
+      final double totalDebtPaid =
+          (financials?['total_debt_paid'] as num?)?.toDouble() ?? 0.0;
+      final int debtPaymentsCount =
+          financials?['debt_payments_count'] as int? ?? 0;
+      final double totalCashOverall =
+          (financials?['total_cash_overall'] as num?)?.toDouble() ?? 0.0;
 
-          // +++ قراءة الضوء الأخضر والاستراحة وحفظها بأمان +++
-          bool isAuthorized = false;
-          bool isOnBreak = false;
-          if (sessionData != null) {
-            isAuthorized = sessionData['is_authorized_to_sell'] == true;
-            isOnBreak =
-                sessionData['break_start_time'] != null &&
-                sessionData['break_end_time'] == null;
-          }
-          // +++ كتب حالة الصلاحية (مقفل/مفتوح) دائماً وبكل الحالات +++
-          const storage = FlutterSecureStorage();
-          storage.write(
-            key: 'is_authorized',
-            value: isAuthorized.toString(), // تسجيل الصلاحية الأصلية فقط
-          );
-          // +++++++++++++++++++++++++++++++++++++++++++++
-
-          // استخلاص باقي البيانات
-          final Map<String, dynamic>? financials =
-              data['financials'] as Map<String, dynamic>?;
-          final double totalSalesCash =
-              (financials?['total_sales_cash'] as num?)?.toDouble() ?? 0.0;
-          final double totalDebtPaid =
-              (financials?['total_debt_paid'] as num?)?.toDouble() ?? 0.0;
-          final int debtPaymentsCount =
-              financials?['debt_payments_count'] as int? ?? 0;
-          final double totalCashOverall =
-              (financials?['total_cash_overall'] as num?)?.toDouble() ?? 0.0;
-          String? startTimeStr;
-          List<dynamic> inventoryList = [];
-          if (sessionData != null) {
-            startTimeStr = sessionData['start_time'] as String?;
-            inventoryList = sessionData['inventory'] as List<dynamic>? ?? [];
-          } else {
-            startTimeStr = null;
-          }
-          final Map<String, dynamic>? countsData =
-              data['counts'] as Map<String, dynamic>?;
-          final Map<String, int> counts = {
-            'total_pending': countsData?['total_pending'] as int? ?? 0,
-            'total_completed': countsData?['total_completed'] as int? ?? 0,
-            'sales_in_completed':
-                countsData?['sales_in_completed'] as int? ?? 0,
-          };
-
-          // تحديث الحالة
-          setState(() {
-            _driverName = data['driver_name'] as String? ?? 'غير متوفر';
-            _assignedRegion = data['assigned_region'] as String? ?? 'غير محددة';
-            _counts = counts;
-            _totalSalesCash = totalSalesCash;
-            _totalDebtPaid = totalDebtPaid;
-            _debtPaymentsCount = debtPaymentsCount;
-            _totalCashOverall = totalCashOverall;
-            _isActiveSession = sessionIsActive;
-            _activeSessionStartTime = startTimeStr;
-            _inventoryList = inventoryList;
-            _isLoading = false;
-            _errorMessage = null;
-            _isActiveSession = sessionIsActive;
-            _activeSessionStartTime = startTimeStr;
-            _inventoryList = inventoryList;
-            // +++ تحديث واجهة الاستراحة والصلاحية +++
-            _isOnBreak = isOnBreak;
-            // ++++++++++++++++++++++++++++++++++++
-          });
-        } catch (decodeError, stacktrace) {
-          // خطأ فك التشفير
-          // --- أبقينا على طباعة أخطاء فك التشفير لأنها مفيدة ---
-          developer.log(
-            'Dashboard JSON Decode EXCEPTION: ${decodeError.toString()}',
-            name: 'DashboardFetch',
-            error: decodeError,
-            stackTrace: stacktrace,
-          );
-          // --------------------------------------------------
-          errorMsgForState = 'خطأ في فهم استجابة الخادم.';
-        }
-      } else {
-        // رموز الحالة الأخرى
-        // --- أبقينا على طباعة أخطاء استجابة السيرفر ---
-        developer.log(
-          'Dashboard fetch failed: Status ${response.statusCode}, Body: ${response.body}',
-          name: 'DashboardFetch',
-        );
-        // -------------------------------------------
-        errorMsgForState = 'فشل تحميل البيانات (${response.statusCode})';
+      String? startTimeStr;
+      List<dynamic> inventoryList = [];
+      if (sessionData != null) {
+        startTimeStr = sessionData['start_time'] as String?;
+        inventoryList = sessionData['inventory'] as List<dynamic>? ?? [];
       }
-    } catch (error, stacktrace) {
-      // أخطاء الشبكة والمهلة وغيرها
-      // --- أبقينا على طباعة أخطاء الشبكة العامة ---
+
+      final Map<String, dynamic>? countsData =
+          data['counts'] as Map<String, dynamic>?;
+      final Map<String, int> counts = {
+        'total_pending': countsData?['total_pending'] as int? ?? 0,
+        'total_completed': countsData?['total_completed'] as int? ?? 0,
+        'sales_in_completed': countsData?['sales_in_completed'] as int? ?? 0,
+      };
+
+      setState(() {
+        _driverName = data['driver_name'] as String? ?? 'غير متوفر';
+        _assignedRegion = data['assigned_region'] as String? ?? 'غير محددة';
+        _counts = counts;
+        _totalSalesCash = totalSalesCash;
+        _totalDebtPaid = totalDebtPaid;
+        _debtPaymentsCount = debtPaymentsCount;
+        _totalCashOverall = totalCashOverall;
+        _isActiveSession = sessionIsActive;
+        _activeSessionStartTime = startTimeStr;
+        _inventoryList = inventoryList;
+        _isOnBreak = isOnBreak;
+        _isLoading = false;
+        _errorMessage = null;
+      });
+
+      // +++ إعطاء أمر للعقل المدبر لمزامنة وجلب الزيارات لقاعدة البيانات المحلية +++
+      if (mounted) {
+        context.read<DashboardBloc>().add(const ForceSyncData());
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        return; // +++ صمت استراتيجي: الانترسبتور سيقوم بالطرد ولا داعي لرسالة الخطأ الحمراء +++
+      }
+
       developer.log(
-        'Dashboard Network/Other EXCEPTION: ${error.toString()}',
+        'Dashboard Network EXCEPTION: ${e.message}',
+        name: 'DashboardFetch',
+      );
+      if (!mounted) return;
+      errorMsgForState = 'فشل الاتصال بالخادم: ${e.message}';
+    } catch (error, stacktrace) {
+      // +++ إرجاع الطباعة لأسلوب الإنتاج لتنظيف التحذيرات +++
+      developer.log(
+        '================ كسر معمارية البيانات ================',
+        name: 'DashboardFetch',
+      );
+      developer.log(
+        'Error Type: $error',
         name: 'DashboardFetch',
         error: error,
         stackTrace: stacktrace,
       );
-      // -----------------------------------------
+      developer.log(
+        '======================================================',
+        name: 'DashboardFetch',
+      );
+
       if (!mounted) return;
-      errorMsgForState = 'خطأ في الاتصال بالخادم.';
-      if (error is TimeoutException) {
-        errorMsgForState = 'انتهت مهلة الاتصال بالخادم.';
-      } else if (error is SocketException) {
-        errorMsgForState = 'خطأ في الشبكة، تأكد من اتصالك.';
-      }
+      // عرض الخطأ التقني الفعلي للمطور على الشاشة مباشرة
+      errorMsgForState = 'خطأ المعالجة: $error';
     } finally {
       if (mounted && (_isLoading || errorMsgForState != null)) {
         setState(() {
@@ -292,7 +264,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
         });
       }
-      // +++ التحقق من وجود حوالات معلقة بعد انتهاء جلب البيانات +++
       if (errorMsgForState == null && _isActiveSession) {
         _checkPendingTransfers();
       }
@@ -300,27 +271,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
   // --- نهاية دالة جلب بيانات الـ Dashboard ---
 
-  // --- دالة بدء العمل (معدلة لتشمل جلب الموقع وإرساله) ---
+  // --- دالة بدء العمل (معدلة لتشمل جلب الموقع وإرساله معمارياً) ---
   Future<void> _startWork() async {
-    // منع الضغط المتكرر
     if (_isSessionLoading) return;
-
-    setState(() {
-      _isSessionLoading = true;
-    }); // بدء التحميل
+    setState(() => _isSessionLoading = true);
 
     developer.log(
       "Start Work button pressed. Attempting to get location first...",
     );
-
-    Position? currentPosition; // لتخزين الموقع
-    String? errorMsg; // لتخزين أي رسالة خطأ
+    Position? currentPosition;
+    String? errorMsg;
 
     try {
-      // --- الخطوة 1: جلب الموقع ---
       currentPosition = await _getDeviceLocation();
 
-      // إذا فشل جلب الموقع (لأي سبب)، أوقف العملية وأظهر الخطأ (تم عرضه في _getDeviceLocation)
       if (currentPosition == null) {
         developer.log(
           "Failed to get location, but proceeding without it to prevent blocking work.",
@@ -331,201 +295,161 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
 
-      // --- الخطوة 2: استدعاء API بدء الجلسة مع إرسال الإحداثيات ---
-      final url = Uri.parse(
-        '${ApiConstants.baseUrl}/driver/${widget.driverId}/sessions/start',
+      // إرسال الطلب مع مهلة مخصصة 20 ثانية كما طلبت
+      await ApiClient.instance.post(
+        '/driver/${widget.driverId}/sessions/start',
+        data: {
+          'latitude': currentPosition?.latitude,
+          'longitude': currentPosition?.longitude,
+        },
+        options: Options(
+          sendTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 20),
+        ),
       );
-      final headers = await getAuthenticatedHeaders();
-
-      // بناء الجسم متضمناً الإحداثيات (حتى لو كانت null)
-      final body = jsonEncode({
-        'latitude': currentPosition?.latitude,
-        'longitude': currentPosition?.longitude,
-      });
-
-      final response = await http
-          .post(url, headers: headers, body: body)
-          .timeout(const Duration(seconds: 20)); // Timeout
 
       if (!mounted) return;
 
-      // --- الخطوة 3: معالجة الرد وتحديث الواجهة ---
-      if (response.statusCode == 201 || response.statusCode == 409) {
-        // 201=جديدة, 409=موجودة بالفعل
-        // نجح بدء الجلسة (أو وجدت جلسة نشطة)، أعد تحميل بيانات الداشبورد لعرضها
-        developer.log(
-          "Session started or already active. Fetching dashboard data...",
+      // 201: جلسة جديدة (نجاح)
+      developer.log("Session started. Fetching dashboard data...");
+      await _fetchDashboardData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تم بدء جلسة العمل بنجاح!'),
+            backgroundColor: Colors.green,
+          ),
         );
-        await _fetchDashboardData(); // <-- مهم جداً لتحديث الواجهة
-        if (response.statusCode == 201) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تم بدء جلسة العمل بنجاح!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('يوجد جلسة عمل نشطة بالفعل لهذا اليوم.'),
-                backgroundColor: Colors.blue,
-              ),
-            );
-          }
-        }
-      } else if (response.statusCode == 401) {
-        await handleUnauthorized(context);
-      } else {
-        // خطأ آخر من السيرفر
-        developer.log(
-          'Failed to start session: ${response.statusCode} - ${response.body}',
-        );
-        errorMsg = 'فشل بدء جلسة العمل (${response.statusCode})';
-        try {
-          final errorData = jsonDecode(response.body);
-          if (errorData is Map && errorData.containsKey('message')) {
-            errorMsg = errorData['message'];
-          }
-        } catch (_) {}
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+
+      // 409: جلسة موجودة مسبقاً (نجاح جزئي، Dio يعتبرها Exception لأنها ليست 2xx)
+      if (e.response?.statusCode == 409) {
+        developer.log("Session already active. Fetching dashboard data...");
+        await _fetchDashboardData();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('خطأ: $errorMsg'),
-              backgroundColor: Colors.red,
+            const SnackBar(
+              content: Text('يوجد جلسة عمل نشطة بالفعل لهذا اليوم.'),
+              backgroundColor: Colors.blue,
             ),
           );
         }
+        return;
       }
+
+      if (e.response?.statusCode == 401) return; // الانترسبتور يتولى الأمر
+
+      // معالجة خطأ المهلة (Timeout) في شبكة Dio
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.sendTimeout) {
+        errorMsg = 'انتهت مهلة الاتصال بالخادم (20 ثانية).';
+      } else {
+        errorMsg =
+            e.response?.data?['message'] ??
+            'فشل بدء جلسة العمل (${e.response?.statusCode})';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('خطأ: $errorMsg'), backgroundColor: Colors.red),
+      );
     } catch (e, s) {
-      // التقاط أي خطأ (من جلب الموقع أو الاتصال)
       developer.log(
         'Error during start work process: $e',
         error: e,
         stackTrace: s,
       );
-      errorMsg = 'حدث خطأ: ${e.toString()}';
-      // يمكنك تخصيص رسائل الخطأ هنا لأنواع مختلفة من Exceptions
-      if (e is TimeoutException) {
-        errorMsg = 'انتهت مهلة الاتصال بالخادم.';
-      }
-      // ... (أنواع أخرى إذا أردت) ...
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('حدث خطأ: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
-      // إيقاف التحميل دائماً في النهاية
-      if (mounted) {
-        setState(() {
-          _isSessionLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isSessionLoading = false);
       developer.log("Finished start work attempt.");
     }
   }
-  // --- نهاية دالة بدء العمل ---
 
-  // --- دالة إنهاء العمل (معدلة لاستخدام التوكن والتحقق من 401) ---
+  // --- دالة إنهاء العمل (معدلة لمعمارية ApiClient مع الحفاظ على المهلة والسجلات) ---
   Future<void> _endWork() async {
     if (_isSessionLoading) return;
     setState(() {
       _isSessionLoading = true;
       _errorMessage = null;
     });
-    final url = Uri.parse(
-      '${ApiConstants.baseUrl}/driver/${widget.driverId}/sessions/end',
-    );
-    developer.log('Ending work session: $url');
+
+    developer.log('Ending work session for driver: ${widget.driverId}');
     try {
-      // +++ استخدام الدالة المساعدة للحصول على الهيدرز +++
-      final headers = await getAuthenticatedHeaders(needsContentType: false);
-      final response = await http
-          .put(url, headers: headers)
-          .timeout(const Duration(seconds: 15));
-      // ++++++++++++++++++++++++++++++++++++++++++++++
+      final response = await ApiClient.instance.put(
+        '/driver/${widget.driverId}/sessions/end',
+        options: Options(
+          sendTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
 
       if (!mounted) return;
 
-      // +++ التحقق من 401 واستخدام الدالة المساعدة +++
-      if (response.statusCode == 401) {
-        await handleUnauthorized(context);
-        setState(() {
-          _isSessionLoading = false;
-        });
-        return;
-      }
-      // ++++++++++++++++++++++++++++++++++++++++++++++
+      developer.log('End session response: ${response.data}');
+      setState(() {
+        _isActiveSession = false;
+        _isSessionLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم إنهاء جلسة العمل بنجاح.'),
+          backgroundColor: Colors.blue,
+        ),
+      );
 
-      if (response.statusCode == 200) {
-        // ... (نفس كود معالجة النجاح) ...
-        developer.log('End session response: ${response.body}');
+      await _fetchDashboardData();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      if (e.response?.statusCode == 401) return;
 
-        // +++ التعديل الجراحي: تحديث حالة الواجهة فوراً لتعطيل زر إنهاء العمل لمنع الضغط المتكرر +++
-        if (mounted) {
-          setState(() {
-            _isActiveSession = false;
-            _isSessionLoading = false;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('تم إنهاء جلسة العمل بنجاح.'),
-              backgroundColor: Colors.blue,
-            ),
-          );
-        }
-
-        await _fetchDashboardData();
-      } else {
-        // ... (نفس كود معالجة الأخطاء الأخرى) ...
-        developer.log(
-          'Failed to end session: ${response.statusCode} - ${response.body}',
-        );
-        String errorMessage = 'فشل إنهاء الجلسة (${response.statusCode})';
-        try {
-          final errorData = jsonDecode(response.body);
-          if (errorData is Map && errorData.containsKey('message')) {
-            errorMessage = errorData['message'];
-          }
-        } catch (_) {}
-        setState(() {
-          _errorMessage = errorMessage;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطأ: $errorMessage'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (error, stacktrace) {
-      // ... (نفس كود معالجة أخطاء الاتصال) ...
       developer.log(
-        'Error ending session: ${error.toString()}',
+        'Failed to end session: ${e.response?.statusCode} - ${e.response?.data}',
+      );
+
+      String errorMessage;
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        errorMessage = 'انتهت مهلة الاتصال بالخادم.';
+      } else {
+        errorMessage =
+            e.response?.data?['message'] ??
+            'فشل إنهاء الجلسة (${e.response?.statusCode})';
+      }
+
+      setState(() => _errorMessage = errorMessage);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('خطأ: $errorMessage'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (error, stacktrace) {
+      developer.log(
+        'Error ending session: $error',
         error: error,
         stackTrace: stacktrace,
       );
       if (!mounted) return;
-      setState(() {
-        _errorMessage = 'خطأ في الاتصال عند إنهاء الجلسة';
-      });
+      setState(() => _errorMessage = 'خطأ في الاتصال عند إنهاء الجلسة');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_errorMessage!), backgroundColor: Colors.red),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSessionLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isSessionLoading = false);
     }
   }
 
-  // --- دالة تسجيل الاستراحة ---
+  // --- دالة تسجيل الاستراحة (مرقاة لمعمارية ApiClient) ---
   Future<void> _toggleBreak(String action) async {
     if (_isSessionLoading) return;
     setState(() {
@@ -533,59 +457,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _errorMessage = null;
     });
 
-    final url = Uri.parse(
-      '${ApiConstants.baseUrl}/driver/${widget.driverId}/sessions/break',
-    );
     try {
-      final headers = await getAuthenticatedHeaders();
-      // إرسال الطلب (start أو end)
-      final response = await http
-          .put(url, headers: headers, body: jsonEncode({'action': action}))
-          .timeout(const Duration(seconds: 15));
+      await ApiClient.instance.put(
+        '/driver/${widget.driverId}/sessions/break',
+        data: {'action': action},
+      );
 
       if (!mounted) return;
-      if (response.statusCode == 401) {
-        await handleUnauthorized(context);
-        return;
-      }
 
-      if (response.statusCode == 200) {
-        // +++ الضربة الجراحية: حفظ حالة الاستراحة في الذاكرة المحلية فوراً (Frontend Lock) +++
-        final String breakStatus = (action == 'start') ? 'true' : 'false';
-        await const FlutterSecureStorage().write(
-          key: 'is_on_break',
-          value: breakStatus,
-        );
-        // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      // حفظ حالة الاستراحة محلياً
+      // حفظ حالة الاستراحة محلياً
+      final String breakStatus = (action == 'start') ? 'true' : 'false';
+      await const FlutterSecureStorage().write(
+        key: 'is_on_break',
+        value: breakStatus,
+      );
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                action == 'start'
-                    ? 'تم بدء الاستراحة، تم إقفال شاشات البيع.'
-                    : 'تم إنهاء الاستراحة، يمكنك العودة للعمل.',
-              ),
-              backgroundColor: Colors.blue,
-            ),
-          );
-        }
-        await _fetchDashboardData(); // تحديث الشاشة لتغيير الأزرار
-      } else {
-        String errorMsg = 'فشل تسجيل الاستراحة';
-        try {
-          final errorData = jsonDecode(response.body);
-          if (errorData['message'] != null) errorMsg = errorData['message'];
-        } catch (_) {}
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('خطأ: $errorMsg'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      // +++ حماية السياق بعد الـ await لمنع خطأ الـ async gaps +++
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            action == 'start'
+                ? 'تم بدء الاستراحة، تم إقفال شاشات البيع.'
+                : 'تم إنهاء الاستراحة، يمكنك العودة للعمل.',
+          ),
+          backgroundColor: Colors.blue,
+        ),
+      );
+      await _fetchDashboardData();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      if (e.response?.statusCode == 401) return;
+
+      String errorMsg = e.response?.data?['message'] ?? 'فشل تسجيل الاستراحة';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('خطأ: $errorMsg'), backgroundColor: Colors.red),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -596,14 +505,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isSessionLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isSessionLoading = false);
     }
   }
-  // --- نهاية دالة الاستراحة ---
 
   // --- +++ دالة مساعدة جديدة لجلب الموقع الحالي +++ ---
   Future<Position?> _getDeviceLocation() async {
@@ -713,23 +617,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _isCheckingTransfers = true;
 
     try {
-      final url = Uri.parse('${ApiConstants.baseUrl}/driver/transfers/pending');
-      final headers = await getAuthenticatedHeaders(needsContentType: false);
-      final response = await http.get(url, headers: headers);
+      final response = await ApiClient.instance.get(
+        '/driver/transfers/pending',
+      );
 
-      if (response.statusCode == 200 && mounted) {
-        final List<dynamic> transfers = jsonDecode(response.body);
+      if (mounted) {
+        final List<dynamic> transfers = response.data ?? [];
         if (transfers.isNotEmpty) {
-          // نعرض أول حوالة معلقة فقط
           _showTransferDialog(transfers.first);
         }
       }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) return;
+      developer.log('API Error checking transfers: ${e.message}');
     } catch (e) {
       developer.log('Error checking transfers: $e');
     } finally {
-      if (mounted) {
-        _isCheckingTransfers = false;
-      }
+      if (mounted) _isCheckingTransfers = false;
     }
   }
 
@@ -807,31 +711,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _respondToTransfer(int transferId, String responseStatus) async {
     try {
-      final url = Uri.parse(
-        '${ApiConstants.baseUrl}/driver/transfers/$transferId/respond',
-      );
-      final headers = await getAuthenticatedHeaders(needsContentType: true);
-      final response = await http.put(
-        url,
-        headers: headers,
-        body: jsonEncode({'response': responseStatus}),
+      await ApiClient.instance.put(
+        '/driver/transfers/$transferId/respond',
+        data: {'response': responseStatus},
       );
 
-      if (!mounted) return; // الحماية الصارمة من Async Gaps
+      if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم تسجيل الرد بنجاح. جاري التحديث...')),
-        );
-        _fetchDashboardData(); // تحديث شاشة المندوب فوراً ليرى العهدة الجديدة
-      } else {
-        final error = jsonDecode(response.body);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('خطأ: ${error['message']}')));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تسجيل الرد بنجاح. جاري التحديث...')),
+      );
+      _fetchDashboardData();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      if (e.response?.statusCode == 401) return;
+
+      final errorMsg = e.response?.data?['message'] ?? 'فشل إرسال الرد السيرفر';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('خطأ: $errorMsg'), backgroundColor: Colors.red),
+      );
     } catch (e) {
       developer.log('Error responding to transfer: $e');
+      if (!mounted) return;
+      // +++ فك الصمت وإخبار المندوب بوجود مشكلة تقنية +++
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ في النظام أثناء معالجة ردك: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -851,18 +759,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.refresh),
             tooltip: 'تحديث البيانات',
           ),
-          // زر تسجيل الخروج (معدل ليكون مشروطاً)
+          // زر تسجيل الخروج (مربوط بـ دالتك لتعرض التنبيه أولاً ثم تكلم العقل)
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'تسجيل الخروج',
-            // --- التعديل هنا ---
-            // عطّل الزر (null) إذا كانت الجلسة نشطة (_isActiveSession == true)
-            // وشغّل دالة _logout إذا لم تكن نشطة (_isActiveSession == false)
-            onPressed:
-                _isActiveSession
-                    ? null // <-- اجعل onPressed فارغاً (معطلاً) إذا كانت الجلسة نشطة
-                    : _logout, // <-- استدعِ _logout فقط إذا لم تكن الجلسة نشطة
-            // ------------------
+            onPressed: _isActiveSession ? null : _logout,
           ),
 
           // --- نهاية زر تسجيل الخروج ---

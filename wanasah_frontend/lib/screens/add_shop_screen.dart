@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'dart:developer' as developer;
 import 'dart:async'; // لاستخدام TimeoutException
 import 'package:geolocator/geolocator.dart'; // لاستخدام geolocator
-import '../services/auth_utils.dart';
+import '../core/network/api_client.dart'; // +++ الملحق المعماري للاتصالات +++
+import 'package:dio/dio.dart'; // +++ لمعالجة أخطاء الشبكة بذكاء +++
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AddShopScreen extends StatefulWidget {
@@ -173,13 +172,14 @@ class _AddShopScreenState extends State<AddShopScreen> {
     }
   }
 
-  // --- دالة حفظ المحل (تم تعديلها لتناسب الحقول الجديدة) ---
+  // --- دالة حفظ المحل (تم تعديلها لتناسب الحقول الجديدة ومعمارية ApiClient) ---
   Future<void> _saveShop() async {
-    // 1. التحقق من صحة الفورم (سيتحقق فقط من اسم المحل والمسؤول الآن)
+    // 1. التحقق من صحة الفورم
     if (!_formKey.currentState!.validate()) {
       return;
     }
-    // +++ التعديل الجديد: التحقق الإجباري من الموقع الجغرافي +++
+
+    // +++ التحقق الإجباري من الموقع الجغرافي +++
     if (_currentLatitude == null &&
         _currentLongitude == null &&
         _locationFieldController.text.trim().isEmpty) {
@@ -191,7 +191,6 @@ class _AddShopScreenState extends State<AddShopScreen> {
       );
       return;
     }
-    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
     if (_isSaving) return;
     setState(() {
@@ -199,17 +198,12 @@ class _AddShopScreenState extends State<AddShopScreen> {
     });
 
     try {
-      final headers = await getAuthenticatedHeaders();
-      const String baseUrl = 'http://10.0.2.2:5000';
-      final url = Uri.parse('$baseUrl/shops');
-
       // --- تجهيز جسم الطلب (Request Body) ---
       Map<String, dynamic> requestBody = {
         'name': _nameController.text.trim(),
         'contact_person': _contactPersonController.text.trim(),
       };
 
-      // إضافة الحقول إجباري النصية الأخرى إذا كانت غير فارغة
       if (_governorateAreaController.text.trim().isNotEmpty) {
         requestBody['address'] = _governorateAreaController.text.trim();
       }
@@ -220,47 +214,33 @@ class _AddShopScreenState extends State<AddShopScreen> {
         requestBody['notes'] = _notesController.text.trim();
       }
 
-      // إضافة الإحداثيات إذا تم التقاطها عبر الزر
-      bool coordsCaptured = false; // متغير لتتبع إذا التقطنا إحداثيات
+      bool coordsCaptured = false;
       if (_currentLatitude != null && _currentLongitude != null) {
         requestBody['latitude'] = _currentLatitude;
         requestBody['longitude'] = _currentLongitude;
-        coordsCaptured = true; // تم التقاط الإحداثيات
+        coordsCaptured = true;
         developer.log(
           'Adding coordinates to request body: Lat: $_currentLatitude, Lng: $_currentLongitude',
         );
-      } else {
-        developer.log('Coordinates not captured via button.');
       }
 
-      // --- تعديل هنا: إضافة الرابط اليدوي فقط إذا لم يتم التقاط إحداثيات وكان الحقل غير فارغ ---
       if (!coordsCaptured && _locationFieldController.text.trim().isNotEmpty) {
-        // فقط إذا لم نلتقط إحداثيات عبر الزر، نأخذ القيمة من الحقل النصي
         requestBody['location_link'] = _locationFieldController.text.trim();
         developer.log(
-          'Adding manual location link from text field: ${requestBody['location_link']}',
-        );
-      } else if (_locationFieldController.text.trim().isNotEmpty) {
-        // تم التقاط إحداثيات، ولكن الحقل النصي يحتوي قيمة (ربما بقايا "Lat: Lng:" أو رابط يدوي لم يتم مسحه)
-        // سنتجاهل القيمة النصية ولن نرسلها كـ location_link لأن الإحداثيات لها الأولوية
-        developer.log(
-          'Coordinates were captured, ignoring text field content for location_link: ${_locationFieldController.text}',
+          'Adding manual location link: ${requestBody['location_link']}',
         );
       }
 
-      developer.log('Sending data to $url');
-      developer.log('Request Body: ${jsonEncode(requestBody)}');
+      developer.log('Request Body: $requestBody');
 
-      // --- إرسال طلب POST ---
-      final response = await http
-          .post(url, headers: headers, body: jsonEncode(requestBody))
-          .timeout(const Duration(seconds: 15));
+      // --- إرسال طلب POST باستخدام ApiClient المعماري ---
+      final response = await ApiClient.instance.post(
+        '/shops', // +++ المسار الحقيقي من routes.py +++
+        data: requestBody,
+      );
 
-      developer.log('Response Status Code: ${response.statusCode}');
-      developer.log('Response Body: ${response.body}');
-
-      // --- معالجة الرد ---
       if (!mounted) return;
+
       if (response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -269,37 +249,30 @@ class _AddShopScreenState extends State<AddShopScreen> {
           ),
         );
         Navigator.pop(context, true);
-      } else if (response.statusCode == 401) {
-        handleUnauthorized(context);
-      } else {
-        // ... (نفس كود معالجة الأخطاء الأخرى) ...
-        String errorMessage = 'فشل حفظ المحل. الرجاء المحاولة مرة أخرى.';
-        try {
-          final responseBody = jsonDecode(response.body);
-          if (responseBody is Map && responseBody.containsKey('message')) {
-            errorMessage = 'فشل حفظ المحل: ${responseBody['message']}';
-          }
-        } catch (e) {
-          developer.log('Could not parse error response body: $e');
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
-        );
       }
+    } on DioException catch (e) {
+      developer.log('DioException saving shop: ${e.message}');
+      if (!mounted) return;
+
+      String errorMessage = 'فشل حفظ المحل. الرجاء المحاولة مرة أخرى.';
+      if (e.response?.data != null && e.response?.data is Map) {
+        errorMessage =
+            'فشل حفظ المحل: ${e.response?.data['message'] ?? e.message}';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+      );
     } catch (e) {
-      // ... (نفس كود معالجة الأخطاء العامة) ...
       developer.log('Error saving shop: $e');
-      developer.log('Error Type: ${e.runtimeType}');
-      if (mounted) {
-        String errorMsg = 'حدث خطأ في الاتصال: ${e.toString()}';
-        if (e is TimeoutException) {
-          errorMsg =
-              'فشل الاتصال بالسيرفر (Timeout). الرجاء التحقق من الشبكة أو حالة السيرفر.';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
-        );
-      }
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ في الاتصال: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       developer.log('Executing finally block...');
       if (mounted) {

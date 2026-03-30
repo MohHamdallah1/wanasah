@@ -15,6 +15,10 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:developer' as developer;
 
+// +++ استيراد الموديلات الذكية لفرض الحماية +++
+import '../../models/product_model.dart';
+import '../../models/visit_model.dart';
+
 class LocalDatabase {
   // -----------------------------------------------------------------------
   // Singleton Pattern
@@ -73,15 +77,20 @@ class LocalDatabase {
     ''');
 
     // --- جدول الزيارات ---
-    // يُخزِّن قائمة زيارات اليوم (يُحدَّث عند بداية كل جلسة عمل)
+    // يُخزِّن قائمة زيارات اليوم (محدث ليتطابق حرفياً مع VisitModel)
     await db.execute('''
       CREATE TABLE visits (
-        id             INTEGER PRIMARY KEY,
-        shop_id        INTEGER NOT NULL,
-        shop_name      TEXT    NOT NULL,
-        shop_balance   REAL    NOT NULL DEFAULT 0,
-        status         TEXT    NOT NULL DEFAULT 'Pending',
-        outcome        TEXT    NOT NULL DEFAULT 'None'
+        id                 INTEGER PRIMARY KEY,
+        shop_id            INTEGER NOT NULL,
+        shop_name          TEXT    NOT NULL,
+        shop_balance       REAL    NOT NULL DEFAULT 0,
+        status             TEXT    NOT NULL DEFAULT 'Pending',
+        outcome            TEXT    NOT NULL DEFAULT 'None',
+        sequence           INTEGER,
+        is_emergency       INTEGER DEFAULT 0,
+        location_link      TEXT,
+        latitude           REAL,
+        longitude          REAL
       )
     ''');
 
@@ -125,14 +134,14 @@ class LocalDatabase {
     developer.log('[LocalDatabase] Session tables (products, visits) cleared.');
   }
 
-  /// إدراج أو استبدال مجموعة من المنتجات دفعةً واحدة (Batch Insert).
-  Future<void> insertProducts(List<Map<String, dynamic>> products) async {
+  /// إدراج أو استبدال مجموعة من المنتجات دفعةً واحدة (Batch Insert) باستخدام الكائنات الذكية.
+  Future<void> insertProducts(List<ProductModel> products) async {
     final db = await database;
     final batch = db.batch();
     for (final product in products) {
       batch.insert(
         'products',
-        product,
+        product.toJson(), // +++ تفكيك الكائن بأمان تام +++
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
@@ -140,14 +149,14 @@ class LocalDatabase {
     developer.log('[LocalDatabase] Inserted ${products.length} products.');
   }
 
-  /// إدراج أو استبدال مجموعة من الزيارات دفعةً واحدة (Batch Insert).
-  Future<void> insertVisits(List<Map<String, dynamic>> visits) async {
+  /// إدراج أو استبدال مجموعة من الزيارات دفعةً واحدة (Batch Insert) باستخدام الكائنات الذكية.
+  Future<void> insertVisits(List<VisitModel> visits) async {
     final db = await database;
     final batch = db.batch();
     for (final visit in visits) {
       batch.insert(
         'visits',
-        visit,
+        visit.toJson(), // +++ تفكيك الكائن بأمان تام +++
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
