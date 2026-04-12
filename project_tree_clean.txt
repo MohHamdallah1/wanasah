@@ -1,7 +1,6 @@
 ├── .gitignore
 ├── .rules
 ├── .vscode
-│   └── settings.json
 ├── RUN.txt
 ├── dashboard
 │   ├── .env
@@ -57,14 +56,12 @@
 │   │   │   └── use-toast.ts
 │   │   ├── index.css
 │   │   ├── lib
-│   │   │   └── utils.ts
 │   │   ├── main.tsx
 │   │   ├── pages
 │   │   │   ├── DispatchBoard.tsx
 │   │   │   ├── Login.tsx
 │   │   │   ├── NotFound.tsx
 │   │   │   └── OperationsDashboard.tsx
-│   │   ├── test
 │   │   ├── types
 │   │   └── vite-env.d.ts
 │   ├── tailwind.config.ts
@@ -73,32 +70,21 @@
 │   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   └── vitest.config.ts
-├── documentation
-│   ├── ~$ة العمل الجديدة.docx
-│   ├── ~WRL3084.tmp
-│   └── مقدمة تعريفية.docx
 ├── wanasah_backend
 │   ├── .env
 │   ├── .vscode
-│   │   └── extensions.json
-│   ├── _conda_old
-│   │   ├── .gitignore
-│   │   ├── .nonadmin
-│   │   ├── DLLs
-│   │   │   ├── py.ico
-│   │   │   └── pyc.ico
-│   │   ├── LICENSE_PYTHON.txt
-│   │   ├── Lib
 │   ├── app.py
 │   ├── clean_db.py
 │   ├── config.py
 │   ├── error.log
 │   ├── force_reset.py
+│   ├── migrations
 │   ├── models.py
 │   ├── routes.py
 │   ├── seed_db.py
 │   └── services.py
 └── wanasah_frontend
+    ├── .env
     ├── .flutter-plugins
     ├── .flutter-plugins-dependencies
     ├── .gitignore
@@ -108,10 +94,14 @@
     ├── frontend_tree.txt
     ├── lib
     │   ├── blocs
-    │   │   └── auth
-    │   │       ├── auth_bloc.dart
-    │   │       ├── auth_event.dart
-    │   │       └── auth_state.dart
+    │   │   ├── auth
+    │   │   │   ├── auth_bloc.dart
+    │   │   │   ├── auth_event.dart
+    │   │   │   └── auth_state.dart
+    │   │   └── dashboard
+    │   │       ├── dashboard_bloc.dart
+    │   │       ├── dashboard_event.dart
+    │   │       └── dashboard_state.dart
     │   ├── core
     │   │   ├── db
     │   │   │   └── local_database.dart
@@ -131,8 +121,7 @@
     │   │   ├── visit_list_screen.dart
     │   │   └── visit_screen.dart
     │   └── services
-    │       ├── api_constants.dart
-    │       └── auth_utils.dart
+    │       └── api_constants.dart
     ├── pubspec.lock
     ├── pubspec.yaml
     ├── test

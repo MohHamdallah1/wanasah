@@ -5,6 +5,9 @@ class VisitModel {
   final int shopId;
   final String shopName;
   final double shopBalance;
+  final double maxDebtLimit; // +++ استقبال السقف +++
+  final int? shopZoneId; // +++
+  final int? allowedZoneId; // +++
   final String status;
   final String outcome;
 
@@ -20,6 +23,9 @@ class VisitModel {
     required this.shopId,
     required this.shopName,
     required this.shopBalance,
+    required this.maxDebtLimit,
+    this.shopZoneId,
+    this.allowedZoneId,
     required this.status,
     required this.outcome,
     required this.sequence,
@@ -40,14 +46,16 @@ class VisitModel {
         isEmergRaw == '1';
 
     return VisitModel(
-      id: json['id'] ?? 0,
+      id: json['id'] ?? json['visit_id'] ?? 0,
       shopId: json['shop_id'] ?? 0,
       shopName: json['shop_name'] ?? json['shopName'] ?? 'محل غير معروف',
       shopBalance:
           (json['shop_balance'] ?? json['current_balance'] ?? 0).toDouble(),
-
-      // توحيد الحالات حسب ما يرسله الباك-إند بالضبط
-      status: json['status'] ?? 'Pending',
+      maxDebtLimit: (json['max_debt_limit'] ?? 0).toDouble(),
+      shopZoneId: json['shop_zone_id'], // +++
+      allowedZoneId: json['allowed_zone_id'], // +++
+      // توحيد الحالات حسب ما يرسله الباك-إند بالضبط (يدعم مسار القائمة ومسار التفاصيل)
+      status: json['status'] ?? json['visit_status'] ?? 'Pending',
       outcome:
           json['outcome'] ??
           '', // إزالة 'None' وجعلها فارغة لتطابق الباك-إند وتمنع مشاكل الواجهة
@@ -71,17 +79,17 @@ class VisitModel {
   // +++ دالة جديدة لتسهيل حفظ الكائن لاحقاً في قاعدة البيانات المحلية (SQLite) +++
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
+      'visit_id': id,
       'shop_id': shopId,
       'shop_name': shopName,
       'shop_balance': shopBalance,
+      'max_debt_limit': maxDebtLimit,
+      'shop_zone_id': shopZoneId,
+      'allowed_zone_id': allowedZoneId,
       'status': status,
       'outcome': outcome,
-      'sequence': sequence,
-      'is_emergency':
-          isEmergency
-              ? 1
-              : 0, // تحويل البوليان إلى رقم لأن SQLite لا يدعم البوليان النقي
+      'visit_sequence': sequence,
+      'is_emergency': isEmergency ? 1 : 0,
       'location_link': locationLink,
       'latitude': latitude,
       'longitude': longitude,

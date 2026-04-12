@@ -15,3 +15,10 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'postgresql://postgres:yourpassword@localhost:5432/lulu_db'
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # +++ إعدادات تجمع الاتصالات (Connection Pool) لمنع الشلل التام (Deadlock) عند استخدام أقفال المخزون +++
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_size": 20,           # عدد الاتصالات المتزامنة المسموح بها
+        "pool_timeout": 30,        # أقصى مدة للانتظار (بالثواني) قبل رفض الطلب في حال الضغط
+        "pool_recycle": 1800,      # إعادة تدوير الاتصال كل نصف ساعة لمنع انقطاعه من قاعدة البيانات
+    }

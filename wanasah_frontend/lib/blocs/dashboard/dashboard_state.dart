@@ -12,36 +12,39 @@ abstract class DashboardState extends Equatable {
   List<Object?> get props => [];
 }
 
-// ─── الحالة الابتدائية ────────────────────────────────────────────────────────
 class DashboardInitial extends DashboardState {
   const DashboardInitial();
 }
 
-// ─── جاري التحميل (محلي أو شبكة) ────────────────────────────────────────────
 class DashboardLoading extends DashboardState {
   const DashboardLoading();
 }
 
-// ─── البيانات محمَّلة بنجاح ──────────────────────────────────────────────────
 class DashboardLoaded extends DashboardState {
   final List<VisitModel> visits;
-  final List<ProductModel> products;
+  final List<ProductModel> products; // هذه تغنيك عن _inventoryList البدائية
 
-  // ── إحصائيات محسوبة جاهزة للعرض المباشر ─────────────────────────────────
-  /// إجمالي عدد الزيارات
+  // ── إحصائيات الزيارات ──
   final int totalVisits;
-
-  /// عدد الزيارات المكتملة (Completed أو Completed (Offline))
   final int completedVisits;
-
-  /// عدد الزيارات المتبقية (Pending)
   final int pendingVisits;
-
-  /// عدد الزيارات المحفوظة Offline وبانتظار المزامنة
   final int offlineVisits;
+  final int salesInCompleted;
 
-  // +++ الدرع المعماري: مؤشر لمعرفة ما إذا كانت البيانات معروضة بسبب انقطاع الإنترنت +++
+  // ── المتغيرات المالية والجلسة (تم نقلها من الشاشة لحمايتها) ──
+  final String driverName;
+  final String assignedRegion;
+  final double totalSalesCash;
+  final double totalDebtPaid;
+  final int debtPaymentsCount;
+  final double totalCashOverall;
+  final bool isActiveSession;
+  final String? activeSessionStartTime;
+  final bool isOnBreak;
+
   final bool isOffline;
+  // +++ جديد: للتعامل مع المصافحة المعلقة (Transfers Handshake) +++
+  final Map<String, dynamic>? pendingTransfer;
 
   const DashboardLoaded({
     required this.visits,
@@ -50,7 +53,18 @@ class DashboardLoaded extends DashboardState {
     required this.completedVisits,
     required this.pendingVisits,
     required this.offlineVisits,
-    this.isOffline = false, // القيمة الافتراضية
+    this.salesInCompleted = 0,
+    this.driverName = '...',
+    this.assignedRegion = '...',
+    this.totalSalesCash = 0.0,
+    this.totalDebtPaid = 0.0,
+    this.debtPaymentsCount = 0,
+    this.totalCashOverall = 0.0,
+    this.isActiveSession = false,
+    this.activeSessionStartTime,
+    this.isOnBreak = false,
+    this.isOffline = false,
+    this.pendingTransfer,
   });
 
   @override
@@ -61,11 +75,71 @@ class DashboardLoaded extends DashboardState {
     completedVisits,
     pendingVisits,
     offlineVisits,
+    salesInCompleted,
+    driverName,
+    assignedRegion,
+    totalSalesCash,
+    totalDebtPaid,
+    debtPaymentsCount,
+    totalCashOverall,
+    isActiveSession,
+    activeSessionStartTime,
+    isOnBreak,
     isOffline,
+    pendingTransfer,
   ];
+
+  // +++ النصيحة الذهبية: دالة copyWith لتحديث حقل واحد دون فقدان باقي البيانات +++
+  DashboardLoaded copyWith({
+    List<VisitModel>? visits,
+    List<ProductModel>? products,
+    int? totalVisits,
+    int? completedVisits,
+    int? pendingVisits,
+    int? offlineVisits,
+    int? salesInCompleted,
+    String? driverName,
+    String? assignedRegion,
+    double? totalSalesCash,
+    double? totalDebtPaid,
+    int? debtPaymentsCount,
+    double? totalCashOverall,
+    bool? isActiveSession,
+    String? activeSessionStartTime,
+    bool? isOnBreak,
+    bool? isOffline,
+    Map<String, dynamic>? pendingTransfer,
+    bool clearPendingTransfer =
+        false, // خدعة ذكية لتفريغ الحوالة بعد الرد عليها
+  }) {
+    return DashboardLoaded(
+      visits: visits ?? this.visits,
+      products: products ?? this.products,
+      totalVisits: totalVisits ?? this.totalVisits,
+      completedVisits: completedVisits ?? this.completedVisits,
+      pendingVisits: pendingVisits ?? this.pendingVisits,
+      offlineVisits: offlineVisits ?? this.offlineVisits,
+      salesInCompleted: salesInCompleted ?? this.salesInCompleted,
+      driverName: driverName ?? this.driverName,
+      assignedRegion: assignedRegion ?? this.assignedRegion,
+      totalSalesCash: totalSalesCash ?? this.totalSalesCash,
+      totalDebtPaid: totalDebtPaid ?? this.totalDebtPaid,
+      debtPaymentsCount: debtPaymentsCount ?? this.debtPaymentsCount,
+      totalCashOverall: totalCashOverall ?? this.totalCashOverall,
+      isActiveSession: isActiveSession ?? this.isActiveSession,
+      activeSessionStartTime:
+          activeSessionStartTime ?? this.activeSessionStartTime,
+      isOnBreak: isOnBreak ?? this.isOnBreak,
+      isOffline: isOffline ?? this.isOffline,
+      // إذا طلبنا تفريغها نضع null، وإلا نأخذ الجديدة أو نحتفظ بالقديمة
+      pendingTransfer:
+          clearPendingTransfer
+              ? null
+              : (pendingTransfer ?? this.pendingTransfer),
+    );
+  }
 }
 
-// ─── خطأ ─────────────────────────────────────────────────────────────────────
 class DashboardError extends DashboardState {
   final String message;
 

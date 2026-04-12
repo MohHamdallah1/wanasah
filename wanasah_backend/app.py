@@ -47,7 +47,8 @@ def handle_global_error(error):
     traceback.print_exc()
     # حفظ في الملف للأبد
     app.logger.error(f"حدث خطأ غير متوقع: {str(error)}\n{traceback.format_exc()}")
-    return {"message": "خطأ داخلي في الخادم", "error": str(error)}, 500
+    # +++ التعديل الأمني: إخفاء التفاصيل عن الواجهة لمنع تسريب مسارات السيرفر (Information Disclosure) +++
+    return {"message": "خطأ داخلي في الخادم"}, 500
 
 if __name__ == '__main__':
     # تشغيل السيرفر في وضع التطوير (سيتم تغييره عند الإطلاق)

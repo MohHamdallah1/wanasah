@@ -21,3 +21,31 @@ class LoadDashboardData extends DashboardEvent {
 class ForceSyncData extends DashboardEvent {
   const ForceSyncData();
 }
+
+// ─── جلب البيانات الشاملة للداشبورد (API + Local) ────────────────────────
+/// يُرسَل من الشاشة لجلب الماليات من السيرفر والمزامنة مع القاعدة المحلية.
+class FetchDashboardData extends DashboardEvent {
+  final int driverId;
+  const FetchDashboardData({required this.driverId});
+
+  @override
+  List<Object?> get props => [driverId];
+}
+
+// ─── أوامر المصافحة للحوالات المعلقة ──────────────────────────────────────
+/// يُرسَل للتحقق من وجود بضاعة مرسلة/مسحوبة من الإدارة
+class CheckPendingTransfers extends DashboardEvent {}
+
+/// يُرسَل للرد على الحوالة (موافقة أو رفض)
+class RespondToTransfer extends DashboardEvent {
+  final int transferId;
+  final String responseStatus; // 'accepted' or 'rejected'
+
+  const RespondToTransfer({
+    required this.transferId,
+    required this.responseStatus,
+  });
+
+  @override
+  List<Object?> get props => [transferId, responseStatus];
+}

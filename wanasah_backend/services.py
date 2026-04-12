@@ -9,7 +9,7 @@ def get_setting(key, default_value, value_type=str):
     try: return value_type(setting.setting_value)
     except ValueError: return default_value
 
-def calculate_invoice(cartons_qty, packs_qty, price_per_carton, price_per_pack):
+def calculate_invoice(cartons_qty, packs_qty, price_per_carton, price_per_pack, pre_fetched_tax=None):
     """حساب الفاتورة المالي الصارم (يدعم الكراتين وحبات الفرط، ويرجع floats للواجهة)"""
     try:
         c_qty = int(cartons_qty)
@@ -21,7 +21,13 @@ def calculate_invoice(cartons_qty, packs_qty, price_per_carton, price_per_pack):
     # 1. تحضير المتغيرات المالية الدقيقة بالـ Decimal
     c_price = Decimal(str(price_per_carton or '0.0'))
     p_price = Decimal(str(price_per_pack or '0.0'))
-    tax_pct = Decimal(str(get_setting('tax_percentage', '0.0')))
+    
+    # حماية ضد استنزاف قاعدة البيانات (N+1)
+    if pre_fetched_tax is not None:
+        tax_pct = Decimal(str(pre_fetched_tax))
+    else:
+        tax_pct = Decimal(str(get_setting('tax_percentage', '0.0')))
+        
     TWO_PLACES = Decimal('0.01')
 
     # 2. الحسابات الأساسية (مجموع الكراتين + مجموع الفرط)
@@ -35,13 +41,14 @@ def calculate_invoice(cartons_qty, packs_qty, price_per_carton, price_per_pack):
         OfferRule.threshold_quantity <= c_qty
     ).order_by(OfferRule.threshold_quantity.desc()).first()
 
-    if best_offer:
+    # حماية قاتلة ضد القسمة على صفر
+    if best_offer and best_offer.threshold_quantity > 0:
+        multiplier = c_qty // best_offer.threshold_quantity
+        
         if best_offer.offer_type == 'free_items':
-            multiplier = c_qty // best_offer.threshold_quantity
             bonus_cartons = multiplier * best_offer.bonus_quantity
             
         elif best_offer.offer_type == 'fixed_discount':
-            multiplier = c_qty // best_offer.threshold_quantity
             discount_value = Decimal(str(best_offer.discount_value)) * Decimal(str(multiplier))
             
         elif best_offer.offer_type == 'percentage_discount':

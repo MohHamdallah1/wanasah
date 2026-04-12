@@ -12,6 +12,7 @@ interface ShopBulkImportModalProps {
     onClose: () => void;
     zones: Zone[];
     activeShops: any[];
+    onSuccess?: () => void;
 }
 
 // واجهة لتمثيل بيانات المحل داخل الجدول التفاعلي
@@ -25,7 +26,7 @@ interface ParsedShop {
     errors?: string[];
 }
 
-export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops }: ShopBulkImportModalProps) {
+export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops, onSuccess }: ShopBulkImportModalProps) {
     const [step, setStep] = useState<1 | 2>(1);
     const [selectedZoneId, setSelectedZoneId] = useState("");
     const [pasteText, setPasteText] = useState("");
@@ -173,8 +174,7 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops }: Sho
             toast.success(resData.message || "تم رفع المحلات بنجاح", { id: toastId });
             clearDraft();
             handleClose();
-            // إعادة تحميل الصفحة لتحديث كل البيانات بعد الرفع الضخم
-            setTimeout(() => window.location.reload(), 1500);
+            if (onSuccess) onSuccess();
         } catch (err: any) {
             toast.error("خطأ: " + err.message, { id: toastId });
         }
@@ -184,6 +184,17 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops }: Sho
     const stats = useMemo(() => {
         const total = gridData.length;
         let invalidCount = 0;
+
+        // +++ القضاء على N+1 (O(N^2) UI Freeze) ببناء فهارس سريعة للمحلات النشطة +++
+        const dbNameMap = new Map();
+        const dbPhoneMap = new Map();
+        const dbLinkMap = new Map();
+
+        for (const ext of activeShops) {
+            if (ext.name?.trim()) dbNameMap.set(ext.name.trim(), ext);
+            if (ext.phone?.trim()) dbPhoneMap.set(ext.phone.trim(), ext);
+            if (ext.mapLink?.trim()) dbLinkMap.set(ext.mapLink.trim(), ext);
+        }
 
         // إعادة ضبط الأخطاء لكل سطر
         gridData.forEach((row, i) => {
@@ -220,19 +231,30 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops }: Sho
                 }
             }
 
-            // +++ فحص التكرار مع قاعدة البيانات وتحديد الأسباب +++
+            // +++ فحص التكرار السريع جداً O(1) باستخدام الفهارس لحماية متصفح المستخدم من الانهيار +++
             let dbMatch = null;
-            let matchReason = [];
-            for (const ext of activeShops) {
-                let m = 0;
-                let tempReason = [];
-                if (row.name.trim() && row.name.trim() === ext.name?.trim()) { m++; tempReason.push("الاسم"); }
-                if (p && p === ext.phone?.trim()) { m++; tempReason.push("الهاتف"); }
-                if (l && l === ext.mapLink?.trim()) { m++; tempReason.push("الرابط"); }
-                if (m >= 2) {
-                    dbMatch = ext;
-                    matchReason = tempReason;
-                    break;
+            let matchReason: string[] = [];
+
+            const mName = row.name.trim() ? dbNameMap.get(row.name.trim()) : null;
+            const mPhone = p ? dbPhoneMap.get(p) : null;
+            const mLink = l ? dbLinkMap.get(l) : null;
+
+            // نبحث عن أي محل تكرر مرتين على الأقل في نتائج البحث الثلاثة
+            const candidates = [mName, mPhone, mLink].filter(Boolean);
+            if (candidates.length >= 2) {
+                const matchCounts = new Map();
+                for (const c of candidates) {
+                    matchCounts.set(c.id, (matchCounts.get(c.id) || 0) + 1);
+                    if (matchCounts.get(c.id) >= 2) {
+                        dbMatch = c;
+                        break;
+                    }
+                }
+
+                if (dbMatch) {
+                    if (mName?.id === dbMatch.id) matchReason.push("الاسم");
+                    if (mPhone?.id === dbMatch.id) matchReason.push("الهاتف");
+                    if (mLink?.id === dbMatch.id) matchReason.push("الرابط");
                 }
             }
             row.dbMatch = dbMatch;

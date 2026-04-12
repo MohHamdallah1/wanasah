@@ -948,6 +948,7 @@ export default function DispatchBoard() {
         onClose={() => setIsBulkImportModalOpen(false)}
         zones={zones}
         activeShops={activeShops}
+        onSuccess={fetchInitialData}
       />
       {confirmDialog.isOpen && (
         <Modal

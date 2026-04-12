@@ -8,9 +8,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart'; // +++ للتعامل مع رفض السيرفر الفوري +++
 import '../core/network/api_client.dart'; // +++ للاتصال الأساسي +++
+import 'dart:convert'; // +++ الكيّ الجراحي: لفك تشفير الخزنة السرية +++
 import '../core/db/local_database.dart';
 import '../repositories/sync_repository.dart';
-import '../services/auth_utils.dart'; // +++ لمعالجة الطرد 401 +++
 
 // --- تعريف الكلاس StatefulWidget (بدون معلمات الموقع) ---
 class VisitScreen extends StatefulWidget {
@@ -161,36 +161,33 @@ class _VisitScreenState extends State<VisitScreen> {
     }
   }
 
-  // --- جلب المنتجات (أونلاين، وإن فشل نقرأ الخزنة) ---
+  // --- جلب المنتجات (نقرأ من القاعدة المحلية دائماً لأنها مصدر الحقيقة للمخزون) ---
   Future<void> _fetchProductVariantsHybrid() async {
+    developer.log(
+      'Fetching products from local DB (Single Source of Truth)...',
+    );
     try {
-      final response = await ApiClient.instance.get('/product_variants');
-      setState(() {
-        _productVariants = List<Map<String, dynamic>>.from(response.data);
-        _isFetchingProducts = false;
-      });
-    } catch (e) {
-      developer.log('Network failed for products, loading local...');
-      try {
-        final localProducts = await LocalDatabase.instance.getProducts();
-        if (localProducts.isNotEmpty) {
-          setState(() {
-            _productVariants = List<Map<String, dynamic>>.from(localProducts);
-            _isFetchingProducts = false;
-          });
-        } else {
-          setState(() {
-            _fetchProductsError =
-                'لا يوجد اتصال، ولا توجد منتجات محفوظة محلياً.';
-            _isFetchingProducts = false;
-          });
-        }
-      } catch (localErr) {
+      // +++ الكيّ الجراحي: قراءة المنتجات ومخزونها من SQLite مباشرة بدلاً من السيرفر +++
+      // السيرفر (/product_variants) لا يرسل كميات المخزون. محرك المزامنة هو المسؤول عن تحديث القاعدة المحلية.
+      final localProducts = await LocalDatabase.instance.getProducts();
+
+      if (localProducts.isNotEmpty) {
         setState(() {
-          _fetchProductsError = 'فشل قراءة المنتجات المحلية.';
+          _productVariants = List<Map<String, dynamic>>.from(localProducts);
+          _isFetchingProducts = false;
+        });
+      } else {
+        setState(() {
+          _fetchProductsError =
+              'لا توجد منتجات في سيارتك. تأكد من استلام بضاعة من الإدارة.';
           _isFetchingProducts = false;
         });
       }
+    } catch (localErr) {
+      setState(() {
+        _fetchProductsError = 'فشل قراءة المنتجات المحلية.';
+        _isFetchingProducts = false;
+      });
     }
   }
 
@@ -198,8 +195,8 @@ class _VisitScreenState extends State<VisitScreen> {
   Future<void> _loadVisitDetailsHybrid() async {
     try {
       final response = await ApiClient.instance.get(
-        '/driver/visits/${widget.visitId}',
-      ); // استخدم المسار الصحيح للسيرفر
+        '/visits/${widget.visitId}',
+      ); // تم تصحيح المسار ليتطابق مع السيرفر
       final visitData = response.data;
 
       setState(() {
@@ -257,31 +254,108 @@ class _VisitScreenState extends State<VisitScreen> {
       try {
         final localVisits = await LocalDatabase.instance.getVisits();
         final visitData = localVisits.firstWhere(
-          (v) => v['id'] == widget.visitId,
+          (v) => (v['visit_id'] ?? v['id']) == widget.visitId,
           orElse: () => {},
         );
 
         if (visitData.isNotEmpty) {
+          // +++ الكيّ الجراحي المعماري: نبش الخزنة (pending_sync) لعرض الفاتورة التي سجلها المندوب +++
+          final pendingSyncs = await LocalDatabase.instance.getPendingSyncs();
+          Map<String, dynamic>? offlinePayload;
+
+          for (var p in pendingSyncs.reversed) {
+            if (p['type'] == 'submit_sale') {
+              final payload = jsonDecode(p['payload'] as String);
+              if (payload['visitId'] == widget.visitId) {
+                offlinePayload = payload;
+                break;
+              }
+            }
+          }
+
           setState(() {
-            _selectedOutcome =
-                (visitData['outcome'] == 'None' || visitData['outcome'] == null)
-                    ? null
-                    : visitData['outcome'];
             _cartQuantities.clear();
             _returnsList.clear();
             _shopLatitude = null;
             _shopLongitude = null;
             _shopLink = null;
             _shopAddr = null;
+
+            if (offlinePayload != null) {
+              // استعادة بيانات الخزنة لتظهر للمندوب كاملة
+              _selectedOutcome = offlinePayload['outcome'];
+
+              if (offlinePayload['cart_items'] != null) {
+                for (var item in offlinePayload['cart_items']) {
+                  _cartQuantities[item['product_variant_id']] = {
+                    'cartons': item['quantity'] ?? 0,
+                    'packs': item['packs'] ?? item['packs_quantity'] ?? 0,
+                    'sample_cartons':
+                        item['sample_cartons'] ?? item['sample_quantity'] ?? 0,
+                    'sample_packs':
+                        item['sample_packs'] ??
+                        item['sample_packs_quantity'] ??
+                        0,
+                  };
+                }
+              }
+              if (offlinePayload['returns'] != null) {
+                for (var ret in offlinePayload['returns']) {
+                  _returnsList.add(ret);
+                }
+              }
+              final cashDouble =
+                  (offlinePayload['cash_collected'] as num?)?.toDouble() ?? 0.0;
+              _cashController.text =
+                  (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(2);
+
+              final debtDouble =
+                  (offlinePayload['debt_paid'] as num?)?.toDouble() ?? 0.0;
+              _debtPaidController.text =
+                  (debtDouble == 0.0) ? '' : debtDouble.toStringAsFixed(2);
+
+              _notesController.text =
+                  offlinePayload['notes'] ??
+                  offlinePayload['no_sale_reason'] ??
+                  '';
+            } else {
+              _selectedOutcome =
+                  (visitData['outcome'] == 'None' ||
+                          visitData['outcome'] == null)
+                      ? null
+                      : visitData['outcome'];
+
+              // +++ الكيّ الجراحي للكارثة: إذا كانت الزيارة مكتملة ولا يوجد لها أثر في الخزنة، فهذا يعني أنها رُفعت للسيرفر بنجاح +++
+              if (_selectedOutcome == 'Sale' ||
+                  _selectedOutcome == 'No Sale' ||
+                  visitData['status'] == 'Completed') {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'تمت مزامنة هذه الزيارة مع الإدارة مسبقاً. لا يمكن عرض تفاصيلها أو تعديلها أوفلاين.',
+                      ),
+                      backgroundColor: Colors.orange,
+                      duration: Duration(seconds: 4),
+                    ),
+                  );
+                  Navigator.pop(
+                    context,
+                  ); // إخراج المندوب فوراً لمنع التخريب أو التصفير
+                  return;
+                }
+              }
+            }
             _calculateLiveTotals();
           });
-          // +++ حماية سياق الشاشة (context) بعد الـ await لمنع الخطأ التحذيري +++
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text(
-                  'أنت أوفلاين: تم جلب البيانات الأساسية، لن تظهر المسودات.',
+                  'أنت أوفلاين: تم استرجاع مسودتك من الخزنة المحلية.',
                 ),
+                backgroundColor: Colors.blue,
               ),
             );
           }
@@ -413,10 +487,6 @@ class _VisitScreenState extends State<VisitScreen> {
               'الذمة الحالية: ${widget.shopBalance.toStringAsFixed(2)} د.أ',
             ), // استخدام widget للذمة الممررة
             const Divider(height: 30),
-            Text(
-              'نتيجة التفاعل الحالي:',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
 
             // +++ قفل الشاشة الصارم (الاستراحة أولاً، ثم الصلاحية) +++
             _isOnBreak
@@ -564,18 +634,10 @@ class _VisitScreenState extends State<VisitScreen> {
               labelText: 'تحصيل الذمة (اختياري)',
               icon: Icons.account_balance_wallet,
               validator: (value) {
-                if (value != null &&
-                    value.trim().isNotEmpty &&
-                    double.tryParse(value.trim()) == null) {
-                  return 'الرجاء إدخال مبلغ صحيح';
-                }
-
-                if (value != null &&
-                    value.trim().isNotEmpty &&
-                    double.parse(value.trim()) < 0) {
-                  return 'المبلغ لا يمكن أن يكون سالباً';
-                }
-
+                if (value == null || value.trim().isEmpty) return null;
+                final parsedValue = double.tryParse(value.trim());
+                if (parsedValue == null) return 'الرجاء إدخال مبلغ صحيح';
+                if (parsedValue < 0) return 'المبلغ لا يمكن أن يكون سالباً';
                 return null;
               },
               onChanged: (_) {},
@@ -615,7 +677,13 @@ class _VisitScreenState extends State<VisitScreen> {
             controller: _debtPaidController,
             labelText: 'مبلغ تحصيل الذمة (اختياري)',
             icon: Icons.account_balance_wallet,
-            validator: (value) => null,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) return null;
+              final parsedValue = double.tryParse(value.trim());
+              if (parsedValue == null) return 'الرجاء إدخال مبلغ صحيح';
+              if (parsedValue < 0) return 'المبلغ لا يمكن أن يكون سالباً';
+              return null;
+            },
             onChanged: (_) {},
           ),
         ],
@@ -682,7 +750,9 @@ class _VisitScreenState extends State<VisitScreen> {
       itemBuilder: (context, index) {
         final variant = _productVariants[index];
         final int id = variant['id'] as int;
-        final String name = variant['variant_name'] ?? 'غير معروف';
+        // +++ الكيّ الجراحي: توحيد قراءة الاسم بين السيرفر (variant_name) والمحلي (name) +++
+        final String name =
+            variant['name'] ?? variant['variant_name'] ?? 'غير معروف';
         final double cartonPrice =
             (variant['price_per_carton'] as num?)?.toDouble() ?? 0.0;
         final double packPrice =
@@ -972,7 +1042,7 @@ class _VisitScreenState extends State<VisitScreen> {
       alignment: WrapAlignment.spaceEvenly,
       children: [
         ChoiceChip(
-          label: const Text('تم البيع (إنهاء)'),
+          label: const Text('البيع'),
           selected: _selectedOutcome == 'Sale',
           onSelected: (selected) {
             if (selected) {
@@ -994,7 +1064,7 @@ class _VisitScreenState extends State<VisitScreen> {
                   : null,
         ),
         ChoiceChip(
-          label: const Text('لم يتم البيع (إنهاء)'),
+          label: const Text('رفض'),
           selected: _selectedOutcome == 'NoSale',
           onSelected: (selected) {
             if (selected) {
@@ -1017,7 +1087,7 @@ class _VisitScreenState extends State<VisitScreen> {
                   : null,
         ),
         ChoiceChip(
-          label: const Text('تأجيل / متابعة'),
+          label: const Text('تأجيل'),
           selected: _selectedOutcome == 'Postponed',
           onSelected: (selected) {
             if (selected) {
@@ -1105,6 +1175,55 @@ class _VisitScreenState extends State<VisitScreen> {
   Future<void> _validateAndSubmit() async {
     if (_isSubmitting || _selectedOutcome == null) return;
 
+    // +++ الدرع الفولاذي الموحد لتحصيل الذمم (أونلاين وأوفلاين / بيع وعدم بيع) +++
+    final double globalDebtPaid =
+        double.tryParse(_debtPaidController.text.trim()) ?? 0.0;
+    if (globalDebtPaid > 0) {
+      // نقرأ الرصيد الحي من SQLite لضمان الدقة المطلقة وعدم التلاعب في الأوفلاين
+      final localVisits = await LocalDatabase.instance.getVisits();
+      final visitData = localVisits.firstWhere(
+        (v) => (v['visit_id'] ?? v['id']) == widget.visitId,
+        orElse: () => {},
+      );
+      final double realShopBalance =
+          (visitData['shop_balance'] ?? widget.shopBalance as num).toDouble();
+
+      if (realShopBalance <= 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'مرفوض: هذا المحل ليس عليه ذمم سابقة لتسديدها (الرصيد الحالي: 0.0).',
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return; // إيقاف العملية فوراً
+      }
+
+      if (globalDebtPaid > realShopBalance) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'مرفوض: المبلغ المدخل ($globalDebtPaid) أكبر من إجمالي ذمة المحل (${realShopBalance.toStringAsFixed(2)}).',
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return; // إيقاف العملية فوراً
+      }
+    }
+    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    if (!mounted) {
+      return; // +++ حارس أمني يعالج أخطاء use_build_context_synchronously +++
+    }
+
     if (_selectedOutcome == 'Sale') {
       if (_formKey.currentState == null || !_formKey.currentState!.validate()) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1130,6 +1249,45 @@ class _VisitScreenState extends State<VisitScreen> {
         return;
       }
 
+      // +++ الكيّ الجراحي: الحماية من المبيعات الوهمية (Offline Inventory Check) +++
+      for (var entry in _cartQuantities.entries) {
+        final variantId = entry.key;
+        final qtyMap = entry.value;
+        final variant = _productVariants.firstWhere(
+          (v) => v['id'] == variantId,
+          orElse: () => {},
+        );
+
+        if (variant.isNotEmpty) {
+          int requestedCartons =
+              (qtyMap['cartons'] ?? 0) + (qtyMap['sample_cartons'] ?? 0);
+          int requestedPacks =
+              (qtyMap['packs'] ?? 0) + (qtyMap['sample_packs'] ?? 0);
+
+          int availableCartons = variant['current_cartons'] ?? 0;
+          int availablePacks = variant['current_packs'] ?? 0;
+          int packsPerCarton = variant['packs_per_carton'] ?? 1;
+
+          int totalRequestedPacks =
+              (requestedCartons * packsPerCarton) + requestedPacks;
+          int totalAvailablePacks =
+              (availableCartons * packsPerCarton) + availablePacks;
+
+          if (totalRequestedPacks > totalAvailablePacks) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'خطأ: كمية (${variant['variant_name']}) المطلوبة تتجاوز مخزونك الحالي! المتاح: $availableCartons كرتونة و $availablePacks حبة.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return; // إيقاف البيعة فوراً
+          }
+        }
+      }
+      // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
       final double cashEntered = double.parse(_cashController.text.trim());
       final double debtPaidEntered =
           double.tryParse(_debtPaidController.text.trim()) ?? 0.0;
@@ -1146,9 +1304,68 @@ class _VisitScreenState extends State<VisitScreen> {
         return;
       } else if (cashEntered < _totalExpectedValue) {
         final double difference = _totalExpectedValue - cashEntered;
+
+        // +++ الكيّ الجراحي: تطبيق قاعدة السقف الأوفلاين والأونلاين +++
+        final localVisits = await LocalDatabase.instance.getVisits();
+        final visitData = localVisits.firstWhere(
+          (v) => (v['visit_id'] ?? v['id']) == widget.visitId,
+          orElse: () => {},
+        );
+        final double maxDebtLimit =
+            (visitData['max_debt_limit'] as num?)?.toDouble() ?? 0.0;
+
+        final double expectedNewTotalDebt = widget.shopBalance + difference;
+
+        // +++ إصلاح الثغرة: إزالة (maxDebtLimit > 0) لأن السقف 0 يعني ممنوع الدين نهائياً +++
+        if (expectedNewTotalDebt > maxDebtLimit) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'مرفوض: الدين الجديد (${expectedNewTotalDebt.toStringAsFixed(2)}) يتجاوز سقف المحل (${maxDebtLimit.toStringAsFixed(2)} ).',
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          return; // منع البيعة فوراً
+        }
+
         final bool confirmDebt = await _showDebtConfirmationDialog(difference);
+        if (!mounted) return;
         if (!confirmDebt) return;
       }
+      // +++ الدرع الفولاذي: حماية النطاق الجغرافي (Zone Protection) أوفلاين وأونلاين +++
+      final localVisits = await LocalDatabase.instance.getVisits();
+      final visitData = localVisits.firstWhere(
+        (v) => (v['visit_id'] ?? v['id']) == widget.visitId,
+        orElse: () => {},
+      );
+
+      final int? shopZone = visitData['shop_zone_id'];
+      final int? allowedZone = visitData['allowed_zone_id'];
+      final bool isEmergency =
+          (visitData['is_emergency'] == 1 || visitData['is_emergency'] == true);
+
+      // القاعدة: إذا كان المحل خارج منطقة المندوب، وليس طلب طوارئ -> ارفض البيع
+      if (!isEmergency &&
+          shopZone != null &&
+          allowedZone != null &&
+          shopZone != allowedZone) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'مرفوض: هذا المحل خارج نطاق منطقتك الجغرافية المسموحة اليوم.',
+              ),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+        return; // منع الحفظ فوراً
+      }
+      // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
       await _performSubmit(
         cashEntered,
@@ -1241,39 +1458,25 @@ class _VisitScreenState extends State<VisitScreen> {
 
     try {
       // +++ المحاولة الهجينة (Online First) من خلال محرك المزامنة +++
-      final bool isOnlineSuccess = await SyncRepository().saveInvoice(
-        payload,
-        widget.visitId,
+      // العقل المدبر الآن يتولى العملية بالكامل ولا ننتظر منه boolean
+      await SyncRepository().saveInvoice(
+        visitId: widget.visitId,
+        payload: payload,
       );
 
       if (!mounted) return;
 
-      if (isOnlineSuccess) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم حفظ الفاتورة بالسيرفر بنجاح!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'أنت أوفلاين: تم حفظ الفاتورة بالخزنة لحين عودة الإنترنت.',
-            ),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ العملية بنجاح.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
       Navigator.pop(context, true);
     } on DioException catch (e) {
       // +++ التقاط رفض السيرفر الفوري (401 طرد أو 400 رفض بضاعة) +++
       if (!mounted) return;
-
-      if (e.response?.statusCode == 401) {
-        await handleUnauthorized(context);
-        return;
-      }
 
       String errorMsg = 'رفض السيرفر العملية.';
       if (e.response?.data != null && e.response?.data is Map) {
@@ -1388,10 +1591,23 @@ class _VisitScreenState extends State<VisitScreen> {
     int sampleCartons = _cartQuantities[variantId]?['sample_cartons'] ?? 0;
     int samplePacks = _cartQuantities[variantId]?['sample_packs'] ?? 0;
 
-    int returnCartons = 0;
-    int returnPacks = 0;
-    String returnType = 'Factory_Defect';
-    final returnReasonController = TextEditingController();
+    // +++ الكيّ الجراحي: جلب التوالف المحفوظة مسبقاً لنفس المنتج إن وجدت +++
+    final existingReturns =
+        _returnsList
+            .where((item) => item['product_variant_id'] == variantId)
+            .toList();
+
+    int returnCartons =
+        existingReturns.isNotEmpty ? existingReturns.last['cartons'] : 0;
+    int returnPacks =
+        existingReturns.isNotEmpty ? existingReturns.last['packs'] : 0;
+    String returnType =
+        existingReturns.isNotEmpty
+            ? existingReturns.last['return_type']
+            : 'Factory_Defect';
+    final returnReasonController = TextEditingController(
+      text: existingReturns.isNotEmpty ? existingReturns.last['reason'] : '',
+    );
 
     showModalBottomSheet(
       context: context,
@@ -1587,9 +1803,15 @@ class _VisitScreenState extends State<VisitScreen> {
                               samplePacks;
                         });
 
-                        // 2. حفظ التوالف
-                        if (returnCartons > 0 || returnPacks > 0) {
-                          setState(() {
+                        // 2. حفظ التوالف (تحديث السجل الذكي)
+                        setState(() {
+                          // +++ مسح التوالف السابقة لنفس المنتج أولاً لتجنب التكرار +++
+                          _returnsList.removeWhere(
+                            (item) => item['product_variant_id'] == variantId,
+                          );
+
+                          // +++ إذا كانت الكمية أكبر من صفر، نقوم بإضافتها للذاكرة +++
+                          if (returnCartons > 0 || returnPacks > 0) {
                             _returnsList.add({
                               'product_variant_id': variantId,
                               'cartons': returnCartons,
@@ -1597,8 +1819,8 @@ class _VisitScreenState extends State<VisitScreen> {
                               'return_type': returnType,
                               'reason': returnReasonController.text.trim(),
                             });
-                          });
-                        }
+                          }
+                        });
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(

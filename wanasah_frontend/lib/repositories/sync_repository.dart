@@ -1,21 +1,18 @@
-// File: lib/repositories/sync_repository.dart
-//
+import 'dart:convert';
+import 'dart:developer' as developer;
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart'; // +++ للـ Isolates (compute) +++
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../core/network/api_client.dart';
+import '../core/db/local_database.dart';
+import '../models/product_model.dart';
+import '../models/visit_model.dart';
+
 // الوظيفة: الوسيط (Sync Engine) بين السيرفر (ApiClient) وقاعدة البيانات المحلية (LocalDatabase).
 //
 //   syncDown()       — جلب بيانات السيرفر وحفظها محلياً (Online → Local)
 //   saveInvoice()    — إرسال فاتورة مع Fallback تلقائي إلى Offline
 //   syncUp()         — إعادة إرسال العمليات المعلقة عند عودة الإنترنت
-
-import 'dart:convert';
-import 'dart:developer' as developer;
-
-import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // +++ لجلب رقم المندوب المطلوب للسيرفر +++
-
-import '../core/network/api_client.dart';
-import '../core/db/local_database.dart';
-import '../models/product_model.dart';
-import '../models/visit_model.dart'; // +++ الاستيراد المفقود الذي تسبب بالخطأ الأول +++
 
 class SyncRepository {
   // -----------------------------------------------------------------------
@@ -35,6 +32,21 @@ class SyncRepository {
   /// الترتيب: جلب البيانات → تفريغ الجداول القديمة → حفظ الجديدة.
   Future<void> syncDown() async {
     developer.log('[SyncRepository] Starting syncDown...');
+
+    // 1. محاولة رفع المعلقات (دالة syncUp تعالج أخطاءها بنفسها ولا تكسر التطبيق)
+    await syncUp();
+
+    // 2. الجدار الواقي: ممنوع السحب إذا بقيت بيانات أوفلاين غير مرفوعة
+    final pendingCheck = await _db.getPendingSyncs();
+    if (pendingCheck.isNotEmpty) {
+      developer.log(
+        '[SyncRepository] Aborting syncDown: Pending syncs still exist.',
+      );
+      throw Exception(
+        'يوجد عمليات أوفلاين معلقة. يجب أن ينجح إرسالها أولاً لحماية بياناتك من التصفير.',
+      );
+    }
+
     try {
       final String? driverIdStr = await const FlutterSecureStorage().read(
         key: 'driver_id',
@@ -44,22 +56,40 @@ class SyncRepository {
 
       // +++ 1. جلب البيانات من السيرفر أولاً (البيانات القديمة لا تزال بأمان) +++
       final response = await _api.get('/driver/$driverId/visits');
+      // +++ الكاشف التقني (لمعرفة الحقيقة بدون تخمين) +++
+      developer.log('🎯 URL Called: /driver/$driverId/visits');
+      developer.log('🎯 API Response: ${response.data}');
+      List<Map<String, dynamic>> visitsData = [];
+      List<Map<String, dynamic>> productsData = [];
 
-      final List<Map<String, dynamic>> visitsData =
-          List<Map<String, dynamic>>.from(response.data['visits'] ?? []);
-      final List<Map<String, dynamic>> productsData =
-          List<Map<String, dynamic>>.from(response.data['inventory'] ?? []);
+      // +++ الدرع الواقي: التحقق من نوع الاستجابة قبل القراءة (Defensive Parsing) +++
+      if (response.data is List) {
+        // الحالة الأولى: السيرفر أرسل قائمة الزيارات مباشرة
+        visitsData = List<Map<String, dynamic>>.from(response.data);
+      } else if (response.data is Map) {
+        // الحالة الثانية: السيرفر أرسل كائناً يحتوي على مفاتيح
+        final Map<String, dynamic> dataMap =
+            response.data as Map<String, dynamic>;
+        if (dataMap.containsKey('visits') && dataMap['visits'] != null) {
+          visitsData = List<Map<String, dynamic>>.from(dataMap['visits']);
+        }
+        if (dataMap.containsKey('inventory') && dataMap['inventory'] != null) {
+          productsData = List<Map<String, dynamic>>.from(dataMap['inventory']);
+        }
+      }
 
-      // +++ 2. تحويل البيانات إلى كائنات ذكية (تطبيقاً للتعديل السابق) +++
-      final List<VisitModel> visitModels =
-          visitsData.map((v) => VisitModel.fromJson(v)).toList();
-      final List<ProductModel> productModels =
-          productsData.map((p) => ProductModel.fromJson(p)).toList();
+      // +++ 2. تحويل البيانات باستخدام الـ Isolates (لمنع تجميد الواجهة - Jank Free) +++
+      final List<VisitModel> visitModels = await compute(
+        _parseVisits,
+        visitsData,
+      );
+      final List<ProductModel> productModels = await compute(
+        _parseProducts,
+        productsData,
+      );
 
-      // +++ 3. تفريغ الجداول القديمة والحفظ (تفكيك اللغم: لا يحدث إلا إذا نجح الجلب والتحويل) +++
-      await _db.clearSessionData();
-      await _db.insertVisits(visitModels);
-      await _db.insertProducts(productModels);
+      // +++ 3. تفريغ الجداول القديمة والحفظ بمعاملة (Transaction) واحدة فولاذية +++
+      await _db.refreshSessionData(visitModels, productModels);
 
       developer.log('[SyncRepository] syncDown completed successfully.');
     } catch (e) {
@@ -75,21 +105,25 @@ class SyncRepository {
     required int visitId,
     required Map<String, dynamic> payload,
   }) async {
-    // +++ 1. ترجمة المفاتيح المحاسبية (إصلاح الكارثة: مطابقة السيرفر لمنع العجز المالي) +++
-    if (payload['items'] != null) {
-      for (var item in payload['items']) {
-        item['quantity'] = item['cartons'] ?? 0;
+    // +++ الكيّ الجراحي المعماري: Deep Copy لمنع تدمير حالة الواجهة (In-place Mutation) +++
+    final Map<String, dynamic> safePayload = jsonDecode(jsonEncode(payload));
+
+    // 1. ترجمة المفاتيح المحاسبية بأمان على النسخة
+    if (safePayload['cart_items'] != null) {
+      for (var item in safePayload['cart_items']) {
         item['packs_quantity'] = item['packs'] ?? 0;
+        item['sample_quantity'] = item['sample_cartons'] ?? 0;
+        item['sample_packs_quantity'] = item['sample_packs'] ?? 0;
       }
     }
-    if (payload['returns'] != null) {
-      for (var ret in payload['returns']) {
+    if (safePayload['returns'] != null) {
+      for (var ret in safePayload['returns']) {
         ret['quantity'] = ret['cartons'] ?? 0;
-        ret['packs_quantity'] = ret['packs'] ?? 0; // تم إضافة الحبات للمرتجعات
+        ret['packs_quantity'] = ret['packs'] ?? 0;
       }
     }
-    if (payload['samples'] != null) {
-      for (var sample in payload['samples']) {
+    if (safePayload['samples'] != null) {
+      for (var sample in safePayload['samples']) {
         sample['sample_quantity'] = sample['sample_cartons'] ?? 0;
         sample['sample_packs_quantity'] = sample['sample_packs'] ?? 0;
       }
@@ -99,31 +133,52 @@ class SyncRepository {
       // 2. محاولة الإرسال المباشر للسيرفر
       await _dispatchPendingRecord(
         type: 'submit_sale',
-        payload: {...payload, 'visitId': visitId},
+        payload: {...safePayload, 'visitId': visitId},
       );
 
       // 3. تحديث الحالة محلياً
       await _db.updateVisitStatus(
         visitId: visitId,
         status: 'Completed',
-        outcome: payload['outcome'] ?? 'Sale',
+        outcome: safePayload['outcome'] ?? 'Sale',
       );
       developer.log('[SyncRepository] Invoice #$visitId synced immediately.');
     } catch (e) {
-      // 4. في حال فشل الاتصال، نحفظها في الخزنة السرية (Offline)
+      // +++ الكيّ الجراحي: دمج الكتل (DRY) ومعالجة الفشل بذكاء +++
+      if (e is DioException && e.response?.statusCode != null) {
+        final statusCode = e.response!.statusCode!;
+        if (statusCode >= 400 && statusCode < 500) {
+          developer.log(
+            '[SyncRepository] Server strict rejection ($statusCode). Halting save.',
+          );
+          rethrow;
+        }
+      }
+
       developer.log(
-        '[SyncRepository] Offline mode: queueing invoice #$visitId. Error: $e',
+        '[SyncRepository] Offline mode triggered for invoice #$visitId. Reason: $e',
       );
+
       await _db.addPendingSync(
         type: 'submit_sale',
-        payload: jsonEncode({...payload, 'visitId': visitId}),
+        payload: jsonEncode({...safePayload, 'visitId': visitId}),
       );
-      // +++ إصلاح ثغرة الشاشة الرمادية: جعل الحالة Completed لكي تتعرف عليها واجهة المستخدم +++
+
+      // تحديث الداتابيز المحلية بالكاش والذمم للداشبورد الأوفلاين
       await _db.updateVisitStatus(
         visitId: visitId,
         status: 'Completed',
-        outcome: payload['outcome'] ?? 'Sale',
+        outcome: safePayload['outcome'] ?? 'Sale',
+        cashCollected:
+            (safePayload['cash_collected'] as num?)?.toDouble() ?? 0.0,
+        debtPaid: (safePayload['debt_paid'] as num?)?.toDouble() ?? 0.0,
       );
+
+      // خصم المخزون محلياً إذا كانت العملية بيع
+      if (safePayload['outcome'] == 'Sale' &&
+          safePayload['cart_items'] != null) {
+        await _db.deductInventoryLocal(safePayload['cart_items']);
+      }
     }
   }
 
@@ -195,6 +250,16 @@ class SyncRepository {
         await _api.put('/visits/$visitId', data: body);
         break;
 
+      // +++ إرسال الاستراحة المحفوظة أوفلاين إلى السيرفر +++
+      case 'toggle_break':
+        final int driverId = payload['driver_id'];
+        final String action = payload['action'];
+        await _api.put(
+          '/driver/$driverId/sessions/break',
+          data: {'action': action},
+        );
+        break;
+
       // قابل للتوسع: أضف أنواع عمليات جديدة هنا (return_visit, shortage, ...)
       default:
         developer.log(
@@ -202,4 +267,15 @@ class SyncRepository {
         );
     }
   }
+}
+
+// -----------------------------------------------------------------------
+// دوال معزولة (Top-Level Functions) لاستخدامها مع Isolate/compute
+// -----------------------------------------------------------------------
+List<VisitModel> _parseVisits(List<Map<String, dynamic>> data) {
+  return data.map((v) => VisitModel.fromJson(v)).toList();
+}
+
+List<ProductModel> _parseProducts(List<Map<String, dynamic>> data) {
+  return data.map((p) => ProductModel.fromJson(p)).toList();
 }

@@ -50,7 +50,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 1,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -63,36 +63,42 @@ class LocalDatabase {
     developer.log('[LocalDatabase] Creating tables for version $version...');
 
     // --- جدول المنتجات ---
-    // يُخزِّن نسخة محلية من منتجات الشاحنة (يُحدَّث عند بداية كل جلسة عمل)
+    // يُخزِّن قائمة المنتجات (مخزون السيارة) مع توسعة الاستلام
     await db.execute('''
       CREATE TABLE products (
         id                 INTEGER PRIMARY KEY,
         name               TEXT    NOT NULL,
-        price_per_carton   REAL    NOT NULL DEFAULT 0,
-        price_per_pack     REAL    NOT NULL DEFAULT 0,
-        packs_per_carton   INTEGER NOT NULL DEFAULT 1,
-        current_cartons    INTEGER NOT NULL DEFAULT 0,
-        current_packs      INTEGER NOT NULL DEFAULT 0
+        price_per_carton   REAL    NOT NULL,
+        price_per_pack     REAL    NOT NULL,
+        packs_per_carton   INTEGER NOT NULL,
+        starting_cartons   INTEGER DEFAULT 0,
+        current_cartons    INTEGER DEFAULT 0,
+        current_packs      INTEGER DEFAULT 0
       )
     ''');
 
     // --- جدول الزيارات ---
     // يُخزِّن قائمة زيارات اليوم (محدث ليتطابق حرفياً مع VisitModel)
     await db.execute('''
-      CREATE TABLE visits (
-        id                 INTEGER PRIMARY KEY,
-        shop_id            INTEGER NOT NULL,
-        shop_name          TEXT    NOT NULL,
-        shop_balance       REAL    NOT NULL DEFAULT 0,
-        status             TEXT    NOT NULL DEFAULT 'Pending',
-        outcome            TEXT    NOT NULL DEFAULT 'None',
-        sequence           INTEGER,
-        is_emergency       INTEGER DEFAULT 0,
-        location_link      TEXT,
-        latitude           REAL,
-        longitude          REAL
-      )
-    ''');
+        CREATE TABLE visits (
+          visit_id INTEGER PRIMARY KEY, 
+          shop_id INTEGER,
+          shop_name TEXT,
+          shop_balance REAL,
+          max_debt_limit REAL DEFAULT 0.0,
+          shop_zone_id INTEGER,
+          allowed_zone_id INTEGER,
+          status TEXT,
+          outcome TEXT,
+          visit_sequence INTEGER, 
+          is_emergency INTEGER DEFAULT 0,
+          location_link TEXT,
+          latitude REAL,
+          longitude REAL,
+          cash_collected REAL DEFAULT 0.0, 
+          debt_paid REAL DEFAULT 0.0      
+        )
+      ''');
 
     // --- جدول المزامنة المعلقة (الخزنة السرية) ---
     // يُخزِّن أي عملية (بيع، إرجاع، ...) لم تصل إلى السيرفر بعد.
@@ -118,7 +124,18 @@ class LocalDatabase {
     developer.log(
       '[LocalDatabase] Upgrading DB from v$oldVersion to v$newVersion',
     );
-    // سيتم تعريف منطق الترحيل (migration) هنا عند الحاجة
+    if (oldVersion < 2) {
+      // إضافة أعمدة الكاش والذمم للنسخ القديمة بدون مسح البيانات
+      await db.execute(
+        'ALTER TABLE visits ADD COLUMN cash_collected REAL DEFAULT 0.0',
+      );
+      await db.execute(
+        'ALTER TABLE visits ADD COLUMN debt_paid REAL DEFAULT 0.0',
+      );
+      await db.execute(
+        'ALTER TABLE visits ADD COLUMN max_debt_limit REAL DEFAULT 0.0',
+      );
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -209,17 +226,50 @@ class LocalDatabase {
     required int visitId,
     required String status,
     required String outcome,
+    double cashCollected = 0.0, // +++ تمت الإضافة +++
+    double debtPaid = 0.0, // +++ تمت الإضافة +++
   }) async {
     final db = await database;
     await db.update(
       'visits',
-      {'status': status, 'outcome': outcome},
-      where: 'id = ?',
+      {
+        'status': status,
+        'outcome': outcome,
+        'cash_collected': cashCollected, // +++ تحديث الكاش محلياً للداشبورد +++
+        'debt_paid': debtPaid, // +++ تحديث الذمم محلياً +++
+      },
+      where: 'visit_id = ?',
       whereArgs: [visitId],
     );
     developer.log(
-      '[LocalDatabase] Visit #$visitId updated → status=$status, outcome=$outcome',
+      '[LocalDatabase] Visit #$visitId updated locally with financials.',
     );
+  }
+
+  // +++ دالة جديدة: خصم المخزون محلياً وقت البيع الأوفلاين لكي تتحدث الداشبورد +++
+  Future<void> deductInventoryLocal(List<dynamic> cartItems) async {
+    final db = await database;
+    final batch = db.batch();
+    for (var item in cartItems) {
+      int variantId = item['product_variant_id'];
+      int qtyToDeduct = item['quantity'] ?? 0; // الكراتين
+      int packsToDeduct = item['packs'] ?? 0; // الحبات
+
+      if (qtyToDeduct > 0 || packsToDeduct > 0) {
+        batch.rawUpdate(
+          '''
+          UPDATE products 
+          SET 
+            current_cartons = MAX(0, ((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / packs_per_carton),
+            current_packs = MAX(0, ((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % packs_per_carton)
+          WHERE id = ?
+        ''',
+          [qtyToDeduct, packsToDeduct, qtyToDeduct, packsToDeduct, variantId],
+        );
+      }
+    }
+    await batch.commit(noResult: true);
+    developer.log('[LocalDatabase] Local inventory deducted successfully.');
   }
 
   /// إغلاق الاتصال بقاعدة البيانات (يُستخدم عند الاختبار أو عند إعادة التهيئة).
@@ -229,5 +279,39 @@ class LocalDatabase {
       _database = null;
       developer.log('[LocalDatabase] Database connection closed.');
     }
+  }
+
+  // +++ المعاملة الفولاذية (Transaction) لمزامنة السيرفر بدون فقدان بيانات +++
+  Future<void> refreshSessionData(
+    List<VisitModel> visits,
+    List<ProductModel> products,
+  ) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // 1. مسح القديم
+      await txn.delete('products');
+      await txn.delete('visits');
+
+      // 2. إدخال الجديد
+      final batch = txn.batch();
+      for (final product in products) {
+        batch.insert(
+          'products',
+          product.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      for (final visit in visits) {
+        batch.insert(
+          'visits',
+          visit.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+    developer.log(
+      '[LocalDatabase] Transaction complete: Session data refreshed safely.',
+    );
   }
 }

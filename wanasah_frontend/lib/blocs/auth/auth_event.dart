@@ -17,16 +17,16 @@ class CheckAuthEvent extends AuthEvent {
   const CheckAuthEvent();
 }
 
-// ─── تسجيل الدخول بعد نجاح API Login ───────────────────────────────────────
-/// يُرسَل من LoginScreen بعد استلام token و driverId من السيرفر.
-class LoginEvent extends AuthEvent {
-  final String token;
-  final int driverId;
+// ─── طلب تسجيل الدخول ───────────────────────────────────────
+/// يُرسَل من LoginScreen مع بيانات الدخول، ليقوم العقل المدبر بالاتصال بالسيرفر.
+class LoginRequested extends AuthEvent {
+  final String username;
+  final String password;
 
-  const LoginEvent({required this.token, required this.driverId});
+  const LoginRequested({required this.username, required this.password});
 
   @override
-  List<Object?> get props => [token, driverId];
+  List<Object?> get props => [username, password];
 }
 
 // ─── تسجيل الخروج ───────────────────────────────────────────────────────────
