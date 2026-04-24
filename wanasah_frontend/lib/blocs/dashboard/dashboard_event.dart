@@ -49,3 +49,17 @@ class RespondToTransfer extends DashboardEvent {
   @override
   List<Object?> get props => [transferId, responseStatus];
 }
+
+// +++ الصاروخ الباليستي: حدث الرد الجماعي على الحوالات +++
+class RespondToBatchTransfer extends DashboardEvent {
+  final List<int> transferIds;
+  final String responseStatus; // 'accepted' or 'rejected'
+
+  const RespondToBatchTransfer({
+    required this.transferIds,
+    required this.responseStatus,
+  });
+
+  @override
+  List<Object> get props => [transferIds, responseStatus];
+}

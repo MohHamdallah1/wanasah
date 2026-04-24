@@ -73,7 +73,12 @@ class _LoginScreenState extends State<LoginScreen> {
         return GestureDetector(
           onTap: () => FocusScope.of(context).unfocus(),
           child: Scaffold(
+            backgroundColor:
+                Colors
+                    .transparent, // +++ جعل الخلفية شفافة لرؤية التدرج العالمي +++
             appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
               title: const Text('تسجيل الدخول'), // تعديل العنوان
               centerTitle: true,
             ),

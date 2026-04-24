@@ -130,7 +130,10 @@ class _VisitListScreenState extends State<VisitListScreen>
                 currentTabVisits.where((v) => v.status == 'Pending').length;
 
             return Scaffold(
+              backgroundColor: Colors.transparent,
               appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
                 title: const Text('قائمة المحلات'),
                 centerTitle: true,
                 actions: [
@@ -347,6 +350,7 @@ class _VisitListScreenState extends State<VisitListScreen>
           }
 
           final double shopBalance = visit.shopBalance;
+          // +++ الانصياع لقاعدة أبو علي المعمارية: التطبيق مرآة للوحة التحكم (Source of Truth) +++
           final String sequenceDisplay = visit.sequence.toString();
 
           bool isCompleted = visitStatus == 'Completed';

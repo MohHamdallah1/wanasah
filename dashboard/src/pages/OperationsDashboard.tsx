@@ -31,7 +31,18 @@ const Index = () => {
       });
       if (response.ok) {
         const data = await response.json();
-        setDrivers(data);
+
+        // +++ النسف المعماري لمثلث برمودا الزمني: تحويل UTC الوارد من السيرفر إلى توقيت المتصفح المحلي (الأردن/قطر) +++
+        const formattedData = data.map((d: any) => {
+          if (d.session && d.session.start_time) {
+            const utcDate = new Date(d.session.start_time); // يقرأ الـ Z كـ UTC
+            // تحويل إلى توقيت محلي (مثال: 02:15 م)
+            d.session.start_time = utcDate.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+          }
+          return d;
+        });
+
+        setDrivers(formattedData);
       }
     } catch (error) {
       console.error("فشل الاتصال بالسيرفر:", error);

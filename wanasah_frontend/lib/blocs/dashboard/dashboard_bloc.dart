@@ -29,6 +29,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     on<FetchDashboardData>(_onFetchDashboardData);
     on<CheckPendingTransfers>(_onCheckPendingTransfers);
     on<RespondToTransfer>(_onRespondToTransfer);
+    on<RespondToBatchTransfer>(
+      _onRespondToBatchTransfer,
+    ); // +++ تسجيل الحدث الجماعي +++
   }
 
   // ─── LoadDashboardData ────────────────────────────────────────────────────
@@ -385,6 +388,39 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     } catch (e) {
       developer.log('[DashboardBloc] Error responding to transfer: $e');
       emit(DashboardError(message: 'فشل إرسال الرد للإدارة: $e'));
+    }
+  }
+
+  // ─── المحرك الصاروخي (Batch Handshake) ──────────────────────────────────
+  Future<void> _onRespondToBatchTransfer(
+    RespondToBatchTransfer event,
+    Emitter<DashboardState> emit,
+  ) async {
+    if (state is! DashboardLoaded) return;
+
+    // +++ إخفاء الحوالة فوراً من الـ State لكي يختفي الـ Dialog من الشاشة +++
+    emit((state as DashboardLoaded).copyWith(clearPendingTransfer: true));
+
+    try {
+      // +++ ضربة HTTP واحدة (O(1)) للسيرفر مهما كان عدد الأصناف (Zero Tech Debt) +++
+      await ApiClient.instance.put(
+        '/driver/transfers/batch_respond',
+        data: {
+          'transfer_ids': event.transferIds,
+          'response': event.responseStatus,
+        },
+      );
+
+      final String? driverIdStr = await const FlutterSecureStorage().read(
+        key: 'driver_id',
+      );
+      if (driverIdStr != null) {
+        // تحديث البيانات بعد الرد لضمان دخول البضاعة للمخزون
+        add(FetchDashboardData(driverId: int.parse(driverIdStr)));
+      }
+    } catch (e) {
+      developer.log('[DashboardBloc] Error responding to batch transfer: $e');
+      emit(DashboardError(message: 'فشل إرسال الرد الجماعي للإدارة: $e'));
     }
   }
 }

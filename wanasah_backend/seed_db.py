@@ -61,11 +61,11 @@ def seed_database():
 
         var1 = ProductVariant(
             product_id=product_lulu.id, variant_name='شيبس لولو - حجم عائلي',
-            packs_per_carton=50, price_per_carton=45.0, price_per_pack=1.0
+            packs_per_carton=50, price_per_carton=50.0, price_per_pack=1.0
         )
         var2 = ProductVariant(
             product_id=product_police.id, variant_name='شيبس الشرطي - حار',
-            packs_per_carton=24, price_per_carton=30.0, price_per_pack=1.5
+            packs_per_carton=24, price_per_carton=24.0, price_per_pack=1.0
         )
         db.session.add_all([var1, var2])
         db.session.commit()

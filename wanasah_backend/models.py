@@ -317,8 +317,11 @@ class VisitItem(db.Model):
     packs_quantity = db.Column(db.Integer,       nullable=False, default=0)   # حبات فرط
     bonus_quantity = db.Column(db.Integer,       nullable=False, default=0)   # بونص كراتين
     sample_quantity = db.Column(db.Integer,      nullable=False, default=0)   # عينات مجانية
+    sample_packs_quantity = db.Column(db.Integer,nullable=False,default=0)
     price_per_unit_at_sale = db.Column(db.Numeric(10, 2), nullable=True)
     total_price            = db.Column(db.Numeric(10, 2), nullable=False, default=0.0)
+    sample_reason = db.Column(db.String(255), nullable=True)
+    is_cancelled = db.Column(db.Boolean, default=False) # +++ لمنع طمس الأدلة +++
 
     product_variant = db.relationship('ProductVariant')
 
@@ -334,8 +337,10 @@ class VisitReturn(db.Model):
     product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
 
     quantity    = db.Column(db.Integer,    nullable=False, default=0)
+    packs_quantity = db.Column(db.Integer, nullable=False, default=0)
     return_type = db.Column(db.String(50), nullable=False)
     reason      = db.Column(db.Text,       nullable=True)
+    is_cancelled = db.Column(db.Boolean, default=False) # +++ لمنع طمس الأدلة +++
 
     product_variant = db.relationship('ProductVariant')
     visit = db.relationship('Visit', backref=db.backref('returns', lazy='select',
@@ -484,6 +489,7 @@ class InventoryTransfer(db.Model):
     admin_id   = db.Column(db.Integer, db.ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True)
     # FIX ④: إزالة .replace(tzinfo=None) - كان يُنشئ naive datetime مخالف لبقية الجداول
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    notes = db.Column(db.String(255), nullable=True)
 
     product_variant = db.relationship('ProductVariant')
     work_session    = db.relationship('WorkSession',

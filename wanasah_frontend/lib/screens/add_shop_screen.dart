@@ -288,7 +288,10 @@ class _AddShopScreenState extends State<AddShopScreen> {
   Widget build(BuildContext context) {
     // Scaffold لا يمكن أن تكون const بسبب الـ body والـ AppBar
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         title: const Text('إضافة محل جديد'), // النص ثابت، يمكن إضافة const
         centerTitle: true,
       ),

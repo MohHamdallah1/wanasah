@@ -125,7 +125,6 @@ class LocalDatabase {
       '[LocalDatabase] Upgrading DB from v$oldVersion to v$newVersion',
     );
     if (oldVersion < 2) {
-      // إضافة أعمدة الكاش والذمم للنسخ القديمة بدون مسح البيانات
       await db.execute(
         'ALTER TABLE visits ADD COLUMN cash_collected REAL DEFAULT 0.0',
       );
@@ -135,6 +134,18 @@ class LocalDatabase {
       await db.execute(
         'ALTER TABLE visits ADD COLUMN max_debt_limit REAL DEFAULT 0.0',
       );
+    }
+    // +++ الدرع الواقي: حماية التطبيق من الانهيار عند تحديث المندوب للنسخة الجديدة (v3) +++
+    if (oldVersion < 3) {
+      await db.execute(
+        'ALTER TABLE visits ADD COLUMN visit_sequence INTEGER DEFAULT 999',
+      );
+      await db.execute(
+        'ALTER TABLE visits ADD COLUMN is_emergency INTEGER DEFAULT 0',
+      );
+      await db.execute('ALTER TABLE visits ADD COLUMN location_link TEXT');
+      await db.execute('ALTER TABLE visits ADD COLUMN latitude REAL');
+      await db.execute('ALTER TABLE visits ADD COLUMN longitude REAL');
     }
   }
 
@@ -252,8 +263,15 @@ class LocalDatabase {
     final batch = db.batch();
     for (var item in cartItems) {
       int variantId = item['product_variant_id'];
-      int qtyToDeduct = item['quantity'] ?? 0; // الكراتين
-      int packsToDeduct = item['packs'] ?? 0; // الحبات
+      // +++ سد ثغرة الجرد: جمع المبيعات + العينات + المرتجعات (الاستبدال) لخصمها معاً +++
+      int qtyToDeduct =
+          (item['quantity'] ?? 0) +
+          (item['sample_cartons'] ?? 0) +
+          (item['cartons'] ?? 0);
+      int packsToDeduct =
+          (item['packs'] ?? 0) +
+          (item['sample_packs'] ?? 0) +
+          (item['packs_quantity'] ?? 0);
 
       if (qtyToDeduct > 0 || packsToDeduct > 0) {
         batch.rawUpdate(

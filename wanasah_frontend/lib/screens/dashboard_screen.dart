@@ -314,18 +314,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // --- دالة إظهار نافذة الحوالات المعلقة (تعتمد على حالة البلوك) ---
+  // --- دالة إظهار نافذة الحوالات المعلقة المجمعة (النسخة الديناميكية الفولاذية) ---
   void _showTransferDialog(
     BuildContext context,
-    Map<String, dynamic> transfer,
+    Map<String, dynamic> batchData,
   ) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        final int deltaCartons = transfer['delta_cartons'] ?? 0;
-        final String productName = transfer['product_name'] ?? 'منتج غير معروف';
-        final bool isAddition = deltaCartons > 0;
+        final List<dynamic> items = batchData['items'] ?? [];
+        if (items.isEmpty) return const SizedBox.shrink();
 
         return PopScope(
           canPop: false,
@@ -333,44 +332,114 @@ class _DashboardScreenState extends State<DashboardScreen> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
-            title: Row(
+            title: const Row(
               children: [
-                Icon(
-                  isAddition ? Icons.add_box : Icons.remove_circle_outline,
-                  color: isAddition ? Colors.green : Colors.red,
-                ),
-                const SizedBox(width: 8),
+                Icon(Icons.inventory_2_outlined, color: Colors.blue),
+                SizedBox(width: 8),
                 Text(
-                  isAddition ? 'استلام بضاعة' : 'سحب بضاعة',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
+                  'تحديث عهدة من الإدارة',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                 ),
               ],
             ),
-            content: Text(
-              isAddition
-                  ? 'الإدارة أرسلت (${deltaCartons.abs()} كرتونة) من $productName. هل تؤكد الاستلام؟'
-                  : 'الإدارة تطلب سحب (${deltaCartons.abs()} كرتونة) من $productName. هل توافق؟',
-              style: const TextStyle(fontSize: 16),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'قامت الإدارة بإجراء التعديلات التالية على عهدتك. هل توافق؟',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  // +++ قائمة ديناميكية تفصل السحب عن الإضافة لكل صنف +++
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        final String productName =
+                            item['product_name'] ?? 'غير معروف';
+
+                        // +++ اللوجيك الدقيق لمعرفة السحب من الإضافة +++
+                        final int rawCartons = item['delta_cartons'] ?? 0;
+                        final int rawPacks = item['delta_packs'] ?? 0;
+                        final bool isAddition =
+                            rawCartons > 0 || (rawCartons == 0 && rawPacks > 0);
+
+                        final int absCartons = rawCartons.abs();
+                        final int absPacks = rawPacks.abs();
+
+                        return Card(
+                          color:
+                              isAddition
+                                  ? Colors.green.shade50
+                                  : Colors.red.shade50,
+                          elevation: 0,
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          child: ListTile(
+                            dense: true,
+                            leading: Icon(
+                              isAddition
+                                  ? Icons.add_circle
+                                  : Icons.remove_circle,
+                              color: isAddition ? Colors.green : Colors.red,
+                            ),
+                            title: Text(
+                              productName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            subtitle: Text(
+                              isAddition ? 'إضافة للسيارة' : 'سحب من السيارة',
+                              style: TextStyle(
+                                color:
+                                    isAddition
+                                        ? Colors.green[700]
+                                        : Colors.red[700],
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                            trailing: Text(
+                              '$absCartons كرتونة\n$absPacks حبة',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () {
                   _isShowingDialog = false;
-                  // نقرأ البلوك قبل إغلاق النافذة لحماية الـ context
                   final dashboardBloc = context.read<DashboardBloc>();
                   Navigator.pop(dialogContext);
+                  // إرسال الرد الجماعي بالرفض
+                  final List<int> ids =
+                      items
+                          .map<int>((e) => e['real_transfer_id'] as int)
+                          .toList();
                   dashboardBloc.add(
-                    RespondToTransfer(
-                      transferId: transfer['transfer_id'],
+                    RespondToBatchTransfer(
+                      transferIds: ids,
                       responseStatus: 'rejected',
                     ),
                   );
                 },
                 child: const Text(
-                  'رفض ❌',
+                  'رفض التعديل ❌',
                   style: TextStyle(
                     color: Colors.red,
                     fontWeight: FontWeight.bold,
@@ -378,17 +447,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isAddition ? Colors.green : Colors.blue,
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                 onPressed: () {
                   _isShowingDialog = false;
-                  // نقرأ البلوك قبل إغلاق النافذة لحماية الـ context
                   final dashboardBloc = context.read<DashboardBloc>();
                   Navigator.pop(dialogContext);
+                  // إرسال الرد الجماعي بالموافقة
+                  final List<int> ids =
+                      items
+                          .map<int>((e) => e['real_transfer_id'] as int)
+                          .toList();
                   dashboardBloc.add(
-                    RespondToTransfer(
-                      transferId: transfer['transfer_id'],
+                    RespondToBatchTransfer(
+                      transferIds: ids,
                       responseStatus: 'accepted',
                     ),
                   );
@@ -411,7 +482,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         title: const Text('اللوحة الرئيسية'),
         centerTitle: true,
         automaticallyImplyLeading: false,

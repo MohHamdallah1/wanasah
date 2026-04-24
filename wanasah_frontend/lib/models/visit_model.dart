@@ -59,8 +59,14 @@ class VisitModel {
       outcome:
           json['outcome'] ??
           '', // إزالة 'None' وجعلها فارغة لتطابق الباك-إند وتمنع مشاكل الواجهة
-      // +++ تعبئة الحقول الجديدة +++
-      sequence: json['sequence'] ?? json['visit_sequence'] ?? 999,
+      // +++ تعبئة الحقول الجديدة (مع حماية التحويل من String إلى Integer) +++
+      sequence:
+          int.tryParse(
+            json['sequence']?.toString() ??
+                json['visit_sequence']?.toString() ??
+                '999',
+          ) ??
+          999,
       isEmergency: parsedEmergency,
       locationLink: json['location_link'] ?? json['shop_location_link'],
 

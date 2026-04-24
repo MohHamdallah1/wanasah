@@ -105,12 +105,11 @@ class SyncRepository {
     required int visitId,
     required Map<String, dynamic> payload,
   }) async {
-    // +++ الكيّ الجراحي المعماري: Deep Copy لمنع تدمير حالة الواجهة (In-place Mutation) +++
     final Map<String, dynamic> safePayload = jsonDecode(jsonEncode(payload));
 
-    // 1. ترجمة المفاتيح المحاسبية بأمان على النسخة
     if (safePayload['cart_items'] != null) {
       for (var item in safePayload['cart_items']) {
+        item['quantity'] = item['cartons'] ?? 0;
         item['packs_quantity'] = item['packs'] ?? 0;
         item['sample_quantity'] = item['sample_cartons'] ?? 0;
         item['sample_packs_quantity'] = item['sample_packs'] ?? 0;
@@ -122,34 +121,30 @@ class SyncRepository {
         ret['packs_quantity'] = ret['packs'] ?? 0;
       }
     }
-    if (safePayload['samples'] != null) {
-      for (var sample in safePayload['samples']) {
-        sample['sample_quantity'] = sample['sample_cartons'] ?? 0;
-        sample['sample_packs_quantity'] = sample['sample_packs'] ?? 0;
-      }
-    }
+
+    // +++ تعريف المتغير مرة واحدة فقط لمنع خطأ المترجم (Dart Error) +++
+    final String finalStatus =
+        (safePayload['outcome'] == 'Postponed') ? 'Pending' : 'Completed';
 
     try {
-      // 2. محاولة الإرسال المباشر للسيرفر
       await _dispatchPendingRecord(
         type: 'submit_sale',
         payload: {...safePayload, 'visitId': visitId},
       );
 
-      // 3. تحديث الحالة محلياً
+      // +++ استخدام المتغير لحماية التأجيل +++
       await _db.updateVisitStatus(
         visitId: visitId,
-        status: 'Completed',
+        status: finalStatus,
         outcome: safePayload['outcome'] ?? 'Sale',
       );
       developer.log('[SyncRepository] Invoice #$visitId synced immediately.');
     } catch (e) {
-      // +++ الكيّ الجراحي: دمج الكتل (DRY) ومعالجة الفشل بذكاء +++
       if (e is DioException && e.response?.statusCode != null) {
         final statusCode = e.response!.statusCode!;
         if (statusCode >= 400 && statusCode < 500) {
           developer.log(
-            '[SyncRepository] Server strict rejection ($statusCode). Halting save.',
+            '[SyncRepository] Server strict rejection ($statusCode).',
           );
           rethrow;
         }
@@ -159,25 +154,37 @@ class SyncRepository {
         '[SyncRepository] Offline mode triggered for invoice #$visitId. Reason: $e',
       );
 
+      // +++ إعدام الزومبي الموحد: مسح الفاتورة القديمة من الطابور قبل وضع الجديدة لمنع تكرار المزامنة +++
+      final existingPending = await _db.getPendingSyncs();
+      for (var p in existingPending) {
+        if (p['type'] == 'submit_sale') {
+          final payload = jsonDecode(p['payload'] as String);
+          if (payload['visitId'] == visitId) {
+            await _db.deletePendingSync(p['id'] as int);
+          }
+        }
+      }
+
       await _db.addPendingSync(
         type: 'submit_sale',
         payload: jsonEncode({...safePayload, 'visitId': visitId}),
       );
 
-      // تحديث الداتابيز المحلية بالكاش والذمم للداشبورد الأوفلاين
+      // +++ استخدام نفس المتغير هنا لتحديث الداشبورد المحلي +++
       await _db.updateVisitStatus(
         visitId: visitId,
-        status: 'Completed',
+        status: finalStatus,
         outcome: safePayload['outcome'] ?? 'Sale',
         cashCollected:
             (safePayload['cash_collected'] as num?)?.toDouble() ?? 0.0,
         debtPaid: (safePayload['debt_paid'] as num?)?.toDouble() ?? 0.0,
       );
 
-      // خصم المخزون محلياً إذا كانت العملية بيع
-      if (safePayload['outcome'] == 'Sale' &&
-          safePayload['cart_items'] != null) {
+      if (safePayload['cart_items'] != null) {
         await _db.deductInventoryLocal(safePayload['cart_items']);
+      }
+      if (safePayload['returns'] != null) {
+        await _db.deductInventoryLocal(safePayload['returns']);
       }
     }
   }
@@ -206,13 +213,19 @@ class SyncRepository {
       } on DioException catch (e) {
         if (e.response != null && e.response!.statusCode != null) {
           final statusCode = e.response!.statusCode!;
-          // +++ إصلاح ثغرة اللูป اللانهائي: حذف السجل إذا رفضه السيرفر نهائياً بسبب خطأ بالبيانات (4xx) +++
+          // +++ إصلاح ثغرة اللูป اللانهائي + حماية الفواتير من التبخر بسبب انتهاء التوكن +++
           if (statusCode >= 400 && statusCode < 500) {
+            if (statusCode == 401 || statusCode == 403) {
+              developer.log(
+                '[SyncRepository] Auth Error ($statusCode) - Halting sync to preserve offline data.',
+              );
+              break;
+            }
+            // +++ حماية الفواتير من الانتحار: لا نمسح الفاتورة إذا رُفضت بسبب محاسبي (مثل تجاوز الذمة 400/409)، بل نتركها ليعدلها المندوب +++
             developer.log(
-              '[SyncRepository] Server rejected pending #$recordId with $statusCode — Deleting to prevent infinite loop.',
+              '[SyncRepository] Server rejected #$recordId with $statusCode. Keeping it in queue for manual fix.',
             );
-            await _db.deletePendingSync(recordId);
-            continue; // تجاوز هذا الملف وانتقل للتالي بدون أن توقف المزامنة
+            continue; // نتجاوزها بدون حذفها
           }
         }
         // في حال انقطاع النت (لا يوجد response) أو سيرفر متعطل (500) نتوقف ونحاول لاحقاً
@@ -245,9 +258,16 @@ class SyncRepository {
     switch (type) {
       case 'submit_sale':
         final visitId = payload['visitId'] as int;
-        // إزالة visitId من الـ payload قبل الإرسال (هو جزء من الـ URL)
+        // +++ الكيّ الجراحي: تصحيح الرابط بإضافة /submit وتجهيز البيانات بدقة +++
         final body = Map<String, dynamic>.from(payload)..remove('visitId');
-        await _api.put('/visits/$visitId', data: body);
+
+        // التأكد من إرسال الـ outcome والـ items والـ returns كما يتوقعها routes.py
+        final response = await _api.put('/visits/$visitId', data: body);
+
+        // إذا السيرفر رجع نجاح، الـ syncUp المفروض يمسح الريكورد (تأكد أن الـ syncUp يستدعي delete)
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          throw Exception('فشل السيرفر في معالجة الفاتورة: ${response.data}');
+        }
         break;
 
       // +++ إرسال الاستراحة المحفوظة أوفلاين إلى السيرفر +++

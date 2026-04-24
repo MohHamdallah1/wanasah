@@ -4,6 +4,7 @@
 // لا await لقراءة Storage هنا — هذا دور AuthBloc عبر SplashScreen.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // +++ مكتبة التحكم بالنظام +++
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -63,8 +64,22 @@ class MyApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           primarySwatch: Colors.teal,
+          // +++ فرض الشفافية العالمية على كل الأسطح المحتملة +++
+          scaffoldBackgroundColor: Colors.transparent,
+          canvasColor: Colors.transparent, // مهم جداً للقوائم والنافذة السفلية
           visualDensity: VisualDensity.adaptivePlatformDensity,
           fontFamily: 'Cairo',
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            centerTitle: true,
+            iconTheme: IconThemeData(color: Colors.black87),
+            titleTextStyle: TextStyle(
+              color: Colors.black87,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
         ),
 
         // دعم اللغة العربية
@@ -76,19 +91,67 @@ class MyApp extends StatelessWidget {
         supportedLocales: const [Locale('ar', '')],
         locale: const Locale('ar', ''),
 
-        // +++ المراقب العام (Global Listener) لحالة التوثيق +++
+        // +++ الهندسة البصرية الموحدة (Edge-to-Edge Visual Hub) +++
         builder: (context, child) {
-          return BlocListener<AuthBloc, AuthState>(
-            listener: (context, state) {
-              if (state is AuthUnauthenticated) {
-                // إذا العقل المدبر قرر طرد المستخدم، ننفذ الطرد من هنا بأمان
-                navigatorKey.currentState?.pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (route) => false,
-                );
-              }
-            },
-            child: child ?? const SizedBox.shrink(),
+          return Material(
+            // +++ ضمان وجود سياق مادي للتطبيق +++
+            color: Colors.transparent,
+            child: Stack(
+              children: [
+                // الطبقة 0: التدرج اللوني (ثابت لا يتغير أبداً)
+                Positioned.fill(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color.fromARGB(
+                            255,
+                            228,
+                            247,
+                            145,
+                          ), // اللون الأول (الأعلى) أصفر ليموني خفيف جداً
+                          Color.fromARGB(
+                            255,
+                            189,
+                            189,
+                            189,
+                          ), // اللون الثاني (الوسط) أصفر قشدي
+                          Colors.white, // اللون الثالث (الأسفل) أبيض نقي
+                        ],
+                        stops: [
+                          0.0,
+                          0.3,
+                          0.8,
+                        ], // +++ إضافة نقطة التوقف الثالثة +++
+                      ),
+                    ),
+                  ),
+                ),
+                // الطبقة 1: التحكم بشريط النظام والمراقب
+                AnnotatedRegion<SystemUiOverlayStyle>(
+                  value: const SystemUiOverlayStyle(
+                    statusBarColor: Colors.transparent,
+                    statusBarIconBrightness: Brightness.dark,
+                  ),
+                  child: BlocListener<AuthBloc, AuthState>(
+                    listener: (context, state) {
+                      if (state is AuthUnauthenticated) {
+                        navigatorKey.currentState?.pushAndRemoveUntil(
+                          MaterialPageRoute(
+                            builder: (_) => const LoginScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      }
+                    },
+                    // الطبقة 2: الشاشات الفعلية (Navigator)
+                    child: child ?? const SizedBox.shrink(),
+                  ),
+                ),
+              ],
+            ),
           );
         },
 

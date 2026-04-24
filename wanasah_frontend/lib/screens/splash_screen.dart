@@ -48,7 +48,8 @@ class _SplashScreenState extends State<SplashScreen> {
         // AuthLoading → لا إجراء، نبقى على شاشة التحميل
       },
       child: Scaffold(
-        backgroundColor: Colors.teal.shade800,
+        // +++ الضربة القاضية: جعل السبلاش شفافة لرؤية التدرج العالمي في الخلف +++
+        backgroundColor: Colors.transparent,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

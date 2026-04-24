@@ -18,11 +18,12 @@ class CartItemModel {
   // المرتجعات والتوالف
   final int returnCartons;
   final int returnPacks;
-  final String returnReason;
+  final String returnType; 
 
   // العينات
   final int sampleCartons;
   final int samplePacks;
+  final String sampleReason; // +++ إضافة سبب صرف العينة +++
 
   CartItemModel({
     required this.productVariantId,
@@ -36,9 +37,10 @@ class CartItemModel {
     this.packs = 0,
     this.returnCartons = 0,
     this.returnPacks = 0,
-    this.returnReason = '',
+    this.returnType = '',
     this.sampleCartons = 0,
     this.samplePacks = 0,
+    this.sampleReason = '',
   });
 
   // --- دوال الحساب الذكية الداخلية ---
@@ -54,12 +56,16 @@ class CartItemModel {
   // إجمالي الحبات المباعة (للتأكد من المخزون)
   int get totalSoldPacks => (cartons * packsPerCarton) + packs;
 
+  // +++ الكيّ الجراحي: إضافة العينات لإجمالي الخصم لمنع "المخزون الوهمي" +++
+  int get totalDeductedPacks =>
+      totalSoldPacks + (sampleCartons * packsPerCarton) + samplePacks;
+
   // إجمالي الحبات المتاحة بالسيارة
   int get totalAvailablePacks =>
       (availableCartons * packsPerCarton) + availablePacks;
 
-  // التحقق من صحة المخزون
-  bool get hasEnoughInventory => totalSoldPacks <= totalAvailablePacks;
+  // التحقق من صحة المخزون (نعتمد على إجمالي المخصوم وليس المبيعات فقط)
+  bool get hasEnoughInventory => totalDeductedPacks <= totalAvailablePacks;
 
   // دالة النسخ للتعديل الآمن في الـ BLoC
   CartItemModel copyWith({
@@ -67,9 +73,10 @@ class CartItemModel {
     int? packs,
     int? returnCartons,
     int? returnPacks,
-    String? returnReason,
+    String? returnType,
     int? sampleCartons,
     int? samplePacks,
+    String? sampleReason,
   }) {
     return CartItemModel(
       productVariantId: productVariantId,
@@ -83,9 +90,10 @@ class CartItemModel {
       packs: packs ?? this.packs,
       returnCartons: returnCartons ?? this.returnCartons,
       returnPacks: returnPacks ?? this.returnPacks,
-      returnReason: returnReason ?? this.returnReason,
+      returnType: returnType ?? this.returnType,
       sampleCartons: sampleCartons ?? this.sampleCartons,
       samplePacks: samplePacks ?? this.samplePacks,
+      sampleReason: sampleReason ?? this.sampleReason,
     );
   }
 }

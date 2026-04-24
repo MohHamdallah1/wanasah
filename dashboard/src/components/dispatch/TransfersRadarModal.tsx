@@ -27,6 +27,7 @@ interface TransferRecord {
     delta_cartons: number;
     status: 'pending' | 'accepted' | 'rejected';
     created_at: string;
+    batch_id: string; // +++ الحقل الجديد للدمج +++
 }
 
 interface TransfersRadarModalProps {
@@ -70,11 +71,28 @@ export function TransfersRadarModal({ isOpen, onClose, route }: TransfersRadarMo
         }
     };
 
+    // +++ خوارزمية التجميع (Batching Logic) لنسف التشتت +++
+    const groupedTransfers = Object.values(
+        transfers.reduce((acc, t) => {
+            const key = t.batch_id || `SINGLE_${t.transfer_id}`;
+            if (!acc[key]) {
+                acc[key] = {
+                    batch_id: key,
+                    created_at: t.created_at,
+                    status: t.status, // الحوالة المجمعة لها نفس الحالة
+                    items: []
+                };
+            }
+            acc[key].items.push(t);
+            return acc;
+        }, {} as Record<string, { batch_id: string, created_at: string, status: string, items: TransferRecord[] }>)
+    );
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`📡 رادار المصافحات (المندوب: ${route?.driverName || ''})`}>
             <div className="space-y-4">
                 <p className="text-sm text-slate-500 font-bold mb-4">
-                    هذه الشاشة تعرض حالة البضاعة التي أرسلتها للمندوب أثناء عمله في الشارع.
+                    يعرض هذا الرادار الدفعات التي أرسلتها للمندوب. يتم تجميع الأصناف المرسلة معاً في بطاقة واحدة.
                 </p>
 
                 {isLoading ? (
@@ -85,24 +103,33 @@ export function TransfersRadarModal({ isOpen, onClose, route }: TransfersRadarMo
                         <p className="text-slate-500 font-bold">لا يوجد حوالات أُرسلت لهذا المندوب في هذه الجلسة.</p>
                     </div>
                 ) : (
-                    <div className="max-h-[50vh] overflow-y-auto space-y-3 pr-2">
-                        {transfers.map((t) => (
-                            <div key={t.transfer_id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${t.delta_cartons > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                                        <Package className="w-5 h-5" />
+                    <div className="max-h-[50vh] overflow-y-auto space-y-4 pr-2">
+                        {groupedTransfers.map((batch) => (
+                            <div key={batch.batch_id} className="border border-slate-200 rounded-xl shadow-sm bg-white overflow-hidden">
+                                {/* ترويسة البطاقة (الدفعة) */}
+                                <div className="bg-slate-50 border-b border-slate-100 p-3 flex justify-between items-center">
+                                    <div className="flex items-center gap-2">
+                                        <Clock className="w-4 h-4 text-slate-400" />
+                                        <span className="text-xs font-bold text-slate-500" dir="ltr">{batch.created_at}</span>
                                     </div>
-                                    <div>
-                                        <p className="font-bold text-slate-800 text-sm">{t.product_name}</p>
-                                        <p className="text-xs text-slate-400 mt-0.5" dir="ltr">{t.created_at}</p>
-                                    </div>
+                                    {getStatusBadge(batch.status)}
                                 </div>
 
-                                <div className="flex flex-col items-end gap-2">
-                                    <div className={`font-bold text-sm dir-ltr ${t.delta_cartons > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                        {t.delta_cartons > 0 ? `+${t.delta_cartons}` : t.delta_cartons} كرتونة
-                                    </div>
-                                    {getStatusBadge(t.status)}
+                                {/* قائمة الأصناف داخل هذه الدفعة */}
+                                <div className="p-3 divide-y divide-slate-100">
+                                    {batch.items.map(t => (
+                                        <div key={t.transfer_id} className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`p-1.5 rounded-lg ${t.delta_cartons > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                                                    <Package className="w-4 h-4" />
+                                                </div>
+                                                <p className="font-bold text-slate-800 text-sm">{t.product_name}</p>
+                                            </div>
+                                            <div className={`font-bold text-sm dir-ltr ${t.delta_cartons > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                {t.delta_cartons > 0 ? `+${t.delta_cartons}` : t.delta_cartons} كرتونة
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         ))}
