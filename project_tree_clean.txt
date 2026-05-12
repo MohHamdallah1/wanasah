@@ -1,19 +1,20 @@
 ├── .gitignore
 ├── .rules
 ├── .vscode
+│   └── settings.json
 ├── RUN.txt
 ├── dashboard
-│   ├── .env
 │   ├── .gitignore
 │   ├── README.md
-│   ├── bun.lockb
 │   ├── components.json
-│   ├── dashboard_structure.txt
 │   ├── eslint.config.js
 │   ├── index.html
-│   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
+│   ├── public
+│   │   ├── favicon.ico
+│   │   ├── placeholder.svg
+│   │   └── robots.txt
 │   ├── src
 │   │   ├── App.css
 │   │   ├── App.tsx
@@ -42,6 +43,7 @@
 │   │   │   │   └── ZoneRecycleBinModal.tsx
 │   │   │   ├── operations
 │   │   │   │   ├── CommandCenter.tsx
+│   │   │   │   ├── DashboardLayout.tsx
 │   │   │   │   ├── FleetRadar.tsx
 │   │   │   │   ├── OperationsSidebar.tsx
 │   │   │   │   ├── PulseBar.tsx
@@ -61,8 +63,16 @@
 │   │   │   ├── DispatchBoard.tsx
 │   │   │   ├── Login.tsx
 │   │   │   ├── NotFound.tsx
-│   │   │   └── OperationsDashboard.tsx
+│   │   │   ├── OperationsDashboard.tsx
+│   │   │   └── inventory
+│   │   │       ├── MainInventory.tsx
+│   │   │       ├── Tab1LiveStock.tsx
+│   │   │       ├── Tab2Inbound.tsx
+│   │   │       ├── Tab3Stocktake.tsx
+│   │   │       ├── Tab4Ledger.tsx
+│   │   │       └── inventoryUtils.ts
 │   │   ├── types
+│   │   │   └── dispatch.ts
 │   │   └── vite-env.d.ts
 │   ├── tailwind.config.ts
 │   ├── tsconfig.app.json
@@ -98,10 +108,16 @@
     │   │   │   ├── auth_bloc.dart
     │   │   │   ├── auth_event.dart
     │   │   │   └── auth_state.dart
-    │   │   └── dashboard
-    │   │       ├── dashboard_bloc.dart
-    │   │       ├── dashboard_event.dart
-    │   │       └── dashboard_state.dart
+    │   │   ├── dashboard
+    │   │   │   ├── dashboard_bloc.dart
+    │   │   │   ├── dashboard_event.dart
+    │   │   │   └── dashboard_state.dart
+    │   │   ├── visit
+    │   │   │   └── visit_bloc.dart
+    │   │   └── visit_list
+    │   │       ├── visit_list_bloc.dart
+    │   │       ├── visit_list_event.dart
+    │   │       └── visit_list_state.dart
     │   ├── core
     │   │   ├── db
     │   │   │   └── local_database.dart
@@ -109,6 +125,7 @@
     │   │       └── api_client.dart
     │   ├── main.dart
     │   ├── models
+    │   │   ├── cart_item_model.dart
     │   │   ├── product_model.dart
     │   │   └── visit_model.dart
     │   ├── repositories

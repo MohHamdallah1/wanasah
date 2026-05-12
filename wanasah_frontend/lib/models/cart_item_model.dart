@@ -15,10 +15,8 @@ class CartItemModel {
   final int cartons;
   final int packs;
 
-  // المرتجعات والتوالف
-  final int returnCartons;
-  final int returnPacks;
-  final String returnType; 
+  // +++ النسف المعماري: تحويل المرتجعات إلى قائمة لدعم أنواع تلف متعددة لنفس الصنف +++
+  final List<Map<String, dynamic>> returns;
 
   // العينات
   final int sampleCartons;
@@ -35,9 +33,7 @@ class CartItemModel {
     required this.availablePacks,
     this.cartons = 0,
     this.packs = 0,
-    this.returnCartons = 0,
-    this.returnPacks = 0,
-    this.returnType = '',
+    this.returns = const [],
     this.sampleCartons = 0,
     this.samplePacks = 0,
     this.sampleReason = '',
@@ -49,9 +45,12 @@ class CartItemModel {
   double get totalSalePrice =>
       (cartons * pricePerCarton) + (packs * pricePerPack);
 
-  // حساب قيمة المرتجعات للصنف
-  double get totalReturnPrice =>
-      (returnCartons * pricePerCarton) + (returnPacks * pricePerPack);
+  // حساب قيمة المرتجعات للصنف بالمرور على القائمة
+  double get totalReturnPrice => returns.fold(0.0, (sum, ret) {
+    return sum +
+        ((ret['cartons'] as int) * pricePerCarton) +
+        ((ret['packs'] as int) * pricePerPack);
+  });
 
   // إجمالي الحبات المباعة (للتأكد من المخزون)
   int get totalSoldPacks => (cartons * packsPerCarton) + packs;
@@ -71,9 +70,7 @@ class CartItemModel {
   CartItemModel copyWith({
     int? cartons,
     int? packs,
-    int? returnCartons,
-    int? returnPacks,
-    String? returnType,
+    List<Map<String, dynamic>>? returns,
     int? sampleCartons,
     int? samplePacks,
     String? sampleReason,
@@ -88,9 +85,7 @@ class CartItemModel {
       availablePacks: availablePacks,
       cartons: cartons ?? this.cartons,
       packs: packs ?? this.packs,
-      returnCartons: returnCartons ?? this.returnCartons,
-      returnPacks: returnPacks ?? this.returnPacks,
-      returnType: returnType ?? this.returnType,
+      returns: returns ?? this.returns,
       sampleCartons: sampleCartons ?? this.sampleCartons,
       samplePacks: samplePacks ?? this.samplePacks,
       sampleReason: sampleReason ?? this.sampleReason,

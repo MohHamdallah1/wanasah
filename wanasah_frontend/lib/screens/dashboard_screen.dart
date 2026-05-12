@@ -166,6 +166,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       if (e.response?.statusCode == 401) return;
 
+      // +++ الكي الجراحي: اصطياد الـ 404 (السيرفر المصفّر) وتنظيف الجلسة الوهمية محلياً +++
+      if (e.response?.statusCode == 404) {
+        await const FlutterSecureStorage().delete(key: 'is_on_break');
+        await LocalDatabase.instance.clearSessionData();
+        if (!mounted) return; // +++ الدرع الفولاذي لمنع الخطأ +++
+        context.read<DashboardBloc>().add(
+          FetchDashboardData(driverId: widget.driverId),
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'تم اكتشاف تصفير للسيرفر. تم تنظيف الجلسة الوهمية محلياً بنجاح 🧹',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        setState(() => _isSessionLoading = false);
+        return;
+      }
+
       final isOffline =
           e.response == null ||
           e.type == DioExceptionType.connectionTimeout ||
@@ -201,6 +221,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
         options: Options(sendTimeout: const Duration(seconds: 10)),
       );
     } on DioException catch (e) {
+      // +++ الكي الجراحي: اصطياد الـ 404 أثناء الاستراحة لتنظيف التطبيق فوراً +++
+      if (e.response?.statusCode == 404) {
+        await const FlutterSecureStorage().delete(key: 'is_on_break');
+        await LocalDatabase.instance.clearSessionData();
+        if (!mounted) return; // +++ الدرع الفولاذي لمنع الخطأ +++
+        context.read<DashboardBloc>().add(
+          FetchDashboardData(driverId: widget.driverId),
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('الجلسة غير موجودة على السيرفر! تم إعادة الضبط 🧹'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        setState(() => _isSessionLoading = false);
+        return;
+      }
+
       // 2. فحص نوع الخطأ: هل هو مشكلة نت أم خطأ منطقي من السيرفر؟
       // +++ الكيّ الجراحي 2: التقاط جميع أنواع انقطاع الإنترنت (بما فيها SocketException) +++
       final isOffline =
@@ -319,6 +357,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     BuildContext context,
     Map<String, dynamic> batchData,
   ) {
+    // +++ النسف المعماري (ديكتاتورية المصافحة): متغير لتخزين رد المندوب لكل صنف بشكل فردي +++
+    Map<int, String> itemResponses = {};
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -404,13 +445,73 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 fontSize: 12,
                               ),
                             ),
-                            trailing: Text(
-                              '$absCartons كرتونة\n$absPacks حبة',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
+                            trailing: StatefulBuilder(
+                              builder: (context, setState) {
+                                final itemId = item['real_transfer_id'] as int;
+                                final currentResponse = itemResponses[itemId];
+
+                                // +++ النسف المعماري (بسيط 2): ضبط الأبعاد وإغلاق الأقواس بشكل سليم 100% +++
+                                return ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 150,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '$absCartons كرتونة\n$absPacks حبة',
+                                          textAlign: TextAlign.center,
+                                          softWrap: false,
+                                          overflow: TextOverflow.visible,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      // +++ الدرع الديمقراطي: أزرار الرفض والقبول لكل صنف +++
+                                      IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                        icon: Icon(
+                                          Icons.close,
+                                          color:
+                                              currentResponse == 'rejected'
+                                                  ? Colors.red
+                                                  : Colors.grey,
+                                        ),
+                                        onPressed:
+                                            () => setState(
+                                              () =>
+                                                  itemResponses[itemId] =
+                                                      'rejected',
+                                            ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                        icon: Icon(
+                                          Icons.check,
+                                          color:
+                                              currentResponse == 'accepted'
+                                                  ? Colors.green
+                                                  : Colors.grey,
+                                        ),
+                                        onPressed:
+                                            () => setState(
+                                              () =>
+                                                  itemResponses[itemId] =
+                                                      'accepted',
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         );
@@ -421,51 +522,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () {
-                  _isShowingDialog = false;
-                  final dashboardBloc = context.read<DashboardBloc>();
-                  Navigator.pop(dialogContext);
-                  // إرسال الرد الجماعي بالرفض
-                  final List<int> ids =
-                      items
-                          .map<int>((e) => e['real_transfer_id'] as int)
-                          .toList();
-                  dashboardBloc.add(
-                    RespondToBatchTransfer(
-                      transferIds: ids,
-                      responseStatus: 'rejected',
-                    ),
-                  );
-                },
-                child: const Text(
-                  'رفض التعديل ❌',
-                  style: TextStyle(
-                    color: Colors.red,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                 onPressed: () {
+                  // التأكد من أن المندوب أجاب على كل الأصناف
+                  if (itemResponses.length != items.length) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'يجب الرد على جميع الأصناف بالقبول أو الرفض',
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
                   _isShowingDialog = false;
                   final dashboardBloc = context.read<DashboardBloc>();
                   Navigator.pop(dialogContext);
-                  // إرسال الرد الجماعي بالموافقة
-                  final List<int> ids =
-                      items
-                          .map<int>((e) => e['real_transfer_id'] as int)
+
+                  // +++ إرسال المصفوفة التفصيلية للسيرفر +++
+                  final List<Map<String, dynamic>> detailedResponses =
+                      itemResponses.entries
+                          .map((e) => {'transfer_id': e.key, 'status': e.value})
                           .toList();
+
+                  // +++ سيتم تعديل الـ Event لاحقاً ليقبل هذه المصفوفة +++
                   dashboardBloc.add(
                     RespondToBatchTransfer(
-                      transferIds: ids,
-                      responseStatus: 'accepted',
+                      transferIds: [],
+                      responseStatus: 'mixed',
+                      detailedTransfers: detailedResponses,
                     ),
                   );
                 },
                 child: const Text(
-                  'موافق ✅',
+                  'إرسال الرد',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.white,

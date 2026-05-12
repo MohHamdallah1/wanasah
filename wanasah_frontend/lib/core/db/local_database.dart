@@ -14,6 +14,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:developer' as developer;
+import 'dart:convert'; // +++ إضافة مكتبة فك التشفير +++
 
 // +++ استيراد الموديلات الذكية لفرض الحماية +++
 import '../../models/product_model.dart';
@@ -50,7 +51,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 3,
+      version: 5, // +++ ترقية النسخة لإضافة عمود الملاحظات +++
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -96,7 +97,10 @@ class LocalDatabase {
           latitude REAL,
           longitude REAL,
           cash_collected REAL DEFAULT 0.0, 
-          debt_paid REAL DEFAULT 0.0      
+          debt_paid REAL DEFAULT 0.0,
+          cart_items TEXT,
+          returns TEXT,
+          notes TEXT
         )
       ''');
 
@@ -146,6 +150,14 @@ class LocalDatabase {
       await db.execute('ALTER TABLE visits ADD COLUMN location_link TEXT');
       await db.execute('ALTER TABLE visits ADD COLUMN latitude REAL');
       await db.execute('ALTER TABLE visits ADD COLUMN longitude REAL');
+    }
+    // +++ الترقية الفولاذية (v4) لدعم حفظ محتويات الزيارات المكتملة +++
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE visits ADD COLUMN cart_items TEXT');
+      await db.execute('ALTER TABLE visits ADD COLUMN returns TEXT');
+    }
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE visits ADD COLUMN notes TEXT');
     }
   }
 
@@ -237,23 +249,32 @@ class LocalDatabase {
     required int visitId,
     required String status,
     required String outcome,
-    double cashCollected = 0.0, // +++ تمت الإضافة +++
-    double debtPaid = 0.0, // +++ تمت الإضافة +++
+    double cashCollected = 0.0, 
+    double debtPaid = 0.0, 
+    String? cartItemsJson, // +++ سد الثقب الأسود +++
+    String? returnsJson, // +++ سد الثقب الأسود +++
+    String? notes, // +++ سد الثقب الأسود +++
   }) async {
     final db = await database;
+    final Map<String, dynamic> updateData = {
+      'status': status,
+      'outcome': outcome,
+      'cash_collected': cashCollected,
+      'debt_paid': debtPaid,
+    };
+    
+    if (cartItemsJson != null) updateData['cart_items'] = cartItemsJson;
+    if (returnsJson != null) updateData['returns'] = returnsJson;
+    if (notes != null) updateData['notes'] = notes;
+
     await db.update(
       'visits',
-      {
-        'status': status,
-        'outcome': outcome,
-        'cash_collected': cashCollected, // +++ تحديث الكاش محلياً للداشبورد +++
-        'debt_paid': debtPaid, // +++ تحديث الذمم محلياً +++
-      },
+      updateData,
       where: 'visit_id = ?',
       whereArgs: [visitId],
     );
     developer.log(
-      '[LocalDatabase] Visit #$visitId updated locally with financials.',
+      '[LocalDatabase] Visit #$visitId updated locally with ALL financials and cart data.',
     );
   }
 
@@ -288,6 +309,74 @@ class LocalDatabase {
     }
     await batch.commit(noResult: true);
     developer.log('[LocalDatabase] Local inventory deducted successfully.');
+  }
+
+  // +++ النسف المعماري (الضربة الاستباقية): التراجع عن فاتورة أوفلاين لحمايتها من الخصم المزدوج +++
+  Future<void> revertOfflineVisit(int visitId) async {
+    final db = await database;
+
+    // 1. البحث عن الفاتورة القديمة في الخزنة
+    final pendingSyncs = await db.query(
+      'pending_sync',
+      orderBy: 'created_at DESC',
+    );
+    Map<String, dynamic>? oldPayload;
+    int? syncIdToDelete;
+
+    for (var p in pendingSyncs) {
+      if (p['type'] == 'submit_sale') {
+        final payload = jsonDecode(p['payload'] as String);
+        if (payload['visitId'] == visitId) {
+          oldPayload = payload;
+          syncIdToDelete = p['id'] as int;
+          break;
+        }
+      }
+    }
+
+    if (oldPayload != null && syncIdToDelete != null) {
+      final batch = db.batch();
+
+      // 2. إرجاع البضاعة المباعة والمرتجعة والعينات إلى رصيد السيارة
+      final List<dynamic> cartItems = oldPayload['cart_items'] ?? [];
+      for (var item in cartItems) {
+        int variantId = item['product_variant_id'];
+
+        int qtyToReturn =
+            (item['quantity'] ?? 0) +
+            (item['sample_cartons'] ?? 0) +
+            (item['cartons'] ?? 0);
+        int packsToReturn =
+            (item['packs'] ?? 0) +
+            (item['sample_packs'] ?? 0) +
+            (item['packs_quantity'] ?? 0);
+
+        if (qtyToReturn > 0 || packsToReturn > 0) {
+          batch.rawUpdate(
+            '''
+            UPDATE products 
+            SET 
+              current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / packs_per_carton,
+              current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % packs_per_carton
+            WHERE id = ?
+            ''',
+            [qtyToReturn, packsToReturn, qtyToReturn, packsToReturn, variantId],
+          );
+        }
+      }
+
+      // 3. حذف الفاتورة القديمة من الخزنة
+      batch.delete(
+        'pending_sync',
+        where: 'id = ?',
+        whereArgs: [syncIdToDelete],
+      );
+
+      await batch.commit(noResult: true);
+      developer.log(
+        '[LocalDatabase] Pre-emptive Strike successful: Reverted offline visit #$visitId.',
+      );
+    }
   }
 
   /// إغلاق الاتصال بقاعدة البيانات (يُستخدم عند الاختبار أو عند إعادة التهيئة).

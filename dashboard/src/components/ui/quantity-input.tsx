@@ -5,15 +5,17 @@ interface QuantityInputProps {
   value: number;
   onChange: (n: number) => void;
   min?: number;
+  isError?: boolean; // +++ زرع خاصية الخطأ +++
 }
 
 export function QuantityInput({
   value,
   onChange,
   min = 0,
+  isError = false, // +++ القيمة الافتراضية +++
 }: QuantityInputProps) {
   const [inputStr, setInputStr] = useState(String(value));
-  
+
   const syncFromProp = () => {
     const n = Math.max(min, Number(inputStr) || 0);
     setInputStr(String(n));
@@ -25,8 +27,21 @@ export function QuantityInput({
   }, [value]);
 
   const handleBlur = () => syncFromProp();
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") syncFromProp();
+
+    // +++ النسف المعماري: التنقل السريع بالأسهم بين عدادات الحمولة +++
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); // منع تحريك المؤشر داخل خانة النص
+      const allInputs = Array.from(document.querySelectorAll('input[inputmode="numeric"]')) as HTMLInputElement[];
+      const currentIndex = allInputs.indexOf(e.currentTarget);
+      const nextInput = e.key === "ArrowDown" ? allInputs[currentIndex + 1] : allInputs[currentIndex - 1];
+
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.select(); // تحديد النص بالكامل لسرعة التغيير بالكيبورد
+      }
+    }
   };
 
   const inc = () => {
@@ -42,7 +57,7 @@ export function QuantityInput({
   };
 
   return (
-    <div className="flex items-center rounded-lg border border-slate-300 bg-white overflow-hidden w-fit">
+    <div className={`flex items-center rounded-lg border overflow-hidden w-fit transition-all duration-300 ${isError ? "border-red-500 ring-2 ring-red-200 bg-red-50 shadow-[0_0_10px_rgba(239,68,68,0.2)]" : "border-slate-300 bg-white"}`}>
       <button
         type="button"
         onClick={dec}

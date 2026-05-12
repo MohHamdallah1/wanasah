@@ -205,7 +205,10 @@ class SessionInventory(db.Model):
     id                 = db.Column(db.Integer, primary_key=True)
     work_session_id    = db.Column(db.Integer, db.ForeignKey('work_sessions.id'),    nullable=False, index=True)
     product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id'), nullable=False, index=True)
-    starting_quantity           = db.Column(db.Integer, nullable=False, default=0)
+    
+    # +++ النسف المعماري (حرج 3): فصل حمولة الصباح عن التعديلات لمنع تدمير تقارير الجرد +++
+    starting_quantity          = db.Column(db.Integer, nullable=False, default=0)
+    net_transfers              = db.Column(db.Integer, nullable=False, default=0) # موجب للحوالة المستلمة، سالب للحوالة المسحوبة
     current_remaining_quantity = db.Column(db.Integer, db.CheckConstraint('current_remaining_quantity >= 0', name='chk_positive_inventory'), nullable=False, default=0)
 
     product_variant = db.relationship('ProductVariant')
@@ -385,7 +388,7 @@ class OfferRule(db.Model):
     threshold_quantity = db.Column(db.Integer, nullable=False)
     offer_type         = db.Column(db.String(50), nullable=False)
     bonus_quantity     = db.Column(db.Integer,    nullable=False, default=0)
-    discount_value     = db.Column(db.Float,      nullable=False, default=0.0)
+    discount_value     = db.Column(db.Numeric(10, 2), nullable=False, default=0.0)
     is_active          = db.Column(db.Boolean,    nullable=False, default=True)
 
 
@@ -448,7 +451,7 @@ class InventoryLedger(db.Model):
 class SystemAuditLog(db.Model):
     __tablename__ = 'system_audit_logs'
     id          = db.Column(db.Integer, primary_key=True)
-    admin_id    = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=False, index=True)
+    admin_id    = db.Column(db.Integer, db.ForeignKey('drivers.id'), nullable=True, index=True)
     target_id   = db.Column(db.String(100), nullable=False, index=True)   # رقم الجلسة أو المندوب
     action_type = db.Column(db.String(100), nullable=False, index=True)   # UNDO_END_WORK إلخ
     old_value   = db.Column(db.Text, nullable=True)
@@ -495,3 +498,91 @@ class InventoryTransfer(db.Model):
     work_session    = db.relationship('WorkSession',
                                       backref=db.backref('transfers', lazy='select',
                                                          cascade='all, delete-orphan'))
+
+
+# =================================================================================
+# ⑰ المستودع الرئيسي (Main Warehouse)
+# يعتمد على الحبات (Packs) كأصغر وحدة قياس لمنع تضارب الفراطة.
+# =================================================================================
+class MainWarehouse(db.Model):
+    __tablename__ = 'main_warehouse'
+    # استخدام product_variant_id كـ Primary Key يمنع تكرار نفس المنتج في المستودع ويجعل الاستعلام O(1)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id', ondelete='RESTRICT'), primary_key=True)
+    
+    # الرصيد الفعلي المتاح للتحميل (الحبات)
+    available_quantity_packs = db.Column(db.Integer, db.CheckConstraint('available_quantity_packs >= 0', name='chk_main_warehouse_positive'), nullable=False, default=0)
+    
+    # +++ معمارية In-Transit: الرصيد المحجوز للحوالات المعلقة لمنع إرساله لمندوب آخر +++
+    reserved_quantity_packs = db.Column(db.Integer, db.CheckConstraint('reserved_quantity_packs >= 0', name='chk_reserved_warehouse_positive'), nullable=False, default=0)
+    
+    # +++ إشعارات العجز (Threshold Alerts): الحد الأدنى بالحبات +++
+    min_threshold_packs = db.Column(db.Integer, nullable=False, default=0)
+    
+    last_updated = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now, index=True) # +++ فهرس التقارير الراكدة +++
+
+    product_variant = db.relationship('ProductVariant')
+
+
+# =================================================================================
+# ⑱ مقبرة التوالف (Damaged Goods Log)
+# سجل دقيق لكل حبة تالفة تعود للمستودع مع توثيق (من أحضرها ومن أي محل).
+# =================================================================================
+class DamagedItemLog(db.Model):
+    __tablename__ = 'damaged_items_log'
+    id = db.Column(db.Integer, primary_key=True)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+    
+    # +++ الدرع المحاسبي: منع التوالف السالبة +++
+    quantity_packs = db.Column(db.Integer, db.CheckConstraint('quantity_packs >= 0', name='chk_damaged_positive'), nullable=False)
+    damage_type    = db.Column(db.String(50), nullable=False) # Expired | Factory_Defect | Damaged
+    
+    # +++ التتبع الأمني (Traceability) +++
+    source_driver_id = db.Column(db.Integer, db.ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True)
+    source_visit_id  = db.Column(db.Integer, db.ForeignKey('visits.id', ondelete='SET NULL'), nullable=True)
+    receiving_admin_id = db.Column(db.Integer, db.ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+    
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    product_variant = db.relationship('ProductVariant')
+    driver = db.relationship('Driver', foreign_keys=[source_driver_id])
+    admin = db.relationship('Driver', foreign_keys=[receiving_admin_id])
+    visit = db.relationship('Visit')
+
+
+# =================================================================================
+# ⑲ دفتر أستاذ المستودع (Warehouse Ledger)
+# السجل المالي للبضاعة - لا يمكن مسحه أو تعديله. يوثق الموردين وحركات التحميل.
+# =================================================================================
+class WarehouseLedger(db.Model):
+    """
+    أنواع الحركات (transaction_type):
+    - INBOUND_SUPPLIER: استلام بضاعة من المورد.
+    - DISPATCH_LOAD: تحميل سيارة مندوب.
+    - DISPATCH_UNLOAD: تفريغ سيارة (أو مرتجع فراطة).
+    - HANDSHAKE_RESERVE: حجز بضاعة لمصافحة معلقة.
+    - HANDSHAKE_RELEASE: إعادة بضاعة محجوزة (رفض המندوب).
+    - HANDSHAKE_COMMIT: تأكيد المصافحة (لا يغير الإجمالي لكن يصفر المحجوز).
+    - AUDIT_ADJUSTMENT: تسوية جرد المستودع (عجز/زيادة).
+    """
+    __tablename__ = 'warehouse_ledger'
+    __table_args__ = (
+        db.Index('idx_ledger_variant_created', 'product_variant_id', 'created_at'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    product_variant_id = db.Column(db.Integer, db.ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+    
+    transaction_type = db.Column(db.String(50), nullable=False, index=True)
+    
+    # تفاصيل الحركة بالحبات
+    quantity_packs = db.Column(db.Integer, nullable=False)    
+    # +++ لقطة الرصيد الفوري (Snapshot) بعد الحركة لضمان سلامة الدفاتر +++
+    balance_after_packs = db.Column(db.Integer, nullable=False)    
+    admin_id = db.Column(db.Integer, db.ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+    # رقم مرجعي (فاتورة مورد، رقم حوالة، رقم جلسة المندوب)
+    reference_id = db.Column(db.String(100), nullable=True, index=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    product_variant = db.relationship('ProductVariant')
+    admin = db.relationship('Driver', foreign_keys=[admin_id])

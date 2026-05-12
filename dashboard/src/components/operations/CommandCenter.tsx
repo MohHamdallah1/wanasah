@@ -1,5 +1,7 @@
-import { Radar, StopCircle, CheckCircle2, RotateCcw } from "lucide-react";
+import { Radar, StopCircle, CheckCircle2, RotateCcw, Eye } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
+import { Modal } from "@/components/ui/modal";
 import type { DriverData } from "@/data/operations-data";
 
 interface CommandCenterProps {
@@ -9,6 +11,7 @@ interface CommandCenterProps {
 }
 
 export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: CommandCenterProps) {
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
   const canApprove = driver?.settlement.status === "مغلقة بانتظار التسوية";
 
   return (
@@ -73,12 +76,22 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
 
             {/* Inventory */}
             <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-              <p className="text-xs font-bold text-foreground/60 mb-2">المخزون</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-foreground/60">المخزون</p>
+                {driver.settlement.inventory.length > 3 && (
+                  <button
+                    onClick={() => setShowInventoryModal(true)}
+                    className="flex items-center gap-1 text-[10px] font-bold text-nav-dark hover:text-nav-dark/80 bg-white/30 px-2 py-0.5 rounded-full transition-colors"
+                  >
+                    <Eye className="w-3 h-3" /> عرض الكل
+                  </button>
+                )}
+              </div>
               <div className="flex flex-col gap-1.5">
-                {driver.settlement.inventory.map((item) => (
+                {driver.settlement.inventory.slice(0, 3).map((item) => (
                   <div key={item.product_id} className="flex items-center justify-between text-xs border-b border-white/10 pb-1.5 last:border-0">
-                    <span className="font-medium">{item.product_name}</span>
-                    <span className="tabular-nums font-bold text-foreground/70">
+                    <span className="font-medium truncate max-w-[100px]" title={item.product_name}>{item.product_name}</span>
+                    <span className="tabular-nums font-bold text-foreground/70 shrink-0">
                       {item.starting_quantity} ← {item.sold_quantity} بيع ← <span className="text-foreground font-extrabold">{item.remaining_quantity} متبقي</span>
                     </span>
                   </div>
@@ -124,6 +137,27 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* +++ النسف المعماري (الملاحظة 3): مودال عرض كل المنتجات بتصميم نظيف +++ */}
+      {driver && (
+        <Modal
+          isOpen={showInventoryModal}
+          onClose={() => setShowInventoryModal(false)}
+          title={`📦 جرد سيارة: ${driver.session.driver_name}`}
+          maxWidth="max-w-md"
+        >
+          <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2" dir="rtl">
+            {driver.settlement.inventory.map((item) => (
+              <div key={item.product_id} className="flex items-center justify-between text-sm bg-slate-50 border border-slate-100 p-3 rounded-xl">
+                <span className="font-bold text-slate-700">{item.product_name}</span>
+                <span className="tabular-nums font-bold text-slate-500 text-xs">
+                  {item.starting_quantity} ← <span className="text-blue-600">{item.sold_quantity} بيع</span> ← <span className="text-emerald-700 font-extrabold text-sm">{item.remaining_quantity} متبقي</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

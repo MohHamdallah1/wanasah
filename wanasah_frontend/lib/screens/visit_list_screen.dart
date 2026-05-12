@@ -87,199 +87,134 @@ class _VisitListScreenState extends State<VisitListScreen>
       value: _visitListBloc,
       child: BlocBuilder<VisitListBloc, VisitListState>(
         builder: (context, state) {
-          if (state is VisitListLoading) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-
-          if (state is VisitListError) {
-            return Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      state.message,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                    const SizedBox(height: 10),
-                    ElevatedButton(
-                      onPressed: _forceSync,
-                      child: const Text('إعادة المحاولة'),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
+          // استخراج المتغيرات الأساسية للهيكل لتبقى ثابتة (السر الذي يمنع الوميض)
+          int currentTotal = 0;
+          int currentCompleted = 0;
+          int currentPending = 0;
+          int emgCount = 0;
+          List<VisitModel> currentTabVisits = [];
+          String currentFilter = 'All';
 
           if (state is VisitListLoaded) {
             bool isEmergencyActive = _tabController.index == 1;
-
-            // +++ الحماية النوعية (VisitModel بدلاً من dynamic) +++
-            final List<VisitModel> currentTabVisits =
-                state.allVisits.where((v) {
-                  return isEmergencyActive ? v.isEmergency : !v.isEmergency;
-                }).toList();
-
-            int currentTotal = currentTabVisits.length;
-            int currentCompleted =
-                currentTabVisits.where((v) => v.status == 'Completed').length;
-            int currentPending =
-                currentTabVisits.where((v) => v.status == 'Pending').length;
-
-            return Scaffold(
-              backgroundColor: Colors.transparent,
-              appBar: AppBar(
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                title: const Text('قائمة المحلات'),
-                centerTitle: true,
-                actions: [
-                  IconButton(
-                    onPressed: _forceSync,
-                    icon: const Icon(Icons.refresh),
-                    tooltip: 'تحديث القائمة',
-                  ),
-                ],
-                bottom: TabBar(
-                  controller: _tabController,
-                  labelColor: const Color.fromARGB(255, 17, 5, 5),
-                  unselectedLabelColor: const Color.fromARGB(179, 14, 7, 7),
-                  indicatorColor: const Color.fromARGB(255, 73, 16, 16),
-                  indicatorWeight: 4,
-                  labelStyle: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
-                  tabs: [
-                    const Tab(icon: Icon(Icons.route), text: 'جولة اليوم 📍'),
-                    Tab(
-                      icon: const Icon(Icons.warning_amber_rounded),
-                      text:
-                          'طلبات عاجلة 🚨 (${state.allVisits.where((v) => v.isEmergency).length})',
-                    ),
-                  ],
-                ),
-              ),
-              body: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 8.0,
-                      horizontal: 8.0,
-                    ),
-                    child: ToggleButtons(
-                      isSelected: _isSelected,
-                      onPressed: (int index) {
-                        setState(() {
-                          for (int i = 0; i < _isSelected.length; i++) {
-                            _isSelected[i] = i == index;
-                          }
-                        });
-                        // +++ توجيه أمر الفلترة للعقل المدبر (BLoC) +++
-                        _visitListBloc.add(
-                          FilterVisitsEvent(_filterValues[index]),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(8.0),
-                      constraints: BoxConstraints(
-                        minHeight: 40.0,
-                        minWidth:
-                            (MediaQuery.of(context).size.width - 32) / 3.1,
-                      ),
-                      children: <Widget>[
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('الكل ($currentTotal)'),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('المكتملة ($currentCompleted)'),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('المتبقية ($currentPending)'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1, thickness: 1),
-                  Expanded(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildListView(
-                          state.filteredVisits
-                              .where((v) => !v.isEmergency)
-                              .toList(),
-                          isEmergencyTab: false,
-                          currentFilter: state.currentFilter,
-                        ),
-                        _buildListView(
-                          state.filteredVisits
-                              .where((v) => v.isEmergency)
-                              .toList(),
-                          isEmergencyTab: true,
-                          currentFilter: state.currentFilter,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              floatingActionButton: FloatingActionButton(
-                onPressed: () async {
-                  if (_isOnBreak) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'أنت الآن في وقت الاستراحة. قم بإنهاء الاستراحة لمتابعة العمل.',
-                        ),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
-                    return;
-                  }
-
-                  const storage = FlutterSecureStorage();
-                  String? authStr = await storage.read(key: 'is_authorized');
-                  if (!context.mounted) return;
-
-                  if (authStr != 'true') {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'غير مصرح لك بإضافة محلات حالياً. بانتظار تفعيل خط السير من الإدارة.',
-                        ),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
-                    return;
-                  }
-
-                  final result = await Navigator.push<bool>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const AddShopScreen(),
-                    ),
-                  );
-
-                  if (!context.mounted) return;
-                  if (result == true) {
-                    _forceSync();
-                  }
-                },
-                tooltip: 'إضافة محل جديد',
-                child: const Icon(Icons.add),
-              ),
-            );
+            emgCount = state.allVisits.where((v) => v.isEmergency).length;
+            currentTabVisits = state.allVisits.where((v) => isEmergencyActive ? v.isEmergency : !v.isEmergency).toList();
+            currentTotal = currentTabVisits.length;
+            currentCompleted = currentTabVisits.where((v) => v.status == 'Completed').length;
+            currentPending = currentTabVisits.where((v) => v.status == 'Pending').length;
+            currentFilter = state.currentFilter;
           }
-          return const SizedBox.shrink();
+
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              surfaceTintColor: Colors.transparent,
+              title: const Text('قائمة المحلات'),
+              centerTitle: true,
+              actions: [
+                IconButton(
+                  onPressed: _forceSync,
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'تحديث القائمة',
+                ),
+              ],
+              bottom: TabBar(
+                controller: _tabController,
+                labelColor: const Color.fromARGB(255, 17, 5, 5),
+                unselectedLabelColor: const Color.fromARGB(179, 14, 7, 7),
+                indicatorColor: const Color.fromARGB(255, 73, 16, 16),
+                indicatorWeight: 4,
+                labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                tabs: [
+                  const Tab(text: 'جولة اليوم 📍'),
+                  Tab(text: 'طلبات عاجلة 🚨 ($emgCount)'),
+                ],
+              ),
+            ),
+            floatingActionButton: FloatingActionButton(
+              onPressed: () async {
+                if (_isOnBreak) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('أنت في وقت الاستراحة.'), backgroundColor: Colors.orange));
+                  return;
+                }
+                const storage = FlutterSecureStorage();
+                String? authStr = await storage.read(key: 'is_authorized');
+                if (!context.mounted) return;
+                if (authStr != 'true') {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('غير مصرح لك بإضافة محلات.'), backgroundColor: Colors.orange));
+                  return;
+                }
+                final result = await Navigator.push<bool>(context, MaterialPageRoute(builder: (context) => const AddShopScreen()));
+                if (!context.mounted) return;
+                if (result == true) _forceSync();
+              },
+              tooltip: 'إضافة محل جديد',
+              child: const Icon(Icons.add),
+            ),
+            body: _buildBodyContent(state, currentTotal, currentCompleted, currentPending, currentTabVisits, currentFilter),
+          );
         },
       ),
     );
+  }
+
+  // +++ دالة مساعدة جديدة تبني المحتوى الداخلي فقط بدون المساس بالـ Scaffold +++
+  Widget _buildBodyContent(VisitListState state, int currentTotal, int currentCompleted, int currentPending, List<VisitModel> currentTabVisits, String currentFilter) {
+    if (state is VisitListLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state is VisitListError) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(state.message, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 10),
+            ElevatedButton(onPressed: _forceSync, child: const Text('إعادة المحاولة')),
+          ],
+        ),
+      );
+    }
+    if (state is VisitListLoaded) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+            child: ToggleButtons(
+              isSelected: _isSelected,
+              onPressed: (int index) {
+                setState(() {
+                  for (int i = 0; i < _isSelected.length; i++) {
+                    _isSelected[i] = i == index;
+                  }
+                });
+                _visitListBloc.add(FilterVisitsEvent(_filterValues[index]));
+              },
+              borderRadius: BorderRadius.circular(8.0),
+              constraints: BoxConstraints(minHeight: 40.0, minWidth: (MediaQuery.of(context).size.width - 32) / 3.1),
+              children: <Widget>[
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('الكل ($currentTotal)')),
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('المكتملة ($currentCompleted)')),
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('المتبقية ($currentPending)')),
+              ],
+            ),
+          ),
+          const Divider(height: 1, thickness: 1),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildListView(state.filteredVisits.where((v) => !v.isEmergency).toList(), isEmergencyTab: false, currentFilter: currentFilter),
+                _buildListView(state.filteredVisits.where((v) => v.isEmergency).toList(), isEmergencyTab: true, currentFilter: currentFilter),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   // --- دالة مساعدة لبناء القائمة بتصميم "البطاقات" الحديث والحماية النوعية ---
@@ -307,6 +242,7 @@ class _VisitListScreenState extends State<VisitListScreen>
       return RefreshIndicator(
         onRefresh: _forceSync,
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
             Padding(
               padding: const EdgeInsets.only(top: 50.0),
@@ -332,6 +268,7 @@ class _VisitListScreenState extends State<VisitListScreen>
         key: PageStorageKey<String>(
           'visitListScroll_${isEmergencyTab ? "emg" : "norm"}',
         ),
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(12.0),
         itemCount: visitsList.length,
         itemBuilder: (context, index) {
@@ -383,6 +320,7 @@ class _VisitListScreenState extends State<VisitListScreen>
           }
 
           return Card(
+            key: ValueKey(visit.shopId),
             elevation: isCompleted ? 0 : 2,
             margin: const EdgeInsets.only(bottom: 12.0),
             color: cardBgColor,
@@ -392,6 +330,8 @@ class _VisitListScreenState extends State<VisitListScreen>
             ),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
               onTap: () async {
                 if (_isOnBreak) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -422,12 +362,16 @@ class _VisitListScreenState extends State<VisitListScreen>
                   ),
                 );
 
-                // +++ سد ثغرة البيانات الميتة (Navigation Trap) عبر إرسال حدث للـ BLoC +++
+                // +++ النسف المعماري لـ Jank: تأخير التحديث قليلاً حتى ينتهي أنيميشن الإغلاق للشاشة السابقة +++
                 if (mounted) {
                   developer.log(
-                    'Returned from VisitScreen, triggering Bloc LoadVisitsEvent...',
+                    'Returned from VisitScreen, scheduling sync...',
                   );
-                  _visitListBloc.add(LoadVisitsEvent());
+                  Future.delayed(const Duration(milliseconds: 300), () {
+                    if (mounted) {
+                      _visitListBloc.add(LoadVisitsEvent());
+                    }
+                  });
                 }
               },
               child: Padding(

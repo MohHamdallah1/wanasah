@@ -3,8 +3,10 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import DashboardLayout from "@/components/operations/DashboardLayout";
 import OperationsDashboard from "./pages/OperationsDashboard";
 import DispatchBoard from "./pages/DispatchBoard";
+import MainInventory from "./pages/inventory/MainInventory";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
@@ -33,11 +35,14 @@ const App = () => (
         <Routes>
           {/* مسار الدخول محمي بـ PublicRoute */}
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-          
-          {/* لوحة التحكم محمية بـ ProtectedRoute */}
-          <Route path="/" element={<ProtectedRoute><OperationsDashboard /></ProtectedRoute>} />
-          <Route path="/dispatch" element={<ProtectedRoute><DispatchBoard /></ProtectedRoute>} />
-          
+
+          {/* لوحة التحكم الموحدة محمية بـ ProtectedRoute */}
+          <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+            <Route path="/" element={<OperationsDashboard />} />
+            <Route path="/dispatch" element={<DispatchBoard />} />
+            <Route path="/inventory" element={<MainInventory />} />
+          </Route>
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle } from "lucide-react";
-import { OperationsSidebar } from "@/components/operations/OperationsSidebar";
+import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 // Components
@@ -23,7 +22,7 @@ import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal
 import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
-
+import { useAuthFetch } from "@/hooks/useAuthFetch";
 // Utils
 const sortZones = (zones: Zone[]) => {
   const today = new Date();
@@ -54,10 +53,10 @@ const sortZones = (zones: Zone[]) => {
 };
 
 export default function DispatchBoard() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabId>(() => (localStorage.getItem("activeTab") as TabId) || "routes");
+  // +++ النسف المعماري (تجاوز TypeScript): توسيع نوع TabId محلياً ليقبل "launch" +++
+  const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem("activeTab") || "routes");
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void }>({ isOpen: false, title: "", message: "", onConfirm: () => { } });
-  const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<TabId | null>(null);
+  const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<string | null>(null);
 
   // +++ حالات نافذة تعديل الحمولة +++
   const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
@@ -69,30 +68,7 @@ export default function DispatchBoard() {
 
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
-  const authenticatedFetch = async (endpoint: string, options: RequestInit = {}) => {
-    const token = localStorage.getItem("admin_token") || localStorage.getItem("token");
-    const res = await fetch(import.meta.env.VITE_API_URL + endpoint, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-        ...options.headers
-      }
-    });
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      // +++ صائد انتهاء الجلسة +++
-      if (res.status === 401) {
-        localStorage.removeItem("admin_token");
-        localStorage.removeItem("token");
-        toast.error("انتهت جلسة العمل، يرجى تسجيل الدخول مجدداً");
-        setTimeout(() => window.location.href = "/login", 1500);
-        throw new Error("Unauthorized");
-      }
-      throw new Error(errData.message || `Server Error: ${res.status}`);
-    }
-    return res.json();
-  };
+  const authenticatedFetch = useAuthFetch();
 
   const [zones, setZones] = useState<Zone[]>([]);
   const [drivers, setDrivers] = useState<{ id: string; name: string }[]>([]);
@@ -102,10 +78,25 @@ export default function DispatchBoard() {
   const [shortages, setShortages] = useState<Shortage[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
 
-  const [selectedZoneIdForZones, setSelectedZoneIdForZones] = useState("");
-  const [selectedZoneId, setSelectedZoneId] = useState("");
-  const [selectedDriverId, setSelectedDriverId] = useState("");
-  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  // +++ الدرع المعماري للـ UX: ربط المنطقة المحددة بالذاكرة المحلية لمنع ضياعها عند الـ Refresh +++
+  const [selectedZoneIdForZones, setSelectedZoneIdForZones] = useState(() => localStorage.getItem("wanasah_selected_zone") || "");
+
+  useEffect(() => {
+    if (selectedZoneIdForZones) {
+      localStorage.setItem("wanasah_selected_zone", selectedZoneIdForZones);
+    }
+  }, [selectedZoneIdForZones]);
+
+  // +++ الذاكرة الفولاذية: حفظ خيارات إطلاق خط السير +++
+  const [selectedZoneId, setSelectedZoneId] = useState(() => localStorage.getItem("wanasah_route_zone") || "");
+  const [selectedDriverId, setSelectedDriverId] = useState(() => localStorage.getItem("wanasah_route_driver") || "");
+  const [selectedVehicleId, setSelectedVehicleId] = useState(() => localStorage.getItem("wanasah_route_vehicle") || "");
+
+  useEffect(() => {
+    localStorage.setItem("wanasah_route_zone", selectedZoneId);
+    localStorage.setItem("wanasah_route_driver", selectedDriverId);
+    localStorage.setItem("wanasah_route_vehicle", selectedVehicleId);
+  }, [selectedZoneId, selectedDriverId, selectedVehicleId]);
   const [preloadQuantities, setPreloadQuantities] = useState<Record<string, number>>({});
 
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
@@ -152,20 +143,29 @@ export default function DispatchBoard() {
   const [isBulkTransferModalOpen, setIsBulkTransferModalOpen] = useState(false);
   const [targetTransferZoneId, setTargetTransferZoneId] = useState("");
   const [isShowPostponedModalOpen, setIsShowPostponedModalOpen] = useState(false);
-  const [duplicateWarning, setDuplicateWarning] = useState<{ show: boolean, shopData: any, pendingForm: any } | null>(null);
+  // +++ الدرع المعماري: فصل حالة السيرفر عن حالة الواجهة لمنع التلوث +++
+  const [duplicateWarning, setDuplicateWarning] = useState<{ show: boolean, shopData: any, apiPayload: any, localState: any } | null>(null);
   const [restorePromptShop, setRestorePromptShop] = useState<Shop | null>(null);
 
   // Snapshot of shops taken when entering edit mode — used for Cancel/revert
   const savedShopsRef = useRef<Shop[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSuicideModalOpen, setIsSuicideModalOpen] = useState(false);
+  const [zoneToKill, setZoneToKill] = useState<Zone | null>(null);
+  const [confirmName, setConfirmName] = useState("");
 
   const fetchInitialData = useCallback(() => {
     const controller = new AbortController();
     authenticatedFetch("/dispatch/init", { signal: controller.signal })
       .then(data => {
         const sorted = sortZones(data.zones || []); setZones(sorted); setDrivers(data.drivers || []); setVehicles(data.vehicles || []); setProducts(data.products || []);
-        if (sorted.length > 0) setSelectedZoneIdForZones(sorted[0].id);
+
+        // +++ الكي الجراحي (UX): الحفاظ على المنطقة المحددة حالياً، وعدم إجبار المستخدم على العودة لأول القائمة بعد الـ Refresh +++
+        if (sorted.length > 0) {
+          setSelectedZoneIdForZones(prev => prev ? prev : sorted[0].id);
+        }
+
         if (data.products?.length > 0) setNewShortage({ productName: data.products[0].name, quantity: 1 });
       })
       .catch(err => err.name !== 'AbortError' && toast.error("خطأ في الاتصال بالخادم (Init): " + err.message));
@@ -200,6 +200,22 @@ export default function DispatchBoard() {
   }, [selectedVehicleId]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
+
+  // +++ المحرك الصاروخي O(1): حساب النواقص لكل مندوب مرة واحدة فقط بدل حسابها داخل الـ Loop +++
+  const driverShortagesMap = useMemo(() => {
+    const map: Record<string, Set<string>> = {};
+    shortages.forEach(s => {
+      if (s.status === "pending" && s.driverId) {
+        if (!map[s.driverId]) map[s.driverId] = new Set();
+        map[s.driverId].add(s.shopId);
+      }
+    });
+    const countMap: Record<string, number> = {};
+    for (const driverId in map) {
+      countMap[driverId] = map[driverId].size;
+    }
+    return countMap;
+  }, [shortages]);
 
   // Helper: save the current reorder to the backend
   const handleSaveReorder = useCallback(async () => {
@@ -279,7 +295,7 @@ export default function DispatchBoard() {
   };
 
   // Helper: handle tab switch with dirty-state guard
-  const handleTabChange = useCallback((tabId: TabId) => {
+  const handleTabChange = useCallback((tabId: string) => {
     if (tabId === activeTab) return;
     if (hasUnsavedChanges) {
       setUnsavedTabPrompt(tabId); // تفعيل النافذة الذكية بدل العادية
@@ -404,100 +420,96 @@ export default function DispatchBoard() {
   };
 
   const handleSaveShop = async () => {
-    // 1. التحقق الأساسي من البيانات
     if (!shopForm.name.trim() || !shopForm.phone.trim() || !shopForm.mapLink.trim() || !shopForm.zoneId) {
       toast.error("⚠️ يرجى إكمال جميع البيانات");
       return;
     }
 
-    const token = localStorage.getItem("admin_token") || localStorage.getItem("token");
+    const apiPayload = {
+      name: shopForm.name,
+      owner: shopForm.owner,
+      phone: shopForm.phone,
+      initial_debt: Number(shopForm.initialDebt) || 0,
+      max_debt_limit: Number(shopForm.maxDebtLimit) || 0,
+      map_link: shopForm.mapLink,
+      zone_id: shopForm.zoneId
+    };
 
-    if (editingShopId) {
-      try {
-        toast.success("جاري حفظ التعديلات...");
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/dispatch/shops/${editingShopId}`, {
+    const localShopState = {
+      name: shopForm.name,
+      owner: shopForm.owner,
+      phone: shopForm.phone,
+      initialDebt: Number(shopForm.initialDebt) || 0,
+      maxDebtLimit: Number(shopForm.maxDebtLimit) || 0,
+      mapLink: shopForm.mapLink,
+      zoneId: shopForm.zoneId
+    };
+
+    try {
+      if (editingShopId) {
+        await authenticatedFetch(`/dispatch/shops/${editingShopId}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify(shopForm)
+          body: JSON.stringify(apiPayload)
         });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData?.message || "فشل المزامنة مع السيرفر");
-        }
-
-        setShops(prev => prev.map(s => s.id === editingShopId ? { ...s, ...shopForm } : s));
+        setShops(prev => prev.map(s => s.id === editingShopId ? { ...s, ...localShopState } : s));
+        if (isEditMode) setHasUnsavedChanges(true);
         setIsShopModalOpen(false);
-        toast.success("تم التعديل بنجاح");
-      } catch (error: any) {
-        toast.error(`❌ خطأ: ${error.message}`);
-      }
-
-    } else {
-      // --- حالة الإضافة: لا تحديث متفائل هنا لضمان الحصول على الـ ID الصحيح ---
-      const payload = { ...shopForm, force_save: false };
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/dispatch/shops`, {
+        toast.success("تم تحديث بيانات المحل ✅");
+      } else {
+        // +++ استخدام الهوك المطور لاصطياد الـ 409 دون التفاف +++
+        const data = await authenticatedFetch("/dispatch/shops", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({ ...apiPayload, force_save: false })
         });
-
-        const resData = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          // التعامل مع تكرار المحل (ثغرة الدقة)
-          if (res.status === 409 && resData?.is_duplicate) {
-            setDuplicateWarning({ show: true, shopData: resData.existing_shop, pendingForm: payload });
-            return;
-          }
-          throw new Error(resData?.message || "فشل إضافة المحل");
-        }
-
-        // إضافة المحل الجديد فوراً باستخدام الـ ID الحقيقي من السيرفر
-        const newShop = { ...shopForm, id: String(resData.shop_id), sequence: 999, archived: false };
+        const newShop = { ...localShopState, id: String(data.shop_id), sequence: 999, archived: false };
         setShops(prev => [...prev, newShop]);
-        setZones(prev => sortZones(prev.map(z => z.id === payload.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
+        setZones(prev => sortZones(prev.map(z => z.id === localShopState.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
         setIsShopModalOpen(false);
         toast.success("تم الإضافة بنجاح");
-      } catch (error: any) {
-        toast.error(`❌ ${error.message}`);
+      }
+    } catch (error: any) {
+      // +++ اصطياد بيانات التطابق من "الدرع المطور" +++
+      if (error.status === 409 && error.data?.is_duplicate) {
+        setDuplicateWarning({
+          show: true,
+          shopData: error.data.existing_shop,
+          apiPayload: { ...apiPayload, force_save: true },
+          localState: localShopState
+        });
+      } else {
+        toast.error(`❌ خطأ: ${error.message}`);
       }
     }
   };
 
   const forceSaveShop = async () => {
     if (!duplicateWarning) return;
-    const token = localStorage.getItem("admin_token") || localStorage.getItem("token");
-    const payload = { ...duplicateWarning.pendingForm, force_save: true };
+
+    const payload = { ...duplicateWarning.apiPayload, force_save: true };
 
     try {
-      const res = await fetch(import.meta.env.VITE_API_URL + "/dispatch/shops", {
+      // نعود للهوك لأن فرض الحفظ لا يرجع 409 أبداً
+      const data = await authenticatedFetch("/dispatch/shops", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(payload)
       });
 
-      const resData = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(resData.message || "حدث خطأ أثناء فرض الحفظ");
-      }
-
-      // +++ تحديث صاروخي: إضافة المحل للشاشة فوراً باستخدام الـ ID الحقيقي من السيرفر +++
+      // +++ استخدام الكائن المحلي النظيف (Camel Case) المحفوظ في التحذير +++
       const newShop = {
-        ...duplicateWarning.pendingForm,
-        id: String(resData.shop_id),
+        ...duplicateWarning.localState,
+        id: String(data.shop_id),
         sequence: 999,
         archived: false
       };
+
       setShops(prev => [...prev, newShop]);
+      setZones(prev => sortZones(prev.map(z => z.id === duplicateWarning.localState.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
 
       toast.success("تم فرض الحفظ بنجاح");
       setIsShopModalOpen(false);
       setDuplicateWarning(null);
     } catch (error: any) {
-      toast.error(error.message || "حدث خطأ غير متوقع");
+      toast.error(error.message || "حدث خطأ أثناء فرض الحفظ");
     }
   };
 
@@ -607,248 +619,318 @@ export default function DispatchBoard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex gap-0" dir="rtl">
-      <OperationsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className="flex-1 flex flex-col min-w-0">
-        <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
-          <div className="flex items-center gap-6">
-            <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 rounded-lg hover:bg-slate-100"><LayoutGrid className="w-6 h-6 text-slate-600" /></button>
-            <div className="flex bg-slate-100 p-1 rounded-xl">
-              {[{ id: "routes", label: "إدارة خطوط السير", icon: Truck }, { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }].map(tab => (
-                <button key={tab.id} onClick={() => handleTabChange(tab.id as TabId)} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-                  <tab.icon className="w-4 h-4" /> {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {activeTab === "routes" && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
-            {activeTab === "zones" && <button onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"><Calendar className="w-4 h-4" /> 🗓️ الجدولة الشاملة</button>}
+    <div className="w-full flex flex-col animate-in fade-in duration-500">
+      <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
+        <div className="flex items-center gap-6">
+          <div className="flex bg-slate-100 p-1 rounded-xl">
+            {/* +++ النسف المعماري: فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
+            {[
+              { id: "routes", label: "الخطوط النشطة", icon: Truck },
+              { id: "launch", label: "إطلاق خط جديد", icon: Plus },
+              { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }
+            ].map(tab => (
+              <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                <tab.icon className="w-4 h-4" /> {tab.label}
+              </button>
+            ))}
           </div>
         </div>
+        <div className="flex items-center gap-3">
+          {activeTab === "routes" && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
+          {activeTab === "zones" && <button onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"><Calendar className="w-4 h-4" /> 🗓️ الجدولة الشاملة</button>}
+        </div>
+      </div>
 
-        <div className="p-6">
-          <AnimatePresence mode="wait">
-            {activeTab === "routes" ? (
-              <motion.div key="routes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex flex-col gap-6">
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-bold text-slate-800">مناطق قيد العمل (معلقة)</h2>
-                    {(() => {
-                      const hasPostponed = pendingRoutes.some(r => r.status === "postponed");
-                      return (
-                        <button
-                          onClick={() => setIsShowPostponedModalOpen(true)}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
-                        >
-                          <Eye className="w-4 h-4" />
-                          {hasPostponed && (
-                            <span className="relative flex h-2.5 w-2.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500" />
-                            </span>
-                          )}
-                          👁️ عرض المؤجل ({pendingRoutes.filter(r => r.status === "postponed").length})
-                        </button>
-                      );
-                    })()}
-                  </div>
-                  <PendingRoutesTable
-                    routes={pendingRoutes.filter(r => r.status !== "postponed")}
-                    onAdjustInventory={(route) => {
-                      setInventoryRoute(route);
-                      setIsInventoryModalOpen(true);
-                    }}
-                    onOpenRadar={(route) => {
-                      setRadarRoute(route);
-                      setIsRadarModalOpen(true);
-                    }}
-                    onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setIsRouteModalOpen(true); }}
-                    onPostponeRoute={async (id) => {
-                      try {
-                        await authenticatedFetch(`/dispatch/route/${id}/status`, {
-                          method: "PUT",
-                          body: JSON.stringify({ status: "postponed" })
-                        });
-                        setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
-                        toast.info("تم تأجيل المنطقة");
-                      } catch (e: any) {
-                        toast.error(e.message);
+      {/* +++ النسف المعماري: تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
+      <div className="pt-6 pb-6 px-0 w-full">
+        <AnimatePresence mode="wait">
+          {activeTab === "routes" ? (
+            <motion.div key="routes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex justify-center w-full">
+              {/* +++ النسف المعماري: جمع العناصر التائهة داخل حاوية "عصرية" موحدة +++ */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-xl w-full mt-[-15px]">
+                <div className="flex items-center justify-between mb-6 pb-3 border-b border-slate-100">
+                  <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                    <Truck className="w-6 h-6 text-[#1e87bb]" /> مناطق قيد العمل (الخطوط النشطة)
+                  </h2>
+                  {(() => {
+                    const hasPostponed = pendingRoutes.some(r => r.status === "postponed");
+                    return (
+                      <button
+                        onClick={() => setIsShowPostponedModalOpen(true)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                      >
+                        <Eye className="w-4 h-4" />
+                        {hasPostponed && (
+                          <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500" />
+                          </span>
+                        )}
+                        👁️ عرض المؤجل ({pendingRoutes.filter(r => r.status === "postponed").length})
+                      </button>
+                    );
+                  })()}
+                </div>
+                <PendingRoutesTable
+                  routes={pendingRoutes.filter(r => r.status !== "postponed")}
+                  onAdjustInventory={(route) => {
+                    setInventoryRoute(route);
+                    setIsInventoryModalOpen(true);
+                  }}
+                  onOpenRadar={(route) => {
+                    setRadarRoute(route);
+                    setIsRadarModalOpen(true);
+                  }}
+                  onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setIsRouteModalOpen(true); }}
+                  onPostponeRoute={async (id) => {
+                    try {
+                      await authenticatedFetch(`/dispatch/route/${id}/status`, {
+                        method: "PUT",
+                        body: JSON.stringify({ status: "postponed" })
+                      });
+                      setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
+                      toast.info("تم تأجيل المنطقة");
+                    } catch (e: any) {
+                      toast.error(e.message);
+                    }
+                  }}
+                  onCloseZone={route => {
+                    const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
+                    const message = isAlmostDone
+                      ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط لإنهاء المنطقة! هل أنت متأكد من الإغلاق والتصفير؟`
+                      : "هل أنت متأكد من إغلاق وتصفير هذه المنطقة؟";
+
+                    setConfirmDialog({
+                      isOpen: true,
+                      title: "تأكيد الإغلاق والتصفير",
+                      message: message,
+                      onConfirm: async () => {
+                        try {
+                          await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
+                            method: "PUT",
+                            body: JSON.stringify({ status: "closed" })
+                          });
+                          setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
+                          fetchInitialData();
+                          toast.success("تم إغلاق المنطقة وتصفير السيارة");
+                        } catch (e: any) {
+                          toast.error(e.message);
+                        } finally {
+                          setConfirmDialog(d => ({ ...d, isOpen: false }));
+                        }
                       }
-                    }}
-                    onCloseZone={route => {
-                      const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
-                      const message = isAlmostDone
-                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط لإنهاء المنطقة! هل أنت متأكد من الإغلاق والتصفير؟`
-                        : "هل أنت متأكد من إغلاق وتصفير هذه المنطقة؟";
+                    })
+                  }}
+                  onForceWithdraw={route => {
+                    const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
+                    const message = isAlmostDone
+                      ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط! هل أنت متأكد من إيقاف وسحب المنطقة؟`
+                      : "هل أنت متأكد من إيقاف المنطقة وإعادتها للانتظار؟";
 
-                      setConfirmDialog({
-                        isOpen: true,
-                        title: "تأكيد الإغلاق والتصفير",
-                        message: message,
-                        onConfirm: async () => {
-                          try {
-                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
-                              method: "PUT",
-                              body: JSON.stringify({ status: "closed" })
-                            });
-                            setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
-                            fetchInitialData();
-                            toast.success("تم إغلاق المنطقة وتصفير السيارة");
-                          } catch (e: any) {
-                            toast.error(e.message);
-                          } finally {
-                            setConfirmDialog(d => ({ ...d, isOpen: false }));
-                          }
+                    setConfirmDialog({
+                      isOpen: true,
+                      title: "إيقاف المنطقة",
+                      message: message,
+                      onConfirm: async () => {
+                        try {
+                          await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
+                            method: "PUT",
+                            body: JSON.stringify({ status: "waiting" })
+                          });
+                          setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting", driverId: "", vehicleId: "" } : r));
+                          fetchInitialData();
+                          toast.success("تم إيقاف المنطقة وسحبها بنجاح");
+                        } catch (e: any) {
+                          toast.error(e.message);
+                        } finally {
+                          setConfirmDialog(d => ({ ...d, isOpen: false }));
                         }
-                      })
-                    }}
-                    onForceWithdraw={route => {
-                      const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
-                      const message = isAlmostDone
-                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط! هل أنت متأكد من إيقاف وسحب المنطقة؟`
-                        : "هل أنت متأكد من إيقاف المنطقة وإعادتها للانتظار؟";
+                      }
+                    })
+                  }}
+                  driverShortagesMap={driverShortagesMap}
+                />
+              </div>
+            </motion.div>
+          ) : activeTab === "launch" ? (
+            <motion.div key="launch" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="flex justify-center w-full">
+              {/* +++ النسف المعماري: إزالة max-w ليأخذ عرض الشاشة بالكامل، وسحبه للأعلى أكثر +++ */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-xl w-full mt-[-15px]">
 
-                      setConfirmDialog({
-                        isOpen: true,
-                        title: "إيقاف المنطقة",
-                        message: message,
-                        onConfirm: async () => {
-                          try {
-                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
-                              method: "PUT",
-                              body: JSON.stringify({ status: "waiting" })
-                            });
-                            setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting", driverId: "", vehicleId: "" } : r));
-                            fetchInitialData();
-                            toast.success("تم إيقاف المنطقة وسحبها بنجاح");
-                          } catch (e: any) {
-                            toast.error(e.message);
-                          } finally {
-                            setConfirmDialog(d => ({ ...d, isOpen: false }));
-                          }
-                        }
-                      })
-                    }}
-                    onUndoEndWork={id => {
-                      setConfirmDialog({
-                        isOpen: true,
-                        title: "تراجع عن إنهاء العمل",
-                        message: "هل أنت متأكد من التراجع عن إنهاء العمل وإعادة المندوب لحالة نشط؟ (لا يمكن التراجع إذا تم اعتماد التسوية)",
-                        onConfirm: async () => {
-                          try {
-                            await authenticatedFetch(`/dispatch/route/${id}/undo_end_work`, {
-                              method: "PUT"
-                            });
-                            toast.success("تم التراجع بنجاح. يمكن للمندوب متابعة عمله.");
-                            fetchInitialData(); // Refresh UI to reset status
-                          } catch (e: any) {
-                            toast.error(e.message);
-                          } finally {
-                            setConfirmDialog(d => ({ ...d, isOpen: false }));
-                          }
-                        }
-                      })
-                    }}
-                    getDriverShortages={id => new Set(shortages.filter(s => s.driverId === id && s.status === "pending").map(s => s.shopId)).size}
-                  />
+                {/* 1. تقليل المسافة أسفل العنوان (mb-4 بدلاً من mb-8) */}
+                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                  <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                    <Rocket className="w-6 h-6 text-[#1e87bb]" /> إطلاق خط سير جديد
+                  </h2>
                 </div>
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xl">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-lg font-bold text-slate-800">إطلاق خط سير جديد</h2>
-                    <div className="flex gap-4">
-                      <CustomSelect label="المنطقة" options={zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus }))} value={selectedZoneId} onChange={setSelectedZoneId} placeholder="اختر المنطقة" />
-                      <CustomSelect label="المندوب" options={drivers.map(d => ({ id: d.id, label: d.name }))} value={selectedDriverId} onChange={setSelectedDriverId} placeholder="اختر المندوب" />
-                      <CustomSelect label="السيارة" options={vehicles.map(v => ({ id: v.id, label: v.label }))} value={selectedVehicleId} onChange={setSelectedVehicleId} placeholder="اختر السيارة" />
-                    </div>
-                  </div>
-                  <div className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-100">
-                    <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between bg-white/50"><span className="text-sm font-bold text-slate-600">الجرد الأولي</span><button onClick={() => setPreloadQuantities({})} className="text-xs font-bold text-red-500 hover:text-red-600 flex items-center gap-1"><Eraser className="w-3.5 h-3.5" /> 🧹 تصفير</button></div>
-                    <table className="w-full text-sm"><thead><tr className="border-b border-slate-200 text-slate-400 text-[10px] uppercase"><th className="text-start p-2 font-bold px-4">المنتج</th><th className="text-center p-2 font-bold">الكمية</th></tr></thead>
-                      <tbody className="divide-y divide-slate-100">{products.map(prod => (<tr key={prod.id} className="hover:bg-white transition-colors"><td className="p-2 px-4 font-bold text-slate-800">{prod.name}</td><td className="p-2"><div className="flex justify-center"><QuantityInput value={preloadQuantities[prod.id] ?? 0} onChange={n => setPreloadQuantities(p => ({ ...p, [prod.id]: n }))} /></div></td></tr>))}</tbody>
-                    </table>
-                  </div>
-                  <button onClick={handleDispatchRoute} className="w-full mt-6 bg-[#1e87bb] hover:bg-[#0f766e] text-white py-4 rounded-2xl text-lg font-bold shadow-lg transition-all active:scale-[0.99]">اعتماد وإطلاق خط السير</button>
+
+                {/* 2. تقليل المسافة أسفل مستطيل الاختيارات (mb-4 بدلاً من mb-8) وتقليل حشوته الداخلية (p-4 بدلاً من p-6) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <CustomSelect label="المنطقة" options={zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus }))} value={selectedZoneId} onChange={setSelectedZoneId} placeholder="اختر المنطقة" />
+                  <CustomSelect label="المندوب" options={drivers.map(d => ({ id: d.id, label: d.name }))} value={selectedDriverId} onChange={setSelectedDriverId} placeholder="اختر المندوب" />
+                  <CustomSelect label="السيارة" options={vehicles.map(v => ({ id: v.id, label: v.label }))} value={selectedVehicleId} onChange={setSelectedVehicleId} placeholder="اختر السيارة" />
                 </div>
-              </motion.div>
-            ) : (
-              <motion.div key="zones" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex gap-6 h-[calc(100vh-120px)]">
-                <div className="w-[30%] flex flex-col gap-4 min-h-0">
-                  <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
-                    <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
-                      <div className="flex items-center justify-between">
-                        <h2 className="font-bold text-slate-800">المناطق ({zones.length})</h2>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">🗑️ الأرشيف</button>
-                          <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">[+ منطقة جديدة]</button>
-                        </div>
-                      </div>
+
+                <div className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col">
+                  <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-white">
+                    <span className="text-base font-bold text-slate-700">جرد الحمولة (كرتونة)</span>
+                    <div className="flex items-center gap-4">
+                      {/* +++ مربع البحث السريع في المنتجات +++ */}
                       <div className="relative">
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input type="search" value={zoneSearchQueryMain} onChange={e => setZoneSearchQueryMain(e.target.value)} placeholder="بحث عن منطقة..." className="w-full rounded-xl border border-slate-200 bg-slate-50 pr-9 pl-4 py-2 text-xs focus:ring-2 focus:ring-[#1e87bb]/20 outline-none" />
+                        <input
+                          type="search"
+                          placeholder="ابحث عن منتج..."
+                          onChange={(e) => {
+                            // منطق فلترة بسيط بدون الحاجة لـ useState إضافي في الـ Root لتجنب الـ Re-renders الكثيرة
+                            const val = e.target.value.toLowerCase();
+                            const rows = document.querySelectorAll('.product-launch-row');
+                            rows.forEach(row => {
+                              const name = row.getAttribute('data-name')?.toLowerCase() || "";
+                              if (name.includes(val)) {
+                                (row as HTMLElement).style.display = 'table-row';
+                              } else {
+                                (row as HTMLElement).style.display = 'none';
+                              }
+                            });
+                          }}
+                          className="pl-4 pr-9 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-[#1e87bb] w-64 bg-slate-50 transition-all"
+                        />
+                      </div>
+                      <button onClick={() => setPreloadQuantities({})} className="text-sm font-bold text-red-500 hover:text-red-700 flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg transition-colors"><Eraser className="w-4 h-4" /> تصفير الكل</button>
+                    </div>
+                  </div>
+
+                  {/* +++ النسف المعماري: تقييد الارتفاع بـ 50vh مع Scrollbar أنيق +++ */}
+                  <div className="max-h-[50vh] overflow-y-auto custom-scrollbar bg-white">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 z-10 bg-slate-100 shadow-sm border-b border-slate-200">
+                        <tr className="text-slate-500 text-xs uppercase">
+                          <th className="text-start py-3 px-6 font-extrabold w-2/3">المنتج</th>
+                          <th className="text-center py-3 px-6 font-extrabold">الكمية (كرتونة)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {products.map(prod => (
+                          <tr key={prod.id} data-name={prod.name} className="product-launch-row hover:bg-slate-50 transition-colors">
+                            <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
+                            <td className="py-3 px-6">
+                              <div className="flex justify-center">
+                                <QuantityInput value={preloadQuantities[prod.id] ?? 0} onChange={n => setPreloadQuantities(p => ({ ...p, [prod.id]: n }))} />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleDispatchRoute}
+                  className="w-full mt-8 bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 text-white py-4 rounded-2xl text-lg font-black shadow-xl transition-all active:scale-[0.99] flex items-center justify-center gap-3"
+                >
+                  <Rocket className="w-6 h-6" /> اعتماد وإطلاق خط السير
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div key="zones" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex gap-4 h-[calc(100vh-120px)] w-full mt-[-10px]">
+              <div className="w-[29%] flex flex-col gap-4 min-h-0">
+                <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
+                  <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-bold text-slate-800">المناطق ({zones.length})</h2>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">🗑️ الأرشيف</button>
+                        <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">[+ منطقة جديدة]</button>
                       </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                      {zones.filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
-                        <div key={zone.id} onClick={() => setSelectedZoneIdForZones(zone.id)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition-all group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
-                          <span className="flex items-center gap-2">
-                            {zone.name}
-                            {(!zone.startDate || zone.visitDay === "غير محدد") && (
-                              <span title="تنبيه: لم يتم ضبط إعدادات الجدولة لهذه المنطقة" className="text-amber-500 bg-amber-50 rounded-full p-0.5 animate-pulse cursor-help"><AlertCircle className="w-3.5 h-3.5" /></span>
-                            )}
-                          </span>
-                          <p className="text-[10px] mt-1 flex items-center gap-1">
-                            <span className={zone.dateColor || "text-slate-400"}>{zone.visitDay} ({zone.startDate})</span>
-                            <span className="text-slate-300">•</span>
-                            <span className="text-[#1e87bb] font-bold">{zone.shopsCount || 0} محلات</span>
-                          </p>
-                        </div><div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSchedulingType("local"); setSchedulingForm({ frequency: zone.frequency, visitDay: zone.visitDay, startDate: zone.startDate }); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: zone.frequency, visitDay: zone.visitDay, startDate: zone.startDate }); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button></button><button onClick={e => { e.stopPropagation(); setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "حذف المنطقة؟", onConfirm: async () => { try { await authenticatedFetch(`/dispatch/zones/${zone.id}`, { method: "DELETE" }); setZones(prev => prev.filter(z => z.id !== zone.id)); setConfirmDialog(d => ({ ...d, isOpen: false })); toast.success("تم حذف المنطقة"); } catch (err: any) { toast.error("خطأ في الحذف: " + err.message); setConfirmDialog(d => ({ ...d, isOpen: false })); } } }); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button></div></div>))}</div>
-                  </div>
-                </div>
-                <div className="w-[70%] flex flex-col gap-4 min-h-0">
-                  <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
-                    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> إلغاء</button><button onClick={handleSaveReorder} disabled={isSaving || !hasUnsavedChanges} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : <><Save className="w-4 h-4" /> حفظ التعديلات</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" /> ترتيب وإدارة ⚙️</button>)}<button onClick={() => setShowRecycleBin(true)} className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm"><Trash2 className="w-5 h-5" /></button><button onClick={() => { setEditingShopId(null); setShopForm({ name: "", owner: "", phone: "", mapLink: "", zoneId: selectedZoneIdForZones, initialDebt: 0, maxDebtLimit: 0 }); setIsShopModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
-                    <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={(id, n) => { const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === id); const to = Math.max(0, Math.min(n - 1, list.length - 1)); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
-                      if (isEditMode) {
-                        // أرشفة محلية فقط في وضع التعديل
-                        setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
-                        setZones(prev => sortZones(prev.map(z => z.id === shops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: Math.max(0, (z.shopsCount || 0) - 1) } : z)));
-                        setHasUnsavedChanges(true);
-                        toast.info("تم إخفاء المحل محلياً. اضغط 'حفظ التعديلات' لتأكيد النقل للأرشيف.");
-                      } else {
-                        // الأرشفة الفورية العادية إذا لم يكن في وضع التعديل
-                        setConfirmDialog({
-                          isOpen: true,
-                          title: "تأكيد الأرشفة",
-                          message: "هل تريد أرشفة هذا المحل؟",
-                          onConfirm: async () => {
-                            try {
-                              await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify([{ id, archived: true }]) });
-                              setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
-                              toast.success("تم أرشفة المحل بنجاح");
-                            } catch (err: any) { toast.error("خطأ في الأرشفة: " + err.message); }
-                            finally { setConfirmDialog(d => ({ ...d, isOpen: false })); }
-                          }
-                        });
-                      }
-                    }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { const draggedId = e.dataTransfer.getData("shopId"); if (draggedId === targetId) return; const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === draggedId); const to = list.findIndex(s => s.id === targetId); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} />
-                    <AnimatePresence>{isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: any) { toast.error("خطأ في الأرشفة: " + err.message); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
-                    <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
-                      <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
-                        <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
-                        <div className="text-start">
-                          <p className="text-base font-bold text-slate-700 group-hover:text-[#1e87bb]">استيراد المحلات الذكي (Excel / Paste)</p>
-                          <p className="text-xs text-slate-500">اضغط هنا لفتح نافذة الاستيراد واختيار المنطقة</p>
-                        </div>
-                      </button>
+                    <div className="relative">
+                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input type="search" value={zoneSearchQueryMain} onChange={e => setZoneSearchQueryMain(e.target.value)} placeholder="بحث عن منطقة..." className="w-full rounded-xl border border-slate-200 bg-slate-50 pr-9 pl-4 py-2 text-xs focus:ring-2 focus:ring-[#1e87bb]/20 outline-none" />
                     </div>
                   </div>
+                  <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                    {zones.filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
+                      <div key={zone.id} onClick={() => setSelectedZoneIdForZones(zone.id)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition-all group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
+                        <span className="flex items-center gap-2">
+                          {zone.name}
+                          {(!zone.startDate || zone.visitDay === "غير محدد") && (
+                            <span title="تنبيه: لم يتم ضبط إعدادات الجدولة لهذه المنطقة" className="text-amber-500 bg-amber-50 rounded-full p-0.5 animate-pulse cursor-help"><AlertCircle className="w-3.5 h-3.5" /></span>
+                          )}
+                        </span>
+                        <p className="text-[10px] mt-1 flex items-center gap-1">
+                          <span className={zone.dateColor || "text-slate-400"}>{zone.visitDay} ({zone.startDate})</span>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-[#1e87bb] font-bold">{zone.shopsCount || 0} محلات</span>
+                        </p>
+                      </div><div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: zone.frequency, visitDay: zone.visitDay, startDate: zone.startDate }); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setZoneToKill(zone);
+                          setConfirmName("");
+                          setIsSuicideModalOpen(true);
+                        }}
+                        className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-red-500"
+                        title="أرشفة المنطقة بمسح شامل (سوبر أدمن)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button></div></div>))}</div>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </main>
+              </div>
+
+              {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
+              <div className="w-[75%] flex flex-col gap-4 min-h-0">
+                <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> إلغاء</button><button onClick={handleSaveReorder} disabled={isSaving || !hasUnsavedChanges} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : <><Save className="w-4 h-4" /> حفظ</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />ترتيب وإدارة</button>)}<button
+                    onClick={() => setShowRecycleBin(true)}
+                    className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm transition-all hover:text-red-500"
+                    title="فتح أرشيف المحلات المؤرشفة"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button><button onClick={() => { setEditingShopId(null); setShopForm({ name: "", owner: "", phone: "", mapLink: "", zoneId: selectedZoneIdForZones, initialDebt: 0, maxDebtLimit: 0 }); setIsShopModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
+                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={(id, n) => { const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === id); const to = Math.max(0, Math.min(n - 1, list.length - 1)); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
+                    if (isEditMode) {
+                      // +++ التصفيح: إضافة تأكيد قبل "الإخفاء" لمنع الأخطاء الطائشة +++
+                      if (!window.confirm("⚠️ هل أنت متأكد من رغبتك في أرشفة هذا المحل؟")) return;
+                      setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
+                      setZones(prev => sortZones(prev.map(z => z.id === shops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: Math.max(0, (z.shopsCount || 0) - 1) } : z)));
+                      setHasUnsavedChanges(true);
+                      toast.info("تم إخفاء المحل محلياً. اضغط 'حفظ التعديلات' لتأكيد النقل للأرشيف.");
+                    } else {
+                      // الأرشفة الفورية العادية إذا لم يكن في وضع التعديل
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: "تأكيد الأرشفة",
+                        message: "هل تريد أرشفة هذا المحل؟",
+                        onConfirm: async () => {
+                          try {
+                            await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify([{ id, archived: true }]) });
+                            setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
+                            toast.success("تم أرشفة المحل بنجاح");
+                          } catch (err: any) { toast.error("خطأ في الأرشفة: " + err.message); }
+                          finally { setConfirmDialog(d => ({ ...d, isOpen: false })); }
+                        }
+                      });
+                    }
+                  }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { const draggedId = e.dataTransfer.getData("shopId"); if (draggedId === targetId) return; const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === draggedId); const to = list.findIndex(s => s.id === targetId); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} />
+                  <AnimatePresence>{isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: any) { toast.error("خطأ في الأرشفة: " + err.message); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
+                  <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
+                    <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
+                      <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
+                      <div className="text-start">
+                        <p className="text-base font-bold text-slate-700 group-hover:text-[#1e87bb]">استيراد المحلات الذكي (Excel / Paste)</p>
+                        <p className="text-xs text-slate-500">اضغط هنا لفتح نافذة الاستيراد واختيار المنطقة</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       <ShortageModal
         isOpen={isShortageModalOpen}
@@ -933,11 +1015,12 @@ export default function DispatchBoard() {
         onSuccess={fetchInitialData}
       />
 
-      {/* +++ رادار الحوالات +++ */}
+      {/* +++ رادار الحوالات المصفح +++ */}
       <TransfersRadarModal
         isOpen={isRadarModalOpen}
         onClose={() => setIsRadarModalOpen(false)}
         route={radarRoute}
+        authenticatedFetch={authenticatedFetch} // +++ تمرير دالة الحماية لقتل الخطأ +++
       />
 
       <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
@@ -987,8 +1070,8 @@ export default function DispatchBoard() {
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-red-50 p-4 rounded-xl border border-red-200">
                 <h4 className="text-sm font-bold text-red-700 mb-2 border-b border-red-200 pb-2">البيانات المدخلة حديثاً</h4>
-                <p className="font-bold text-slate-800 text-sm">{duplicateWarning.pendingForm.name}</p>
-                <p className="text-xs text-slate-500 mt-1" dir="ltr">{duplicateWarning.pendingForm.phone}</p>
+                <p className="font-bold text-slate-800 text-sm">{duplicateWarning.localState.name}</p>
+                <p className="text-xs text-slate-500 mt-1" dir="ltr">{duplicateWarning.localState.phone}</p>
               </div>
               <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
                 <h4 className="text-sm font-bold text-emerald-700 mb-2 border-b border-emerald-200 pb-2">المحل الموجود مسبقاً</h4>
@@ -1054,6 +1137,7 @@ export default function DispatchBoard() {
                   setIsBulkTransferModalOpen(true);
                 }}
                 className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#156a94] transition-colors"
+                title="نقل المحل لمنطقة أخرى نشطة قبل تفعيله"
               >
                 نقل لمنطقة نشطة 🔄
               </button>
@@ -1082,6 +1166,46 @@ export default function DispatchBoard() {
           </div>
         </Modal>
       )}
+
+      {/* +++ مودال أرشفة المنطقة بمسح شامل (سوبر أدمن) +++ */}
+      <Modal
+        isOpen={isSuicideModalOpen}
+        onClose={() => setIsSuicideModalOpen(false)}
+        title={`⚠️ أرشفة منطقة: ${zoneToKill?.name}`}
+        footer={
+          <div className="flex gap-2 w-full">
+            <button onClick={() => setIsSuicideModalOpen(false)} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl">تراجع</button>
+            <button
+              disabled={confirmName !== zoneToKill?.name}
+              onClick={async () => {
+                try {
+                  await authenticatedFetch(`/dispatch/zones/${zoneToKill?.id}`, { method: "DELETE" });
+                  setZones(prev => prev.filter(z => z.id !== zoneToKill?.id));
+                  setIsSuicideModalOpen(false);
+                  toast.success(`تم أرشفة المنطقة (${zoneToKill?.name}) وكل محلاتها بنجاح ✅`);
+                } catch (err: any) { toast.error(err.message); }
+              }}
+              className="flex-1 bg-red-600 text-white py-2 rounded-xl font-bold hover:bg-red-700 disabled:opacity-30 transition-all shadow-lg"
+            >
+              تأكيد المسح الشامل 🧨
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="bg-red-50 border-r-4 border-red-500 p-4">
+            <p className="text-sm text-red-800 font-bold">هذا الإجراء سيؤدي لأرشفة المنطقة وجميع المحلات التابعة لها ({zoneToKill?.shopsCount || 0} محل) فوراً.</p>
+          </div>
+          <p className="text-xs text-slate-600">لتأكيد هذه العملية الخطيرة، يرجى كتابة اسم المنطقة <span className="font-black text-red-600">({zoneToKill?.name})</span> في الأسفل:</p>
+          <input
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            className="w-full rounded-xl border-2 border-red-100 p-3 text-center font-black text-slate-800 focus:border-red-500 outline-none transition-all"
+            placeholder="اكتب اسم المنطقة هنا..."
+          />
+        </div>
+      </Modal>
     </div>
   );
 }
+

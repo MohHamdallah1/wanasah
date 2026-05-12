@@ -91,66 +91,55 @@ class MyApp extends StatelessWidget {
         supportedLocales: const [Locale('ar', '')],
         locale: const Locale('ar', ''),
 
-        // +++ الهندسة البصرية الموحدة (Edge-to-Edge Visual Hub) +++
+        // +++ الهندسة البصرية الموحدة 2026: منع تسريب التطبيق تحت أزرار النظام +++
         builder: (context, child) {
-          return Material(
-            // +++ ضمان وجود سياق مادي للتطبيق +++
-            color: Colors.transparent,
-            child: Stack(
-              children: [
-                // الطبقة 0: التدرج اللوني (ثابت لا يتغير أبداً)
-                Positioned.fill(
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color.fromARGB(
-                            255,
-                            228,
-                            247,
-                            145,
-                          ), // اللون الأول (الأعلى) أصفر ليموني خفيف جداً
-                          Color.fromARGB(
-                            255,
-                            189,
-                            189,
-                            189,
-                          ), // اللون الثاني (الوسط) أصفر قشدي
-                          Colors.white, // اللون الثالث (الأسفل) أبيض نقي
-                        ],
-                        stops: [
-                          0.0,
-                          0.3,
-                          0.8,
-                        ], // +++ إضافة نقطة التوقف الثالثة +++
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: const SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: Brightness.dark,
+              systemNavigationBarColor: Colors.white, // +++ جعل الشريط السفلي صلباً وأبيض +++
+              systemNavigationBarIconBrightness: Brightness.dark,
+              systemNavigationBarDividerColor: Colors.transparent,
+            ),
+            child: SafeArea(
+              top: false,
+              bottom: true, // +++ إجبار التطبيق على الانتهاء قبل أزرار النظام +++
+              child: Material(
+                color: Colors.white,
+                child: Stack(
+                  children: [
+                    // الطبقة 0: التدرج اللوني (يتحرك الآن داخل حدود الـ SafeArea فقط)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color.fromARGB(255, 194, 201, 173),
+                              Color.fromARGB(255, 117, 179, 97),
+                              Color.fromARGB(255, 255, 255, 255),
+                            ],
+                            stops: [0.0, 0.3, 0.8],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    // الطبقة 1: المراقب والشاشات
+                    BlocListener<AuthBloc, AuthState>(
+                      listener: (context, state) {
+                        if (state is AuthUnauthenticated) {
+                          navigatorKey.currentState?.pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (_) => const LoginScreen()),
+                            (route) => false,
+                          );
+                        }
+                      },
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                  ],
                 ),
-                // الطبقة 1: التحكم بشريط النظام والمراقب
-                AnnotatedRegion<SystemUiOverlayStyle>(
-                  value: const SystemUiOverlayStyle(
-                    statusBarColor: Colors.transparent,
-                    statusBarIconBrightness: Brightness.dark,
-                  ),
-                  child: BlocListener<AuthBloc, AuthState>(
-                    listener: (context, state) {
-                      if (state is AuthUnauthenticated) {
-                        navigatorKey.currentState?.pushAndRemoveUntil(
-                          MaterialPageRoute(
-                            builder: (_) => const LoginScreen(),
-                          ),
-                          (route) => false,
-                        );
-                      }
-                    },
-                    // الطبقة 2: الشاشات الفعلية (Navigator)
-                    child: child ?? const SizedBox.shrink(),
-                  ),
-                ),
-              ],
+              ),
             ),
           );
         },

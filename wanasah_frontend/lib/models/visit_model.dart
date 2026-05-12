@@ -17,6 +17,8 @@ class VisitModel {
   final String? locationLink;
   final double? latitude;
   final double? longitude;
+  String? cartItemsJson; // +++ لحفظ السلة محلياً +++
+  String? returnsJson; // +++ لحفظ التوالف محلياً +++
 
   VisitModel({
     required this.id,
@@ -49,9 +51,18 @@ class VisitModel {
       id: json['id'] ?? json['visit_id'] ?? 0,
       shopId: json['shop_id'] ?? 0,
       shopName: json['shop_name'] ?? json['shopName'] ?? 'محل غير معروف',
+
+      // +++ النسف المعماري: قراءة الحقل كنص ثم تحويله بأمان لمنع الـ Crash في حالة Float/String +++
       shopBalance:
-          (json['shop_balance'] ?? json['current_balance'] ?? 0).toDouble(),
-      maxDebtLimit: (json['max_debt_limit'] ?? 0).toDouble(),
+          double.tryParse(
+            json['shop_balance']?.toString() ??
+                json['current_balance']?.toString() ??
+                '0',
+          ) ??
+          0.0,
+      maxDebtLimit:
+          double.tryParse(json['max_debt_limit']?.toString() ?? '0') ?? 0.0,
+
       shopZoneId: json['shop_zone_id'], // +++
       allowedZoneId: json['allowed_zone_id'], // +++
       // توحيد الحالات حسب ما يرسله الباك-إند بالضبط (يدعم مسار القائمة ومسار التفاصيل)
@@ -99,6 +110,8 @@ class VisitModel {
       'location_link': locationLink,
       'latitude': latitude,
       'longitude': longitude,
+      'cart_items': cartItemsJson,
+      'returns': returnsJson,
     };
   }
 }

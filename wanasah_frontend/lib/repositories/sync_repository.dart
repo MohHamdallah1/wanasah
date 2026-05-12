@@ -107,24 +107,25 @@ class SyncRepository {
   }) async {
     final Map<String, dynamic> safePayload = jsonDecode(jsonEncode(payload));
 
-    if (safePayload['cart_items'] != null) {
-      for (var item in safePayload['cart_items']) {
-        item['quantity'] = item['cartons'] ?? 0;
-        item['packs_quantity'] = item['packs'] ?? 0;
-        item['sample_quantity'] = item['sample_cartons'] ?? 0;
-        item['sample_packs_quantity'] = item['sample_packs'] ?? 0;
-      }
-    }
-    if (safePayload['returns'] != null) {
-      for (var ret in safePayload['returns']) {
-        ret['quantity'] = ret['cartons'] ?? 0;
-        ret['packs_quantity'] = ret['packs'] ?? 0;
-      }
-    }
+    // +++ النسف المعماري لثغرة تصفير الفواتير: تم إعدام الكود الكارثي الذي كان يحول الكميات إلى صفر +++
 
     // +++ تعريف المتغير مرة واحدة فقط لمنع خطأ المترجم (Dart Error) +++
     final String finalStatus =
         (safePayload['outcome'] == 'Postponed') ? 'Pending' : 'Completed';
+
+    // +++ النسف المعماري الشامل للثقب الأسود (تحديث الـ Local DB بالكامل في جميع الحالات) +++
+    Future<void> updateDataTask() async {
+      await _db.updateVisitStatus(
+        visitId: visitId,
+        status: finalStatus,
+        outcome: safePayload['outcome'] ?? 'Sale',
+        cashCollected: (safePayload['cash_collected'] as num?)?.toDouble() ?? 0.0,
+        debtPaid: (safePayload['debt_paid'] as num?)?.toDouble() ?? 0.0,
+        cartItemsJson: safePayload['cart_items'] != null ? jsonEncode(safePayload['cart_items']) : null,
+        returnsJson: safePayload['returns'] != null ? jsonEncode(safePayload['returns']) : null,
+        notes: safePayload['notes']?.toString(),
+      );
+    }
 
     try {
       await _dispatchPendingRecord(
@@ -132,12 +133,7 @@ class SyncRepository {
         payload: {...safePayload, 'visitId': visitId},
       );
 
-      // +++ استخدام المتغير لحماية التأجيل +++
-      await _db.updateVisitStatus(
-        visitId: visitId,
-        status: finalStatus,
-        outcome: safePayload['outcome'] ?? 'Sale',
-      );
+      await updateDataTask(); // +++ حفظ كل شيء محلياً عند النجاح المباشر لسد ثغرة السلة الفارغة +++
       developer.log('[SyncRepository] Invoice #$visitId synced immediately.');
     } catch (e) {
       if (e is DioException && e.response?.statusCode != null) {
@@ -154,7 +150,6 @@ class SyncRepository {
         '[SyncRepository] Offline mode triggered for invoice #$visitId. Reason: $e',
       );
 
-      // +++ إعدام الزومبي الموحد: مسح الفاتورة القديمة من الطابور قبل وضع الجديدة لمنع تكرار المزامنة +++
       final existingPending = await _db.getPendingSyncs();
       for (var p in existingPending) {
         if (p['type'] == 'submit_sale') {
@@ -170,15 +165,7 @@ class SyncRepository {
         payload: jsonEncode({...safePayload, 'visitId': visitId}),
       );
 
-      // +++ استخدام نفس المتغير هنا لتحديث الداشبورد المحلي +++
-      await _db.updateVisitStatus(
-        visitId: visitId,
-        status: finalStatus,
-        outcome: safePayload['outcome'] ?? 'Sale',
-        cashCollected:
-            (safePayload['cash_collected'] as num?)?.toDouble() ?? 0.0,
-        debtPaid: (safePayload['debt_paid'] as num?)?.toDouble() ?? 0.0,
-      );
+      await updateDataTask(); // +++ حفظ كل شيء محلياً في وضع الأوفلاين +++
 
       if (safePayload['cart_items'] != null) {
         await _db.deductInventoryLocal(safePayload['cart_items']);
@@ -258,15 +245,24 @@ class SyncRepository {
     switch (type) {
       case 'submit_sale':
         final visitId = payload['visitId'] as int;
-        // +++ الكيّ الجراحي: تصحيح الرابط بإضافة /submit وتجهيز البيانات بدقة +++
         final body = Map<String, dynamic>.from(payload)..remove('visitId');
 
-        // التأكد من إرسال الـ outcome والـ items والـ returns كما يتوقعها routes.py
         final response = await _api.put('/visits/$visitId', data: body);
 
-        // إذا السيرفر رجع نجاح، الـ syncUp المفروض يمسح الريكورد (تأكد أن الـ syncUp يستدعي delete)
         if (response.statusCode != 200 && response.statusCode != 201) {
           throw Exception('فشل السيرفر في معالجة الفاتورة: ${response.data}');
+        }
+
+        // +++ النسف المعماري لمشكلة الذمة: تحديث رصيد المحل محلياً بناءً على استجابة السيرفر فور نجاح الرفع +++
+        if (response.data != null && response.data['new_balance'] != null) {
+          final double newBalance =
+              double.tryParse(response.data['new_balance'].toString()) ?? 0.0;
+          await _db.database.then((db) {
+            db.rawUpdate(
+              'UPDATE visits SET shop_balance = ? WHERE visit_id = ?',
+              [newBalance, visitId],
+            );
+          });
         }
         break;
 
@@ -293,7 +289,17 @@ class SyncRepository {
 // دوال معزولة (Top-Level Functions) لاستخدامها مع Isolate/compute
 // -----------------------------------------------------------------------
 List<VisitModel> _parseVisits(List<Map<String, dynamic>> data) {
-  return data.map((v) => VisitModel.fromJson(v)).toList();
+  return data.map((v) {
+    final visit = VisitModel.fromJson(v);
+    // +++ المزامنة العكسية: تحويل القوائم إلى نصوص JSON لحفظها في القاعدة المحلية +++
+    if (v['cart_items'] != null) {
+      visit.cartItemsJson = jsonEncode(v['cart_items']);
+    }
+    if (v['returns'] != null) {
+      visit.returnsJson = jsonEncode(v['returns']);
+    }
+    return visit;
+  }).toList();
 }
 
 List<ProductModel> _parseProducts(List<Map<String, dynamic>> data) {

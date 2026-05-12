@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
+import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { getFleetStats } from "@/data/operations-data";
 import type { DriverData } from "@/data/operations-data";
-import { OperationsSidebar } from "@/components/operations/OperationsSidebar";
-import { TopBar } from "@/components/operations/TopBar";
 import { PulseBar } from "@/components/operations/PulseBar";
 import { toast } from "sonner";
 import { FleetRadar } from "@/components/operations/FleetRadar";
@@ -12,25 +11,18 @@ import { SettlementModal } from "@/components/operations/SettlementModal";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 
 const Index = () => {
+  const authFetch = useAuthFetch(); // +++ تفعيل الدرع الموحد +++
   const [drivers, setDrivers] = useState<DriverData[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [undoSessionId, setUndoSessionId] = useState<number | null>(null);
 
   const fetchLiveOperations = async () => {
     try {
-      const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/sessions/today`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
+      // +++ النسف المعماري: استخدام الهوك الموحد لضمان الأمن والتصفيح +++
+      const data = await authFetch("/admin/sessions/today");
+      if (data) {
 
         // +++ النسف المعماري لمثلث برمودا الزمني: تحويل UTC الوارد من السيرفر إلى توقيت المتصفح المحلي (الأردن/قطر) +++
         const formattedData = data.map((d: any) => {
@@ -71,7 +63,8 @@ const Index = () => {
     setDrivers((prev) => prev.map((d) => d.session.session_id === id ? { ...d, session: { ...d.session, is_authorized_to_sell: newAuthStatus } } : d));
 
     try {
-      const token = localStorage.getItem('admin_token');
+      // +++ النسف المعماري: حماية التوكن من العمى الأمني +++
+      const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
       const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/sessions/${id}/authorize`, {
         method: 'PUT',
         headers: {
@@ -87,17 +80,18 @@ const Index = () => {
   };
 
   // دالة تأكيد التسوية وإرسال الفروقات للخادم
-  const handleConfirmSettlement = async (actualCash: number, inventoryJard: any[]) => {
+  const handleConfirmSettlement = async (actualCash: number, inventoryJard: any[], notes: string) => {
     if (!selectedDriver) return;
     try {
-      const token = localStorage.getItem('admin_token');
+      // +++ النسف المعماري: حماية توكن التسوية +++
+      const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
       const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/sessions/${selectedDriver.session.session_id}/settle`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ actual_cash: actualCash, inventory_jard: inventoryJard })
+        body: JSON.stringify({ actual_cash: actualCash, inventory_jard: inventoryJard, notes: notes })
       });
       if (!response.ok) {
         const errorData = await response.json();
@@ -137,46 +131,41 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen mesh-gradient-bg p-3 md:p-4 flex gap-4" dir="rtl">
-      <OperationsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className="flex-1 flex flex-col gap-4 min-w-0">
+    <div className="w-full flex flex-col gap-4 animate-in fade-in duration-500">
 
-        <TopBar onMenuToggle={() => setSidebarOpen(true)} />
+      <PulseBar
+        totalCash={stats.totalCash}
+        cashFromSales={stats.cashFromSales}
+        cashFromDebts={stats.cashFromDebts}
+        totalSoldCartons={stats.totalSoldCartons}
+        completedVisits={stats.completedVisits}
+        totalVisits={stats.totalVisits}
+        activeDrivers={stats.activeDrivers}
+        onBreakDrivers={stats.onBreakDrivers}
+      />
 
-        <PulseBar
-          totalCash={stats.totalCash}
-          cashFromSales={stats.cashFromSales}
-          cashFromDebts={stats.cashFromDebts}
-          totalSoldCartons={stats.totalSoldCartons}
-          completedVisits={stats.completedVisits}
-          totalVisits={stats.totalVisits}
-          activeDrivers={stats.activeDrivers}
-          onBreakDrivers={stats.onBreakDrivers}
-        />
-
-        <div className="flex flex-col lg:flex-row gap-4 flex-1">
-          <div className="lg:flex-[65] min-w-0">
-            <FleetRadar
-              drivers={drivers}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onToggleAuth={handleToggleAuth}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-            />
-          </div>
-          <div className="lg:flex-[35] min-w-0">
-            <CommandCenter
-              driver={selectedDriver}
-              onApproveSettlement={() => setIsSettlementModalOpen(true)}
-              onUndoEndWork={() => {
-                if (!selectedDriver) return;
-                setUndoSessionId(selectedDriver.session.session_id);
-              }}
-            />
-          </div>
+      <div className="flex flex-col lg:flex-row gap-4 flex-1">
+        <div className="lg:flex-[65] min-w-0">
+          <FleetRadar
+            drivers={drivers}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onToggleAuth={handleToggleAuth}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+          />
         </div>
-      </main>
+        <div className="lg:flex-[35] min-w-0">
+          <CommandCenter
+            driver={selectedDriver}
+            onApproveSettlement={() => setIsSettlementModalOpen(true)}
+            onUndoEndWork={() => {
+              if (!selectedDriver) return;
+              setUndoSessionId(selectedDriver.session.session_id);
+            }}
+          />
+        </div>
+      </div>
 
       <SettlementModal
         isOpen={isSettlementModalOpen}

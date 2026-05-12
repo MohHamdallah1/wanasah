@@ -53,13 +53,16 @@ class RespondToTransfer extends DashboardEvent {
 // +++ الصاروخ الباليستي: حدث الرد الجماعي على الحوالات +++
 class RespondToBatchTransfer extends DashboardEvent {
   final List<int> transferIds;
-  final String responseStatus; // 'accepted' or 'rejected'
+  final String responseStatus;
+  // +++ إضافة المصفوفة التفصيلية للحوالات الفردية +++
+  final List<Map<String, dynamic>> detailedTransfers;
 
   const RespondToBatchTransfer({
     required this.transferIds,
     required this.responseStatus,
+    this.detailedTransfers = const [],
   });
 
   @override
-  List<Object> get props => [transferIds, responseStatus];
+  List<Object> get props => [transferIds, responseStatus, detailedTransfers];
 }

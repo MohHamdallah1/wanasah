@@ -40,7 +40,7 @@ export function ShopTable({
           <tr className="text-slate-400 text-[10px] uppercase border-b border-slate-100">
             {isEditMode && (
               <th className="w-12 p-3 px-4">
-                <input 
+                <input
                   type="checkbox"
                   checked={shops.length > 0 && selectedShopIds.length === shops.length}
                   onChange={onToggleSelectAll}
@@ -73,7 +73,7 @@ export function ShopTable({
               >
                 {isEditMode && (
                   <td className="p-3 px-4 text-center flex items-center gap-2">
-                    <input 
+                    <input
                       type="checkbox"
                       checked={selectedShopIds.includes(shop.id)}
                       onChange={() => onToggleSelectShop(shop.id)}
@@ -120,10 +120,18 @@ export function ShopTable({
                 {isEditMode && (
                   <td className="p-3">
                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity px-4">
-                      <button onClick={() => onEditShop(shop)} className="p-2 text-slate-400 hover:text-[#1e87bb] hover:bg-emerald-50 rounded-lg transition-all">
+                      <button
+                        onClick={() => onEditShop(shop)}
+                        className="p-2 text-slate-400 hover:text-[#1e87bb] hover:bg-emerald-50 rounded-lg transition-all"
+                        title="تعديل بيانات المحل"
+                      >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button onClick={() => onArchiveShop(shop.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                      <button
+                        onClick={() => onArchiveShop(shop.id)}
+                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                        title="أرشفة المحل (سيختفي من القائمة النشطة)"
+                      >
                         <Archive className="w-4 h-4" />
                       </button>
                     </div>

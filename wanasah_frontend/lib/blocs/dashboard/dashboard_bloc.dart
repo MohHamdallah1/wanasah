@@ -283,13 +283,27 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
               countsData?['sales_in_completed'] ?? localData.salesInCompleted,
           driverName: data['driver_name'] ?? localData.driverName,
           assignedRegion: data['assigned_region'] ?? localData.assignedRegion,
+          // +++ النسف المعماري (Float Precision Loss): قراءة المبالغ كنصوص وتحويلها بأمان لمنع الـ Crash +++
           totalSalesCash:
-              (financials?['total_sales_cash'] as num?)?.toDouble() ?? 0.0,
+              double.tryParse(
+                financials?['total_sales_cash']?.toString() ?? '0',
+              ) ??
+              0.0,
           totalDebtPaid:
-              (financials?['total_debt_paid'] as num?)?.toDouble() ?? 0.0,
-          debtPaymentsCount: financials?['debt_payments_count'] as int? ?? 0,
+              double.tryParse(
+                financials?['total_debt_paid']?.toString() ?? '0',
+              ) ??
+              0.0,
+          debtPaymentsCount:
+              int.tryParse(
+                financials?['debt_payments_count']?.toString() ?? '0',
+              ) ??
+              0,
           totalCashOverall:
-              (financials?['total_cash_overall'] as num?)?.toDouble() ?? 0.0,
+              double.tryParse(
+                financials?['total_cash_overall']?.toString() ?? '0',
+              ) ??
+              0.0,
           isActiveSession: sessionIsActive,
           activeSessionStartTime: startTimeStr,
           isOnBreak: isOnBreak,
@@ -406,8 +420,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       await ApiClient.instance.put(
         '/driver/transfers/batch_respond',
         data: {
-          'transfer_ids': event.transferIds,
-          'response': event.responseStatus,
+          // +++ إرسال المصفوفة التفصيلية للسيرفر ليعالج كل صنف لحاله +++
+          'transfers': event.detailedTransfers,
         },
       );
 

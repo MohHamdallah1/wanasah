@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:map_launcher/map_launcher.dart';
@@ -11,6 +10,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../blocs/visit/visit_bloc.dart';
 import '../models/cart_item_model.dart';
 import '../models/product_model.dart';
+import 'dart:developer' as developer;
 
 // --- تعريف الكلاس StatefulWidget ---
 class VisitScreen extends StatefulWidget {
@@ -44,6 +44,8 @@ class _VisitScreenState extends State<VisitScreen> {
   bool _isAuthorizedToSell = false;
   bool _hasChanges = false;
   bool _isLoading = true;
+  bool _isSubmitting = false; 
+  bool _isCatalogMode = false; // +++ مفتاح التبديل بين الفاتورة والكاتالوج +++
   String? _error;
 
   // متغيرات الموقع والحماية الجغرافية والمالية
@@ -59,7 +61,15 @@ class _VisitScreenState extends State<VisitScreen> {
   @override
   void initState() {
     super.initState();
-    _visitBloc = VisitBloc()..add(LoadVisitCatalog(widget.shopBalance));
+    _visitBloc = VisitBloc();
+
+    // +++ النسف المعماري للـ Jank (التداخل): تأخير العمليات الثقيلة حتى ينتهي Navigator Animation +++
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _visitBloc.add(LoadVisitCatalog(widget.shopBalance));
+        _fetchDataOnInit();
+      }
+    });
 
     _cashController.addListener(() {
       _hasChanges = true;
@@ -73,8 +83,6 @@ class _VisitScreenState extends State<VisitScreen> {
       final amount = double.tryParse(_debtPaidController.text) ?? 0.0;
       _visitBloc.add(UpdateDebtPaid(amount));
     });
-
-    _fetchDataOnInit();
   }
 
   @override
@@ -141,31 +149,55 @@ class _VisitScreenState extends State<VisitScreen> {
 
           if (!mounted) return;
 
-          // المنع القطعي: مسودة الأوفلاين
+          // +++ النسف المعماري: السماح بتعديل المسودة الأوفلاين (Local Authority) +++
           if (isOfflineDraft) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text(
-                  'مرفوض: الزيارة معلقة بوضع الأوفلاين. يجب مزامنتها مع الإدارة أولاً قبل السماح بتعديلها.',
+                  'تنبيه: أنت تقوم بتعديل فاتورة لم تُرسل للإدارة بعد (أوفلاين).',
                 ),
-                backgroundColor: Colors.red,
-                duration: Duration(seconds: 5), // مدة طويلة ليقرأها بوضوح
+                backgroundColor: Colors.blue,
+                duration: Duration(seconds: 3),
               ),
             );
-            Navigator.pop(context);
-            return;
           }
 
-          // التحذير الصارم: فاتورة أونلاين فعلية
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'تنبيه: هذه الزيارة معتمدة مالياً مسبقاً. أي حفظ سيقوم بإلغاء الفاتورة القديمة واعتماد الجديدة كلياً.',
+          // +++ النسف المعماري (متوسط 3): إنذار الكاش المزلزل لمنع السرقة أو نسيان إرجاع المال +++
+          final double oldCash =
+              (visitData['cash_collected'] as num?)?.toDouble() ?? 0.0;
+          final double oldDebt =
+              (visitData['debt_paid'] as num?)?.toDouble() ?? 0.0;
+          final double totalOldMoney = oldCash + oldDebt;
+
+          if (totalOldMoney > 0) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '🚨 تحذير مالي خطير: هذه الزيارة محصلة مسبقاً بمبلغ (${totalOldMoney.toStringAsFixed(2)} د.أ). إذا قمت بالحفظ، سيقوم النظام بتصفير هذا المبلغ، ويجب عليك إعادته يدوياً لصاحب المحل فوراً!',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: Colors.white,
+                  ),
+                ),
+                backgroundColor: Colors.red.shade800,
+                duration: const Duration(
+                  seconds: 10,
+                ), // وقت طويل ليقرأه غصب عنه
               ),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
-            ),
-          );
+            );
+          } else {
+            // التحذير العادي لفاتورة بدون كاش
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'تنبيه: هذه الزيارة معتمدة مسبقاً. أي حفظ سيلغي القديمة ويعتمد الجديدة.',
+                ),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
         }
       }
 
@@ -175,12 +207,17 @@ class _VisitScreenState extends State<VisitScreen> {
       for (var p in pendingSyncs.reversed) {
         if (p['type'] == 'submit_sale') {
           final payload = jsonDecode(p['payload'] as String);
-          if (payload['visitId'] == widget.visitId) {
+          // +++ إصلاح مشكلة عدم تزامن الفاتورة: الفحص المزدوج لاسم المفتاح في الـ JSON +++
+          if (payload['visitId'] == widget.visitId || payload['visit_id'] == widget.visitId) {
             offlinePayload = payload;
             break;
           }
         }
       }
+
+      // +++ النسف المعماري: استخراج الحالة للتحقق من المزامنة العكسية بأمان +++
+      final String? currentStatus =
+          visitData['status'] ?? visitData['visit_status'];
 
       if (offlinePayload != null) {
         final cashDouble =
@@ -194,13 +231,68 @@ class _VisitScreenState extends State<VisitScreen> {
         _notesController.text =
             offlinePayload['notes'] ?? offlinePayload['no_sale_reason'] ?? '';
 
+        // +++ النسف المعماري (حرج 5): استرجاع السلة والتوالف من الخزنة السرية إذا كانت الزيارة أوفلاين +++
+        if (offlinePayload['cart_items'] != null ||
+            offlinePayload['returns'] != null) {
+          
+          // +++ الكي الجراحي الأضخم: إجبار الكود على الانتظار حتى يجهز البلوك (VisitReady) قبل حقن الفاتورة +++
+          if (_visitBloc.state is! VisitReady) {
+            await _visitBloc.stream.firstWhere((state) => state is VisitReady);
+          }
+
+          _visitBloc.add(
+            LoadCompletedVisitData(
+              cartItemsJson:
+                  offlinePayload['cart_items'] != null
+                      ? jsonEncode(offlinePayload['cart_items'])
+                      : null,
+              returnsJson:
+                  offlinePayload['returns'] != null
+                      ? jsonEncode(offlinePayload['returns'])
+                      : null,
+              cashCollected: cashDouble,
+              debtPaid: debtDouble,
+              notes: _notesController.text,
+            ),
+          );
+        }
+
         if (mounted) {
+          _cashController.text = cashDouble > 0 ? cashDouble.toStringAsFixed(2) : '';
+          _debtPaidController.text = debtDouble > 0 ? debtDouble.toStringAsFixed(2) : '';
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('تم استرجاع الكاش والملاحظات من المسودة.'),
               backgroundColor: Colors.blue,
             ),
           );
+        }
+      } else if (currentStatus == 'Completed') {
+        final String? cartJson = visitData['cart_items'];
+        final String? returnsJson = visitData['returns'];
+        final double oldCash = (visitData['cash_collected'] as num?)?.toDouble() ?? 0.0;
+        final double oldDebt = (visitData['debt_paid'] as num?)?.toDouble() ?? 0.0;
+
+        if (cartJson != null || returnsJson != null) {
+          
+          // +++ حماية التزامن: الانتظار حتى يجهز البلوك لاستقبال الفاتورة القديمة +++
+          if (_visitBloc.state is! VisitReady) {
+            await _visitBloc.stream.firstWhere((state) => state is VisitReady);
+          }
+
+          _visitBloc.add(
+            LoadCompletedVisitData(
+              cartItemsJson: cartJson,
+              returnsJson: returnsJson,
+              cashCollected: oldCash,
+              debtPaid: oldDebt,
+              notes: visitData['notes'] ?? '',
+            ),
+          );
+          if (mounted) {
+            _cashController.text = oldCash > 0 ? oldCash.toStringAsFixed(2) : '';
+            _debtPaidController.text = oldDebt > 0 ? oldDebt.toStringAsFixed(2) : '';
+          }
         }
       }
     } catch (e) {
@@ -242,7 +334,9 @@ class _VisitScreenState extends State<VisitScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider.value(
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(), // إغلاق الكيبورد عند لمس أي مكان
+      child: BlocProvider.value(
       value: _visitBloc,
       child: BlocListener<VisitBloc, VisitState>(
         listener: (context, state) {
@@ -275,12 +369,14 @@ class _VisitScreenState extends State<VisitScreen> {
             }
           },
           child: Scaffold(
-            backgroundColor:
-                Colors
-                    .transparent, // +++ جعل الخلفية شفافة لرؤية التدرج العالمي +++
+            // +++ النسف المعماري لظاهرة الأشباح: إعطاء لون صلب يمنع شفافية الشاشات أثناء التنقل +++
+            backgroundColor: Colors.transparent,
             appBar: AppBar(
               backgroundColor: Colors.transparent,
               elevation: 0,
+              surfaceTintColor:
+                  Colors
+                      .transparent, // لمنع تغيير لون الـ AppBar عند التمرير تحته
               title: Text(widget.shopName),
               centerTitle: true,
               actions: [
@@ -295,26 +391,6 @@ class _VisitScreenState extends State<VisitScreen> {
                           : _openMap,
                 ),
               ],
-              bottom: PreferredSize(
-                preferredSize: const Size.fromHeight(30),
-                child: BlocBuilder<VisitBloc, VisitState>(
-                  builder: (context, state) {
-                    if (state is VisitReady) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8.0),
-                        child: Text(
-                          'الذمة السابقة: ${widget.shopBalance.toStringAsFixed(2)} | الحالية المتوقعة: ${state.expectedNewBalance.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
-              ),
             ),
             body:
                 _isLoading
@@ -330,189 +406,113 @@ class _VisitScreenState extends State<VisitScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 
-  // --- واجهة السلة الذكية ---
+  // --- واجهة السلة الذكية 2026 (الموحدة) ---
   Widget _buildSmartCartUI() {
     return IgnorePointer(
       ignoring: _isOnBreak,
-      child: Column(
-        children: [
-          if (_isOnBreak)
-            Container(
-              margin: const EdgeInsets.all(10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red[50],
-                border: Border.all(color: Colors.red),
-              ),
-              child: Text(
-                'أنت في وقت الاستراحة. العمليات مقفلة.',
-                style: TextStyle(
-                  color: Colors.red[800],
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          if (!_isAuthorizedToSell)
-            Container(
-              margin: const EdgeInsets.all(10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange[50],
-                border: Border.all(color: Colors.orange),
-              ),
-              child: Text(
-                'غير مصرح لك بالبيع. بانتظار التفعيل.',
-                style: TextStyle(
-                  color: Colors.orange[800],
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+      child: BlocBuilder<VisitBloc, VisitState>(
+        builder: (context, state) {
+          if (state is VisitLoading) return const Center(child: CircularProgressIndicator());
+          if (state is VisitReady) {
+            // الحالة 1: وضع اختيار المنتجات (الكاتالوج المطور 2026)
+            if (_isCatalogMode) {
+              return Column(
+                children: [
+                  // سطر البحث والإغلاق المدمج (بدون AppBar)
+                  _SearchableCatalog(
+                    catalog: state.catalog,
+                    cart: state.cart,
+                    visitBloc: _visitBloc,
+                    onCartUpdated: () => setState(() => _hasChanges = true),
+                    onClose: () => setState(() => _isCatalogMode = false),
+                  ),
+                ],
+              );
+            }
 
-          Expanded(
-            child: BlocBuilder<VisitBloc, VisitState>(
-              builder: (context, state) {
-                if (state is VisitLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                // +++ سد ثغرة التحميل اللانهائي: عرض زر التحديث إذا فشل جلب المنتجات +++
-                if (state is VisitError && _isLoading == false) {
-                  return Center(
-                    child: ElevatedButton.icon(
-                      onPressed:
-                          () => _visitBloc.add(
-                            LoadVisitCatalog(widget.shopBalance),
-                          ),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('إعادة تحميل المنتجات'),
-                    ),
-                  );
-                }
-                if (state is VisitReady) {
-                  if (state.cart.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.shopping_basket_outlined,
-                            size: 80,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'السلة فارغة، ابدأ بإضافة المنتجات',
-                            style: TextStyle(color: Colors.grey, fontSize: 16),
-                          ),
-                          const SizedBox(height: 24),
-                          ElevatedButton.icon(
-                            onPressed:
-                                _isAuthorizedToSell
-                                    ? () => _showProductSearch(state.catalog)
-                                    : null,
-                            icon: const Icon(Icons.add),
-                            label: const Text(
-                              'إضافة منتج للزيارة',
-                              style: TextStyle(fontSize: 18),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 32,
-                                vertical: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  } else {
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: state.cart.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == state.cart.length) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            child: ElevatedButton.icon(
-                              onPressed:
-                                  _isAuthorizedToSell
-                                      ? () => _showProductSearch(state.catalog)
-                                      : null,
-                              icon: const Icon(Icons.add_circle_outline),
-                              label: const Text('إضافة صنف آخر'),
-                            ),
-                          );
-                        }
-                        final item = state.cart[index];
-                        return Card(
-                          elevation: 2,
-                          margin: const EdgeInsets.only(bottom: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ListTile(
-                            title: Text(
-                              item.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            subtitle: Text(
-                              'مبيع: ${item.cartons} ك، ${item.packs} ح | توالف: ${item.returnCartons} ك',
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '${item.totalSalePrice.toStringAsFixed(2)} د.أ',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.edit,
-                                    color: Colors.blue,
-                                  ),
-                                  onPressed: () => _showMagicDialog(item),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete,
-                                    color: Colors.red,
-                                  ),
-                                  onPressed: () {
-                                    _hasChanges = true;
-                                    _visitBloc.add(
-                                      RemoveCartItem(item.productVariantId),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  }
-                }
-                return const SizedBox.shrink();
-              },
+            // الحالة 2: وضع الفاتورة الرئيسي (السلة)
+            return Column(
+              children: [
+                _buildSafetyBanners(), // استراحات وصلاحيات
+                Expanded(
+                  child: state.cart.isEmpty 
+                    ? _buildEmptyCartPlaceholder() 
+                    : _buildInvoiceListView(state.cart),
+                ),
+                _buildFixedFooter(state),
+              ],
+            );
+          }
+          return const SizedBox.shrink();
+        },
+      ),
+    );
+  }
+
+  // دالة مساعدة لبناء شكل الفاتورة النظيف
+  Widget _buildInvoiceListView(List<CartItemModel> cart) {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: cart.length + 1,
+      itemBuilder: (context, index) {
+        if (index == cart.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: ElevatedButton.icon(
+              onPressed: () => setState(() => _isCatalogMode = true),
+              icon: const Icon(Icons.add_shopping_cart),
+              label: const Text('إضافة أصناف أخرى', style: TextStyle(fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade50, foregroundColor: Colors.blue.shade800, padding: const EdgeInsets.all(15)),
             ),
+          );
+        }
+        final item = cart[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.grey.shade200)),
+          child: ListTile(
+            title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text('المبيع: ${item.cartons}ك | ${item.packs}ح  -  توالف: ${item.returns.length}'),
+            trailing: Text('${item.totalSalePrice.toStringAsFixed(2)} د.أ', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+            onTap: () => setState(() => _isCatalogMode = true), // العودة للكاتالوج للتعديل
           ),
+        );
+      },
+    );
+  }
 
-          BlocBuilder<VisitBloc, VisitState>(
-            builder: (context, state) {
-              if (state is VisitReady) return _buildFixedFooter(state);
-              return const SizedBox.shrink();
-            },
+  Widget _buildEmptyCartPlaceholder() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.shopping_basket_outlined, size: 100, color: Colors.grey.shade300),
+          const SizedBox(height: 20),
+          const Text('الفاتورة فارغة حالياً', style: TextStyle(fontSize: 18, color: Colors.grey, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 30),
+          ElevatedButton.icon(
+            onPressed: (_isAuthorizedToSell && !_isOnBreak) 
+                ? () => setState(() => _isCatalogMode = true) 
+                : null, // الزر سيتعطل تلقائياً إذا لم يبدأ العمل
+            icon: const Icon(Icons.add, size: 30),
+            label: const Text('بدء إضافة المنتجات', style: TextStyle(fontSize: 18)),
+            style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSafetyBanners() {
+    return Column(
+      children: [
+        if (_isOnBreak) Container(width: double.infinity, padding: const EdgeInsets.all(10), color: Colors.red.shade50, child: const Text('⚠️ أنت في استراحة، العمليات مقفلة.', textAlign: TextAlign.center, style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+        if (!_isAuthorizedToSell) Container(width: double.infinity, padding: const EdgeInsets.all(10), color: Colors.orange.shade50, child: const Text('⏳ بانتظار تفعيل خط السير من الإدارة.', textAlign: TextAlign.center, style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold))),
+      ],
     );
   }
 
@@ -602,7 +602,11 @@ class _VisitScreenState extends State<VisitScreen> {
             width: double.infinity,
             height: 45,
             child: ElevatedButton(
-              onPressed: () => _validateAndSubmitSmart(state),
+              onPressed:
+                  _isSubmitting
+                      ? null
+                      : () =>
+                          _validateAndSubmitSmart(state), // +++ قفل الزر +++
               style: ElevatedButton.styleFrom(
                 backgroundColor:
                     widget.visitStatus == 'Completed'
@@ -679,827 +683,6 @@ class _VisitScreenState extends State<VisitScreen> {
     }
   }
 
-  // --- النافذة السفلية للبحث الذكي والحي المضيئة ---
-  void _showProductSearch(List<ProductModel> catalog) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-            child: Directionality(
-              textDirection: TextDirection.rtl,
-              child: StatefulBuilder(
-                builder: (context, setModalState) {
-                  String searchQuery = '';
-                  final filteredCatalog =
-                      catalog
-                          .where(
-                            (p) => p.name.toLowerCase().contains(
-                              searchQuery.toLowerCase(),
-                            ),
-                          )
-                          .toList();
-
-                  return Container(
-                    height: MediaQuery.of(context).size.height * 0.7,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(
-                        alpha: 0.65,
-                      ), // خلفية بيضاء زجاجية
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(30),
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 50,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'اختر المنتج للزيارة',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF212121),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-
-                        Container(
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.9),
-                            ),
-                          ),
-                          child: TextField(
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => searchQuery = value),
-                            style: const TextStyle(
-                              color: Color(0xFF212121),
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            decoration: const InputDecoration(
-                              hintText: 'بحث سريع عن صنف...',
-                              hintStyle: TextStyle(
-                                color: Color(0xFF9E9E9E),
-                                fontSize: 14,
-                              ),
-                              prefixIcon: Icon(
-                                Icons.search,
-                                color: Color(0xFF757575),
-                                size: 20,
-                              ),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
-                                vertical: 14,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-
-                        Expanded(
-                          child:
-                              filteredCatalog.isEmpty
-                                  ? const Center(
-                                    child: Text(
-                                      'لا توجد نتائج بحث.',
-                                      style: TextStyle(
-                                        color: Color(0xFF757575),
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  )
-                                  : ListView.builder(
-                                    padding: const EdgeInsets.only(bottom: 20),
-                                    itemCount: filteredCatalog.length,
-                                    itemBuilder: (context, index) {
-                                      final p = filteredCatalog[index];
-                                      return Container(
-                                        margin: const EdgeInsets.only(
-                                          bottom: 12,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.5,
-                                          ), // كارت أبيض نقي شبه شفاف
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.9,
-                                            ),
-                                          ),
-                                        ),
-                                        child: ListTile(
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                horizontal: 16,
-                                                vertical: 4,
-                                              ),
-                                          leading: Container(
-                                            padding: const EdgeInsets.all(8),
-                                            decoration: BoxDecoration(
-                                              color: Colors.blue.withValues(
-                                                alpha: 0.1,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: const Icon(
-                                              Icons.inventory_2_outlined,
-                                              color: Colors.blue,
-                                              size: 20,
-                                            ),
-                                          ),
-                                          title: Text(
-                                            p.name,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Color(0xFF212121),
-                                              fontSize: 15,
-                                            ),
-                                          ),
-                                          subtitle: Text(
-                                            'المتوفر بالسيارة: ${p.currentCartons} كرتونة | ${p.currentPacks} حبة',
-                                            style: const TextStyle(
-                                              color: Color(0xFF757575),
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          trailing: const Icon(
-                                            Icons.add_circle_outline,
-                                            color: Colors.blue,
-                                            size: 24,
-                                          ),
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            _showMagicDialog(
-                                              CartItemModel(
-                                                productVariantId: p.id,
-                                                name: p.name,
-                                                pricePerCarton:
-                                                    p.pricePerCarton,
-                                                pricePerPack: p.pricePerPack,
-                                                packsPerCarton:
-                                                    p.packsPerCarton,
-                                                availableCartons:
-                                                    p.currentCartons,
-                                                availablePacks: p.currentPacks,
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      );
-                                    },
-                                  ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // --- النافذة السحرية النيونية الذكية (Electric Navy Glass & Steppers) ---
-  void _showMagicDialog(CartItemModel item) {
-    final sCartons = TextEditingController(
-      text: item.cartons > 0 ? item.cartons.toString() : '',
-    );
-    final sPacks = TextEditingController(
-      text: item.packs > 0 ? item.packs.toString() : '',
-    );
-    final rCartons = TextEditingController(
-      text: item.returnCartons > 0 ? item.returnCartons.toString() : '',
-    );
-    final rPacks = TextEditingController(
-      text: item.returnPacks > 0 ? item.returnPacks.toString() : '',
-    );
-
-    // النوع الآن يسمح بـ null ولا يفرض التعجب (!)
-    String? currentReturnType =
-        item.returnType.isEmpty ? null : item.returnType;
-
-    final smpCartons = TextEditingController(
-      text: item.sampleCartons > 0 ? item.sampleCartons.toString() : '',
-    );
-    final smpPacks = TextEditingController(
-      text: item.samplePacks > 0 ? item.samplePacks.toString() : '',
-    );
-    final smpReason = TextEditingController(text: item.sampleReason);
-
-    // +++ متغيرات الطي (Accordion Logic) +++
-    bool showReturns = (item.returnCartons > 0 || item.returnPacks > 0);
-    bool showSamples =
-        (item.sampleCartons > 0 ||
-            item.samplePacks > 0 ||
-            item.sampleReason.isNotEmpty);
-
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: '',
-      barrierColor: Colors.black.withValues(
-        alpha: 0.7,
-      ), // تعتيم قوي لإبراز النيون
-      transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, animation, secondaryAnimation) {
-        return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Center(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(30),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 24,
-                        horizontal: 20,
-                      ),
-                      decoration: BoxDecoration(
-                        // +++ تدرج كحلي كهربائي (Electric Navy) نقي وفخم +++
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xE60A1128),
-                            Color(0xE6142146),
-                            Color(0xE6003F5C),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          width: 1.2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.cyan.withValues(alpha: 0.15),
-                            blurRadius: 40,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: StatefulBuilder(
-                        builder: (context, setDialogState) {
-                          return Directionality(
-                            textDirection: TextDirection.rtl,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // العنوان
-                                Text(
-                                  "إدخال بيانات: ${item.name}",
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
-
-                                // 1. قسم المبيعات (ظاهر دائماً)
-                                _buildNeonSection(
-                                  "المبيعات",
-                                  Icons.shopping_cart_outlined,
-                                  sCartons,
-                                  sPacks,
-                                ),
-                                const SizedBox(height: 16),
-
-                                // 2. قسم استبدال توالف (قابل للطي)
-                                _buildExpandableHeader(
-                                  title: "استبدال توالف",
-                                  icon: Icons.warning_amber_rounded,
-                                  isExpanded: showReturns,
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    setDialogState(
-                                      () => showReturns = !showReturns,
-                                    );
-                                  },
-                                ),
-                                AnimatedSize(
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeInOut,
-                                  child:
-                                      showReturns
-                                          ? Column(
-                                            children: [
-                                              const SizedBox(height: 12),
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: _buildStepperField(
-                                                      rCartons,
-                                                      "كراتين",
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: _buildStepperField(
-                                                      rPacks,
-                                                      "حبات",
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 12),
-                                              // +++ الكي الجراحي: أزرار الراديو النيونية للتوالف +++
-                                              _buildReturnTypeButtons(
-                                                currentValue: currentReturnType,
-                                                onChanged:
-                                                    (val) => setDialogState(
-                                                      () =>
-                                                          currentReturnType =
-                                                              val,
-                                                    ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                            ],
-                                          )
-                                          : const SizedBox.shrink(),
-                                ),
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8.0),
-                                  child: Divider(
-                                    color: Colors.white12,
-                                    height: 1,
-                                  ),
-                                ),
-
-                                // 3. قسم العينات (قابل للطي)
-                                _buildExpandableHeader(
-                                  title: "العينات",
-                                  icon: Icons.card_giftcard_outlined,
-                                  isExpanded: showSamples,
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    setDialogState(
-                                      () => showSamples = !showSamples,
-                                    );
-                                  },
-                                ),
-                                AnimatedSize(
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeInOut,
-                                  child:
-                                      showSamples
-                                          ? Column(
-                                            children: [
-                                              const SizedBox(height: 12),
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: _buildStepperField(
-                                                      smpCartons,
-                                                      "كراتين",
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: _buildStepperField(
-                                                      smpPacks,
-                                                      "حبات",
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 12),
-                                              _buildNeonTextField(
-                                                hint:
-                                                    "سبب صرف العينة (اختياري)",
-                                                controller: smpReason,
-                                              ),
-                                              const SizedBox(height: 8),
-                                            ],
-                                          )
-                                          : const SizedBox.shrink(),
-                                ),
-                                const SizedBox(height: 32),
-
-                                // الأزرار السفلية
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      flex: 2,
-                                      child: GestureDetector(
-                                        onTap: () {
-                                          // اللوجيك الفولاذي + الاهتزاز عند الخطأ
-                                          final int rCartonsVal =
-                                              int.tryParse(rCartons.text) ?? 0;
-                                          final int rPacksVal =
-                                              int.tryParse(rPacks.text) ?? 0;
-
-                                          if ((rCartonsVal > 0 ||
-                                                  rPacksVal > 0) &&
-                                              currentReturnType == null) {
-                                            HapticFeedback.heavyImpact(); // اهتزاز قوي للتنبيه
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'الرجاء تحديد نوع التلف للمرتجعات!',
-                                                ),
-                                                backgroundColor: Colors.red,
-                                              ),
-                                            );
-                                            if (!showReturns) {
-                                              setDialogState(
-                                                () => showReturns = true,
-                                              ); // توسيع تلقائي
-                                            }
-                                            return;
-                                          }
-
-                                          HapticFeedback.mediumImpact(); // اهتزاز نجاح
-                                          final updatedItem = item.copyWith(
-                                            cartons:
-                                                int.tryParse(sCartons.text) ??
-                                                0,
-                                            packs:
-                                                int.tryParse(sPacks.text) ?? 0,
-                                            returnCartons: rCartonsVal,
-                                            returnPacks: rPacksVal,
-                                            returnType: currentReturnType,
-                                            sampleCartons:
-                                                int.tryParse(smpCartons.text) ??
-                                                0,
-                                            samplePacks:
-                                                int.tryParse(smpPacks.text) ??
-                                                0,
-                                            sampleReason: smpReason.text,
-                                          );
-                                          _hasChanges = true;
-                                          _visitBloc.add(
-                                            AddOrUpdateCartItem(updatedItem),
-                                          );
-                                          Navigator.pop(context);
-                                        },
-                                        child: Container(
-                                          height: 55,
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(
-                                              16,
-                                            ),
-                                            gradient: const LinearGradient(
-                                              colors: [
-                                                Color(0xFF00E5FF),
-                                                Color(0xFF1200FF),
-                                              ],
-                                            ), // تدرج نيوني ساطع للزر
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: const Color(
-                                                  0xFF00E5FF,
-                                                ).withValues(alpha: 0.4),
-                                                blurRadius: 15,
-                                                offset: const Offset(0, 5),
-                                              ),
-                                            ],
-                                          ),
-                                          child: const Center(
-                                            child: Text(
-                                              "اعتماد الصنف",
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 16,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Center(
-                                        child: TextButton(
-                                          onPressed: () {
-                                            HapticFeedback.selectionClick();
-                                            Navigator.pop(context);
-                                          },
-                                          child: const Text(
-                                            "إلغاء",
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white60,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // --- دوال بناء العناصر الكحلية النيونية ---
-  Widget _buildExpandableHeader({
-    required String title,
-    required IconData icon,
-    required bool isExpanded,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: Colors.cyanAccent), // أيقونات نيون
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const Spacer(),
-            Icon(
-              isExpanded
-                  ? Icons.keyboard_arrow_up_rounded
-                  : Icons.keyboard_arrow_down_rounded,
-              color: Colors.white54,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNeonSection(
-    String title,
-    IconData icon,
-    TextEditingController cController,
-    TextEditingController pController,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 20, color: Colors.cyanAccent),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(child: _buildStepperField(cController, "كراتين")),
-            const SizedBox(width: 12),
-            Expanded(child: _buildStepperField(pController, "حبات")),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // +++ حقل الإدخال المزود بأزرار + و - (Stepper) +++
-  Widget _buildStepperField(TextEditingController controller, String hint) {
-    return Container(
-      height: 48,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        children: [
-          // زر الناقص (-)
-          InkWell(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              int current = int.tryParse(controller.text) ?? 0;
-              if (current > 0) controller.text = (current - 1).toString();
-            },
-            borderRadius: const BorderRadius.horizontal(
-              right: Radius.circular(16),
-            ),
-            child: SizedBox(
-              width: 35,
-              child: const Center(
-                child: Icon(Icons.remove, color: Colors.white60, size: 20),
-              ),
-            ),
-          ),
-          Container(width: 1, color: Colors.white.withValues(alpha: 0.1)),
-          // الحقل النصي
-          Expanded(
-            child: TextFormField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                fontSize: 18,
-              ),
-              decoration: InputDecoration(
-                hintText: hint,
-                hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-          Container(width: 1, color: Colors.white.withValues(alpha: 0.1)),
-          // زر الزائد (+)
-          InkWell(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              int current = int.tryParse(controller.text) ?? 0;
-              controller.text = (current + 1).toString();
-            },
-            borderRadius: const BorderRadius.horizontal(
-              left: Radius.circular(16),
-            ),
-            child: SizedBox(
-              width: 35,
-              child: const Center(
-                child: Icon(Icons.add, color: Colors.cyanAccent, size: 20),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNeonTextField({
-    required String hint,
-    required TextEditingController controller,
-  }) {
-    return Container(
-      height: 48,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-      ),
-      child: TextFormField(
-        controller: controller,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-          fontSize: 15,
-        ),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 12,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // +++ أزرار اختيار نوع التلف السريعة بدلاً من القائمة المنسدلة +++
-  Widget _buildReturnTypeButtons({
-    required String? currentValue,
-    required Function(String) onChanged,
-  }) {
-    return Row(
-      children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: () {
-              HapticFeedback.selectionClick();
-              onChanged('Factory_Defect');
-            },
-            child: Container(
-              height: 45,
-              decoration: BoxDecoration(
-                color:
-                    currentValue == 'Factory_Defect'
-                        ? Colors.cyan.withValues(alpha: 0.2)
-                        : Colors.white.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color:
-                      currentValue == 'Factory_Defect'
-                          ? Colors.cyanAccent
-                          : Colors.white.withValues(alpha: 0.1),
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  "تالف مصنع",
-                  style: TextStyle(
-                    color:
-                        currentValue == 'Factory_Defect'
-                            ? Colors.cyanAccent
-                            : Colors.white60,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: GestureDetector(
-            onTap: () {
-              HapticFeedback.selectionClick();
-              onChanged('Expired');
-            },
-            child: Container(
-              height: 45,
-              decoration: BoxDecoration(
-                color:
-                    currentValue == 'Expired'
-                        ? Colors.pinkAccent.withValues(alpha: 0.2)
-                        : Colors.white.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color:
-                      currentValue == 'Expired'
-                          ? Colors.pinkAccent
-                          : Colors.white.withValues(alpha: 0.1),
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  "إكسباير",
-                  style: TextStyle(
-                    color:
-                        currentValue == 'Expired'
-                            ? Colors.pinkAccent
-                            : Colors.white60,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   // --- دالة الحماية والإنهاء الفولاذية (معمارية البلوك) ---
   Future<void> _validateAndSubmitSmart(VisitReady state) async {
     // 1. حماية الاستراحة والصلاحية
@@ -1570,19 +753,17 @@ class _VisitScreenState extends State<VisitScreen> {
     // 5. استنتاج النتيجة الذكي (Smart Outcome)
     String finalOutcome = 'NoSale';
     bool hasSales = state.cart.any((i) => i.cartons > 0 || i.packs > 0);
-    bool hasReturns = state.cart.any(
-      (i) => i.returnCartons > 0 || i.returnPacks > 0,
-    );
+    bool hasReturns = state.cart.any((i) => i.returns.isNotEmpty);
     bool hasSamples = state.cart.any(
       (i) => i.sampleCartons > 0 || i.samplePacks > 0,
     );
 
     if (hasSales) {
       finalOutcome = 'Sale';
-    } else if (hasReturns || hasSamples || debtPaidEntered > 0) {
+    } else if (hasReturns || hasSamples) {
       finalOutcome = 'NoSale';
-    } else if (state.cart.isEmpty && cashEntered == 0 && debtPaidEntered == 0) {
-      // السلة فارغة تماماً، تظهر نافذة التأجيل
+    } else if (state.cart.isEmpty) {
+      // +++ النسف المعماري (متوسط 4): إجبار המندوب على تقديم مبرر دائماً إذا كانت السلة فارغة، حتى لو سدد ذمة (منع التناقض) +++
       final result = await showDialog<String>(
         context: context,
         builder:
@@ -1626,6 +807,18 @@ class _VisitScreenState extends State<VisitScreen> {
       finalOutcome = result;
     }
 
+    // +++ تفعيل قفل الازدواجية لمنع الـ Double Tap +++
+    setState(() => _isSubmitting = true);
+
+    // +++ النسف المعماري (Pre-emptive Strike): مسح الفاتورة الأوفلاين القديمة إن وُجدت قبل إرسال الجديدة +++
+    if (widget.visitStatus == 'Completed') {
+      try {
+        await LocalDatabase.instance.revertOfflineVisit(widget.visitId);
+      } catch (e) {
+        developer.log('Error reverting offline visit: $e');
+      }
+    }
+
     // 6. توجيه الضربة النهائية (إرسال الأمر للمحاسب)
     _visitBloc.add(
       SubmitVisit(
@@ -1637,3 +830,437 @@ class _VisitScreenState extends State<VisitScreen> {
     );
   }
 } // نهاية كلاس _VisitScreenState
+
+// ============================================================================
+// --- كلاسات وحش الـ POS (The 2026 Accordion UI) ---
+// تم عزلها في كلاسات منفصلة لضمان الأداء الصاروخي ومنع تداخل الحالات (Jank)
+// ============================================================================
+
+class _SearchableCatalog extends StatefulWidget {
+  final List<ProductModel> catalog;
+  final List<CartItemModel> cart;
+  final VisitBloc visitBloc;
+  final VoidCallback onCartUpdated;
+  final VoidCallback onClose; // +++ أمر الإغلاق الآمن +++
+
+  const _SearchableCatalog({
+    required this.catalog,
+    required this.cart,
+    required this.visitBloc,
+    required this.onCartUpdated,
+    required this.onClose,
+  });
+
+  @override
+  State<_SearchableCatalog> createState() => _SearchableCatalogState();
+}
+
+class _SearchableCatalogState extends State<_SearchableCatalog> {
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController(); // +++ متحكم لتفريغ البحث +++
+  final Map<int, Map<String, dynamic>> _drafts = {};
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredCatalog = widget.catalog.where((p) => p.name.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+
+    return Expanded( // غلفنا العمود بـ Expanded ليعمل داخل الـ Column الرئيسي
+      child: Column(
+        children: [
+          // سطر البحث (إزالة الإغلاق المكرر والاعتماد على الزر الكبير بالأسفل)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: const BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.black12))),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (val) => setState(() => _searchQuery = val),
+                      decoration: InputDecoration(
+                        hintText: 'ابحث عن صنف...',
+                        border: InputBorder.none,
+                        suffixIcon: _searchQuery.isNotEmpty 
+                          ? IconButton(icon: const Icon(Icons.cancel, color: Colors.grey), onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); }) 
+                          : const Icon(Icons.search, color: Colors.blue),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: filteredCatalog.length,
+              itemBuilder: (context, index) {
+                final product = filteredCatalog[index];
+                final cartItemIndex = widget.cart.indexWhere((i) => i.productVariantId == product.id);
+                final cartItem = cartItemIndex != -1 ? widget.cart[cartItemIndex] : null;
+
+                return _AccordionProductCard(
+                  product: product,
+                  cartItem: cartItem,
+                  isExpanded: true, 
+                  draftsMap: _drafts,
+                  onToggle: () {}, 
+                  visitBloc: widget.visitBloc,
+                  onCartUpdated: widget.onCartUpdated,
+                );
+              },
+            ),
+          ),
+          _buildMasterConfirmButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMasterConfirmButton() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))]),
+      child: SizedBox(
+        width: double.infinity,
+        height: 55,
+        child: ElevatedButton(
+          onPressed: () {
+             HapticFeedback.heavyImpact();
+             widget.onClose(); // +++ يغلق الكاتالوج ويعود للفاتورة فقط دون تدمير الزيارة +++
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+          child: const Text('اعتماد الكميات والعودة للفاتورة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccordionProductCard extends StatefulWidget {
+  final ProductModel product;
+  final CartItemModel? cartItem;
+  final bool isExpanded;
+  final Map<int, Map<String, dynamic>> draftsMap; // +++ استقبال المسودات +++
+  final VoidCallback onToggle;
+  final VisitBloc visitBloc;
+  final VoidCallback onCartUpdated;
+
+  const _AccordionProductCard({
+    required this.product,
+    required this.cartItem,
+    required this.isExpanded,
+    required this.draftsMap,
+    required this.onToggle,
+    required this.visitBloc,
+    required this.onCartUpdated,
+  });
+
+  @override
+  State<_AccordionProductCard> createState() => _AccordionProductCardState();
+}
+
+class _AccordionProductCardState extends State<_AccordionProductCard> {
+  final sCartons = TextEditingController();
+  final sPacks = TextEditingController();
+  bool showExtras = false;
+
+  // توالف
+  List<Map<String, dynamic>> localReturns = [];
+  final newRCartons = TextEditingController();
+  final newRPacks = TextEditingController();
+  String? newReturnType;
+
+  // عينات
+  final smpCartons = TextEditingController();
+  final smpPacks = TextEditingController();
+  final smpReason = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFromProp();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AccordionProductCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.product.id != oldWidget.product.id) {
+      _syncFromProp();
+    }
+  }
+
+  void _syncFromProp() {
+    if (widget.cartItem != null) {
+      final item = widget.cartItem!;
+      sCartons.text = item.cartons > 0 ? item.cartons.toString() : '';
+      sPacks.text = item.packs > 0 ? item.packs.toString() : '';
+      localReturns = List.from(item.returns);
+      smpCartons.text = item.sampleCartons > 0 ? item.sampleCartons.toString() : '';
+      smpPacks.text = item.samplePacks > 0 ? item.samplePacks.toString() : '';
+      smpReason.text = item.sampleReason;
+    } else {
+      sCartons.clear();
+      sPacks.clear();
+      localReturns.clear();
+      smpCartons.clear();
+      smpPacks.clear();
+      smpReason.clear();
+      newRCartons.clear();
+      newRPacks.clear();
+      newReturnType = null;
+    }
+  }
+
+  // +++ محرك الحفظ الفوري (السرعة الخارقة لمنع ضياع أي رقم) +++
+  void _commitToBloc() {
+    int sc = int.tryParse(sCartons.text) ?? 0;
+    int sp = int.tryParse(sPacks.text) ?? 0;
+    int smpC = int.tryParse(smpCartons.text) ?? 0;
+    int smpP = int.tryParse(smpPacks.text) ?? 0;
+
+    bool hasData = sc > 0 || sp > 0 || localReturns.isNotEmpty || smpC > 0 || smpP > 0;
+
+    if (!hasData) {
+      if (widget.cartItem != null) {
+        widget.visitBloc.add(RemoveCartItem(widget.product.id));
+        widget.onCartUpdated();
+      }
+      return;
+    }
+
+    final updatedItem = CartItemModel(
+      productVariantId: widget.product.id,
+      name: widget.product.name,
+      pricePerCarton: widget.product.pricePerCarton,
+      pricePerPack: widget.product.pricePerPack,
+      packsPerCarton: widget.product.packsPerCarton,
+      availableCartons: widget.product.currentCartons,
+      availablePacks: widget.product.currentPacks,
+      cartons: sc,
+      packs: sp,
+      returns: localReturns,
+      sampleCartons: smpC,
+      samplePacks: smpP,
+      sampleReason: smpReason.text,
+    );
+
+    widget.visitBloc.add(AddOrUpdateCartItem(updatedItem));
+    widget.onCartUpdated();
+  }
+
+  void _addReturnLogic() {
+    if (newReturnType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختر نوع التلف أولاً!'), backgroundColor: Colors.red));
+      return;
+    }
+    int c = int.tryParse(newRCartons.text) ?? 0;
+    int p = int.tryParse(newRPacks.text) ?? 0;
+    if (c > 0 || p > 0) {
+      setState(() {
+        final existingIdx = localReturns.indexWhere((r) => r['type'] == newReturnType);
+        if (existingIdx != -1) {
+          localReturns[existingIdx]['cartons'] += c;
+          localReturns[existingIdx]['packs'] += p;
+        } else {
+          localReturns.add({'cartons': c, 'packs': p, 'type': newReturnType});
+        }
+        newRCartons.clear();
+        newRPacks.clear();
+        newReturnType = null;
+      });
+      _commitToBloc(); // حفظ فوري بعد إضافة التلف
+    }
+  }
+
+  // +++ تصميم أزرار التوالف الجديد 2026 +++
+  Widget _buildReturnTypeSmallBtn(String type, String label) {
+    bool isSelected = newReturnType == type;
+    // +++ تصميم نيون مستقبليInspired: استخدام لون النيون (0xFF00F2FE) للأزرار بدلاً من الرمادي +++
+    Color baseColor = const Color(0xFF00F2FE); 
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => newReturnType = type),
+        borderRadius: BorderRadius.circular(20), // زيادة الانحناء
+        child: Container(
+          height: 40,
+          decoration: BoxDecoration(
+            color: isSelected ? baseColor : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: isSelected ? baseColor : Colors.grey.shade300, width: 1.5)
+          ),
+          child: Center(
+            child: Text(
+              label, 
+              style: TextStyle(
+                fontSize: 12, 
+                fontWeight: FontWeight.bold, 
+                color: isSelected ? Colors.white : Colors.grey.shade700
+              )
+            )
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepper(String label, TextEditingController controller) {
+    return SizedBox(
+      height: 60,
+      child: TextField(
+        controller: controller,
+        onChanged: (_) => _commitToBloc(), // +++ حفظ فوري عند الكتابة بالكيبورد +++
+        textAlign: TextAlign.center,
+        keyboardType: TextInputType.number,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 13),
+          floatingLabelBehavior: FloatingLabelBehavior.always,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+          prefixIcon: IconButton(
+            icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              int curr = int.tryParse(controller.text) ?? 0;
+              if (curr > 0) {
+                controller.text = (curr - 1).toString();
+                _commitToBloc(); // +++ حفظ فوري عند الضغط على الناقص +++
+              }
+            }
+          ),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.add_circle_outline, color: Colors.green),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              int curr = int.tryParse(controller.text) ?? 0;
+              controller.text = (curr + 1).toString();
+              _commitToBloc(); // +++ حفظ فوري عند الضغط على الزائد +++
+            }
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    bool isInCart = widget.cartItem != null;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.fastOutSlowIn,
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: showExtras ? Colors.yellow.shade50.withValues(alpha: 0.3) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        // +++ لون مميز (أخضر) إذا كان الصنف مضافاً للسلة، وأزرق باهت إذا كان فارغاً +++
+        border: Border.all(color: isInCart ? Colors.green.shade400 : Colors.blue.shade100, width: isInCart ? 2.0 : 1.5),
+      ),
+      child: Column(
+        children: [
+          // الرأس: التوسيع فقط عبر السهم
+          ListTile(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => showExtras = !showExtras);
+            },
+            leading: Icon(isInCart ? Icons.check_circle : Icons.inventory_2_outlined, color: isInCart ? Colors.blue : Colors.grey),
+            title: Text(widget.product.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            subtitle: Text('المتوفر: ${widget.product.currentCartons} ك | ${widget.product.currentPacks} ح', style: const TextStyle(fontSize: 12)),
+            trailing: Icon(showExtras ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.blue),
+          ),
+          
+          // تم حذف الـ Divider هنا لتنظيف التصميم بناءً على طلبك
+          
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              children: [
+                // مبيعات: ظاهرة دائماً ولا تختفي
+                Row(
+                  children: [
+                    Expanded(child: _buildStepper("كراتين المبيع", sCartons)),
+                    const SizedBox(width: 10),
+                    Expanded(child: _buildStepper("حبات المبيع", sPacks)),
+                  ],
+                ),
+
+                // قسم التوالف والعينات: مخفي ويظهر فقط عند ضغط السهم
+                AnimatedCrossFade(
+                  firstChild: const SizedBox.shrink(),
+                  secondChild: Column(
+                    children: [
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.blue.shade50.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.blue.shade100)),
+                        child: Column(
+                          children: [
+                            if (localReturns.isNotEmpty)
+                              ...localReturns.asMap().entries.map((e) => Card(elevation: 0, margin: const EdgeInsets.only(bottom: 5), child: ListTile(dense: true, title: Text('${e.value['type'] == 'Expired' ? 'إكسباير' : 'تالف مصنع'} - ${e.value['cartons']} ك | ${e.value['packs']} ح', style: const TextStyle(fontWeight: FontWeight.bold)), trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 18), onPressed: () { setState(() => localReturns.removeAt(e.key)); _commitToBloc(); })))),
+                            Row(
+                              children: [
+                                Expanded(child: _buildStepper("كراتين التوالف", newRCartons)),
+                                const SizedBox(width: 8),
+                                Expanded(child: _buildStepper("حبات التوالف", newRPacks)),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                _buildReturnTypeSmallBtn('Factory_Defect', 'تالف مصنع'),
+                                const SizedBox(width: 5),
+                                _buildReturnTypeSmallBtn('Expired', 'إكسباير'),
+                                const SizedBox(width: 10),
+                                IconButton.filled(
+                                  onPressed: _addReturnLogic, 
+                                  icon: const Icon(Icons.check),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.blueGrey.shade600,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Divider(height: 24),
+                            Row(
+                              children: [
+                                Expanded(child: _buildStepper("كراتين العينات", smpCartons)),
+                                const SizedBox(width: 8),
+                                Expanded(child: _buildStepper("حبات العينات", smpPacks)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: smpReason,
+                              onChanged: (_) => _commitToBloc(),
+                              decoration: InputDecoration(hintText: 'سبب صرف العينة (إجباري)', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  crossFadeState: showExtras ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 300),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

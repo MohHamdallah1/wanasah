@@ -11,7 +11,7 @@ interface OperationsSidebarProps {
 const navItems = [
   { label: "الصفحة الرئيسية", icon: Radar, path: "/" },//غرفة العمليات الشاشة الرئيسية لمراقبة النشاط الحالي
   { label: "التوزيع والمناطق", icon: Truck, path: "/dispatch" },//إدارة التوزيع التحكم في حركة المناديب والسيارات
-  { label: "المخزون والعروض", icon: Package, path: "/inventory" },//المخزون والعروض جرد المنتجات وإدارة العروض الترويجية
+  { label: "المخزون والمستودع", icon: Package, path: "/inventory" },//المخزون والعروض جرد المنتجات وإدارة العروض الترويجية
   { label: "الأرشيف والتقارير", icon: FileText, path: "/reports" },//الأرشيف والتقارير عرض السجلات التاريخية والتقارير التفصيلية
   { label: "الإعدادات", icon: Settings, path: "/settings" },//الإعدادات
 ];
@@ -27,7 +27,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
   const location = useLocation();
 
   const handleNav = (item: typeof navItems[0]) => {
-    if (item.path === "/" || item.path === "/dispatch") {
+    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory") {
       navigate(item.path);
     } else {
       toast("قريباً", {

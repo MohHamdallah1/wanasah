@@ -8,9 +8,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    allowedHosts: true, // +++ الكي الجراحي: السماح للأنفاق المؤقتة بالدخول بدون حظر +++
     hmr: {
       overlay: false,
     },
+    watch: {
+      usePolling: true,
+    }
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

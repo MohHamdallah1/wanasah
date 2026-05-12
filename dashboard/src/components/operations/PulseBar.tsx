@@ -30,9 +30,10 @@ export function PulseBar({
   const cards = [
     {
       label: "الكاش الفعلي المُحصّل",
-      value: totalCash.toLocaleString("ar-JO", { minimumFractionDigits: 0 }),
+      // +++ النسف المعماري (بسيط 1): إجبار الرقم على التحول לـ Number لنسف الصفر الأمامي القادم من الـ String +++
+      value: Number(totalCash).toLocaleString("ar-JO", { minimumFractionDigits: 0 }),
       unit: "د.أ",
-      sub: `${cashFromSales.toLocaleString("ar-JO")} مبيعات + ${cashFromDebts.toLocaleString("ar-JO")} ذمم`,
+      sub: `${Number(cashFromSales).toLocaleString("ar-JO")} مبيعات + ${Number(cashFromDebts).toLocaleString("ar-JO")} ذمم`,
       icon: Banknote,
       iconBg: "bg-primary/15",
       iconColor: "text-primary-foreground",

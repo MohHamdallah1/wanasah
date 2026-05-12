@@ -3,6 +3,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'dart:developer' as developer;
+import 'dart:convert'; // +++ النسف المعماري: استيراد مكتبة فك التشفير +++
 import 'package:dio/dio.dart';
 import '../../core/db/local_database.dart';
 import '../../models/product_model.dart';
@@ -23,6 +24,32 @@ class LoadVisitCatalog extends VisitEvent {
   const LoadVisitCatalog(this.shopBalance);
   @override
   List<Object?> get props => [shopBalance];
+}
+
+// +++ النسف المعماري: حدث استعادة الزيارة المكتملة من SQLite (الزيارة العمياء) +++
+class LoadCompletedVisitData extends VisitEvent {
+  final String? cartItemsJson;
+  final String? returnsJson;
+  final double cashCollected;
+  final double debtPaid;
+  final String notes;
+
+  const LoadCompletedVisitData({
+    this.cartItemsJson,
+    this.returnsJson,
+    required this.cashCollected,
+    required this.debtPaid,
+    required this.notes,
+  });
+
+  @override
+  List<Object?> get props => [
+    cartItemsJson,
+    returnsJson,
+    cashCollected,
+    debtPaid,
+    notes,
+  ];
 }
 
 class AddOrUpdateCartItem extends VisitEvent {
@@ -158,6 +185,9 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
       _syncRepo = syncRepo ?? SyncRepository(),
       super(VisitLoading()) {
     on<LoadVisitCatalog>(_onLoadCatalog);
+    on<LoadCompletedVisitData>(
+      _onLoadCompletedVisitData,
+    ); // +++ تسجيل المستمع +++
     on<AddOrUpdateCartItem>(_onAddOrUpdateCartItem);
     on<RemoveCartItem>(_onRemoveCartItem);
     on<UpdateCashCollected>(_onUpdateCashCollected);
@@ -184,6 +214,105 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
           'حدث خطأ أثناء تحميل المنتجات. الرجاء المحاولة لاحقاً.',
         ),
       );
+    }
+  }
+
+  // +++ بناء السلة من نصوص الـ JSON المحفوظة محلياً (المزامنة العكسية) +++
+  Future<void> _onLoadCompletedVisitData(
+    LoadCompletedVisitData event,
+    Emitter<VisitState> emit,
+  ) async {
+    if (state is! VisitReady) return;
+    final currentState = state as VisitReady;
+
+    try {
+      List<CartItemModel> restoredCart = [];
+
+      // 1. استعادة المبيعات والعينات
+      if (event.cartItemsJson != null && event.cartItemsJson!.isNotEmpty) {
+        final List<dynamic> cartList = jsonDecode(event.cartItemsJson!);
+        for (var item in cartList) {
+          final int pId = item['product_variant_id'];
+          final product = currentState.catalog.firstWhere((p) => p.id == pId);
+
+          restoredCart.add(
+            CartItemModel(
+              productVariantId: pId,
+              name: product.name,
+              pricePerCarton: product.pricePerCarton,
+              pricePerPack: product.pricePerPack,
+              packsPerCarton: product.packsPerCarton,
+              availableCartons: product.currentCartons,
+              availablePacks: product.currentPacks,
+              cartons: item['quantity'] ?? 0,
+              packs: item['packs_quantity'] ?? 0,
+              sampleCartons: item['sample_quantity'] ?? 0,
+              samplePacks: item['sample_packs_quantity'] ?? 0,
+              sampleReason: item['sample_reason'] ?? '',
+            ),
+          );
+        }
+      }
+
+      // 2. استعادة المرتجعات (ودمجها مع نفس المنتجات إن وجدت)
+      if (event.returnsJson != null && event.returnsJson!.isNotEmpty) {
+        final List<dynamic> returnsList = jsonDecode(event.returnsJson!);
+        for (var ret in returnsList) {
+          final int pId = ret['product_variant_id'];
+
+          final existingItemIndex = restoredCart.indexWhere(
+            (i) => i.productVariantId == pId,
+          );
+
+          if (existingItemIndex >= 0) {
+            // إضافة التلف للمنتج الموجود
+            final currentItem = restoredCart[existingItemIndex];
+            final updatedReturns = List<Map<String, dynamic>>.from(
+              currentItem.returns,
+            );
+            updatedReturns.add({
+              'cartons': ret['quantity'] ?? 0,
+              'packs': ret['packs_quantity'] ?? 0,
+              'type': ret['return_type'] ?? '',
+            });
+            restoredCart[existingItemIndex] = currentItem.copyWith(
+              returns: updatedReturns,
+            );
+          } else {
+            // إنشاء منتج جديد فقط للتلفيات
+            final product = currentState.catalog.firstWhere((p) => p.id == pId);
+            restoredCart.add(
+              CartItemModel(
+                productVariantId: pId,
+                name: product.name,
+                pricePerCarton: product.pricePerCarton,
+                pricePerPack: product.pricePerPack,
+                packsPerCarton: product.packsPerCarton,
+                availableCartons: product.currentCartons,
+                availablePacks: product.currentPacks,
+                returns: [
+                  {
+                    'cartons': ret['quantity'] ?? 0,
+                    'packs': ret['packs_quantity'] ?? 0,
+                    'type': ret['return_type'] ?? '',
+                  },
+                ],
+              ),
+            );
+          }
+        }
+      }
+
+      // تحديث الشاشة
+      emit(
+        currentState.copyWith(
+          cart: restoredCart,
+          cashCollected: event.cashCollected,
+          debtPaid: event.debtPaid,
+        ),
+      );
+    } catch (e) {
+      developer.log('[VisitBloc] Error restoring completed visit: $e');
     }
   }
 
@@ -277,32 +406,35 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
                 (i) => {
                   'product_variant_id': i.productVariantId,
                   'quantity': i.cartons,
-                  'packs': i.packs,
-                  'sample_cartons': i.sampleCartons,
-                  'sample_packs': i.samplePacks,
-                  'sample_reason':
-                      i.sampleReason, // +++ إرسال سبب العينة الجديد للسيرفر +++
+                  'packs_quantity':
+                      i.packs, // +++ الكي الجراحي: مطابقة اسم الحقل مع السيرفر +++
+                  'sample_quantity': i.sampleCartons, // +++ الكي الجراحي +++
+                  'sample_packs_quantity':
+                      i.samplePacks, // +++ الكي الجراحي +++
+                  'sample_reason': i.sampleReason,
                 },
               )
               .toList();
 
-      // 2. تجميع المرتجعات والتوالف
-      final List<Map<String, dynamic>> returns =
-          currentState.cart
-              .where((i) => i.returnCartons > 0 || i.returnPacks > 0)
-              .map(
-                (i) => {
-                  'product_variant_id': i.productVariantId,
-                  'cartons': i.returnCartons,
-                  'packs': i.returnPacks,
-                  'return_type': i.returnType,
-                  // تم حذف 'reason': i.returnReason بالكامل لسد الخطأ
-                },
-              )
-              .toList();
+      // 2. تجميع المرتجعات والتوالف (النسف المعماري: تفكيك الـ List المدمجة)
+      final List<Map<String, dynamic>> returns = [];
+      for (var item in currentState.cart) {
+        if (item.returns.isNotEmpty) {
+          for (var ret in item.returns) {
+            returns.add({
+              'product_variant_id': item.productVariantId,
+              'quantity': ret['cartons'] ?? 0,
+              'packs_quantity': ret['packs'] ?? 0,
+              'return_type': ret['type'] ?? '',
+            });
+          }
+        }
+      }
 
       // 3. بناء الـ Payload المطابق 100% للسيرفر بعد التحديث
       final payload = {
+        'visit_id': event.visitId, // +++ الكي الجراحي: حقن الـ ID بوضوح ليتعرف التطبيق على مسودته +++
+        'visitId': event.visitId, // ضمان التوافقية
         'outcome': event.outcome,
         'notes': event.notes ?? '',
         'cash_collected': currentState.cashCollected,
