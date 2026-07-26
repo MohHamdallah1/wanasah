@@ -1,6 +1,8 @@
 // File: lib/models/visit_model.dart
-
-class VisitModel {
+import 'dart:convert';
+import 'package:equatable/equatable.dart';
+// +++ النسف المعماري للأداء (Equatable Enforcement): جعل الموديل قابلاً للمقارنة الذكية لمنع وميض الواجهة +++
+class VisitModel extends Equatable {
   final int id;
   final int shopId;
   final String shopName;
@@ -17,10 +19,13 @@ class VisitModel {
   final String? locationLink;
   final double? latitude;
   final double? longitude;
-  String? cartItemsJson; // +++ لحفظ السلة محلياً +++
-  String? returnsJson; // +++ لحفظ التوالف محلياً +++
+  // +++ الدرع الميداني: استقبال معلومات الاتصال +++
+  final String? shopOwner;
+  final String? shopPhone;
+  final String? cartItemsJson; // +++ لحفظ السلة محلياً (تم تحويلها لـ final لضمان الثبات) +++
+  final String? returnsJson; // +++ لحفظ التوالف محلياً +++
 
-  VisitModel({
+  const VisitModel({
     required this.id,
     required this.shopId,
     required this.shopName,
@@ -35,6 +40,10 @@ class VisitModel {
     this.locationLink,
     this.latitude,
     this.longitude,
+    this.shopOwner, // +++
+    this.shopPhone, // +++
+    this.cartItemsJson, 
+    this.returnsJson,
   });
 
   // دالة تحويل البيانات القادمة من السيرفر (أو SQLite) إلى كائن آمن
@@ -48,9 +57,10 @@ class VisitModel {
         isEmergRaw == '1';
 
     return VisitModel(
-      id: json['id'] ?? json['visit_id'] ?? 0,
-      shopId: json['shop_id'] ?? 0,
-      shopName: json['shop_name'] ?? json['shopName'] ?? 'محل غير معروف',
+      // +++ الدرع النخبوي (Elite Safe Cast): تحويل أي رقم قادم كنص إلى int بأمان مطلق +++
+      id: int.tryParse((json['id'] ?? json['visit_id'])?.toString() ?? '0') ?? 0,
+      shopId: int.tryParse(json['shop_id']?.toString() ?? '0') ?? 0,
+      shopName: json['shop_name']?.toString() ?? json['shopName']?.toString() ?? 'محل غير معروف',
 
       // +++ النسف المعماري: قراءة الحقل كنص ثم تحويله بأمان لمنع الـ Crash في حالة Float/String +++
       shopBalance:
@@ -63,13 +73,14 @@ class VisitModel {
       maxDebtLimit:
           double.tryParse(json['max_debt_limit']?.toString() ?? '0') ?? 0.0,
 
-      shopZoneId: json['shop_zone_id'], // +++
-      allowedZoneId: json['allowed_zone_id'], // +++
+      // +++ الحماية من فخ الـ SQLite (Int Cast Crash) +++
+      shopZoneId: int.tryParse(json['shop_zone_id']?.toString() ?? ''),
+      allowedZoneId: int.tryParse(json['allowed_zone_id']?.toString() ?? ''),
+      
       // توحيد الحالات حسب ما يرسله الباك-إند بالضبط (يدعم مسار القائمة ومسار التفاصيل)
-      status: json['status'] ?? json['visit_status'] ?? 'Pending',
-      outcome:
-          json['outcome'] ??
-          '', // إزالة 'None' وجعلها فارغة لتطابق الباك-إند وتمنع مشاكل الواجهة
+      status: json['status']?.toString() ?? json['visit_status']?.toString() ?? 'Pending',
+      outcome: json['outcome']?.toString() ?? '', 
+      
       // +++ تعبئة الحقول الجديدة (مع حماية التحويل من String إلى Integer) +++
       sequence:
           int.tryParse(
@@ -78,18 +89,18 @@ class VisitModel {
                 '999',
           ) ??
           999,
+      // +++ قراءة معلومات الاتصال من الـ JSON +++
+      shopOwner: json['shop_owner']?.toString(),
+      shopPhone: json['shop_phone']?.toString(),
       isEmergency: parsedEmergency,
-      locationLink: json['location_link'] ?? json['shop_location_link'],
+      locationLink: json['location_link']?.toString() ?? json['shop_location_link']?.toString(),
 
-      // معالجة الخرائط وتجنب أخطاء التحويل من Integer إلى Double
-      latitude:
-          json['latitude'] != null || json['shop_latitude'] != null
-              ? (json['latitude'] ?? json['shop_latitude']).toDouble()
-              : null,
-      longitude:
-          json['longitude'] != null || json['shop_longitude'] != null
-              ? (json['longitude'] ?? json['shop_longitude']).toDouble()
-              : null,
+      // +++ النسف المعماري لقنبلة الـ toDouble() الموقوتة: الاعتماد على tryParse لابتلاع أي نوع بيانات +++
+      latitude: double.tryParse((json['latitude'] ?? json['shop_latitude'])?.toString() ?? ''),
+      longitude: double.tryParse((json['longitude'] ?? json['shop_longitude'])?.toString() ?? ''),
+      // +++ الدرع الذاتي: إذا كانت القائمة تأتي من السيرفر (List) يتم تشفيرها، وإذا تأتي من SQLite (String) تبقى كما هي +++
+      cartItemsJson: json['cart_items'] is String ? json['cart_items'] as String : (json['cart_items'] != null ? jsonEncode(json['cart_items']) : null),
+      returnsJson: json['returns'] is String ? json['returns'] as String : (json['returns'] != null ? jsonEncode(json['returns']) : null),
     );
   }
 
@@ -110,8 +121,21 @@ class VisitModel {
       'location_link': locationLink,
       'latitude': latitude,
       'longitude': longitude,
+      // +++ الدرع الميداني: حفظ بيانات الاتصال محلياً +++
+      'shop_owner': shopOwner,
+      'shop_phone': shopPhone,
       'cart_items': cartItemsJson,
       'returns': returnsJson,
     };
-  }
+        }
+
+  // +++ إخبار الـ BLoC بكيفية المقارنة لمنع إعادة البناء العبثي للواجهة +++
+  @override
+  List<Object?> get props => [
+        id, shopId, shopName, shopBalance, maxDebtLimit, shopZoneId,
+        allowedZoneId, status, outcome, sequence, isEmergency,
+        locationLink, latitude, longitude, shopOwner, shopPhone,
+        cartItemsJson, returnsJson,
+      ];
+  
 }

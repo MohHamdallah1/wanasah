@@ -14,6 +14,7 @@ import 'login_screen.dart';
 import 'visit_list_screen.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
+import 'dart:developer' as developer; // +++ اصحى يا مدير، هذا الاستيراد اللي نسيته +++
 import '../core/db/local_database.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -538,7 +539,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     return;
                   }
 
-                  _isShowingDialog = false;
+                  // +++ الدرع الفولاذي ضد النقر المزدوج (True Lock Mechanism) +++
+                  if (!_isShowingDialog) return; // إذا تم الضغط مسبقاً، اقتل النقرة الثانية فوراً
+                  _isShowingDialog = false; // أقفل الباب وراءك
+                  
                   final dashboardBloc = context.read<DashboardBloc>();
                   Navigator.pop(dialogContext);
 
@@ -575,9 +579,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      // +++ النسف المعماري لظاهرة الأشباح: لون صلب يمنع الشفافية +++
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.grey.shade50,
         elevation: 0,
         title: const Text('اللوحة الرئيسية'),
         centerTitle: true,
@@ -728,8 +733,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final bloc = context.read<DashboardBloc>();
         bloc.add(FetchDashboardData(driverId: widget.driverId));
 
-        // ننتظر حتى تتغير الحالة إلى شيء غير التحميل
-        await bloc.stream.firstWhere((s) => s is! DashboardLoading);
+        // +++ درع التجميد اللانهائي: مهلة زمنية 5 ثوانٍ كحد أقصى لمنع دوران المؤشر للأبد +++
+        try {
+          await bloc.stream.firstWhere((s) => s is! DashboardLoading).timeout(const Duration(seconds: 5));
+        } catch (_) {
+          developer.log('[Dashboard] Refresh timeout reached, proceeding safely...');
+        }
 
         if (mounted && hasPendingData) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -1000,8 +1009,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           if (state.products.isNotEmpty)
             ...state.products.map((item) {
-              // الحسبة تتم محلياً ولا نخزنها في الموديل
-              int sold = item.startingCartons - item.currentCartons;
+              // +++ الدرع المحاسبي: تحويل الكل لحبات لمعرفة المباع الحقيقي بالكراتين والفراطة +++
+              int safePpc = item.packsPerCarton > 0 ? item.packsPerCarton : 1;
+              int totalStartingPacks = (item.startingCartons * safePpc);
+              int totalCurrentPacks = (item.currentCartons * safePpc) + item.currentPacks;
+              int totalSoldPacks = totalStartingPacks - totalCurrentPacks;
+              
+              int soldCartons = totalSoldPacks ~/ safePpc;
+              int soldPacks = totalSoldPacks % safePpc;
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12.0),
                 child: Container(
@@ -1030,7 +1046,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             style: const TextStyle(fontSize: 14),
                           ),
                           Text(
-                            'المباع: $sold كرتونة',
+                            'المباع: $soldCartons كرتونة، $soldPacks حبة',
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.green[700],

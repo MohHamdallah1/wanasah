@@ -1,6 +1,7 @@
 // File: lib/models/product_model.dart
-
-class ProductModel {
+import 'package:equatable/equatable.dart';
+// +++ النسف المعماري للأداء (Equatable Enforcement): جعل الموديل قابلاً للمقارنة الذكية +++
+class ProductModel extends Equatable {
   final int id;
   final String name;
   final double pricePerCarton;
@@ -11,7 +12,7 @@ class ProductModel {
   final int currentCartons;
   final int currentPacks;
 
-  ProductModel({
+  const ProductModel({
     required this.id,
     required this.name,
     required this.pricePerCarton,
@@ -24,19 +25,25 @@ class ProductModel {
 
   factory ProductModel.fromJson(Map<String, dynamic> json) {
     return ProductModel(
-      id: json['id'] ?? json['product_variant_id'] ?? 0,
+      // +++ الدرع النخبوي (Type-Safe Shield): لا ثقة بأي نوع بيانات قادم من السيرفر أو SQLite +++
+      id: int.tryParse((json['id'] ?? json['product_variant_id'])?.toString() ?? '0') ?? 0,
       name:
-          json['name'] ??
-          json['product_name'] ??
-          json['variant_name'] ??
+          json['name']?.toString() ??
+          json['product_name']?.toString() ??
+          json['variant_name']?.toString() ??
           'منتج غير معروف',
-      pricePerCarton: (json['price_per_carton'] ?? 0).toDouble(),
-      pricePerPack: (json['price_per_pack'] ?? 0).toDouble(),
-      packsPerCarton: json['packs_per_carton'] ?? 1,
-      // +++ قراءة الاستلام من السيرفر أو من SQLite +++
-      startingCartons: json['starting_cartons'] ?? 0,
-      currentCartons: json['current_cartons'] ?? json['remaining_cartons'] ?? 0,
-      currentPacks: json['current_packs'] ?? json['remaining_packs'] ?? 0,
+      
+      // +++ نسف قنبلة الـ toDouble() التي تسقط التطبيق فوراً إذا عاد السعر كنص +++
+      pricePerCarton: double.tryParse(json['price_per_carton']?.toString() ?? '0') ?? 0.0,
+      pricePerPack: double.tryParse(json['price_per_pack']?.toString() ?? '0') ?? 0.0,
+      
+      // +++ حماية الحسابات الكمية من خطأ الـ (String is not a subtype of int) +++
+      packsPerCarton: int.tryParse(json['packs_per_carton']?.toString() ?? '1') ?? 1,
+      
+      // +++ قراءة الاستلام من السيرفر أو من SQLite بأمان مطلق +++
+      startingCartons: int.tryParse(json['starting_cartons']?.toString() ?? '0') ?? 0,
+      currentCartons: int.tryParse((json['current_cartons'] ?? json['remaining_cartons'])?.toString() ?? '0') ?? 0,
+      currentPacks: int.tryParse((json['current_packs'] ?? json['remaining_packs'])?.toString() ?? '0') ?? 0,
     );
   }
 
@@ -52,4 +59,11 @@ class ProductModel {
       'current_packs': currentPacks,
     };
   }
+    // +++ إخبار الـ BLoC بكيفية المقارنة لمنع إعادة البناء العبثي للواجهة +++
+  @override
+  List<Object?> get props => [
+    id, name, pricePerCarton, pricePerPack,
+    packsPerCarton, startingCartons, currentCartons, currentPacks,
+  ];
+
 }

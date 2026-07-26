@@ -30,7 +30,6 @@ class _VisitListScreenState extends State<VisitListScreen>
 
   final List<bool> _isSelected = [true, false, false];
   final List<String> _filterValues = ['All', 'Completed', 'Pending'];
-  bool _isOnBreak = false;
 
   @override
   void initState() {
@@ -44,14 +43,6 @@ class _VisitListScreenState extends State<VisitListScreen>
         setState(() {});
       }
     });
-    _checkBreakStatus();
-  }
-
-  Future<void> _checkBreakStatus() async {
-    final breakStr = await const FlutterSecureStorage().read(
-      key: 'is_on_break',
-    );
-    if (mounted) setState(() => _isOnBreak = breakStr == 'true');
   }
 
   @override
@@ -74,6 +65,17 @@ class _VisitListScreenState extends State<VisitListScreen>
           const SnackBar(
             content: Text('أنت أوفلاين، نعرض البيانات المحلية.'),
             backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      // +++ الدرع الفولاذي: التقاط أخطاء الـ SyncRepository المخصصة لمنع كراش زر التحديث +++
+      developer.log('Error during syncDown: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: Colors.red,
           ),
         );
       }
@@ -106,9 +108,10 @@ class _VisitListScreenState extends State<VisitListScreen>
           }
 
           return Scaffold(
-            backgroundColor: Colors.transparent,
+            // +++ النسف المعماري لظاهرة الأشباح: إعطاء لون صلب يمنع شفافية الشاشات أثناء التنقل +++
+            backgroundColor: Colors.grey.shade50,
             appBar: AppBar(
-              backgroundColor: Colors.transparent,
+              backgroundColor: Colors.grey.shade50,
               elevation: 0,
               surfaceTintColor: Colors.transparent,
               title: const Text('قائمة المحلات'),
@@ -135,11 +138,16 @@ class _VisitListScreenState extends State<VisitListScreen>
             ),
             floatingActionButton: FloatingActionButton(
               onPressed: () async {
-                if (_isOnBreak) {
+                const storage = FlutterSecureStorage();
+                // +++ النسف المعماري لاختراق الاستراحة: فحص حي (Dynamic Check) للحالة من الخزنة مباشرة +++
+                final breakStr = await storage.read(key: 'is_on_break');
+                if (!context.mounted) return;
+                
+                if (breakStr == 'true') {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('أنت في وقت الاستراحة.'), backgroundColor: Colors.orange));
                   return;
                 }
-                const storage = FlutterSecureStorage();
+                
                 String? authStr = await storage.read(key: 'is_authorized');
                 if (!context.mounted) return;
                 if (authStr != 'true') {
@@ -269,7 +277,8 @@ class _VisitListScreenState extends State<VisitListScreen>
           'visitListScroll_${isEmergencyTab ? "emg" : "norm"}',
         ),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(12.0),
+        // +++ درع الفاب (FAB Shield): حشو سفلي لمنع تغطية آخر عنصر في القائمة بواسطة الزر العائم +++
+        padding: const EdgeInsets.only(top: 12.0, left: 12.0, right: 12.0, bottom: 80.0),
         itemCount: visitsList.length,
         itemBuilder: (context, index) {
           final VisitModel visit = visitsList[index];
@@ -333,12 +342,16 @@ class _VisitListScreenState extends State<VisitListScreen>
               splashColor: Colors.transparent,
               highlightColor: Colors.transparent,
               onTap: () async {
-                if (_isOnBreak) {
+                // +++ النسف المعماري لاختراق الاستراحة: فحص حي للحالة +++
+                final breakStr = await const FlutterSecureStorage().read(key: 'is_on_break');
+                
+                // +++ درع الـ BuildContext الشامل لحماية الشاشة بالكامل (إصلاح خطأ سطر 364) +++
+                if (!context.mounted) return; 
+
+                if (breakStr == 'true') {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text(
-                        'أنت الآن في وقت الاستراحة. قم بإنهاء الاستراحة لمتابعة العمل.',
-                      ),
+                      content: Text('أنت الآن في وقت الاستراحة. قم بإنهاء الاستراحة لمتابعة العمل.'),
                       backgroundColor: Colors.orange,
                     ),
                   );
@@ -464,39 +477,20 @@ class _VisitListScreenState extends State<VisitListScreen>
                             );
                           } else if (link != null && link.trim().isNotEmpty) {
                             final Uri url = Uri.parse(link.trim());
-                            if (!await launchUrl(
-                              url,
-                              mode: LaunchMode.externalApplication,
-                            )) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('لا يمكن فتح الرابط'),
-                                  ),
-                                );
-                              }
+                            final bool launched = await launchUrl(url, mode: LaunchMode.externalApplication);
+                            // +++ إصلاح خطأ 481: فحص הـ Context الخاص بالبطاقة وليس الشاشة +++
+                            if (!context.mounted) return; 
+                            if (!launched) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يمكن فتح الرابط')));
                             }
                           } else {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'لا يتوفر موقع مسجل لهذا المحل',
-                                  ),
-                                ),
-                              );
-                            }
+                            // +++ إصلاح خطأ 489: فحص הـ Context الخاص بالبطاقة +++
+                            if (!context.mounted) return; 
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يتوفر موقع مسجل لهذا المحل')));
                           }
                         } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'خطأ في الخريطة: ${e.toString()}',
-                                ),
-                              ),
-                            );
-                          }
+                          if (!context.mounted) return; 
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ في الخريطة: ${e.toString()}')));
                         }
                       },
                     ),

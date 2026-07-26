@@ -155,6 +155,12 @@ export default function DispatchBoard() {
   const [zoneToKill, setZoneToKill] = useState<Zone | null>(null);
   const [confirmName, setConfirmName] = useState("");
 
+  // C-03: React-state product search filter (replaces DOM manipulation)
+  const [productSearch, setProductSearch] = useState("");
+
+  // CS-WH-03: Warehouse audit lock status for dispatch warning banner
+  const [isWarehouseLocked, setIsWarehouseLocked] = useState(false);
+
   const fetchInitialData = useCallback(() => {
     const controller = new AbortController();
     authenticatedFetch("/dispatch/init", { signal: controller.signal })
@@ -170,26 +176,74 @@ export default function DispatchBoard() {
       })
       .catch(err => err.name !== 'AbortError' && toast.error("خطأ في الاتصال بالخادم (Init): " + err.message));
 
-    authenticatedFetch("/dispatch/shops").then(data => setShops(data)).catch(err => console.error(err));
-    authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(data)).catch(err => console.error(err));
-    authenticatedFetch("/dispatch/shortages").then(data => setShortages(data)).catch(err => console.error(err));
+    // H-02: Pass abort signal to all parallel fetches for clean unmount cleanup
+    // H-03: Add Array.isArray guards to prevent .map is not a function crashes
+    const signal = controller.signal;
+    authenticatedFetch("/dispatch/shops", { signal })
+      .then(data => setShops(Array.isArray(data) ? data : []))
+      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
+    authenticatedFetch("/dispatch/active_routes", { signal })
+      .then(data => setPendingRoutes(Array.isArray(data) ? data : []))
+      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
+    authenticatedFetch("/dispatch/shortages", { signal })
+      .then(data => setShortages(Array.isArray(data) ? data : []))
+      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
+
+    // CS-WH-03: Check warehouse lock status on mount
+    authenticatedFetch("/warehouse/status", { signal })
+      .then((data: any) => setIsWarehouseLocked(data?.status === 'AUDIT_LOCK'))
+      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
 
     return controller;
   }, []);
 
+  // Step 5.7c: Replace polling with WebSocket for real-time dispatch updates
   useEffect(() => {
     const controller = fetchInitialData();
-    // +++ التحديث اللحظي (Real-time Sync) للوحة التحكم بدون ريفرش +++
-    const interval = setInterval(() => {
-      authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(data)).catch(() => { });
-      authenticatedFetch("/dispatch/shortages").then(data => setShortages(data)).catch(() => { });
-    }, 60000); // سيتم تعديله عند بناء WebSockets
+
+    // Build WebSocket URL from VITE_API_URL
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const wsUrl = apiUrl.replace(/^http/, 'ws') + '/ws/dispatch';
+
+    let ws: WebSocket;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    const connectWS = () => {
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event) {
+            authenticatedFetch("/dispatch/active_routes")
+              .then(res => setPendingRoutes(Array.isArray(res) ? res : []))
+              .catch(() => {});
+            authenticatedFetch("/dispatch/shortages")
+              .then(res => setShortages(Array.isArray(res) ? res : []))
+              .catch(() => {});
+          }
+        } catch (err) {
+          console.error("WS Parse error", err);
+        }
+      };
+
+      ws.onclose = () => {
+        // Auto-reconnect after 3 seconds if disconnected
+        reconnectTimer = setTimeout(connectWS, 3000);
+      };
+    };
+
+    connectWS();
 
     return () => {
       controller.abort();
-      clearInterval(interval);
+      clearTimeout(reconnectTimer);
+      if (ws) {
+        ws.onclose = null; // Prevent reconnect loop on unmount
+        ws.close();
+      }
     };
-  }, [fetchInitialData]);
+  }, [fetchInitialData, authenticatedFetch]);
 
   useEffect(() => {
     if (selectedVehicleId) {
@@ -380,7 +434,7 @@ export default function DispatchBoard() {
       toast.success(`تم تحديث إعدادات الجدولة لـ ${zoneNames}`);
       setIsSchedulingModalOpen(false);
     } catch (err: any) {
-      toast.error("خطأ في حفظ الجدولة: " + err.message);
+      toast.error("يرجى ادخال تاريخ البدء : " + err.message);
     }
   };
 
@@ -641,6 +695,19 @@ export default function DispatchBoard() {
         </div>
       </div>
 
+      {/* CS-WH-03: Warehouse audit lock warning banner */}
+      {isWarehouseLocked && (
+        <div className="mx-0 mb-4 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg shadow-sm" dir="rtl">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🔒</span>
+            <div>
+              <p className="text-amber-800 font-bold text-sm">المستودع مقفل حالياً — جرد مخزني قيد التنفيذ</p>
+              <p className="text-amber-600 text-xs mt-1">عمليات إطلاق خطوط السير وتعديل الحمولات معلقة حتى انتهاء الجرد. يرجى مراجعة مشرف المستودع.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* +++ النسف المعماري: تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
       <div className="pt-6 pb-6 px-0 w-full">
         <AnimatePresence mode="wait">
@@ -776,24 +843,14 @@ export default function DispatchBoard() {
                     <span className="text-base font-bold text-slate-700">جرد الحمولة (كرتونة)</span>
                     <div className="flex items-center gap-4">
                       {/* +++ مربع البحث السريع في المنتجات +++ */}
+                      {/* C-03: React-state based filtering — replaces DOM manipulation */}
                       <div className="relative">
                         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input
                           type="search"
                           placeholder="ابحث عن منتج..."
-                          onChange={(e) => {
-                            // منطق فلترة بسيط بدون الحاجة لـ useState إضافي في الـ Root لتجنب الـ Re-renders الكثيرة
-                            const val = e.target.value.toLowerCase();
-                            const rows = document.querySelectorAll('.product-launch-row');
-                            rows.forEach(row => {
-                              const name = row.getAttribute('data-name')?.toLowerCase() || "";
-                              if (name.includes(val)) {
-                                (row as HTMLElement).style.display = 'table-row';
-                              } else {
-                                (row as HTMLElement).style.display = 'none';
-                              }
-                            });
-                          }}
+                          value={productSearch}
+                          onChange={(e) => setProductSearch(e.target.value)}
                           className="pl-4 pr-9 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-[#1e87bb] w-64 bg-slate-50 transition-all"
                         />
                       </div>
@@ -811,8 +868,10 @@ export default function DispatchBoard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {products.map(prod => (
-                          <tr key={prod.id} data-name={prod.name} className="product-launch-row hover:bg-slate-50 transition-colors">
+                        {products
+                          .filter(prod => !productSearch.trim() || prod.name.toLowerCase().includes(productSearch.toLowerCase()))
+                          .map(prod => (
+                          <tr key={prod.id} className="hover:bg-slate-50 transition-colors">
                             <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
                             <td className="py-3 px-6">
                               <div className="flex justify-center">

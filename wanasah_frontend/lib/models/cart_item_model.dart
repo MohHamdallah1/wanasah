@@ -11,17 +11,20 @@ class CartItemModel {
   final int availableCartons;
   final int availablePacks;
 
-  // المبيعات
+  // المبيعات (تخصم من المخزون، وتزيد الفلوس)
   final int cartons;
   final int packs;
 
-  // +++ النسف المعماري: تحويل المرتجعات إلى قائمة لدعم أنواع تلف متعددة لنفس الصنف +++
-  final List<Map<String, dynamic>> returns;
+  // +++ النسف المعماري: عدادات استبدال التوالف المباشرة (1:1) +++
+  final int returnFactoryCartons;
+  final int returnFactoryPacks;
+  final int returnExpiredCartons;
+  final int returnExpiredPacks;
 
-  // العينات
+  // العينات (تخصم من المخزون مجاناً)
   final int sampleCartons;
   final int samplePacks;
-  final String sampleReason; // +++ إضافة سبب صرف العينة +++
+  final String sampleReason; 
 
   CartItemModel({
     required this.productVariantId,
@@ -33,7 +36,10 @@ class CartItemModel {
     required this.availablePacks,
     this.cartons = 0,
     this.packs = 0,
-    this.returns = const [],
+    this.returnFactoryCartons = 0,
+    this.returnFactoryPacks = 0,
+    this.returnExpiredCartons = 0,
+    this.returnExpiredPacks = 0,
     this.sampleCartons = 0,
     this.samplePacks = 0,
     this.sampleReason = '',
@@ -45,32 +51,47 @@ class CartItemModel {
   double get totalSalePrice =>
       (cartons * pricePerCarton) + (packs * pricePerPack);
 
-  // حساب قيمة المرتجعات للصنف بالمرور على القائمة
-  double get totalReturnPrice => returns.fold(0.0, (sum, ret) {
-    return sum +
-        ((ret['cartons'] as int) * pricePerCarton) +
-        ((ret['packs'] as int) * pricePerPack);
-  });
+  // +++ الدرع المحاسبي: الاستبدال صفر فلوس +++
+  double get totalReturnPrice => 0.0;
 
-  // إجمالي الحبات المباعة (للتأكد من المخزون)
+  // إجمالي الحبات المباعة 
   int get totalSoldPacks => (cartons * packsPerCarton) + packs;
 
-  // +++ الكيّ الجراحي: إضافة العينات لإجمالي الخصم لمنع "المخزون الوهمي" +++
+  // +++ الكيّ الجراحي (حساب المخزون الشامل): البضاعة المخصومة = المبيعات + العينات + (الاستبدال) +++
+  // لأن كل كرتونة تالفة استلمناها، سحبنا مكانها كرتونة صالحة من السيارة!
   int get totalDeductedPacks =>
-      totalSoldPacks + (sampleCartons * packsPerCarton) + samplePacks;
+      totalSoldPacks + 
+      (sampleCartons * packsPerCarton) + samplePacks +
+      (returnFactoryCartons * packsPerCarton) + returnFactoryPacks +
+      (returnExpiredCartons * packsPerCarton) + returnExpiredPacks;
 
   // إجمالي الحبات المتاحة بالسيارة
   int get totalAvailablePacks =>
       (availableCartons * packsPerCarton) + availablePacks;
 
-  // التحقق من صحة المخزون (نعتمد على إجمالي المخصوم وليس المبيعات فقط)
+  // التحقق من صحة المخزون
   bool get hasEnoughInventory => totalDeductedPacks <= totalAvailablePacks;
+
+  // +++ محول الـ API الخفي (Adapter Pattern): لتتوافق العدادات مع الباك إند دون كسر الـ API +++
+  List<Map<String, dynamic>> get returns {
+    final List<Map<String, dynamic>> list = [];
+    if (returnFactoryCartons > 0 || returnFactoryPacks > 0) {
+      list.add({'type': 'Factory_Defect', 'cartons': returnFactoryCartons, 'packs': returnFactoryPacks});
+    }
+    if (returnExpiredCartons > 0 || returnExpiredPacks > 0) {
+      list.add({'type': 'Expired', 'cartons': returnExpiredCartons, 'packs': returnExpiredPacks});
+    }
+    return list;
+  }
 
   // دالة النسخ للتعديل الآمن في الـ BLoC
   CartItemModel copyWith({
     int? cartons,
     int? packs,
-    List<Map<String, dynamic>>? returns,
+    int? returnFactoryCartons,
+    int? returnFactoryPacks,
+    int? returnExpiredCartons,
+    int? returnExpiredPacks,
     int? sampleCartons,
     int? samplePacks,
     String? sampleReason,
@@ -85,7 +106,10 @@ class CartItemModel {
       availablePacks: availablePacks,
       cartons: cartons ?? this.cartons,
       packs: packs ?? this.packs,
-      returns: returns ?? this.returns,
+      returnFactoryCartons: returnFactoryCartons ?? this.returnFactoryCartons,
+      returnFactoryPacks: returnFactoryPacks ?? this.returnFactoryPacks,
+      returnExpiredCartons: returnExpiredCartons ?? this.returnExpiredCartons,
+      returnExpiredPacks: returnExpiredPacks ?? this.returnExpiredPacks,
       sampleCartons: sampleCartons ?? this.sampleCartons,
       samplePacks: samplePacks ?? this.samplePacks,
       sampleReason: sampleReason ?? this.sampleReason,

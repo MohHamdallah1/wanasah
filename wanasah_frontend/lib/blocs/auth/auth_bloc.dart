@@ -72,9 +72,25 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         data: {'username': event.username, 'password': event.password},
       );
 
-      final data = response.data;
-      final String token = data['token'];
-      final int driverId = data['driver_id'];
+      // +++ الدرع النوعي الصارم (Type Safe Shield): فحص الهيكل الأساسي أولاً +++
+      if (response.data is! Map) {
+        developer.log('[AuthBloc] Login → Invalid response type: ${response.data}');
+        emit(const AuthError(message: 'استجابة غير صالحة من الخادم.'));
+        return;
+      }
+      
+      // +++ النسف المعماري الحقيقي (Elite Cast): إجبار الـ Dart على تحويل أي قاموس مجهول إلى قاموس صريح لمنع كراش الـ TypeError +++
+      final Map<String, dynamic> data = Map<String, dynamic>.from(response.data as Map);
+      
+      // حماية تحويل الأرقام (الـ JSON قد يرسل الرقم كـ double)
+      final String? token = data['token']?.toString();
+      final int? driverId = (data['driver_id'] as num?)?.toInt();
+
+      if (token == null || token.isEmpty || driverId == null) {
+        developer.log('[AuthBloc] Login → Missing token or driver_id in response.');
+        emit(const AuthError(message: 'فشل تسجيل الدخول: بيانات الخادم غير مكتملة.'));
+        return;
+      }
 
       // 2. حفظ البيانات محلياً (هنا فقط، لمنع التكرار)
       await _storage.write(key: 'auth_token', value: token);
@@ -88,9 +104,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
       String errorMsg = 'تأكد من اسم المستخدم وكلمة المرور.';
 
-      if (e.response != null && e.response?.data != null) {
-        if (e.response?.data is Map && e.response?.data['message'] != null) {
-          errorMsg = e.response?.data['message'];
+      if (e.response != null && e.response?.data is Map) {
+        // +++ درع النوع: التأكد من أن الرسالة نص صريح قبل إسنادها لمنع كراش الـ TypeError +++
+        final dynamic msg = (e.response!.data as Map)['message'];
+        if (msg is String && msg.isNotEmpty) {
+          errorMsg = msg;
         }
       }
       emit(AuthError(message: errorMsg));

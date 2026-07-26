@@ -52,11 +52,14 @@ class AuthInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     if (err.response?.statusCode == 401) {
-      developer.log(
-        '[AuthInterceptor] 401 Unauthorized → triggering onUnauthorized callback',
-      );
-      // إطلاق الإشعار للـ BLoC ليتولى هو مسح الذاكرة والتوجيه
-      onUnauthorized();
+      // +++ درع تسجيل الدخول: تجاهل 401 من مسار الدخول لمنع طرد المستخدم وكاش اللوب +++
+      if (!err.requestOptions.path.contains('/login')) {
+        developer.log(
+          '[AuthInterceptor] 401 Unauthorized → triggering onUnauthorized callback',
+        );
+        // إطلاق الإشعار للـ BLoC ليتولى هو مسح الذاكرة والتوجيه
+        onUnauthorized();
+      }
     }
 
     // تمرير الخطأ للطبقات الأعلى
@@ -92,8 +95,9 @@ class ApiClient {
     final dio = Dio(
       BaseOptions(
         baseUrl: ApiConstants.baseUrl,
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 30),
+        // +++ درع الشبكات الضعيفة: رفع المهلة الزمنية لمنع الانقطاع الوهمي في الميدان +++
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 60),
         headers: {
           'Content-Type': 'application/json; charset=UTF-8',
           'Accept': 'application/json',

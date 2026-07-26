@@ -1,20 +1,20 @@
 ├── .gitignore
 ├── .rules
 ├── .vscode
-│   └── settings.json
 ├── RUN.txt
 ├── dashboard
+│   ├── .env
 │   ├── .gitignore
 │   ├── README.md
+│   ├── bun.lockb
 │   ├── components.json
+│   ├── dashboard_structure.txt
 │   ├── eslint.config.js
 │   ├── index.html
+│   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
 │   ├── public
-│   │   ├── favicon.ico
-│   │   ├── placeholder.svg
-│   │   └── robots.txt
 │   ├── src
 │   │   ├── App.css
 │   │   ├── App.tsx
@@ -55,7 +55,8 @@
 │   │   │   └── operations-data.ts
 │   │   ├── hooks
 │   │   │   ├── use-mobile.tsx
-│   │   │   └── use-toast.ts
+│   │   │   ├── use-toast.ts
+│   │   │   └── useAuthFetch.ts
 │   │   ├── index.css
 │   │   ├── lib
 │   │   ├── main.tsx
@@ -71,8 +72,8 @@
 │   │   │       ├── Tab3Stocktake.tsx
 │   │   │       ├── Tab4Ledger.tsx
 │   │   │       └── inventoryUtils.ts
+│   │   ├── test
 │   │   ├── types
-│   │   │   └── dispatch.ts
 │   │   └── vite-env.d.ts
 │   ├── tailwind.config.ts
 │   ├── tsconfig.app.json
@@ -80,18 +81,28 @@
 │   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   └── vitest.config.ts
-├── wanasah_backend
+├── wa_backend
 │   ├── .env
-│   ├── .vscode
-│   ├── app.py
-│   ├── clean_db.py
+│   ├── alembic
+│   │   ├── README
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions
+│   ├── alembic.ini
+│   ├── api
+│   │   ├── auth.py
+│   │   ├── dependencies.py
+│   │   ├── dispatch.py
+│   │   ├── driver.py
+│   │   └── warehouse.py
 │   ├── config.py
+│   ├── database.py
+│   ├── db_manager.py
 │   ├── error.log
-│   ├── force_reset.py
-│   ├── migrations
+│   ├── main.py
 │   ├── models.py
-│   ├── routes.py
-│   ├── seed_db.py
+│   ├── requirements.txt
+│   ├── schemas.py
 │   └── services.py
 └── wanasah_frontend
     ├── .env

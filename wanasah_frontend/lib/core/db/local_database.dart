@@ -51,7 +51,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 5, // +++ ترقية النسخة لإضافة عمود الملاحظات +++
+      version: 7, // flutter.md Issue #1: v7 normalizes monetary columns to REAL
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -96,6 +96,8 @@ class LocalDatabase {
           location_link TEXT,
           latitude REAL,
           longitude REAL,
+          shop_owner TEXT,
+          shop_phone TEXT,
           cash_collected REAL DEFAULT 0.0, 
           debt_paid REAL DEFAULT 0.0,
           cart_items TEXT,
@@ -159,6 +161,55 @@ class LocalDatabase {
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE visits ADD COLUMN notes TEXT');
     }
+    // +++ الترقية الفولاذية (v6) لدعم معلومات الاتصال بالمالك +++
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE visits ADD COLUMN shop_owner TEXT');
+      await db.execute('ALTER TABLE visits ADD COLUMN shop_phone TEXT');
+    }
+    // flutter.md Issue #1 (v7): Normalize monetary columns from TEXT to REAL
+    if (oldVersion < 7) {
+      await db.execute('''
+        CREATE TABLE visits_v7 (
+          visit_id INTEGER PRIMARY KEY,
+          shop_id INTEGER,
+          shop_name TEXT,
+          shop_balance REAL,
+          max_debt_limit REAL DEFAULT 0.0,
+          shop_zone_id INTEGER,
+          allowed_zone_id INTEGER,
+          status TEXT,
+          outcome TEXT,
+          visit_sequence INTEGER,
+          is_emergency INTEGER DEFAULT 0,
+          location_link TEXT,
+          latitude REAL,
+          longitude REAL,
+          shop_owner TEXT,
+          shop_phone TEXT,
+          cash_collected REAL DEFAULT 0.0,
+          debt_paid REAL DEFAULT 0.0,
+          cart_items TEXT,
+          returns TEXT,
+          notes TEXT
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO visits_v7 SELECT
+          visit_id, shop_id, shop_name,
+          CAST(shop_balance AS REAL),
+          CAST(max_debt_limit AS REAL),
+          shop_zone_id, allowed_zone_id, status, outcome,
+          visit_sequence, is_emergency, location_link,
+          latitude, longitude, shop_owner, shop_phone,
+          CAST(cash_collected AS REAL),
+          CAST(debt_paid AS REAL),
+          cart_items, returns, notes
+        FROM visits
+      ''');
+      await db.execute('DROP TABLE visits');
+      await db.execute('ALTER TABLE visits_v7 RENAME TO visits');
+      developer.log('[LocalDatabase] v7 migration: Normalized monetary columns to REAL.');
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -167,11 +218,15 @@ class LocalDatabase {
 
   /// حذف جميع بيانات الجلسة السابقة (products + visits) مع الحفاظ على pending_sync.
   /// يُستدعى في بداية كل جلسة عمل جديدة لضمان البيانات المحدَّثة.
-  Future<void> clearSessionData() async {
+  /// CS-04 / flutter.md Issue #13: Add optional clearPendingSyncs parameter (default false)
+  Future<void> clearSessionData({bool clearPendingSyncs = false}) async {
     final db = await database;
     await db.delete('products');
     await db.delete('visits');
-    developer.log('[LocalDatabase] Session tables (products, visits) cleared.');
+    if (clearPendingSyncs) {
+      await db.delete('pending_sync');
+    }
+    developer.log('[LocalDatabase] Session tables (products, visits${clearPendingSyncs ? ', pending_sync' : ''}) cleared.');
   }
 
   /// إدراج أو استبدال مجموعة من المنتجات دفعةً واحدة (Batch Insert) باستخدام الكائنات الذكية.
@@ -284,23 +339,24 @@ class LocalDatabase {
     final batch = db.batch();
     for (var item in cartItems) {
       int variantId = item['product_variant_id'];
-      // +++ سد ثغرة الجرد: جمع المبيعات + العينات + المرتجعات (الاستبدال) لخصمها معاً +++
+      
+      // +++ النسف المعماري لشبح البونص: مطابقة مفاتيح الـ Backend حرفياً لضمان دقة الجرد المحلي +++
       int qtyToDeduct =
           (item['quantity'] ?? 0) +
-          (item['sample_cartons'] ?? 0) +
-          (item['cartons'] ?? 0);
+          (item['sample_quantity'] ?? item['sample_cartons'] ?? 0) +
+          (item['bonus_quantity'] ?? 0); 
+          
       int packsToDeduct =
-          (item['packs'] ?? 0) +
-          (item['sample_packs'] ?? 0) +
-          (item['packs_quantity'] ?? 0);
+          (item['packs_quantity'] ?? item['packs'] ?? 0) +
+          (item['sample_packs_quantity'] ?? item['sample_packs'] ?? 0);
 
       if (qtyToDeduct > 0 || packsToDeduct > 0) {
         batch.rawUpdate(
           '''
           UPDATE products 
           SET 
-            current_cartons = MAX(0, ((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / packs_per_carton),
-            current_packs = MAX(0, ((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % packs_per_carton)
+            current_cartons = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / MAX(packs_per_carton, 1)),
+            current_packs = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % MAX(packs_per_carton, 1))
           WHERE id = ?
         ''',
           [qtyToDeduct, packsToDeduct, qtyToDeduct, packsToDeduct, variantId],
@@ -337,31 +393,58 @@ class LocalDatabase {
     if (oldPayload != null && syncIdToDelete != null) {
       final batch = db.batch();
 
-      // 2. إرجاع البضاعة المباعة والمرتجعة والعينات إلى رصيد السيارة
+      // 2. إرجاع البضاعة المباعة والمرتجعة والعينات والبونص إلى رصيد السيارة
       final List<dynamic> cartItems = oldPayload['cart_items'] ?? [];
       for (var item in cartItems) {
         int variantId = item['product_variant_id'];
 
+        // +++ إرجاع البونص للعهدة عند التراجع عن الفاتورة +++
         int qtyToReturn =
             (item['quantity'] ?? 0) +
-            (item['sample_cartons'] ?? 0) +
-            (item['cartons'] ?? 0);
+            (item['sample_quantity'] ?? item['sample_cartons'] ?? 0) +
+            (item['bonus_quantity'] ?? 0);
+            
         int packsToReturn =
-            (item['packs'] ?? 0) +
-            (item['sample_packs'] ?? 0) +
-            (item['packs_quantity'] ?? 0);
+            (item['packs_quantity'] ?? item['packs'] ?? 0) +
+            (item['sample_packs_quantity'] ?? item['sample_packs'] ?? 0);
 
         if (qtyToReturn > 0 || packsToReturn > 0) {
           batch.rawUpdate(
             '''
             UPDATE products 
             SET 
-              current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / packs_per_carton,
-              current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % packs_per_carton
+              current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / MAX(packs_per_carton, 1),
+              current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % MAX(packs_per_carton, 1)
             WHERE id = ?
             ''',
             [qtyToReturn, packsToReturn, qtyToReturn, packsToReturn, variantId],
           );
+        }
+      }
+
+      // +++ الجراحة الرابعة (CS-10): إرجاع المرتجعات الصالحة لضبط العهدة +++
+      final List<dynamic> returnItems = oldPayload['returns'] ?? [];
+      for (var ret in returnItems) {
+        final String retType = ret['return_type'] ?? '';
+        // نعكس فقط البضاعة الصالحة لأن التوالف لا تضاف للعهدة المتاحة للبيع
+        if (retType == 'Good' || retType == 'Resellable') {
+          int variantId = ret['product_variant_id'];
+          int qtyToDeduct = ret['quantity'] ?? 0;
+          int packsToDeduct = ret['packs_quantity'] ?? ret['packs'] ?? 0;
+
+          if (qtyToDeduct > 0 || packsToDeduct > 0) {
+            // بما أن المرتجع (Offline) يضيف للعهدة، التراجع عنه يعني خصمه!
+            batch.rawUpdate(
+              '''
+              UPDATE products 
+              SET 
+                current_cartons = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / MAX(packs_per_carton, 1)),
+                current_packs = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % MAX(packs_per_carton, 1))
+              WHERE id = ?
+              ''',
+              [qtyToDeduct, packsToDeduct, qtyToDeduct, packsToDeduct, variantId],
+            );
+          }
         }
       }
 
@@ -386,6 +469,26 @@ class LocalDatabase {
       _database = null;
       developer.log('[LocalDatabase] Database connection closed.');
     }
+  }
+
+  // CS-02 / flutter.md Issue #3: Refresh only visits table, leaving products intact
+  Future<void> refreshVisitsOnly(List<VisitModel> visits) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('visits');
+      final batch = txn.batch();
+      for (final visit in visits) {
+        batch.insert(
+          'visits',
+          visit.toJson(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+    developer.log(
+      '[LocalDatabase] Transaction complete: Visits refreshed (products left intact).',
+    );
   }
 
   // +++ المعاملة الفولاذية (Transaction) لمزامنة السيرفر بدون فقدان بيانات +++

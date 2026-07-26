@@ -40,7 +40,12 @@ export default function Login() {
 
     try {
       // 1. الاتصال الحقيقي بالسيرفر
-      const response = await fetch('http://127.0.0.1:5000/login', {
+      // Fix: dashboard.md C-01 / CS-06 — Use environment-configured API base URL
+      const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+      if (!API) {
+        throw new Error("VITE_API_URL is not configured. The login page cannot connect to the server.");
+      }
+      const response = await fetch(`${API}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -62,8 +67,7 @@ export default function Login() {
 
       // 4. حفظ بيانات الجلسة
       localStorage.setItem('admin_token', data.token);
-      localStorage.setItem('admin_name', data.driver_name);
-      localStorage.setItem('admin_id', data.driver_id);
+      // +++ إزالة admin_name و admin_id (H-06): نعتمد على الـ JWT Payload المشفر للحماية +++
 
       // 5. التوجيه
       navigate('/'); 

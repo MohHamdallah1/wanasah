@@ -3,11 +3,14 @@
 // نقطة دخول التطبيق — نظيفة ومُخفَّفة.
 // لا await لقراءة Storage هنا — هذا دور AuthBloc عبر SplashScreen.
 
+import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // +++ مكتبة التحكم بالنظام +++
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:sentry_flutter/sentry_flutter.dart'; // Step 5.2c: Flutter Sentry integration
 
 import 'blocs/auth/auth_bloc.dart';
 import 'core/network/api_client.dart';
@@ -22,15 +25,51 @@ import 'package:flutter_dotenv/flutter_dotenv.dart'; // +++ استيراد مك�
 /// حتى يتمكن AuthInterceptor من التنقل بدون BuildContext.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// Step 4.5b: Global error handler for unhandled asynchronous errors (crashes outside Flutter's tree)
+void _onPlatformError(Object error, StackTrace stack) {
+  debugPrint('═══════════════ PLATFORM ASYNC CRASH ═══════════════');
+  debugPrint('ERROR: $error');
+  debugPrint('STACK: $stack');
+  debugPrint('═══════════════════════════════════════════════════');
+  Sentry.captureException(error, stackTrace: stack);
+}
+
+// Step 4.5b: Global handler for Flutter framework errors (build/layout failures)
+void _onFlutterError(FlutterErrorDetails details) {
+  debugPrint('═══════════════ FLUTTER FRAMEWORK CRASH ═══════════════');
+  debugPrint('EXCEPTION: ${details.exception}');
+  debugPrint('STACK: ${details.stack}');
+  if (details.library != null) {
+    debugPrint('LIBRARY: ${details.library}');
+  }
+  debugPrint('════════════════════════════════════════════════════════');
+  Sentry.captureException(details.exception, stackTrace: details.stack);
+  // Allow default Flutter error handling in debug mode (red screen)
+  if (kDebugMode) {
+    FlutterError.presentError(details);
+  }
+}
+
 Future<void> main() async {
   // 1. ضمان تهيئة Flutter قبل أي async
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Step 4.5b: Install global error handlers for both sync and async crashes
+  FlutterError.onError = _onFlutterError;
+  ui.PlatformDispatcher.instance.onError = (error, stack) {
+    _onPlatformError(error, stack);
+    return true; // We've handled it; prevent default crash dialog
+  };
+
   // 2. تهيئة دعم التاريخ العربي (intl)
   await initializeDateFormatting('ar', null);
 
-  // +++ تحميل متغيرات البيئة المخفية قبل أي اتصال بالشبكة +++
-  await dotenv.load(fileName: ".env");
+  // +++ درع الإقلاع: حماية التطبيق من الانهيار المميت في حال فقدان ملف البيئة في الـ Production +++
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (_) {
+    debugPrint('⚠️ تنبيه: ملف .env غير موجود. سيتم استخدام الروابط الافتراضية.');
+  }
 
   // 3. تهيئة Dio / ApiClient مع زر الإنذار (Callback)
   ApiClient.init(
@@ -43,8 +82,14 @@ Future<void> main() async {
     },
   );
 
-  // 4. تشغيل التطبيق — كل منطق التوثيق يعمل داخل AuthBloc
-  runApp(const MyApp());
+  // 4. تشغيل التطبيق محاطاً بـ Sentry لرصد الأعطال (خطوة 5.2c)
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = dotenv.env['SENTRY_DSN'] ?? '';
+      options.tracesSampleRate = 0.1;
+    },
+    appRunner: () => runApp(const MyApp()),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -66,7 +111,7 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.teal,
           // +++ فرض الشفافية العالمية على كل الأسطح المحتملة +++
           scaffoldBackgroundColor: Colors.transparent,
-          canvasColor: Colors.transparent, // مهم جداً للقوائم والنافذة السفلية
+          canvasColor: Colors.white, 
           visualDensity: VisualDensity.adaptivePlatformDensity,
           fontFamily: 'Cairo',
           appBarTheme: const AppBarTheme(

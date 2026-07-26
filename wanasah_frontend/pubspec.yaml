@@ -51,6 +51,7 @@ dependencies:
   url_launcher: ^6.3.0
   flutter_dotenv: ^6.0.0
   flutter_inset_box_shadow: ^1.0.8
+  sentry_flutter: ^9.25.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

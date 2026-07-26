@@ -63,6 +63,7 @@ class RespondToBatchTransfer extends DashboardEvent {
     this.detailedTransfers = const [],
   });
 
+  // +++ درع Equatable: مقارنة الـ Maps كنصوص لمنع تجاوز الأحداث المتشابهة +++
   @override
-  List<Object> get props => [transferIds, responseStatus, detailedTransfers];
+  List<Object> get props => [transferIds, responseStatus, detailedTransfers.toString()];
 }

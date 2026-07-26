@@ -27,35 +27,58 @@ export function PulseBar({
     setTimeout(() => setRefreshSpin(false), 600);
   };
 
+  // +++ المحركات اللغوية والرياضية الذكية +++
+  const GLOBAL_CURRENCY = "د.أ"; 
+  const formatMoney = (val: number) => parseFloat(Number(val).toFixed(2)).toLocaleString('en-US');
+  
+  const getCartonWord = (n: number) => {
+    if (n === 1) return "كرتونة";
+    if (n === 2) return "كرتونتان";
+    if (n >= 3 && n <= 10) return "كراتين";
+    return "كرتونة";
+  };
+
+  const getShopWord = (n: number) => {
+    if (n === 1) return "محل";
+    if (n === 2) return "محلان";
+    if (n >= 3 && n <= 10) return "محلات";
+    return "محلاً";
+  };
+
   const cards = [
     {
       label: "الكاش الفعلي المُحصّل",
-      // +++ النسف المعماري (بسيط 1): إجبار الرقم على التحول לـ Number لنسف الصفر الأمامي القادم من الـ String +++
-      value: Number(totalCash).toLocaleString("ar-JO", { minimumFractionDigits: 0 }),
-      unit: "د.أ",
-      sub: `${Number(cashFromSales).toLocaleString("ar-JO")} مبيعات + ${Number(cashFromDebts).toLocaleString("ar-JO")} ذمم`,
+      // +++ فرمتة احترافية بدون أصفار زائدة مع عملة ديناميكية +++
+      value: formatMoney(totalCash),
+      unit: GLOBAL_CURRENCY,
+      sub: `${formatMoney(cashFromSales)} مبيعات | ${formatMoney(cashFromDebts)} ذمم`,
       icon: Banknote,
-      iconBg: "bg-primary/15",
-      iconColor: "text-primary-foreground",
+      iconColor: "text-emerald-600",
+      iconBg: "bg-emerald-100",
+      delay: 0,
     },
     {
-      label: "إجمالي المبيعات",
-      value: totalSoldCartons.toLocaleString("ar-JO"),
-      unit: "كرتونة",
-      sub: null,
+      label: "إجمالي المبيعات اللوجستية",
+      value: totalSoldCartons,
+      // +++ ذكاء لغوي للكراتين +++
+      unit: getCartonWord(totalSoldCartons),
+      sub: "تم تسليمها اليوم للمحلات",
       icon: Package,
-      iconBg: "bg-info/15",
-      iconColor: "text-info",
+      iconColor: "text-blue-600",
+      iconBg: "bg-blue-100",
+      delay: 0.1,
     },
     {
       label: "إنجاز الأسطول",
-      value: `${completedVisits}/${totalVisits}`,
-      unit: "محل",
+      value: completedVisits,
+      // +++ ذكاء لغوي للمحلات +++
+      unit: getShopWord(completedVisits),
       sub: `${completionPct}%`,
       icon: Store,
-      iconBg: "bg-success/15",
-      iconColor: "text-success",
+      iconColor: "text-violet-600",
+      iconBg: "bg-violet-100",
       progress: completionPct,
+      delay: 0.2,
     },
     {
       label: "المناديب",

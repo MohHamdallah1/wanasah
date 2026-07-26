@@ -27,7 +27,7 @@ class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
       final List<VisitModel> visits =
           rawVisits.map((v) => VisitModel.fromJson(v)).toList();
 
-      // الترتيب الافتراضي حسب الـ sequence الذي أضفناه سابقاً
+      // +++ العودة للهندسة النظيفة: الاعتماد على الـ Type System الصارم لـ Dart +++
       visits.sort((a, b) => a.sequence.compareTo(b.sequence));
 
       emit(

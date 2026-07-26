@@ -57,6 +57,9 @@ class _VisitScreenState extends State<VisitScreen> {
   int? _allowedZone;
   bool _isEmergency = false;
   double _maxDebtLimit = 0.0;
+  // +++ الدرع البصري: متغيرات معلومات الاتصال +++
+  String? _shopOwner;
+  String? _shopPhone;
 
   @override
   void initState() {
@@ -72,15 +75,15 @@ class _VisitScreenState extends State<VisitScreen> {
     });
 
     _cashController.addListener(() {
-      _hasChanges = true;
-      final amount = double.tryParse(_cashController.text) ?? 0.0;
+      // +++ الكي الجراحي 1: إزالة _hasChanges لمنع ظهور التبويب المزعج بمجرد اللمس، وحماية الحسبة من الفواصل +++
+      final amount = double.tryParse(_cashController.text.replaceAll(RegExp(r'[,،]'), '.').trim()) ?? 0.0;
       _visitBloc.add(UpdateCashCollected(amount));
     });
 
     // +++ ربط حقل تسديد الدين بالعقل المدبر لتحديث الذمة لحظياً +++
     _debtPaidController.addListener(() {
-      _hasChanges = true;
-      final amount = double.tryParse(_debtPaidController.text) ?? 0.0;
+      // +++ تم الحذف هنا أيضاً +++
+      final amount = double.tryParse(_debtPaidController.text.replaceAll(RegExp(r'[,،]'), '.').trim()) ?? 0.0;
       _visitBloc.add(UpdateDebtPaid(amount));
     });
   }
@@ -120,15 +123,13 @@ class _VisitScreenState extends State<VisitScreen> {
         _isEmergency =
             (visitData['is_emergency'] == 1 ||
                 visitData['is_emergency'] == true);
-        _maxDebtLimit =
-            (visitData['max_debt_limit'] as num?)?.toDouble() ?? 0.0;
-
-        _shopLatitude =
-            (visitData['latitude'] ?? visitData['shop_latitude'] as num?)
-                ?.toDouble();
-        _shopLongitude =
-            (visitData['longitude'] ?? visitData['shop_longitude'] as num?)
-                ?.toDouble();
+        // +++ الدرع النوعي (Safe Parse): منع الانهيار إذا كانت القيمة نصية من SQLite +++
+        _maxDebtLimit = double.tryParse(visitData['max_debt_limit']?.toString() ?? '0') ?? 0.0;
+        _shopLatitude = double.tryParse((visitData['latitude'] ?? visitData['shop_latitude'])?.toString() ?? '');
+        _shopLongitude = double.tryParse((visitData['longitude'] ?? visitData['shop_longitude'])?.toString() ?? '');
+        // +++ جلب معلومات الاتصال من الداتابيز المحلية +++
+        _shopOwner = visitData['shop_owner']?.toString();
+        _shopPhone = visitData['shop_phone']?.toString();
         _shopLink =
             visitData['location_link'] ?? visitData['shop_location_link'];
         _shopAddr = visitData['address'];
@@ -163,10 +164,8 @@ class _VisitScreenState extends State<VisitScreen> {
           }
 
           // +++ النسف المعماري (متوسط 3): إنذار الكاش المزلزل لمنع السرقة أو نسيان إرجاع المال +++
-          final double oldCash =
-              (visitData['cash_collected'] as num?)?.toDouble() ?? 0.0;
-          final double oldDebt =
-              (visitData['debt_paid'] as num?)?.toDouble() ?? 0.0;
+          final double oldCash = double.tryParse(visitData['cash_collected']?.toString() ?? '0') ?? 0.0;
+          final double oldDebt = double.tryParse(visitData['debt_paid']?.toString() ?? '0') ?? 0.0;
           final double totalOldMoney = oldCash + oldDebt;
 
           if (totalOldMoney > 0) {
@@ -220,12 +219,9 @@ class _VisitScreenState extends State<VisitScreen> {
           visitData['status'] ?? visitData['visit_status'];
 
       if (offlinePayload != null) {
-        final cashDouble =
-            (offlinePayload['cash_collected'] as num?)?.toDouble() ?? 0.0;
-        _cashController.text =
-            (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(2);
-        final debtDouble =
-            (offlinePayload['debt_paid'] as num?)?.toDouble() ?? 0.0;
+        final cashDouble = double.tryParse(offlinePayload['cash_collected']?.toString() ?? '0') ?? 0.0;
+        _cashController.text = (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(2);
+        final debtDouble = double.tryParse(offlinePayload['debt_paid']?.toString() ?? '0') ?? 0.0;
         _debtPaidController.text =
             (debtDouble == 0.0) ? '' : debtDouble.toStringAsFixed(2);
         _notesController.text =
@@ -236,8 +232,13 @@ class _VisitScreenState extends State<VisitScreen> {
             offlinePayload['returns'] != null) {
           
           // +++ الكي الجراحي الأضخم: إجبار الكود على الانتظار حتى يجهز البلوك (VisitReady) قبل حقن الفاتورة +++
+          // +++ درع التعليق اللانهائي: الخروج من الانتظار إذا نجح التحميل أو فشل لمنع تجميد التطبيق +++
           if (_visitBloc.state is! VisitReady) {
-            await _visitBloc.stream.firstWhere((state) => state is VisitReady);
+            await _visitBloc.stream.firstWhere(
+              (state) => state is VisitReady || state is VisitError,
+              orElse: () => VisitLoading(),
+            );
+            if (_visitBloc.state is! VisitReady) return;
           }
 
           _visitBloc.add(
@@ -270,14 +271,19 @@ class _VisitScreenState extends State<VisitScreen> {
       } else if (currentStatus == 'Completed') {
         final String? cartJson = visitData['cart_items'];
         final String? returnsJson = visitData['returns'];
-        final double oldCash = (visitData['cash_collected'] as num?)?.toDouble() ?? 0.0;
-        final double oldDebt = (visitData['debt_paid'] as num?)?.toDouble() ?? 0.0;
+        final double oldCash = double.tryParse(visitData['cash_collected']?.toString() ?? '0') ?? 0.0;
+        final double oldDebt = double.tryParse(visitData['debt_paid']?.toString() ?? '0') ?? 0.0;
 
         if (cartJson != null || returnsJson != null) {
           
           // +++ حماية التزامن: الانتظار حتى يجهز البلوك لاستقبال الفاتورة القديمة +++
+          // +++ درع التعليق اللانهائي: الخروج من الانتظار إذا نجح التحميل أو فشل لمنع تجميد التطبيق +++
           if (_visitBloc.state is! VisitReady) {
-            await _visitBloc.stream.firstWhere((state) => state is VisitReady);
+            await _visitBloc.stream.firstWhere(
+              (state) => state is VisitReady || state is VisitError,
+              orElse: () => VisitLoading(),
+            );
+            if (_visitBloc.state is! VisitReady) return;
           }
 
           _visitBloc.add(
@@ -339,47 +345,70 @@ class _VisitScreenState extends State<VisitScreen> {
       child: BlocProvider.value(
       value: _visitBloc,
       child: BlocListener<VisitBloc, VisitState>(
-        listener: (context, state) {
-          if (state is VisitError) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.message),
-                backgroundColor: Colors.red,
-              ),
-            );
-          } else if (state is VisitSubmissionSuccess) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تم حفظ العملية بنجاح.'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            Navigator.pop(context, true);
-          }
-        },
+          listener: (context, state) {
+            if (state is VisitError) {
+              if (mounted) setState(() => _isSubmitting = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(state.message), backgroundColor: Colors.red),
+              );
+            } else if (state is VisitSubmissionSuccess) {
+              if (mounted) setState(() => _isSubmitting = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('تم حفظ العملية بنجاح.'), backgroundColor: Colors.green),
+              );
+              Navigator.pop(context, true);
+            } else if (state is VisitReady) {
+              // +++ النسف المعماري لفخ التجميد (The Deadlock Breaker) +++
+              // إذا عاد البلوك لحالة الفاتورة (VisitReady) وكان الزر مقفلاً، نفك القفل فوراً لمنع شلل التطبيق!
+              if (_isSubmitting && mounted) {
+                setState(() => _isSubmitting = false);
+              }
+            }
+          },
         child: PopScope(
           canPop: false,
           onPopInvokedWithResult: (bool didPop, Object? result) async {
-            if (didPop) {
+            if (didPop) return;
+            if (_isCatalogMode) {
+              setState(() => _isCatalogMode = false);
               return;
             }
             final bool shouldPop = await _onWillPop();
-            if (shouldPop && context.mounted) {
+            // +++ الكي الجراحي: استخدام context.mounted بشكل صريح وحصري بعد الـ await لمنع خطأ الـ Async Gap +++
+            if (!context.mounted) return; 
+            if (shouldPop) {
               Navigator.of(context).pop();
             }
           },
           child: Scaffold(
-            // +++ النسف المعماري لظاهرة الأشباح: إعطاء لون صلب يمنع شفافية الشاشات أثناء التنقل +++
-            backgroundColor: Colors.transparent,
+            backgroundColor: Colors.grey.shade50,
             appBar: AppBar(
-              backgroundColor: Colors.transparent,
+              backgroundColor: Colors.grey.shade50,
               elevation: 0,
-              surfaceTintColor:
-                  Colors
-                      .transparent, // لمنع تغيير لون الـ AppBar عند التمرير تحته
+              surfaceTintColor: Colors.transparent,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () async {
+                  if (_isCatalogMode) {
+                    setState(() => _isCatalogMode = false);
+                  } else {
+                    final bool shouldPop = await _onWillPop();
+                    // +++ حماية الـ context بعد الانتظار +++
+                    if (!context.mounted) return;
+                    if (shouldPop) {
+                      Navigator.of(context).pop();
+                    }
+                  }
+                },
+              ),
               title: Text(widget.shopName),
               centerTitle: true,
               actions: [
+                // +++ ربط الأيقونة الفخمة لفتح معلومات الاتصال +++
+                IconButton(
+                  icon: const Icon(Icons.contact_phone, color: Colors.teal),
+                  onPressed: _showContactBottomSheet,
+                ),
                 IconButton(
                   icon: const Icon(Icons.map_outlined),
                   tooltip: 'عرض الموقع على الخريطة',
@@ -412,49 +441,55 @@ class _VisitScreenState extends State<VisitScreen> {
 
   // --- واجهة السلة الذكية 2026 (الموحدة) ---
   Widget _buildSmartCartUI() {
-    return IgnorePointer(
-      ignoring: _isOnBreak,
-      child: BlocBuilder<VisitBloc, VisitState>(
-        builder: (context, state) {
-          if (state is VisitLoading) return const Center(child: CircularProgressIndicator());
-          if (state is VisitReady) {
-            // الحالة 1: وضع اختيار المنتجات (الكاتالوج المطور 2026)
-            if (_isCatalogMode) {
-              return Column(
-                children: [
-                  // سطر البحث والإغلاق المدمج (بدون AppBar)
-                  _SearchableCatalog(
-                    catalog: state.catalog,
-                    cart: state.cart,
-                    visitBloc: _visitBloc,
-                    onCartUpdated: () => setState(() => _hasChanges = true),
-                    onClose: () => setState(() => _isCatalogMode = false),
-                  ),
-                ],
-              );
-            }
+    final bool isLocked = _isOnBreak || !_isAuthorizedToSell; // +++ تحديد حالة القفل العام +++
 
-            // الحالة 2: وضع الفاتورة الرئيسي (السلة)
+    // +++ الكي الجراحي 2: إزالة IgnorePointer للسماح للمندوب بالتمرير (Scroll) ورؤية الفاتورة حتى لو كان مقفلاً +++
+    return BlocBuilder<VisitBloc, VisitState>(
+      builder: (context, state) {
+        if (state is VisitLoading) return const Center(child: CircularProgressIndicator());
+        if (state is VisitReady) {
+          if (_isCatalogMode) {
             return Column(
               children: [
-                _buildSafetyBanners(), // استراحات وصلاحيات
-                Expanded(
-                  child: state.cart.isEmpty 
-                    ? _buildEmptyCartPlaceholder() 
-                    : _buildInvoiceListView(state.cart),
+                _SearchableCatalog(
+                  catalog: state.catalog,
+                  cart: state.cart,
+                  visitBloc: _visitBloc,
+                  onCartUpdated: () => setState(() => _hasChanges = true),
+                  onClose: () => setState(() => _isCatalogMode = false),
                 ),
-                _buildFixedFooter(state),
               ],
             );
           }
-          return const SizedBox.shrink();
-        },
-      ),
+
+          return Column(
+            children: [
+              _buildSafetyBanners(),
+              Expanded(
+                child: state.cart.isEmpty 
+                  ? _buildEmptyCartPlaceholder(isLocked) 
+                  : _buildInvoiceListView(state.cart, isLocked),
+              ),
+              // +++ الدرع المعماري (Overflow Fix): إجبار الفوتر على عدم تجاوز مساحة محددة لتجنب الكراش الأصفر والأسود عند ظهور الكيبورد +++
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.45, 
+                ),
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: _buildFixedFooter(state, isLocked),
+                ),
+              ),
+            ],
+          );
+        }
+        return const SizedBox.shrink();
+      },
     );
   }
 
   // دالة مساعدة لبناء شكل الفاتورة النظيف
-  Widget _buildInvoiceListView(List<CartItemModel> cart) {
+  Widget _buildInvoiceListView(List<CartItemModel> cart, bool isLocked) {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: cart.length + 1,
@@ -463,29 +498,31 @@ class _VisitScreenState extends State<VisitScreen> {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
             child: ElevatedButton.icon(
-              onPressed: () => setState(() => _isCatalogMode = true),
+              // +++ تعطيل الزر إذا كانت الشاشة مقفلة +++
+              onPressed: isLocked ? null : () => setState(() => _isCatalogMode = true),
               icon: const Icon(Icons.add_shopping_cart),
               label: const Text('إضافة أصناف أخرى', style: TextStyle(fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade50, foregroundColor: Colors.blue.shade800, padding: const EdgeInsets.all(15)),
+              style: ElevatedButton.styleFrom(backgroundColor: isLocked ? Colors.grey.shade200 : Colors.blue.shade50, foregroundColor: isLocked ? Colors.grey : Colors.blue.shade800, padding: const EdgeInsets.all(15)),
             ),
           );
         }
         final item = cart[index];
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
+          color: isLocked ? Colors.grey.shade100 : Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.grey.shade200)),
           child: ListTile(
-            title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            title: Text(item.name, style: TextStyle(fontWeight: FontWeight.bold, color: isLocked ? Colors.grey : Colors.black)),
             subtitle: Text('المبيع: ${item.cartons}ك | ${item.packs}ح  -  توالف: ${item.returns.length}'),
-            trailing: Text('${item.totalSalePrice.toStringAsFixed(2)} د.أ', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-            onTap: () => setState(() => _isCatalogMode = true), // العودة للكاتالوج للتعديل
+            trailing: Text('${item.totalSalePrice.toStringAsFixed(2)} د.أ', style: TextStyle(color: isLocked ? Colors.grey : Colors.green, fontWeight: FontWeight.bold)),
+            onTap: isLocked ? null : () => setState(() => _isCatalogMode = true), // العودة للكاتالوج للتعديل
           ),
         );
       },
     );
   }
 
-  Widget _buildEmptyCartPlaceholder() {
+  Widget _buildEmptyCartPlaceholder(bool isLocked) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -495,9 +532,7 @@ class _VisitScreenState extends State<VisitScreen> {
           const Text('الفاتورة فارغة حالياً', style: TextStyle(fontSize: 18, color: Colors.grey, fontWeight: FontWeight.bold)),
           const SizedBox(height: 30),
           ElevatedButton.icon(
-            onPressed: (_isAuthorizedToSell && !_isOnBreak) 
-                ? () => setState(() => _isCatalogMode = true) 
-                : null, // الزر سيتعطل تلقائياً إذا لم يبدأ العمل
+            onPressed: isLocked ? null : () => setState(() => _isCatalogMode = true),
             icon: const Icon(Icons.add, size: 30),
             label: const Text('بدء إضافة المنتجات', style: TextStyle(fontSize: 18)),
             style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
@@ -516,11 +551,73 @@ class _VisitScreenState extends State<VisitScreen> {
     );
   }
 
-  // --- الفوتر الثابت الموحد ---
-  Widget _buildFixedFooter(VisitReady state) {
+  // +++ الدرع البصري (Enterprise UX): نافذة الاتصال السفلية الأنيقة +++
+  void _showContactBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      backgroundColor: Colors.white,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 50,
+                height: 5,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(10)),
+              ),
+              const SizedBox(height: 20),
+              const Icon(Icons.storefront, size: 50, color: Colors.teal),
+              const SizedBox(height: 10),
+              Text(widget.shopName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: CircleAvatar(backgroundColor: Colors.blue.shade50, child: const Icon(Icons.person, color: Colors.blue)),
+                title: const Text('المسؤول / المالك', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                subtitle: Text(_shopOwner ?? 'غير مسجل', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+              ),
+              const Divider(),
+              ListTile(
+                leading: CircleAvatar(backgroundColor: Colors.green.shade50, child: const Icon(Icons.phone, color: Colors.green)),
+                title: const Text('رقم التواصل', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                subtitle: Text(_shopPhone ?? 'غير مسجل', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                trailing: (_shopPhone != null && _shopPhone!.isNotEmpty)
+                    ? ElevatedButton.icon(
+                        onPressed: () async {
+                          // +++ كود الاتصال الفعلي مع حماية الـ Context الصحيحة +++
+                          final Uri phoneUri = Uri(scheme: 'tel', path: _shopPhone);
+                          if (await canLaunchUrl(phoneUri)) {
+                            await launchUrl(phoneUri);
+                          } else {
+                            // +++ النسف المعماري لخطأ الـ Async Gap: فحص الـ context حصرياً +++
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('تعذر فتح تطبيق الاتصال'), backgroundColor: Colors.red),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.call, size: 18),
+                        label: const Text('اتصال'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                      )
+                    : null,
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // --- الفوتر الثابت الموحد (مُحصّن ضد الكيبورد والـ UX) ---
+  Widget _buildFixedFooter(VisitReady state, bool isLocked) {
     return Container(
       padding: const EdgeInsets.all(16),
-      // +++ حل تحذير Deprecated: استبدال withOpacity بـ withValues +++
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -528,10 +625,12 @@ class _VisitScreenState extends State<VisitScreen> {
             color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 10,
             spreadRadius: 1,
+            offset: const Offset(0, -3),
           ),
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -542,10 +641,10 @@ class _VisitScreenState extends State<VisitScreen> {
               ),
               Text(
                 '${state.netInvoice.toStringAsFixed(2)} د.أ',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: Colors.blue,
+                  color: isLocked ? Colors.grey : Colors.blue,
                 ),
               ),
             ],
@@ -556,29 +655,39 @@ class _VisitScreenState extends State<VisitScreen> {
               Expanded(
                 child: TextField(
                   controller: _cashController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
+                  enabled: !isLocked, 
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
                     labelText: 'الكاش المستلم',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.money),
+                    labelStyle: TextStyle(color: isLocked ? Colors.grey : Colors.black87),
+                    filled: true,
+                    fillColor: isLocked ? Colors.grey.shade200 : Colors.white,
+                    disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.blue.shade300, width: 2)),
+                    prefixIcon: Icon(Icons.money, color: isLocked ? Colors.grey : Colors.green),
+                    suffixIcon: isLocked ? const Icon(Icons.lock, color: Colors.grey, size: 18) : null,
                     isDense: true,
                   ),
-                  onChanged: (_) => _hasChanges = true,
+                  onChanged: (_) => _hasChanges = true, 
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   controller: _debtPaidController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
+                  enabled: !isLocked, 
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
                     labelText: 'تحصيل ذمة سابقة',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.account_balance_wallet),
+                    labelStyle: TextStyle(color: isLocked ? Colors.grey : Colors.black87),
+                    filled: true,
+                    fillColor: isLocked ? Colors.grey.shade200 : Colors.white,
+                    disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.orange.shade300, width: 2)),
+                    prefixIcon: Icon(Icons.account_balance_wallet, color: isLocked ? Colors.grey : Colors.orange),
+                    suffixIcon: isLocked ? const Icon(Icons.lock, color: Colors.grey, size: 18) : null,
                     isDense: true,
                   ),
                   onChanged: (_) => _hasChanges = true,
@@ -589,10 +698,17 @@ class _VisitScreenState extends State<VisitScreen> {
           const SizedBox(height: 10),
           TextField(
             controller: _notesController,
-            decoration: const InputDecoration(
+            enabled: !isLocked, 
+            decoration: InputDecoration(
               labelText: 'ملاحظات',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.note),
+              labelStyle: TextStyle(color: isLocked ? Colors.grey : Colors.black87),
+              filled: true,
+              fillColor: isLocked ? Colors.grey.shade200 : Colors.white,
+              disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.blue.shade300, width: 2)),
+              prefixIcon: Icon(Icons.note, color: isLocked ? Colors.grey : Colors.blue),
+              suffixIcon: isLocked ? const Icon(Icons.lock, color: Colors.grey, size: 18) : null,
               isDense: true,
             ),
             onChanged: (_) => _hasChanges = true,
@@ -600,31 +716,22 @@ class _VisitScreenState extends State<VisitScreen> {
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            height: 45,
-            child: ElevatedButton(
-              onPressed:
-                  _isSubmitting
-                      ? null
-                      : () =>
-                          _validateAndSubmitSmart(state), // +++ قفل الزر +++
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: (_isSubmitting || isLocked) ? null : () => _validateAndSubmitSmart(state),
+              icon: Icon(isLocked ? Icons.lock_outline : Icons.check_circle_outline, size: 24),
+              label: Text(
+                widget.visitStatus == 'Completed' ? 'تعديل الفاتورة واعتمادها' : 'إنهاء الزيارة',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    widget.visitStatus == 'Completed'
-                        ? Colors.orange[700]
-                        : Colors.teal,
+                backgroundColor: widget.visitStatus == 'Completed' ? Colors.orange[700] : Colors.teal,
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.grey.shade600,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-              ),
-              child: Text(
-                widget.visitStatus == 'Completed'
-                    ? 'تعديل الفاتورة واعتمادها'
-                    : 'إنهاء الزيارة',
-                style: const TextStyle(
-                  fontSize: 18,
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
+                elevation: isLocked ? 0 : 3,
               ),
             ),
           ),
@@ -685,8 +792,27 @@ class _VisitScreenState extends State<VisitScreen> {
 
   // --- دالة الحماية والإنهاء الفولاذية (معمارية البلوك) ---
   Future<void> _validateAndSubmitSmart(VisitReady state) async {
+    // +++ درع الـ Double Tap: منع تنفيذ الدالة إذا كانت قيد المعالجة لتجنب إرسال الفاتورة مرتين +++
+    if (_isSubmitting) return;
+
     // 1. حماية الاستراحة والصلاحية
     if (_isOnBreak || !_isAuthorizedToSell) return;
+
+    // +++ الدرع الميداني: إجبار المندوب على سبب العينة قبل إرهاق السيرفر +++
+    for (var item in state.cart) {
+      if ((item.sampleCartons > 0 || item.samplePacks > 0) &&
+          (item.sampleReason.trim().isEmpty)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('مرفوض: يجب اختيار أو كتابة سبب العينة للمنتج (${item.name}).'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        setState(() => _isSubmitting = false); // فك القفل عن الزر ليحاول مجدداً
+        return; // إيقاف العملية فوراً
+      }
+    }
 
     // 2. حماية المنطقة (Geofence)
     if (!_isEmergency &&
@@ -702,24 +828,30 @@ class _VisitScreenState extends State<VisitScreen> {
       return;
     }
 
-    // 3. التحقق من الدفع والذمم
-    // +++ الكي الجراحي الميداني (Regex): التقاط الفاصلة العربية والإنجليزية معاً وتحويلها لنقطة +++
-    final double cashEntered =
-        double.tryParse(
-          _cashController.text.replaceAll(RegExp(r'[,،]'), '.').trim(),
-        ) ??
-        0.0;
+    // 3. التحقق المالي الصارم (Real-Time UI Shield)
+    final String rawCashText = _cashController.text.trim();
+    final String rawDebtText = _debtPaidController.text.trim();
+    
+    final double cashEntered = double.tryParse(rawCashText.replaceAll(RegExp(r'[,،]'), '.')) ?? 0.0;
+    final double debtPaidEntered = double.tryParse(rawDebtText.replaceAll(RegExp(r'[,،]'), '.')) ?? 0.0;
 
-    final double debtPaidEntered =
-        double.tryParse(
-          _debtPaidController.text.replaceAll(RegExp(r'[,،]'), '.').trim(),
-        ) ??
-        0.0;
-
-    if (debtPaidEntered > widget.shopBalance && widget.shopBalance > 0) {
+    // +++ درع الإجبارية (Mandatory Fields): إجبار المندوب على كتابة الرقم حتى لو كان صفراً لمنع الحفظ بالخطأ +++
+    if (state.netInvoice > 0 && rawCashText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('مبلغ السداد أكبر من ذمة المحل!'),
+          content: Text('مرفوض: الفاتورة تحتوي على مبيعات، يجب إدخال قيمة في حقل (الكاش المستلم). إذا لم تستلم نقداً، اكتب 0.'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    // +++ النسف المعماري لثغرة الرصيد الصفري +++
+    if (debtPaidEntered > widget.shopBalance) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.shopBalance <= 0 ? 'مرفوض: المحل ليس عليه أي ديون سابقة.' : 'مبلغ السداد أكبر من ذمة المحل!'),
           backgroundColor: Colors.red,
         ),
       );
@@ -736,15 +868,18 @@ class _VisitScreenState extends State<VisitScreen> {
       return;
     }
 
-    // 4. حماية سقف الدين
-    if (state.expectedNewBalance > _maxDebtLimit) {
+    // 4. الحماية الفولاذية اللحظية لسقف الدين (بدون الاعتماد على تأخير البلوك)
+    final double newInvoiceDebt = state.netInvoice - cashEntered; // ما تبقى من الفاتورة كدين
+    final double expectedNewTotalBalance = widget.shopBalance - debtPaidEntered + newInvoiceDebt;
+
+    if (expectedNewTotalBalance > _maxDebtLimit) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'مرفوض: الدين الجديد (${state.expectedNewBalance.toStringAsFixed(2)}) يتجاوز سقف المحل (${_maxDebtLimit.toStringAsFixed(2)}).',
+            'مرفوض: سقف الدين لا يسمح!\nالمتبقي من الفاتورة (${newInvoiceDebt.toStringAsFixed(2)}) سيرفع ذمة المحل إلى (${expectedNewTotalBalance.toStringAsFixed(2)}) والسقف هو (${_maxDebtLimit.toStringAsFixed(2)}).',
           ),
           backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
+          duration: const Duration(seconds: 6), // مدة أطول ليقرأ المندوب التفاصيل
         ),
       );
       return;
@@ -761,6 +896,7 @@ class _VisitScreenState extends State<VisitScreen> {
     if (hasSales) {
       finalOutcome = 'Sale';
     } else if (hasReturns || hasSamples) {
+      // +++ عودة للمنطق التجاري السليم (بيزنس أبو علي): المرتجعات أو العينات بدون مبيعات تعتبر NoSale +++
       finalOutcome = 'NoSale';
     } else if (state.cart.isEmpty) {
       // +++ النسف المعماري (متوسط 4): إجبار המندوب على تقديم مبرر دائماً إذا كانت السلة فارغة، حتى لو سدد ذمة (منع التناقض) +++
@@ -816,6 +952,13 @@ class _VisitScreenState extends State<VisitScreen> {
         await LocalDatabase.instance.revertOfflineVisit(widget.visitId);
       } catch (e) {
         developer.log('Error reverting offline visit: $e');
+        // +++ درع الـ BuildContext: التأكد أن الشاشة لم تُغلق قبل استخدام الـ Context +++
+        if (!mounted) return;
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل تهيئة التعديل المحلي. يرجى إعادة المحاولة.'), backgroundColor: Colors.red),
+        );
+        return; 
       }
     }
 
@@ -858,7 +1001,7 @@ class _SearchableCatalog extends StatefulWidget {
 class _SearchableCatalogState extends State<_SearchableCatalog> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController(); // +++ متحكم لتفريغ البحث +++
-  final Map<int, Map<String, dynamic>> _drafts = {};
+  // +++ تنظيف الذاكرة: إعدام متغير _drafts الميت +++
 
   @override
   void dispose() {
@@ -913,7 +1056,7 @@ class _SearchableCatalogState extends State<_SearchableCatalog> {
                   product: product,
                   cartItem: cartItem,
                   isExpanded: true, 
-                  draftsMap: _drafts,
+                  // +++ تنظيف الذاكرة +++
                   onToggle: () {}, 
                   visitBloc: widget.visitBloc,
                   onCartUpdated: widget.onCartUpdated,
@@ -951,7 +1094,7 @@ class _AccordionProductCard extends StatefulWidget {
   final ProductModel product;
   final CartItemModel? cartItem;
   final bool isExpanded;
-  final Map<int, Map<String, dynamic>> draftsMap; // +++ استقبال المسودات +++
+  // +++ تنظيف الذاكرة +++
   final VoidCallback onToggle;
   final VisitBloc visitBloc;
   final VoidCallback onCartUpdated;
@@ -960,7 +1103,6 @@ class _AccordionProductCard extends StatefulWidget {
     required this.product,
     required this.cartItem,
     required this.isExpanded,
-    required this.draftsMap,
     required this.onToggle,
     required this.visitBloc,
     required this.onCartUpdated,
@@ -973,18 +1115,35 @@ class _AccordionProductCard extends StatefulWidget {
 class _AccordionProductCardState extends State<_AccordionProductCard> {
   final sCartons = TextEditingController();
   final sPacks = TextEditingController();
-  bool showExtras = false;
-
-  // توالف
-  List<Map<String, dynamic>> localReturns = [];
-  final newRCartons = TextEditingController();
-  final newRPacks = TextEditingController();
-  String? newReturnType;
+  
+  // +++ العدادات المباشرة للاستبدال +++
+  final rfCartons = TextEditingController(); // تالف مصنع
+  final rfPacks = TextEditingController();
+  final reCartons = TextEditingController(); // إكسباير
+  final rePacks = TextEditingController();
 
   // عينات
   final smpCartons = TextEditingController();
   final smpPacks = TextEditingController();
   final smpReason = TextEditingController();
+  
+  String? _selectedSampleReason;
+  final List<String> _reasonOptions = ['ترويج منتج جديد', 'عينة مجانية للزبائن', 'تعويض ودي للمحل', 'أخرى'];
+  bool showExtras = false;
+
+  @override
+  void dispose() {
+    sCartons.dispose();
+    sPacks.dispose();
+    rfCartons.dispose();
+    rfPacks.dispose();
+    reCartons.dispose();
+    rePacks.dispose();
+    smpCartons.dispose();
+    smpPacks.dispose();
+    smpReason.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -1005,31 +1164,43 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       final item = widget.cartItem!;
       sCartons.text = item.cartons > 0 ? item.cartons.toString() : '';
       sPacks.text = item.packs > 0 ? item.packs.toString() : '';
-      localReturns = List.from(item.returns);
+      rfCartons.text = item.returnFactoryCartons > 0 ? item.returnFactoryCartons.toString() : '';
+      rfPacks.text = item.returnFactoryPacks > 0 ? item.returnFactoryPacks.toString() : '';
+      reCartons.text = item.returnExpiredCartons > 0 ? item.returnExpiredCartons.toString() : '';
+      rePacks.text = item.returnExpiredPacks > 0 ? item.returnExpiredPacks.toString() : '';
       smpCartons.text = item.sampleCartons > 0 ? item.sampleCartons.toString() : '';
       smpPacks.text = item.samplePacks > 0 ? item.samplePacks.toString() : '';
-      smpReason.text = item.sampleReason;
+      
+      if (item.sampleReason.isNotEmpty) {
+        if (_reasonOptions.contains(item.sampleReason)) {
+          _selectedSampleReason = item.sampleReason;
+        } else {
+          _selectedSampleReason = 'أخرى';
+          smpReason.text = item.sampleReason;
+        }
+      } else {
+        _selectedSampleReason = null;
+      }
     } else {
-      sCartons.clear();
-      sPacks.clear();
-      localReturns.clear();
-      smpCartons.clear();
-      smpPacks.clear();
-      smpReason.clear();
-      newRCartons.clear();
-      newRPacks.clear();
-      newReturnType = null;
+      sCartons.clear(); sPacks.clear();
+      rfCartons.clear(); rfPacks.clear();
+      reCartons.clear(); rePacks.clear();
+      smpCartons.clear(); smpPacks.clear(); smpReason.clear();
+      _selectedSampleReason = null;
     }
   }
 
-  // +++ محرك الحفظ الفوري (السرعة الخارقة لمنع ضياع أي رقم) +++
   void _commitToBloc() {
     int sc = int.tryParse(sCartons.text) ?? 0;
     int sp = int.tryParse(sPacks.text) ?? 0;
+    int rfc = int.tryParse(rfCartons.text) ?? 0;
+    int rfp = int.tryParse(rfPacks.text) ?? 0;
+    int rec = int.tryParse(reCartons.text) ?? 0;
+    int rep = int.tryParse(rePacks.text) ?? 0;
     int smpC = int.tryParse(smpCartons.text) ?? 0;
     int smpP = int.tryParse(smpPacks.text) ?? 0;
 
-    bool hasData = sc > 0 || sp > 0 || localReturns.isNotEmpty || smpC > 0 || smpP > 0;
+    bool hasData = sc > 0 || sp > 0 || rfc > 0 || rfp > 0 || rec > 0 || rep > 0 || smpC > 0 || smpP > 0;
 
     if (!hasData) {
       if (widget.cartItem != null) {
@@ -1049,83 +1220,31 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       availablePacks: widget.product.currentPacks,
       cartons: sc,
       packs: sp,
-      returns: localReturns,
+      returnFactoryCartons: rfc,
+      returnFactoryPacks: rfp,
+      returnExpiredCartons: rec,
+      returnExpiredPacks: rep,
       sampleCartons: smpC,
       samplePacks: smpP,
-      sampleReason: smpReason.text,
+      sampleReason: _selectedSampleReason == 'أخرى' ? smpReason.text : (_selectedSampleReason ?? ''),
     );
 
     widget.visitBloc.add(AddOrUpdateCartItem(updatedItem));
     widget.onCartUpdated();
   }
 
-  void _addReturnLogic() {
-    if (newReturnType == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختر نوع التلف أولاً!'), backgroundColor: Colors.red));
-      return;
-    }
-    int c = int.tryParse(newRCartons.text) ?? 0;
-    int p = int.tryParse(newRPacks.text) ?? 0;
-    if (c > 0 || p > 0) {
-      setState(() {
-        final existingIdx = localReturns.indexWhere((r) => r['type'] == newReturnType);
-        if (existingIdx != -1) {
-          localReturns[existingIdx]['cartons'] += c;
-          localReturns[existingIdx]['packs'] += p;
-        } else {
-          localReturns.add({'cartons': c, 'packs': p, 'type': newReturnType});
-        }
-        newRCartons.clear();
-        newRPacks.clear();
-        newReturnType = null;
-      });
-      _commitToBloc(); // حفظ فوري بعد إضافة التلف
-    }
-  }
-
-  // +++ تصميم أزرار التوالف الجديد 2026 +++
-  Widget _buildReturnTypeSmallBtn(String type, String label) {
-    bool isSelected = newReturnType == type;
-    // +++ تصميم نيون مستقبليInspired: استخدام لون النيون (0xFF00F2FE) للأزرار بدلاً من الرمادي +++
-    Color baseColor = const Color(0xFF00F2FE); 
-    return Expanded(
-      child: InkWell(
-        onTap: () => setState(() => newReturnType = type),
-        borderRadius: BorderRadius.circular(20), // زيادة الانحناء
-        child: Container(
-          height: 40,
-          decoration: BoxDecoration(
-            color: isSelected ? baseColor : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: isSelected ? baseColor : Colors.grey.shade300, width: 1.5)
-          ),
-          child: Center(
-            child: Text(
-              label, 
-              style: TextStyle(
-                fontSize: 12, 
-                fontWeight: FontWeight.bold, 
-                color: isSelected ? Colors.white : Colors.grey.shade700
-              )
-            )
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStepper(String label, TextEditingController controller) {
+  Widget _buildStepper(String label, TextEditingController controller, {Color iconColor = Colors.blue}) {
     return SizedBox(
       height: 60,
       child: TextField(
         controller: controller,
-        onChanged: (_) => _commitToBloc(), // +++ حفظ فوري عند الكتابة بالكيبورد +++
+        onChanged: (_) => _commitToBloc(), 
         textAlign: TextAlign.center,
         keyboardType: TextInputType.number,
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 13),
+          labelStyle: TextStyle(color: iconColor, fontWeight: FontWeight.bold, fontSize: 13),
           floatingLabelBehavior: FloatingLabelBehavior.always,
           contentPadding: const EdgeInsets.symmetric(vertical: 10),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
@@ -1136,17 +1255,17 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
               int curr = int.tryParse(controller.text) ?? 0;
               if (curr > 0) {
                 controller.text = (curr - 1).toString();
-                _commitToBloc(); // +++ حفظ فوري عند الضغط على الناقص +++
+                _commitToBloc(); 
               }
             }
           ),
           suffixIcon: IconButton(
-            icon: const Icon(Icons.add_circle_outline, color: Colors.green),
+            icon: Icon(Icons.add_circle_outline, color: iconColor),
             onPressed: () {
               HapticFeedback.lightImpact();
               int curr = int.tryParse(controller.text) ?? 0;
               controller.text = (curr + 1).toString();
-              _commitToBloc(); // +++ حفظ فوري عند الضغط على الزائد +++
+              _commitToBloc(); 
             }
           ),
         ),
@@ -1165,12 +1284,10 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       decoration: BoxDecoration(
         color: showExtras ? Colors.yellow.shade50.withValues(alpha: 0.3) : Colors.white,
         borderRadius: BorderRadius.circular(20),
-        // +++ لون مميز (أخضر) إذا كان الصنف مضافاً للسلة، وأزرق باهت إذا كان فارغاً +++
         border: Border.all(color: isInCart ? Colors.green.shade400 : Colors.blue.shade100, width: isInCart ? 2.0 : 1.5),
       ),
       child: Column(
         children: [
-          // الرأس: التوسيع فقط عبر السهم
           ListTile(
             onTap: () {
               HapticFeedback.selectionClick();
@@ -1181,23 +1298,17 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
             subtitle: Text('المتوفر: ${widget.product.currentCartons} ك | ${widget.product.currentPacks} ح', style: const TextStyle(fontSize: 12)),
             trailing: Icon(showExtras ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.blue),
           ),
-          
-          // تم حذف الـ Divider هنا لتنظيف التصميم بناءً على طلبك
-          
           Padding(
             padding: const EdgeInsets.all(12.0),
             child: Column(
               children: [
-                // مبيعات: ظاهرة دائماً ولا تختفي
                 Row(
                   children: [
-                    Expanded(child: _buildStepper("كراتين المبيع", sCartons)),
+                    Expanded(child: _buildStepper("كراتين المبيع", sCartons, iconColor: Colors.green)),
                     const SizedBox(width: 10),
-                    Expanded(child: _buildStepper("حبات المبيع", sPacks)),
+                    Expanded(child: _buildStepper("حبات المبيع", sPacks, iconColor: Colors.green)),
                   ],
                 ),
-
-                // قسم التوالف والعينات: مخفي ويظهر فقط عند ضغط السهم
                 AnimatedCrossFade(
                   firstChild: const SizedBox.shrink(),
                   secondChild: Column(
@@ -1208,46 +1319,67 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
                         decoration: BoxDecoration(color: Colors.blue.shade50.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.blue.shade100)),
                         child: Column(
                           children: [
-                            if (localReturns.isNotEmpty)
-                              ...localReturns.asMap().entries.map((e) => Card(elevation: 0, margin: const EdgeInsets.only(bottom: 5), child: ListTile(dense: true, title: Text('${e.value['type'] == 'Expired' ? 'إكسباير' : 'تالف مصنع'} - ${e.value['cartons']} ك | ${e.value['packs']} ح', style: const TextStyle(fontWeight: FontWeight.bold)), trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 18), onPressed: () { setState(() => localReturns.removeAt(e.key)); _commitToBloc(); })))),
+                            // +++ واجهة العدادات الذكية الموحدة (بدون كبسات وهمية) +++
                             Row(
                               children: [
-                                Expanded(child: _buildStepper("كراتين التوالف", newRCartons)),
+                                Expanded(child: _buildStepper("كراتين تالف مصنع (🔁)", rfCartons, iconColor: Colors.orange)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات التوالف", newRPacks)),
+                                Expanded(child: _buildStepper("حبات تالف مصنع (🔁)", rfPacks, iconColor: Colors.orange)),
                               ],
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 12),
                             Row(
                               children: [
-                                _buildReturnTypeSmallBtn('Factory_Defect', 'تالف مصنع'),
-                                const SizedBox(width: 5),
-                                _buildReturnTypeSmallBtn('Expired', 'إكسباير'),
-                                const SizedBox(width: 10),
-                                IconButton.filled(
-                                  onPressed: _addReturnLogic, 
-                                  icon: const Icon(Icons.check),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.blueGrey.shade600,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))
-                                  ),
-                                ),
+                                Expanded(child: _buildStepper("كراتين إكسباير (🔁)", reCartons, iconColor: Colors.deepOrange)),
+                                const SizedBox(width: 8),
+                                Expanded(child: _buildStepper("حبات إكسباير (🔁)", rePacks, iconColor: Colors.deepOrange)),
                               ],
                             ),
                             const Divider(height: 24),
                             Row(
                               children: [
-                                Expanded(child: _buildStepper("كراتين العينات", smpCartons)),
+                                Expanded(child: _buildStepper("كراتين العينات (🎁)", smpCartons, iconColor: Colors.purple)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات العينات", smpPacks)),
+                                Expanded(child: _buildStepper("حبات العينات (🎁)", smpPacks, iconColor: Colors.purple)),
                               ],
                             ),
                             const SizedBox(height: 8),
-                            TextField(
-                              controller: smpReason,
-                              onChanged: (_) => _commitToBloc(),
-                              decoration: InputDecoration(hintText: 'سبب صرف العينة (إجباري)', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                            DropdownButtonFormField<String>(
+                              value: _selectedSampleReason,
+                              decoration: InputDecoration(
+                                hintText: 'اختر سبب صرف العينة (إجباري)',
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              ),
+                              items: _reasonOptions.map((String reason) {
+                                return DropdownMenuItem<String>(
+                                  value: reason,
+                                  child: Text(reason, style: const TextStyle(fontSize: 13)),
+                                );
+                              }).toList(),
+                              onChanged: (String? newValue) {
+                                setState(() {
+                                  _selectedSampleReason = newValue;
+                                  // +++ إضافة الأقواس إجبارياً لإرضاء الـ Linter +++
+                                  if (newValue != 'أخرى') {
+                                    smpReason.text = newValue ?? '';
+                                  } else {
+                                    smpReason.clear();
+                                  }
+                                });
+                                _commitToBloc();
+                              },
                             ),
+                            if (_selectedSampleReason == 'أخرى') ...[
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: smpReason,
+                                onChanged: (_) => _commitToBloc(),
+                                decoration: InputDecoration(hintText: 'اكتب السبب بالتفصيل...', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                              ),
+                            ],
                           ],
                         ),
                       ),

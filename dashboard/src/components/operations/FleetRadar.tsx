@@ -12,6 +12,9 @@ interface FleetRadarProps {
 }
 
 export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, searchQuery, onSearchChange }: FleetRadarProps) {
+  const GLOBAL_CURRENCY = "د.أ";
+  const formatMoney = (val: number) => parseFloat(Number(val).toFixed(2)).toLocaleString('en-US');
+
   const filtered = drivers.filter((d) =>
     d.session.driver_name.includes(searchQuery)
   );
@@ -81,8 +84,8 @@ export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, search
                 </div>
 
                 {/* Cash badge */}
-                <span className="bg-primary/15 text-primary-foreground text-xs font-bold tabular-nums rounded-full px-3 py-1 shrink-0">
-                  {f.expected_cash_in_hand.toLocaleString("ar-JO")} د.أ
+                <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-bold tabular-nums rounded-full px-3 py-1 shrink-0 shadow-sm">
+                  {formatMoney(f.expected_cash_in_hand)} {GLOBAL_CURRENCY}
                 </span>
 
                 {/* Auth toggle */}

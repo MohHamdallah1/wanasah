@@ -20,6 +20,9 @@ class SyncRepository {
   // -----------------------------------------------------------------------
   final ApiClient _api;
   final LocalDatabase _db;
+  
+  // +++ الدرع المعماري: قفل لمنع تشغيل المزامنة مرتين في نفس اللحظة (Race Condition) +++
+  bool _isSyncing = false;
 
   SyncRepository({ApiClient? api, LocalDatabase? db})
     : _api = api ?? ApiClient.instance,
@@ -30,20 +33,32 @@ class SyncRepository {
   // -----------------------------------------------------------------------
   /// يُستدعى عند بداية كل جلسة عمل (أو عند تحديث يدوي).
   /// الترتيب: جلب البيانات → تفريغ الجداول القديمة → حفظ الجديدة.
+  
+  // +++ الدرع المعماري: قفل لمنع تشغيل السحب (syncDown) مرتين في نفس اللحظة +++
+  bool _isSyncingDown = false;
+
   Future<void> syncDown() async {
+    if (_isSyncingDown) {
+      developer.log('[SyncRepository] syncDown is already running. Skipped.');
+      return;
+    }
+    _isSyncingDown = true;
     developer.log('[SyncRepository] Starting syncDown...');
 
     // 1. محاولة رفع المعلقات (دالة syncUp تعالج أخطاءها بنفسها ولا تكسر التطبيق)
     await syncUp();
 
-    // 2. الجدار الواقي: ممنوع السحب إذا بقيت بيانات أوفلاين غير مرفوعة
+    // 2. الجدار الواقي: ممنوع السحب إذا بقيت بيانات أوفلاين حساسة (غير الفواتير)
     final pendingCheck = await _db.getPendingSyncs();
-    if (pendingCheck.isNotEmpty) {
+    // +++ إصلاح قفل التطبيق: السماح للمندوب بتحديث يومه حتى لو كان عنده فواتير قديمة مرفوضة تحتاج تعديل +++
+    bool hasBlockingPending = pendingCheck.any((p) => p['type'] != 'submit_sale');
+    
+    if (hasBlockingPending) {
       developer.log(
-        '[SyncRepository] Aborting syncDown: Pending syncs still exist.',
+        '[SyncRepository] Aborting syncDown: Blocking pending syncs still exist.',
       );
       throw Exception(
-        'يوجد عمليات أوفلاين معلقة. يجب أن ينجح إرسالها أولاً لحماية بياناتك من التصفير.',
+        'يوجد عمليات أوفلاين حساسة معلقة. يجب أن ينجح إرسالها أولاً لحماية بياناتك.',
       );
     }
 
@@ -88,13 +103,20 @@ class SyncRepository {
         productsData,
       );
 
-      // +++ 3. تفريغ الجداول القديمة والحفظ بمعاملة (Transaction) واحدة فولاذية +++
-      await _db.refreshSessionData(visitModels, productModels);
+      // CS-02 / flutter.md Issue #3: Guard against empty product list — do NOT truncate products table if incoming list is empty
+      // +++ تم سحق قنبلة المسح الشامل: && تضمن عدم لمس البضاعة إلا إذا جاءت بيانات كاملة +++
+      if (productModels.isNotEmpty && visitModels.isNotEmpty) {
+        await _db.refreshSessionData(visitModels, productModels);
+      } else if (visitModels.isNotEmpty) {
+        await _db.refreshVisitsOnly(visitModels);
+      }
 
       developer.log('[SyncRepository] syncDown completed successfully.');
     } catch (e) {
       developer.log('[SyncRepository] Error in syncDown: $e');
       rethrow;
+    } finally {
+      _isSyncingDown = false; // +++ تحرير القفل دائماً لضمان عدم تجميد التطبيق للأبد +++
     }
   }
 
@@ -134,6 +156,10 @@ class SyncRepository {
       );
 
       await updateDataTask(); // +++ حفظ كل شيء محلياً عند النجاح المباشر لسد ثغرة السلة الفارغة +++
+      // +++ الدرع البصري: خصم المخزون محلياً فوراً حتى تتحدث شاشة المندوب ولا يبيع بضاعة لا يملكها +++
+      if (safePayload['cart_items'] != null) {
+        await _db.deductInventoryLocal(safePayload['cart_items']);
+      }
       developer.log('[SyncRepository] Invoice #$visitId synced immediately.');
     } catch (e) {
       if (e is DioException && e.response?.statusCode != null) {
@@ -150,15 +176,8 @@ class SyncRepository {
         '[SyncRepository] Offline mode triggered for invoice #$visitId. Reason: $e',
       );
 
-      final existingPending = await _db.getPendingSyncs();
-      for (var p in existingPending) {
-        if (p['type'] == 'submit_sale') {
-          final payload = jsonDecode(p['payload'] as String);
-          if (payload['visitId'] == visitId) {
-            await _db.deletePendingSync(p['id'] as int);
-          }
-        }
-      }
+      // +++ النسف المعماري للخصم المزدوج: التراجع عن الفاتورة القديمة أوفلاين قبل حفظ التعديل الجديد +++
+      await _db.revertOfflineVisit(visitId);
 
       await _db.addPendingSync(
         type: 'submit_sale',
@@ -167,11 +186,9 @@ class SyncRepository {
 
       await updateDataTask(); // +++ حفظ كل شيء محلياً في وضع الأوفلاين +++
 
+      // +++ إصلاح كارثة المرتجعات: خصم المبيعات (cart_items) فقط. المرتجعات نتركها للسيرفر لتجنب العبث بالعهدة +++
       if (safePayload['cart_items'] != null) {
         await _db.deductInventoryLocal(safePayload['cart_items']);
-      }
-      if (safePayload['returns'] != null) {
-        await _db.deductInventoryLocal(safePayload['returns']);
       }
     }
   }
@@ -180,15 +197,22 @@ class SyncRepository {
   // syncUp — إرسال كل العمليات المعلقة
   // -----------------------------------------------------------------------
   Future<int> syncUp() async {
+    if (_isSyncing) {
+      developer.log('[SyncRepository] syncUp is already running. Skipped.');
+      return 0;
+    }
+
     final pending = await _db.getPendingSyncs();
     if (pending.isEmpty) return 0;
 
+    _isSyncing = true;
     developer.log(
       '[SyncRepository] Found ${pending.length} pending records to syncUp.',
     );
     int successCount = 0;
 
-    for (final record in pending) {
+    try {
+      for (final record in pending) {
       final recordId = record['id'] as int;
       final type = record['type'] as String;
       final payload = jsonDecode(record['payload'] as String);
@@ -223,15 +247,18 @@ class SyncRepository {
         break;
       } catch (e) {
         developer.log(
-          '[SyncRepository] Unexpected error for pending #$recordId: $e — stopping.',
+          '[SyncRepository] Unexpected error for pending #$recordId: $e — skipping to next.',
         );
-        break;
+        // +++ النسف المعماري لقنبلة السجل المسموم (Poison Pill): يجب تخطي السجل التالف محلياً (continue) بدلاً من تجميد طابور المزامنة بالكامل (break) +++
+        continue; 
       }
     }
-
-    developer.log(
-      '[SyncRepository] syncUp() done — $successCount/${pending.length} synced.',
-    );
+    } finally {
+      _isSyncing = false; // +++ تحرير القفل دائماً حتى لو حصل خطأ +++
+      developer.log(
+        '[SyncRepository] syncUp() done — $successCount/${pending.length} synced.',
+      );
+    }
     return successCount;
   }
 
@@ -254,15 +281,15 @@ class SyncRepository {
         }
 
         // +++ النسف المعماري لمشكلة الذمة: تحديث رصيد المحل محلياً بناءً على استجابة السيرفر فور نجاح الرفع +++
+        // CS-03 / flutter.md Issue #4: Properly await the rawUpdate (fix fire-and-forget)
         if (response.data != null && response.data['new_balance'] != null) {
           final double newBalance =
               double.tryParse(response.data['new_balance'].toString()) ?? 0.0;
-          await _db.database.then((db) {
-            db.rawUpdate(
-              'UPDATE visits SET shop_balance = ? WHERE visit_id = ?',
-              [newBalance, visitId],
-            );
-          });
+          final db = await _db.database;
+          await db.rawUpdate(
+            'UPDATE visits SET shop_balance = ? WHERE visit_id = ?',
+            [newBalance, visitId],
+          );
         }
         break;
 
@@ -289,17 +316,8 @@ class SyncRepository {
 // دوال معزولة (Top-Level Functions) لاستخدامها مع Isolate/compute
 // -----------------------------------------------------------------------
 List<VisitModel> _parseVisits(List<Map<String, dynamic>> data) {
-  return data.map((v) {
-    final visit = VisitModel.fromJson(v);
-    // +++ المزامنة العكسية: تحويل القوائم إلى نصوص JSON لحفظها في القاعدة المحلية +++
-    if (v['cart_items'] != null) {
-      visit.cartItemsJson = jsonEncode(v['cart_items']);
-    }
-    if (v['returns'] != null) {
-      visit.returnsJson = jsonEncode(v['returns']);
-    }
-    return visit;
-  }).toList();
+  // +++ النسف المعماري: إزالة التلاعب بالموديل بعد إنشائه. الحقول تُملأ من داخل fromJson بأمان تام +++
+  return data.map((v) => VisitModel.fromJson(v)).toList();
 }
 
 List<ProductModel> _parseProducts(List<Map<String, dynamic>> data) {

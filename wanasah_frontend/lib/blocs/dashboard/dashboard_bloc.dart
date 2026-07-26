@@ -179,9 +179,17 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final response = await ApiClient.instance.get(
         '/driver/${event.driverId}/dashboard',
       );
-      final Map<String, dynamic> data = response.data;
 
-      final sessionData = data['active_session'] as Map<String, dynamic>?;
+      // +++ الدرع النوعي النخبوي (Elite Cast): منع كراش الـ TypeError بدون طرد المندوب ظلماً بسبب تعقيدات Dart +++
+      if (response.data is! Map) {
+        emit(const DashboardError(message: 'استجابة غير صالحة من الخادم.'));
+        return;
+      }
+      final Map<String, dynamic> data = Map<String, dynamic>.from(response.data as Map);
+
+      final sessionData = data['active_session'] is Map 
+          ? Map<String, dynamic>.from(data['active_session'] as Map) 
+          : null;
       final bool sessionIsActive =
           (sessionData != null && sessionData['session_id'] != null);
 
@@ -195,14 +203,16 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         isOnBreak =
             sessionData['break_start_time'] != null &&
             sessionData['break_end_time'] == null;
-        startTimeStr = sessionData['start_time'] as String?;
-        final inventoryList = sessionData['inventory'] as List<dynamic>? ?? [];
-        apiProducts =
-            inventoryList.map((p) => ProductModel.fromJson(p)).toList();
+        startTimeStr = sessionData['start_time']?.toString();
+        
+        // +++ درع القوائم: حماية الـ List من الانهيار إذا أرسل السيرفر null أو Map بالخطأ +++
+        final dynamic rawInv = sessionData['inventory'];
+        final List<dynamic> inventoryList = rawInv is List ? rawInv : [];
+        apiProducts = inventoryList.map((p) => ProductModel.fromJson(p is Map ? Map<String, dynamic>.from(p) : {})).toList();
       }
 
-      final financials = data['financials'] as Map<String, dynamic>?;
-      final countsData = data['counts'] as Map<String, dynamic>?;
+      final financials = data['financials'] is Map ? Map<String, dynamic>.from(data['financials'] as Map) : null;
+      final countsData = data['counts'] is Map ? Map<String, dynamic>.from(data['counts'] as Map) : null;
 
       // +++ حفظ الذاكرة المالية وهوية المندوب أوفلاين (دفعة واحدة لمنع شلل الواجهة) +++
       final storage = const FlutterSecureStorage();
@@ -271,16 +281,23 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         DashboardLoaded(
           visits: localData.visits,
           products: apiProducts.isNotEmpty ? apiProducts : localData.products,
-          totalVisits:
-              (countsData?['total_pending'] ?? 0) +
-              (countsData?['total_completed'] ?? 0),
+          // +++ النسف المعماري (String/Float Precision Loss): التحويل الفولاذي لـ int لمنع الكراش العشوائي +++
+          totalVisits: 
+              (int.tryParse(countsData?['total_pending']?.toString() ?? '0') ?? 0) +
+              (int.tryParse(countsData?['total_completed']?.toString() ?? '0') ?? 0),
           completedVisits:
-              countsData?['total_completed'] ?? localData.completedVisits,
+              countsData?['total_completed'] != null 
+                  ? (int.tryParse(countsData!['total_completed'].toString()) ?? 0)
+                  : localData.completedVisits,
           pendingVisits:
-              countsData?['total_pending'] ?? localData.pendingVisits,
+              countsData?['total_pending'] != null 
+                  ? (int.tryParse(countsData!['total_pending'].toString()) ?? 0)
+                  : localData.pendingVisits,
           offlineVisits: localData.offlineVisits,
           salesInCompleted:
-              countsData?['sales_in_completed'] ?? localData.salesInCompleted,
+              countsData?['sales_in_completed'] != null 
+                  ? (int.tryParse(countsData!['sales_in_completed'].toString()) ?? 0)
+                  : localData.salesInCompleted,
           driverName: data['driver_name'] ?? localData.driverName,
           assignedRegion: data['assigned_region'] ?? localData.assignedRegion,
           // +++ النسف المعماري (Float Precision Loss): قراءة المبالغ كنصوص وتحويلها بأمان لمنع الـ Crash +++
@@ -366,7 +383,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final response = await ApiClient.instance.get(
         '/driver/transfers/pending',
       );
-      final List<dynamic> transfers = response.data ?? [];
+      // +++ الدرع النوعي: التأكد من أن الحوالات هي قائمة فعلاً لتجنب TypeError +++
+      final dynamic rawTransfers = response.data;
+      final List<dynamic> transfers = rawTransfers is List ? rawTransfers : [];
 
       if (transfers.isNotEmpty) {
         // +++ تحديث آمن بسطر واحد باستخدام copyWith +++
@@ -395,9 +414,11 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final String? driverIdStr = await const FlutterSecureStorage().read(
         key: 'driver_id',
       );
-      if (driverIdStr != null) {
+      // +++ حماية Parse: منع كراش الـ FormatException إذا كان الـ ID مفقوداً من الذاكرة +++
+      final int? driverId = int.tryParse(driverIdStr ?? '');
+      if (driverId != null) {
         // تحديث البيانات بعد الرد لضمان دخول البضاعة للمخزون
-        add(FetchDashboardData(driverId: int.parse(driverIdStr)));
+        add(FetchDashboardData(driverId: driverId));
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error responding to transfer: $e');
@@ -428,9 +449,11 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final String? driverIdStr = await const FlutterSecureStorage().read(
         key: 'driver_id',
       );
-      if (driverIdStr != null) {
+      // +++ حماية Parse: منع كراش الـ FormatException إذا كان الـ ID مفقوداً من الذاكرة +++
+      final int? driverId = int.tryParse(driverIdStr ?? '');
+      if (driverId != null) {
         // تحديث البيانات بعد الرد لضمان دخول البضاعة للمخزون
-        add(FetchDashboardData(driverId: int.parse(driverIdStr)));
+        add(FetchDashboardData(driverId: driverId));
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error responding to batch transfer: $e');

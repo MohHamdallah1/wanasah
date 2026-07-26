@@ -256,8 +256,21 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
       String errorMessage = 'فشل حفظ المحل. الرجاء المحاولة مرة أخرى.';
       if (e.response?.data != null && e.response?.data is Map) {
-        errorMessage =
-            'فشل حفظ المحل: ${e.response?.data['message'] ?? e.message}';
+        // +++ الدرع النخبوي (Elite Shield) لالتقاط أخطاء FastAPI و Pydantic بصيغتها المعقدة ومنع الـ Type Crash +++
+        final Map<dynamic, dynamic> errorData = e.response!.data as Map;
+        
+        if (errorData['message'] != null && errorData['message'] is String) {
+          errorMessage = 'فشل الحفظ: ${errorData['message']}';
+        } else if (errorData['detail'] != null) {
+          final dynamic detail = errorData['detail'];
+          if (detail is List && detail.isNotEmpty) {
+            // التقاط خطأ التحقق (Validation Error) من Pydantic
+            final firstError = detail[0] as Map;
+            errorMessage = 'خطأ في البيانات: ${firstError['msg']}';
+          } else if (detail is String) {
+            errorMessage = 'فشل الحفظ: $detail';
+          }
+        }
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -288,9 +301,10 @@ class _AddShopScreenState extends State<AddShopScreen> {
   Widget build(BuildContext context) {
     // Scaffold لا يمكن أن تكون const بسبب الـ body والـ AppBar
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      // +++ النسف المعماري لظاهرة الأشباح: إغلاق الثقب البصري بلون صلب حتى اكتمال تصميم الواجهة الزجاجية +++
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.grey.shade50,
         elevation: 0,
         title: const Text('إضافة محل جديد'), // النص ثابت، يمكن إضافة const
         centerTitle: true,
