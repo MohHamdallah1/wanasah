@@ -16,6 +16,7 @@ import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import 'dart:developer' as developer; // +++ اصحى يا مدير، هذا الاستيراد اللي نسيته +++
 import '../core/db/local_database.dart';
+import 'dart:convert';
 
 class DashboardScreen extends StatefulWidget {
   final int driverId;
@@ -253,7 +254,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         // حفظ في الخزنة السرية (pending_sync) للمزامنة لاحقاً
         await LocalDatabase.instance.addPendingSync(
           type: 'toggle_break',
-          payload: '{"driver_id": ${widget.driverId}, "action": "$action"}',
+          // +++ الكي الجراحي (F-05): استخدام jsonEncode لمنع ثغرات الـ JSON Injection +++
+          payload: jsonEncode({'driver_id': widget.driverId, 'action': action}),
         );
         // نكمل العملية محلياً دون إزعاج المندوب بخطأ الشبكة
       } else {
@@ -733,22 +735,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final bloc = context.read<DashboardBloc>();
         bloc.add(FetchDashboardData(driverId: widget.driverId));
 
-        // +++ درع التجميد اللانهائي: مهلة زمنية 5 ثوانٍ كحد أقصى لمنع دوران المؤشر للأبد +++
+        // +++ الكي الجراحي (F-03 & F-08): إغلاق تسريب الذاكرة وإظهار رسالة فشل حقيقية عند انتهاء المهلة +++
+        bool isTimeout = false;
+        StreamSubscription? subscription;
         try {
-          await bloc.stream.firstWhere((s) => s is! DashboardLoading).timeout(const Duration(seconds: 5));
+          final completer = Completer<void>();
+          subscription = bloc.stream.listen((state) {
+            if (state is! DashboardLoading && !completer.isCompleted) {
+              completer.complete();
+            }
+          });
+          await completer.future.timeout(const Duration(seconds: 5));
+        } on TimeoutException catch (_) {
+          isTimeout = true;
+          developer.log('[Dashboard] Refresh timeout reached.');
         } catch (_) {
-          developer.log('[Dashboard] Refresh timeout reached, proceeding safely...');
+          isTimeout = true;
+        } finally {
+          await subscription?.cancel(); // +++ سحق تسريب الذاكرة (Memory Leak) +++
         }
 
         if (mounted && hasPendingData) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('تم رفع الفواتير وتحديث البيانات بنجاح ✔️'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
-            ),
-          );
+          if (isTimeout) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('انتهى وقت المزامنة. قد تكون الشبكة ضعيفة ⚠️'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('تم رفع الفواتير وتحديث البيانات بنجاح ✔️'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
         }
       },
       child: ListView(

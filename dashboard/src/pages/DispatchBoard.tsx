@@ -195,7 +195,7 @@ export default function DispatchBoard() {
       .catch(err => { if (err.name !== 'AbortError') console.error(err); });
 
     return controller;
-  }, []);
+  }, [authenticatedFetch]); // +++ E-04: إضافة authenticatedFetch كـ Dependency لتجنب تحذيرات وتسريبات الذاكرة +++
 
   // Step 5.7c: Replace polling with WebSocket for real-time dispatch updates
   useEffect(() => {
@@ -220,6 +220,16 @@ export default function DispatchBoard() {
               .catch(() => {});
             authenticatedFetch("/dispatch/shortages")
               .then(res => setShortages(Array.isArray(res) ? res : []))
+              .catch(() => {});
+            // +++ E-07: تحديث جميع النطاقات والمحلات والمناديب لمنع الـ Split-Brain بين المشرفين +++
+            authenticatedFetch("/dispatch/init")
+              .then((res: any) => {
+                if(res.zones) setZones(sortZones(res.zones));
+                if(res.drivers) setDrivers(res.drivers);
+                if(res.vehicles) setVehicles(res.vehicles);
+              }).catch(() => {});
+            authenticatedFetch("/dispatch/shops")
+              .then(res => setShops(Array.isArray(res) ? res : []))
               .catch(() => {});
           }
         } catch (err) {
@@ -418,23 +428,29 @@ export default function DispatchBoard() {
 
   const handleUpdateScheduling = async () => {
     const targetIds = schedulingType === "bulk" ? selectedBulkZoneIds : [selectedZoneIdForZones];
-    const zoneNames = zones.filter(z => targetIds.includes(z.id)).map(z => z.name).join("، ");
-    try {
-      await Promise.all(targetIds.map(id =>
-        authenticatedFetch(`/dispatch/zones/${id}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            frequency: schedulingForm.frequency,
-            visitDay: schedulingForm.visitDay,
-            startDate: schedulingForm.startDate
-          })
+    setIsSchedulingModalOpen(false); // +++ UX: إغلاق النافذة فوراً +++
+    
+    // +++ E-05: استخدام allSettled لتحديث الواجهة بناءً على النجاح الفعلي فقط لمنع تخريب الجدولة +++
+    const results = await Promise.allSettled(targetIds.map(id =>
+      authenticatedFetch(`/dispatch/zones/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          frequency: schedulingForm.frequency,
+          visitDay: schedulingForm.visitDay,
+          startDate: schedulingForm.startDate
         })
-      ));
-      setZones(prev => sortZones(prev.map(z => targetIds.includes(z.id) ? { ...z, ...schedulingForm } : z)));
-      toast.success(`تم تحديث إعدادات الجدولة لـ ${zoneNames}`);
-      setIsSchedulingModalOpen(false);
-    } catch (err: any) {
-      toast.error("يرجى ادخال تاريخ البدء : " + err.message);
+      })
+    ));
+
+    const successIds = targetIds.filter((_, index) => results[index].status === 'fulfilled');
+    const failedCount = targetIds.length - successIds.length;
+
+    if (successIds.length > 0) {
+      setZones(prev => sortZones(prev.map(z => successIds.includes(z.id) ? { ...z, ...schedulingForm } : z)));
+      toast.success(`تم تحديث إعدادات الجدولة بنجاح لـ ${successIds.length} منطقة`);
+    }
+    if (failedCount > 0) {
+      toast.error(`فشل تحديث ${failedCount} منطقة. يرجى إدخال تاريخ البدء بشكل صحيح.`);
     }
   };
 

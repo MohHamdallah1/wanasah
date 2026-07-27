@@ -337,13 +337,15 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
     if (state is! VisitReady) return;
     final currentState = state as VisitReady;
 
-    // +++ حل مشكلة التعليق الصامت: إرسال رسالة خطأ للواجهة ثم العودة للسلة فوراً +++
-    if (!event.item.hasEnoughInventory) {
-      developer.log(
-        '[VisitBloc] Inventory Blocked: Not enough stock for ${event.item.name}',
-      );
-      // +++ إصلاح ابتلاع الأخطاء: إرسال الخطأ داخل الـ State الحالي ليلتقطه الـ UI بدون تدمير السلة أو تجاهلها +++
-      emit(currentState.copyWith(errorMessage: 'عفواً، كمية ${event.item.name} المطلوبة غير متوفرة في سيارتك.'));
+    // +++ F-04: درع الـ Race Condition - التحقق من الكمية داخل الـ BLoC بشكل قطعي لمنع تجاوز المخزون عند النقر السريع +++
+    int safePpc = event.item.packsPerCarton > 0 ? event.item.packsPerCarton : 1;
+    int totalRequested = (event.item.cartons * safePpc) + event.item.packs + 
+                         (event.item.sampleCartons * safePpc) + event.item.samplePacks;
+    int totalAvailable = (event.item.availableCartons * safePpc) + event.item.availablePacks;
+    
+    if (totalRequested > totalAvailable) {
+      developer.log('[VisitBloc] Inventory Blocked (Race Condition Shield): Not enough stock for ${event.item.name}');
+      emit(currentState.copyWith(errorMessage: 'عفواً، كمية ${event.item.name} المطلوبة لا تكفي بالسيارة.'));
       return;
     }
 
@@ -440,17 +442,18 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
       }
 
       // 3. بناء الـ Payload المطابق 100% للسيرفر بعد التحديث
-      final payload = {
+      final payload = <String, dynamic>{
         'visit_id': event.visitId, // +++ الكي الجراحي: حقن الـ ID بوضوح ليتعرف التطبيق على مسودته +++
         'visitId': event.visitId, // ضمان التوافقية
         'outcome': event.outcome,
         'notes': event.notes ?? '',
-        'cash_collected': currentState.cashCollected,
-        'debt_paid': event.debtPaid,
       };
 
-      // +++ التوافق المعماري مع البيزنس: NoSale يمكن أن تحتوي على مرتجعات وعينات، لذلك نرسلها للسيرفر +++
+      // +++ التوافق المعماري (I-01 Shield): عزل الأموال والبضاعة عن الزيارات المؤجلة لمنع الـ 400 +++
       if (event.outcome == 'Sale' || event.outcome == 'NoSale') {
+        payload['cash_collected'] = currentState.cashCollected;
+        payload['debt_paid'] = event.debtPaid;
+        
         if (cartItems.isNotEmpty) payload['cart_items'] = cartItems;
         if (returns.isNotEmpty) payload['returns'] = returns;
 

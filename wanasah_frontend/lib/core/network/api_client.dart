@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:developer' as developer;
 
 import '../../services/api_constants.dart';
+import '../db/local_database.dart'; // +++ F-11: استيراد الداتابيز لتنظيفها +++
 
 // -----------------------------------------------------------------------
 // AuthInterceptor
@@ -55,9 +56,13 @@ class AuthInterceptor extends Interceptor {
       // +++ درع تسجيل الدخول: تجاهل 401 من مسار الدخول لمنع طرد المستخدم وكاش اللوب +++
       if (!err.requestOptions.path.contains('/login')) {
         developer.log(
-          '[AuthInterceptor] 401 Unauthorized → triggering onUnauthorized callback',
+          '[AuthInterceptor] 401 Unauthorized → wiping data & triggering callback',
         );
-        // إطلاق الإشعار للـ BLoC ليتولى هو مسح الذاكرة والتوجيه
+        // +++ F-11: مسح الذاكرة المحلية والسرية فوراً قبل الـ UI Redirect لمنع تسريب بيانات المندوب السابق +++
+        await _storage.deleteAll();
+        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: true);
+        
+        // إطلاق الإشعار للـ BLoC ليتولى التوجيه
         onUnauthorized();
       }
     }
@@ -80,10 +85,10 @@ class ApiClient {
   /// الحصول على الـ Instance الوحيد من ApiClient.
   /// يجب استدعاء [init] مرة واحدة قبل الاستخدام.
   static ApiClient get instance {
-    assert(
-      _instance != null,
-      'ApiClient.init() must be called before accessing ApiClient.instance',
-    );
+    // +++ الكي الجراحي (F-02): استبدال assert بـ StateError لمنع الانهيار في بيئة الإنتاج (Release) +++
+    if (_instance == null) {
+      throw StateError('ApiClient.init() must be called before accessing ApiClient.instance');
+    }
     return _instance!;
   }
 
@@ -98,6 +103,7 @@ class ApiClient {
         // +++ درع الشبكات الضعيفة: رفع المهلة الزمنية لمنع الانقطاع الوهمي في الميدان +++
         connectTimeout: const Duration(seconds: 30),
         receiveTimeout: const Duration(seconds: 60),
+        sendTimeout: const Duration(seconds: 30), // +++ الكي الجراحي (F-06): إضافة مهلة الإرسال لمنع اختناق السيرفر +++
         headers: {
           'Content-Type': 'application/json; charset=UTF-8',
           'Accept': 'application/json',

@@ -30,12 +30,20 @@ class LocalDatabase {
 
   // الاتصال الوحيد بقاعدة البيانات — null حتى يتم التهيئة للمرة الأولى
   static Database? _database;
+  
+  // +++ الدرع المعماري (Mutex Lock): منع التطبيق من محاولة فتح القاعدة مرتين بنفس اللحظة +++
+  static Future<Database>? _initDbFuture;
 
   /// نقطة الوصول العامة للاتصال.
   /// إذا لم يتم فتح الاتصال بعد، يتم استدعاء [_initDB] تلقائياً (Lazy Init).
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB();
+    
+    // إذا كان هناك عملية فتح قيد التنفيذ، انتظرها ولا تفتح اتصالاً جديداً
+    _initDbFuture ??= _initDB();
+    _database = await _initDbFuture;
+    _initDbFuture = null; // تفريغ القفل بعد الانتهاء
+    
     return _database!;
   }
 

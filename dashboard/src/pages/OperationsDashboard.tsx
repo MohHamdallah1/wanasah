@@ -131,8 +131,10 @@ const Index = () => {
         
         setDrivers(formattedData);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("فشل الاتصال بالسيرفر:", error);
+      // +++ E-03: إظهار إشعار للمستخدم عند فشل التحديث الصامت (مع تجاهل 401 لأنه يعالج بالتوجيه) +++
+      if (error?.status !== 401) toast.error("حدث خطأ أثناء تحديث بيانات غرفة العمليات");
       throw error; // H-04: Re-throw so the polling loop increments backoff on failure
     }
   }, [authFetch]);
@@ -278,7 +280,8 @@ const Index = () => {
       setIsSettlementModalOpen(false);
       fetchLiveOperations();
     } catch (error: any) {
-      toast.error(error.message || "حدث خطأ أثناء التسوية");
+      // +++ E-08: منع ظهور رسالة فارغة (Undefined) عند رمي أخطاء غير قياسية +++
+      toast.error(error?.message || (typeof error === 'string' ? error : "حدث خطأ غير معروف أثناء التسوية"));
     }
   };
 

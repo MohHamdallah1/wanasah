@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 export default function Login() {
@@ -8,21 +8,23 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
+  // +++ الكي الجراحي (E-10): استخدام useRef لمنع البحث في شجرة الـ DOM مع كل حركة ماوس +++
+  const spotlightRef = useRef<HTMLDivElement>(null);
 
   // تشغيل الساعة الرقمية
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    }, 1000);
+    // +++ الكي الجراحي (E-09): إزالة الثواني وتحديث الشاشة كل 10 ثوانٍ فقط لمنع الـ Re-render المفرط +++
+    const updateTime = () => setCurrentTime(new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }));
+    updateTime();
+    const timer = setInterval(updateTime, 10000);
     return () => clearInterval(timer);
   }, []);
 
   // تأثير إضاءة الماوس
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      const spotlight = document.getElementById('mouse-spotlight-login');
-      if (spotlight) {
-        spotlight.style.background = `radial-gradient(circle 250px at ${e.clientX}px ${e.clientY}px, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 30%, transparent 80%)`;
+      if (spotlightRef.current) {
+        spotlightRef.current.style.background = `radial-gradient(circle 250px at ${e.clientX}px ${e.clientY}px, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 30%, transparent 80%)`;
       }
     };
     document.addEventListener('mousemove', handleMouseMove);
@@ -82,7 +84,7 @@ export default function Login() {
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden w-full h-full text-white" dir="rtl">
       <div className="cosmic-background"></div>
-      <div id="mouse-spotlight-login" className="fixed inset-0 pointer-events-none z-0 transition-all duration-300"></div>
+      <div ref={spotlightRef} id="mouse-spotlight-login" className="fixed inset-0 pointer-events-none z-0 transition-all duration-300"></div>
 
       {currentTime && (
         <div className="absolute top-6 left-6 text-cyan-400 font-mono text-sm animate-pulse z-30 font-bold tracking-widest">

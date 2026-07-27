@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { toast } from "sonner"; // +++ الكي الجراحي (E-11): استدعاء الـ Toast لعرض الأخطاء +++
 import DashboardLayout from "@/components/operations/DashboardLayout";
 import OperationsDashboard from "./pages/OperationsDashboard";
 import DispatchBoard from "./pages/DispatchBoard";
@@ -11,7 +12,20 @@ import MainInventory from "./pages/inventory/MainInventory";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+// +++ الكي الجراحي (E-11): إضافة Error Handling شامل للـ QueryClient +++
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      onError: (error: any) => {
+        toast.error(error?.message || 'حدث خطأ غير متوقع بالاتصال');
+      }
+    }
+  },
+});
 
 // H-05: Helper to check JWT expiry before trusting localStorage token
 // Step 4.3c.1: Base64URL-safe and UTF-8-aware JWT decoder

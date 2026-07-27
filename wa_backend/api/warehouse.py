@@ -419,8 +419,12 @@ async def get_warehouse_ledger(
     
     
     try:
+        # +++ الكي الجراحي (C-03): منع القيم السالبة في أرقام الصفحات +++
+        if skip < 0 or limit < 0:
+            raise HTTPException(status_code=400, detail="مرفوض: لا يمكن إدخال قيم سالبة في أرقام الصفحات.")
+
         # +++ النسف المعماري لـ N+1 مع Pagination حقيقي يحمي الذاكرة ولا يعمي المحاسب +++
-        safe_limit = min(limit, 1000) # +++ الدرع الفولاذي: حماية الـ RAM من الانفجار بحد أقصى إجباري +++
+        safe_limit = max(1, min(limit, 1000)) # +++ الدرع الفولاذي: حماية الـ RAM من الانفجار بحد أقصى إجباري +++
         stmt = select(WarehouseLedger).options(
             joinedload(WarehouseLedger.product_variant), 
             joinedload(WarehouseLedger.admin)
@@ -607,16 +611,25 @@ async def adjust_warehouse_entry(
     hash_bytes = current_admin.password_hash.encode('utf-8')
     password_ok = await asyncio.to_thread(bcrypt.checkpw, pwd_bytes, hash_bytes)
     if not password_ok:
-        # +++ درع إضافي: توثيق محاولة التلاعب في حال كانت كلمة السر خاطئة +++
-        audit = SystemAuditLog(
-            admin_id=current_admin.id, target_id=f"Ledger_{entry_id}",
-            action_type='UNAUTHORIZED_ADJUSTMENT', old_value='Wrong Password', new_value='Rejected'
-        )
-        db.add(audit)
-        await db.commit()
+        # +++ الكي الجراحي (C-04): منع انهيار السيرفر إذا فشل تسجيل الاختراق +++
+        try:
+            audit = SystemAuditLog(
+                admin_id=current_admin.id, target_id=f"Ledger_{entry_id}",
+                action_type='UNAUTHORIZED_ADJUSTMENT', old_value='Wrong Password', new_value='Rejected'
+            )
+            db.add(audit)
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Failed to log unauthorized adjustment: {e}")
+            
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة. تم رفض العملية وتوثيق المحاولة.")
 
     try:
+        # +++ الكي الجراحي (C-02): منع إدخال إجمالي سالب لتجنب تخريب الدفاتر +++
+        if int(payload.new_total_packs) < 0:
+            raise HTTPException(status_code=400, detail="مرفوض: لا يمكن أن يكون الإجمالي الجديد قيمة سالبة.")
+
         # 2. جلب الحركة الأصلية 
         original_entry = await db.get(WarehouseLedger, entry_id)
         if not original_entry:
@@ -649,8 +662,8 @@ async def adjust_warehouse_entry(
         if delta == 0:
             return {"message": "لا يوجد تغيير في الكمية. الصافي الحالي مطابق لما أدخلته."}
 
-        # 4. جلب المنتج وقفله للتحديث (Row-level lock) بترتيب هرمي لمنع الـ Deadlock
-        stmt_variant = select(ProductVariant).with_for_update().filter_by(id=original_entry.product_variant_id)
+        # 4. جلب المنتج (الكي الجراحي C-01: إزالة القفل غير المبرر لمنع الـ Deadlock)
+        stmt_variant = select(ProductVariant).filter_by(id=original_entry.product_variant_id)
         variant = (await db.execute(stmt_variant)).scalar_one_or_none()
         if not variant:
             await db.rollback() # +++ الدرع الفولاذي: تحرير القفل لإنقاذ السيرفر +++

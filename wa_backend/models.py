@@ -407,6 +407,8 @@ class ShortageRequest(Base):
 class OfferRule(Base):
     __tablename__ = 'offer_rules'
     id                 = Column(Integer, primary_key=True)
+    # +++ الكي الجراحي (G-01): ربط العرض بمنتج معين. (Null تعني عرض عام لجميع المنتجات) +++
+    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='CASCADE'), nullable=True, index=True)
     threshold_quantity = Column(Integer, nullable=False)
     offer_type         = Column(String(50), nullable=False)
     bonus_quantity     = Column(Integer,    nullable=False, default=0)
@@ -447,6 +449,10 @@ class InventoryLedger(Base):
     transaction_type: Deficit (عجز) | Surplus (زيادة) | Adjustment (تعديل)
     """
     __tablename__ = 'inventory_ledgers'
+    # +++ الكي الجراحي (G-04): إجبار الداتابيز على حساب الفرق بدقة لمنع التلاعب المالي +++
+    __table_args__ = (
+        CheckConstraint('difference = actual_quantity - expected_quantity', name='chk_ledger_difference'),
+    )
     id                 = Column(Integer, primary_key=True)
     work_session_id    = Column(Integer, ForeignKey('work_sessions.id'), nullable=True, index=True)
     driver_id          = Column(Integer, ForeignKey('drivers.id'),       nullable=False)
@@ -612,3 +618,12 @@ class WarehouseLedger(Base):
 
     product_variant = relationship('ProductVariant', lazy='raise')
     admin = relationship('Driver', foreign_keys=[admin_id], lazy='raise')
+
+# =================================================================================
+# ⑳ القائمة السوداء للتوكنز (Token Blacklist) - لإنهاء الجلسات (Logout)
+# =================================================================================
+class TokenBlacklist(Base):
+    __tablename__ = 'token_blacklist'
+    id = Column(Integer, primary_key=True)
+    token = Column(String(500), unique=True, nullable=False, index=True)
+    blacklisted_at = Column(DateTime, nullable=False, default=utc_now)

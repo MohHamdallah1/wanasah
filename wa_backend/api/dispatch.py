@@ -425,6 +425,10 @@ async def settle_session(
         # 2. تحضير البيانات
         jard_map = {}
         for item in payload.inventory_jard:
+            # +++ الكي الجراحي (B-04): منع إدخال جرد فعلي سالب لتفادي IntegrityError +++
+            if item.actual < 0:
+                await db.rollback()
+                raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن إدخال جرد فعلي بقيمة سالبة.")
             pid = item.product_id
             jard_map[pid] = jard_map.get(pid, 0) + item.actual
 
@@ -552,14 +556,15 @@ async def settle_session(
             sellable_qty = actual_qty - damaged_packs
 
             # +++ الدرع المحاسبي 2: تجميد اللقطة التاريخية (Snapshot) لإنقاذ تقارير المحاسبة +++
+            # +++ B-02: حفظ الكمية الصالحة للبيع فقط لمنع تضخم العهدة الوهمي في التقارير +++
             if inv_record:
-                inv_record.current_remaining_quantity = actual_qty
+                inv_record.current_remaining_quantity = max(0, sellable_qty)
             else:
                 db.add(SessionInventory(
                     work_session_id=session.id,
                     product_variant_id=prod_id,
                     starting_quantity=0,
-                    current_remaining_quantity=actual_qty
+                    current_remaining_quantity=max(0, sellable_qty)
                 ))
 
             if sellable_qty < 0:
@@ -753,7 +758,21 @@ async def dispatch_route(
         stmt_driver_lock = select(Driver).with_for_update().filter_by(id=payload.driver_id)
         driver_lock = (await db.execute(stmt_driver_lock)).scalar_one_or_none()
         if not driver_lock:
+            await db.rollback() # +++ B-07: سحق ثغرة تسريب الأقفال (Lock Leak) +++
             raise HTTPException(status_code=404, detail="المندوب غير موجود.")
+
+        # +++ الكي الجراحي 1 (Phase 3b): قفل السيارة والمنطقة لمنع (Phantom Reads) وسباق الإشارات (Split-Brain) +++
+        stmt_veh_lock = select(Vehicle).with_for_update().filter_by(id=payload.vehicle_id)
+        veh_lock = (await db.execute(stmt_veh_lock)).scalar_one_or_none()
+        if not veh_lock:
+            await db.rollback()
+            raise HTTPException(status_code=404, detail="السيارة غير موجودة.")
+            
+        stmt_zone_lock = select(Zone).with_for_update().filter_by(id=payload.zone_id)
+        zone_lock = (await db.execute(stmt_zone_lock)).scalar_one_or_none()
+        if not zone_lock:
+            await db.rollback()
+            raise HTTPException(status_code=404, detail="المنطقة غير موجودة.")
 
         stmt_zone_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting', 'postponed']), DispatchRoute.zone_id == payload.zone_id)
         if (await db.execute(stmt_zone_check)).first():
@@ -781,7 +800,12 @@ async def dispatch_route(
             for p, q in payload.inventory.items():
                 if str(q).strip() != '':
                     try:
-                        clean_inventory[int(str(p).strip())] = int(str(q).strip())
+                        # +++ B-01: حماية الداتابيز من الكميات السالبة التي تفجر الـ Constraints +++
+                        parsed_qty = int(str(q).strip())
+                        if parsed_qty < 0:
+                            await db.rollback()
+                            raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن إدخال كميات سالبة في حمولة السيارة.")
+                        clean_inventory[int(str(p).strip())] = parsed_qty
                     except ValueError:
                         continue
             
@@ -881,10 +905,11 @@ async def dispatch_route(
                 bulk_sinvs = {si.product_variant_id: si for si in (await db.execute(stmt_sinvs)).scalars().all()} if all_involved_pids else {}
                 
                 stmt_pending = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
-                    InventoryTransfer.work_session_id == active_session.id,
-                    InventoryTransfer.product_variant_id.in_(all_involved_pids),
-                    InventoryTransfer.status == 'pending'
-                ).group_by(InventoryTransfer.product_variant_id)
+                InventoryTransfer.work_session_id == active_session.id,
+                InventoryTransfer.product_variant_id.in_(all_involved_pids),
+                InventoryTransfer.status == 'pending',
+                InventoryTransfer.quantity_packs < 0 # +++ B-05: فلترة السحوبات فقط لعدم حظر الإيداعات المشروعة +++
+            ).group_by(InventoryTransfer.product_variant_id)
                 
                 pending_transfers_map = {v_id: total for v_id, total in (await db.execute(stmt_pending)).all()} if all_involved_pids else {}
                 # +++ توحيد الزمن المعماري وطرد مكتبة time بالكامل +++
@@ -1851,20 +1876,27 @@ async def update_route_status(
     is_activating = (new_status == 'active') or (not new_status and route.status == 'active')
     
     if is_activating:
+        # +++ الكي الجراحي 2 (Phase 3b): قفل الأصول وتصحيح الـ Status Code إلى 409 بدلاً من 400 ليتوافق مع اختبارات الضغط +++
         if target_driver_id:
+            await db.execute(select(Driver).with_for_update().filter_by(id=target_driver_id))
             stmt_dup_driver = select(DispatchRoute).filter(DispatchRoute.driver_id == target_driver_id, DispatchRoute.status == 'active', DispatchRoute.id != route.id)
             if (await db.execute(stmt_dup_driver)).first(): 
-                raise HTTPException(status_code=400, detail="مرفوض: المندوب لديه خط سير نشط حالياً.")
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="مرفوض: المندوب لديه خط سير نشط حالياً.")
         
         target_veh = new_vehicle_id or route.vehicle_id
         if target_veh:
+            await db.execute(select(Vehicle).with_for_update().filter_by(id=target_veh))
             stmt_dup_veh = select(DispatchRoute).filter(DispatchRoute.vehicle_id == target_veh, DispatchRoute.status == 'active', DispatchRoute.id != route.id)
             if (await db.execute(stmt_dup_veh)).first(): 
-                raise HTTPException(status_code=400, detail="مرفوض: هذه السيارة مستخدمة في خط سير نشط آخر.")
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="مرفوض: هذه السيارة مستخدمة في خط سير نشط آخر.")
 
+        await db.execute(select(Zone).with_for_update().filter_by(id=route.zone_id))
         stmt_dup_zone = select(DispatchRoute).filter(DispatchRoute.zone_id == route.zone_id, DispatchRoute.status == 'active', DispatchRoute.id != route.id)
         if (await db.execute(stmt_dup_zone)).first(): 
-            raise HTTPException(status_code=400, detail="مرفوض: هذه المنطقة قيد العمل حالياً مع مندوب آخر.")
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="مرفوض: هذه المنطقة قيد العمل حالياً مع مندوب آخر.")
 
     try:
         # ========================================================
@@ -1976,7 +2008,12 @@ async def update_route_status(
         # ========================================================
         # 4. تحديث الحمولة الجراحي (Guard & Zero Trust)
         # ========================================================
-        if payload.inventory is not None and route.vehicle_id:
+        if payload.inventory is not None:
+            # +++ B-08: منع التخطي الصامت إذا لم يكن هناك سيارة مرتبطة بخط السير +++
+            if not route.vehicle_id:
+                await db.rollback()
+                raise HTTPException(status_code=400, detail="مرفوض: لا يمكن تعديل حمولة لخط سير لا يحتوي على سيارة مرتبطة.")
+                
             # +++ الدرع الفولاذي: قفل الجلسة بضربة واحدة من البداية لمنع إنهاء العمل أثناء التعديل +++
             stmt_active_sess = select(WorkSession).with_for_update().filter_by(driver_id=route.driver_id, end_time=None).limit(1) if route.driver_id else None
             active_session = (await db.execute(stmt_active_sess)).scalars().first() if stmt_active_sess is not None else None
@@ -2314,7 +2351,8 @@ async def add_zone(
         raise HTTPException(status_code=400, detail="اسم المنطقة مطلوب")
 
     # الفحص الصارم لوجود المنطقة (نشطة أو مؤرشفة)
-    stmt_existing = select(Zone).filter_by(name=name)
+    # +++ B-09: قفل التزامن لمنع سباق الإشارات (TOCTOU) عند إنشاء مناطق بنفس اللحظة +++
+    stmt_existing = select(Zone).filter_by(name=name).with_for_update()
     existing_zone = (await db.execute(stmt_existing)).scalars().first()
     
     if existing_zone:
@@ -2491,8 +2529,12 @@ async def restore_zone(
 
     try:
         zone.is_active = True
+        # +++ الكي الجراحي (B-03): استعادة جميع محلات المنطقة تلقائياً +++
+        stmt_restore_shops = update(Shop).where(Shop.zone_id == zone_id).values(is_archived=False)
+        await db.execute(stmt_restore_shops)
+        
         await db.commit()
-        return {"message": "تم استعادة المنطقة بنجاح"}
+        return {"message": "تم استعادة المنطقة ومحلاتها بنجاح"}
         
     except Exception as e:
         await db.rollback()
@@ -2947,8 +2989,8 @@ async def bulk_import_shops(
                 safe_debt = Decimal('0.0')
 
             try:
-                raw_seq = str(s.sequence or '999').strip()
-                # +++ هندسة البايثون: تحويل النص لـ float لامتصاص (1.0) ثم لـ int لجعله رقماً صحيحاً (1) +++
+                # +++ الكي الجراحي (B-06): حماية الصفر (0) من اعتباره Falsy Value +++
+                raw_seq = str(s.sequence).strip() if s.sequence is not None else '999'
                 safe_seq = int(float(raw_seq)) 
             except Exception:
                 safe_seq = 999

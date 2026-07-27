@@ -291,8 +291,8 @@ async def update_visit(
     visit.shop = shop 
 
     # 3. جلب الجلسة النشطة الحالية للمندوب
-    # جلب الجلسة بدون قفل (حماية السيرفر من اختناق الـ Read-Only Lock)
-    stmt_session = select(WorkSession).filter_by(driver_id=current_driver.id, end_time=None)
+    # +++ الكي الجراحي (D-05): قفل الجلسة إجبارياً لمنع تضارب بيع المندوب مع إغلاق المشرف +++
+    stmt_session = select(WorkSession).with_for_update().filter_by(driver_id=current_driver.id, end_time=None)
     active_session = (await db.execute(stmt_session)).scalars().first() # +++ سحق الـ 500 Crash +++
 
     if not active_session:
@@ -357,7 +357,8 @@ async def update_visit(
         raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن إدخال قيم مالية سالبة في التحصيل أو النقد.")
 
     # 2. اللوجيك المحاسبي لتحصيل الذمم
-    if debt_paid_input > Decimal('0'):
+    # +++ الكي الجراحي (D-02): حماية الدالة من قيم None المتسربة +++
+    if debt_paid_input is not None and debt_paid_input > Decimal('0'):
         if original_shop_balance <= Decimal('0'):
             await db.rollback()
             raise HTTPException(status_code=400, detail=f"مرفوض: المحل رصيده دائن أو مُصفر ({original_shop_balance}). لا توجد ذمم.")
@@ -404,7 +405,9 @@ async def update_visit(
             Visit.driver_id == current_driver.id,
             Visit.visit_timestamp >= today_start,
             Visit.status == 'Completed',
-            VisitItem.product_variant_id.in_(sample_pids)
+            VisitItem.product_variant_id.in_(sample_pids),
+            # +++ الكي الجراحي (D-01): عزل الأصناف الملغاة لمنع تضاعف حساب عينات المندوب +++
+            VisitItem.is_cancelled == False
         ).group_by(VisitItem.product_variant_id)
         
         past_samples_map = {row[0]: int(row[1] or 0) for row in (await db.execute(stmt_past)).all()}
@@ -446,11 +449,6 @@ async def update_visit(
         await db.rollback()
         raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن تسجيل حالة (بيع) دون وجود منتجات فعلية في السلة.")
         
-    for item in payload.cart_items:
-        if item.quantity < 0 or item.packs_quantity < 0 or item.bonus_quantity < 0 or item.sample_quantity < 0 or item.sample_packs_quantity < 0:
-            await db.rollback()
-            raise HTTPException(status_code=400, detail="مرفوض أمنياً: تم رصد كميات سالبة في سلة المبيعات. محاولة تلاعب بالعهدة.")
-            
     for item in payload.cart_items:
         if item.quantity < 0 or item.packs_quantity < 0 or item.bonus_quantity < 0 or item.sample_quantity < 0 or item.sample_packs_quantity < 0:
             await db.rollback()
@@ -936,6 +934,11 @@ async def respond_to_transfer(
     if transfer.status != 'pending':
         await db.rollback()
         raise HTTPException(status_code=400, detail=f"هذه الحوالة تمت معالجتها مسبقاً بحالة: {transfer.status}")
+
+    # +++ الكي الجراحي (D-03): حماية السيرفر من حقن حالة وهمية (Status Hijacking) +++
+    if payload.response not in ['accepted', 'rejected']:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="مرفوض أمنياً: الرد غير صالح.")
 
     try:
         transfer.status = payload.response

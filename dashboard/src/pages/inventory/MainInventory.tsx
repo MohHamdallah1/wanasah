@@ -57,6 +57,10 @@ export default function MainInventory() {
       const data = await authFetch("/warehouse/alerts");
       if (Array.isArray(data)) {
         setAlerts(data);
+        // +++ الكي الجراحي (I-10): تفعيل نظام الإشعارات لنواقص المستودع +++
+        if (data.length > 0) {
+          toast.warning(`تنبيه: يوجد ${data.length} منتجات تجاوزت الحد الأدنى للمخزون!`);
+        }
       }
     } catch (e: any) {
       console.error("Alerts Fetch Error:", e);
@@ -140,9 +144,10 @@ export default function MainInventory() {
             <Package className="w-4 h-4 text-[#1e87bb]" />
             <span className="text-sm font-black text-slate-700">
               البنك المركزي — <span className="text-[#1e87bb]">{products.length}</span> {
+                products.length === 0 ? "منتجات" :
                 products.length === 1 ? "منتج" :
-                  products.length === 2 ? "منتجان" :
-                    (products.length >= 3 && products.length <= 10) ? "منتجات" : "منتج"
+                products.length === 2 ? "منتجان" :
+                (products.length >= 3 && products.length <= 10) ? "منتجات" : "منتج"
               }
             </span>
             {isAuditLocked && (
@@ -192,7 +197,9 @@ export default function MainInventory() {
             authenticatedFetch={authFetch}
             onLockChange={async (locked) => {
               setIsAuditLocked(locked);
-              await Promise.all([fetchStock(), fetchAlerts()]);
+              // +++ الكي الجراحي (I-09): إجبار مسح الكاش وتحديث دفتر الأستاذ (Ledger) بعد الجرد +++
+              ledgerFetchedRef.current = false;
+              await Promise.all([fetchStock(), fetchAlerts(), fetchLedger(true)]);
             }}
           />
         )}
