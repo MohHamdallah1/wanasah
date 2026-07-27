@@ -762,8 +762,8 @@ class WarehouseLedgerItem(BaseModel):
     packs_per_carton: int
     type: str
     quantity_packs: int
-    balance_before: int
-    balance_after: int
+    balance_before: Optional[int] = None
+    balance_after: Optional[int] = None
     admin_name: str
     reference: Optional[str] = None
     notes: Optional[str] = None

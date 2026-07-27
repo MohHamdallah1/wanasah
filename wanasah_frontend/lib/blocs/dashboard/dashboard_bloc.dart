@@ -392,7 +392,17 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         emit(currentState.copyWith(pendingTransfer: transfers.first));
       }
     } catch (e) {
-      developer.log('[DashboardBloc] Error checking transfers: $e');
+      developer.log('[DashboardBloc] Error checking transfers (Offline?): $e');
+      // +++ الدرع الأوفلاين: إذا فشل الاتصال بالسيرفر، نقرأ الحوالات من الخزنة المحلية +++
+      try {
+        final localTransfers = await _db.getIncomingTransfers();
+        if (localTransfers.isNotEmpty) {
+          emit(currentState.copyWith(pendingTransfer: localTransfers.first));
+          developer.log('[DashboardBloc] Loaded pending transfer from local DB.');
+        }
+      } catch (localErr) {
+        developer.log('[DashboardBloc] Error reading local transfers: $localErr');
+      }
     }
   }
 

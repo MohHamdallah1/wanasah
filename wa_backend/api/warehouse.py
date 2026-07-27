@@ -93,6 +93,7 @@ async def warehouse_inbound(
                 continue # تجاهل المنتجات الوهمية
 
             wh_record = bulk_warehouse.get(p_id)
+            old_balance = wh_record.available_quantity_packs or 0 if wh_record else 0
             if wh_record:
                 wh_record.available_quantity_packs += added_packs
             else:
@@ -105,7 +106,8 @@ async def warehouse_inbound(
             db.add(WarehouseLedger(
                 product_variant_id=p_id, 
                 transaction_type='INBOUND_SUPPLIER',
-                quantity_packs=added_packs, 
+                quantity_packs=added_packs,
+                balance_before_packs=old_balance,
                 balance_after_packs=wh_record.available_quantity_packs,
                 admin_id=current_admin.id, 
                 reference_id=reference_id, 
@@ -182,6 +184,7 @@ async def warehouse_stocktake(
                     transaction_type='AUDIT_ADJUSTMENT',
                     # +++ سحق لغم القيمة المطلقة (abs): إرسال العجز والزيادة بإشارتها الحقيقية (+/-) +++
                     quantity_packs=difference, 
+                    balance_before_packs=expected_packs,  # <--- هذا السطر اللي رح يمنع الكراش
                     balance_after_packs=actual_packs,
                     admin_id=current_admin.id, 
                     reference_id="STOCKTAKE_OP", 
@@ -658,12 +661,14 @@ async def adjust_warehouse_entry(
             await db.rollback()
             raise HTTPException(status_code=400, detail=f"فشل التعديل: الكمية المخصومة ({abs(delta)}) أكبر من المتوفر بالمستودع ({wh_record.available_quantity_packs}).")
 
+        old_balance = wh_record.available_quantity_packs or 0  # <--- حفظ الرصيد القديم
         wh_record.available_quantity_packs += delta
 
         # 6. تسجيل الحركة العكسية (Inbound Correction) لضبط الدفاتر بنفس رقم المرجع
         adjustment_entry = WarehouseLedger(
             product_variant_id=variant.id,
             quantity_packs=delta,
+            balance_before_packs=old_balance,  # <--- إضافة الحقل
             balance_after_packs=wh_record.available_quantity_packs,
             transaction_type='INBOUND_CORRECTION',
             admin_id=current_admin.id,

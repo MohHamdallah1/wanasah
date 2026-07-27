@@ -76,6 +76,7 @@ class SyncRepository {
       developer.log('🎯 API Response: ${response.data}');
       List<Map<String, dynamic>> visitsData = [];
       List<Map<String, dynamic>> productsData = [];
+      List<Map<String, dynamic>> transfersData = []; // +++ تم إخراج المتغير للنطاق العام لتعرفه باقي الدالة +++
 
       // +++ الدرع الواقي: التحقق من نوع الاستجابة قبل القراءة (Defensive Parsing) +++
       if (response.data is List) {
@@ -90,6 +91,10 @@ class SyncRepository {
         }
         if (dataMap.containsKey('inventory') && dataMap['inventory'] != null) {
           productsData = List<Map<String, dynamic>>.from(dataMap['inventory']);
+        }
+        // +++ التقاط الحوالات المعلقة (المصافحات) من السيرفر لمنع تجاهلها +++
+        if (dataMap.containsKey('pending_transfers') && dataMap['pending_transfers'] != null) {
+          transfersData = List<Map<String, dynamic>>.from(dataMap['pending_transfers']);
         }
       }
 
@@ -106,7 +111,7 @@ class SyncRepository {
       // CS-02 / flutter.md Issue #3: Guard against empty product list — do NOT truncate products table if incoming list is empty
       // +++ تم سحق قنبلة المسح الشامل: && تضمن عدم لمس البضاعة إلا إذا جاءت بيانات كاملة +++
       if (productModels.isNotEmpty && visitModels.isNotEmpty) {
-        await _db.refreshSessionData(visitModels, productModels);
+        await _db.refreshSessionData(visitModels, productModels, transfersData);
       } else if (visitModels.isNotEmpty) {
         await _db.refreshVisitsOnly(visitModels);
       }

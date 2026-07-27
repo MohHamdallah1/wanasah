@@ -51,7 +51,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 7, // flutter.md Issue #1: v7 normalizes monetary columns to REAL
+      version: 8, // +++ ترقية فولاذية لحفظ المصافحات +++
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -111,6 +111,21 @@ class LocalDatabase {
     //   type    : نوع العملية (مثال: "submit_sale", "return_visit")
     //   payload : بيانات العملية كاملة بصيغة JSON نصي
     //   created_at: توقيت الإنشاء بصيغة ISO 8601
+    // --- جدول الحوالات الواردة (المصافحات) ---
+    await db.execute('''
+      CREATE TABLE incoming_transfers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transfer_id INTEGER,
+        product_variant_id INTEGER,
+        product_name TEXT,
+        delta_cartons INTEGER,
+        delta_packs INTEGER,
+        status TEXT,
+        created_at TEXT,
+        batch_id TEXT
+      )
+    ''');
+
     await db.execute('''
       CREATE TABLE pending_sync (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,6 +224,24 @@ class LocalDatabase {
       await db.execute('DROP TABLE visits');
       await db.execute('ALTER TABLE visits_v7 RENAME TO visits');
       developer.log('[LocalDatabase] v7 migration: Normalized monetary columns to REAL.');
+    }
+
+  // +++ الترقية الفولاذية (v8) لدعم المصافحات الأوفلاين +++
+    if (oldVersion < 8) {
+      await db.execute('''
+        CREATE TABLE incoming_transfers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          transfer_id INTEGER,
+          product_variant_id INTEGER,
+          product_name TEXT,
+          delta_cartons INTEGER,
+          delta_packs INTEGER,
+          status TEXT,
+          created_at TEXT,
+          batch_id TEXT
+        )
+      ''');
+      developer.log('[LocalDatabase] v8 migration: Created incoming_transfers table.');
     }
   }
 
@@ -492,15 +525,24 @@ class LocalDatabase {
   }
 
   // +++ المعاملة الفولاذية (Transaction) لمزامنة السيرفر بدون فقدان بيانات +++
+  // +++ إضافة دالة لجلب الحوالات الأوفلاين +++
+  Future<List<Map<String, dynamic>>> getIncomingTransfers() async {
+    final db = await database;
+    return db.query('incoming_transfers');
+  }
+
+  // +++ المعاملة الفولاذية (Transaction) لمزامنة السيرفر بدون فقدان بيانات +++
   Future<void> refreshSessionData(
     List<VisitModel> visits,
     List<ProductModel> products,
+    List<Map<String, dynamic>> incomingTransfers, // +++ استقبال المتغير المفقود +++
   ) async {
     final db = await database;
     await db.transaction((txn) async {
       // 1. مسح القديم
       await txn.delete('products');
       await txn.delete('visits');
+      await txn.delete('incoming_transfers'); // +++ تنظيف الحوالات القديمة +++
 
       // 2. إدخال الجديد
       final batch = txn.batch();
@@ -518,10 +560,17 @@ class LocalDatabase {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
+      for (final transfer in incomingTransfers) {
+        batch.insert(
+          'incoming_transfers',
+          transfer,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
       await batch.commit(noResult: true);
     });
     developer.log(
-      '[LocalDatabase] Transaction complete: Session data refreshed safely.',
+      '[LocalDatabase] Transaction complete: Session & Transfers refreshed safely.',
     );
   }
 }

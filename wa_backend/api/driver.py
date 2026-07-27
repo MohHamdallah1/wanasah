@@ -87,8 +87,8 @@ async def start_work_session(
         # 6. +++ ربط خط السير ونقل حمولة السيارة للعهدة (مصافحة الصباح) +++
         active_route.work_session_id = new_session.id
         
-        # جلب حمولة السيارة مع تفاصيل المنتجات (Eager Loading لنسف N+1)
-        stmt_loads = select(VehicleLoad).options(joinedload(VehicleLoad.product_variant)).filter_by(vehicle_id=active_route.vehicle_id).with_for_update()
+        # جلب حمولة السيارة مع تفاصيل المنتجات (استخدام selectinload لمنع الـ Deadlock مع with_for_update)
+        stmt_loads = select(VehicleLoad).options(selectinload(VehicleLoad.product_variant)).filter_by(vehicle_id=active_route.vehicle_id).with_for_update()
         vehicle_loads = (await db.execute(stmt_loads)).scalars().all()
         
         for load in vehicle_loads:
@@ -105,6 +105,8 @@ async def start_work_session(
             db.add(inventory_item)
             
         # 7. +++ النسف المعماري (Bulk Update): حصر التحديث بمنطقة خط السير والطوارئ فقط لحماية دفاتر الجلسة من التلوث بمحلات خارج المنطقة +++
+        subq_shops = select(Shop.id).where(Shop.zone_id == active_route.zone_id).scalar_subquery()
+        
         stmt_bulk_visits = (
             update(Visit)
             .where(
@@ -112,7 +114,7 @@ async def start_work_session(
                     Visit.driver_id == driver_id,
                     Visit.status == 'Pending',
                     or_(
-                        Visit.shop_id.in_(select(Shop.id).where(Shop.zone_id == active_route.zone_id)),
+                        Visit.shop_id.in_(select(Shop.id).where(Shop.zone_id == active_route.zone_id).scalar_subquery()),
                         Visit.is_emergency == True
                     )
                 )
@@ -502,8 +504,9 @@ async def update_visit(
             
         # +++ الدرع التجاري: منع بيع المنتجات الموقوفة أو المسحوبة من السوق (Recalled) +++
         if not variant.is_active:
+            error_msg = f"مرفوض: المنتج ({variant.variant_name}) مسحوب من السوق أو موقوف حالياً ولا يمكن بيعه."
             await db.rollback()
-            raise HTTPException(status_code=400, detail=f"مرفوض: المنتج ({variant.variant_name}) مسحوب من السوق أو موقوف حالياً ولا يمكن بيعه.")
+            raise HTTPException(status_code=400, detail=error_msg)
         
         # حساب الفاتورة (Async Service) - مع تمرير سعة الكرتونة لتطبيق العروض بدقة
         invoice = calculate_invoice(item.quantity, item.packs_quantity, variant.price_per_carton, variant.price_per_pack, current_tax_pct, active_offers, packs_per_carton=variant.packs_per_carton or 1)
@@ -519,8 +522,9 @@ async def update_visit(
         
         inv_record = inv_map.get(item.product_variant_id)
         if not inv_record or inv_record.current_remaining_quantity < total_packs_to_deduct:
+            error_msg = f"مخزونك لا يكفي من {variant.variant_name}. المتبقي: {inv_record.current_remaining_quantity if inv_record else 0}"
             await db.rollback()
-            raise HTTPException(status_code=409, detail=f"مخزونك لا يكفي من {variant.variant_name}. المتبقي: {inv_record.current_remaining_quantity if inv_record else 0}")
+            raise HTTPException(status_code=409, detail=error_msg)
 
         # الخصم الفعلي
         expected_qty = inv_record.current_remaining_quantity
@@ -598,8 +602,9 @@ async def update_visit(
         if not is_sellable:
             # إذا كان تالفاً فهذا يعني أنه "استبدال". نسحب بضاعة صالحة من المندوب ونعطيها للمحل.
             if not inv_record or inv_record.current_remaining_quantity < total_ret_packs:
+                error_msg = f"مرفوض: مخزونك الصالح من ({variant.variant_name}) لا يكفي للقيام باستبدال التوالف. المطلوب للتبديل: {total_ret_packs} حبة."
                 await db.rollback()
-                raise HTTPException(status_code=400, detail=f"مرفوض: مخزونك الصالح من ({variant.variant_name}) لا يكفي للقيام باستبدال التوالف. المطلوب للتبديل: {total_ret_packs} حبة.")
+                raise HTTPException(status_code=400, detail=error_msg)
 
             inv_record.current_remaining_quantity -= total_ret_packs
 

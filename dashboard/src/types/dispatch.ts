@@ -59,3 +59,14 @@ export interface CustomSelectOption {
   label: string;
   scheduleStatus?: ScheduleStatus;
 }
+
+// +++ الدرع المعماري: تعريف بيانات المصافحات (Transfers) لتمكين المشرف من تتبعها +++
+export interface RouteTransfer {
+  transfer_id: number;
+  product_name: string;
+  delta_cartons: number;
+  delta_packs: number;
+  status: "pending" | "accepted" | "rejected";
+  created_at: string;
+  batch_id: string;
+}

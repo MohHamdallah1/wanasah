@@ -602,11 +602,12 @@ async def settle_session(
                             db.add(wh_record)
                             bulk_wh_records[prod_id] = wh_record
 
+                        old_wh_balance = wh_record.available_quantity_packs or 0
                         wh_record.available_quantity_packs += loose_packs
 
                         db.add(WarehouseLedger(
                             product_variant_id=prod_id, transaction_type='DISPATCH_UNLOAD', quantity_packs=loose_packs,
-                            balance_after_packs=wh_record.available_quantity_packs, admin_id=current_admin.id,
+                            balance_before_packs=old_wh_balance, balance_after_packs=wh_record.available_quantity_packs, admin_id=current_admin.id,
                             reference_id=f"SESS_{session.id}_END", notes="إرجاع فراطة صالحة من تسوية المندوب"
                         ))
 
@@ -629,11 +630,12 @@ async def settle_session(
                         db.add(wh_record)
                         bulk_wh_records[prod_id] = wh_record
                     
+                    old_wh_balance = wh_record.available_quantity_packs or 0
                     wh_record.available_quantity_packs += sellable_qty
                     
                     db.add(WarehouseLedger(
                         product_variant_id=prod_id, transaction_type='DISPATCH_UNLOAD_FALLBACK', quantity_packs=sellable_qty,
-                        balance_after_packs=wh_record.available_quantity_packs, admin_id=current_admin.id,
+                        balance_before_packs=old_wh_balance, balance_after_packs=wh_record.available_quantity_packs, admin_id=current_admin.id,
                         reference_id=f"SESS_{session.id}_END", notes="إرجاع كامل العهدة للمستودع (إجراء طوارئ لعدم ارتباط جلسة بسيارة)."
                     ))
                     
@@ -742,32 +744,32 @@ async def dispatch_route(
     current_admin: Driver = Depends(get_current_admin)
 ):
 
-    stmt_wh_lock = select(SystemSetting).filter_by(setting_key='warehouse_status')
-    lock_setting = (await db.execute(stmt_wh_lock)).scalar_one_or_none()
-    if lock_setting and lock_setting.setting_value == 'AUDIT_LOCK':
-        raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً لغايات الجرد (Stocktake). يرجى فتح المستودع أولاً.")
-
-    stmt_driver_lock = select(Driver).with_for_update().filter_by(id=payload.driver_id)
-    driver_lock = (await db.execute(stmt_driver_lock)).scalar_one_or_none()
-    if not driver_lock:
-        raise HTTPException(status_code=404, detail="المندوب غير موجود.")
-
-    stmt_zone_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting', 'postponed']), DispatchRoute.zone_id == payload.zone_id)
-    if (await db.execute(stmt_zone_check)).first():
-        await db.rollback()
-        raise HTTPException(status_code=409, detail="⚠️ المنطقة المحددة قيد العمل أو مؤجلة مسبقاً. الرجاء إغلاقها أو تحويلها أولاً.")
-    
-    stmt_driver_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting']), DispatchRoute.driver_id == payload.driver_id)
-    if (await db.execute(stmt_driver_check)).first():
-        await db.rollback()
-        raise HTTPException(status_code=409, detail="⚠️ المندوب المختار لديه خط سير نشط أو قيد الانتظار حالياً.")
-        
-    stmt_veh_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting']), DispatchRoute.vehicle_id == payload.vehicle_id)
-    if (await db.execute(stmt_veh_check)).first():
-        await db.rollback()
-        raise HTTPException(status_code=409, detail="⚠️ السيارة المحددة مستخدمة في خط سير نشط أو قيد الانتظار حالياً.")
-
     try:
+        stmt_wh_lock = select(SystemSetting).filter_by(setting_key='warehouse_status')
+        lock_setting = (await db.execute(stmt_wh_lock)).scalar_one_or_none()
+        if lock_setting and lock_setting.setting_value == 'AUDIT_LOCK':
+            raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً لغايات الجرد (Stocktake). يرجى فتح المستودع أولاً.")
+
+        stmt_driver_lock = select(Driver).with_for_update().filter_by(id=payload.driver_id)
+        driver_lock = (await db.execute(stmt_driver_lock)).scalar_one_or_none()
+        if not driver_lock:
+            raise HTTPException(status_code=404, detail="المندوب غير موجود.")
+
+        stmt_zone_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting', 'postponed']), DispatchRoute.zone_id == payload.zone_id)
+        if (await db.execute(stmt_zone_check)).first():
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="⚠️ المنطقة المحددة قيد العمل أو مؤجلة مسبقاً. الرجاء إغلاقها أو تحويلها أولاً.")
+        
+        stmt_driver_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting']), DispatchRoute.driver_id == payload.driver_id)
+        if (await db.execute(stmt_driver_check)).first():
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="⚠️ المندوب المختار لديه خط سير نشط أو قيد الانتظار حالياً.")
+            
+        stmt_veh_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting']), DispatchRoute.vehicle_id == payload.vehicle_id)
+        if (await db.execute(stmt_veh_check)).first():
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="⚠️ السيارة المحددة مستخدمة في خط سير نشط أو قيد الانتظار حالياً.")
+
         new_route = DispatchRoute(zone_id=payload.zone_id, driver_id=payload.driver_id, vehicle_id=payload.vehicle_id, status='active')
         db.add(new_route)
 
@@ -843,6 +845,7 @@ async def dispatch_route(
                             await db.rollback()
                             raise HTTPException(status_code=400, detail=error_msg)
                         
+                        old_wh_balance = wh_record.available_quantity_packs or 0
                         wh_record.available_quantity_packs -= delta_packs
                         trans_type = 'DISPATCH_LOAD'
                         d_c, d_p = divmod(delta_packs, packs_per_carton)
@@ -850,6 +853,7 @@ async def dispatch_route(
                         notes_text = f"تحميل سيارة المندوب {d_name} (لوحة: {v_plate}). سحب ({amt_str}) من المستودع."
                         
                     else: 
+                        old_wh_balance = wh_record.available_quantity_packs or 0
                         wh_record.available_quantity_packs += abs(delta_packs)
                         trans_type = 'DISPATCH_UNLOAD'
                         d_c, d_p = divmod(abs(delta_packs), packs_per_carton)
@@ -866,7 +870,7 @@ async def dispatch_route(
                         
                     db.add(WarehouseLedger(
                         product_variant_id=p_id, transaction_type=trans_type,
-                        quantity_packs=abs(delta_packs), balance_after_packs=wh_record.available_quantity_packs,
+                        quantity_packs=abs(delta_packs), balance_before_packs=old_wh_balance, balance_after_packs=wh_record.available_quantity_packs,
                         admin_id=current_admin.id, reference_id=f"VEH_{payload.vehicle_id}_MORN", notes=notes_text
                     ))
 
@@ -921,12 +925,13 @@ async def dispatch_route(
                             error_msg = f"مرفوض: رصيد المستودع من ({variant.variant_name}) لا يكفي. المتاح {wh_record.available_quantity_packs} حبة."
                             await db.rollback()
                             raise HTTPException(status_code=400, detail=error_msg)
+                        old_wh_balance = wh_record.available_quantity_packs or 0
                         wh_record.available_quantity_packs -= delta_packs
                         wh_record.reserved_quantity_packs += delta_packs
                         
                         db.add(WarehouseLedger(
                             product_variant_id=p_id, transaction_type='HANDSHAKE_RESERVE',
-                            quantity_packs=delta_packs, balance_after_packs=wh_record.available_quantity_packs,
+                            quantity_packs=delta_packs, balance_before_packs=old_wh_balance, balance_after_packs=wh_record.available_quantity_packs,
                             admin_id=current_admin.id, reference_id=f"BATCH_{batch_timestamp}", notes=f"حجز بضاعة منتصف اليوم (قيد النقل). ({delta_packs} حبة)."
                         ))
 
@@ -948,7 +953,7 @@ async def dispatch_route(
         shop_ids = [s.id for s in shops_in_zone]
         
         # +++ النسف المعماري الحقيقي: إبقاء الـ Timezone ليتطابق مع الداتابيز ومنع كراش Offset-Naive +++
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
         
         if shop_ids:
@@ -1278,9 +1283,10 @@ async def adjust_route_inventory(
                 available_packs = current_packs + pending_withdrawals 
                 
                 if available_packs + delta_packs < 0:
-                    await db.rollback()
+                    v_name = variant.variant_name  # 👈 قراءة الاسم أولاً بالذاكرة
+                    await db.rollback()            # 👈 ثم تنفيذ الـ rollback
                     max_withdraw_cartons = available_packs // safe_packs_per_carton
-                    raise HTTPException(status_code=400, detail=f"عذراً، المتاح فعلياً من ({variant.variant_name}) للسحب هو {max_withdraw_cartons} كرتونة فقط (بعد خصم الحوالات المعلقة).")
+                    raise HTTPException(status_code=400, detail=f"عذراً، المتاح فعلياً من ({v_name}) للسحب هو {max_withdraw_cartons} كرتونة فقط (بعد خصم الحوالات المعلقة).")
             else:
                 v_load = bulk_vloads.get(p_id)
                 current_cartons = v_load.quantity if v_load else 0
@@ -1316,12 +1322,13 @@ async def adjust_route_inventory(
                         await db.rollback()
                         raise HTTPException(status_code=400, detail=f"مرفوض: رصيد المستودع من ({variant.variant_name}) لا يكفي لإرسال ({delta_packs}) حبة.")
                     
+                    old_wh_balance = wh_record.available_quantity_packs or 0
                     wh_record.available_quantity_packs -= delta_packs
                     wh_record.reserved_quantity_packs += delta_packs
                     
                     db.add(WarehouseLedger(
                         product_variant_id=p_id, transaction_type='HANDSHAKE_RESERVE',
-                        quantity_packs=delta_packs, balance_after_packs=wh_record.available_quantity_packs,
+                        quantity_packs=delta_packs, balance_before_packs=old_wh_balance, balance_after_packs=wh_record.available_quantity_packs,
                         admin_id=current_admin.id, reference_id="MANUAL_ADJUST", 
                         notes=f"تعديل حمولة لمندوب نشط (حجز البضاعة). ({format_qty_py(delta_packs, safe_packs_per_carton)})"
                     ))
@@ -1339,6 +1346,7 @@ async def adjust_route_inventory(
                 
             else:
                 # 🔴 المندوب نائم: تعديل VehicleLoad المباشر وسحب/إرجاع للمستودع فوراً
+                old_wh_balance = wh_record.available_quantity_packs or 0
                 if delta_packs > 0:
                     if wh_record.available_quantity_packs < delta_packs:
                         await db.rollback()
@@ -1353,7 +1361,7 @@ async def adjust_route_inventory(
                 
                 db.add(WarehouseLedger(
                     product_variant_id=p_id, transaction_type=trans_type,
-                    quantity_packs=abs(delta_packs), balance_after_packs=wh_record.available_quantity_packs,
+                    quantity_packs=abs(delta_packs), balance_before_packs=old_wh_balance, balance_after_packs=wh_record.available_quantity_packs,
                     admin_id=current_admin.id, reference_id="MANUAL_ADJUST", notes=w_notes
                 ))
 
@@ -1690,6 +1698,8 @@ async def admin_add_shop(
             latitude=lat,
             longitude=lng,
             zone_id=zone_id,
+            is_active=True,
+            is_archived=False,
             # حماية الداتابيز من الأرصدة الافتتاحية السالبة
             current_balance=max(Decimal('0.0'), safe_initial_debt),
             max_debt_limit=safe_max_limit,
@@ -1926,10 +1936,11 @@ async def update_route_status(
                                         db.add(wh_rec)
                                         bulk_wh_records[live_inv.product_variant_id] = wh_rec
                                         
+                                    old_wh_balance = wh_rec.available_quantity_packs or 0
                                     wh_rec.available_quantity_packs += loose_packs
                                     db.add(WarehouseLedger(
                                         product_variant_id=live_inv.product_variant_id, transaction_type='DISPATCH_UNLOAD',
-                                        quantity_packs=loose_packs, balance_after_packs=wh_rec.available_quantity_packs,
+                                        quantity_packs=loose_packs, balance_before_packs=old_wh_balance, balance_after_packs=wh_rec.available_quantity_packs,
                                         admin_id=current_admin.id, reference_id=f"SWITCH_{route.id}", notes="إرجاع فراطة صالحة للمستودع عند تبديل المندوب"
                                     ))
 
@@ -2013,15 +2024,16 @@ async def update_route_status(
                             wh_rec = MainWarehouse(product_variant_id=p_id, available_quantity_packs=0, reserved_quantity_packs=0)
                             db.add(wh_rec)
                             
+                        old_wh_balance = wh_rec.available_quantity_packs or 0
                         if delta_packs > 0:
                             if wh_rec.available_quantity_packs < delta_packs:
                                 await db.rollback()
                                 raise HTTPException(status_code=400, detail=f"مرفوض: المستودع لا يملك ({delta_packs}) حبة متاحة من {variant.variant_name}.")
                             wh_rec.available_quantity_packs -= delta_packs
-                            db.add(WarehouseLedger(product_variant_id=p_id, transaction_type='DISPATCH_LOAD', quantity_packs=delta_packs, balance_after_packs=wh_rec.available_quantity_packs, admin_id=current_admin.id, reference_id=f"VEH_EDIT_{route.id}", notes="تعديل حمولة سيارة قبل الدوام: سحب من المستودع"))
+                            db.add(WarehouseLedger(product_variant_id=p_id, transaction_type='DISPATCH_LOAD', quantity_packs=delta_packs, balance_before_packs=old_wh_balance, balance_after_packs=wh_rec.available_quantity_packs, admin_id=current_admin.id, reference_id=f"VEH_EDIT_{route.id}", notes="تعديل حمولة سيارة قبل الدوام: سحب من المستودع"))
                         else:
                             wh_rec.available_quantity_packs += abs(delta_packs)
-                            db.add(WarehouseLedger(product_variant_id=p_id, transaction_type='DISPATCH_UNLOAD', quantity_packs=abs(delta_packs), balance_after_packs=wh_rec.available_quantity_packs, admin_id=current_admin.id, reference_id=f"VEH_EDIT_{route.id}", notes="تعديل حمولة سيارة قبل الدوام: إعادة للمستودع"))
+                            db.add(WarehouseLedger(product_variant_id=p_id, transaction_type='DISPATCH_UNLOAD', quantity_packs=abs(delta_packs), balance_before_packs=old_wh_balance, balance_after_packs=wh_rec.available_quantity_packs, admin_id=current_admin.id, reference_id=f"VEH_EDIT_{route.id}", notes="تعديل حمولة سيارة قبل الدوام: إعادة للمستودع"))
                             
                         if curr_load:
                             if new_cartons <= 0: db.delete(curr_load)
@@ -2097,11 +2109,12 @@ async def update_route_status(
                                     await db.rollback()
                                     raise HTTPException(status_code=400, detail=f"مرفوض: رصيد المستودع من ({variant.variant_name}) لا يكفي لتسجيل هذا التعديل.")
                                     
+                                old_wh_balance = wh_record.available_quantity_packs or 0
                                 wh_record.available_quantity_packs -= difference_in_packs
                                 wh_record.reserved_quantity_packs += difference_in_packs
                                 db.add(WarehouseLedger(
                                     product_variant_id=p_id, transaction_type='HANDSHAKE_RESERVE',
-                                    quantity_packs=difference_in_packs, balance_after_packs=wh_record.available_quantity_packs,
+                                    quantity_packs=difference_in_packs, balance_before_packs=old_wh_balance, balance_after_packs=wh_record.available_quantity_packs,
                                     admin_id=admin_user_id, reference_id=f"BATCH_{batch_timestamp}", notes="حجز بضاعة لتعديل خط سير نشط."
                                 ))
                                 
@@ -2630,7 +2643,7 @@ async def add_shortages(
         bulk_shops = {sh.id: sh for sh in (await db.execute(stmt_shops)).scalars().all()}
         
         # +++ النسف المعماري الحقيقي: منع كراش Offset-Naive +++
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
         
         # جلب زيارات اليوم (المعلقة أو المكتملة) لوسمها بالطوارئ
@@ -2946,6 +2959,8 @@ async def bulk_import_shops(
                 phone_number=s_phone,
                 location_link=(s.mapLink or '').strip(),
                 zone_id=zone_id,
+                is_active=True,
+                is_archived=False, # 👈 إجبار القيمة لتفادي جدار الـ NULL في استعلامات SQL
                 current_balance=max(Decimal('0.0'), safe_debt),
                 added_by_driver_id=current_admin.id,
                 sequence=safe_seq

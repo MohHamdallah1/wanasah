@@ -48,57 +48,44 @@ class VisitModel extends Equatable {
 
   // دالة تحويل البيانات القادمة من السيرفر (أو SQLite) إلى كائن آمن
   factory VisitModel.fromJson(Map<String, dynamic> json) {
-    // معالجة ذكية ومضادة للأخطاء لحالة الطوارئ (لأن SQLite يخزنها 1/0 والسيرفر يرسلها true/false/text)
     final isEmergRaw = json['is_emergency'];
-    final bool parsedEmergency =
-        isEmergRaw == true ||
-        isEmergRaw == 1 ||
-        isEmergRaw == 'true' ||
-        isEmergRaw == '1';
+    final bool parsedEmergency = isEmergRaw == true || isEmergRaw == 1 || isEmergRaw == 'true' || isEmergRaw == '1';
+
+    // +++ استخراج بيانات المحل المتداخلة من الباك-إند (الدرع الفولاذي) +++
+    final Map<String, dynamic> shopData = (json['shop'] as Map<String, dynamic>?) ?? {};
 
     return VisitModel(
-      // +++ الدرع النخبوي (Elite Safe Cast): تحويل أي رقم قادم كنص إلى int بأمان مطلق +++
       id: int.tryParse((json['id'] ?? json['visit_id'])?.toString() ?? '0') ?? 0,
-      shopId: int.tryParse(json['shop_id']?.toString() ?? '0') ?? 0,
-      shopName: json['shop_name']?.toString() ?? json['shopName']?.toString() ?? 'محل غير معروف',
+      shopId: int.tryParse((json['shop_id'] ?? shopData['id'])?.toString() ?? '0') ?? 0,
+      
+      // +++ البحث في المستوى المسطح ثم المتداخل +++
+      shopName: json['shop_name']?.toString() ?? json['shopName']?.toString() ?? shopData['name']?.toString() ?? 'محل غير معروف',
 
-      // +++ النسف المعماري: قراءة الحقل كنص ثم تحويله بأمان لمنع الـ Crash في حالة Float/String +++
-      shopBalance:
-          double.tryParse(
+      shopBalance: double.tryParse(
             json['shop_balance']?.toString() ??
-                json['current_balance']?.toString() ??
-                '0',
-          ) ??
-          0.0,
-      maxDebtLimit:
-          double.tryParse(json['max_debt_limit']?.toString() ?? '0') ?? 0.0,
+            json['current_balance']?.toString() ??
+            shopData['current_balance']?.toString() ?? '0') ?? 0.0,
+          
+      maxDebtLimit: double.tryParse(
+            json['max_debt_limit']?.toString() ?? 
+            shopData['max_debt_limit']?.toString() ?? '0') ?? 0.0,
 
-      // +++ الحماية من فخ الـ SQLite (Int Cast Crash) +++
-      shopZoneId: int.tryParse(json['shop_zone_id']?.toString() ?? ''),
+      shopZoneId: int.tryParse((json['shop_zone_id'] ?? shopData['zone_id'])?.toString() ?? ''),
       allowedZoneId: int.tryParse(json['allowed_zone_id']?.toString() ?? ''),
       
-      // توحيد الحالات حسب ما يرسله الباك-إند بالضبط (يدعم مسار القائمة ومسار التفاصيل)
       status: json['status']?.toString() ?? json['visit_status']?.toString() ?? 'Pending',
       outcome: json['outcome']?.toString() ?? '', 
       
-      // +++ تعبئة الحقول الجديدة (مع حماية التحويل من String إلى Integer) +++
-      sequence:
-          int.tryParse(
-            json['sequence']?.toString() ??
-                json['visit_sequence']?.toString() ??
-                '999',
-          ) ??
-          999,
-      // +++ قراءة معلومات الاتصال من الـ JSON +++
-      shopOwner: json['shop_owner']?.toString(),
-      shopPhone: json['shop_phone']?.toString(),
+      sequence: int.tryParse(json['sequence']?.toString() ?? json['visit_sequence']?.toString() ?? shopData['sequence']?.toString() ?? '999') ?? 999,
+      
+      shopOwner: json['shop_owner']?.toString() ?? shopData['contact_person']?.toString(),
+      shopPhone: json['shop_phone']?.toString() ?? shopData['phone_number']?.toString(),
       isEmergency: parsedEmergency,
-      locationLink: json['location_link']?.toString() ?? json['shop_location_link']?.toString(),
+      locationLink: json['location_link']?.toString() ?? json['shop_location_link']?.toString() ?? shopData['location_link']?.toString(),
 
-      // +++ النسف المعماري لقنبلة الـ toDouble() الموقوتة: الاعتماد على tryParse لابتلاع أي نوع بيانات +++
-      latitude: double.tryParse((json['latitude'] ?? json['shop_latitude'])?.toString() ?? ''),
-      longitude: double.tryParse((json['longitude'] ?? json['shop_longitude'])?.toString() ?? ''),
-      // +++ الدرع الذاتي: إذا كانت القائمة تأتي من السيرفر (List) يتم تشفيرها، وإذا تأتي من SQLite (String) تبقى كما هي +++
+      latitude: double.tryParse((json['latitude'] ?? json['shop_latitude'] ?? shopData['latitude'])?.toString() ?? ''),
+      longitude: double.tryParse((json['longitude'] ?? json['shop_longitude'] ?? shopData['longitude'])?.toString() ?? ''),
+      
       cartItemsJson: json['cart_items'] is String ? json['cart_items'] as String : (json['cart_items'] != null ? jsonEncode(json['cart_items']) : null),
       returnsJson: json['returns'] is String ? json['returns'] as String : (json['returns'] != null ? jsonEncode(json['returns']) : null),
     );

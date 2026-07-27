@@ -597,6 +597,7 @@ export default function DispatchBoard() {
       shopName: shop?.name || "",
       driverId: shortageDriverId || null,
       driverName: drivers.find(d => d.id === shortageDriverId)?.name || "بدون مندوب (معلقة)",
+      productId: item.productId, // +++ الدرع المعماري: إرسال الـ ID إجبارياً للباك-إند لمنع البحث النصي البطيء +++
       productName: item.productName,
       quantity: Number(item.quantity),
       status: "pending",
