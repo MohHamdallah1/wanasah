@@ -10,7 +10,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../blocs/visit/visit_bloc.dart';
 import '../models/cart_item_model.dart';
 import '../models/product_model.dart';
-import 'dart:developer' as developer;
 
 // --- تعريف الكلاس StatefulWidget ---
 class VisitScreen extends StatefulWidget {
