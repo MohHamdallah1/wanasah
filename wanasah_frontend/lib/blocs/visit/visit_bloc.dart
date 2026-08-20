@@ -354,10 +354,30 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
       (i) => i.productVariantId == event.item.productVariantId,
     );
 
-    if (index >= 0) {
-      updatedCart[index] = event.item; // تحديث
+    // +++ C8: النسف المعماري - تصفية العناصر صفرية الكمية جراحياً داخل الـ BLoC +++
+    // إذا كانت جميع الكميات صفر، نحذف العنصر من السلة تماماً
+    final bool hasZeroQuantities = 
+        event.item.cartons == 0 &&
+        event.item.packs == 0 &&
+        event.item.sampleCartons == 0 &&
+        event.item.samplePacks == 0 &&
+        event.item.returnFactoryCartons == 0 &&
+        event.item.returnFactoryPacks == 0 &&
+        event.item.returnExpiredCartons == 0 &&
+        event.item.returnExpiredPacks == 0;
+
+    if (hasZeroQuantities) {
+      // حذف العنصر إذا كان موجوداً
+      if (index >= 0) {
+        updatedCart.removeAt(index);
+      }
+      // لا نضيف العنصر صفر الكمية
     } else {
-      updatedCart.add(event.item); // إضافة جديدة
+      if (index >= 0) {
+        updatedCart[index] = event.item; // تحديث
+      } else {
+        updatedCart.add(event.item); // إضافة جديدة
+      }
     }
 
     emit(currentState.copyWith(cart: updatedCart));

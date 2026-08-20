@@ -1,12 +1,56 @@
-# Python
-__pycache__/
-.conda/
-venv/
-*.db
-.env
-
-# Flutter
+```
+# Dependencies
+.pub/
+.build/
 .dart_tool/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+*.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build outputs
 build/
-.flutter-plugins
-.flutter-plugins-dependencies
+dist/
+target/
+
+# Python related (if any Python in project)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/modules/
+!.git/objects/
+!.git/info/refs
+*.zip
+*.tar.gz
+*.rar
+*.7z
+```
