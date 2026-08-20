@@ -60,6 +60,35 @@ class _VisitScreenState extends State<VisitScreen> {
   String? _shopOwner;
   String? _shopPhone;
 
+  // +++ Helper Functions: دوال مساعدة موحدة للتحقق الآمن +++
+  
+  /// C9, H17, H18: تحليل نقدي آمن مع رفض NaN/Infinity/sالبة
+  double parseSafeMoney(String text, {bool allowZero = true}) {
+    if (text.trim().isEmpty) return allowZero ? 0.0 : double.nan;
+    final normalized = text.replaceAll(RegExp(r'[,،]'), '.').trim();
+    final cleanText = normalized.replaceAll(RegExp(r'\.(?=.*\.)'), ''); // إزالة thousands separators الخاطئة
+    final value = double.tryParse(cleanText);
+    if (value == null || !value.isFinite || value < 0) return double.nan;
+    return value;
+  }
+
+  /// H4, H5: تحليل بولياني مرن يقبل 'true', '1', 'TRUE', etc.
+  bool parseFlexibleBool(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    if (value is int) return value != 0;
+    if (value is String) {
+      final trimmed = value.trim().toLowerCase();
+      return trimmed == 'true' || trimmed == '1' || trimmed == 'yes';
+    }
+    return false;
+  }
+
+  /// H9: فحص visitId بمرونة لكلا المفتاحين
+  bool matchesVisitId(Map<String, dynamic> payload, int visitId) {
+    return payload['visitId'] == visitId || payload['visit_id'] == visitId;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -74,16 +103,20 @@ class _VisitScreenState extends State<VisitScreen> {
     });
 
     _cashController.addListener(() {
-      // +++ الكي الجراحي 1: إزالة _hasChanges لمنع ظهور التبويب المزعج بمجرد اللمس، وحماية الحسبة من الفواصل +++
-      final amount = double.tryParse(_cashController.text.replaceAll(RegExp(r'[,،]'), '.').trim()) ?? 0.0;
-      _visitBloc.add(UpdateCashCollected(amount));
+      // +++ C9, H17, H18: Safe Money Parsing +++
+      final amount = parseSafeMoney(_cashController.text);
+      if (!amount.isNaN) {
+        _visitBloc.add(UpdateCashCollected(amount));
+      }
     });
 
     // +++ ربط حقل تسديد الدين بالعقل المدبر لتحديث الذمة لحظياً +++
     _debtPaidController.addListener(() {
-      // +++ تم الحذف هنا أيضاً +++
-      final amount = double.tryParse(_debtPaidController.text.replaceAll(RegExp(r'[,،]'), '.').trim()) ?? 0.0;
-      _visitBloc.add(UpdateDebtPaid(amount));
+      // +++ C9, H17, H18: Safe Money Parsing +++
+      final amount = parseSafeMoney(_debtPaidController.text);
+      if (!amount.isNaN) {
+        _visitBloc.add(UpdateDebtPaid(amount));
+      }
     });
   }
 
@@ -345,23 +378,26 @@ class _VisitScreenState extends State<VisitScreen> {
       value: _visitBloc,
       child: BlocListener<VisitBloc, VisitState>(
           listener: (context, state) {
+            // +++ C1: الدرع الواقي - فحص mounted قبل أي استخدام للـ context +++
+            if (!context.mounted) return;
+
             if (state is VisitError) {
-              if (mounted) setState(() => _isSubmitting = false);
+              setState(() => _isSubmitting = false);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(state.message), backgroundColor: Colors.red),
               );
             } else if (state is VisitSubmissionSuccess) {
-              if (mounted) setState(() => _isSubmitting = false);
+              setState(() => _isSubmitting = false);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('تم حفظ العملية بنجاح.'), backgroundColor: Colors.green),
               );
-              Navigator.pop(context, true);
-            } else if (state is VisitReady) {
-              // +++ النسف المعماري لفخ التجميد (The Deadlock Breaker) +++
-              // إذا عاد البلوك لحالة الفاتورة (VisitReady) وكان الزر مقفلاً، نفك القفل فوراً لمنع شلل التطبيق!
-              if (_isSubmitting && mounted) {
-                setState(() => _isSubmitting = false);
+              // +++ درع الحماية المزدوج: منع pop إذا كان widget قد أُزيل +++
+              if (context.mounted) {
+                Navigator.pop(context, true);
               }
+            } else if (state is VisitReady) {
+              // +++ H13: إزالة فك القفل التلقائي - لا نفك إلا على Success/Error فقط +++
+              // تم تعطيل هذا الفرع لمنع Race Condition أثناء الإرسال
             }
           },
         child: PopScope(
@@ -805,7 +841,6 @@ class _VisitScreenState extends State<VisitScreen> {
             duration: const Duration(seconds: 4),
           ),
         );
-        setState(() => _isSubmitting = false); // فك القفل عن الزر ليحاول مجدداً
         return; // إيقاف العملية فوراً
       }
     }
@@ -823,31 +858,58 @@ class _VisitScreenState extends State<VisitScreen> {
             duration: const Duration(seconds: 5),
           ),
         );
-        setState(() => _isSubmitting = false);
         return;
       }
     }
 
-    // 2. حماية المنطقة (Geofence)
-    if (!_isEmergency &&
-        _shopZone != null &&
-        _allowedZone != null &&
-        _shopZone != _allowedZone) {
+    // 2. H10: حماية المنطقة (Geofence) - رفض الإرسال عند نقص بيانات المنطقة
+    if (!_isEmergency) {
+      if (_shopZone == null || _allowedZone == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('مرفوض: بيانات المنطقة غير مكتملة. لا يمكن الإرسال بدون تحديد المنطقة.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      if (_shopZone != _allowedZone) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('مرفوض: المحل خارج منطقتك المسموحة.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
+    // 3. C9, H17, H18: التحقق المالي الصارم باستخدام Safe Money Parsing
+    final String rawCashText = _cashController.text.trim();
+    final String rawDebtText = _debtPaidController.text.trim();
+    
+    final double cashEntered = parseSafeMoney(rawCashText);
+    final double debtPaidEntered = parseSafeMoney(rawDebtText);
+
+    // رفض القيم المالية غير الصالحة
+    if (rawCashText.isNotEmpty && cashEntered.isNaN) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('مرفوض: المحل خارج منطقتك المسموحة.'),
+          content: Text('مرفوض: قيمة الكاش المدخلة غير صحيحة.'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
-
-    // 3. التحقق المالي الصارم (Real-Time UI Shield)
-    final String rawCashText = _cashController.text.trim();
-    final String rawDebtText = _debtPaidController.text.trim();
-    
-    final double cashEntered = double.tryParse(rawCashText.replaceAll(RegExp(r'[,،]'), '.')) ?? 0.0;
-    final double debtPaidEntered = double.tryParse(rawDebtText.replaceAll(RegExp(r'[,،]'), '.')) ?? 0.0;
+    if (rawDebtText.isNotEmpty && debtPaidEntered.isNaN) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('مرفوض: قيمة الدين المدخلة غير صحيحة.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     // +++ درع الإجبارية (Mandatory Fields): إجبار المندوب على كتابة الرقم حتى لو كان صفراً لمنع الحفظ بالخطأ +++
     if (state.netInvoice > 0 && rawCashText.isEmpty) {
@@ -963,12 +1025,12 @@ class _VisitScreenState extends State<VisitScreen> {
     // +++ تفعيل قفل الازدواجية لمنع الـ Double Tap +++
     setState(() => _isSubmitting = true);
 
-    // 6. توجيه الضربة النهائية (إرسال الأمر للمحاسب)
-    _visitBloc.add(
+    // 6. C3: توجيه الضربة النهائية باستخدام safeAddVisitEvent
+    safeAddVisitEvent(
       SubmitVisit(
         visitId: widget.visitId,
         outcome: finalOutcome,
-        debtPaid: debtPaidEntered,
+        debtPaid: debtPaidEntered.isNaN ? 0.0 : debtPaidEntered,
         notes: _notesController.text.trim(),
       ),
     );
@@ -979,6 +1041,12 @@ class _VisitScreenState extends State<VisitScreen> {
         setState(() => _isSubmitting = false);
       }
     });
+  }
+
+  // +++ C3: Safe Bloc Event Addition with mounted check +++
+  void safeAddVisitEvent(VisitEvent event) {
+    if (!mounted) return;
+    _visitBloc.add(event);
   }
 } // نهاية كلاس _VisitScreenState
 
