@@ -1209,8 +1209,6 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
     int smpC = int.tryParse(smpCartons.text) ?? 0;
     int smpP = int.tryParse(smpPacks.text) ?? 0;
 
-    bool hasData = sc > 0 || sp > 0 || rfc > 0 || rfp > 0 || rec > 0 || rep > 0 || smpC > 0 || smpP > 0;
-
     // +++ الكي الجراحي لـ Bug 3: لا نحذف المنتج فوراً أثناء تصفير الحقل كي لا يضيع تركيز الكيبورد +++
     // سيتم إرساله للـ BLoC بكميات صفرية، وسيتولى البلوك فلترته عند الحفظ النهائي.
     final updatedItem = CartItemModel(
