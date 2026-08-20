@@ -123,12 +123,14 @@ app = FastAPI(
 )
 
 # S-04: Restrictive CORS — origins from env var, explicit methods/headers
-_CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com")
+# +++ إصلاح جراحي: إضافة منافذ التطوير المحلية للسماح بتسجيل الدخول في بيئة التطوير +++
+_CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000")
 ALLOWED_ORIGINS = [origin.strip() for origin in _CORS_RAW.split(",") if origin.strip()]
 
 # In development, allow all origins
 if ENV == "development" or os.getenv("ENABLE_CORS_WILDCARD", "false").lower() in ("true", "1", "yes"):
     ALLOWED_ORIGINS = ["*"]
+# +++ الكي الجراحي لـ Bug 2: تم نسف الفرض الإجباري لـ "*" لحماية بيئة الإنتاج +++
 
 if ENV == "production" and not ALLOWED_ORIGINS:
     raise ValueError("CORS_ALLOWED_ORIGINS must be set in production environment!")
@@ -177,13 +179,26 @@ MAX_BODY_SIZE = 10 * 1024 * 1024
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # 1. الفحص الأولي السريع (Fast Path)
         content_length = request.headers.get("content-length")
-        if content_length:
-            if int(content_length) > MAX_BODY_SIZE:
-                return JSONResponse(
-                    status_code=413,
-                    content={"message": "Request body too large. Maximum allowed size is 10MB."}
-                )
+        if content_length and int(content_length) > MAX_BODY_SIZE:
+            return JSONResponse(status_code=413, content={"message": "Request body too large."})
+            
+        # 2. +++ الكي الجراحي لـ Bug 3: درع الـ Chunked Streams الديناميكي +++
+        # حفظ الدالة الأصلية في متغير منفصل قبل الإسناد لمنع الاستدلال الذاتي اللانهائي (Infinite Recursion)
+        original_stream = request.stream
+
+        async def receive_stream_monitor():
+            total_size = 0
+            async for chunk in original_stream():
+                total_size += len(chunk)
+                if total_size > MAX_BODY_SIZE:
+                    raise HTTPException(status_code=413, detail="Payload stream exceeded max size limit.")
+                yield chunk
+
+        # استبدال دالة الـ stream الأصلية بالدالة المراقبة
+        request.stream = receive_stream_monitor
+        
         return await call_next(request)
 
 app.add_middleware(BodySizeLimitMiddleware)
@@ -237,7 +252,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     # S-12: Correlation ID for incident response
     request_id = getattr(request.state, 'request_id', 'N/A')
     
-    raw_error = f"[req_id={request_id}] [{client_ip}] {safe_method} {safe_path} | حدث خطأ غير متوقع: {str(exc)}\n{traceback.format_exc()}"
+    # +++ الكي الجراحي للقائد: تنظيف رسالة الخطأ نفسها لمنع Log Forging +++
+    safe_exc = sanitize_log_input(str(exc))
+    raw_error = f"[req_id={request_id}] [{client_ip}] {safe_method} {safe_path} | حدث خطأ غير متوقع: {safe_exc}\n{traceback.format_exc()}"
     # S-10: Sanitize DB credentials from error messages
     error_msg = sanitize_error_message(raw_error)
     
@@ -264,7 +281,11 @@ app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates
 @app.websocket("/ws/dispatch")
 async def websocket_dispatch_endpoint(websocket: WebSocket):
-    await dispatch_manager.connect(websocket)
+    # +++ الكي الجراحي لـ Bug 1: فحص حالة الدرع الأمني قبل الدخول بالـ Loop +++
+    is_connected = await dispatch_manager.connect(websocket)
+    if not is_connected:
+        return # إنهاء فوري بدون كراش إذا تم رفض الاتصال بسبب الـ DDoS Limit
+
     try:
         while True:
             # Keep the connection alive; we broadcast from API endpoints

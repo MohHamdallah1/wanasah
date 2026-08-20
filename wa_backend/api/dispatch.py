@@ -16,6 +16,10 @@ from collections import Counter
 import logging
 logger = logging.getLogger("wanasah_logger")
 
+# +++ توحيد الزمن المعماري لنسف تعارض الـ Timezone في قاعدة البيانات +++
+def get_utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 from models import ( Driver, WorkSession, SystemAuditLog, DamagedItemLog, MainWarehouse, InventoryLedger,
 VehicleLoad, VisitReturn, ProductVariant, DispatchRoute, WarehouseLedger,Zone, Vehicle, Shop,Visit,
  SessionInventory, ShortageRequest, SystemSetting, InventoryTransfer, Country, Governorate, ImportLog, VisitItem)
@@ -94,7 +98,7 @@ async def get_admin_dashboard_data(
     current_admin: Driver = Depends(get_current_admin)
 ):
 
-    today_date = datetime.now(timezone.utc).date()
+    today_date = get_utc_now().date()
     # +++ النسف المعماري للانفصام الزمني (Timezone Drift): تجهيز الحدود الزمنية النقية لمنع الـ Full Table Scan +++
     today_start = datetime.combine(today_date, datetime.min.time())
     today_end = today_start + timedelta(days=1)
@@ -608,7 +612,8 @@ async def settle_session(
                             bulk_wh_records[prod_id] = wh_record
 
                         old_wh_balance = wh_record.available_quantity_packs or 0
-                        wh_record.available_quantity_packs += loose_packs
+                        # +++ الكي الجراحي 1: منع كراش الـ NoneType +++
+                        wh_record.available_quantity_packs = old_wh_balance + loose_packs
 
                         db.add(WarehouseLedger(
                             product_variant_id=prod_id, transaction_type='DISPATCH_UNLOAD', quantity_packs=loose_packs,
@@ -636,7 +641,8 @@ async def settle_session(
                         bulk_wh_records[prod_id] = wh_record
                     
                     old_wh_balance = wh_record.available_quantity_packs or 0
-                    wh_record.available_quantity_packs += sellable_qty
+                    # +++ الكي الجراحي 2: منع كراش الـ NoneType +++
+                    wh_record.available_quantity_packs = old_wh_balance + sellable_qty
                     
                     db.add(WarehouseLedger(
                         product_variant_id=prod_id, transaction_type='DISPATCH_UNLOAD_FALLBACK', quantity_packs=sellable_qty,
@@ -773,6 +779,10 @@ async def dispatch_route(
         if not zone_lock:
             await db.rollback()
             raise HTTPException(status_code=404, detail="المنطقة غير موجودة.")
+        # +++ الكي الجراحي: درع Split-Brain لمنع إطلاق خط سير لمنطقة مؤرشفة حديثاً +++
+        if not getattr(zone_lock, 'is_active', True):
+            await db.rollback()
+            raise HTTPException(status_code=400, detail="مرفوض: المنطقة مؤرشفة ولا يمكن إطلاق خط سير لها.")
 
         stmt_zone_check = select(DispatchRoute).filter(DispatchRoute.status.in_(['active', 'waiting', 'postponed']), DispatchRoute.zone_id == payload.zone_id)
         if (await db.execute(stmt_zone_check)).first():
@@ -978,7 +988,7 @@ async def dispatch_route(
         shop_ids = [s.id for s in shops_in_zone]
         
         # +++ النسف المعماري الحقيقي: إبقاء الـ Timezone ليتطابق مع الداتابيز ومنع كراش Offset-Naive +++
-        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = get_utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
         
         if shop_ids:
@@ -1240,6 +1250,7 @@ async def adjust_route_inventory(
     active_session = unsettled_session if (unsettled_session and not unsettled_session.end_time) else None
     
     if not payload.deltas:
+        await db.rollback() # +++ إغلاق تسريب الأقفال (Lock Leak) +++
         raise HTTPException(status_code=400, detail="لم يتم إرسال أي تعديلات.")
 
     try:
@@ -1551,7 +1562,8 @@ async def bulk_update_shops(
         zone_ids_to_check = set()
         for s in payload:
             if s.archived is False:
-                clean_id = s.id.replace('s', '')
+                # +++ الكي الجراحي: إجبار التحويل لنص لمنع AttributeError +++
+                clean_id = str(s.id).replace('s', '')
                 z_id = s.zoneId
                 if not z_id and clean_id in bulk_shops:
                     z_id = str(bulk_shops[clean_id].zone_id)
@@ -1567,7 +1579,7 @@ async def bulk_update_shops(
         
         # 4. التحديث الجراحي بالذاكرة
         for s_data in payload:
-            clean_id = s_data.id.replace('s', '')
+            clean_id = str(s_data.id).replace('s', '')
             shop = bulk_shops.get(clean_id)
             
             if shop:
@@ -1984,7 +1996,7 @@ async def update_route_status(
                                     if v_load: v_load.quantity = actual_cartons
                                     else: db.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=live_inv.product_variant_id, quantity=actual_cartons))
                                 
-                        old_active_session.end_time = datetime.now(timezone.utc)
+                        old_active_session.end_time = get_utc_now()
                         
                         stmt_rej_transfers = update(InventoryTransfer).where(
                             InventoryTransfer.work_session_id == old_active_session.id, 
@@ -2193,8 +2205,8 @@ async def update_route_status(
                 ).values(**update_vals)
                 await db.execute(stmt_adopt_orphans)
                 
-                # +++ النسف المعماري الحقيقي: منع كراش Offset-Naive +++
-                today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                # +++ النسف المعماري الحقيقي: توحيد Naive UTC لمنع تعارض قواعد البيانات +++
+                today_start = get_utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
                 today_end = today_start + timedelta(days=1)
                 
                 stmt_existing = select(Visit).filter(
@@ -2251,12 +2263,15 @@ async def undo_end_work(
     session = (await db.execute(stmt_session)).scalar_one_or_none()
     
     if not session:
+        await db.rollback()
         raise HTTPException(status_code=404, detail="الجلسة غير موجودة.")
 
     if session.is_settled:
+        await db.rollback()
         raise HTTPException(status_code=400, detail="لا يمكن التراجع، تم اعتماد التسوية لهذه الجلسة مسبقاً.")
         
     if not session.end_time:
+         await db.rollback()
          raise HTTPException(status_code=400, detail="الجلسة نشطة بالفعل.")
 
     # ========================================================
@@ -2356,6 +2371,7 @@ async def add_zone(
     existing_zone = (await db.execute(stmt_existing)).scalars().first()
     
     if existing_zone:
+        await db.rollback() # +++ إغلاق تسريب الأقفال +++
         if not getattr(existing_zone, 'is_active', True):
             raise HTTPException(status_code=409, detail="هذه المنطقة موجودة مسبقاً في (أرشيف المناطق). يرجى استعادتها بدلاً من إنشائها من جديد.")
         raise HTTPException(status_code=409, detail="المنطقة موجودة ونشطة مسبقاً")
@@ -2461,6 +2477,7 @@ async def update_zone(
     zone = (await db.execute(stmt_zone)).scalar_one_or_none()
     
     if not zone:
+        await db.rollback()
         raise HTTPException(status_code=404, detail="المنطقة غير موجودة")
 
     new_name = payload.name.strip() if payload.name else None
@@ -2469,6 +2486,7 @@ async def update_zone(
         if new_name:
             stmt_exist = select(Zone).filter(Zone.name == new_name, Zone.id != zone_id)
             if (await db.execute(stmt_exist)).first():
+                await db.rollback() # +++ إغلاق تسريب الأقفال +++
                 raise HTTPException(status_code=409, detail="يوجد منطقة أخرى بنفس الاسم")
             zone.name = new_name
             
@@ -2684,8 +2702,8 @@ async def add_shortages(
         stmt_shops = select(Shop).filter(Shop.id.in_(shop_ids))
         bulk_shops = {sh.id: sh for sh in (await db.execute(stmt_shops)).scalars().all()}
         
-        # +++ النسف المعماري الحقيقي: منع كراش Offset-Naive +++
-        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # +++ النسف المعماري الحقيقي: توحيد Naive UTC لمنع تعارض قواعد البيانات +++
+        today_start = get_utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
         
         # جلب زيارات اليوم (المعلقة أو المكتملة) لوسمها بالطوارئ

@@ -13,25 +13,42 @@ import '../../repositories/sync_repository.dart';
 import 'dashboard_event.dart';
 import 'dashboard_state.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../../core/network/api_client.dart';
+import '../../services/location_service.dart';
+import '../../repositories/dashboard_repository.dart';
 
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final SyncRepository _syncRepository;
   final LocalDatabase _db;
+  final DashboardRepository _dashboardRepo;
+  final LocationService _locationService;
 
-  DashboardBloc({SyncRepository? syncRepository, LocalDatabase? db})
+  DashboardBloc({
+    SyncRepository? syncRepository, 
+    LocalDatabase? db,
+    DashboardRepository? dashboardRepo,
+    LocationService? locationService,
+  })
     : _syncRepository = syncRepository ?? SyncRepository(),
       _db = db ?? LocalDatabase.instance,
+      _dashboardRepo = dashboardRepo ?? DashboardRepository(),
+      _locationService = locationService ?? LocationService.instance,
       super(const DashboardInitial()) {
     on<LoadDashboardData>(_onLoadDashboardData);
     on<ForceSyncData>(_onForceSyncData);
     on<FetchDashboardData>(_onFetchDashboardData);
     on<CheckPendingTransfers>(_onCheckPendingTransfers);
     on<RespondToTransfer>(_onRespondToTransfer);
-    on<RespondToBatchTransfer>(
-      _onRespondToBatchTransfer,
-    ); // +++ تسجيل الحدث الجماعي +++
+    on<RespondToBatchTransfer>(_onRespondToBatchTransfer);
+    // +++ الكي الجراحي: تسجيل أحداث إدارة الجلسة +++
+    on<StartSessionEvent>(_onStartSession);
+    on<EndSessionEvent>(_onEndSession);
+    on<ToggleBreakEvent>(_onToggleBreak);
+    // +++ الكي الجراحي لـ Bug 3: الاستماع لحدث التنظيف في المكان الصحيح +++
+    on<ClearActionMessageEvent>((event, emit) {
+      if (state is DashboardLoaded) {
+        emit((state as DashboardLoaded).copyWith(clearActionMessage: true));
+      }
+    });
   }
 
   // ─── LoadDashboardData ────────────────────────────────────────────────────
@@ -97,9 +114,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     final products =
         rawProducts.map((row) => ProductModel.fromJson(row)).toList();
 
-    // +++ الكيّ الجراحي: القضاء على الـ I/O Waterfall البطيء (قراءة كل المفاتيح بدفعة واحدة) +++
-    final storage = const FlutterSecureStorage();
-    final allData = await storage.readAll();
+    // +++ الكيّ الجراحي لـ Bug 2: القراءة من المستودع بدلاً من الخزنة مباشرة +++
+    final allData = await _dashboardRepo.getAllCachedData();
 
     final int total =
         visits.isNotEmpty
@@ -173,12 +189,12 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     FetchDashboardData event,
     Emitter<DashboardState> emit,
   ) async {
-    emit(const DashboardLoading());
+    // +++ الكي الجراحي لـ Bug 3: منع الشاشة البيضاء (Jank) وتفريغ الواجهة إذا كانت محملة مسبقاً +++
+    if (state is! DashboardLoaded) emit(const DashboardLoading());
 
     try {
-      final response = await ApiClient.instance.get(
-        '/driver/${event.driverId}/dashboard',
-      );
+      // +++ الكي الجراحي لـ Bug 2: الاعتماد على المستودع لجلب البيانات +++
+      final response = await _dashboardRepo.fetchDashboardRaw();
 
       // +++ الدرع النوعي النخبوي (Elite Cast): منع كراش الـ TypeError بدون طرد المندوب ظلماً بسبب تعقيدات Dart +++
       if (response.data is! Map) {
@@ -214,58 +230,21 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final financials = data['financials'] is Map ? Map<String, dynamic>.from(data['financials'] as Map) : null;
       final countsData = data['counts'] is Map ? Map<String, dynamic>.from(data['counts'] as Map) : null;
 
-      // +++ حفظ الذاكرة المالية وهوية المندوب أوفلاين (دفعة واحدة لمنع شلل الواجهة) +++
-      final storage = const FlutterSecureStorage();
-      await Future.wait([
-        storage.write(key: 'is_authorized', value: isAuthorized.toString()),
-        storage.write(
-          key: 'cached_driver_name',
-          value: data['driver_name']?.toString() ?? '',
-        ),
-        storage.write(
-          key: 'cached_assigned_region',
-          value: data['assigned_region']?.toString() ?? '',
-        ),
-        storage.write(
-          key: 'cached_total_sales_cash',
-          value: (financials?['total_sales_cash']?.toString() ?? '0.0'),
-        ),
-        storage.write(
-          key: 'cached_total_debt_paid',
-          value: (financials?['total_debt_paid']?.toString() ?? '0.0'),
-        ),
-        storage.write(
-          key: 'cached_debt_payments_count',
-          value: (financials?['debt_payments_count']?.toString() ?? '0'),
-        ),
-        storage.write(
-          key: 'cached_total_cash_overall',
-          value: (financials?['total_cash_overall']?.toString() ?? '0.0'),
-        ),
-        storage.write(
-          key: 'cached_total_visits',
-          value:
-              ((countsData?['total_pending'] ?? 0) +
-                      (countsData?['total_completed'] ?? 0))
-                  .toString(),
-        ),
-        storage.write(
-          key: 'cached_completed_visits',
-          value: (countsData?['total_completed']?.toString() ?? '0'),
-        ),
-        storage.write(
-          key: 'cached_pending_visits',
-          value: (countsData?['total_pending']?.toString() ?? '0'),
-        ),
-        storage.write(
-          key: 'cached_is_active_session',
-          value: sessionIsActive.toString(),
-        ),
-        storage.write(
-          key: 'cached_session_start_time',
-          value: startTimeStr ?? '',
-        ),
-      ]);
+      // +++ الكي الجراحي لـ Bug 2: تخزين الذاكرة عبر المستودع +++
+      await _dashboardRepo.cacheDashboardData({
+        'is_authorized': isAuthorized.toString(),
+        'cached_driver_name': data['driver_name']?.toString() ?? '',
+        'cached_assigned_region': data['assigned_region']?.toString() ?? '',
+        'cached_total_sales_cash': (financials?['total_sales_cash']?.toString() ?? '0.0'),
+        'cached_total_debt_paid': (financials?['total_debt_paid']?.toString() ?? '0.0'),
+        'cached_debt_payments_count': (financials?['debt_payments_count']?.toString() ?? '0'),
+        'cached_total_cash_overall': (financials?['total_cash_overall']?.toString() ?? '0.0'),
+        'cached_total_visits': ((countsData?['total_pending'] ?? 0) + (countsData?['total_completed'] ?? 0)).toString(),
+        'cached_completed_visits': (countsData?['total_completed']?.toString() ?? '0'),
+        'cached_pending_visits': (countsData?['total_pending']?.toString() ?? '0'),
+        'cached_is_active_session': sessionIsActive.toString(),
+        'cached_session_start_time': startTimeStr ?? '',
+      });
 
       try {
         await _syncRepository.syncDown();
@@ -281,10 +260,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         DashboardLoaded(
           visits: localData.visits,
           products: apiProducts.isNotEmpty ? apiProducts : localData.products,
-          // +++ النسف المعماري (String/Float Precision Loss): التحويل الفولاذي لـ int لمنع الكراش العشوائي +++
-          totalVisits: 
-              (int.tryParse(countsData?['total_pending']?.toString() ?? '0') ?? 0) +
-              (int.tryParse(countsData?['total_completed']?.toString() ?? '0') ?? 0),
+          // +++ الكي الجراحي لـ Bug 5: الاعتماد على الإجمالي المحلي إذا كان السيرفر معطلاً أو البيانات ناقصة +++
+          totalVisits: countsData != null 
+              ? (int.tryParse(countsData['total_pending']?.toString() ?? '0') ?? 0) + (int.tryParse(countsData['total_completed']?.toString() ?? '0') ?? 0)
+              : localData.totalVisits,
           completedVisits:
               countsData?['total_completed'] != null 
                   ? (int.tryParse(countsData!['total_completed'].toString()) ?? 0)
@@ -324,6 +303,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           isActiveSession: sessionIsActive,
           activeSessionStartTime: startTimeStr,
           isOnBreak: isOnBreak,
+          // +++ الكي الجراحي لـ Bug 5: حفظ رسالة النجاح من الطمس أثناء تحديث البيانات +++
+          actionSuccessMessage: (state is DashboardLoaded) ? (state as DashboardLoaded).actionSuccessMessage : null,
         ),
       );
 
@@ -377,19 +358,17 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     Emitter<DashboardState> emit,
   ) async {
     if (state is! DashboardLoaded) return;
-    final currentState = state as DashboardLoaded;
 
     try {
-      final response = await ApiClient.instance.get(
-        '/driver/transfers/pending',
-      );
-      // +++ الدرع النوعي: التأكد من أن الحوالات هي قائمة فعلاً لتجنب TypeError +++
+      final response = await _dashboardRepo.checkPendingTransfersRaw();
       final dynamic rawTransfers = response.data;
       final List<dynamic> transfers = rawTransfers is List ? rawTransfers : [];
 
       if (transfers.isNotEmpty) {
-        // +++ تحديث آمن بسطر واحد باستخدام copyWith +++
-        emit(currentState.copyWith(pendingTransfer: transfers.first));
+        // +++ الكي الجراحي لـ Bug 1: فحص State الحية قبل الـ Emit لمنع طمس البيانات +++
+        if (state is DashboardLoaded) {
+          emit((state as DashboardLoaded).copyWith(pendingTransfer: transfers.first));
+        }
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error checking transfers (Offline?): $e');
@@ -397,7 +376,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       try {
         final localTransfers = await _db.getIncomingTransfers();
         if (localTransfers.isNotEmpty) {
-          emit(currentState.copyWith(pendingTransfer: localTransfers.first));
+          if (state is DashboardLoaded) {
+            emit((state as DashboardLoaded).copyWith(pendingTransfer: localTransfers.first));
+          }
           developer.log('[DashboardBloc] Loaded pending transfer from local DB.');
         }
       } catch (localErr) {
@@ -416,19 +397,17 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     emit((state as DashboardLoaded).copyWith(clearPendingTransfer: true));
 
     try {
-      await ApiClient.instance.put(
-        '/driver/transfers/${event.transferId}/respond',
-        data: {'response': event.responseStatus},
-      );
+      await _dashboardRepo.respondToTransfer(event.transferId, event.responseStatus);
 
-      final String? driverIdStr = await const FlutterSecureStorage().read(
-        key: 'driver_id',
-      );
-      // +++ حماية Parse: منع كراش الـ FormatException إذا كان الـ ID مفقوداً من الذاكرة +++
-      final int? driverId = int.tryParse(driverIdStr ?? '');
+      // +++ الكي الجراحي لـ Bug 3: إعدام الحوالة من الداتابيز المحلية لكي لا تظهر كشبح لاحقاً +++
+      await _dashboardRepo.removeLocalTransfer(event.transferId);
+
+      final int? driverId = await _dashboardRepo.getDriverId();
       if (driverId != null) {
-        // تحديث البيانات بعد الرد لضمان دخول البضاعة للمخزون
         add(FetchDashboardData(driverId: driverId));
+      } else {
+        // +++ الكي الجراحي لـ Bug 4: الاستعانة بالمزامنة القسرية إذا فُقد المعرف بدلاً من الموت بصمت +++
+        add(const ForceSyncData()); 
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error responding to transfer: $e');
@@ -447,27 +426,111 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     emit((state as DashboardLoaded).copyWith(clearPendingTransfer: true));
 
     try {
-      // +++ ضربة HTTP واحدة (O(1)) للسيرفر مهما كان عدد الأصناف (Zero Tech Debt) +++
-      await ApiClient.instance.put(
-        '/driver/transfers/batch_respond',
-        data: {
-          // +++ إرسال المصفوفة التفصيلية للسيرفر ليعالج كل صنف لحاله +++
-          'transfers': event.detailedTransfers,
-        },
-      );
+      await _dashboardRepo.respondToBatchTransfer(event.detailedTransfers);
 
-      final String? driverIdStr = await const FlutterSecureStorage().read(
-        key: 'driver_id',
-      );
-      // +++ حماية Parse: منع كراش الـ FormatException إذا كان الـ ID مفقوداً من الذاكرة +++
-      final int? driverId = int.tryParse(driverIdStr ?? '');
+      // +++ الكي الجراحي لـ Bug 3: إعدام كافة الحوالات المستجابة محلياً +++
+      for (final t in event.detailedTransfers) {
+        final tid = (t['transfer_id'] as num?)?.toInt();
+        if (tid != null) {
+          await _dashboardRepo.removeLocalTransfer(tid);
+        }
+      }
+
+      final int? driverId = await _dashboardRepo.getDriverId();
       if (driverId != null) {
-        // تحديث البيانات بعد الرد لضمان دخول البضاعة للمخزون
         add(FetchDashboardData(driverId: driverId));
+      } else {
+        add(const ForceSyncData());
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error responding to batch transfer: $e');
       emit(DashboardError(message: 'فشل إرسال الرد الجماعي للإدارة: $e'));
     }
   }
-}
+
+
+  // ─── دوال إدارة جلسة العمل (Clean Architecture: Delegation to Repository) ───
+
+  Future<void> _onStartSession(StartSessionEvent event, Emitter<DashboardState> emit) async {
+    try {
+      final position = await _locationService.getCurrentLocation();
+      await _dashboardRepo.startSession(position?.latitude, position?.longitude);
+
+      if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'تم بدء جلسة العمل!'));
+      add(FetchDashboardData(driverId: event.driverId)); 
+      
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 409) {
+        if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'يوجد جلسة عمل نشطة بالفعل.'));
+        add(FetchDashboardData(driverId: event.driverId));
+      } else if (e.response?.statusCode != 401) {
+        emit(DashboardError(message: 'خطأ: ${e.response?.data?['message'] ?? 'فشل الاتصال'}'));
+      }
+    } catch (e) {
+      // +++ الكي الجراحي: اصطياد كافة مشاكل الـ GPS ومنع الجلسة من البدء بدون إحداثيات +++
+      if (e.toString().contains('GPS_DISABLED')) {
+        emit(const DashboardError(message: 'الرجاء تفعيل خدمة الموقع (GPS) لبدء العمل.'));
+      } else if (e.toString().contains('GPS_DENIED')) {
+        emit(const DashboardError(message: 'صلاحية الموقع مطلوبة لبدء العمل.'));
+      } else if (e.toString().contains('GPS_TIMEOUT')) {
+        emit(const DashboardError(message: 'فشل تحديد الموقع. الرجاء التأكد من قوة إشارة الـ GPS والمحاولة في مكان مفتوح.'));
+      } else {
+        emit(DashboardError(message: 'حدث خطأ غير متوقع: $e'));
+      }
+    }
+  }
+
+  Future<void> _onEndSession(EndSessionEvent event, Emitter<DashboardState> emit) async {
+    try {
+      await _dashboardRepo.endSession();
+      if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'تم إنهاء العمل.'));
+      add(FetchDashboardData(driverId: event.driverId));
+      
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) return;
+
+      if (e.response?.statusCode == 404) {
+        await _dashboardRepo.clearSessionLocally();
+        if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'تم اكتشاف تصفير للسيرفر. تم تنظيف الجلسة الوهمية محلياً 🧹'));
+        add(FetchDashboardData(driverId: event.driverId));
+        return;
+      }
+
+      // +++ الكي الجراحي: إضافة كافة حالات الـ Offline لمنع الخطأ الوهمي +++
+      final isOffline = e.response == null || 
+                        e.type == DioExceptionType.connectionTimeout || 
+                        e.type == DioExceptionType.receiveTimeout || 
+                        e.type == DioExceptionType.sendTimeout || 
+                        e.type == DioExceptionType.connectionError || 
+                        e.type == DioExceptionType.unknown ||
+                        e.error.toString().contains('SocketException');
+
+      emit(DashboardError(message: isOffline 
+          ? 'لا يمكن إنهاء العمل وأنت أوفلاين. يجب الاتصال بالإنترنت لمطابقة العهدة وتسليمها.' 
+          : 'خطأ: ${e.response?.data?['message'] ?? 'فشل الإنهاء'}'));
+    } catch (e) {
+      emit(DashboardError(message: 'حدث خطأ أثناء إنهاء الجلسة.'));
+    }
+  }
+
+  Future<void> _onToggleBreak(ToggleBreakEvent event, Emitter<DashboardState> emit) async {
+    try {
+      await _dashboardRepo.toggleBreak(event.driverId, event.action);
+      
+      if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: event.action == 'start' ? 'تم بدء الاستراحة (مسجلة).' : 'تم إنهاء الاستراحة (مسجلة).'));
+      add(FetchDashboardData(driverId: event.driverId));
+      
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) return; // +++ الكي الجراحي لـ Bug 6: منع الشبح والـ SnackBar الأحمر عند انتهاء الجلسة +++
+      if (e.response?.statusCode == 404) {
+        await _dashboardRepo.clearSessionLocally();
+        if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'الجلسة غير موجودة على السيرفر! تم إعادة الضبط 🧹'));
+        add(FetchDashboardData(driverId: event.driverId));
+        return;
+      }
+      emit(DashboardError(message: 'خطأ: ${e.response?.data?['message'] ?? 'فشل الاتصال'}'));
+    } catch (e) {
+      emit(DashboardError(message: 'فشل في عملية الاستراحة.'));
+    }
+  }
+} // +++ الكي الجراحي: هذا القوس اللي طار وكسرلك الملف كله! +++

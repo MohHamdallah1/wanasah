@@ -84,6 +84,10 @@ async def warehouse_inbound(
         stmt_variants = select(ProductVariant.id).filter(ProductVariant.id.in_(var_ids))
         valid_var_ids = set((await db.execute(stmt_variants)).scalars().all())
 
+        # +++ الكي الجراحي لـ Bug 2: نسف النجاح الوهمي إذا كانت كل الأصناف غير موجودة +++
+        if not valid_var_ids:
+            raise HTTPException(status_code=400, detail="مرفوض: جميع المنتجات المرسلة في الفاتورة غير صالحة أو غير موجودة في النظام.")
+
         # +++ قفل الأصناف (Row-Level Lock) مرتبة تصاعدياً لنسف الـ Deadlock +++
         stmt_wh = select(MainWarehouse).with_for_update().filter(MainWarehouse.product_variant_id.in_(list(valid_var_ids))).order_by(MainWarehouse.product_variant_id.asc())
         bulk_warehouse = {w.product_variant_id: w for w in (await db.execute(stmt_wh)).scalars().all()}
@@ -172,7 +176,7 @@ async def warehouse_stocktake(
 
             # +++ 3. النسف المعماري للكارثة (العودة للواقع الميداني) +++
             # الجرد الملموس يُقارن بـ (المتاح) فقط. البضاعة المحجوزة موجودة في سيارات المناديب بالشارع وليست على الرف.
-            expected_packs = wh_record.available_quantity_packs
+            expected_packs = wh_record.available_quantity_packs or 0 # +++ الكي الجراحي: سحق الـ NoneType +++
             difference = actual_packs - expected_packs
 
             if difference != 0:
@@ -352,7 +356,8 @@ async def get_warehouse_inventory(
                  MainWarehouse.reserved_quantity_packs > 0,
                  vehicle_load_subq.c.total_vehicle_cartons > 0,
                  session_inv_subq.c.total_session_packs > 0,
-                 damaged_subq.c.total_damaged > 0
+                 damaged_subq.c.total_damaged > 0,
+                 pending_pulls_subq.c.total_pulls < 0 # +++ الكي الجراحي: إظهار السحوبات المعلقة للأصناف الموقوفة +++
              )
          )
 
@@ -442,10 +447,11 @@ async def get_warehouse_ledger(
             # CS-WH-05 / warehouse.md Finding #7: Explicit whitelist instead of catch-all else
             DECREASE_TYPES = {'DISPATCH_LOAD', 'HANDSHAKE_RESERVE'}
             NEUTRAL_TYPES = {'HANDSHAKE_COMMIT'}
+            # +++ الكي الجراحي لـ Bug 3: إضافة حركات المصافحة الجديدة لقائمة الزيادة المحاسبية +++
             INCREASE_TYPES = {
                 'INBOUND_SUPPLIER', 'INBOUND_CORRECTION', 'AUDIT_ADJUSTMENT',
                 'DISPATCH_UNLOAD', 'DISPATCH_UNLOAD_FALLBACK', 'VEHICLE_ROLLOVER',
-                'END_DAY_CLEARANCE'
+                'END_DAY_CLEARANCE', 'HANDSHAKE_RELEASE', 'HANDSHAKE_COMMIT_PULL'
             }
             if log.transaction_type in DECREASE_TYPES:
                 bal_before = log.balance_after_packs + log.quantity_packs
@@ -670,12 +676,13 @@ async def adjust_warehouse_entry(
             raise HTTPException(status_code=404, detail="المنتج غير موجود.")
 
         # 5. تحديث الرصيد الحالي للمستودع (منع الرصيد السالب)
-        if wh_record.available_quantity_packs + delta < 0:
+        old_balance = wh_record.available_quantity_packs or 0  # +++ الكي الجراحي: استخراج الرصيد الآمن أولاً +++
+        
+        if old_balance + delta < 0:
             await db.rollback()
-            raise HTTPException(status_code=400, detail=f"فشل التعديل: الكمية المخصومة ({abs(delta)}) أكبر من المتوفر بالمستودع ({wh_record.available_quantity_packs}).")
+            raise HTTPException(status_code=400, detail=f"فشل التعديل: الكمية المخصومة ({abs(delta)}) أكبر من المتوفر بالمستودع ({old_balance}).")
 
-        old_balance = wh_record.available_quantity_packs or 0  # <--- حفظ الرصيد القديم
-        wh_record.available_quantity_packs += delta
+        wh_record.available_quantity_packs = old_balance + delta
 
         # 6. تسجيل الحركة العكسية (Inbound Correction) لضبط الدفاتر بنفس رقم المرجع
         adjustment_entry = WarehouseLedger(

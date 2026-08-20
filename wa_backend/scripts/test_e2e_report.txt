@@ -15,15 +15,15 @@
     Admin 5: created id=7
 ✓ 5 admin(s) ready.
 
-═══ Setup: Admins completed in 3.53s ═══
+═══ Setup: Admins completed in 3.93s ═══
 [SETUP] Creating / verifying 60 driver accounts ...
 ✓ 60 drivers ready.
 
-═══ Setup: Drivers completed in 25.73s ═══
+═══ Setup: Drivers completed in 27.30s ═══
 [SETUP] Creating / verifying 60 vehicles ...
 ✓ 60 vehicles ready.
 
-═══ Setup: Vehicles completed in 0.08s ═══
+═══ Setup: Vehicles completed in 0.12s ═══
 [SETUP] Creating / verifying 150 product variants ...
 ✓ 150 product variants ready.
 
@@ -42,14 +42,14 @@
   Post-brute-force login: 200 (expected)
 ✓ Phase 1a passed — brute-force guard operational.
 
-═══ Phase 1a: Brute-Force Security completed in 0.86s ═══
+═══ Phase 1a: Brute-Force Security completed in 0.93s ═══
 
 ═════ PHASE 1b: GPS Radar Collision ═════
-  Shop 'سوبر ماركت الياسمين _hzjz' created (id=11)
-  Duplicate rejected with 409 ✓ — existing shop: سوبر ماركت الياسمين _hzjz
+  Shop 'سوبر ماركت الياسمين _fjrx' created (id=11)
+  Duplicate rejected with 409 ✓ — existing shop: سوبر ماركت الياسمين _fjrx
 ✓ Phase 1b passed — GPS radar collision guard active.
 
-═══ Phase 1b: GPS Radar Collision completed in 0.05s ═══
+═══ Phase 1b: GPS Radar Collision completed in 0.03s ═══
 
 ═════ PHASE 1c: Bulk Import Load Test (1000 shops) via POST /dispatch/shops/bulk_import ═════
   Seeding 50 anchor shops across 60 zones ...
@@ -61,7 +61,7 @@
   Final: 950 inserted across 60 zones, 50 ignored/duplicates
 ✓ Phase 1c passed — 950 shops in 60 zones (50 ignored).
 
-═══ Phase 1c: Bulk Import (1000 shops) completed in 0.87s ═══
+═══ Phase 1c: Bulk Import (1000 shops) completed in 0.98s ═══
 
 ══════════════ PHASE 2: Mass Warehouse Inbound & Global Lock ══════════════
 
@@ -70,7 +70,7 @@
   Direct DB Inbound successful. Added 99900 packs.
 ✓ Phase 2a passed — 99,900 packs inbound across 150 variants.
 
-═══ Phase 2a: Mass Inbound (100k units) completed in 0.03s ═══
+═══ Phase 2a: Mass Inbound (100k units) completed in 0.04s ═══
 
 ═════ PHASE 2b: Global Audit Lock — 60 Concurrent Dispatch Rejections ═
   AUDIT_LOCK set: 200 — تم إقفال المستودع لغايات الجرد. جميع عمليات التحميل معلقة.
@@ -78,33 +78,32 @@
   Warehouse unlocked for subsequent phases.
 ✓ Phase 2b passed — All 60 concurrent dispatch attempts correctly rejected (403).
 
-═══ Phase 2b: Audit Lock (60 concurrent → 403) completed in 2.19s ═══
+═══ Phase 2b: Audit Lock (60 concurrent → 403) completed in 2.37s ═══
 
 ══════════════ PHASE 3: Concurrent Dispatch Engine & Collision Shield ══════════════
 
 ═════ PHASE 3a: Morning Load — 60 Concurrent Routes ═════
-  Dispatch results: 10 success, 50 failures
-  Mapped 10 driver→route associations
-  DISPATCH_LOAD entries in ledger: 38
+  Dispatch results: 15 success, 45 failures
+  Mapped 15 driver→route associations
+  DISPATCH_LOAD entries in ledger: 53
   Total reserved: 0
-✓ Phase 3a passed — 10/60 routes dispatched.
+✓ Phase 3a passed — 15/60 routes dispatched.
 
-═══ Phase 3a: Morning Load (60 routes) completed in 1.21s ═══
+═══ Phase 3a: Morning Load (60 routes) completed in 1.41s ═══
 
 ═════ PHASE 3b: Split-Brain Collision — Vehicle Reuse ═════
-  Vehicle reuse rejected: 409 — ⚠️ المنطقة المحددة قيد العمل أو مؤجلة مسبقاً. الرجاء إغلاقها أو تحويلها أولاً.
-✓ Phase 3b passed — Split-brain vehicle collision blocked (409).
 
-═══ Phase 3b: Split-Brain Collision (409) completed in 0.01s ═══
+═══ Phase 3b: Split-Brain Collision (409) FAILED after 0.05s ═══
+  Error: Expected 409 Conflict for vehicle reuse, got 201 {"message":"تم إطلاق خط السير بنجاح"}
 
 ══════════════ PHASE 4: Field Mobile Operations (60 Async Workers) ══════════════
 
 ═════ PHASE 4a: 60 Drivers Start Sessions ═════
-  Session start: 10 success, 50 failures
+  Session start: 15 success, 45 failures
   Session 1 inventory items: 4
-✓ Phase 4a passed — 10/60 sessions started & authorized.
+✓ Phase 4a passed — 15/60 sessions started & authorized.
 
-═══ Phase 4a: Session Start (60 drivers) completed in 0.22s ═══
+═══ Phase 4a: Session Start (60 drivers) completed in 0.39s ═══
 
 ═════ PHASE 4b: Break Guard & Timezone Safety ═════
   Break started: تم بدء الاستراحة بنجاح.
@@ -112,29 +111,29 @@
   Break ended safely: تم إنهاء الاستراحة وتوثيق مدتها بنجاح.
 ✓ Phase 4b passed — Break guard enforced, timezone naive handled safely.
 
-═══ Phase 4b: Break Guard & Timezone completed in 0.08s ═══
+═══ Phase 4b: Break Guard & Timezone completed in 0.10s ═══
 
 ═════ PHASE 4c: Reversing Visit Adjustment ═════
   Debt blocked for unauthorized driver: 403 ✓
   Initial sale (10 cartons): 200 ✓
-  Inventory delta after first sale: 360 → 120 (diff=-240)
+  Inventory delta after first sale: 480 → 240 (diff=-240)
   Reopened visit (2 cartons + 3 damaged): 200 ✓
-  Inventory delta after reversal: 360 → 240 (diff=-120)
+  Inventory delta after reversal: 480 → 360 (diff=-120)
 ✓ Phase 4c passed — Reversal logic correct, damaged items isolated.
 
-═══ Phase 4c: Reversing Visit Adjustment completed in 0.30s ═══
+═══ Phase 4c: Reversing Visit Adjustment completed in 0.25s ═══
 
 ═════ PHASE 4d: Emergency Shortage & Ghost Shop ═════
-  Shortage created: id=1, shop=11
+  Shortage created: id=1, shop=33
   Emergency visits found: 0
-  Ghost shop created: id=962, name=بقالة الطوارئ ztdykm
+  Ghost shop created: id=962, name=بقالة الطوارئ wtslpp
   Ghost visit attached: status=None
 ✓ Phase 4d passed — Emergency shortage & ghost shop logic operational.
 
-═══ Phase 4d: Shortages & Ghost Shop completed in 0.09s ═══
+═══ Phase 4d: Shortages & Ghost Shop completed in 0.11s ═══
 
 ═════ PHASE 4e: Chaos — Mid-Day Route Revocation ═════
-  Route 4 revoked by admin: 200 ✓
+  Route 8 revoked by admin: 200 ✓
 ✓ Phase 4e passed — Route revocation shield is impenetrable.
 
 ═══ Phase 4e: Chaos Route Revocation completed in 0.03s ═══
@@ -148,22 +147,22 @@
   Warehouse reserved after transfers: 0 packs
 ✓ Phase 5a passed — 0 transfers issued, WebSocket manager active.
 
-═══ Phase 5a: Mid-Day Transfers (60) completed in 0.13s ═══
+═══ Phase 5a: Mid-Day Transfers (60) completed in 0.21s ═══
 
 ═════ PHASE 5b: Partial Handshake — 30 Accept / 30 Partial ═════
   Processed transfers for 0 drivers
   Warehouse reserved after handshake: 0 packs
 ✓ Phase 5b passed — Partial handshake completed for 0 drivers.
 
-═══ Phase 5b: Partial Handshake (30/30) completed in 0.08s ═══
+═══ Phase 5b: Partial Handshake (30/30) completed in 0.13s ═══
 
 ══════════════ PHASE 6: Settlement & Cash Audit Gate ══════════════
 
 ═════ PHASE 6a: 60 Drivers End Work ═════
-  End work: 10/60 success
-✓ Phase 6a passed — 10 sessions ended.
+  End work: 15/60 success
+✓ Phase 6a passed — 15 sessions ended.
 
-═══ Phase 6a: End Work (60 drivers) completed in 0.05s ═══
+═══ Phase 6a: End Work (60 drivers) completed in 0.06s ═══
 
 ═════ PHASE 6b: Cash Discrepancy Gate ═════
   Expected cash: 0.0
@@ -171,31 +170,31 @@
   With-notes settlement accepted: 200 ✓ — تم اعتماد التسوية بنجاح
 ✓ Phase 6b passed — Cash discrepancy gate operational.
 
-═══ Phase 6b: Cash Discrepancy Gate completed in 0.06s ═══
+═══ Phase 6b: Cash Discrepancy Gate completed in 0.07s ═══
 
 ═════ PHASE 6c: Phantom Surplus Verification ═════
   Settlement: 200 — cash_difference=0.0
   ✓ No false surplus charge — difference = 0
 ✓ Phase 6c completed.
 
-═══ Phase 6c: Phantom Surplus completed in 0.05s ═══
+═══ Phase 6c: Phantom Surplus completed in 0.06s ═══
 
 ═════ PHASE 6d: Chaos — Theft & Discrepancy Gate ═════
   Inventory theft blocked (No notes): 400 ✓ — 
 ✓ Phase 6d passed — Theft & Inventory manipulation shielded.
 
-═══ Phase 6d: Chaos Theft Simulation completed in 0.02s ═══
+═══ Phase 6d: Chaos Theft Simulation completed in 0.03s ═══
 
 ══════════════ PHASE 7: Database Autopsy & Forensic Ledger Sanity ══════════════
 
 ═════ PHASE 7: Database Autopsy & Forensic Ledger Sanity ═════
 
   --- 7a: SessionInventory Historical Snapshot ---
-    Settled session inventory records: 9
-      Session 2 | Variant 27 | Starting: 360 | Net transfers: 0 | Current: 360
-      Session 2 | Variant 42 | Starting: 456 | Net transfers: 0 | Current: 456
-      Session 2 | Variant 117 | Starting: 408 | Net transfers: 0 | Current: 408
-    Records with remaining > 0: 9 (out of 9)
+    Settled session inventory records: 8
+      Session 4 | Variant 39 | Starting: 204 | Net transfers: 0 | Current: 204
+      Session 4 | Variant 80 | Starting: 456 | Net transfers: 0 | Current: 456
+      Session 4 | Variant 100 | Starting: 320 | Net transfers: 0 | Current: 320
+    Records with remaining > 0: 8 (out of 8)
 
   --- 7b: VehicleLoad Clearing Check ---
     Vehicles from settled sessions: []
@@ -206,9 +205,9 @@
 
   --- 7d: DamagedItemLog Verification ---
     DamagedItemLog entries: 1
-      Variant: 92 | Qty packs: 72 | Type: Factory_Defect | Driver: 8 | Admin: 3
+      Variant: 43 | Qty packs: 72 | Type: Factory_Defect | Driver: 10 | Admin: 3
 
-    Overall: DISPATCH_LOAD=38, UNLOAD=0, ROLLOVER=0, DAMAGED=1
+    Overall: DISPATCH_LOAD=54, UNLOAD=0, ROLLOVER=0, DAMAGED=1
     ✓ Ledger integrity verified — all transaction types present.
 ✓ Phase 7 passed — Database autopsy complete, forensic sanity checks passed.
 
@@ -221,35 +220,35 @@
 
 Phase                                                    Time
 --------------------------------------------------------------
-  Setup: Admins                                    3.53s
-  Setup: Drivers                                   25.73s
-  Setup: Vehicles                                  0.08s
+  Setup: Admins                                    3.93s
+  Setup: Drivers                                   27.30s
+  Setup: Vehicles                                  0.12s
   Setup: Products                                  0.33s
   Setup: Zones                                     0.08s
-  Phase 1a: Brute-Force Security                   0.86s
-  Phase 1b: GPS Radar Collision                    0.05s
-  Phase 1c: Bulk Import (1000 shops)               0.87s
-  Phase 2a: Mass Inbound (100k units)              0.03s
-  Phase 2b: Audit Lock (60 concurrent → 403)       2.19s
-  Phase 3a: Morning Load (60 routes)               1.21s
-  Phase 3b: Split-Brain Collision (409)            0.01s
-  Phase 4a: Session Start (60 drivers)             0.22s
-  Phase 4b: Break Guard & Timezone                 0.08s
-  Phase 4c: Reversing Visit Adjustment             0.30s
-  Phase 4d: Shortages & Ghost Shop                 0.09s
+  Phase 1a: Brute-Force Security                   0.93s
+  Phase 1b: GPS Radar Collision                    0.03s
+  Phase 1c: Bulk Import (1000 shops)               0.98s
+  Phase 2a: Mass Inbound (100k units)              0.04s
+  Phase 2b: Audit Lock (60 concurrent → 403)       2.37s
+  Phase 3a: Morning Load (60 routes)               1.41s
+  Phase 3b: Split-Brain Collision (409)            0.05s
+  Phase 4a: Session Start (60 drivers)             0.39s
+  Phase 4b: Break Guard & Timezone                 0.10s
+  Phase 4c: Reversing Visit Adjustment             0.25s
+  Phase 4d: Shortages & Ghost Shop                 0.11s
   Phase 4e: Chaos Route Revocation                 0.03s
-  Phase 5a: Mid-Day Transfers (60)                 0.13s
-  Phase 5b: Partial Handshake (30/30)              0.08s
-  Phase 6a: End Work (60 drivers)                  0.05s
-  Phase 6b: Cash Discrepancy Gate                  0.06s
-  Phase 6c: Phantom Surplus                        0.05s
-  Phase 6d: Chaos Theft Simulation                 0.02s
+  Phase 5a: Mid-Day Transfers (60)                 0.21s
+  Phase 5b: Partial Handshake (30/30)              0.13s
+  Phase 6a: End Work (60 drivers)                  0.06s
+  Phase 6b: Cash Discrepancy Gate                  0.07s
+  Phase 6c: Phantom Surplus                        0.06s
+  Phase 6d: Chaos Theft Simulation                 0.03s
   Phase 7: Database Autopsy                        0.02s
 --------------------------------------------------------------
-  TOTAL (sum of phases)                            36.09s
-  TOTAL (wall clock)                               36.10s
+  TOTAL (sum of phases)                            39.05s
+  TOTAL (wall clock)                               39.07s
 
 ╔════════════════════════════════╗
-║  ✅ ALL 7 PHASES PASSED (0)  ║
+║  ❌ SOME PHASES FAILED (1)   ║
 ╚════════════════════════════════╝
 

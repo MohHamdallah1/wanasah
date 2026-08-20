@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { Zone } from "@/types/dispatch";
@@ -37,13 +37,14 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops, onSuc
     const [hasDraft, setHasDraft] = useState(false);
     const [conflictRow, setConflictRow] = useState<any>(null);
 
+    // +++ الكي الجراحي: استخدام useEffect بدلاً من useMemo لمنع كراش (Should have a queue) +++
     // فحص وجود مسودة عند فتح النافذة
-    useMemo(() => {
+    useEffect(() => {
         if (isOpen) setHasDraft(!!localStorage.getItem("shop_import_draft"));
     }, [isOpen, step]);
 
     // حفظ المسودة تلقائياً مع كل حرف
-    useMemo(() => {
+    useEffect(() => {
         if (step === 2 && gridData.length > 0) {
             localStorage.setItem("shop_import_draft", JSON.stringify({ zoneId: selectedZoneId, data: gridData }));
         }

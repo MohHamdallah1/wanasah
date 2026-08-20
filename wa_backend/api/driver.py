@@ -11,7 +11,6 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from services import reverse_previous_visit_state, InventoryReversalError, get_setting, calculate_invoice, check_debt_limits
 import logging
-logger = logging.getLogger("wanasah_logger")
 
 from models import (Driver, WorkSession, DispatchRoute, VehicleLoad, SessionInventory, Visit, InventoryTransfer,
 WorkBreakLog, VisitItem, Shop, ProductVariant, VisitReturn, OfferRule, InventoryLedger, Zone,
@@ -21,20 +20,23 @@ from schemas import (SessionStartRequest, BreakToggleRequest, TransferResponseRe
 BatchTransferResponseRequest, PendingBatchResponse, AddShopRequest, ProductVariantResponse,
 GetVisitsContract, VisitDetailsResponse, ActiveSessionResponse, VisitUpdateRequest)
 
+logger = logging.getLogger("wanasah_logger")
+
+def get_utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+    
 router = APIRouter(tags=["Driver Operations"])
 # =========================================
 # 1. بدء جلسة العمل (مربوطة بالتوزيع والجرد)
 # =========================================
-@router.post("/driver/{driver_id}/sessions/start", status_code=201)
+@router.post("/driver/sessions/start", status_code=201)
 async def start_work_session(
-    driver_id: int, 
     payload: SessionStartRequest, 
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    # 1. الدرع الأمني (IDOR): منع المندوب من بدء جلسة لغيره
-    if current_driver.id != driver_id:
-         raise HTTPException(status_code=403, detail="مرفوض: غير مصرح لك.")
+    # 1. الدرع الأمني: استخراج الهوية من التوكن مباشرة (Zero Trust)
+    driver_id = current_driver.id
 
     # 2. الحماية من تراكم العهدة (Unsettled Session Check)
     # +++ النسف المعماري: استثناء الجلسة النشطة حالياً لكي لا تتضارب مع فحص الجلسة النشطة وتظهر رسالة خاطئة للمندوب +++
@@ -76,7 +78,7 @@ async def start_work_session(
         # 5. إنشاء الجلسة الجديدة
         new_session = WorkSession(
             driver_id=driver_id,
-            start_time=datetime.now(timezone.utc).replace(tzinfo=None),
+            start_time=get_utc_now(),
             start_latitude=payload.latitude,
             start_longitude=payload.longitude,
             is_authorized_to_sell=False # يبدأ بالضوء الأحمر
@@ -114,7 +116,7 @@ async def start_work_session(
                     Visit.driver_id == driver_id,
                     Visit.status == 'Pending',
                     or_(
-                        Visit.shop_id.in_(select(Shop.id).where(Shop.zone_id == active_route.zone_id).scalar_subquery()),
+                        Visit.shop_id.in_(subq_shops),
                         Visit.is_emergency == True
                     )
                 )
@@ -137,15 +139,13 @@ async def start_work_session(
 # =========================================
 # 2. إنهاء جلسة العمل
 # =========================================
-@router.put("/driver/{driver_id}/sessions/end", status_code=200)
+@router.put("/driver/sessions/end", status_code=200)
 async def end_work_session(
-    driver_id: int, 
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    # 1. +++ الدرع الفولاذي (IDOR Fix): منع أي مندوب من إنهاء جلسة مندوب آخر +++
-    if current_driver.id != driver_id:
-        raise HTTPException(status_code=403, detail="مرفوض أمنياً: لا يمكنك إنهاء جلسة زميلك.")
+    # 1. الدرع الأمني: استخراج الهوية من التوكن مباشرة
+    driver_id = current_driver.id
 
     # 2. البحث عن الجلسة النشطة مع القفل لمنع التسوية المتزامنة
     # +++ الدرع الفولاذي ضد كراش الـ MultipleResultsFound +++
@@ -173,7 +173,7 @@ async def end_work_session(
         )
 
     try:
-        active_session.end_time = datetime.now(timezone.utc).replace(tzinfo=None)
+        active_session.end_time = get_utc_now()
         await db.commit()
         return {"message": "تم إنهاء الجلسة بنجاح."}
         
@@ -186,16 +186,14 @@ async def end_work_session(
 # 3. تسجيل وقت الاستراحة
 # =========================================
 
-@router.put("/driver/{driver_id}/sessions/break", status_code=200)
+@router.put("/driver/sessions/break", status_code=200)
 async def toggle_break(
-    driver_id: int,
     payload: BreakToggleRequest,
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    # 1. الدرع الأمني: التحقق من الهوية (IDOR)
-    if current_driver.id != driver_id:
-         raise HTTPException(status_code=403, detail="مرفوض: غير مصرح لك بالوصول.")
+    # 1. الدرع الأمني: استخراج الهوية من التوكن مباشرة
+    driver_id = current_driver.id
 
     try:
         # 2. قفل التزامن الفولاذي (Row-Level Lock) لمنع كارثة الـ Double Click
@@ -205,6 +203,7 @@ async def toggle_break(
         active_session = (await db.execute(stmt_session)).scalars().first()
         
         if not active_session:
+            await db.rollback()
             raise HTTPException(status_code=404, detail="لا توجد جلسة عمل نشطة حالياً.")
 
         action = payload.action
@@ -214,7 +213,7 @@ async def toggle_break(
                  await db.rollback() # +++ الإغلاق اليدوي للقفل +++
                  raise HTTPException(status_code=400, detail="الاستراحة بدأت بالفعل.")
             
-            active_session.break_start_time = datetime.now(timezone.utc).replace(tzinfo=None)
+            active_session.break_start_time = get_utc_now()
             active_session.break_end_time = None 
             msg = "تم بدء الاستراحة بنجاح."
             
@@ -223,7 +222,7 @@ async def toggle_break(
                  await db.rollback() # +++ الإغلاق اليدوي للقفل +++
                  raise HTTPException(status_code=400, detail="لا يوجد استراحة نشطة لإنهائها.")
             
-            end_t = datetime.now(timezone.utc).replace(tzinfo=None)
+            end_t = get_utc_now()
             break_start = active_session.break_start_time
             
             # كلا الوقتين الآن Naive (بدون Timezone)، يمكن الطرح بأمان تام بدون كراش
@@ -264,18 +263,43 @@ async def update_visit(
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    # 1. +++ جلب الزيارة وقفلها مع فحص درع التسوية +++
+    # +++ الكي الجراحي 1: Lock Ordering (Hierarchy) لنسف הـ Deadlock +++
+    # الترتيب المقدس: 1. الجلسة -> 2. المحل -> 3. الزيارة -> 4. العهدة
+    
+    # 1. قفل الجلسة أولاً
+    stmt_session = select(WorkSession).with_for_update().filter_by(driver_id=current_driver.id, end_time=None)
+    active_session = (await db.execute(stmt_session)).scalars().first()
+    if not active_session:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail="لا يمكنك تنفيذ العملية. الرجاء بدء يوم العمل أولاً.")
+
+    # 2. جلب الزيارة (بدون قفل مبدئي لتحديد المحل)
+    visit_pre = await db.get(Visit, visit_id)
+    if not visit_pre: 
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="الزيارة غير موجودة")
+
+    # 3. قفل المحل ثانياً
+    stmt_shop = select(Shop).with_for_update().filter_by(id=visit_pre.shop_id)
+    shop = (await db.execute(stmt_shop)).scalar_one_or_none()
+    if not shop:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="المحل المربوط بالزيارة غير موجود في النظام.")
+
+    # 4. قفل الزيارة ثالثاً (بكل علاقاتها)
     stmt_visit = select(Visit).options(
-        selectinload(Visit.shop),
-        selectinload(Visit.work_session), # جلب الجلسة لفحص التسوية
+        selectinload(Visit.work_session),
         selectinload(Visit.items).selectinload(VisitItem.product_variant),
         selectinload(Visit.returns)
     ).with_for_update().filter_by(id=visit_id)
-    visit = (await db.execute(stmt_visit)).scalar_one_or_none()
+    visit = (await db.execute(stmt_visit)).scalars().first()
     
     if not visit:
+        await db.rollback()
         raise HTTPException(status_code=404, detail="الزيارة غير موجودة")
         
+    visit.shop = shop
+
     # +++ الدرع المحاسبي: منع تعديل الزيارات المسواة ماليًا +++
     if visit.work_session and visit.work_session.is_settled:
         await db.rollback()
@@ -284,20 +308,6 @@ async def update_visit(
     if visit.driver_id != current_driver.id:
         await db.rollback()
         raise HTTPException(status_code=403, detail="مرفوض أمنياً: لا تملك صلاحية التعديل على هذه الزيارة.")
-
-    # 2. قفل سجل المحل
-    stmt_shop = select(Shop).with_for_update().filter_by(id=visit.shop_id)
-    shop = (await db.execute(stmt_shop)).scalar_one_or_none()
-    visit.shop = shop 
-
-    # 3. جلب الجلسة النشطة الحالية للمندوب
-    # +++ الكي الجراحي (D-05): قفل الجلسة إجبارياً لمنع تضارب بيع المندوب مع إغلاق المشرف +++
-    stmt_session = select(WorkSession).with_for_update().filter_by(driver_id=current_driver.id, end_time=None)
-    active_session = (await db.execute(stmt_session)).scalars().first() # +++ سحق الـ 500 Crash +++
-
-    if not active_session:
-        await db.rollback()
-        raise HTTPException(status_code=403, detail="لا يمكنك تنفيذ العملية. الرجاء بدء يوم العمل أولاً.")
 
     # 4. حماية الـ Ghost Sale
     stmt_route = select(DispatchRoute).filter_by(work_session_id=active_session.id, status='active')
@@ -368,7 +378,7 @@ async def update_visit(
 
     # 3. تحديث البيانات الأساسية للزيارة
     if visit.status == 'Pending':
-        visit.visit_timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+        visit.visit_timestamp = get_utc_now()
         
     visit.outcome = payload.outcome 
     # +++ النسف المعماري لفخ الحالة: المؤجل يبقى "Pending" لكي لا يختفي من قائمة المندوب +++
@@ -400,7 +410,7 @@ async def update_visit(
         sample_pids = [i.product_variant_id for i in sample_items]
         
         # 1. جلب ما صرفه المندوب اليوم من هذه الأصناف
-        today_start = datetime.combine(datetime.now(timezone.utc).date(), datetime.min.time())
+        today_start = datetime.combine(get_utc_now().date(), datetime.min.time())
         stmt_past = select(VisitItem.product_variant_id, func.sum(VisitItem.sample_quantity * ProductVariant.packs_per_carton + getattr(VisitItem, 'sample_packs_quantity', 0))).join(Visit).join(ProductVariant).filter(
             Visit.driver_id == current_driver.id,
             Visit.visit_timestamp >= today_start,
@@ -535,7 +545,7 @@ async def update_visit(
             transaction_type='Sale', expected_quantity=expected_qty,
             actual_quantity=inv_record.current_remaining_quantity,
             difference=-total_packs_to_deduct, admin_id=visit.driver_id,
-            notes=f"بيع للمحل: {shop.name}", timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+            notes=f"بيع للمحل: {shop.name}", timestamp=get_utc_now()
         ))
 
         # +++ الدرع الديناميكي: حماية السيرفر من الانفجار إذا كان عمود كسور العينات غير موجود بقاعدة البيانات +++
@@ -616,7 +626,7 @@ async def update_visit(
                 difference=-total_ret_packs,
                 admin_id=visit.driver_id,
                 notes=f"استبدال 1:1 للمحل: {shop.name} | تم سحب بضاعة صالحة مقابل استلام ({ret.return_type})",
-                timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+                timestamp=get_utc_now()
             ))
 
         # +++ الدرع الرقابي: توثيق دخول المرتجع/التالف لسيارة المندوب +++
@@ -630,7 +640,7 @@ async def update_visit(
             difference=(total_ret_packs if is_sellable else 0), 
             admin_id=visit.driver_id, 
             notes=f"مرتجع {ret.return_type} للمحل: {shop.name}{ret_reason_text}",
-            timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+            timestamp=get_utc_now()
         ))
         
         db.add(VisitReturn(
@@ -750,14 +760,12 @@ async def update_visit(
 # =========================================
 # 5. جلب بيانات الداشبورد للمندوب (النسخة الأصلية الكاملة)
 # =========================================
-@router.get("/driver/{driver_id}/dashboard", status_code=200)
+@router.get("/driver/dashboard", status_code=200)
 async def get_driver_dashboard(
-    driver_id: int,
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    if current_driver.id != driver_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    driver_id = current_driver.id
 
     # 1. +++ توحيد رؤية الـ Dashboard مع الميدان: قراءة كل الحالات النشطة لمنع عمى الشاشة +++
     stmt_route = select(DispatchRoute).filter(
@@ -766,8 +774,8 @@ async def get_driver_dashboard(
     )
     active_route = (await db.execute(stmt_route)).scalars().first()
     
-    # 2. جلب أحدث جلسة معلقة بأمان
-    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, is_settled=False).order_by(WorkSession.id.desc())
+    # 2. جلب الجلسة النشطة حالياً (التي لم تُغلق بعد)
+    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
     active_session = (await db.execute(stmt_session)).scalars().first()
 
     assigned_region = "غير محددة"
@@ -792,6 +800,9 @@ async def get_driver_dashboard(
                     "product_id": variant.id,
                     "product_name": variant.variant_name,
                     "starting_cartons": load.quantity,
+                    "starting_packs": 0, # +++ سد الثغرة: توفير الكسرات +++
+                    "sold_cartons": 0,   # +++ المباع من السيرفر مباشرة +++
+                    "sold_packs": 0,     # +++ المباع من السيرفر مباشرة +++
                     "remaining_cartons": load.quantity,
                     "remaining_packs": 0 
                 })
@@ -808,11 +819,15 @@ async def get_driver_dashboard(
             
             # +++ الدرع المعماري للواجهة: دمج المصافحات (net_transfers) لكي لا يرى المندوب رصيداً حالياً أكبر من رصيد البداية +++
             total_received = inv.starting_quantity + (inv.net_transfers or 0)
+            net_sold = max(0, total_received - inv.current_remaining_quantity) # +++ حساب المباع الصافي حصرياً في الباك إند +++
             
             inventory_list.append({
                 "product_id": variant.id,
                 "product_name": variant.variant_name,
                 "starting_cartons": total_received // packs,
+                "starting_packs": total_received % packs, # +++ إرسال الكسرات المستلمة التي كانت تضيع في الـ API +++
+                "sold_cartons": net_sold // packs,        # +++ المباع الصافي بالكرتونة +++
+                "sold_packs": net_sold % packs,           # +++ المباع الصافي بالحبة +++
                 "remaining_cartons": inv.current_remaining_quantity // packs,
                 "remaining_packs": inv.current_remaining_quantity % packs
             })
@@ -1327,18 +1342,16 @@ async def batch_respond_to_transfers(
 # =========================================
 # 8. التحقق من وجود حوالات معلقة (للمندوب - Polling)
 # =========================================
-@router.get("/driver/{driver_id}/transfers/pending", response_model=List[PendingBatchResponse], status_code=200)
+@router.get("/driver/transfers/pending", response_model=List[PendingBatchResponse], status_code=200)
 async def get_pending_transfers(
-    driver_id: int,
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    # 1. الدرع الأمني (IDOR)
-    if current_driver.id != driver_id:
-        raise HTTPException(status_code=403, detail="مرفوض أمنياً: لا يمكنك استعراض حوالات غيرك.")
+    # 1. الدرع الأمني: نعتمد على هوية التوكن مباشرة (Zero Trust)
+    driver_id = current_driver.id
 
-    # 2. جلب الجلسة النشطة
-    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, end_time=None)
+    # 2. جلب الجلسة النشطة (مع درع الـ Limit لتسريع الداتابيز)
+    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
     active_session = (await db.execute(stmt_session)).scalars().first()
 
     if not active_session:
@@ -1387,7 +1400,6 @@ async def get_pending_transfers(
 
     return list(batches.values())
 
-
 # =========================================
 # 9. إضافة محل جديد (من الميدان)
 # =========================================
@@ -1400,8 +1412,8 @@ async def add_new_shop(
     # 1. الدرع الأمني (IDOR) - سحب الـ ID مباشرة من التوكن
     driver_id = current_driver.id
 
-    # 2. جلب الجلسة النشطة
-    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, end_time=None)
+    # 2. جلب الجلسة النشطة (مع درع الـ Limit لتسريع الداتابيز)
+    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
     active_session = (await db.execute(stmt_session)).scalars().first()
     
     if not active_session:
@@ -1467,7 +1479,7 @@ async def add_new_shop(
             work_session_id=active_session.id, # ربط الزيارة بالجلسة الحالية
             status='Pending',
             sequence=new_shop.sequence, # ربط الترتيب لتظهر في المكان الصحيح بالموبايل
-            visit_timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+            visit_timestamp=get_utc_now()
         )
         db.add(new_visit)
         
@@ -1503,17 +1515,15 @@ async def get_products(
 # =========================================
 # 11. استعراض زيارات اليوم والجرد (عمارة الـ Contains Eager الفولاذية)
 # =========================================
-@router.get("/driver/{driver_id}/visits", response_model=GetVisitsContract, status_code=200)
+@router.get("/driver/visits", response_model=GetVisitsContract, status_code=200)
 async def get_driver_visits(
-    driver_id: int,
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    if current_driver.id != driver_id:
-        raise HTTPException(status_code=403, detail="مرفوض أمنياً: غير مصرح لك.")
+    driver_id = current_driver.id
 
-    # 1. جلب الجلسة وخط السير
-    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, is_settled=False).order_by(WorkSession.id.desc())
+    # 1. جلب الجلسة النشطة حالياً
+    stmt_session = select(WorkSession).filter_by(driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
     active_session = (await db.execute(stmt_session)).scalars().first()
 
     stmt_route = select(DispatchRoute).filter(
@@ -1562,6 +1572,8 @@ async def get_driver_visits(
             packs = variant.packs_per_carton if variant and variant.packs_per_carton and variant.packs_per_carton > 0 else 1
             # +++ تصحيح جرد الأوفلاين: دمج الحوالات المعلقة لكي لا ينكسر الـ Progress Bar في تطبيق الـ Flutter +++
             total_received = inv.starting_quantity + (inv.net_transfers or 0)
+            net_sold = max(0, total_received - inv.current_remaining_quantity) # +++ الحسبة المركزية للمباع +++
+
             inventory_data.append({
                 "id": variant.id,
                 "name": variant.variant_name,
@@ -1570,6 +1582,9 @@ async def get_driver_visits(
                 "price_per_pack": str(variant.price_per_pack or '0.0'),
                 "packs_per_carton": packs,
                 "starting_cartons": total_received // packs,
+                "starting_packs": total_received % packs, # +++ سد ثغرة الكسرات +++
+                "sold_cartons": net_sold // packs,        # +++ المباع الصافي بالكرتونة +++
+                "sold_packs": net_sold % packs,           # +++ المباع الصافي بالحبة +++
                 "current_cartons": inv.current_remaining_quantity // packs,
                 "current_packs": inv.current_remaining_quantity % packs
             })
@@ -1588,6 +1603,9 @@ async def get_driver_visits(
                 "price_per_pack": str(variant.price_per_pack or '0.0'),
                 "packs_per_carton": packs,
                 "starting_cartons": load.quantity,
+                "starting_packs": 0, # +++ استكمال الحقول للعقد الجديد +++
+                "sold_cartons": 0,
+                "sold_packs": 0,
                 "current_cartons": load.quantity,
                 "current_packs": 0
             })
@@ -1647,15 +1665,12 @@ async def get_visit_details(
 # =========================================
 # 13. التحقق من وجود جلسة نشطة للمندوب (عند فتح التطبيق)
 # =========================================
-@router.get("/driver/{driver_id}/sessions/active", response_model=ActiveSessionResponse, status_code=200)
+@router.get("/driver/sessions/active", response_model=ActiveSessionResponse, status_code=200)
 async def get_active_session(
-    driver_id: int,
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    # +++ الدرع الفولاذي: منع المندوب من التجسس على جلسات المناديب الآخرين +++
-    if current_driver.id != driver_id:
-        raise HTTPException(status_code=403, detail="مرفوض أمنياً: وصول غير مصرح به.")
+    driver_id = current_driver.id
         
     # 2. البحث عن الجلسة النشطة (مع حماية הـ limit)
     # +++ الدرع الفولاذي ضد كراش الـ MultipleResultsFound (بدون أقفال لأنه GET Request للقراءة فقط) +++

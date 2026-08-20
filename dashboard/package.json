@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "generate-api": "openapi-ts --input http://127.0.0.1:8000/openapi.json --output ./src/api-client --client axios"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

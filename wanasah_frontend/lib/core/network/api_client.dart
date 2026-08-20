@@ -15,12 +15,17 @@ import '../db/local_database.dart'; // +++ F-11: استيراد الداتابي
 // -----------------------------------------------------------------------
 class AuthInterceptor extends Interceptor {
   final FlutterSecureStorage _storage;
-
-  /// دالة تُستدعى عند حدوث خطأ 401 لإبلاغ الـ BLoC
   final VoidCallback onUnauthorized;
+  final Dio _dio; // +++ لاستخدامها في إرسال طلب הـ Refresh +++
+  
+  bool _isRefreshing = false; // +++ درع הـ Mutex لمنع إرسال 100 طلب Refresh بنفس اللحظة +++
 
-  AuthInterceptor({required this.onUnauthorized, FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+  AuthInterceptor({
+    required this.onUnauthorized, 
+    required Dio dio, 
+    FlutterSecureStorage? storage
+  }) : _storage = storage ?? const FlutterSecureStorage(),
+       _dio = dio;
 
   // --- حقن التوكن في كل طلب ---
   @override
@@ -49,26 +54,69 @@ class AuthInterceptor extends Interceptor {
     return handler.next(options);
   }
 
-  // --- التقاط خطأ 401 وإبلاغ العقل المدبر (BLoC) ---
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     if (err.response?.statusCode == 401) {
-      // +++ درع تسجيل الدخول: تجاهل 401 من مسار الدخول لمنع طرد المستخدم وكاش اللوب +++
-      if (!err.requestOptions.path.contains('/login')) {
-        developer.log(
-          '[AuthInterceptor] 401 Unauthorized → wiping data & triggering callback',
-        );
-        // +++ F-11: مسح الذاكرة المحلية والسرية فوراً قبل الـ UI Redirect لمنع تسريب بيانات المندوب السابق +++
+      final isAuthPath = err.requestOptions.path.endsWith('/login') || err.requestOptions.path.endsWith('/refresh');
+      
+      if (!isAuthPath) {
+        if (_isRefreshing) {
+          // +++ حماية הـ Mutex: إذا كان في طلب تجديد شغال، بنستنى شوي وبنعيد إرسال الطلب الأصلي +++
+          await Future.delayed(const Duration(seconds: 2));
+          return _retryRequest(err.requestOptions, handler);
+        }
+
+        _isRefreshing = true;
+        try {
+          final refreshToken = await _storage.read(key: 'refresh_token');
+          if (refreshToken != null && refreshToken.isNotEmpty) {
+            developer.log('[AuthInterceptor] Attempting silent token refresh...');
+            
+            // طلب التجديد
+            final response = await _dio.post(
+              '/refresh', // مسار التجديد بالسيرفر
+              options: Options(
+                headers: {'Authorization': 'Bearer $refreshToken'}
+              ),
+            );
+
+            final newAccessToken = response.data['access_token'];
+            await _storage.write(key: 'auth_token', value: newAccessToken);
+            
+            developer.log('[AuthInterceptor] Silent refresh successful!');
+            
+            // إعادة إرسال الطلب اللي فشل بالتوكن الجديد
+            _isRefreshing = false;
+            return _retryRequest(err.requestOptions, handler);
+          }
+        } catch (e) {
+          developer.log('[AuthInterceptor] Silent refresh failed: $e');
+        } finally {
+          _isRefreshing = false;
+        }
+
+        // +++ الكارثة: إذا فشل التجديد نهائياً، بنطرد المندوب، لكن بنحمي الخزنة الأوفلاين! +++
+        developer.log('[AuthInterceptor] 401 Unauthorized (Refresh Failed) → Triggering logout');
         await _storage.deleteAll();
-        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: true);
-        
-        // إطلاق الإشعار للـ BLoC ليتولى التوجيه
+        // +++ الكي الجراحي 2: FALSE لمنع إحراق مبيعات المندوب الأوفلاين! +++
+        await LocalDatabase.instance.clearSessionData(clearPendingSyncs: false); 
         onUnauthorized();
       }
     }
-
-    // تمرير الخطأ للطبقات الأعلى
     return handler.next(err);
+  }
+
+  // +++ دالة مساعدة لإعادة إرسال الطلب بعد تجديد التوكن +++
+  Future<void> _retryRequest(RequestOptions requestOptions, ErrorInterceptorHandler handler) async {
+    try {
+      final token = await _storage.read(key: 'auth_token');
+      requestOptions.headers['Authorization'] = 'Bearer $token';
+      
+      final response = await _dio.fetch(requestOptions);
+      return handler.resolve(response);
+    } catch (e) {
+      return handler.next(e is DioException ? e : DioException(requestOptions: requestOptions, error: e));
+    }
   }
 }
 
@@ -112,7 +160,7 @@ class ApiClient {
     );
 
     // إضافة AuthInterceptor
-    dio.interceptors.add(AuthInterceptor(onUnauthorized: onUnauthorized));
+    dio.interceptors.add(AuthInterceptor(onUnauthorized: onUnauthorized, dio: dio));
 
     // (اختياري) إضافة LogInterceptor في وضع التطوير
     assert(() {

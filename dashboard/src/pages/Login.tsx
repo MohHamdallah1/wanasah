@@ -69,7 +69,7 @@ export default function Login() {
 
       // 4. حفظ بيانات الجلسة
       localStorage.setItem('admin_token', data.token);
-      // +++ إزالة admin_name و admin_id (H-06): نعتمد على الـ JWT Payload المشفر للحماية +++
+      localStorage.setItem('refresh_token', data.refresh_token);
 
       // 5. التوجيه
       navigate('/'); 

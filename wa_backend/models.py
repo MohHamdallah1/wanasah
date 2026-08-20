@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Float, Text, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
-import bcrypt
+from decimal import Decimal
 
 convention = {
     "ix": 'ix_%(column_0_label)s',
@@ -96,19 +96,10 @@ class Driver(Base):
     is_active     = Column(Boolean,     nullable=False, default=True)
     is_admin      = Column(Boolean,     nullable=False, default=False)
     can_allow_debt  = Column(Boolean,       nullable=False, default=False)
-    max_debt_limit  = Column(Numeric(12, 3), nullable=False, default=0.0)
+    # +++ الدرع المحاسبي: حماية الدقة من تآكل الـ Float وفرض الصفر الافتراضي في محرك قاعدة البيانات +++
+    max_debt_limit  = Column(Numeric(12, 3), nullable=False, default=Decimal('0.000'), server_default='0.000')
     created_at      = Column(DateTime,      nullable=False, default=utc_now)  # FIX ①
 
-    def set_password(self, password: str):
-        self.password_hash = bcrypt.hashpw(
-            password.encode('utf-8'), bcrypt.gensalt()
-        ).decode('utf-8')
-
-    def check_password(self, password: str) -> bool:
-        return bcrypt.checkpw(
-            password.encode('utf-8'),
-            self.password_hash.encode('utf-8')
-        )
 
 
 # =================================================================================
@@ -188,8 +179,8 @@ class WorkSession(Base):
     driver_id    = Column(Integer, ForeignKey('drivers.id'), nullable=False, index=True)
     start_time   = Column(DateTime, nullable=False, default=utc_now)           # FIX ①
     end_time     = Column(DateTime, nullable=True,  index=True)
-    session_date = Column(Date,     nullable=False,
-                             default=lambda: datetime.now(timezone.utc).date(), index=True)
+    # +++ الكي الجراحي (Issue 3): توحيد الزمن (Naive UTC) لنسف تعارضات قاعدة البيانات +++
+    session_date = Column(Date,     nullable=False, default=lambda: utc_now().date(), index=True)
     start_latitude  = Column(Float, nullable=True)
     start_longitude = Column(Float, nullable=True)
 
@@ -237,15 +228,17 @@ class Shop(Base):
     contact_person = Column(String(100), nullable=True)
     zone_id        = Column(Integer, ForeignKey('zones.id', ondelete='SET NULL'),
                                nullable=True, index=True)
-    current_balance  = Column(Numeric(12, 3), CheckConstraint('current_balance >= 0', name='chk_positive_balance'), nullable=False, default=0.0)
-    max_debt_limit   = Column(Numeric(12, 3), CheckConstraint('max_debt_limit >= 0', name='chk_positive_max_debt'), nullable=False, default=0.0)
-    added_by_driver_id = Column(Integer, ForeignKey('drivers.id'), nullable=True)
-    is_active        = Column(Boolean,  nullable=False, default=True)
+    # +++ النسف المعماري: حماية الـ Decimal، فرض server_default، وتطبيق سياسة (SET NULL) لحماية الداتابيز +++
+    current_balance  = Column(Numeric(12, 3), CheckConstraint('current_balance >= 0', name='chk_positive_balance'), nullable=False, default=Decimal('0.000'), server_default='0.000')
+    max_debt_limit   = Column(Numeric(12, 3), CheckConstraint('max_debt_limit >= 0', name='chk_positive_max_debt'), nullable=False, default=Decimal('0.000'), server_default='0.000')
+    added_by_driver_id = Column(Integer, ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True)
+    is_active        = Column(Boolean,  nullable=False, default=True, server_default='true')
     created_at       = Column(DateTime, nullable=False, default=utc_now)  # FIX ①
     notes            = Column(Text,     nullable=True)
     location_link    = Column(String(500), nullable=True)
-    sequence         = Column(Integer,  nullable=True, default=0)
-    is_archived      = Column(Boolean,  nullable=False, default=False)
+    # +++ إصلاح المنطق الترتيبي (Issue 5): المحل الجديد يأخذ 999 افتراضياً ليظهر بآخر خط السير +++
+    sequence         = Column(Integer,  nullable=True, default=999, server_default='999')
+    is_archived      = Column(Boolean,  nullable=False, default=False, server_default='false')
 
     visits = relationship('Visit', backref='shop', lazy='raise')
 
@@ -268,8 +261,8 @@ class DispatchRoute(Base):
     driver_id       = Column(Integer, ForeignKey('drivers.id'),       nullable=True,  index=True)
     vehicle_id      = Column(Integer, ForeignKey('vehicles.id'),      nullable=True,  index=True)
     work_session_id = Column(Integer, ForeignKey('work_sessions.id'), nullable=True,  index=True)
-    dispatch_date   = Column(Date,    nullable=False,
-                                default=lambda: datetime.now(timezone.utc).date(), index=True)
+    # +++ الكي الجراحي (Issue 3): توحيد الزمن لنسف الانفصام الزمني +++
+    dispatch_date   = Column(Date,    nullable=False, default=lambda: utc_now().date(), index=True)
     status          = Column(String(50), nullable=False, default='waiting', index=True)
     created_at      = Column(DateTime,   nullable=False, default=utc_now)  # FIX ①
 
@@ -300,14 +293,14 @@ class Visit(Base):
 
     outcome = Column(String(50), nullable=True, default='Pending', index=True)
 
-    # الحقول المالية - مُجمَّعة من VisitItem عند الحفظ
-    amount_before_tax_and_discount = Column(Numeric(12, 3), nullable=True, default=0.0)
-    discount_applied               = Column(Numeric(12, 3), nullable=True, default=0.0)
-    tax_percentage_applied         = Column(Numeric(12, 3), nullable=True, default=0.0)
-    tax_amount                     = Column(Numeric(12, 3), nullable=True, default=0.0)
-    final_amount_due               = Column(Numeric(12, 3), nullable=True, default=0.0)
-    cash_collected                 = Column(Numeric(12, 3), CheckConstraint('cash_collected >= 0', name='chk_cash_collected_positive'), nullable=False, default=0.0)
-    debt_paid                      = Column(Numeric(12, 3), CheckConstraint('debt_paid >= 0', name='chk_debt_paid_positive'), nullable=False, default=0.0)
+    # +++ الدرع المحاسبي (Issue 2): تحويل جميع القيم المالية إلى Decimal لحماية دقة القروش وفرض server_default +++
+    amount_before_tax_and_discount = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
+    discount_applied               = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
+    tax_percentage_applied         = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
+    tax_amount                     = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
+    final_amount_due               = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
+    cash_collected                 = Column(Numeric(12, 3), CheckConstraint('cash_collected >= 0', name='chk_cash_collected_positive'), nullable=False, default=Decimal('0.000'), server_default='0.000')
+    debt_paid                      = Column(Numeric(12, 3), CheckConstraint('debt_paid >= 0', name='chk_debt_paid_positive'), nullable=False, default=Decimal('0.000'), server_default='0.000')
 
     no_sale_reason    = Column(String(200), nullable=True)
     shop_balance_before = Column(Numeric(12, 3), nullable=True)
@@ -337,13 +330,14 @@ class VisitItem(Base):
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
 
     # +++ الدرع الفولاذي للداتابيز: إغلاق ثغرة الأرقام السالبة من جذور الـ SQL +++
-    quantity       = Column(Integer, CheckConstraint('quantity >= 0', name='chk_vitem_qty'), nullable=False, default=0)   # كراتين
-    packs_quantity = Column(Integer, CheckConstraint('packs_quantity >= 0', name='chk_vitem_pqty'), nullable=False, default=0)   # حبات فرط
-    bonus_quantity = Column(Integer, CheckConstraint('bonus_quantity >= 0', name='chk_vitem_bqty'), nullable=False, default=0)   # بونص كراتين
-    sample_quantity = Column(Integer, CheckConstraint('sample_quantity >= 0', name='chk_vitem_sqty'), nullable=False, default=0)   # عينات مجانية
-    sample_packs_quantity = Column(Integer, CheckConstraint('sample_packs_quantity >= 0', name='chk_vitem_spqty'), nullable=False, default=0)
+    # +++ فرض الصواب الجردي والمحاسبي على مستوى محرك قاعدة البيانات (server_default) +++
+    quantity       = Column(Integer, CheckConstraint('quantity >= 0', name='chk_vitem_qty'), nullable=False, default=0, server_default='0')   # كراتين
+    packs_quantity = Column(Integer, CheckConstraint('packs_quantity >= 0', name='chk_vitem_pqty'), nullable=False, default=0, server_default='0')   # حبات فرط
+    bonus_quantity = Column(Integer, CheckConstraint('bonus_quantity >= 0', name='chk_vitem_bqty'), nullable=False, default=0, server_default='0')   # بونص كراتين
+    sample_quantity = Column(Integer, CheckConstraint('sample_quantity >= 0', name='chk_vitem_sqty'), nullable=False, default=0, server_default='0')   # عينات مجانية
+    sample_packs_quantity = Column(Integer, CheckConstraint('sample_packs_quantity >= 0', name='chk_vitem_spqty'), nullable=False, default=0, server_default='0')
     price_per_unit_at_sale = Column(Numeric(12, 3), nullable=True)
-    total_price            = Column(Numeric(12, 3), nullable=False, default=0.0)
+    total_price            = Column(Numeric(12, 3), nullable=False, default=Decimal('0.000'), server_default='0.000')
     sample_reason = Column(String(255), nullable=True)
     is_cancelled = Column(Boolean, default=False) # +++ لمنع طمس الأدلة +++
 
@@ -464,7 +458,8 @@ class InventoryLedger(Base):
     actual_quantity   = Column(Integer,    nullable=False)
     difference        = Column(Integer,    nullable=False)  # سالب للعجز، موجب للزيادة
 
-    admin_id  = Column(Integer, ForeignKey('drivers.id'), nullable=False)
+    # +++ حماية سجل الأستاذ (Issue 6): تقييد حذف الأدمن (RESTRICT) للحفاظ على الدفتر المالي من التلف +++
+    admin_id  = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
     timestamp = Column(DateTime, nullable=False, default=utc_now)  # FIX ①
     notes     = Column(Text, nullable=True)
 
@@ -598,7 +593,8 @@ class WarehouseLedger(Base):
     __tablename__ = 'warehouse_ledger'
     __table_args__ = (
         Index('idx_ledger_variant_created', 'product_variant_id', 'created_at'),
-        Index('uq_ledger_supplier_ref', 'reference_id', unique=True, postgresql_where=text("transaction_type IN ('INBOUND_SUPPLIER', 'INBOUND_CORRECTION') AND reference_id IS NOT NULL AND reference_id != 'بدون فاتورة'")),
+        # +++ النسف المعماري الحقيقي: إضافة 'product_variant_id' للفهرس ليسمح بتكرار رقم الفاتورة بشرط اختلاف الصنف داخل نفس الفاتورة +++
+        Index('uq_ledger_supplier_ref', 'reference_id', 'product_variant_id', unique=True, postgresql_where=text("transaction_type = 'INBOUND_SUPPLIER' AND reference_id IS NOT NULL AND reference_id != 'بدون فاتورة'")),
     )
     id = Column(Integer, primary_key=True)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
@@ -627,3 +623,18 @@ class TokenBlacklist(Base):
     id = Column(Integer, primary_key=True)
     token = Column(String(500), unique=True, nullable=False, index=True)
     blacklisted_at = Column(DateTime, nullable=False, default=utc_now)
+
+
+# =================================================================================
+# ㉑ مفاتيح التجديد التلقائي (Refresh Tokens) - لضمان بقاء الجلسة نشطة
+# =================================================================================
+class RefreshToken(Base):
+    __tablename__ = 'refresh_tokens'
+    id = Column(Integer, primary_key=True)
+    token = Column(String(500), unique=True, nullable=False, index=True)
+    driver_id = Column(Integer, ForeignKey('drivers.id', ondelete='CASCADE'), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    is_revoked = Column(Boolean, nullable=False, default=False)
+    
+    driver = relationship('Driver', lazy='raise')

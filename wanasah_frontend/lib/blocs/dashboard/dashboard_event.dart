@@ -34,7 +34,9 @@ class FetchDashboardData extends DashboardEvent {
 
 // ─── أوامر المصافحة للحوالات المعلقة ──────────────────────────────────────
 /// يُرسَل للتحقق من وجود بضاعة مرسلة/مسحوبة من الإدارة
-class CheckPendingTransfers extends DashboardEvent {}
+class CheckPendingTransfers extends DashboardEvent {
+  const CheckPendingTransfers();
+}
 
 /// يُرسَل للرد على الحوالة (موافقة أو رفض)
 class RespondToTransfer extends DashboardEvent {
@@ -66,4 +68,39 @@ class RespondToBatchTransfer extends DashboardEvent {
   // +++ درع Equatable: مقارنة الـ Maps كنصوص لمنع تجاوز الأحداث المتشابهة +++
   @override
   List<Object> get props => [transferIds, responseStatus, detailedTransfers.toString()];
+}
+
+// ─── أوامر إدارة جلسة العمل (Session Management) ──────────────────────────
+/// يُرسَل لبدء جلسة عمل جديدة مع موقع الـ GPS
+class StartSessionEvent extends DashboardEvent {
+  final int driverId;
+  const StartSessionEvent({required this.driverId});
+  
+  @override
+  List<Object?> get props => [driverId];
+}
+
+/// يُرسَل لإنهاء جلسة العمل الحالية
+class EndSessionEvent extends DashboardEvent {
+  final int driverId;
+  const EndSessionEvent({required this.driverId});
+  
+  @override
+  List<Object?> get props => [driverId];
+}
+
+/// يُرسَل لتسجيل بدء أو إنهاء استراحة (مع دعم الأوفلاين)
+class ToggleBreakEvent extends DashboardEvent {
+  final int driverId;
+  final String action; // 'start' or 'end'
+  
+  const ToggleBreakEvent({required this.driverId, required this.action});
+  
+  @override
+  List<Object?> get props => [driverId, action];
+}
+
+// +++ حدث جديد لتنظيف رسالة النجاح من الـ State بعد عرضها +++
+class ClearActionMessageEvent extends DashboardEvent {
+  const ClearActionMessageEvent();
 }

@@ -172,7 +172,7 @@ class _VisitScreenState extends State<VisitScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '🚨 تحذير مالي خطير: هذه الزيارة محصلة مسبقاً بمبلغ (${totalOldMoney.toStringAsFixed(2)} د.أ). إذا قمت بالحفظ، سيقوم النظام بتصفير هذا المبلغ، ويجب عليك إعادته يدوياً لصاحب المحل فوراً!',
+                  '🚨 تحذير مالي خطير: هذه الزيارة محصلة مسبقاً بمبلغ (${totalOldMoney.toStringAsFixed(3)} د.أ). إذا قمت بالحفظ، سيقوم النظام بتصفير هذا المبلغ، ويجب عليك إعادته يدوياً لصاحب المحل فوراً!',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
@@ -220,10 +220,10 @@ class _VisitScreenState extends State<VisitScreen> {
 
       if (offlinePayload != null) {
         final cashDouble = double.tryParse(offlinePayload['cash_collected']?.toString() ?? '0') ?? 0.0;
-        _cashController.text = (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(2);
+        _cashController.text = (cashDouble == 0.0) ? '' : cashDouble.toStringAsFixed(3);
         final debtDouble = double.tryParse(offlinePayload['debt_paid']?.toString() ?? '0') ?? 0.0;
         _debtPaidController.text =
-            (debtDouble == 0.0) ? '' : debtDouble.toStringAsFixed(2);
+            (debtDouble == 0.0) ? '' : debtDouble.toStringAsFixed(3);
         _notesController.text =
             offlinePayload['notes'] ?? offlinePayload['no_sale_reason'] ?? '';
 
@@ -259,8 +259,8 @@ class _VisitScreenState extends State<VisitScreen> {
         }
 
         if (mounted) {
-          _cashController.text = cashDouble > 0 ? cashDouble.toStringAsFixed(2) : '';
-          _debtPaidController.text = debtDouble > 0 ? debtDouble.toStringAsFixed(2) : '';
+          _cashController.text = cashDouble > 0 ? cashDouble.toStringAsFixed(3) : '';
+          _debtPaidController.text = debtDouble > 0 ? debtDouble.toStringAsFixed(3) : '';
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('تم استرجاع الكاش والملاحظات من المسودة.'),
@@ -296,8 +296,8 @@ class _VisitScreenState extends State<VisitScreen> {
             ),
           );
           if (mounted) {
-            _cashController.text = oldCash > 0 ? oldCash.toStringAsFixed(2) : '';
-            _debtPaidController.text = oldDebt > 0 ? oldDebt.toStringAsFixed(2) : '';
+            _cashController.text = oldCash > 0 ? oldCash.toStringAsFixed(3) : '';
+            _debtPaidController.text = oldDebt > 0 ? oldDebt.toStringAsFixed(3) : '';
           }
         }
       }
@@ -388,16 +388,12 @@ class _VisitScreenState extends State<VisitScreen> {
               surfaceTintColor: Colors.transparent,
               leading: IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: () async {
+                onPressed: () {
                   if (_isCatalogMode) {
                     setState(() => _isCatalogMode = false);
                   } else {
-                    final bool shouldPop = await _onWillPop();
-                    // +++ حماية الـ context بعد الانتظار +++
-                    if (!context.mounted) return;
-                    if (shouldPop) {
-                      Navigator.of(context).pop();
-                    }
+                    // +++ الكي الجراحي لـ Bug 2: تفويض الخروج للـ PopScope لمنع تكرار رسالة التأكيد مرتين +++
+                    Navigator.maybePop(context);
                   }
                 },
               ),
@@ -513,8 +509,9 @@ class _VisitScreenState extends State<VisitScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.grey.shade200)),
           child: ListTile(
             title: Text(item.name, style: TextStyle(fontWeight: FontWeight.bold, color: isLocked ? Colors.grey : Colors.black)),
-            subtitle: Text('المبيع: ${item.cartons}ك | ${item.packs}ح  -  توالف: ${item.returns.length}'),
-            trailing: Text('${item.totalSalePrice.toStringAsFixed(2)} د.أ', style: TextStyle(color: isLocked ? Colors.grey : Colors.green, fontWeight: FontWeight.bold)),
+            // +++ الكي الجراحي لـ Bug 7: عرض توالف وإكسباير مصنع بدلاً من مصفوفة الـ returns الفارغة +++
+            subtitle: Text('المبيع: ${item.cartons}ك | ${item.packs}ح  -  مرتجع/توالف: ${item.returnFactoryCartons + item.returnExpiredCartons}ك | ${item.returnFactoryPacks + item.returnExpiredPacks}ح'),
+            trailing: Text('${item.totalSalePrice.toStringAsFixed(3)} د.أ', style: TextStyle(color: isLocked ? Colors.grey : Colors.green, fontWeight: FontWeight.bold)),
             onTap: isLocked ? null : () => setState(() => _isCatalogMode = true), // العودة للكاتالوج للتعديل
           ),
         );
@@ -640,7 +637,7 @@ class _VisitScreenState extends State<VisitScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               Text(
-                '${state.netInvoice.toStringAsFixed(2)} د.أ',
+                '${state.netInvoice.toStringAsFixed(3)} د.أ',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -814,6 +811,24 @@ class _VisitScreenState extends State<VisitScreen> {
       }
     }
 
+    // +++ الكي الجراحي: درع حماية المخزون من البيع الوهمي +++
+    for (var item in state.cart) {
+      final int requestedPacks = (item.cartons * item.packsPerCarton) + item.packs + (item.sampleCartons * item.packsPerCarton) + item.samplePacks;
+      final int availablePacks = (item.availableCartons * item.packsPerCarton) + item.availablePacks;
+      // +++ الكي الجراحي لـ Bug 2: نرفض العملية فقط إذا كان هناك "طلب مبيعات" فعلي يتجاوز الرصيد +++
+      if (requestedPacks > 0 && requestedPacks > availablePacks) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('مرفوض: الكمية المطلوبة من (${item.name}) تتجاوز رصيد سيارتك!'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        setState(() => _isSubmitting = false);
+        return;
+      }
+    }
+
     // 2. حماية المنطقة (Geofence)
     if (!_isEmergency &&
         _shopZone != null &&
@@ -858,7 +873,8 @@ class _VisitScreenState extends State<VisitScreen> {
       return;
     }
 
-    if (cashEntered > state.netInvoice) {
+    // +++ الكي الجراحي لـ Bug 1: السماح بإدخال الكاش حتى لو الفاتورة مرتجع (سالب) +++
+    if (state.netInvoice > 0 && cashEntered > state.netInvoice) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('الكاش المستلم أكبر من قيمة الفاتورة الصافية!'),
@@ -872,11 +888,12 @@ class _VisitScreenState extends State<VisitScreen> {
     final double newInvoiceDebt = state.netInvoice - cashEntered; // ما تبقى من الفاتورة كدين
     final double expectedNewTotalBalance = widget.shopBalance - debtPaidEntered + newInvoiceDebt;
 
-    if (expectedNewTotalBalance > _maxDebtLimit) {
+    // +++ الكي الجراحي لـ Bug 5: استخدام هامش التقريب (Epsilon 0.0001) لمنع رفض الفواتير الصحيحة +++
+    if ((expectedNewTotalBalance - _maxDebtLimit) > 0.0001) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'مرفوض: سقف الدين لا يسمح!\nالمتبقي من الفاتورة (${newInvoiceDebt.toStringAsFixed(2)}) سيرفع ذمة المحل إلى (${expectedNewTotalBalance.toStringAsFixed(2)}) والسقف هو (${_maxDebtLimit.toStringAsFixed(2)}).',
+            'مرفوض: سقف الدين لا يسمح!\nالمتبقي من الفاتورة (${newInvoiceDebt.toStringAsFixed(3)}) سيرفع ذمة المحل إلى (${expectedNewTotalBalance.toStringAsFixed(3)}) والسقف هو (${_maxDebtLimit.toStringAsFixed(3)}).',
           ),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 6), // مدة أطول ليقرأ المندوب التفاصيل
@@ -888,7 +905,8 @@ class _VisitScreenState extends State<VisitScreen> {
     // 5. استنتاج النتيجة الذكي (Smart Outcome)
     String finalOutcome = 'NoSale';
     bool hasSales = state.cart.any((i) => i.cartons > 0 || i.packs > 0);
-    bool hasReturns = state.cart.any((i) => i.returns.isNotEmpty);
+    // +++ الكي الجراحي لـ Bug 7: قراءة القيم الحقيقية للمرتجعات +++
+    bool hasReturns = state.cart.any((i) => i.returnFactoryCartons > 0 || i.returnFactoryPacks > 0 || i.returnExpiredCartons > 0 || i.returnExpiredPacks > 0);
     bool hasSamples = state.cart.any(
       (i) => i.sampleCartons > 0 || i.samplePacks > 0,
     );
@@ -946,31 +964,22 @@ class _VisitScreenState extends State<VisitScreen> {
     // +++ تفعيل قفل الازدواجية لمنع الـ Double Tap +++
     setState(() => _isSubmitting = true);
 
-    // +++ النسف المعماري (Pre-emptive Strike): مسح الفاتورة الأوفلاين القديمة إن وُجدت قبل إرسال الجديدة +++
-    if (widget.visitStatus == 'Completed') {
-      try {
-        await LocalDatabase.instance.revertOfflineVisit(widget.visitId);
-      } catch (e) {
-        developer.log('Error reverting offline visit: $e');
-        // +++ درع الـ BuildContext: التأكد أن الشاشة لم تُغلق قبل استخدام الـ Context +++
-        if (!mounted) return;
-        setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('فشل تهيئة التعديل المحلي. يرجى إعادة المحاولة.'), backgroundColor: Colors.red),
-        );
-        return; 
-      }
-    }
-
     // 6. توجيه الضربة النهائية (إرسال الأمر للمحاسب)
     _visitBloc.add(
       SubmitVisit(
         visitId: widget.visitId,
         outcome: finalOutcome,
-        debtPaid: debtPaidEntered, // تم إرسال الدفعة بشكل صحيح
+        debtPaid: debtPaidEntered,
         notes: _notesController.text.trim(),
       ),
     );
+
+    // +++ الكي الجراحي لـ Bug 1: مؤقت طوارئ لفك قفل الشاشة بعد 10 ثوانٍ في حال فشل الاتصال بصمت +++
+    Future.delayed(const Duration(seconds: 10), () {
+      if (mounted && _isSubmitting) {
+        setState(() => _isSubmitting = false);
+      }
+    });
   }
 } // نهاية كلاس _VisitScreenState
 
@@ -1053,6 +1062,7 @@ class _SearchableCatalogState extends State<_SearchableCatalog> {
                 final cartItem = cartItemIndex != -1 ? widget.cart[cartItemIndex] : null;
 
                 return _AccordionProductCard(
+                  key: ValueKey(product.id), // +++ الكي الجراحي لـ Bug 6: لمنع انتقال الكميات لمنتج آخر عند البحث +++
                   product: product,
                   cartItem: cartItem,
                   isExpanded: true, 
@@ -1094,12 +1104,12 @@ class _AccordionProductCard extends StatefulWidget {
   final ProductModel product;
   final CartItemModel? cartItem;
   final bool isExpanded;
-  // +++ تنظيف الذاكرة +++
   final VoidCallback onToggle;
   final VisitBloc visitBloc;
   final VoidCallback onCartUpdated;
 
   const _AccordionProductCard({
+    super.key, // +++ الكي الجراحي: السماح للكلاس باستقبال الـ Key لمنع الخطأ +++
     required this.product,
     required this.cartItem,
     required this.isExpanded,
@@ -1202,14 +1212,8 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
 
     bool hasData = sc > 0 || sp > 0 || rfc > 0 || rfp > 0 || rec > 0 || rep > 0 || smpC > 0 || smpP > 0;
 
-    if (!hasData) {
-      if (widget.cartItem != null) {
-        widget.visitBloc.add(RemoveCartItem(widget.product.id));
-        widget.onCartUpdated();
-      }
-      return;
-    }
-
+    // +++ الكي الجراحي لـ Bug 3: لا نحذف المنتج فوراً أثناء تصفير الحقل كي لا يضيع تركيز الكيبورد +++
+    // سيتم إرساله للـ BLoC بكميات صفرية، وسيتولى البلوك فلترته عند الحفظ النهائي.
     final updatedItem = CartItemModel(
       productVariantId: widget.product.id,
       name: widget.product.name,
@@ -1254,7 +1258,9 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
               HapticFeedback.lightImpact();
               int curr = int.tryParse(controller.text) ?? 0;
               if (curr > 0) {
-                controller.text = (curr - 1).toString();
+                // +++ الكي الجراحي لـ Bug 9: إبقاء مؤشر الكيبورد في نهاية النص لمنع طفرات الكتابة +++
+                final newVal = (curr - 1).toString();
+                controller.value = TextEditingValue(text: newVal, selection: TextSelection.collapsed(offset: newVal.length));
                 _commitToBloc(); 
               }
             }
@@ -1264,7 +1270,8 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
             onPressed: () {
               HapticFeedback.lightImpact();
               int curr = int.tryParse(controller.text) ?? 0;
-              controller.text = (curr + 1).toString();
+              final newVal = (curr + 1).toString();
+              controller.value = TextEditingValue(text: newVal, selection: TextSelection.collapsed(offset: newVal.length));
               _commitToBloc(); 
             }
           ),

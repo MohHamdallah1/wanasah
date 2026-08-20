@@ -45,6 +45,8 @@ class DashboardLoaded extends DashboardState {
   final bool isOffline;
   // +++ جديد: للتعامل مع المصافحة المعلقة (Transfers Handshake) +++
   final Map<String, dynamic>? pendingTransfer;
+  // +++ الكي الجراحي لـ Bug 1: دمج رسالة النجاح كمتغير لحظي لمنع انهيار الشاشة +++
+  final String? actionSuccessMessage;
 
   const DashboardLoaded({
     required this.visits,
@@ -65,6 +67,7 @@ class DashboardLoaded extends DashboardState {
     this.isOnBreak = false,
     this.isOffline = false,
     this.pendingTransfer,
+    this.actionSuccessMessage,
   });
 
   @override
@@ -87,6 +90,7 @@ class DashboardLoaded extends DashboardState {
     isOnBreak,
     isOffline,
     pendingTransfer,
+    actionSuccessMessage,
   ];
 
   // +++ النصيحة الذهبية: دالة copyWith لتحديث حقل واحد دون فقدان باقي البيانات +++
@@ -109,6 +113,8 @@ class DashboardLoaded extends DashboardState {
     bool? isOnBreak,
     bool? isOffline,
     Map<String, dynamic>? pendingTransfer,
+    String? actionSuccessMessage,
+    bool clearActionMessage = false, // لتفريغ الرسالة بعد عرضها
     bool clearPendingTransfer =
         false, // خدعة ذكية لتفريغ الحوالة بعد الرد عليها
   }) {
@@ -136,6 +142,10 @@ class DashboardLoaded extends DashboardState {
           clearPendingTransfer
               ? null
               : (pendingTransfer ?? this.pendingTransfer),
+      actionSuccessMessage: 
+          clearActionMessage
+              ? null 
+              : (actionSuccessMessage ?? this.actionSuccessMessage),
     );
   }
 }
@@ -148,3 +158,4 @@ class DashboardError extends DashboardState {
   @override
   List<Object?> get props => [message];
 }
+

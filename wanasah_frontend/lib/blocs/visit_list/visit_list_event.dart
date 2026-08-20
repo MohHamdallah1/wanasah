@@ -16,3 +16,8 @@ class FilterVisitsEvent extends VisitListEvent {
   @override
   List<Object?> get props => [status];
 }
+
+// +++ حدث جديد لتحديث الزيارات من السيرفر +++
+class RefreshVisitsEvent extends VisitListEvent {
+  const RefreshVisitsEvent();
+}

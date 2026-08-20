@@ -68,6 +68,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     message: str
     token: str
+    refresh_token: str
     driver_id: int
     driver_name: str
     is_admin: bool

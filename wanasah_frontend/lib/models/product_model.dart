@@ -7,8 +7,10 @@ class ProductModel extends Equatable {
   final double pricePerCarton;
   final double pricePerPack;
   final int packsPerCarton;
-  final int
-  startingCartons; // +++ الحقل الجديد لحفظ كمية الاستلام (بضاعة أول المدة) +++
+  final int startingCartons; 
+  final int startingPacks; // +++ استلام الكسور (الحبات) +++
+  final int soldCartons;   // +++ المباع الصافي من السيرفر (كراتين) +++
+  final int soldPacks;     // +++ المباع الصافي من السيرفر (حبات) +++
   final int currentCartons;
   final int currentPacks;
 
@@ -18,7 +20,10 @@ class ProductModel extends Equatable {
     required this.pricePerCarton,
     required this.pricePerPack,
     required this.packsPerCarton,
-    this.startingCartons = 0, // القيمة الافتراضية
+    this.startingCartons = 0,
+    this.startingPacks = 0,
+    this.soldCartons = 0,
+    this.soldPacks = 0,
     this.currentCartons = 0,
     this.currentPacks = 0,
   });
@@ -40,8 +45,11 @@ class ProductModel extends Equatable {
       // +++ حماية الحسابات الكمية من خطأ الـ (String is not a subtype of int) +++
       packsPerCarton: int.tryParse(json['packs_per_carton']?.toString() ?? '1') ?? 1,
       
-      // +++ قراءة الاستلام من السيرفر أو من SQLite بأمان مطلق +++
+      // +++ قراءة الاستلام والمباع من السيرفر أو من SQLite بأمان مطلق +++
       startingCartons: int.tryParse(json['starting_cartons']?.toString() ?? '0') ?? 0,
+      startingPacks: int.tryParse(json['starting_packs']?.toString() ?? '0') ?? 0,
+      soldCartons: int.tryParse(json['sold_cartons']?.toString() ?? '0') ?? 0,
+      soldPacks: int.tryParse(json['sold_packs']?.toString() ?? '0') ?? 0,
       currentCartons: int.tryParse((json['current_cartons'] ?? json['remaining_cartons'])?.toString() ?? '0') ?? 0,
       currentPacks: int.tryParse((json['current_packs'] ?? json['remaining_packs'])?.toString() ?? '0') ?? 0,
     );
@@ -54,16 +62,20 @@ class ProductModel extends Equatable {
       'price_per_carton': pricePerCarton,
       'price_per_pack': pricePerPack,
       'packs_per_carton': packsPerCarton,
-      'starting_cartons': startingCartons, // +++ حفظ الاستلام محلياً +++
+      'starting_cartons': startingCartons,
+      'starting_packs': startingPacks,
+      'sold_cartons': soldCartons,
+      'sold_packs': soldPacks,
       'current_cartons': currentCartons,
       'current_packs': currentPacks,
     };
   }
-    // +++ إخبار الـ BLoC بكيفية المقارنة لمنع إعادة البناء العبثي للواجهة +++
+
+  // +++ إخبار الـ BLoC بكيفية المقارنة لمنع إعادة البناء العبثي للواجهة +++
   @override
   List<Object?> get props => [
     id, name, pricePerCarton, pricePerPack,
-    packsPerCarton, startingCartons, currentCartons, currentPacks,
+    packsPerCarton, startingCartons, startingPacks, 
+    soldCartons, soldPacks, currentCartons, currentPacks,
   ];
-
 }

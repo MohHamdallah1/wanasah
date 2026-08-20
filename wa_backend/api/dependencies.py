@@ -13,7 +13,13 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
     """هذه الدالة تعادل بالضبط @token_required التي كانت في فلاسك"""
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"])
+        # +++ الدرع الأمني: إجبار وجود تاريخ انتهاء للتوكن لمنع التوكن الأبدي +++
+        payload = jwt.decode(
+            token, 
+            Config.SECRET_KEY, 
+            algorithms=["HS256"], 
+            options={"require": ["exp"]} 
+        )
         driver_id = payload.get("sub")
         if driver_id is None:
             raise HTTPException(status_code=401, detail="Invalid token structure")
@@ -36,9 +42,14 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
         raise HTTPException(status_code=401, detail="Token payload is invalid")
         
     driver = await db.get(Driver, driver_id_int)
-    # +++ A-04: Fail-closed logic (False بدل True) لمنع الثغرة الأمنية +++
-    if not driver or not getattr(driver, 'is_active', False):
-        raise HTTPException(status_code=403, detail="مرفوض أمنياً: تم إيقاف حسابك أو طردك من النظام. التوكن ملغي.")
+    
+    # +++ الكي الجراحي: فصل الحساب الممسوح (بسبب فورمات الداتابيز) عن الحساب الموقوف إدارياً +++
+    if not driver:
+        # 401 ستجعل الفرونت إند يمسح التوكن الميت بهدوء
+        raise HTTPException(status_code=401, detail="الحساب غير موجود في قاعدة البيانات. يرجى تسجيل الدخول مجدداً.")
+        
+    if not getattr(driver, 'is_active', False):
+        raise HTTPException(status_code=403, detail="مرفوض أمنياً: تم إيقاف حسابك من قبل الإدارة. التوكن ملغي.")
         
     return driver
 

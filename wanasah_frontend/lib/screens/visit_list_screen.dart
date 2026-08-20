@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart'; // +++ ربط الشاشة بالـ BLoC
+import 'dart:async'; // +++ بصمة الـ Elite: لدعم الـ Completer +++
 import 'dart:developer' as developer;
 import 'visit_screen.dart';
-import '../repositories/sync_repository.dart';
 import 'package:wanasah_frontend/screens/add_shop_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:map_launcher/map_launcher.dart';
-import 'package:dio/dio.dart';
 
 import '../models/visit_model.dart'; // +++ الحماية النوعية
 import '../blocs/visit_list/visit_list_bloc.dart'; // +++ العقل المدبر
@@ -28,7 +27,6 @@ class _VisitListScreenState extends State<VisitListScreen>
   late TabController _tabController;
   late VisitListBloc _visitListBloc; // +++ العقل المدبر الخاص بالشاشة +++
 
-  final List<bool> _isSelected = [true, false, false];
   final List<String> _filterValues = ['All', 'Completed', 'Pending'];
 
   @override
@@ -53,41 +51,40 @@ class _VisitListScreenState extends State<VisitListScreen>
     super.dispose();
   }
 
-  // +++ دالة المزامنة إجبارية مع السيرفر +++
+  // +++ بصمة الـ Elite Senior: إجبار الـ RefreshIndicator على الانتظار حتى ينهي البلوك عمله +++
   Future<void> _forceSync() async {
-    developer.log('Forcing sync from API...');
-    try {
-      await SyncRepository().syncDown();
-    } on DioException catch (_) {
-      developer.log('Offline during refresh, ignoring syncDown error.');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('أنت أوفلاين، نعرض البيانات المحلية.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+    developer.log('Forcing sync via BLoC...');
+    final completer = Completer<void>();
+    
+    final subscription = _visitListBloc.stream.listen((state) {
+      if (state is VisitListLoaded || state is VisitListError) {
+        if (!completer.isCompleted) completer.complete();
       }
-    } catch (e) {
-      // +++ الدرع الفولاذي: التقاط أخطاء الـ SyncRepository المخصصة لمنع كراش زر التحديث +++
-      developer.log('Error during syncDown: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-    _visitListBloc.add(LoadVisitsEvent()); // تحديث القائمة بعد السحب
+    });
+
+    _visitListBloc.add(const RefreshVisitsEvent());
+    
+    // مهلة 10 ثواني كحد أقصى عشان ما يعلق المؤشر للأبد لو صار خلل غريب
+    await completer.future.timeout(const Duration(seconds: 10), onTimeout: () => null);
+    await subscription.cancel();
   }
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider.value(
       value: _visitListBloc,
-      child: BlocBuilder<VisitListBloc, VisitListState>(
+      child: BlocListener<VisitListBloc, VisitListState>(
+        listener: (context, state) {
+          if (state is VisitListError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: state.message.contains('انقطع') ? Colors.orange : Colors.red,
+              ),
+            );
+          }
+        },
+        child: BlocBuilder<VisitListBloc, VisitListState>(
         builder: (context, state) {
           // استخراج المتغيرات الأساسية للهيكل لتبقى ثابتة (السر الذي يمنع الوميض)
           int currentTotal = 0;
@@ -165,6 +162,7 @@ class _VisitListScreenState extends State<VisitListScreen>
           );
         },
       ),
+      ),
     );
   }
 
@@ -191,13 +189,9 @@ class _VisitListScreenState extends State<VisitListScreen>
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
             child: ToggleButtons(
-              isSelected: _isSelected,
+              // +++ الكي الجراحي لـ Bug 2: قراءة حالة الفلتر من الـ BLoC بدلاً من المتغير الوهمي +++
+              isSelected: _filterValues.map((filter) => filter == currentFilter).toList(),
               onPressed: (int index) {
-                setState(() {
-                  for (int i = 0; i < _isSelected.length; i++) {
-                    _isSelected[i] = i == index;
-                  }
-                });
                 _visitListBloc.add(FilterVisitsEvent(_filterValues[index]));
               },
               borderRadius: BorderRadius.circular(8.0),
@@ -375,16 +369,10 @@ class _VisitListScreenState extends State<VisitListScreen>
                   ),
                 );
 
-                // +++ النسف المعماري لـ Jank: تأخير التحديث قليلاً حتى ينتهي أنيميشن الإغلاق للشاشة السابقة +++
+                // +++ الكي الجراحي: قراءة محلية فورية (O(1)) بدون تأخير وبدون إرسال طلب وهمي للسيرفر +++
                 if (mounted) {
-                  developer.log(
-                    'Returned from VisitScreen, scheduling sync...',
-                  );
-                  Future.delayed(const Duration(milliseconds: 300), () {
-                    if (mounted) {
-                      _visitListBloc.add(LoadVisitsEvent());
-                    }
-                  });
+                  developer.log('Returned from VisitScreen, loading local data instantly...');
+                  _visitListBloc.add(LoadVisitsEvent());
                 }
               },
               child: Padding(
@@ -469,14 +457,36 @@ class _VisitListScreenState extends State<VisitListScreen>
                         final String? link = visit.locationLink;
 
                         try {
-                          if (lat != null && lng != null) {
-                            await MapLauncher.showMarker(
-                              mapType: MapType.google,
-                              coords: Coords(lat, lng),
-                              title: shopName,
-                            );
+                          // +++ الكي الجراحي لـ Bug 3: حماية الكراش وتجاهل إحداثيات المحيط الأطلسي (0.0) +++
+                          if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
+                            final bool isGoogleMapsAvailable = await MapLauncher.isMapAvailable(MapType.google) ?? false;
+                            
+                            if (isGoogleMapsAvailable) {
+                              await MapLauncher.showMarker(
+                                mapType: MapType.google,
+                                coords: Coords(lat, lng),
+                                title: shopName,
+                              );
+                            } else {
+                              // سقوط آمن: فتح الخرائط المتوفرة أو رمي خطأ إذا لم يوجد شيء
+                              final availableMaps = await MapLauncher.installedMaps;
+                              if (availableMaps.isNotEmpty) {
+                                await availableMaps.first.showMarker(
+                                  coords: Coords(lat, lng),
+                                  title: shopName,
+                                );
+                              } else {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يوجد تطبيق خرائط مثبت على الجهاز')));
+                              }
+                            }
                           } else if (link != null && link.trim().isNotEmpty) {
-                            final Uri url = Uri.parse(link.trim());
+                            // +++ الكي الجراحي لتنظيف الروابط لضمان عدم ضرب الكراش على أجهزة الأندرويد +++
+                            String cleanLink = link.trim();
+                            if (!cleanLink.startsWith('http://') && !cleanLink.startsWith('https://')) {
+                              cleanLink = 'https://$cleanLink';
+                            }
+                            final Uri url = Uri.parse(cleanLink);
                             final bool launched = await launchUrl(url, mode: LaunchMode.externalApplication);
                             // +++ إصلاح خطأ 481: فحص הـ Context الخاص بالبطاقة وليس الشاشة +++
                             if (!context.mounted) return; 

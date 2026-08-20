@@ -56,7 +56,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-warning flex items-center justify-center shadow-command">
               <Truck className="w-5 h-5 text-primary-foreground" strokeWidth={1.5} />
             </div>
-            <span className="text-lg font-extrabold text-foreground tracking-tight">وناسة أدمن</span>
+            <span className="text-lg font-extrabold text-foreground tracking-tight">أدمن</span>
           </div>
           <button onClick={onClose} className="lg:hidden w-8 h-8 rounded-full bg-muted flex items-center justify-center">
             <X className="w-4 h-4 text-muted-foreground" />

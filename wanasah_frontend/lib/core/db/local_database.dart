@@ -39,10 +39,13 @@ class LocalDatabase {
   Future<Database> get database async {
     if (_database != null) return _database!;
     
-    // إذا كان هناك عملية فتح قيد التنفيذ، انتظرها ولا تفتح اتصالاً جديداً
     _initDbFuture ??= _initDB();
-    _database = await _initDbFuture;
-    _initDbFuture = null; // تفريغ القفل بعد الانتهاء
+    // +++ الكي الجراحي 6: حماية Mutex من تعليق الـ Future للأبد +++
+    try {
+      _database = await _initDbFuture;
+    } finally {
+      _initDbFuture = null; 
+    }
     
     return _database!;
   }
@@ -59,7 +62,7 @@ class LocalDatabase {
 
     return await openDatabase(
       dbPath,
-      version: 8, // +++ ترقية فولاذية لحفظ المصافحات +++
+      version: 9, // +++ ترقية فولاذية لدعم حقول المبيعات الصافية +++
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -81,6 +84,9 @@ class LocalDatabase {
         price_per_pack     REAL    NOT NULL,
         packs_per_carton   INTEGER NOT NULL,
         starting_cartons   INTEGER DEFAULT 0,
+        starting_packs     INTEGER DEFAULT 0,
+        sold_cartons       INTEGER DEFAULT 0,
+        sold_packs         INTEGER DEFAULT 0,
         current_cartons    INTEGER DEFAULT 0,
         current_packs      INTEGER DEFAULT 0
       )
@@ -219,13 +225,14 @@ class LocalDatabase {
       await db.execute('''
         INSERT INTO visits_v7 SELECT
           visit_id, shop_id, shop_name,
-          CAST(shop_balance AS REAL),
-          CAST(max_debt_limit AS REAL),
+          -- +++ الكي الجراحي 2: حماية التحويل من الفراغات والـ NULL لمنع انهيار الترقية +++
+          CAST(IFNULL(NULLIF(shop_balance, ''), 0.0) AS REAL),
+          CAST(IFNULL(NULLIF(max_debt_limit, ''), 0.0) AS REAL),
           shop_zone_id, allowed_zone_id, status, outcome,
           visit_sequence, is_emergency, location_link,
           latitude, longitude, shop_owner, shop_phone,
-          CAST(cash_collected AS REAL),
-          CAST(debt_paid AS REAL),
+          CAST(IFNULL(NULLIF(cash_collected, ''), 0.0) AS REAL),
+          CAST(IFNULL(NULLIF(debt_paid, ''), 0.0) AS REAL),
           cart_items, returns, notes
         FROM visits
       ''');
@@ -251,6 +258,14 @@ class LocalDatabase {
       ''');
       developer.log('[LocalDatabase] v8 migration: Created incoming_transfers table.');
     }
+  
+  // +++ الترقية الفولاذية (v9) لدعم حقول المبيعات الصافية من السيرفر +++
+    if (oldVersion < 9) {
+      await db.execute('ALTER TABLE products ADD COLUMN starting_packs INTEGER DEFAULT 0');
+      await db.execute('ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0');
+      await db.execute('ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0');
+      developer.log('[LocalDatabase] v9 migration: Added sales tracking columns to products table.');
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -264,10 +279,13 @@ class LocalDatabase {
     final db = await database;
     await db.delete('products');
     await db.delete('visits');
+    // +++ الكي الجراحي لـ Bug 2: تنظيف أشباح الحوالات السابقة لمنع تسربها لليوم التالي +++
+    await db.delete('incoming_transfers');
+    
     if (clearPendingSyncs) {
       await db.delete('pending_sync');
     }
-    developer.log('[LocalDatabase] Session tables (products, visits${clearPendingSyncs ? ', pending_sync' : ''}) cleared.');
+    developer.log('[LocalDatabase] Session tables (products, visits, incoming_transfers${clearPendingSyncs ? ', pending_sync' : ''}) cleared.');
   }
 
   /// إدراج أو استبدال مجموعة من المنتجات دفعةً واحدة (Batch Insert) باستخدام الكائنات الذكية.
@@ -347,9 +365,10 @@ class LocalDatabase {
     required String outcome,
     double cashCollected = 0.0, 
     double debtPaid = 0.0, 
-    String? cartItemsJson, // +++ سد الثقب الأسود +++
-    String? returnsJson, // +++ سد الثقب الأسود +++
-    String? notes, // +++ سد الثقب الأسود +++
+    double? newShopBalance, 
+    String? cartItemsJson, 
+    String? returnsJson, 
+    String? notes, 
   }) async {
     final db = await database;
     final Map<String, dynamic> updateData = {
@@ -357,11 +376,13 @@ class LocalDatabase {
       'outcome': outcome,
       'cash_collected': cashCollected,
       'debt_paid': debtPaid,
+      // +++ الكي الجراحي لـ Bug 3: إجبار كتابة הـ Null في قاعدة البيانات لمسح السلة والمرتجعات في حالة (لا يوجد بيع أو مؤجل) +++
+      'cart_items': cartItemsJson,
+      'returns': returnsJson,
+      'notes': notes,
     };
     
-    if (cartItemsJson != null) updateData['cart_items'] = cartItemsJson;
-    if (returnsJson != null) updateData['returns'] = returnsJson;
-    if (notes != null) updateData['notes'] = notes;
+    if (newShopBalance != null) updateData['shop_balance'] = newShopBalance; 
 
     await db.update(
       'visits',
@@ -379,25 +400,29 @@ class LocalDatabase {
     final db = await database;
     final batch = db.batch();
     for (var item in cartItems) {
-      int variantId = item['product_variant_id'];
+      if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
+
+      // +++ الكي الجراحي 5: التحويل الآمن للأرقام لمنع TypeError +++
+      int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
+      if (variantId == 0) continue;
       
-      // +++ النسف المعماري لشبح البونص: مطابقة مفاتيح الـ Backend حرفياً لضمان دقة الجرد المحلي +++
       int qtyToDeduct =
-          (item['quantity'] ?? 0) +
-          (item['sample_quantity'] ?? item['sample_cartons'] ?? 0) +
-          (item['bonus_quantity'] ?? 0); 
+          ((item['quantity'] as num?)?.toInt() ?? 0) +
+          ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) +
+          ((item['bonus_quantity'] as num?)?.toInt() ?? 0); 
           
       int packsToDeduct =
-          (item['packs_quantity'] ?? item['packs'] ?? 0) +
-          (item['sample_packs_quantity'] ?? item['sample_packs'] ?? 0);
+          ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
+          ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
 
       if (qtyToDeduct > 0 || packsToDeduct > 0) {
         batch.rawUpdate(
           '''
           UPDATE products 
           SET 
-            current_cartons = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / MAX(packs_per_carton, 1)),
-            current_packs = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % MAX(packs_per_carton, 1))
+            -- +++ الكي الجراحي 3: سحق قسمة السالب (Negative Modulo) بوضع MAX(0) +++
+            current_cartons = (MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?)) / CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END,
+            current_packs   = (MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?)) % CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END
           WHERE id = ?
         ''',
           [qtyToDeduct, packsToDeduct, qtyToDeduct, packsToDeduct, variantId],
@@ -418,44 +443,46 @@ class LocalDatabase {
       orderBy: 'created_at DESC',
     );
     Map<String, dynamic>? oldPayload;
-    int? syncIdToDelete;
+    List<int> syncIdsToDelete = []; // +++ الكي الجراحي 4: حذف كل النسخ الوهمية (Ghost Replay) +++
 
     for (var p in pendingSyncs) {
       if (p['type'] == 'submit_sale') {
         final payload = jsonDecode(p['payload'] as String);
         if (payload['visitId'] == visitId) {
-          oldPayload = payload;
-          syncIdToDelete = p['id'] as int;
-          break;
+          oldPayload ??= payload; // نأخذ أحدث Payload فقط للتراجع
+          syncIdsToDelete.add(p['id'] as int); // نجمع كل الأيديهات المكررة
         }
       }
     }
 
-    if (oldPayload != null && syncIdToDelete != null) {
+    if (oldPayload != null && syncIdsToDelete.isNotEmpty) {
       final batch = db.batch();
 
       // 2. إرجاع البضاعة المباعة والمرتجعة والعينات والبونص إلى رصيد السيارة
       final List<dynamic> cartItems = oldPayload['cart_items'] ?? [];
       for (var item in cartItems) {
-        int variantId = item['product_variant_id'];
+        if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
+        
+        // +++ الكي الجراحي 5: التحويل الآمن +++
+        int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
+        if (variantId == 0) continue;
 
-        // +++ إرجاع البونص للعهدة عند التراجع عن الفاتورة +++
         int qtyToReturn =
-            (item['quantity'] ?? 0) +
-            (item['sample_quantity'] ?? item['sample_cartons'] ?? 0) +
-            (item['bonus_quantity'] ?? 0);
+            ((item['quantity'] as num?)?.toInt() ?? 0) +
+            ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) +
+            ((item['bonus_quantity'] as num?)?.toInt() ?? 0);
             
         int packsToReturn =
-            (item['packs_quantity'] ?? item['packs'] ?? 0) +
-            (item['sample_packs_quantity'] ?? item['sample_packs'] ?? 0);
+            ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
+            ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
 
         if (qtyToReturn > 0 || packsToReturn > 0) {
           batch.rawUpdate(
             '''
             UPDATE products 
             SET 
-              current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / MAX(packs_per_carton, 1),
-              current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % MAX(packs_per_carton, 1)
+              current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END,
+              current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END
             WHERE id = ?
             ''',
             [qtyToReturn, packsToReturn, qtyToReturn, packsToReturn, variantId],
@@ -463,44 +490,32 @@ class LocalDatabase {
         }
       }
 
-      // +++ الجراحة الرابعة (CS-10): إرجاع المرتجعات الصالحة لضبط العهدة +++
-      final List<dynamic> returnItems = oldPayload['returns'] ?? [];
-      for (var ret in returnItems) {
-        final String retType = ret['return_type'] ?? '';
-        // نعكس فقط البضاعة الصالحة لأن التوالف لا تضاف للعهدة المتاحة للبيع
-        if (retType == 'Good' || retType == 'Resellable') {
-          int variantId = ret['product_variant_id'];
-          int qtyToDeduct = ret['quantity'] ?? 0;
-          int packsToDeduct = ret['packs_quantity'] ?? ret['packs'] ?? 0;
+      // +++ الكي الجراحي 2: إعدام كود التراجع الخاص بالمرتجعات لأنه يسبب (Ghost Inventory Drain) +++
 
-          if (qtyToDeduct > 0 || packsToDeduct > 0) {
-            // بما أن المرتجع (Offline) يضيف للعهدة، التراجع عنه يعني خصمه!
-            batch.rawUpdate(
-              '''
-              UPDATE products 
-              SET 
-                current_cartons = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / MAX(packs_per_carton, 1)),
-                current_packs = (((current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % MAX(packs_per_carton, 1))
-              WHERE id = ?
-              ''',
-              [qtyToDeduct, packsToDeduct, qtyToDeduct, packsToDeduct, variantId],
-            );
-          }
-        }
+      // 3. حذف الفواتير القديمة المكررة من الخزنة
+      for (var id in syncIdsToDelete) {
+        batch.delete(
+          'pending_sync',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
       }
-
-      // 3. حذف الفاتورة القديمة من الخزنة
-      batch.delete(
-        'pending_sync',
-        where: 'id = ?',
-        whereArgs: [syncIdToDelete],
-      );
 
       await batch.commit(noResult: true);
       developer.log(
-        '[LocalDatabase] Pre-emptive Strike successful: Reverted offline visit #$visitId.',
+        '[LocalDatabase] Pre-emptive Strike successful: Reverted offline visit #$visitId and cleared ${syncIdsToDelete.length} stale syncs.',
       );
     }
+  }
+
+  // +++ الكي الجراحي 1: دالة التحديث المحلي لرصيد المحل (تستخدم بعد نجاح رفع الفاتورة للسيرفر) +++
+  Future<void> updateShopBalanceLocally(int visitId, double newBalance) async {
+    final db = await database;
+    await db.rawUpdate(
+      'UPDATE visits SET shop_balance = ? WHERE visit_id = ?',
+      [newBalance, visitId],
+    );
+    developer.log('[LocalDatabase] Shop balance updated locally to $newBalance for visit #$visitId.');
   }
 
   /// إغلاق الاتصال بقاعدة البيانات (يُستخدم عند الاختبار أو عند إعادة التهيئة).
@@ -543,7 +558,7 @@ class LocalDatabase {
   Future<void> refreshSessionData(
     List<VisitModel> visits,
     List<ProductModel> products,
-    List<Map<String, dynamic>> incomingTransfers, // +++ استقبال المتغير المفقود +++
+    List<Map<String, dynamic>> incomingTransfers,
   ) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -554,13 +569,18 @@ class LocalDatabase {
 
       // 2. إدخال الجديد
       final batch = txn.batch();
+
+      // +++ الكي الجراحي لـ Bug 2: بناء قاموس (Map) للمنتجات لجلب الأسماء وسعة الكرتونة بسرعة O(1) +++
+      Map<int, ProductModel> productsMap = {};
       for (final product in products) {
+        productsMap[product.id] = product;
         batch.insert(
           'products',
           product.toJson(),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
+
       for (final visit in visits) {
         batch.insert(
           'visits',
@@ -568,10 +588,35 @@ class LocalDatabase {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
+
       for (final transfer in incomingTransfers) {
+        final int vId = (transfer['product_variant_id'] as num?)?.toInt() ?? 0;
+        final int qtyPacks = (transfer['quantity_packs'] as num?)?.toInt() ?? 0;
+        
+        // +++ الكي الجراحي لـ Bug 2: قراءة بيانات المنتج الحقيقية بدلاً من الافتراضات +++
+        final ProductModel? productInfo = productsMap[vId];
+        final int packsPerCarton = productInfo?.packsPerCarton ?? 1;
+        final String productName = productInfo?.name ?? 'غير معروف';
+        final int safePpc = packsPerCarton > 0 ? packsPerCarton : 1;
+        
+        // +++ الكي الجراحي لـ Bug 3: قسمة الأرقام السالبة بأمان رياضي تام (Absolute Math) +++
+        final int sign = qtyPacks < 0 ? -1 : 1;
+        final int absPacks = qtyPacks.abs();
+        final int deltaCartons = (absPacks ~/ safePpc) * sign;
+        final int deltaLoosePacks = (absPacks % safePpc) * sign;
+        
         batch.insert(
           'incoming_transfers',
-          transfer,
+          {
+            'transfer_id': transfer['transfer_id'] ?? transfer['id'], // دعم الحالتين
+            'product_variant_id': vId,
+            'product_name': productName,
+            'delta_cartons': deltaCartons,
+            'delta_packs': deltaLoosePacks,
+            'status': transfer['status'],
+            'created_at': transfer['created_at'],
+            'batch_id': transfer['notes'] ?? transfer['batch_id'] ?? 'SINGLE_${transfer['id']}'
+          },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -580,5 +625,16 @@ class LocalDatabase {
     developer.log(
       '[LocalDatabase] Transaction complete: Session & Transfers refreshed safely.',
     );
+  }
+
+  /// حذف الحوالة من الجدول المحلي بعد إتمام الرد عليها لتجنب تكرار ظهورها كشبح
+  Future<void> removeIncomingTransfer(int transferId) async {
+    final db = await database;
+    await db.delete(
+      'incoming_transfers',
+      where: 'transfer_id = ? OR id = ?',
+      whereArgs: [transferId, transferId],
+    );
+    developer.log('[LocalDatabase] Incoming transfer #$transferId removed locally.');
   }
 }

@@ -1,22 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../blocs/dashboard/dashboard_bloc.dart';
 import '../blocs/dashboard/dashboard_event.dart';
 import '../blocs/dashboard/dashboard_state.dart';
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
-import '../blocs/auth/auth_state.dart'; // +++ الاستيراد المفقود +++
-import '../core/network/api_client.dart';
+import '../blocs/auth/auth_state.dart'; 
 import 'package:intl/intl.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'login_screen.dart';
 import 'visit_list_screen.dart';
-import 'package:geolocator/geolocator.dart';
 import 'dart:async';
-import 'dart:developer' as developer; // +++ اصحى يا مدير، هذا الاستيراد اللي نسيته +++
+import 'dart:developer' as developer; 
 import '../core/db/local_database.dart';
-import 'dart:convert';
 
 class DashboardScreen extends StatefulWidget {
   final int driverId;
@@ -27,10 +22,9 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // +++ تم مسح 15 متغيراً من الـ setState! الشاشة الآن "غبية" وتعتمد على الـ BLoC +++
-  bool _isSessionLoading =
-      false; // الوحيد المتبقي لمنع النقر المزدوج على أزرار الجلسة
+  // +++ الشاشة الآن "غبية" وتعتمد على الـ BLoC بنسبة 100% +++
   bool _isShowingDialog = false; // لمنع تكرار ظهور نافذة الحوالات
+  bool _isActionInProgress = false; // +++ درع منع النقر المتكرر أثناء طلبات الـ API والموقع +++
 
   @override
   void initState() {
@@ -84,275 +78,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // --- دالة بدء العمل (محتفظة بمنطق الـ GPS المعقد الخاص بك) ---
+// --- دوال إدارة العمل (منقولة للـ BLoC للـ Clean Architecture) ---
   Future<void> _startWork() async {
-    if (_isSessionLoading) return;
-    setState(() => _isSessionLoading = true);
-
-    Position? currentPosition;
-    try {
-      currentPosition = await _getDeviceLocation();
-      await ApiClient.instance.post(
-        '/driver/${widget.driverId}/sessions/start',
-        data: {
-          'latitude': currentPosition?.latitude,
-          'longitude': currentPosition?.longitude,
-        },
-        options: Options(
-          sendTimeout: const Duration(seconds: 20),
-          receiveTimeout: const Duration(seconds: 20),
-        ),
-      );
-
-      if (!mounted) return;
-
-      // نجاح: نأمر البلوك بجلب الداشبورد الجديد
-      context.read<DashboardBloc>().add(
-        FetchDashboardData(driverId: widget.driverId),
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم بدء جلسة العمل!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } on DioException catch (e) {
-      if (!mounted) return;
-      if (e.response?.statusCode == 409) {
-        context.read<DashboardBloc>().add(
-          FetchDashboardData(driverId: widget.driverId),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('يوجد جلسة عمل نشطة بالفعل.'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-        return;
-      }
-      if (e.response?.statusCode == 401) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'خطأ: ${e.response?.data?['message'] ?? 'فشل الاتصال'}',
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isSessionLoading = false);
-    }
+    context.read<DashboardBloc>().add(StartSessionEvent(driverId: widget.driverId));
   }
 
-  // --- دالة إنهاء العمل ---
   Future<void> _endWork() async {
-    if (_isSessionLoading) return;
-    setState(() => _isSessionLoading = true);
-    try {
-      await ApiClient.instance.put(
-        '/driver/${widget.driverId}/sessions/end',
-        options: Options(sendTimeout: const Duration(seconds: 15)),
-      );
-      if (!mounted) return;
-
-      context.read<DashboardBloc>().add(
-        FetchDashboardData(driverId: widget.driverId),
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم إنهاء العمل.'),
-          backgroundColor: Colors.blue,
-        ),
-      );
-    } on DioException catch (e) {
-      if (!mounted) return;
-      if (e.response?.statusCode == 401) return;
-
-      // +++ الكي الجراحي: اصطياد الـ 404 (السيرفر المصفّر) وتنظيف الجلسة الوهمية محلياً +++
-      if (e.response?.statusCode == 404) {
-        await const FlutterSecureStorage().delete(key: 'is_on_break');
-        await LocalDatabase.instance.clearSessionData();
-        if (!mounted) return; // +++ الدرع الفولاذي لمنع الخطأ +++
-        context.read<DashboardBloc>().add(
-          FetchDashboardData(driverId: widget.driverId),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'تم اكتشاف تصفير للسيرفر. تم تنظيف الجلسة الوهمية محلياً بنجاح 🧹',
-            ),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        setState(() => _isSessionLoading = false);
-        return;
-      }
-
-      final isOffline =
-          e.response == null ||
-          e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.receiveTimeout ||
-          e.type == DioExceptionType.unknown ||
-          e.error.toString().contains('SocketException');
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isOffline
-                ? 'لا يمكن إنهاء العمل وأنت أوفلاين. يجب الاتصال بالإنترنت لمطابقة العهدة وتسليمها.'
-                : 'خطأ: ${e.response?.data?['message'] ?? 'فشل الإنهاء'}',
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isSessionLoading = false);
-    }
+    context.read<DashboardBloc>().add(EndSessionEvent(driverId: widget.driverId));
   }
 
-  // --- دالة تسجيل الاستراح المحصنة أوفلاين ---
   Future<void> _toggleBreak(String action) async {
-    if (_isSessionLoading) return;
-    setState(() => _isSessionLoading = true);
-
-    try {
-      // 1. محاولة الإرسال للسيرفر مباشرة مع وقت انتظار محدد
-      await ApiClient.instance.put(
-        '/driver/${widget.driverId}/sessions/break',
-        data: {'action': action},
-        options: Options(sendTimeout: const Duration(seconds: 10)),
-      );
-    } on DioException catch (e) {
-      // +++ الكي الجراحي: اصطياد الـ 404 أثناء الاستراحة لتنظيف التطبيق فوراً +++
-      if (e.response?.statusCode == 404) {
-        await const FlutterSecureStorage().delete(key: 'is_on_break');
-        await LocalDatabase.instance.clearSessionData();
-        if (!mounted) return; // +++ الدرع الفولاذي لمنع الخطأ +++
-        context.read<DashboardBloc>().add(
-          FetchDashboardData(driverId: widget.driverId),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('الجلسة غير موجودة على السيرفر! تم إعادة الضبط 🧹'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        setState(() => _isSessionLoading = false);
-        return;
-      }
-
-      // 2. فحص نوع الخطأ: هل هو مشكلة نت أم خطأ منطقي من السيرفر؟
-      // +++ الكيّ الجراحي 2: التقاط جميع أنواع انقطاع الإنترنت (بما فيها SocketException) +++
-      final isOffline =
-          e.response == null ||
-          e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.receiveTimeout ||
-          e.type == DioExceptionType.unknown ||
-          e.error.toString().contains('SocketException');
-
-      if (isOffline) {
-        // حفظ في الخزنة السرية (pending_sync) للمزامنة لاحقاً
-        await LocalDatabase.instance.addPendingSync(
-          type: 'toggle_break',
-          // +++ الكي الجراحي (F-05): استخدام jsonEncode لمنع ثغرات الـ JSON Injection +++
-          payload: jsonEncode({'driver_id': widget.driverId, 'action': action}),
-        );
-        // نكمل العملية محلياً دون إزعاج المندوب بخطأ الشبكة
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'خطأ: ${e.response?.data?['message'] ?? 'فشل الاتصال'}',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-        setState(() => _isSessionLoading = false);
-        return; // توقف هنا لأن الخطأ من السيرفر وليس من الشبكة
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isSessionLoading = false);
-      return;
-    }
-
-    // 3. تحديث الذاكرة المحلية (SecureStorage) والشاشة (Bloc)
-    // هذه الخطوات تتم الآن سواء كنت أونلاين أو أوفلاين (بناءً على الخطوات السابقة)
-    await const FlutterSecureStorage().write(
-      key: 'is_on_break',
-      value: action == 'start' ? 'true' : 'false',
-    );
-
-    if (!mounted) return;
-
-    // تحديث الـ BLoC ليعكس الحالة الجديدة فوراً في الـ UI
-    context.read<DashboardBloc>().add(
-      FetchDashboardData(driverId: widget.driverId),
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          action == 'start'
-              ? 'تم بدء الاستراحة (مسجلة).'
-              : 'تم إنهاء الاستراحة (مسجلة).',
-        ),
-        backgroundColor: Colors.blue,
-      ),
-    );
-
-    setState(() => _isSessionLoading = false);
-  }
-
-  // --- دالة الموقع المحمية (مع استرجاع رسائل التنبيه للمستخدم) ---
-  Future<Position?> _getDeviceLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('الرجاء تفعيل خدمة الموقع (GPS)'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-      return null;
-    }
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('صلاحية الموقع مطلوبة لبدء العمل'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return null;
-      }
-    }
-    try {
-      Position? lastPosition = await Geolocator.getLastKnownPosition();
-      if (lastPosition != null) {
-        return lastPosition;
-      }
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-      ).timeout(const Duration(seconds: 4));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('فشل تحديد الموقع، حاول في مكان مفتوح'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return null;
-    }
+    context.read<DashboardBloc>().add(ToggleBreakEvent(driverId: widget.driverId, action: action));
   }
 
   // --- دالة إظهار نافذة الحوالات المعلقة المجمعة (النسخة الديناميكية الفولاذية) ---
@@ -360,15 +96,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     BuildContext context,
     Map<String, dynamic> batchData,
   ) {
-    // +++ النسف المعماري (ديكتاتورية المصافحة): متغير لتخزين رد المندوب لكل صنف بشكل فردي +++
+    final List<dynamic> items = batchData['items'] ?? [];
+    // +++ الكي الجراحي لـ Bug 4: التحقق من أن الأصناف صالحة وليست وهمية قبل الفتح +++
+    final int validItemsCount = items.where((item) => (item['real_transfer_id'] as num?)?.toInt() != 0 && item['real_transfer_id'] != null).length;
+
+    if (items.isEmpty || validItemsCount == 0) {
+      _isShowingDialog = false;
+      return; 
+    }
+
     Map<int, String> itemResponses = {};
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        final List<dynamic> items = batchData['items'] ?? [];
-        if (items.isEmpty) return const SizedBox.shrink();
 
         return PopScope(
           canPop: false,
@@ -450,7 +192,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             trailing: StatefulBuilder(
                               builder: (context, setState) {
-                                final itemId = item['real_transfer_id'] as int;
+                                // +++ الكي الجراحي 8: التحويل الآمن لمنع الـ TypeError Crash +++
+                                final itemId = (item['real_transfer_id'] as num?)?.toInt() ?? 0;
+                                if (itemId == 0) return const SizedBox.shrink();
                                 final currentResponse = itemResponses[itemId];
 
                                 // +++ النسف المعماري (بسيط 2): ضبط الأبعاد وإغلاق الأقواس بشكل سليم 100% +++
@@ -528,8 +272,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                 onPressed: () {
-                  // التأكد من أن المندوب أجاب على كل الأصناف
-                  if (itemResponses.length != items.length) {
+                  // التأكد من أن المندوب أجاب على كل الأصناف السليمة فقط
+                  final int validItemsCount = items.where((item) => (item['real_transfer_id'] as num?)?.toInt() != 0 && item['real_transfer_id'] != null).length;
+                  if (itemResponses.length != validItemsCount) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
@@ -575,7 +320,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         );
       },
-    );
+    ).then((_) {
+      // +++ الكي الجراحي: تحرير القفل عند إغلاق النافذة بأي طريقة (زر أو غيره) لضمان ظهور النوافذ القادمة +++
+      if (mounted) {
+        _isShowingDialog = false;
+      }
+    });
   }
 
   @override
@@ -626,6 +376,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           BlocListener<DashboardBloc, DashboardState>(
             listener: (context, state) {
+              // +++ الكي الجراحي لـ Bug 1: تحرير الزر فور انتهاء أي عملية (نجاح، فشل، أو تحميل داتا) +++
+              if (state is! DashboardLoading && state is! DashboardInitial) {
+                if (_isActionInProgress && mounted) {
+                  setState(() => _isActionInProgress = false);
+                }
+              }
+
               if (state is DashboardError) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -634,6 +391,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 );
               } else if (state is DashboardLoaded) {
+                // +++ الكي الجراحي: اصطياد رسائل النجاح المدمجة بالـ State بدون تدمير الشجرة +++
+                if (state.actionSuccessMessage != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(state.actionSuccessMessage!),
+                      backgroundColor: state.actionSuccessMessage!.contains('🧹') ? Colors.orange : Colors.green,
+                    ),
+                  );
+                  // تنظيف الرسالة فور عرضها كي لا تظهر مرة أخرى عند إعادة البناء
+                  context.read<DashboardBloc>().add(const ClearActionMessageEvent());
+                }
+
+                // تزامن الواجهة مع البلوك لظهور الحوالة
                 // تزامن الواجهة مع البلوك لظهور الحوالة
                 if (state.pendingTransfer != null && !_isShowingDialog) {
                   _isShowingDialog = true;
@@ -733,34 +503,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
 
         final bloc = context.read<DashboardBloc>();
-        bloc.add(FetchDashboardData(driverId: widget.driverId));
-
-        // +++ الكي الجراحي (F-03 & F-08): إغلاق تسريب الذاكرة وإظهار رسالة فشل حقيقية عند انتهاء المهلة +++
         bool isTimeout = false;
         StreamSubscription? subscription;
+        
         try {
+          // +++ الكي الجراحي 6: تشغيل الـ Listener قبل إرسال الـ Event لمنع الـ False Timeout +++
           final completer = Completer<void>();
           subscription = bloc.stream.listen((state) {
-            if (state is! DashboardLoading && !completer.isCompleted) {
+            if (state is DashboardError) {
+              if (!completer.isCompleted) completer.completeError(state.message);
+            } else if (state is! DashboardLoading && state is! DashboardInitial && !completer.isCompleted) {
               completer.complete();
             }
           });
-          await completer.future.timeout(const Duration(seconds: 5));
+          
+          // +++ الكي الجراحي 4: احترام معمارية BLoC بطلب المزامنة القسرية كحدث، بدلاً من تجاوز البلوك +++
+          bloc.add(const ForceSyncData());
+          // FetchDashboardData يتم طلبه من داخل ForceSyncData في البلوك، لا نحتاج طلبه هنا مجدداً.
+          
+          await completer.future.timeout(const Duration(seconds: 8));
+          
         } on TimeoutException catch (_) {
           isTimeout = true;
           developer.log('[Dashboard] Refresh timeout reached.');
-        } catch (_) {
-          isTimeout = true;
+        } catch (e) {
+          developer.log('[Dashboard] Refresh error: $e');
+          // +++ الكي الجراحي لـ Bug 2: نكتفي بإخفاء إشعار التحميل والإجهاض، ونترك הـ BlocListener يعرض الخطأ الأحمر +++
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+          await subscription?.cancel();
+          return; // إجهاض العملية هنا فوراً
         } finally {
-          await subscription?.cancel(); // +++ سحق تسريب الذاكرة (Memory Leak) +++
+          await subscription?.cancel(); 
+        }
+
+        // إخفاء إشعار التحميل فقط في حالات النجاح أو הـ Timeout
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
         }
 
         if (mounted && hasPendingData) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          // +++ الكي الجراحي 2: التأكد من تفريغ الخزنة فعلياً قبل إعلان النجاح للمندوب +++
+          final remainingSyncs = await LocalDatabase.instance.getPendingSyncs();
+          
+          // +++ الكي الجراحي: درع الـ Context عبر الفجوة الزمنية (Async Gap) لمنع التحذيرات والكراش +++
+          if (!mounted) return;
+          
           if (isTimeout) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('انتهى وقت المزامنة. قد تكون الشبكة ضعيفة ⚠️'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          } else if (remainingSyncs.isNotEmpty) {
+             ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('تم تحديث البيانات، ولكن فشل رفع بعض الفواتير. يرجى التأكد من الإنترنت ⚠️'),
                 backgroundColor: Colors.orange,
                 duration: Duration(seconds: 4),
               ),
@@ -834,51 +635,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 15),
           Center(
             child: ElevatedButton.icon(
-              icon:
-                  _isSessionLoading
-                      ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 3,
-                        ),
-                      )
-                      : Icon(
-                        state.isActiveSession
-                            ? Icons.stop_circle_outlined
-                            : Icons.play_arrow,
-                      ),
+              icon: Icon(
+                state.isActiveSession
+                    ? Icons.stop_circle_outlined
+                    : Icons.play_arrow,
+              ),
               label: Text(state.isActiveSession ? 'إنهاء العمل' : 'بدء العمل'),
-              onPressed:
-                  _isSessionLoading
-                      ? null
-                      : () async {
-                        if (state.isActiveSession) {
-                          if (state.isOnBreak) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('يجب إنهاء الاستراحة أولاً!'),
-                                backgroundColor: Colors.orange,
-                              ),
-                            );
-                            return;
-                          }
-                          final bool? confirmed = await _showConfirmationDialog(
-                            context,
-                            'إنهاء العمل؟',
-                            'هل تريد إنهاء جلسة العمل الحالية؟',
-                          );
-                          if (confirmed == true) _endWork();
-                        } else {
-                          final bool? confirmed = await _showConfirmationDialog(
-                            context,
-                            'بدء العمل؟',
-                            'هل تريد بدء جلسة عمل جديدة؟',
-                          );
-                          if (confirmed == true) _startWork();
-                        }
-                      },
+              onPressed: (_isActionInProgress || state is DashboardLoading) ? null : () async {
+                if (state.isActiveSession && state.isOnBreak) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('يجب إنهاء الاستراحة أولاً!'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                
+                final bool? confirmed = await _showConfirmationDialog(
+                  context,
+                  state.isActiveSession ? 'إنهاء العمل؟' : 'بدء العمل؟',
+                  state.isActiveSession ? 'هل تريد إنهاء جلسة العمل الحالية؟' : 'هل تريد بدء جلسة عمل جديدة؟',
+                );
+                
+                // +++ الكي الجراحي لـ Bug 1: حماية הـ setState من الـ Unmounted Crash +++
+                if (!mounted) return;
+
+                if (confirmed == true) {
+                  // +++ إقفال الزر ولا نفتحه إلا من خلال הـ BlocListener لمنع التكرار +++
+                  setState(() => _isActionInProgress = true);
+                  if (state.isActiveSession) {
+                    _endWork();
+                  } else {
+                    _startWork();
+                  }
+                }
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor:
                     state.isActiveSession ? Colors.red[600] : Colors.green[600],
@@ -895,10 +687,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 10),
             Center(
               child: ElevatedButton.icon(
-                onPressed:
-                    _isSessionLoading
-                        ? null
-                        : () => _toggleBreak(state.isOnBreak ? 'end' : 'start'),
+                onPressed: (_isActionInProgress || state is DashboardLoading) ? null : () {
+                  // +++ إقفال الزر ولا نفتحه إلا من خلال הـ BlocListener +++
+                  setState(() => _isActionInProgress = true);
+                  _toggleBreak(state.isOnBreak ? 'end' : 'start');
+                },
                 icon: Icon(
                   state.isOnBreak
                       ? Icons.free_breakfast_outlined
@@ -954,17 +747,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'إجمالي كاش المبيعات: ${state.totalSalesCash.toStringAsFixed(2)} د.أ',
+                  'إجمالي كاش المبيعات: ${state.totalSalesCash.toStringAsFixed(3)} د.أ',
                   style: const TextStyle(fontSize: 16),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'إجمالي الذمم المحصلة: (${state.debtPaymentsCount}) ${state.totalDebtPaid.toStringAsFixed(2)} د.أ',
+                  'إجمالي الذمم المحصلة: (${state.debtPaymentsCount}) ${state.totalDebtPaid.toStringAsFixed(3)} د.أ',
                   style: const TextStyle(fontSize: 16),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'إجمالي الكاش المستلم: ${state.totalCashOverall.toStringAsFixed(2)} د.أ',
+                  'إجمالي الكاش المستلم: ${state.totalCashOverall.toStringAsFixed(3)} د.أ',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -1034,15 +827,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           if (state.products.isNotEmpty)
             ...state.products.map((item) {
-              // +++ الدرع المحاسبي: تحويل الكل لحبات لمعرفة المباع الحقيقي بالكراتين والفراطة +++
-              int safePpc = item.packsPerCarton > 0 ? item.packsPerCarton : 1;
-              int totalStartingPacks = (item.startingCartons * safePpc);
-              int totalCurrentPacks = (item.currentCartons * safePpc) + item.currentPacks;
-              int totalSoldPacks = totalStartingPacks - totalCurrentPacks;
-              
-              int soldCartons = totalSoldPacks ~/ safePpc;
-              int soldPacks = totalSoldPacks % safePpc;
-
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12.0),
                 child: Container(
@@ -1066,12 +850,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
+                          // +++ الاعتماد الكلي على السيرفر (Single Source of Truth) لنسف الطعريس +++
                           Text(
-                            'الاستلام: ${item.startingCartons} كرتونة',
+                            'الاستلام: ${item.startingCartons} كرتونة${item.startingPacks > 0 ? ' و ${item.startingPacks} حبة' : ''}',
                             style: const TextStyle(fontSize: 14),
                           ),
                           Text(
-                            'المباع: $soldCartons كرتونة، $soldPacks حبة',
+                            'المباع: ${item.soldCartons} كرتونة، ${item.soldPacks} حبة',
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.green[700],

@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.dialects.postgresql import insert
-from models import SystemSetting, OfferRule, Driver, Shop, WorkSession, SessionInventory, ProductVariant, SystemAuditLog, InventoryLedger
+from models import SystemSetting, OfferRule, Driver, Shop, WorkSession, SessionInventory, ProductVariant, SystemAuditLog, InventoryLedger, MainWarehouse, WarehouseLedger
 from typing import Any, Type, Optional, List, Dict, Tuple
 
 async def get_setting(db_session: AsyncSession, key: str, default_value: Any, value_type: Type = str) -> Any:
@@ -30,7 +30,8 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
     try:
         c_qty = int(cartons_qty)
         p_qty = int(packs_qty)
-        if c_qty <= 0 and p_qty <= 0: 
+        # +++ الكي الجراحي: استخدام 'or' لمنع تمرير أي قيم سالبة منفردة +++
+        if c_qty < 0 or p_qty < 0 or (c_qty == 0 and p_qty == 0): 
             # +++ الدرع الفولاذي: إرجاع قاموس صفري لمنع 500 TypeError عند بيع العينات المجانية فقط +++
             return {'base_amount': Decimal('0.000'), 'discount_applied': Decimal('0.000'), 'tax_amount': Decimal('0.000'), 'final_amount': Decimal('0.000'), 'bonus_units': 0}
     except (ValueError, TypeError):
@@ -44,7 +45,7 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
         raise ValueError("هندسة مرفوضة: يجب جلب الضريبة مسبقاً وتمريرها للدالة الرياضية لمنع استنزاف قاعدة البيانات.")
     tax_pct = Decimal(str(pre_fetched_tax))
         
-    # +++ الدرع العُماني: 3 خانات عشرية للبيسة لمنع التهرب الضريبي +++
+    # +++ الدرع العُماني: 3 خانات عشرية لمنع التهرب الضريبي +++
     THREE_PLACES = Decimal('0.001')
 
     base_amount = (Decimal(str(c_qty)) * c_price) + (Decimal(str(p_qty)) * p_price)
@@ -129,56 +130,68 @@ async def adjust_inventory(
     session_id: int, 
     variant_id: int, 
     net_quantity_change_in_packs: int, 
-    admin_id: int, # +++ إجباري لتوثيق الفاعل +++
-    transaction_type: str, # +++ إجباري لتوثيق نوع الحركة +++
-    notes: str, # +++ إجباري للتبرير المحاسبي +++
-    vehicle_id: Optional[int] = None, # +++ إضافة معرف السيارة لتوثيق الحركة في الدفتر المالي +++
-    pre_locked_inventory_record: Optional[SessionInventory] = None
+    admin_id: int, 
+    transaction_type: str, 
+    notes: str, 
+    vehicle_id: Optional[int] = None, 
+    pre_locked_inventory_record: Optional[SessionInventory] = None,
+    pre_locked_warehouse_record: Optional[MainWarehouse] = None # +++ توحيد الـ Warehouse Logic +++
 ) -> Tuple[bool, str]:
-    """تعديل الجرد الفولاذي مع إجبار التوثيق المالي لنسف التلاعب الصامت (Anti-Ghost Door)"""
+    """تعديل الجرد الفولاذي الشامل (Single Source of Truth) - يربط العهدة والمستودع معاً"""
     if net_quantity_change_in_packs == 0: return True, ""
 
-    if not pre_locked_inventory_record:
-        # 1. الدرع الفولاذي (Upsert): إجبار الداتابيز على خلق الصف إذا لم يكن موجوداً لتفادي UniqueViolation
-        insert_stmt = insert(SessionInventory).values(
-            work_session_id=session_id,
-            product_variant_id=variant_id,
-            starting_quantity=0,
-            net_transfers=0,
-            current_remaining_quantity=0
-        ).on_conflict_do_nothing(index_elements=['work_session_id', 'product_variant_id'])
+    # 1. تحديث المستودع (إذا تطلب الأمر - لتفادي تكرار الكود في dispatch.py و warehouse.py)
+    if pre_locked_warehouse_record:
+        # إذا تم تمرير المستودع، فهذا يعني أن الحركة تؤثر عليه (Pull/Push)
+        wh_record = pre_locked_warehouse_record
+        old_wh_balance = wh_record.available_quantity_packs or 0
         
+        # إذا كنا نضيف للمندوب (يعني نسحب من المستودع)
+        if net_quantity_change_in_packs > 0:
+            # +++ الكي الجراحي: حماية المقارنة من الـ NoneType +++
+            if (wh_record.available_quantity_packs or 0) < net_quantity_change_in_packs:
+                return False, f"فشل: رصيد المستودع لا يغطي صرف {net_quantity_change_in_packs} حبة."
+            wh_record.available_quantity_packs = (wh_record.available_quantity_packs or 0) - net_quantity_change_in_packs
+        else:
+            # إذا كنا نسحب من المندوب (يعني نرجع للمستودع)
+            wh_record.available_quantity_packs += abs(net_quantity_change_in_packs)
+            
+        db_session.add(WarehouseLedger(
+            product_variant_id=variant_id, 
+            transaction_type=transaction_type + '_WH', # تمييز الحركة
+            quantity_packs=abs(net_quantity_change_in_packs),
+            balance_before_packs=old_wh_balance,
+            balance_after_packs=wh_record.available_quantity_packs,
+            admin_id=admin_id, reference_id=f"SESS_{session_id}", notes=notes
+        ))
+
+    # 2. تحديث عهدة المندوب
+    if not pre_locked_inventory_record:
+        insert_stmt = insert(SessionInventory).values(
+            work_session_id=session_id, product_variant_id=variant_id,
+            starting_quantity=0, net_transfers=0, current_remaining_quantity=0
+        ).on_conflict_do_nothing(index_elements=['work_session_id', 'product_variant_id'])
         await db_session.execute(insert_stmt)
 
-        # 2. الآن نحن ضامنون 100% أن الصف موجود، نقفله بكل أمان (Row-Level Lock)
         stmt = select(SessionInventory).filter_by(
             work_session_id=session_id, product_variant_id=variant_id
         ).with_for_update()
-        result = await db_session.execute(stmt)
-        inventory_record = result.scalar_one()
+        inventory_record = (await db_session.execute(stmt)).scalar_one()
     else:
         inventory_record = pre_locked_inventory_record
 
-    # 3. تطبيق المنطق المحاسبي
     expected_qty = inventory_record.current_remaining_quantity
     if expected_qty + net_quantity_change_in_packs < 0:
-        return False, "الكمية المتبقية لا تغطي العملية."
+        return False, "الكمية المتبقية في العهدة لا تغطي عملية السحب."
 
     inventory_record.current_remaining_quantity += net_quantity_change_in_packs
-    # +++ النسف المعماري: تحديث الحوالات الصافية لمنع انهيار مبيعات المندوب بالسالب نهاية اليوم +++
     inventory_record.net_transfers = (inventory_record.net_transfers or 0) + net_quantity_change_in_packs
     
-    # 4. +++ الدرع الرقابي (Ledger Enforcement) لنسف التلاعب الصامت +++
     db_session.add(InventoryLedger(
-        work_session_id=session_id,
-        vehicle_id=vehicle_id, # +++ التوثيق الإجباري للمركبة +++
-        product_variant_id=variant_id,
-        transaction_type=transaction_type,
-        expected_quantity=expected_qty,
-        actual_quantity=inventory_record.current_remaining_quantity,
-        difference=net_quantity_change_in_packs,
-        admin_id=admin_id,
-        notes=notes
+        work_session_id=session_id, vehicle_id=vehicle_id, product_variant_id=variant_id,
+        transaction_type=transaction_type, expected_quantity=expected_qty,
+        actual_quantity=inventory_record.current_remaining_quantity, difference=net_quantity_change_in_packs,
+        admin_id=admin_id, notes=notes
     ))
     return True, ""
 
@@ -252,7 +265,11 @@ async def reverse_previous_visit_state(
             variant = bulk_variants.get(item.product_variant_id)
             safe_packs = variant.packs_per_carton if variant and variant.packs_per_carton else 1
             
-            packs_to_return = ((item.quantity + item.bonus_quantity + item.sample_quantity) * safe_packs) + getattr(item, 'packs_quantity', 0) + getattr(item, 'sample_packs_quantity', 0)
+            # +++ الكي الجراحي: حماية السيرفر من الانفجار بسبب الـ NoneType في حقول البونص والعينات +++
+            safe_bonus = item.bonus_quantity or 0
+            safe_sample = item.sample_quantity or 0
+            # +++ الدرع الفولاذي (إصلاح البوت): استخدام or 0 لسحق الـ None العائد من قاعدة البيانات +++
+            packs_to_return = ((item.quantity + safe_bonus + safe_sample) * safe_packs) + (getattr(item, 'packs_quantity', 0) or 0) + (getattr(item, 'sample_packs_quantity', 0) or 0)
             
             if active_session:
                 inv_record = locked_inv.get(item.product_variant_id)
@@ -286,7 +303,8 @@ async def reverse_previous_visit_state(
         if active_session:
             ret_variant = bulk_variants.get(ret.product_variant_id)
             safe_packs = ret_variant.packs_per_carton if ret_variant and ret_variant.packs_per_carton else 1
-            total_ret_packs = (ret.quantity * safe_packs) + getattr(ret, 'packs_quantity', 0)
+            # +++ الدرع الفولاذي (إصلاح البوت): استخدام or 0 لسحق الـ None العائد من قاعدة البيانات +++
+            total_ret_packs = (ret.quantity * safe_packs) + (getattr(ret, 'packs_quantity', 0) or 0)
             
             inv_record = locked_inv.get(ret.product_variant_id)
             if not inv_record:
