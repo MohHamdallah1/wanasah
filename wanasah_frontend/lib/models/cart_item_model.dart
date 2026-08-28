@@ -86,6 +86,8 @@ class CartItemModel {
 
   // دالة النسخ للتعديل الآمن في الـ BLoC
   CartItemModel copyWith({
+    int? availableCartons, // +++ الكي الجراحي: السماح بتحديث المخزون +++
+    int? availablePacks,   // +++ الكي الجراحي: السماح بتحديث المخزون +++
     int? cartons,
     int? packs,
     int? returnFactoryCartons,
@@ -102,8 +104,8 @@ class CartItemModel {
       pricePerCarton: pricePerCarton,
       pricePerPack: pricePerPack,
       packsPerCarton: packsPerCarton,
-      availableCartons: availableCartons,
-      availablePacks: availablePacks,
+      availableCartons: availableCartons ?? this.availableCartons, // +++ ربط التحديث +++
+      availablePacks: availablePacks ?? this.availablePacks,       // +++ ربط التحديث +++
       cartons: cartons ?? this.cartons,
       packs: packs ?? this.packs,
       returnFactoryCartons: returnFactoryCartons ?? this.returnFactoryCartons,

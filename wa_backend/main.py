@@ -127,10 +127,11 @@ app = FastAPI(
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000")
 ALLOWED_ORIGINS = [origin.strip() for origin in _CORS_RAW.split(",") if origin.strip()]
 
-# In development, allow all origins
+# +++ الدرع المعماري: نسف الكراش الناتج عن دمج * مع allow_credentials +++
+CORS_ALLOW_ALL = False
 if ENV == "development" or os.getenv("ENABLE_CORS_WILDCARD", "false").lower() in ("true", "1", "yes"):
-    ALLOWED_ORIGINS = ["*"]
-# +++ الكي الجراحي لـ Bug 2: تم نسف الفرض الإجباري لـ "*" لحماية بيئة الإنتاج +++
+    ALLOWED_ORIGINS = [] 
+    CORS_ALLOW_ALL = True
 
 if ENV == "production" and not ALLOWED_ORIGINS:
     raise ValueError("CORS_ALLOWED_ORIGINS must be set in production environment!")
@@ -138,6 +139,7 @@ if ENV == "production" and not ALLOWED_ORIGINS:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS, 
+    allow_origin_regex=".*" if CORS_ALLOW_ALL else None,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
@@ -154,10 +156,21 @@ app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     content={"message": "تم تجاوز الحد المسموح من الطلبات. يرجى المحاولة لاحقاً."},
 ))
 
+# +++ الكي الجراحي: إضافة نقطة التفتيش (Middleware) التي كانت مفقودة لتفعيل الحارس فعلياً +++
+from slowapi.middleware import SlowAPIMiddleware
+app.add_middleware(SlowAPIMiddleware)
+
 # S-03: Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        response: Response = await call_next(request)
+        try:
+            response: Response = await call_next(request)
+        except RuntimeError as e:
+            # +++ الدرع المعماري: التقاط هرب العميل (Client Disconnect) لمنع كراش الـ No response returned +++
+            if str(e) == "No response returned." and await request.is_disconnected():
+                return Response(status_code=499) # 499: Client Closed Request
+            raise
+            
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -179,27 +192,17 @@ MAX_BODY_SIZE = 10 * 1024 * 1024
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # 1. الفحص الأولي السريع (Fast Path)
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > MAX_BODY_SIZE:
-            return JSONResponse(status_code=413, content={"message": "Request body too large."})
-            
-        # 2. +++ الكي الجراحي لـ Bug 3: درع الـ Chunked Streams الديناميكي +++
-        # حفظ الدالة الأصلية في متغير منفصل قبل الإسناد لمنع الاستدلال الذاتي اللانهائي (Infinite Recursion)
-        original_stream = request.stream
-
-        async def receive_stream_monitor():
-            total_size = 0
-            async for chunk in original_stream():
-                total_size += len(chunk)
-                if total_size > MAX_BODY_SIZE:
-                    raise HTTPException(status_code=413, detail="Payload stream exceeded max size limit.")
-                yield chunk
-
-        # استبدال دالة الـ stream الأصلية بالدالة المراقبة
-        request.stream = receive_stream_monitor
+            return JSONResponse(status_code=413, content={"message": "حجم الطلب يتجاوز الحد المسموح (10MB)."})
         
-        return await call_next(request)
+        try:
+            return await call_next(request)
+        except RuntimeError as e:
+            # +++ الدرع المعماري: إخماد كراش الـ Starlette عند انقطاع الاتصال +++
+            if str(e) == "No response returned." and await request.is_disconnected():
+                return Response(status_code=499)
+            raise
 
 app.add_middleware(BodySizeLimitMiddleware)
 
@@ -208,9 +211,16 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("X-Request-Id", str(uuid.uuid4()))
         request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers["X-Request-Id"] = request_id
-        return response
+        
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = request_id
+            return response
+        except RuntimeError as e:
+            # +++ الدرع المعماري الشامل: حماية نقطة تتبع الأخطاء من الانهيار +++
+            if str(e) == "No response returned." and await request.is_disconnected():
+                return Response(status_code=499)
+            raise
 
 app.add_middleware(RequestIDMiddleware)
 
@@ -233,12 +243,17 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Database connection failed")
 
 # +++ المترجم العسكري: تحويل detail الخاصة بـ FastAPI إلى message ليفهمها تطبيق الموبايل القديم +++
+from fastapi.exceptions import RequestValidationError
+
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"message": exc.detail},
-    )
+    return JSONResponse(status_code=exc.status_code, content={"message": exc.detail})
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # +++ سحب أول خطأ من Pydantic لحماية تطبيق الموبايل من الانهيار بـ Array +++
+    error_msg = exc.errors()[0].get("msg", "بيانات غير صالحة")
+    return JSONResponse(status_code=422, content={"message": f"خطأ إدخال: {error_msg}"})
 
 # +++ المعالج الشامل للأخطاء (Global Exception Handler) +++
 # S-01/S-10/Issue#13/S-12: Hardened IP extraction, log sanitization, request ID
@@ -278,9 +293,26 @@ app.include_router(driver.router, tags=["Driver Operations"])
 app.include_router(dispatch.router, tags=["Dispatch & Routing"])
 app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 
+import jwt
+from config import Config
+
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates
 @app.websocket("/ws/dispatch")
 async def websocket_dispatch_endpoint(websocket: WebSocket):
+    # +++ الدرع الفولاذي: إجبار التحقق من التوكن لمنع تجسس الغرباء على غرفة العمليات +++
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+    try:
+        payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"], options={"require": ["exp"]})
+        if not payload.get("is_admin"):
+            await websocket.close(code=1008)
+            return
+    except Exception:
+        await websocket.close(code=1008)
+        return
+
     # +++ الكي الجراحي لـ Bug 1: فحص حالة الدرع الأمني قبل الدخول بالـ Loop +++
     is_connected = await dispatch_manager.connect(websocket)
     if not is_connected:

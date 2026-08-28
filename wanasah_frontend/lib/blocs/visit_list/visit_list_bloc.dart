@@ -5,6 +5,7 @@ import '../../core/db/local_database.dart';
 import '../../models/visit_model.dart';
 import 'visit_list_event.dart';
 import 'visit_list_state.dart';
+import 'package:dio/dio.dart'; // +++ الكي الجراحي: استيراد Dio للتمييز بين الانقطاع وأخطاء الأعمال +++
 
 // +++ استيراد الـ Sync Repository +++
 import '../../repositories/sync_repository.dart';
@@ -39,7 +40,8 @@ class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
 
       List<VisitModel> filtered = visits;
       if (currentFilter != 'All') {
-        filtered = visits.where((v) => v.status == currentFilter).toList();
+        // +++ الكي الجراحي: توحيد الفلتر ليكون غير حساس لحالة الأحرف (Case-insensitive) +++
+        filtered = visits.where((v) => v.status.toLowerCase() == currentFilter.toLowerCase()).toList();
       }
 
       emit(VisitListLoaded(
@@ -57,27 +59,48 @@ class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
     LoadVisitsEvent event,
     Emitter<VisitListState> emit,
   ) async {
-    emit(VisitListLoading());
-    await _loadVisitsInternal(emit); // تحميل مباشر
+    // +++ الكي الجراحي: منع وميض الشاشة المستفز إذا كانت القائمة محملة مسبقاً +++
+    if (state is! VisitListLoaded) {
+      emit(const VisitListLoading()); // تأكد من وجود const هنا لأننا صلحناها بملف الـ State
+    }
+    await _loadVisitsInternal(emit); 
   }
 
   Future<void> _onRefreshVisits(
     RefreshVisitsEvent event,
     Emitter<VisitListState> emit,
   ) async {
-    // +++ الكي الجراحي لـ Bug 2: منع الشاشة من الانهيار للوضع الأبيض إذا كانت الداتا موجودة أصلاً +++
+    // +++ حماية المعالج والـ IO: خنق الطلبات المتكررة (Drop) إذا كان التحديث جارياً بالفعل +++
+    if (state is VisitListLoading) {
+      developer.log('[VisitListBloc] Refresh spam prevented.');
+      return; 
+    }
+
     if (state is! VisitListLoaded) {
       emit(VisitListLoading());
     }
     
     try {
-      await _syncRepository.syncDown();
+      final bool syncRan = await _syncRepository.syncDown();
+      if (!syncRan) {
+        // +++ إبلاغ المندوب وإعادة تحميل القائمة الحالية +++
+        emit(VisitListError('المزامنة جارية بالفعل من مكان آخر. يرجى الانتظار ⏳'));
+        await _loadVisitsInternal(emit);
+        return;
+      }
       // +++ الكي الجراحي لـ Bug 3: تحميل داخلي مباشر لمنع دورة الـ Event البطيئة +++
       await _loadVisitsInternal(emit); 
     } catch (e) {
       developer.log('[VisitListBloc] Error syncing visits: $e');
-      // +++ الكي الجراحي لـ Bug 1: نعرض الخطأ، ثم نعرض البيانات المحلية فوراً دون أن يطمسها الحدث +++
-      emit(VisitListError('انقطع الاتصال. جاري عرض الزيارات المحلية.'));
+      
+      // +++ VLB-1: منع كتم رسائل الأعمال الحساسة (مثل "يوجد فواتير أوفلاين معلقة") +++
+      String errorMsg = 'انقطع الاتصال. جاري عرض الزيارات المحلية.';
+      if (e is! DioException) {
+        // إذا لم يكن الخطأ من الشبكة (Dio)، فهو رسالة أعمال موجهة من الـ Sync Repo
+        errorMsg = e.toString().replaceAll('Exception: ', '');
+      }
+      
+      emit(VisitListError(errorMsg));
       await _loadVisitsInternal(emit);
     }
   }

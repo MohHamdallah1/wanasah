@@ -53,24 +53,24 @@ async def start_work_session(
             detail="لا يمكنك بدء يوم عمل جديد. لديك عهدة سابقة معلقة لم يتم تسويتها من قبل الإدارة."
         )
 
-    # 3. منع بدء العمل بدون خط سير (حماية التوزيع)
-    # +++ قفل خط السير لمنع المدير من سحبه أثناء بدء المندوب للعمل (Race Condition Shield) +++
-    stmt_route = select(DispatchRoute).filter_by(driver_id=driver_id, status='active').with_for_update()
-    active_route = (await db.execute(stmt_route)).scalars().first()
-    if not active_route:
-        raise HTTPException(
-            status_code=400, # +++ تحويله لـ 400 لكي يظهر للمندوب الإشعار الصحيح +++ 
-            detail="لا يوجد لديك خط سير مخصص اليوم. الرجاء مراجعة مدير التوزيع."
-        )
-
     try:
-        # +++ قفل التزامن الفولاذي (Row-Level Lock) لمنع الدبل كليك +++
-        stmt_lock = select(Driver).filter_by(id=driver_id).with_for_update()
+        # +++ قفل التزامن الفولاذي: يجب قفل المندوب أولاً دائماً لمنع הـ Deadlock +++
+        stmt_lock = select(Driver).filter_by(id=driver_id).order_by(Driver.id.asc()).with_for_update()
         await db.execute(stmt_lock)
 
-        # 4. التحقق من عدم وجود جلسة نشطة (لم تنتهِ بعد)
-        stmt_existing = select(WorkSession).filter_by(driver_id=driver_id, end_time=None)
-        existing_session = (await db.execute(stmt_existing)).scalar_one_or_none()
+        # 3. منع بدء العمل بدون خط سير (حماية التوزيع)
+        stmt_route = select(DispatchRoute).filter_by(driver_id=driver_id, status='active').order_by(DispatchRoute.id.asc()).with_for_update()
+        active_route = (await db.execute(stmt_route)).scalars().first()
+        if not active_route:
+            await db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail="لا يوجد لديك خط سير مخصص اليوم. الرجاء مراجعة مدير التوزيع."
+            )
+
+        # 4. التحقق من عدم وجود جلسة نشطة (مع حماية MultipleResultsFound)
+        stmt_existing = select(WorkSession).filter_by(driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
+        existing_session = (await db.execute(stmt_existing)).scalars().first()
         if existing_session:
             await db.rollback() # +++ الإغلاق اليدوي للقفل +++
             raise HTTPException(status_code=409, detail="لديك جلسة عمل نشطة بالفعل لم يتم إنهاؤها.")
@@ -90,7 +90,7 @@ async def start_work_session(
         active_route.work_session_id = new_session.id
         
         # جلب حمولة السيارة مع تفاصيل المنتجات (استخدام selectinload لمنع الـ Deadlock مع with_for_update)
-        stmt_loads = select(VehicleLoad).options(selectinload(VehicleLoad.product_variant)).filter_by(vehicle_id=active_route.vehicle_id).with_for_update()
+        stmt_loads = select(VehicleLoad).options(selectinload(VehicleLoad.product_variant)).filter_by(vehicle_id=active_route.vehicle_id).order_by(VehicleLoad.id.asc()).with_for_update()
         vehicle_loads = (await db.execute(stmt_loads)).scalars().all()
         
         for load in vehicle_loads:
@@ -131,6 +131,10 @@ async def start_work_session(
             "session_id": new_session.id
         }
 
+    except HTTPException:
+        raise
+    except HTTPException:
+        raise
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
@@ -198,7 +202,7 @@ async def toggle_break(
     try:
         # 2. قفل التزامن الفولاذي (Row-Level Lock) لمنع كارثة الـ Double Click
         # نستخدم with_for_update لضمان أن طلباً واحداً فقط يعالج الجلسة حالياً
-        # +++ الدرع المفقود: حماية limit(1) لمنع כراش MultipleResultsFound +++
+        # +++ الدرع المفقود: حماية limit(1) لمنع MultipleResultsFound +++
         stmt_session = select(WorkSession).filter_by(driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1).with_for_update()
         active_session = (await db.execute(stmt_session)).scalars().first()
         
@@ -267,7 +271,7 @@ async def update_visit(
     # الترتيب المقدس: 1. الجلسة -> 2. المحل -> 3. الزيارة -> 4. العهدة
     
     # 1. قفل الجلسة أولاً
-    stmt_session = select(WorkSession).with_for_update().filter_by(driver_id=current_driver.id, end_time=None)
+    stmt_session = select(WorkSession).filter_by(driver_id=current_driver.id, end_time=None).order_by(WorkSession.id.asc()).with_for_update()
     active_session = (await db.execute(stmt_session)).scalars().first()
     if not active_session:
         await db.rollback()
@@ -280,7 +284,7 @@ async def update_visit(
         raise HTTPException(status_code=404, detail="الزيارة غير موجودة")
 
     # 3. قفل المحل ثانياً
-    stmt_shop = select(Shop).with_for_update().filter_by(id=visit_pre.shop_id)
+    stmt_shop = select(Shop).filter_by(id=visit_pre.shop_id).order_by(Shop.id.asc()).with_for_update()
     shop = (await db.execute(stmt_shop)).scalar_one_or_none()
     if not shop:
         await db.rollback()
@@ -291,12 +295,20 @@ async def update_visit(
         selectinload(Visit.work_session),
         selectinload(Visit.items).selectinload(VisitItem.product_variant),
         selectinload(Visit.returns)
-    ).with_for_update().filter_by(id=visit_id)
+    ).filter_by(id=visit_id).order_by(Visit.id.asc()).with_for_update()
     visit = (await db.execute(stmt_visit)).scalars().first()
     
     if not visit:
         await db.rollback()
         raise HTTPException(status_code=404, detail="الزيارة غير موجودة")
+
+    # +++ الدرع المعماري (Race Condition Shield): حفظ حالة الزيارة المقفلة فوراً لاستخدامها في قرارات المسح لاحقاً +++
+    locked_original_status = visit.status
+        
+    # +++ الدرع الميداني: منع المندوب (الأوفلاين) من تمرير مبيعات لزيارة تم أرشفتها/إلغاؤها من قبل الإدارة +++
+    if visit.status == 'Cancelled':
+        await db.rollback()
+        raise HTTPException(status_code=403, detail="مرفوض أمنياً: هذه الزيارة تم إلغاؤها من قبل الإدارة (أو المنطقة مؤرشفة). لا يمكنك التعديل عليها.")
         
     visit.shop = shop
 
@@ -463,6 +475,10 @@ async def update_visit(
         if item.quantity < 0 or item.packs_quantity < 0 or item.bonus_quantity < 0 or item.sample_quantity < 0 or item.sample_packs_quantity < 0:
             await db.rollback()
             raise HTTPException(status_code=400, detail="مرفوض أمنياً: تم رصد كميات سالبة في سلة المبيعات. محاولة تلاعب بالعهدة.")
+        # +++ الدرع الجنائي: منع البنود الصفرية بالكامل +++
+        if (item.quantity + item.packs_quantity + item.bonus_quantity + item.sample_quantity + getattr(item, 'sample_packs_quantity', 0)) == 0:
+            await db.rollback()
+            raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن إضافة صنف بكميات إجمالية (صفر) في الفاتورة.")
 
     # 4. +++ النسف المعماري لـ N+1: جلب كل المنتجات والعهدة دفعة واحدة للذاكرة +++
     all_var_ids = list(set(cart_pids + ret_pids))
@@ -484,14 +500,21 @@ async def update_visit(
         inv_map = {inv.product_variant_id: inv for inv in inv_records}
 
     # 5. +++ حماية الذاكرة (Memory Desync Trap): مسح طفيليات الحفظ من الـ RAM مباشرة +++
-    # تعديل الكائنات المحملة في الذاكرة لضمان تزامنها تلقائياً مع الداتابيز عند الـ Commit
-    for existing_item in visit.items:
-        if not getattr(existing_item, 'is_cancelled', False):
-            existing_item.is_cancelled = True
-            
-    for existing_return in visit.returns:
-        if not getattr(existing_return, 'is_cancelled', False):
-            existing_return.is_cancelled = True
+    # +++ النسف المعماري: مسح فعلي (Hard Delete) لسلة المشتريات المعلقة لمنع تضخم قاعدة البيانات، وإلغاء (Soft Delete) للزيارات المكتملة +++
+    if locked_original_status == 'Pending':
+        for existing_item in list(visit.items):
+            await db.delete(existing_item)
+        for existing_return in list(visit.returns):
+            await db.delete(existing_return)
+        visit.items.clear()
+        visit.returns.clear()
+    else:
+        for existing_item in visit.items:
+            if not getattr(existing_item, 'is_cancelled', False):
+                existing_item.is_cancelled = True
+        for existing_return in visit.returns:
+            if not getattr(existing_return, 'is_cancelled', False):
+                existing_return.is_cancelled = True
 
     # 6. معالجة سلة المبيعات (Cart Items)
     total_final_amount = Decimal('0.0')
@@ -516,8 +539,8 @@ async def update_visit(
             await db.rollback()
             raise HTTPException(status_code=400, detail=error_msg)
         
-        # حساب الفاتورة (Async Service) - مع تمرير سعة الكرتونة لتطبيق العروض بدقة
-        invoice = calculate_invoice(item.quantity, item.packs_quantity, variant.price_per_carton, variant.price_per_pack, current_tax_pct, active_offers, packs_per_carton=variant.packs_per_carton or 1)
+        # حساب الفاتورة (Async Service) - مع تمرير سعة الكرتونة ومعرف المنتج لتطبيق العروض بدقة
+        invoice = calculate_invoice(item.quantity, item.packs_quantity, variant.price_per_carton, variant.price_per_pack, current_tax_pct, active_offers, packs_per_carton=variant.packs_per_carton or 1, variant_id=item.product_variant_id)
         
         # +++ الدرع المحاسبي: السقف الإجباري للبونص لمنع المندوب من اختلاس بضاعة تحت مسمى "عروض" +++
         final_bonus_cartons = invoice['bonus_units']
@@ -586,60 +609,39 @@ async def update_visit(
         # +++ الحماية من القيم المعدومة (TypeError Shield) +++
         expected_qty = (inv_record.current_remaining_quantity or 0) if inv_record else 0
         
-        # +++ الدرع الأمني (Zero Trust - No Implicit Trust): الاعتماد على القائمة البيضاء (Whitelist) فقط +++
-        # إذا أرسل التطبيق المهكر نوعاً وهمياً، سيتم رفض إدخاله للعهدة وعزله كتالف لمنع التلاعب بالمخزون.
-        is_sellable = ret.return_type in ['Good', 'Resellable']
-        
-        if is_sellable:
-            if not inv_record:
-                # إنشاء سجل عهدة جديد إذا استلم المندوب صنفاً لم يكن معه صباحاً
-                inv_record = SessionInventory(
-                    work_session_id=active_session.id, 
-                    product_variant_id=ret.product_variant_id, 
-                    starting_quantity=0, 
-                    current_remaining_quantity=0
-                )
-                db.add(inv_record)
-                await db.flush() # +++ تأكيد الحفظ في الجلسة لمنع تضارب الأقفال +++
-                inv_map[ret.product_variant_id] = inv_record # تحديث الذاكرة
-            
-            # تحديث الكمية بأمان
-            inv_record.current_remaining_quantity = (inv_record.current_remaining_quantity or 0) + total_ret_packs
-            
-        # +++ النسف المعماري لنظام الاستبدال 1:1 (Exchange Logic) +++
-        if not is_sellable:
-            # إذا كان تالفاً فهذا يعني أنه "استبدال". نسحب بضاعة صالحة من المندوب ونعطيها للمحل.
-            if not inv_record or inv_record.current_remaining_quantity < total_ret_packs:
-                error_msg = f"مرفوض: مخزونك الصالح من ({variant.variant_name}) لا يكفي للقيام باستبدال التوالف. المطلوب للتبديل: {total_ret_packs} حبة."
-                await db.rollback()
-                raise HTTPException(status_code=400, detail=error_msg)
+        # +++ النسف المعماري لنظام الاستبدال 1:1 (Exchange Logic) وتوثيق التوالف +++
+        # بما أن المرتجعات دائماً تالفة/منتهية، نسحب بضاعة صالحة من المندوب ونعطيها للمحل.
+        if not inv_record or inv_record.current_remaining_quantity < total_ret_packs:
+            error_msg = f"مرفوض: مخزونك الصالح من ({variant.variant_name}) لا يكفي للقيام باستبدال التوالف. المطلوب للتبديل: {total_ret_packs} حبة."
+            await db.rollback()
+            raise HTTPException(status_code=400, detail=error_msg)
 
-            inv_record.current_remaining_quantity -= total_ret_packs
+        inv_record.current_remaining_quantity -= total_ret_packs
 
-            # توثيق السحب الصالح (استبدال)
-            db.add(InventoryLedger(
-                work_session_id=active_session.id, driver_id=visit.driver_id,
-                vehicle_id=current_route.vehicle_id if current_route else None,
-                product_variant_id=ret.product_variant_id, transaction_type='Exchange (Deduction)',
-                expected_quantity=expected_qty,
-                actual_quantity=inv_record.current_remaining_quantity,
-                difference=-total_ret_packs,
-                admin_id=visit.driver_id,
-                notes=f"استبدال 1:1 للمحل: {shop.name} | تم سحب بضاعة صالحة مقابل استلام ({ret.return_type})",
-                timestamp=get_utc_now()
-            ))
+        # توثيق السحب الصالح (استبدال)
+        db.add(InventoryLedger(
+            work_session_id=active_session.id, driver_id=visit.driver_id,
+            vehicle_id=current_route.vehicle_id if current_route else None,
+            product_variant_id=ret.product_variant_id, transaction_type='Exchange (Deduction)',
+            expected_quantity=expected_qty,
+            actual_quantity=inv_record.current_remaining_quantity,
+            difference=-total_ret_packs,
+            admin_id=visit.driver_id,
+            notes=f"استبدال 1:1 للمحل: {shop.name} | تم سحب بضاعة صالحة مقابل استلام ({ret.return_type})",
+            timestamp=get_utc_now()
+        ))
 
-        # +++ الدرع الرقابي: توثيق دخول المرتجع/التالف لسيارة المندوب +++
+        # +++ الدرع الرقابي: توثيق دخول المرتجع التالف لسيارة المندوب بالرقم الفعلي +++
         ret_reason_text = f" | السبب: {ret.reason}" if ret.reason else ""
         db.add(InventoryLedger(
             work_session_id=active_session.id, driver_id=visit.driver_id,
             vehicle_id=current_route.vehicle_id if current_route else None, 
-            product_variant_id=ret.product_variant_id, transaction_type='Return (Addition)',
+            product_variant_id=ret.product_variant_id, transaction_type='Damaged Received',
             expected_quantity=expected_qty, 
-            actual_quantity=expected_qty + (total_ret_packs if is_sellable else 0),
-            difference=(total_ret_packs if is_sellable else 0), 
+            actual_quantity=expected_qty, # الرصيد الصالح للبيع لا يزود بالتوالف
+            difference=total_ret_packs, # لكن التوالف تُوثق كحركة دخول للسيارة
             admin_id=visit.driver_id, 
-            notes=f"مرتجع {ret.return_type} للمحل: {shop.name}{ret_reason_text}",
+            notes=f"استلام تالف ({ret.return_type}) من المحل: {shop.name}{ret_reason_text}",
             timestamp=get_utc_now()
         ))
         
@@ -858,7 +860,7 @@ async def get_driver_dashboard(
         debt_payments_count = (await db.execute(stmt_debt_count)).scalar() or 0
         
         # +++ الدرع المحاسبي: المبيعات الحقيقية تشمل المبيعات النقدية و(مبيعات الذمم)، لذلك نعتمد على Outcome +++
-        stmt_sales_count = select(func.count(Visit.id)).filter(Visit.work_session_id == active_session.id, Visit.outcome == 'Sale')
+        stmt_sales_count = select(func.count(Visit.id)).filter(Visit.work_session_id == active_session.id, Visit.outcome == 'Sale', Visit.status == 'Completed')
         sales_in_completed = (await db.execute(stmt_sales_count)).scalar() or 0
 
         if active_route:
@@ -935,7 +937,7 @@ async def respond_to_transfer(
     stmt_transfer = select(InventoryTransfer).options(
         joinedload(InventoryTransfer.work_session),
         joinedload(InventoryTransfer.product_variant) # +++ الدرع الفولاذي لمنع الـ Lazy Loading Crash وسحق الـ N+1 +++
-    ).filter_by(id=transfer_id).with_for_update(of=InventoryTransfer) # +++ درع الـ Deadlock: قفل جدول الحوالات فقط +++
+    ).filter_by(id=transfer_id).order_by(InventoryTransfer.id.asc()).with_for_update(of=InventoryTransfer) # +++ درع الـ Deadlock: قفل جدول الحوالات فقط +++
     transfer = (await db.execute(stmt_transfer)).scalar_one_or_none()
     
     if not transfer:
@@ -950,6 +952,11 @@ async def respond_to_transfer(
         await db.rollback()
         raise HTTPException(status_code=400, detail=f"هذه الحوالة تمت معالجتها مسبقاً بحالة: {transfer.status}")
 
+    # +++ الدرع الزمني: منع معالجة حوالات لجلسات تم إغلاقها أو تسويتها +++
+    if transfer.work_session.end_time or transfer.work_session.is_settled:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="مرفوض: لا يمكن معالجة حوالة لجلسة عمل تم إنهاؤها أو تسويتها.")
+
     # +++ الكي الجراحي (D-03): حماية السيرفر من حقن حالة وهمية (Status Hijacking) +++
     if payload.response not in ['accepted', 'rejected']:
         await db.rollback()
@@ -962,6 +969,11 @@ async def respond_to_transfer(
         stmt_route = select(DispatchRoute).filter_by(work_session_id=transfer.work_session_id)
         route = (await db.execute(stmt_route)).scalars().first()
         
+        # +++ الدرع الفولاذي: حماية السيرفر من الحوالات لخطوط السير التي سُحبت سياراتها +++
+        if not route or not route.vehicle_id:
+            await db.rollback()
+            raise HTTPException(status_code=400, detail="مرفوض: لا يوجد سيارة مرتبطة بخط السير الحالي لإتمام المعاملة.")
+        
         # +++ سحق الاستعلام المكرر: قراءة المنتج مباشرة من الـ RAM بعد شحنه استباقياً وتوفير Query كاملة +++
         variant = transfer.product_variant
         packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton else 1
@@ -972,21 +984,27 @@ async def respond_to_transfer(
             # 1. قفل حمولة السيارة أولاً
             stmt_vload = select(VehicleLoad).filter_by(
                 vehicle_id=route.vehicle_id, product_variant_id=transfer.product_variant_id
-            ).with_for_update()
+            ).order_by(VehicleLoad.id.asc()).with_for_update()
             v_load = (await db.execute(stmt_vload)).scalars().first()
 
         # 2. قفل المستودع المركزي ثانياً
-        stmt_wh = select(MainWarehouse).filter_by(product_variant_id=transfer.product_variant_id).with_for_update()
+        # +++ إصلاح AttributeError: جدول MainWarehouse لا يملك عمود id — مفتاحه product_variant_id +++
+        stmt_wh = select(MainWarehouse).filter_by(product_variant_id=transfer.product_variant_id).order_by(MainWarehouse.product_variant_id.asc()).with_for_update()
         wh_record = (await db.execute(stmt_wh)).scalars().first()
         if not wh_record:
             wh_record = MainWarehouse(product_variant_id=transfer.product_variant_id, available_quantity_packs=0, reserved_quantity_packs=0)
             db.add(wh_record)
+            # +++ الشفافية الراديكالية: توثيق الإنشاء الصامت لاكتشاف الفساد لاحقاً +++
+            db.add(SystemAuditLog(
+                admin_id=current_driver.id, target_id=f"Product_{transfer.product_variant_id}", action_type="SILENT_WH_HEALING",
+                old_value="No WH Record", new_value="Created with 0 balance (Single Transfer Respond)"
+            ))
             await db.flush()
 
         # 3. قفل عهدة المندوب ثالثاً
         stmt_sess_inv = select(SessionInventory).filter_by(
             work_session_id=transfer.work_session_id, product_variant_id=transfer.product_variant_id
-        ).with_for_update()
+        ).order_by(SessionInventory.id.asc()).with_for_update()
         sess_inv = (await db.execute(stmt_sess_inv)).scalars().first()
         
         expected_qty = (sess_inv.current_remaining_quantity or 0) if sess_inv else 0
@@ -1007,18 +1025,21 @@ async def respond_to_transfer(
                     )
 
             if transfer.quantity_packs > 0:
+                old_available_single = wh_record.available_quantity_packs or 0
                 wh_record.reserved_quantity_packs = max(0, wh_record.reserved_quantity_packs - transfer.quantity_packs)
                 db.add(WarehouseLedger(
                     product_variant_id=transfer.product_variant_id, transaction_type='HANDSHAKE_COMMIT',
-                    quantity_packs=transfer.quantity_packs, balance_after_packs=wh_record.available_quantity_packs,
+                    quantity_packs=transfer.quantity_packs, balance_before_packs=old_available_single, balance_after_packs=wh_record.available_quantity_packs,
                     admin_id=transfer.admin_id, reference_id=f"TRANS_{transfer.id}", 
                     notes=f"موافقة المندوب: تحرير المحجوز للعهدة الفردية. (المحجوز المتبقي: {wh_record.reserved_quantity_packs})"
                 ))
             else:
+                # +++ إصلاح NotNullViolation: توثيق الرصيد قبل التعديل (كان عمود balance_before يُرسل NULL) +++
+                old_pull_balance = wh_record.available_quantity_packs or 0
                 wh_record.available_quantity_packs += abs(transfer.quantity_packs)
                 db.add(WarehouseLedger(
                     product_variant_id=transfer.product_variant_id, transaction_type='HANDSHAKE_COMMIT_PULL',
-                    quantity_packs=abs(transfer.quantity_packs), balance_after_packs=wh_record.available_quantity_packs,
+                    quantity_packs=abs(transfer.quantity_packs), balance_before_packs=old_pull_balance, balance_after_packs=wh_record.available_quantity_packs,
                     admin_id=transfer.admin_id, reference_id=f"TRANS_{transfer.id}", 
                     notes=f"موافقة المندوب: استرجاع بضاعة مسحوبة للمستودع الفردي المتاح. (المحجوز الحالي: {wh_record.reserved_quantity_packs})"
                 ))
@@ -1052,15 +1073,12 @@ async def respond_to_transfer(
                 remaining_packs = (abs_packs % packs_per_carton) * sign
                 
                 if v_load:
-                    if v_load.quantity + delta_cartons < 0:
-                        await db.rollback() # +++ الدرع الفولاذي: تحرير الأقفال لمنع الشلل +++
-                        raise HTTPException(status_code=400, detail="فشل: حمولة السيارة المسجلة لا تكفي للسحب.")
-                    v_load.quantity += delta_cartons
+                    # +++ الدرع المعماري: السيارة مجرد تمثيل. العهدة هي الأساس! لا نمنع السحب إذا كانت كراتين السيارة لا تكفي +++
+                    v_load.quantity = max(0, v_load.quantity + delta_cartons)
+                    if v_load.quantity == 0:
+                        await db.delete(v_load) # تنظيف الأشباح
                 else:
-                    if delta_cartons < 0:
-                        await db.rollback() # +++ الدرع الفولاذي: تحرير الأقفال لمنع الشلل +++
-                        raise HTTPException(status_code=400, detail="فشل محاسبي: لا يمكن سحب كراتين لمنتج غير مسجل بحمولة السيارة أصلاً.")
-                    elif delta_cartons > 0:
+                    if delta_cartons > 0:
                         db.add(VehicleLoad(
                             vehicle_id=route.vehicle_id, 
                             product_variant_id=transfer.product_variant_id, 
@@ -1091,11 +1109,12 @@ async def respond_to_transfer(
         elif payload.response == 'rejected':
             # +++ مزامنة الرفض الفردي: تحرير المحجوز وإعادته للمتاح في المستودع المركزي فوراً +++
             if transfer.quantity_packs > 0:
+                old_release_balance = wh_record.available_quantity_packs or 0
                 wh_record.reserved_quantity_packs = max(0, wh_record.reserved_quantity_packs - transfer.quantity_packs)
                 wh_record.available_quantity_packs += transfer.quantity_packs
                 db.add(WarehouseLedger(
                     product_variant_id=transfer.product_variant_id, transaction_type='HANDSHAKE_RELEASE',
-                    quantity_packs=transfer.quantity_packs, balance_after_packs=wh_record.available_quantity_packs,
+                    quantity_packs=transfer.quantity_packs, balance_before_packs=old_release_balance, balance_after_packs=wh_record.available_quantity_packs,
                     admin_id=transfer.admin_id, reference_id=f"TRANS_{transfer.id}", 
                     notes=f"رفض المندوب الفردي: إرجاع المحجوز للمتاح. (المحجوز المتبقي: {wh_record.reserved_quantity_packs})"
                 ))
@@ -1150,12 +1169,14 @@ async def batch_respond_to_transfers(
     status_map = {t.transfer_id: t.status for t in payload.transfers}
 
     try:
-        # 1. درع IDOR
+        # 1. درع IDOR ودرع الجلسات المغلقة
         stmt_transfers = select(InventoryTransfer).join(WorkSession).filter(
             InventoryTransfer.id.in_(transfer_ids),
             InventoryTransfer.status == 'pending',
-            WorkSession.driver_id == current_driver.id
-        ).with_for_update(of=InventoryTransfer).order_by(InventoryTransfer.id.asc()) # +++ درع الـ Deadlock: قفل الحوالات فقط +++
+            WorkSession.driver_id == current_driver.id,
+            WorkSession.end_time.is_(None), # +++ درع الزومبي: منع معالجة حوالات لجلسات مغلقة +++
+            WorkSession.is_settled == False
+        ).order_by(InventoryTransfer.id.asc()).with_for_update(of=InventoryTransfer) # +++ درع الـ Deadlock: قفل الحوالات فقط +++
         
         transfers = (await db.execute(stmt_transfers)).scalars().all()
 
@@ -1186,20 +1207,25 @@ async def batch_respond_to_transfers(
             stmt_vloads = select(VehicleLoad).filter(
                 VehicleLoad.vehicle_id.in_(vehicle_ids), 
                 VehicleLoad.product_variant_id.in_(var_ids)
-            ).with_for_update().order_by(VehicleLoad.vehicle_id.asc(), VehicleLoad.product_variant_id.asc())
+            ).order_by(VehicleLoad.vehicle_id.asc(), VehicleLoad.product_variant_id.asc()).with_for_update()
             v_loads = (await db.execute(stmt_vloads)).scalars().all()
             v_load_map = {(vl.vehicle_id, vl.product_variant_id): vl for vl in v_loads}
 
         # 2. جلب وقفل المستودع المركزي ثانياً
         stmt_wh = select(MainWarehouse).filter(
             MainWarehouse.product_variant_id.in_(var_ids)
-        ).with_for_update().order_by(MainWarehouse.product_variant_id.asc())
+        ).order_by(MainWarehouse.product_variant_id.asc()).with_for_update()
         bulk_warehouse = {w.product_variant_id: w for w in (await db.execute(stmt_wh)).scalars().all()}
 
         for v_id in var_ids:
             if v_id not in bulk_warehouse:
                 new_wh = MainWarehouse(product_variant_id=v_id, available_quantity_packs=0, reserved_quantity_packs=0)
                 db.add(new_wh)
+                # +++ الشفافية الراديكالية: توثيق الإنشاء الصامت لاكتشاف الفساد لاحقاً +++
+                db.add(SystemAuditLog(
+                    admin_id=current_driver.id, target_id=f"Product_{v_id}", action_type="SILENT_WH_HEALING",
+                    old_value="No WH Record", new_value="Created with 0 balance (Batch Transfer Setup)"
+                ))
                 bulk_warehouse[v_id] = new_wh
         await db.flush()
 
@@ -1207,7 +1233,7 @@ async def batch_respond_to_transfers(
         stmt_sess_inv = select(SessionInventory).filter(
             SessionInventory.work_session_id.in_(session_ids), 
             SessionInventory.product_variant_id.in_(var_ids)
-        ).with_for_update().order_by(SessionInventory.work_session_id.asc(), SessionInventory.product_variant_id.asc())
+        ).order_by(SessionInventory.work_session_id.asc(), SessionInventory.product_variant_id.asc()).with_for_update()
         sess_invs = (await db.execute(stmt_sess_inv)).scalars().all()
         sess_inv_map = {(si.work_session_id, si.product_variant_id): si for si in sess_invs}
 
@@ -1229,32 +1255,38 @@ async def batch_respond_to_transfers(
             if not wh_record:
                 wh_record = MainWarehouse(product_variant_id=p_id, available_quantity_packs=0, reserved_quantity_packs=0)
                 db.add(wh_record)
+                db.add(SystemAuditLog(
+                    admin_id=current_driver.id, target_id=f"Product_{p_id}", action_type="SILENT_WH_HEALING",
+                    old_value="No WH Record", new_value="Created with 0 balance (Batch Transfer Loop)"
+                ))
                 bulk_warehouse[p_id] = wh_record
 
             if current_response == 'accepted':
                 # +++ درع الأصناف النشطة: المندوب يمكنه إرجاع (Pull) صنف موقوف، لكن لا يمكنه استلام (Push) صنف جديد موقوف +++
                 if transfer.quantity_packs > 0 and variant and not variant.is_active:
                     await db.rollback()
-                    raise HTTPException(status_code=400, detail=f"مرفوض: لا يمكنك استلام حمولة جديدة من المنتج ({variant.variant_name}) لأنه موقوف حالياً.")
+                    raise HTTPException(status_code=400, detail=f"مرفوض في الحوالة ({transfer.id}): لا يمكنك استلام حمولة جديدة من المنتج ({variant.variant_name}) لأنه موقوف حالياً.")
                 # +++ منع الرصيد السالب عند السحب +++
                 if transfer.quantity_packs < 0 and (not sess_inv or sess_inv.current_remaining_quantity + transfer.quantity_packs < 0):
                     await db.rollback()
-                    raise HTTPException(status_code=400, detail=f"فشل: رصيدك من {variant.variant_name if variant else p_id} لا يكفي للسحب.")
+                    raise HTTPException(status_code=400, detail=f"فشل في الحوالة ({transfer.id}): رصيدك من {variant.variant_name if variant else p_id} لا يكفي للسحب.")
 
                 # أ. المعالجة المحاسبية للمستودع المركزي
                 if transfer.quantity_packs > 0:
+                    old_commit_batch = wh_record.available_quantity_packs or 0
                     wh_record.reserved_quantity_packs = max(0, wh_record.reserved_quantity_packs - transfer.quantity_packs)
                     db.add(WarehouseLedger(
                         product_variant_id=p_id, transaction_type='HANDSHAKE_COMMIT',
-                        quantity_packs=transfer.quantity_packs, balance_after_packs=wh_record.available_quantity_packs,
+                        quantity_packs=transfer.quantity_packs, balance_before_packs=old_commit_batch, balance_after_packs=wh_record.available_quantity_packs,
                         admin_id=transfer.admin_id, reference_id=f"TRANS_{transfer.id}", 
                         notes=f"موافقة المندوب: تحرير المحجوز للعهدة. (المحجوز المتبقي: {wh_record.reserved_quantity_packs})"
                     ))
                 else:
+                    old_pull_batch = wh_record.available_quantity_packs or 0
                     wh_record.available_quantity_packs += abs(transfer.quantity_packs)
                     db.add(WarehouseLedger(
                         product_variant_id=p_id, transaction_type='HANDSHAKE_COMMIT_PULL',
-                        quantity_packs=abs(transfer.quantity_packs), balance_after_packs=wh_record.available_quantity_packs,
+                        quantity_packs=abs(transfer.quantity_packs), balance_before_packs=old_pull_batch, balance_after_packs=wh_record.available_quantity_packs,
                         admin_id=transfer.admin_id, reference_id=f"TRANS_{transfer.id}", 
                         notes=f"موافقة المندوب: استرجاع بضاعة للمستودع المتاح. (المحجوز الحالي: {wh_record.reserved_quantity_packs})"
                     ))
@@ -1284,16 +1316,12 @@ async def batch_respond_to_transfers(
                     
                     v_load = v_load_map.get((route.vehicle_id, p_id))
                     if v_load: 
-                        if v_load.quantity + delta_cartons < 0:
-                            await db.rollback()
-                            raise HTTPException(status_code=400, detail=f"فشل: حمولة السيارة المسجلة من المنتج ({variant.variant_name if variant else p_id}) لا تكفي للسحب.")
-                        v_load.quantity += delta_cartons
+                        # +++ الدرع المعماري: السيارة مجرد تمثيل. لا نمنع הסحب +++
+                        v_load.quantity = max(0, v_load.quantity + delta_cartons)
+                        if v_load.quantity == 0:
+                            await db.delete(v_load)
                     else:
-                        # +++ إصلاح ثغرة السحب المخفي: منع سحب كميات لمنتج غير مدرج أصلاً بالسيارة +++
-                        if delta_cartons < 0:
-                            await db.rollback()
-                            raise HTTPException(status_code=400, detail=f"فشل محاسبي: لا يمكن سحب كراتين لمنتج غير مسجل بحمولة السيارة أصلاً.")
-                        elif delta_cartons > 0: 
+                        if delta_cartons > 0: 
                             new_v_load = VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=p_id, quantity=delta_cartons)
                             db.add(new_v_load)
                             v_load_map[(route.vehicle_id, p_id)] = new_v_load
@@ -1307,11 +1335,12 @@ async def batch_respond_to_transfers(
             elif current_response == 'rejected':
                 audit_notes = f"رفض مصافحة جماعية - رقم الحوالة: {transfer.id}"
                 if transfer.quantity_packs > 0:
+                    old_release_batch = wh_record.available_quantity_packs or 0
                     wh_record.reserved_quantity_packs = max(0, wh_record.reserved_quantity_packs - transfer.quantity_packs)
                     wh_record.available_quantity_packs += transfer.quantity_packs
                     db.add(WarehouseLedger(
                         product_variant_id=p_id, transaction_type='HANDSHAKE_RELEASE',
-                        quantity_packs=transfer.quantity_packs, balance_after_packs=wh_record.available_quantity_packs,
+                        quantity_packs=transfer.quantity_packs, balance_before_packs=old_release_batch, balance_after_packs=wh_record.available_quantity_packs,
                         admin_id=transfer.admin_id, reference_id=f"TRANS_{transfer.id}", 
                         notes=f"رفض المندوب: إرجاع المحجوز للمتاح. (المحجوز المتبقي: {wh_record.reserved_quantity_packs})" # +++ توثيق المحجوز +++
                     ))

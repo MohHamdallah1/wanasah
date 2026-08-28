@@ -6,6 +6,7 @@
 │   ├── 04_BUSINESS_RULES.md
 │   ├── FINAL_REPORT.md
 │   ├── REMEDIATION_TRACKER.md
+│   ├── REMEDIATION_TRACKER2.md
 │   ├── production
 │   │   └── production_readiness.md
 │   └── reviews
@@ -179,7 +180,8 @@
 │   │   ├── env.py
 │   │   ├── script.py.mako
 │   │   └── versions
-│   │       └── 17bb3dec2056_phase_1_db_schema_hardening_constraints_.py
+│   │       ├── 56c127cae59d_initial_clean_schema.py
+│   │       └── be4ccee5ee8d_harden_models_constraints_and_server_.py
 │   ├── alembic.ini
 │   ├── api
 │   │   ├── auth.py
@@ -240,6 +242,7 @@
     │   │   ├── product_model.dart
     │   │   └── visit_model.dart
     │   ├── repositories
+    │   │   ├── dashboard_repository.dart
     │   │   └── sync_repository.dart
     │   ├── screens
     │   │   ├── add_shop_screen.dart
@@ -249,7 +252,8 @@
     │   │   ├── visit_list_screen.dart
     │   │   └── visit_screen.dart
     │   └── services
-    │       └── api_constants.dart
+    │       ├── api_constants.dart
+    │       └── location_service.dart
     ├── pubspec.lock
     ├── pubspec.yaml
     ├── test

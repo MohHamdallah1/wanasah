@@ -5,7 +5,9 @@ from config import Config
 db_url = Config.SQLALCHEMY_DATABASE_URI
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
-DATABASE_URL = db_url.replace("postgresql://", "postgresql+asyncpg://")
+if db_url.startswith("postgresql://") and "asyncpg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+DATABASE_URL = db_url
 
 # إنشاء المحرك مع إعدادات الـ Pool التي وضعتها أنت سابقاً لمنع الشلل
 engine = create_async_engine(
@@ -26,8 +28,6 @@ AsyncSessionLocal = async_sessionmaker(
 
 # دالة حقن الاعتماديات (Dependency Injection) - قلب فاست إيه بي آي
 async def get_db():
+    # الـ async with تتكفل بالإغلاق والإعادة للـ Pool تلقائياً بأمان تام
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session

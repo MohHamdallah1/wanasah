@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.dialects.postgresql import insert
-from models import SystemSetting, OfferRule, Driver, Shop, WorkSession, SessionInventory, ProductVariant, SystemAuditLog, InventoryLedger, MainWarehouse, WarehouseLedger
+from models import SystemSetting, OfferRule, Driver, Shop, WorkSession, SessionInventory, ProductVariant, InventoryLedger, MainWarehouse, WarehouseLedger
 from typing import Any, Type, Optional, List, Dict, Tuple
 
 async def get_setting(db_session: AsyncSession, key: str, default_value: Any, value_type: Type = str) -> Any:
@@ -24,18 +24,20 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
     price_per_pack: Decimal, 
     pre_fetched_tax: Optional[Decimal] = None, 
     active_offers: Optional[List[OfferRule]] = None,
-    packs_per_carton: int = 1 
+    packs_per_carton: int = 1,
+    variant_id: Optional[int] = None # +++ إضافة معرّف المنتج لفلترة العروض +++
 ) -> Dict[str, Any]:
     """حساب الفاتورة المالي النقي (محصن ضد كراش العينات المجانية)"""
+    _ZERO_RESULT = {'base_amount': Decimal('0.000'), 'discount_applied': Decimal('0.000'), 'tax_amount': Decimal('0.000'), 'final_amount': Decimal('0.000'), 'bonus_units': 0}
+    
     try:
         c_qty = int(cartons_qty)
         p_qty = int(packs_qty)
         # +++ الكي الجراحي: استخدام 'or' لمنع تمرير أي قيم سالبة منفردة +++
         if c_qty < 0 or p_qty < 0 or (c_qty == 0 and p_qty == 0): 
-            # +++ الدرع الفولاذي: إرجاع قاموس صفري لمنع 500 TypeError عند بيع العينات المجانية فقط +++
-            return {'base_amount': Decimal('0.000'), 'discount_applied': Decimal('0.000'), 'tax_amount': Decimal('0.000'), 'final_amount': Decimal('0.000'), 'bonus_units': 0}
+            return _ZERO_RESULT
     except (ValueError, TypeError):
-        return {'base_amount': Decimal('0.000'), 'discount_applied': Decimal('0.000'), 'tax_amount': Decimal('0.000'), 'final_amount': Decimal('0.000'), 'bonus_units': 0}
+        return _ZERO_RESULT
 
     c_price = Decimal(str(price_per_carton or '0.0'))
     p_price = Decimal(str(price_per_pack or '0.0'))
@@ -60,8 +62,13 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
     if active_offers is None:
         raise ValueError("هندسة مرفوضة: يجب جلب العروض النشطة مسبقاً وتمريرها كقائمة لمنع استنزاف قاعدة البيانات (N+1).")
         
-    # +++ الكي الجراحي من عندي: إبقاء total_equivalent_cartons لمنع غباء البوت من تضييع العروض +++
-    valid_offers = [o for o in active_offers if o.threshold_quantity <= total_equivalent_cartons]
+    # +++ الكي الجراحي: فلترة العروض المرتبطة بهذا المنتج فقط (أو العروض العامة)، والتأكد من نشاطها +++
+    valid_offers = [
+        o for o in active_offers 
+        if (o.product_variant_id is None or o.product_variant_id == variant_id) 
+        and getattr(o, 'is_active', True)
+        and o.threshold_quantity <= total_equivalent_cartons
+    ]
     if valid_offers:
         best_offer = sorted(valid_offers, key=lambda x: x.threshold_quantity, reverse=True)[0]
 
@@ -72,9 +79,8 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
         elif best_offer.offer_type == 'fixed_discount':
             discount_value = Decimal(str(best_offer.discount_value)) * Decimal(str(multiplier))
         elif best_offer.offer_type == 'percentage_discount':
-            discounted_cartons = multiplier * best_offer.threshold_quantity
-            discounted_amount = Decimal(str(discounted_cartons)) * c_price
-            discount_value = discounted_amount * (Decimal(str(best_offer.discount_value)) / Decimal('100'))
+            # +++ النسف المعماري: الخصم يُحسب على كامل المبلغ الأساسي +++
+            discount_value = base_amount * (Decimal(str(best_offer.discount_value)) / Decimal('100'))
 
     # +++ الدرع المحاسبي: الخصم المطبق لا يمكن أن يتجاوز قيمة الفاتورة لمنع تشويه تقارير الأرباح والخسائر +++
     actual_discount_applied = min(base_amount, discount_value)
@@ -107,11 +113,9 @@ async def check_debt_limits(
     driver = pre_fetched_driver or await db_session.get(Driver, driver_id)
     
     # +++ النسف المعماري لقنبلة الـ Race Condition (Phantom Read Lock) +++
-    if pre_fetched_shop:
-        shop = pre_fetched_shop
-    else:
-        stmt = select(Shop).with_for_update().filter_by(id=shop_id)
-        shop = (await db_session.execute(stmt)).scalar_one_or_none()
+    # تم إعدام الاعتماد على pre_fetched_shop لأنه يكسر الـ with_for_update() ويسمح بتجاوز السقف المالي
+    stmt = select(Shop).with_for_update().filter_by(id=shop_id)
+    shop = (await db_session.execute(stmt)).scalar_one_or_none()
 
     if not driver or not shop: return False, "المندوب أو المحل غير موجود."
     if not getattr(driver, 'can_allow_debt', False): return False, "غير مصرح لك بإعطاء ذمم للمحلات."
@@ -140,30 +144,34 @@ async def adjust_inventory(
     """تعديل الجرد الفولاذي الشامل (Single Source of Truth) - يربط العهدة والمستودع معاً"""
     if net_quantity_change_in_packs == 0: return True, ""
 
-    # 1. تحديث المستودع (إذا تطلب الأمر - لتفادي تكرار الكود في dispatch.py و warehouse.py)
-    if pre_locked_warehouse_record:
-        # إذا تم تمرير المستودع، فهذا يعني أن الحركة تؤثر عليه (Pull/Push)
-        wh_record = pre_locked_warehouse_record
-        old_wh_balance = wh_record.available_quantity_packs or 0
+    # 1. تحديث المستودع (إجباري لمنع تسرب المخزون أو خلق بضاعة من العدم)
+    wh_record = pre_locked_warehouse_record
+    if not wh_record:
+        # إذا لم يمرر المبرمج المستودع، نقوم نحن بجلبه وقفله قسرياً لحماية الجرد
+        stmt = select(MainWarehouse).with_for_update().filter_by(product_variant_id=variant_id)
+        wh_record = (await db_session.execute(stmt)).scalar_one_or_none()
+        if not wh_record:
+            return False, "فشل: الصنف غير موجود في المستودع الرئيسي."
+
+    old_wh_balance = wh_record.available_quantity_packs or 0
+    
+    # إذا كنا نضيف للمندوب (يعني نسحب من المستودع)
+    if net_quantity_change_in_packs > 0:
+        if (wh_record.available_quantity_packs or 0) < net_quantity_change_in_packs:
+            return False, f"فشل: رصيد المستودع لا يغطي صرف {net_quantity_change_in_packs} حبة."
+        wh_record.available_quantity_packs = (wh_record.available_quantity_packs or 0) - net_quantity_change_in_packs
+    else:
+        # إذا كنا نسحب من المندوب (يعني نرجع للمستودع)
+        wh_record.available_quantity_packs += abs(net_quantity_change_in_packs)
         
-        # إذا كنا نضيف للمندوب (يعني نسحب من المستودع)
-        if net_quantity_change_in_packs > 0:
-            # +++ الكي الجراحي: حماية المقارنة من الـ NoneType +++
-            if (wh_record.available_quantity_packs or 0) < net_quantity_change_in_packs:
-                return False, f"فشل: رصيد المستودع لا يغطي صرف {net_quantity_change_in_packs} حبة."
-            wh_record.available_quantity_packs = (wh_record.available_quantity_packs or 0) - net_quantity_change_in_packs
-        else:
-            # إذا كنا نسحب من المندوب (يعني نرجع للمستودع)
-            wh_record.available_quantity_packs += abs(net_quantity_change_in_packs)
-            
-        db_session.add(WarehouseLedger(
-            product_variant_id=variant_id, 
-            transaction_type=transaction_type + '_WH', # تمييز الحركة
-            quantity_packs=abs(net_quantity_change_in_packs),
-            balance_before_packs=old_wh_balance,
-            balance_after_packs=wh_record.available_quantity_packs,
-            admin_id=admin_id, reference_id=f"SESS_{session_id}", notes=notes
-        ))
+    db_session.add(WarehouseLedger(
+        product_variant_id=variant_id, 
+        transaction_type=transaction_type + '_WH',
+        quantity_packs=abs(net_quantity_change_in_packs),
+        balance_before_packs=old_wh_balance,
+        balance_after_packs=wh_record.available_quantity_packs,
+        admin_id=admin_id, reference_id=f"SESS_{session_id}", notes=notes
+    ))
 
     # 2. تحديث عهدة المندوب
     if not pre_locked_inventory_record:
@@ -197,10 +205,11 @@ async def adjust_inventory(
 
 
 def format_qty(total_packs: int, packs_per_carton: int) -> str:
-    """دالة التصفيح المحاسبي: تحويل الحبات لنص بشري (كراتين وحبات)"""
+    """دالة التصفيح المحاسبي: تحويل الحبات لنص بشري (كراتين وحبات) مع الحفاظ على الإشارة السالبة"""
     if not packs_per_carton or packs_per_carton <= 1:
         return f"{total_packs} حبة"
     
+    is_negative = int(total_packs) < 0
     abs_total = abs(int(total_packs))
     cartons, packs = divmod(abs_total, packs_per_carton)
     
@@ -211,7 +220,7 @@ def format_qty(total_packs: int, packs_per_carton: int) -> str:
         parts.append(f"{packs} حبة")
     
     res = " و ".join(parts) if parts else "0 حبة"
-    return res
+    return f"-{res}" if is_negative and res != "0 حبة" else res
 
 
 class InventoryReversalError(Exception):
@@ -231,7 +240,28 @@ async def reverse_previous_visit_state(
     محصنة ضد N+1، Lazy Loading، و Decimal TypeErrors.
     """
     # ==========================================
-    # 0. الدرع المعماري الشامل (Mega-Lock & IO Optimization)
+    # 0. الفحص المالي الاستباقي (Pre-Flight Financial Check)
+    # نسف ثغرة الفساد المحاسبي: الفحص قبل أي تعديل على الداتابيز
+    # ==========================================
+    old_cash = Decimal(str(visit.cash_collected or '0.0'))
+    old_debt_paid = Decimal(str(visit.debt_paid or '0.0'))
+    
+    if old_cash > Decimal('0') or old_debt_paid > Decimal('0'):
+        raise InventoryReversalError(
+            f"مرفوض أمنياً ومحاسبياً: لا يمكن التراجع عن زيارة تم فيها تحصيل كاش ({old_cash}) أو سداد ذمة ({old_debt_paid}). "
+            "يجب إصدار 'قيد عكسي' (Credit Note) للحفاظ على التسلسل المالي ومنع الاختلاس."
+        )
+
+    current_bal = Decimal(str(shop.current_balance or '0.0'))
+    net_visit_debt = Decimal(str(visit.final_amount_due or '0.0')) - old_cash
+    
+    new_balance = current_bal - net_visit_debt + old_debt_paid
+    
+    if new_balance < Decimal('0'):
+        raise InventoryReversalError(f"فشل التراجع: رصيد المحل الحالي ({current_bal}) لا يغطي الديون المسجلة بالزيارة. التراجع سيجعل الرصيد بالسالب (المحل سدد ذمته لاحقاً)!")
+
+    # ==========================================
+    # 1. الدرع المعماري الشامل (Mega-Lock & IO Optimization)
     # نسف الـ Cross-Query Deadlock عن طريق دمج الاستعلامات
     # ==========================================
     item_variant_ids = [i.product_variant_id for i in visit.items if not getattr(i, 'is_cancelled', False)] if visit.outcome in ['Sale', 'NoSale'] else []
@@ -256,7 +286,7 @@ async def reverse_previous_visit_state(
         bulk_variants = {v.id: v for v in (await db_session.execute(stmt_vars)).scalars().all()}
 
     # ==========================================
-    # 1. التراجع المستودعي للمبيعات والعينات
+    # 2. التراجع المستودعي للمبيعات والعينات
     # ==========================================
     if visit.outcome in ['Sale', 'NoSale']:
         for item in visit.items:
@@ -295,7 +325,7 @@ async def reverse_previous_visit_state(
             item.is_cancelled = True 
 
     # ==========================================
-    # 2. التراجع المستودعي للمرتجعات (إعادة ضبط العهدة بدقة)
+    # 3. التراجع المستودعي للمرتجعات (إعادة ضبط العهدة بدقة)
     # ==========================================
     for ret in visit.returns:
         if getattr(ret, 'is_cancelled', False): continue 
@@ -343,34 +373,10 @@ async def reverse_previous_visit_state(
         ret.is_cancelled = True
 
     # ==========================================
-    # 3. التراجع المالي الشامل (الحماية القصوى من TypeError)
+    # 4. التراجع المالي الشامل
     # ==========================================
-    # +++ تحويل القيم إلى Decimal آمن جداً بغض النظر عما يأتي من الداتابيز +++
-    current_bal = Decimal(str(shop.current_balance or '0.0'))
-    net_visit_debt = Decimal(str(visit.final_amount_due or '0.0')) - Decimal(str(visit.cash_collected or '0.0'))
-    debt_paid_to_revert = Decimal(str(visit.debt_paid or '0.0'))
-    
-    # تحديث رصيد المحل بأمان مالي مطلق (Decimal نقي 100% بدون تقريب)
-    new_balance = current_bal - net_visit_debt + debt_paid_to_revert
-    
-    # +++ الدرع المالي الفولاذي: حماية السيرفر من 500 Crash بسبب CheckConstraint +++
-    if new_balance < Decimal('0'):
-        raise InventoryReversalError(f"فشل التراجع: رصيد المحل الحالي ({current_bal}) لا يغطي الديون المسجلة بالزيارة. التراجع سيجعل الرصيد بالسالب (المحل سدد ذمته لاحقاً)!")
-        
+    # تطبيق التعديلات المالية التي تم فحصها مسبقاً في بداية الدالة
     shop.current_balance = new_balance
-
-    # كشف الاختلاس 
-    old_cash = visit.cash_collected or 0.0
-    old_debt_paid = visit.debt_paid or 0.0
-    
-    if old_cash > 0 or old_debt_paid > 0:
-        db_session.add(SystemAuditLog(
-            admin_id=admin_id,
-            target_id=f"Visit_{visit.id}_Shop_{shop.id}",
-            action_type="CASH_REVERSAL_ALERT",
-            old_value=f"Cash: {old_cash} | Debt Paid: {old_debt_paid}",
-            new_value="Reversed to 0.0. تحذير: يجب على المندوب إعادة هذا النقد يدوياً لصاحب المحل."
-        ))
 
     # تصفير العدادات المالية للزيارة بشكل آمن محاسبياً
     visit.amount_before_tax_and_discount = Decimal('0.0')

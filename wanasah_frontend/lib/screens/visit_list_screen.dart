@@ -51,22 +51,19 @@ class _VisitListScreenState extends State<VisitListScreen>
     super.dispose();
   }
 
-  // +++ بصمة الـ Elite Senior: إجبار الـ RefreshIndicator على الانتظار حتى ينهي البلوك عمله +++
+  // +++ بصمة الـ Elite Senior: إجبار الـ RefreshIndicator على الانتظار بالطريقة التفاعلية الآمنة للذاكرة +++
   Future<void> _forceSync() async {
     developer.log('Forcing sync via BLoC...');
-    final completer = Completer<void>();
-    
-    final subscription = _visitListBloc.stream.listen((state) {
-      if (state is VisitListLoaded || state is VisitListError) {
-        if (!completer.isCompleted) completer.complete();
-      }
-    });
-
     _visitListBloc.add(const RefreshVisitsEvent());
     
-    // مهلة 10 ثواني كحد أقصى عشان ما يعلق المؤشر للأبد لو صار خلل غريب
-    await completer.future.timeout(const Duration(seconds: 10), onTimeout: () => null);
-    await subscription.cancel();
+    try {
+      // انتظار وصول حالة النهاية (نجاح أو خطأ) بحد أقصى 10 ثوانٍ بدون ترك Listeners معلقة
+      await _visitListBloc.stream
+          .firstWhere((state) => state is VisitListLoaded || state is VisitListError)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      developer.log('[VisitListScreen] Sync indicator timeout safely aborted.');
+    }
   }
 
   @override
@@ -280,9 +277,12 @@ class _VisitListScreenState extends State<VisitListScreen>
           final String shopName = visit.shopName;
           final String visitStatus = visit.status;
 
+          // +++ الكي الجراحي: توضيح الحالة الفعلية للزيارات التي تمت محاولتها ولم تكتمل بمبيعات +++
           String statusInArabic;
           if (visitStatus == 'Completed') {
             statusInArabic = 'مكتملة';
+          } else if (visitStatus == 'Pending' && visit.outcome.isNotEmpty) {
+            statusInArabic = visit.outcome == 'Postponed' ? 'مؤجلة' : (visit.outcome == 'NoSale' ? 'بدون بيع' : 'محاولة سابقة');
           } else if (visitStatus == 'Pending') {
             statusInArabic = 'قيد الانتظار';
           } else {
@@ -323,7 +323,8 @@ class _VisitListScreenState extends State<VisitListScreen>
           }
 
           return Card(
-            key: ValueKey(visit.shopId),
+            // +++ الكي الجراحي (VLS-4): استخدام معرّف الزيارة لمنع كراش الواجهة إذا تكرر المحل +++
+            key: ValueKey(visit.id),
             elevation: isCompleted ? 0 : 2,
             margin: const EdgeInsets.only(bottom: 12.0),
             color: cardBgColor,

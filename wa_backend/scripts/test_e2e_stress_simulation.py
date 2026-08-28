@@ -21,6 +21,7 @@ from typing import Optional, Dict, List, Tuple, Any
 
 import httpx
 from httpx import ASGITransport
+import bcrypt
 
 # ═══ Ensure wa_backend is importable ═══
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -172,7 +173,8 @@ async def setup_admins():
                         can_allow_debt=True,
                         phone_number=rand_phone(),
                     )
-                    new_admin.set_password("Admin1234!")
+                    # +++ التشفير المباشر لنسف الـ AttributeError +++
+                    new_admin.password_hash = bcrypt.hashpw("Admin1234!".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                     db.add(new_admin)
                     await db.commit()
                     admin_id = new_admin.id
@@ -216,11 +218,14 @@ async def setup_drivers():
                         data = resp.json()
                         state.driver_tokens[data["driver_id"]] = data["token"]
                         state.driver_ids.append(data["driver_id"])
+                        # +++ إصلاح السكريبت: تخزين صلاحية الذمم للمناديب الموجودين مسبقاً +++
+                        state.driver_can_debt[data["driver_id"]] = existing.can_allow_debt 
                         state.driver_usernames[data["driver_id"]] = username
                         state.driver_passwords[data["driver_id"]] = "Driver1234!"
                     else:
                         # Try to reset
-                        existing.set_password("Driver1234!")
+                        # +++ التشفير المباشر +++
+                        existing.password_hash = bcrypt.hashpw("Driver1234!".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                         await db.commit()
                         resp2 = await client.post("/driver/login", json={"username": username, "password": "Driver1234!"})
                         if resp2.status_code == 200:
@@ -229,6 +234,7 @@ async def setup_drivers():
                             state.driver_ids.append(data["driver_id"])
                             state.driver_usernames[data["driver_id"]] = username
                             state.driver_passwords[data["driver_id"]] = "Driver1234!"
+                            state.driver_can_debt[data["driver_id"]] = existing.can_allow_debt
                         else:
                             print(yellow(f"    Driver {i} exists but cannot login: {resp2.status_code}"))
                 else:
@@ -241,7 +247,8 @@ async def setup_drivers():
                         can_allow_debt=can_debt,
                         phone_number=rand_phone(),
                     )
-                    new_driver.set_password("Driver1234!")
+                    # +++ التشفير المباشر +++
+                    new_driver.password_hash = bcrypt.hashpw("Driver1234!".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                     db.add(new_driver)
                     await db.commit()
                     driver_id = new_driver.id
@@ -413,6 +420,26 @@ async def setup_zones():
     await client.aclose()
     assert len(state.zone_ids) >= 60, f"Need at least 60 zones, got {len(state.zone_ids)}"
     print(green(f"✓ {len(state.zone_ids)} zones ready."))
+
+async def cleanup_old_test_data():
+    """تنظيف شامل لخطوط السير والجلسات القديمة لمنع تداخل الاختبارات"""
+    print(cyan("\n[SETUP] Cleaning up legacy test data ..."))
+    from database import AsyncSessionLocal
+    from models import DispatchRoute, WorkSession, Visit
+    from sqlalchemy import update
+    
+    async with AsyncSessionLocal() as db:
+        try:
+            # 1. إغلاق كل خطوط السير الوهمية القديمة
+            await db.execute(update(DispatchRoute).where(DispatchRoute.driver_id.in_(state.driver_ids)).values(status='closed', work_session_id=None))
+            # 2. تسوية وإغلاق كل الجلسات القديمة
+            # +++ الدرع الزمني: استخدام Naive Timezone لمنع كراش asyncpg +++
+            await db.execute(update(WorkSession).where(WorkSession.driver_id.in_(state.driver_ids)).values(is_settled=True, end_time=datetime.now(timezone.utc).replace(tzinfo=None)))
+            await db.commit()
+            print(green("✓ Old routes and sessions cleared."))
+        except Exception as e:
+            await db.rollback()
+            print(yellow(f"Cleanup failed: {e}"))
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
@@ -609,7 +636,7 @@ async def phase1_bulk_import():
 
 async def phase2_inbound_supply():
     """Phase 2a: Inbound Supply — Receive 100,000 units across 150 variants via DB Injection."""
-    print(header("\n═════ PHASE 2a: Mass Warehouse Inbound (100,000 units) ═════"))
+    print(header("\n═════ PHASE 2a: Mass Warehouse Inbound (2,000,000 units) ═════"))
     admin_client = make_client(token=state.admin_tokens[0])
     
     # Ensure warehouse is ACTIVE
@@ -621,7 +648,7 @@ async def phase2_inbound_supply():
     from models import MainWarehouse, WarehouseLedger
     from sqlalchemy import select as sa_select
 
-    total_to_add = 100_000
+    total_to_add = 2_000_000 # +++ رفع الكمية لمليونين لتكفي حمولات الـ 60 سيارة +++
     per_variant = total_to_add // len(state.variant_ids)
     total_added = 0
 
@@ -652,12 +679,12 @@ async def phase2_inbound_supply():
                 
                 ledger = WarehouseLedger(
                     product_variant_id=vid,
-                    transaction_type='INBOUND',
+                    transaction_type='INBOUND_SUPPLIER',
                     quantity_packs=qty,
                     balance_before_packs=old_balance,  # <--- هاد الحقل اللي الداتابيز قاتلت عشانه!
                     balance_after_packs=wh.available_quantity_packs,
                     admin_id=state.admin_ids[0] if state.admin_ids else 1,
-                    reference_id="STRESS_INBOUND",
+                    reference_id=f"STRESS_INBOUND_{int(time.time())}",
                     notes="Direct DB Injection for Stress Test"
                 )
                 db.add(ledger)
@@ -773,6 +800,7 @@ async def phase3_morning_load():
     fail_count = len(results) - success_count
 
     print(f"  Dispatch results: {success_count} success, {fail_count} failures")
+    assert success_count == NUM_DRIVERS, f"Dispatch degraded: {fail_count} failures. Sample: {[r[2] for r in results if not r[0]][:3]}"
 
     # Get active routes to collect route IDs
     routes_resp = await admin_client.get("/dispatch/active_routes")
@@ -803,6 +831,7 @@ async def phase3_morning_load():
     # If there are reserved packs from previous test runs, that's OK; we just log it
 
     await admin_client.aclose()
+    assert success_count == NUM_DRIVERS, f"Dispatch degraded: {fail_count} failures. Sample: {[r[2] for r in results if not r[0]][:3]}"
     print(green(f"✓ Phase 3a passed — {success_count}/{NUM_DRIVERS} routes dispatched."))
 
 
@@ -812,7 +841,7 @@ async def phase3_split_brain_collision():
     admin_client = make_client(token=state.admin_tokens[0])
 
     # Pick a driver and their vehicle that already has an active route
-    active_routes = [(did, vid) for did, vid in enumerate(state.vehicle_ids) if did in state.route_ids]
+    active_routes = [(did, vid) for did, vid in zip(state.driver_ids, state.vehicle_ids) if did in state.route_ids]
     if not active_routes:
         # Fallback: use first driver
         target_driver = state.driver_ids[0]
@@ -858,7 +887,7 @@ async def phase4_session_start():
             return (False, driver_id, "No token")
         client = make_client(token=token)
         try:
-            resp = await client.post(f"/driver/{driver_id}/sessions/start", json={
+            resp = await client.post("/driver/sessions/start", json={
                 "latitude": 31.95,
                 "longitude": 35.88,
             })
@@ -880,6 +909,7 @@ async def phase4_session_start():
     fail_count = len(results) - success_count
 
     print(f"  Session start: {success_count} success, {fail_count} failures")
+    assert success_count == NUM_DRIVERS, f"Session start degraded: {fail_count} failures. Sample: {[r[2] for r in results if not r[0]][:3]}"
     real_errors = [r[2] for r in results if not r[0] and r[2] != "No route assigned"]
     if real_errors: print(yellow(f"  API Error Sample: {real_errors[0]}"))
 
@@ -902,7 +932,7 @@ async def phase4_session_start():
         await admin_client.put(f"/admin/sessions/{sid}/authorize", json={"is_authorized": True})
     await admin_client.aclose()
 
-    assert success_count >= 1, "Need at least 1 successful session start"
+    assert success_count == NUM_DRIVERS, f"Session start degraded: {fail_count} failures. Sample: {[r[2] for r in results if not r[0]][:3]}"
     print(green(f"✓ Phase 4a passed — {success_count}/{NUM_DRIVERS} sessions started & authorized."))
 
 
@@ -924,7 +954,7 @@ async def phase4_break_guard_and_timezone():
     client = make_client(token=token)
 
     # 1. Start break
-    break_resp = await client.put(f"/driver/{active_driver_id}/sessions/break", json={
+    break_resp = await client.put("/driver/sessions/break", json={
         "action": "start"
     })
     assert break_resp.status_code == 200, f"Break start failed: {break_resp.status_code} {break_resp.text}"
@@ -932,7 +962,7 @@ async def phase4_break_guard_and_timezone():
 
     # 2. Attempt sale during break → 403
     # First we need a visit to update; get visits for this driver
-    visits_resp = await client.get(f"/driver/{active_driver_id}/visits")
+    visits_resp = await client.get("/driver/visits")
     if visits_resp.status_code == 200:
         visits_data = visits_resp.json()
         pending_visits = [v for v in visits_data.get("visits", []) if v.get("visit_status") == "Pending" or v.get("status") == "Pending"]
@@ -957,7 +987,7 @@ async def phase4_break_guard_and_timezone():
         print(yellow(f"  Could not fetch visits: {visits_resp.status_code}"))
 
     # 3. End break — verify no timezone offset-naive crash
-    end_break_resp = await client.put(f"/driver/{active_driver_id}/sessions/break", json={
+    end_break_resp = await client.put("/driver/sessions/break", json={
         "action": "end"
     })
     assert end_break_resp.status_code == 200, f"Break end failed (timezone crash?): {end_break_resp.status_code} {end_break_resp.text}"
@@ -981,7 +1011,7 @@ async def phase4_reversing_visit_adjustment():
     if rogue_driver_id:
         rogue_token = state.driver_tokens[rogue_driver_id]
         rogue_client = make_client(token=rogue_token)
-        v_resp = await rogue_client.get(f"/driver/{rogue_driver_id}/visits")
+        v_resp = await rogue_client.get("/driver/visits")
         if v_resp.status_code == 200:
             vd = v_resp.json()
             rogue_pending = [v for v in vd.get("visits", []) if v.get("visit_status") == "Pending" or v.get("status") == "Pending"]
@@ -1013,7 +1043,7 @@ async def phase4_reversing_visit_adjustment():
     client = make_client(token=token)
 
     # Get visits
-    visits_resp = await client.get(f"/driver/{active_driver_id}/visits")
+    visits_resp = await client.get("/driver/visits")
     assert visits_resp.status_code == 200, f"Failed to get visits: {visits_resp.status_code}"
     visits_data = visits_resp.json()
     pending_visits = [v for v in visits_data.get("visits", []) if v.get("visit_status") == "Pending" or v.get("status") == "Pending"]
@@ -1044,7 +1074,8 @@ async def phase4_reversing_visit_adjustment():
     # +++ تدخّل المشرف: رفع سقف ذمم المحل لـ 50000 قبل البيع لتجنب حظر الـ 403 +++
     shop_id = pending_visits[0]["shop_id"]
     admin_client = make_client(token=state.admin_tokens[0])
-    await admin_client.put(f"/dispatch/shops/{shop_id}", json={"maxDebtLimit": 50000})
+    put_resp = await admin_client.put(f"/dispatch/shops/{shop_id}", json={"maxDebtLimit": 50000})
+    assert put_resp.status_code == 200, f"Failed to update shop debt limit: {put_resp.status_code} - {put_resp.text}"
     await admin_client.aclose()
 
     # Step A: Sell 10 cartons
@@ -1055,7 +1086,7 @@ async def phase4_reversing_visit_adjustment():
              "bonus_quantity": 0, "sample_quantity": 0, "sample_packs_quantity": 0}
         ],
         "returns": [],
-        "cash_collected": 0,
+        "cash_collected": 50, # +++ بيع نقدي لإيجاد كاش حقيقي في الجلسة لمرحلة 6b +++
         "debt_paid": 0,
         "notes": "Initial sale 10 cartons",
         "latitude": 31.95,
@@ -1067,7 +1098,7 @@ async def phase4_reversing_visit_adjustment():
 
     # Verify inventory decreased by 10 cartons
     inv_after_first = {}
-    visits_after = await client.get(f"/driver/{active_driver_id}/visits")
+    visits_after = await client.get("/driver/visits")
     if visits_after.status_code == 200:
         vd2 = visits_after.json()
         for inv_item in vd2.get("inventory", []):
@@ -1103,7 +1134,7 @@ async def phase4_reversing_visit_adjustment():
 
     # Verify inventory: should be old - 2 cartons (not 10), damaged items NOT in sellable balance
     inv_after_reopen = {}
-    visits_final = await client.get(f"/driver/{active_driver_id}/visits")
+    visits_final = await client.get("/driver/visits")
     if visits_final.status_code == 200:
         vd3 = visits_final.json()
         for inv_item in vd3.get("inventory", []):
@@ -1164,36 +1195,34 @@ async def phase4_shortages_and_ghost_shop():
 
     async with AsyncSessionLocal() as db:
         try:
-            from models import ShortageRequest, Shop
+            from models import Shop
             from sqlalchemy import select as sa_select
-            # Find a shop in the driver's zone
-            stmt_shop = sa_select(Shop).filter(Shop.zone_id == zone_id, Shop.is_active == True, Shop.is_archived == False).limit(1)
-            res_shop = await db.execute(stmt_shop)
-            shop = res_shop.scalar_one_or_none()
-            if shop:
+            stmt_shop = sa_select(Shop).filter(Shop.zone_id == zone_id, Shop.is_archived == False).limit(1)
+            shop = (await db.execute(stmt_shop)).scalar_one_or_none()
+            if shop: 
                 target_shop_id = shop.id
-                sr = ShortageRequest(
-                    zone_id=zone_id,
-                    shop_id=shop.id,
-                    driver_id=active_driver_id,
-                    product_variant_id=state.variant_ids[0],
-                    quantity=5,
-                    status="pending",
-                    notes="Emergency test shortage",
-                )
-                db.add(sr)
-                await db.flush()
-                shortage_id = sr.id
+                # +++ تنظيف أي نواقص سابقة لنفس المحل لمنع 409 +++
+                from models import ShortageRequest
+                from sqlalchemy import delete
+                await db.execute(delete(ShortageRequest).where(ShortageRequest.shop_id == target_shop_id))
                 await db.commit()
-                print(f"  Shortage created: id={shortage_id}, shop={shop.id}")
-            else:
-                print(yellow("  No shop in zone to create shortage"))
         finally:
             await db.rollback()
 
+    if target_shop_id:
+        sr_resp = await admin_client.post("/dispatch/shortages", json=[{
+            "zoneId": zone_id,
+            "shopId": target_shop_id,
+            "driverId": active_driver_id,
+            "productId": state.variant_ids[0],
+            "quantity": 5
+        }])
+        assert sr_resp.status_code == 201, f"Failed to create shortage via API: {sr_resp.text}"
+        print(f"  Shortage created via API: id={target_shop_id}, shop={target_shop_id}")
+
     # Now verify that visiting the shop shows is_emergency=True
     if target_shop_id:
-        visits_resp = await client.get(f"/driver/{active_driver_id}/visits")
+        visits_resp = await client.get("/driver/visits")
         if visits_resp.status_code == 200:
             vd = visits_resp.json()
             emergency_visits = [v for v in vd.get("visits", []) if v.get("is_emergency") == True]
@@ -1220,7 +1249,7 @@ async def phase4_shortages_and_ghost_shop():
         print(f"  Ghost shop created: id={ghost_shop_id}, name={ghost_data['shop']['name']}")
 
         # Verify orphan visit is created and attached to session
-        visits_after = await client.get(f"/driver/{active_driver_id}/visits")
+        visits_after = await client.get("/driver/visits")
         if visits_after.status_code == 200:
             vd2 = visits_after.json()
             ghost_visits = [v for v in vd2.get("visits", []) if v.get("shop_id") == ghost_shop_id]
@@ -1310,10 +1339,17 @@ async def phase5_mid_day_transfers():
             return (False, driver_id, "No route")
         client = make_client(token=state.admin_tokens[0])
         try:
+            # +++ الكي الجراحي: اختيار منتج فعلي من حمولة سيارة المندوب لمنع 400 +++
+            live_resp = await client.get(f"/dispatch/route/{route_id}/live_inventory")
             deltas = []
-            if len(state.variant_ids) >= 2:
-                deltas.append({"product_id": state.variant_ids[0], "delta_cartons": 10})
-                deltas.append({"product_id": state.variant_ids[1], "delta_cartons": -5})
+            if live_resp.status_code == 200 and live_resp.json():
+                live_items = [i for i in live_resp.json() if i["current_cartons"] >= 5]
+                if live_items:
+                    valid_pid = int(live_items[0]["product_id"])
+                    deltas.append({"product_id": valid_pid, "delta_cartons": -2}) # سحب آمن للمصداقية
+                else:
+                    valid_pid = int(live_resp.json()[0]["product_id"])
+                    deltas.append({"product_id": valid_pid, "delta_cartons": 10}) # إضافة آمنة
             else:
                 deltas.append({"product_id": state.variant_ids[0], "delta_cartons": 5})
 
@@ -1336,7 +1372,9 @@ async def phase5_mid_day_transfers():
     await ws_task
 
     success_count = sum(1 for r in results if r[0])
+    fail_count = len(results) - success_count
     print(f"  Transfers issued: {success_count}/{NUM_DRIVERS} success")
+    assert success_count == NUM_DRIVERS, f"Transfers degraded: {fail_count} failures. Sample: {[r[2] for r in results if not r[0]][:3]}"
 
     # Verify WebSocket broadcast (check if dispatch_manager was used)
     if ws_connected and ws_received:
@@ -1374,7 +1412,7 @@ async def phase5_partial_handshake():
         client = make_client(token=token)
         try:
             # Get pending transfers
-            pending_resp = await client.get(f"/driver/{did}/transfers/pending")
+            pending_resp = await client.get("/driver/transfers/pending")
             if pending_resp.status_code != 200:
                 continue
             pending_batches = pending_resp.json()
@@ -1411,12 +1449,13 @@ async def phase5_partial_handshake():
                         pass
 
             processed += 1
-            if processed >= 60:
+            if processed >= NUM_DRIVERS:
                 break
         finally:
             await client.aclose()
 
     print(f"  Processed transfers for {processed} drivers")
+    assert processed == NUM_DRIVERS, f"Partial handshake degraded: processed only {processed}/{NUM_DRIVERS} drivers."
 
     # Verify warehouse reserved has decreased
     admin_client = make_client(token=state.admin_tokens[0])
@@ -1448,7 +1487,7 @@ async def phase6_end_work():
             return (False, driver_id, "No token")
         client = make_client(token=token)
         try:
-            resp = await client.put(f"/driver/{driver_id}/sessions/end")
+            resp = await client.put("/driver/sessions/end")
             if resp.status_code == 200:
                 return (True, driver_id, resp.json().get("message", ""))
             else:
@@ -1462,8 +1501,9 @@ async def phase6_end_work():
     results = await asyncio.gather(*tasks)
 
     success_count = sum(1 for r in results if r[0])
+    fail_count = len(results) - success_count
     print(f"  End work: {success_count}/{NUM_DRIVERS} success")
-    assert success_count >= 1, "Need at least 1 successful session end"
+    assert success_count == NUM_DRIVERS, f"End work degraded: {fail_count} failures. Sample: {[r[2] for r in results if not r[0]][:3]}"
     print(green(f"✓ Phase 6a passed — {success_count} sessions ended."))
 
 
@@ -1472,27 +1512,36 @@ async def phase6_cash_discrepancy_gate():
     print(header("\n═════ PHASE 6b: Cash Discrepancy Gate ═════"))
     admin_client = make_client(token=state.admin_tokens[0])
 
-    # Find a settled session (or one that ended) for a driver
+    # +++ الكي الجراحي: البحث عن جلسة تمتلك كاش متوقع فعلي (> 0) بدل أخذ أول جلسة عمياء +++
+    # فرق الكاش لا يُختبر إلا على جلسة فيها مبيعات نقدية حقيقية (مثل بيع 4c الآجل)
     target_session_id = None
+    report = None
     for did in state.driver_ids:
-        if did in state.session_ids:
-            target_session_id = state.session_ids[did]
+        if did not in state.session_ids:
+            continue
+        sid = state.session_ids[did]
+        r_resp = await admin_client.get(f"/admin/sessions/{sid}/settlement_report")
+        if r_resp.status_code != 200:
+            continue
+        rep = r_resp.json()
+        cash_val = Decimal(rep.get("financials", {}).get("expected_cash_in_hand", "0.0"))
+        if cash_val > Decimal('0.0'):
+            target_session_id = sid
+            report = rep
             break
-    assert target_session_id is not None, "No session available for settlement test"
+    assert target_session_id is not None, "No session with positive expected cash found! Need a completed CASH sale first."
 
-    # Get settlement report to know expected cash
-    report_resp = await admin_client.get(f"/admin/sessions/{target_session_id}/settlement_report")
-    assert report_resp.status_code == 200, f"Report fetch failed: {report_resp.status_code}"
-    report = report_resp.json()
     expected_cash_str = report.get("financials", {}).get("expected_cash_in_hand", "0.0")
     expected_cash = Decimal(expected_cash_str)
-    print(f"  Expected cash: {expected_cash}")
+    print(f"  Expected cash: {expected_cash} (session {target_session_id})")
 
-    # Submit 5 below expected, no notes → expect 400
-    actual_low = expected_cash - Decimal('5')
+    # +++ الكي الجراحي: يجب ضمان أن الجلسة تمتلك كاش متوقع > 0 لإنشاء فرق حقيقي +++
+    assert expected_cash > Decimal('0.0'), "Expected cash is zero! Pick a session with actual sales to test discrepancy."
+    
+    actual_low = expected_cash - Decimal('10')
     if actual_low < Decimal('0'):
         actual_low = Decimal('0')
-    # Get inventory jard from report
+
     inventory_jard = []
     for inv_item in report.get("inventory", []):
         inventory_jard.append({
@@ -1505,26 +1554,9 @@ async def phase6_cash_discrepancy_gate():
         "notes": "",
         "inventory_jard": inventory_jard,
     })
-    if bad_resp.status_code == 400:
-        print(f"  No-notes discrepancy blocked: 400 ✓ — {bad_resp.json().get('message', '')[:100]}")
-    elif bad_resp.status_code == 200:
-        # If difference is 0 (all cash 0), this might pass — try with explicit difference
-        print(yellow(f"  No-notes returned 200 (cash difference may be 0). Creating artificial gap..."))
-        # Force a difference by sending actual_cash = expected + 10
-        actual_high = expected_cash + Decimal('10')
-        bad_resp2 = await admin_client.put(f"/admin/sessions/{target_session_id}/settle", json={
-            "actual_cash": str(actual_high),
-            "notes": "",
-            "inventory_jard": inventory_jard,
-        })
-        if bad_resp2.status_code == 400:
-            print(f"  No-notes discrepancy blocked (2nd try): 400 ✓")
-            actual_low = actual_high  # for the next step
-        else:
-            print(yellow(f"  No-notes discrepancy returned {bad_resp2.status_code} (may need different setup)"))
-    else:
-        print(red(f"  Unexpected no-notes response: {bad_resp.status_code} — {bad_resp.text[:200]}"))
-        # Don't fail — the test configuration may differ
+    
+    assert bad_resp.status_code == 400 and ("تبرير" in bad_resp.text or "فرق" in bad_resp.text), f"Expected explicit discrepancy error, got: {bad_resp.status_code} - {bad_resp.text}"
+    print(f"  No-notes discrepancy blocked: 400 ✓ — {bad_resp.json().get('detail', '')[:100]}")
 
     # Resubmit WITH notes → should accept
     good_resp = await admin_client.put(f"/admin/sessions/{target_session_id}/settle", json={
@@ -1663,9 +1695,9 @@ async def phase7_database_autopsy():
             # ============================================================
             print(cyan("\n  --- 7b: VehicleLoad Clearing Check ---"))
             if settled_ids:
-                # Get vehicle IDs from settled sessions' routes
+                # +++ الكي الجراحي: البحث برقم المندوب لأن رقم الجلسة يتم تصفيره في خط السير بعد التسوية +++
                 stmt_routes = sa_select(DispatchRoute.vehicle_id).filter(
-                    DispatchRoute.work_session_id.in_(settled_ids),
+                    DispatchRoute.driver_id.in_(state.driver_ids),
                     DispatchRoute.vehicle_id.isnot(None),
                 )
                 res_routes = await db.execute(stmt_routes)
@@ -1779,7 +1811,7 @@ async def phase4e_chaos_route_revocation():
 
     # 2. المندوب يحاول الخداع وإجراء عملية بيع (يجب أن يتم ركله بـ 403)
     driver_client = make_client(token=state.driver_tokens[target_driver])
-    visits_resp = await driver_client.get(f"/driver/{target_driver}/visits")
+    visits_resp = await driver_client.get("/driver/visits")
     
     if visits_resp.status_code == 200:
         vd = visits_resp.json()
@@ -1803,8 +1835,23 @@ async def phase6d_chaos_theft_simulation():
     print(header("\n═════ PHASE 6d: Chaos — Theft & Discrepancy Gate ═════"))
     
     admin_client = make_client(token=state.admin_tokens[0])
-    target_session = next(iter(state.session_ids.values()))
-    
+    # +++ الكي الجراحي: اختيار جلسة غير مسوية صراحةً بدل أول جلسة عمياء (قد تكون سوّتها 6b/6c) +++
+    target_session = None
+    for did in state.driver_ids:
+        sid = state.session_ids.get(did)
+        if not sid:
+            continue
+        chk = await admin_client.get(f"/admin/sessions/{sid}/settlement_report")
+        if chk.status_code == 200:
+            rep = chk.json()
+            if rep.get("status") != "تمت التسوية (مغلقة نهائياً)" and rep.get("inventory"):
+                target_session = sid
+                break
+    if not target_session:
+        print(yellow("  ⚠ No unsettled session available; skipping theft simulation."))
+        await admin_client.aclose()
+        return
+
     report_resp = await admin_client.get(f"/admin/sessions/{target_session}/settlement_report")
     if report_resp.status_code != 200:
         print(yellow("  ⚠ Could not fetch report; skipping."))
@@ -1900,6 +1947,9 @@ async def main():
     if exit_code != 0:
         print(red("\n═══ Setup failed — aborting tests. ═══"))
         return 1
+
+    # +++ تنظيف الداتا القديمة قبل بدء الهجوم +++
+    await run_phase("Setup: Cleanup Legacy Data", cleanup_old_test_data)
 
     # ═══ PHASE 1 ═══
     print(header("\n══════════════ PHASE 1: SaaS Master Data, Security & Bulk Import ══════════════"))

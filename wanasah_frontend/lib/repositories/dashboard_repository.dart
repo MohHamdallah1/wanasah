@@ -32,7 +32,9 @@ class DashboardRepository {
     );
   }
 
-  Future<void> toggleBreak(int driverId, String action) async {
+  // +++ إرجاع bool للإبلاغ عن حالة الرفع الفعلية (true = نجح, false = طابور أوفلاين) +++
+  Future<bool> toggleBreak(int driverId, String action) async {
+    bool isQueuedOffline = false;
     try {
       await _apiClient.put(
         '/driver/sessions/break',
@@ -40,34 +42,39 @@ class DashboardRepository {
         options: Options(sendTimeout: const Duration(seconds: 10)),
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode == 404) rethrow; // يتم اصطياده في الـ BLoC لتنظيف التطبيق
+      if (e.response?.statusCode == 404) rethrow; 
 
-      // +++ الكي الجراحي لـ Bug 2: إضافة أخطاء اتصال Dio v5 للعمل بشكل صحيح أوفلاين +++
-      final isOffline = e.response == null || 
+      // +++ تقييد شرط الأوفلاين: يجب أن يكون الرد null مع خطأ شبكي حقيقي لمنع ابتلاع أخطاء السيرفر +++
+      final isOffline = e.response == null && (
                         e.type == DioExceptionType.connectionTimeout || 
                         e.type == DioExceptionType.receiveTimeout || 
                         e.type == DioExceptionType.sendTimeout || 
                         e.type == DioExceptionType.connectionError || 
                         e.type == DioExceptionType.unknown ||
-                        e.error.toString().contains('SocketException');
+                        e.error.toString().contains('SocketException'));
 
       if (isOffline) {
-        // حماية الأوفلاين: وضع الحركة في الخزنة
         await _db.addPendingSync(
           type: 'toggle_break',
           payload: jsonEncode({'driver_id': driverId, 'action': action}),
         );
+        isQueuedOffline = true;
       } else {
-        rethrow; // خطأ سيرفر حقيقي (400/500)
+        rethrow; 
       }
     }
     
-    // توثيق الحركة محلياً سواء نجح النت أو تم التخزين أوفلاين
     await _storage.write(key: 'is_on_break', value: action == 'start' ? 'true' : 'false');
+    return !isQueuedOffline; // نعيد true إذا لم يتم وضعه في الطابور
   }
 
   Future<void> clearSessionLocally() async {
+    // +++ مسح كامل لبصمات الجلسة لمنع تلوث بيانات المندوب القادم (State Corruption) +++
     await _storage.delete(key: 'is_on_break');
+    await _storage.delete(key: 'is_authorized');
+    await _storage.delete(key: 'cached_is_active_session');
+    await _storage.delete(key: 'cached_session_start_time');
+    // تنظيف قاعدة البيانات المحلية
     await _db.clearSessionData();
   }
 
@@ -85,24 +92,17 @@ class DashboardRepository {
   }
 
   Future<Map<String, String>> getAllCachedData() async {
-    return await _storage.readAll();
+    final allData = await _storage.readAll();
+    // +++ فلترة أمنية: منع تسريب الـ Tokens لمعالجات الداشبورد +++
+    allData.removeWhere((key, value) => key == 'auth_token' || key == 'refresh_token');
+    return allData;
   }
 
   Future<Response> checkPendingTransfersRaw() async {
     return await _apiClient.get('/driver/transfers/pending');
   }
 
-  Future<void> respondToTransfer(int transferId, String response) async {
-    await _apiClient.put('/driver/transfers/$transferId/respond', data: {'response': response});
-  }
-
-  Future<void> respondToBatchTransfer(List<Map<String, dynamic>> transfers) async {
-    await _apiClient.put('/driver/transfers/batch_respond', data: {'transfers': transfers});
-  }
-
-  Future<void> removeLocalTransfer(int transferId) async {
-    await _db.removeIncomingTransfer(transferId);
-  }
+  // +++ تم حذف دوال respondToTransfer لأنها أصبحت من مسؤولية SyncRepository لدعم الأوفلاين +++
 
   Future<int?> getDriverId() async {
     final str = await _storage.read(key: 'driver_id');

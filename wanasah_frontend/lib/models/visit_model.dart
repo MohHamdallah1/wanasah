@@ -22,8 +22,12 @@ class VisitModel extends Equatable {
   // +++ الدرع الميداني: استقبال معلومات الاتصال +++
   final String? shopOwner;
   final String? shopPhone;
-  final String? cartItemsJson; // +++ لحفظ السلة محلياً (تم تحويلها لـ final لضمان الثبات) +++
-  final String? returnsJson; // +++ لحفظ التوالف محلياً +++
+  final String? cartItemsJson;
+  final String? returnsJson;
+  // +++ الدرع المحاسبي: حماية الأموال والملاحظات من التبخر أثناء دورة حياة الكائن +++
+  final double cashCollected;
+  final double debtPaid;
+  final String? notes;
 
   const VisitModel({
     required this.id,
@@ -40,23 +44,38 @@ class VisitModel extends Equatable {
     this.locationLink,
     this.latitude,
     this.longitude,
-    this.shopOwner, // +++
-    this.shopPhone, // +++
+    this.shopOwner,
+    this.shopPhone,
     this.cartItemsJson, 
     this.returnsJson,
+    this.cashCollected = 0.0,
+    this.debtPaid = 0.0,
+    this.notes,
   });
 
   // دالة تحويل البيانات القادمة من السيرفر (أو SQLite) إلى كائن آمن
   factory VisitModel.fromJson(Map<String, dynamic> json) {
-    final isEmergRaw = json['is_emergency'];
-    final bool parsedEmergency = isEmergRaw == true || isEmergRaw == 1 || isEmergRaw == 'true' || isEmergRaw == '1';
+    // +++ V4: توحيد حالة الأحرف لتجنب فشل قراءة بايثون (True/TRUE) +++
+    final isEmergRaw = json['is_emergency']?.toString().toLowerCase();
+    final bool parsedEmergency = isEmergRaw == 'true' || isEmergRaw == '1';
 
     // +++ استخراج بيانات المحل المتداخلة من الباك-إند (الدرع الفولاذي) +++
     final Map<String, dynamic> shopData = (json['shop'] as Map<String, dynamic>?) ?? {};
 
+    // +++ V3: الإعدام الفوري للبيانات المجهولة (لا تسامح مع مفاتيح مفقودة لمنع التصادم الصامت) +++
+    final parsedId = int.tryParse((json['id'] ?? json['visit_id'])?.toString() ?? '');
+    if (parsedId == null || parsedId == 0) {
+      throw FormatException('Critical Data Error: Invalid or missing visit ID in payload');
+    }
+    
+    final parsedShopId = int.tryParse((json['shop_id'] ?? shopData['id'])?.toString() ?? '');
+    if (parsedShopId == null || parsedShopId == 0) {
+      throw FormatException('Critical Data Error: Invalid or missing shop ID for visit #$parsedId');
+    }
+
     return VisitModel(
-      id: int.tryParse((json['id'] ?? json['visit_id'])?.toString() ?? '0') ?? 0,
-      shopId: int.tryParse((json['shop_id'] ?? shopData['id'])?.toString() ?? '0') ?? 0,
+      id: parsedId,
+      shopId: parsedShopId,
       
       // +++ البحث في المستوى المسطح ثم المتداخل +++
       shopName: json['shop_name']?.toString() ?? json['shopName']?.toString() ?? shopData['name']?.toString() ?? 'محل غير معروف',
@@ -88,6 +107,11 @@ class VisitModel extends Equatable {
       
       cartItemsJson: json['cart_items'] is String ? json['cart_items'] as String : (json['cart_items'] != null ? jsonEncode(json['cart_items']) : null),
       returnsJson: json['returns'] is String ? json['returns'] as String : (json['returns'] != null ? jsonEncode(json['returns']) : null),
+      
+      // +++ حماية أموال المندوب من ضياع كسور القروش/البيسات +++
+      cashCollected: double.tryParse(json['cash_collected']?.toString() ?? '0') ?? 0.0,
+      debtPaid: double.tryParse(json['debt_paid']?.toString() ?? '0') ?? 0.0,
+      notes: json['notes']?.toString(),
     );
   }
 
@@ -113,16 +137,17 @@ class VisitModel extends Equatable {
       'shop_phone': shopPhone,
       'cart_items': cartItemsJson,
       'returns': returnsJson,
+      'cash_collected': cashCollected,
+      'debt_paid': debtPaid,
+      'notes': notes,
     };
-        }
+  }
 
-  // +++ إخبار الـ BLoC بكيفية المقارنة لمنع إعادة البناء العبثي للواجهة +++
   @override
   List<Object?> get props => [
         id, shopId, shopName, shopBalance, maxDebtLimit, shopZoneId,
         allowedZoneId, status, outcome, sequence, isEmergency,
         locationLink, latitude, longitude, shopOwner, shopPhone,
-        cartItemsJson, returnsJson,
+        cartItemsJson, returnsJson, cashCollected, debtPaid, notes,
       ];
-  
 }

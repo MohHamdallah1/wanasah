@@ -5,13 +5,13 @@ import '../blocs/dashboard/dashboard_event.dart';
 import '../blocs/dashboard/dashboard_state.dart';
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_event.dart';
-import '../blocs/auth/auth_state.dart'; 
 import 'package:intl/intl.dart';
-import 'login_screen.dart';
 import 'visit_list_screen.dart';
 import 'dart:async';
 import 'dart:developer' as developer; 
 import '../core/db/local_database.dart';
+import 'dart:convert'; // +++ ضروري لفك تشفير تفاصيل الحجر الصحي +++
+
 
 class DashboardScreen extends StatefulWidget {
   final int driverId;
@@ -97,11 +97,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Map<String, dynamic> batchData,
   ) {
     final List<dynamic> items = batchData['items'] ?? [];
-    // +++ الكي الجراحي لـ Bug 4: التحقق من أن الأصناف صالحة وليست وهمية قبل الفتح +++
-    final int validItemsCount = items.where((item) => (item['real_transfer_id'] as num?)?.toInt() != 0 && item['real_transfer_id'] != null).length;
+    // +++ التحويل الآمن للمعرّف +++
+    final int validItemsCount = items.where((item) {
+      final id = int.tryParse(item['real_transfer_id']?.toString() ?? '') ?? 0;
+      return id != 0;
+    }).length;
 
     if (items.isEmpty || validItemsCount == 0) {
       _isShowingDialog = false;
+      // +++ البند 9: تنظيف الشبح إذا كانت الدفعة فارغة لتجنب العلوق للأبد +++
+      context.read<DashboardBloc>().add(
+        const RespondToBatchTransfer(transferIds: [], responseStatus: 'ignored', detailedTransfers: []),
+      );
       return; 
     }
 
@@ -149,9 +156,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         final String productName =
                             item['product_name'] ?? 'غير معروف';
 
-                        // +++ اللوجيك الدقيق لمعرفة السحب من الإضافة +++
-                        final int rawCartons = item['delta_cartons'] ?? 0;
-                        final int rawPacks = item['delta_packs'] ?? 0;
+                        // +++ البند 3: التحويل الآمن تماماً من String أو Float لمنع الـ TypeError +++
+                        final int rawCartons = int.tryParse(item['delta_cartons']?.toString() ?? '') ?? 0;
+                        final int rawPacks = int.tryParse(item['delta_packs']?.toString() ?? '') ?? 0;
                         final bool isAddition =
                             rawCartons > 0 || (rawCartons == 0 && rawPacks > 0);
 
@@ -192,8 +199,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             trailing: StatefulBuilder(
                               builder: (context, setState) {
-                                // +++ الكي الجراحي 8: التحويل الآمن لمنع الـ TypeError Crash +++
-                                final itemId = (item['real_transfer_id'] as num?)?.toInt() ?? 0;
+                                // +++ البند 3: التحويل الآمن 100% للمعرّف +++
+                                final itemId = int.tryParse(item['real_transfer_id']?.toString() ?? '') ?? 0;
                                 if (itemId == 0) return const SizedBox.shrink();
                                 final currentResponse = itemResponses[itemId];
 
@@ -269,12 +276,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             actions: [
+              // +++ البند 5: زر إغلاق لإنقاذ المندوب إذا علقت النافذة +++
+              TextButton(
+                onPressed: () {
+                  _isShowingDialog = false;
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text('تأجيل (إغلاق)', style: TextStyle(color: Colors.grey)),
+              ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                 onPressed: () {
-                  // التأكد من أن المندوب أجاب على كل الأصناف السليمة فقط
-                  final int validItemsCount = items.where((item) => (item['real_transfer_id'] as num?)?.toInt() != 0 && item['real_transfer_id'] != null).length;
-                  if (itemResponses.length != validItemsCount) {
+                  // +++ البند 5: استخدام الـ Set لتجاهل التكرارات القادمة من السيرفر +++
+                  final uniqueValidIds = items.map((i) => int.tryParse(i['real_transfer_id']?.toString() ?? '') ?? 0).where((id) => id != 0).toSet();
+                  
+                  if (itemResponses.length != uniqueValidIds.length) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
@@ -350,11 +366,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           BlocBuilder<DashboardBloc, DashboardState>(
             builder: (context, state) {
-              bool isActive = state is DashboardLoaded && state.isActiveSession;
               return IconButton(
                 icon: const Icon(Icons.logout),
                 tooltip: 'تسجيل الخروج',
-                onPressed: isActive ? null : _logout,
+                onPressed: _logout, // +++ السماح بالخروج دائماً وتجنب فخ الأوفلاين +++
               );
             },
           ),
@@ -363,21 +378,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // +++ هنا يتجلى ذكاء الـ MultiBlocListener لربط التطبيق ككتلة واحدة +++
       body: MultiBlocListener(
         listeners: [
-          // +++ الكيّ الجراحي 2: سد ثغرة (الزومبي). الاستماع للـ AuthBloc لطرد المستخدم فوراً إذا انتهت الجلسة (401) أو قام بتسجيل الخروج +++
-          BlocListener<AuthBloc, AuthState>(
-            listener: (context, state) {
-              if (state is AuthUnauthenticated) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (Route<dynamic> route) => false,
-                );
-              }
-            },
-          ),
           BlocListener<DashboardBloc, DashboardState>(
             listener: (context, state) {
-              // +++ الكي الجراحي لـ Bug 1: تحرير الزر فور انتهاء أي عملية (نجاح، فشل، أو تحميل داتا) +++
-              if (state is! DashboardLoading && state is! DashboardInitial) {
+              // +++ الكي الجراحي (البند 6): تحرير القفل فقط عند صدور نتيجة حقيقية للعملية لمنع السباق +++
+              if (state is DashboardError || (state is DashboardLoaded && state.actionSuccessMessage != null)) {
                 if (_isActionInProgress && mounted) {
                   setState(() => _isActionInProgress = false);
                 }
@@ -451,15 +455,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+  
+  // +++ الدرع البصري والإداري: شاشة تسوية فواتير الحجر الصحي +++
+  void _showQuarantineBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: LocalDatabase.instance.getQuarantinedSyncs(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
+            final syncs = snapshot.data ?? [];
+            if (syncs.isEmpty) return const Padding(padding: EdgeInsets.all(20), child: Text('لا يوجد فواتير مرفوضة.'));
 
+            return Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.warning_rounded, color: Colors.red, size: 50),
+                  const SizedBox(height: 10),
+                  const Text('الفواتير المرفوضة نهائياً', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: syncs.length,
+                      itemBuilder: (context, index) {
+                        final item = syncs[index];
+                        String reason = 'غير معروف';
+                        String visitIdInfo = '';
+                        String type = item['type']?.toString().replaceFirst('quarantined_', '') ?? '';
+                        try {
+                          final payload = jsonDecode(item['payload']);
+                          reason = payload['quarantine_reason'] ?? 'مرفوضة من الإدارة';
+                          visitIdInfo = payload['visitId'] != null ? ' (زيارة #${payload['visitId']})' : '';
+                        } catch (_) {}
+                        return Card(
+                          color: Colors.red.shade50,
+                          child: ListTile(
+                            leading: const Icon(Icons.error_outline, color: Colors.red),
+                            title: Text('عملية: $type$visitIdInfo', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text('السبب: $reason\nالتاريخ: ${item['created_at']?.toString().split('T').first ?? ''}', style: const TextStyle(color: Colors.red)),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                      onPressed: () {
+                        context.read<DashboardBloc>().add(const ClearQuarantineEvent());
+                        Navigator.pop(ctx);
+                      },
+                      child: const Text('تمت التسوية مع المسؤول (مسح السجلات)', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  )
+                ],
+              ),
+            );
+          }
+        );
+      }
+    );
+  }
+  
   // --- دالة بناء المحتوى (تعتمد 100% على الـ State) ---
   Widget _buildDashboardContent(DashboardLoaded state) {
     String startTimeFormatted = '';
     if (state.isActiveSession && state.activeSessionStartTime != null) {
       try {
-        final startTime =
-            DateTime.parse(state.activeSessionStartTime!).toLocal();
-        startTimeFormatted = DateFormat('hh:mm a', 'ar').format(startTime);
+        final startTime = DateTime.parse(state.activeSessionStartTime!).toLocal();
+        // +++ الكي الجراحي: استخدام الصيغة القياسية الآمنة لمنع كراش الـ Locale +++
+        startTimeFormatted = DateFormat('hh:mm a').format(startTime);
       } catch (_) {
         startTimeFormatted = "غير معروف";
       }
@@ -469,35 +542,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // +++ الكيّ الجراحي: إشعار المزامنة مع مؤشر التحميل وانتظار البلوك +++
       onRefresh: () async {
         // +++ الكيّ الجراحي: فحص الخزنة أولاً. لا نظهر الإشعار إلا إذا كان هناك فواتير معلقة +++
-        final pendingSyncs = await LocalDatabase.instance.getPendingSyncs();
+        // +++ الكي الجراحي (البند 2): فلترة الجثث (quarantined) حتى لا نخدع المندوب +++
+        final allSyncs = await LocalDatabase.instance.getPendingSyncs();
+        final pendingSyncs = allSyncs.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).toList();
 
         // +++ الحارس الأمني: التأكد أن الشاشة لا تزال مفتوحة بعد فجوة الانتظار (Async Gap) +++
         if (!mounted) return;
 
         final bool hasPendingData = pendingSyncs.isNotEmpty;
 
+        ScaffoldFeatureController? loadingSnackBar;
         if (hasPendingData) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          loadingSnackBar = ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Row(
                 children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  ),
+                  SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
                   SizedBox(width: 15),
-                  Text(
-                    'جاري رفع فواتير الأوفلاين... الرجاء الانتظار',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  Text('جاري رفع فواتير الأوفلاين... الرجاء الانتظار', style: TextStyle(fontWeight: FontWeight.bold)),
                 ],
               ),
               backgroundColor: Colors.orange,
-              duration: Duration(days: 1), // يظل ظاهراً حتى نلغيه برمجياً
+              duration: Duration(days: 1), 
             ),
           );
         }
@@ -507,7 +573,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         StreamSubscription? subscription;
         
         try {
-          // +++ الكي الجراحي 6: تشغيل الـ Listener قبل إرسال الـ Event لمنع الـ False Timeout +++
           final completer = Completer<void>();
           subscription = bloc.stream.listen((state) {
             if (state is DashboardError) {
@@ -517,10 +582,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             }
           });
           
-          // +++ الكي الجراحي 4: احترام معمارية BLoC بطلب المزامنة القسرية كحدث، بدلاً من تجاوز البلوك +++
           bloc.add(const ForceSyncData());
-          // FetchDashboardData يتم طلبه من داخل ForceSyncData في البلوك، لا نحتاج طلبه هنا مجدداً.
-          
           await completer.future.timeout(const Duration(seconds: 8));
           
         } on TimeoutException catch (_) {
@@ -528,24 +590,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
           developer.log('[Dashboard] Refresh timeout reached.');
         } catch (e) {
           developer.log('[Dashboard] Refresh error: $e');
-          // +++ الكي الجراحي لـ Bug 2: نكتفي بإخفاء إشعار التحميل والإجهاض، ونترك הـ BlocListener يعرض الخطأ الأحمر +++
-          if (mounted) {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          }
+          // +++ الكي الجراحي: إغلاق لافتة التحميل حصراً بدون المساس بلافتات الأخطاء القادمة من الـ BLoC +++
+          loadingSnackBar?.close();
           await subscription?.cancel();
-          return; // إجهاض العملية هنا فوراً
+          return; 
         } finally {
           await subscription?.cancel(); 
         }
 
-        // إخفاء إشعار التحميل فقط في حالات النجاح أو הـ Timeout
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        }
+        // إغلاق لافتة التحميل بأمان
+        loadingSnackBar?.close();
 
         if (mounted && hasPendingData) {
           // +++ الكي الجراحي 2: التأكد من تفريغ الخزنة فعلياً قبل إعلان النجاح للمندوب +++
-          final remainingSyncs = await LocalDatabase.instance.getPendingSyncs();
+          final allRemaining = await LocalDatabase.instance.getPendingSyncs();
+          final remainingSyncs = allRemaining.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).toList();
           
           // +++ الكي الجراحي: درع الـ Context عبر الفجوة الزمنية (Async Gap) لمنع التحذيرات والكراش +++
           if (!mounted) return;
@@ -580,6 +639,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
+          // +++ الكي الجراحي: لافتة الحجر الصحي الحمراء (تظهر فقط إذا كان هناك فواتير مرفوضة) +++
+          // +++ الكي الجراحي: لافتة الحجر الصحي التفاعلية +++
+          if (state.quarantinedVisits > 0)
+            InkWell(
+              onTap: () => _showQuarantineBottomSheet(context),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade900,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: const [BoxShadow(color: Colors.redAccent, blurRadius: 5)],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.touch_app, color: Colors.white, size: 30),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'تنبيه خطير: يوجد (${state.quarantinedVisits}) فواتير مرفوضة! اضغط هنا للتفاصيل والتسوية.',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // تنبيه بوضع الأوفلاين
           if (state.isOffline)
             Container(

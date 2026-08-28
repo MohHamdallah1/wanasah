@@ -44,9 +44,10 @@ class AuthUnauthenticated extends AuthState {
 /// نادراً ما تُستخدم، لكنها موجودة لاستيعاب أي استثناء.
 class AuthError extends AuthState {
   final String message;
+  final DateTime timestamp; // +++ الكي الجراحي: ختم زمني لإجبار الشاشة على إظهار الخطأ حتى لو تكرر نصاً +++
 
-  const AuthError({required this.message});
+  AuthError({required this.message}) : timestamp = DateTime.now();
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, timestamp];
 }

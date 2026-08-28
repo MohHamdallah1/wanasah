@@ -68,6 +68,17 @@ class LocalDatabase {
     );
   }
 
+  // دالة مساعدة لتجاهل خطأ (العمود موجود مسبقاً) أثناء الترقية
+  Future<void> _safeAlterTable(Database db, String sql) async {
+    try {
+      await db.execute(sql);
+    } catch (e) {
+      if (!e.toString().contains('duplicate column name')) {
+        rethrow;
+      }
+    }
+  }
+
   // -----------------------------------------------------------------------
   // onCreate: بناء الجداول عند إنشاء قاعدة البيانات لأول مرة
   // -----------------------------------------------------------------------
@@ -105,7 +116,7 @@ class LocalDatabase {
           allowed_zone_id INTEGER,
           status TEXT,
           outcome TEXT,
-          visit_sequence INTEGER, 
+          visit_sequence INTEGER DEFAULT 999, 
           is_emergency INTEGER DEFAULT 0,
           location_link TEXT,
           latitude REAL,
@@ -160,40 +171,30 @@ class LocalDatabase {
       '[LocalDatabase] Upgrading DB from v$oldVersion to v$newVersion',
     );
     if (oldVersion < 2) {
-      await db.execute(
-        'ALTER TABLE visits ADD COLUMN cash_collected REAL DEFAULT 0.0',
-      );
-      await db.execute(
-        'ALTER TABLE visits ADD COLUMN debt_paid REAL DEFAULT 0.0',
-      );
-      await db.execute(
-        'ALTER TABLE visits ADD COLUMN max_debt_limit REAL DEFAULT 0.0',
-      );
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN cash_collected REAL DEFAULT 0.0');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN debt_paid REAL DEFAULT 0.0');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN max_debt_limit REAL DEFAULT 0.0');
     }
     // +++ الدرع الواقي: حماية التطبيق من الانهيار عند تحديث المندوب للنسخة الجديدة (v3) +++
     if (oldVersion < 3) {
-      await db.execute(
-        'ALTER TABLE visits ADD COLUMN visit_sequence INTEGER DEFAULT 999',
-      );
-      await db.execute(
-        'ALTER TABLE visits ADD COLUMN is_emergency INTEGER DEFAULT 0',
-      );
-      await db.execute('ALTER TABLE visits ADD COLUMN location_link TEXT');
-      await db.execute('ALTER TABLE visits ADD COLUMN latitude REAL');
-      await db.execute('ALTER TABLE visits ADD COLUMN longitude REAL');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN visit_sequence INTEGER DEFAULT 999');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN is_emergency INTEGER DEFAULT 0');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN location_link TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN latitude REAL');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN longitude REAL');
     }
     // +++ الترقية الفولاذية (v4) لدعم حفظ محتويات الزيارات المكتملة +++
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE visits ADD COLUMN cart_items TEXT');
-      await db.execute('ALTER TABLE visits ADD COLUMN returns TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN cart_items TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN returns TEXT');
     }
     if (oldVersion < 5) {
-      await db.execute('ALTER TABLE visits ADD COLUMN notes TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN notes TEXT');
     }
     // +++ الترقية الفولاذية (v6) لدعم معلومات الاتصال بالمالك +++
     if (oldVersion < 6) {
-      await db.execute('ALTER TABLE visits ADD COLUMN shop_owner TEXT');
-      await db.execute('ALTER TABLE visits ADD COLUMN shop_phone TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN shop_owner TEXT');
+      await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN shop_phone TEXT');
     }
     // flutter.md Issue #1 (v7): Normalize monetary columns from TEXT to REAL
     if (oldVersion < 7) {
@@ -244,7 +245,7 @@ class LocalDatabase {
   // +++ الترقية الفولاذية (v8) لدعم المصافحات الأوفلاين +++
     if (oldVersion < 8) {
       await db.execute('''
-        CREATE TABLE incoming_transfers (
+        CREATE TABLE IF NOT EXISTS incoming_transfers (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           transfer_id INTEGER,
           product_variant_id INTEGER,
@@ -261,9 +262,9 @@ class LocalDatabase {
   
   // +++ الترقية الفولاذية (v9) لدعم حقول المبيعات الصافية من السيرفر +++
     if (oldVersion < 9) {
-      await db.execute('ALTER TABLE products ADD COLUMN starting_packs INTEGER DEFAULT 0');
-      await db.execute('ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0');
-      await db.execute('ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0');
+      await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN starting_packs INTEGER DEFAULT 0');
+      await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0');
+      await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0');
       developer.log('[LocalDatabase] v9 migration: Added sales tracking columns to products table.');
     }
   }
@@ -277,15 +278,30 @@ class LocalDatabase {
   /// CS-04 / flutter.md Issue #13: Add optional clearPendingSyncs parameter (default false)
   Future<void> clearSessionData({bool clearPendingSyncs = false}) async {
     final db = await database;
-    await db.delete('products');
-    await db.delete('visits');
-    // +++ الكي الجراحي لـ Bug 2: تنظيف أشباح الحوالات السابقة لمنع تسربها لليوم التالي +++
-    await db.delete('incoming_transfers');
     
-    if (clearPendingSyncs) {
-      await db.delete('pending_sync');
+    // حماية H-2: منع مسح البيانات إذا كان هناك مزامنة معلقة (إلا إذا طُلب المسح الإجباري)
+    if (!clearPendingSyncs) {
+      final pendingCount = Sqflite.firstIntValue(await db.query(
+        'pending_sync',
+        columns: ['COUNT(*)'],
+        where: "type NOT LIKE 'quarantined_%'",
+      ));
+      if (pendingCount != null && pendingCount > 0) {
+        developer.log('[LocalDatabase] Skipped clearing tables to protect active pending syncs.');
+        return;
+      }
     }
-    developer.log('[LocalDatabase] Session tables (products, visits, incoming_transfers${clearPendingSyncs ? ', pending_sync' : ''}) cleared.');
+
+    // تطبيق M-1: استخدام Transaction
+    await db.transaction((txn) async {
+      await txn.delete('products');
+      await txn.delete('visits');
+      await txn.delete('incoming_transfers');
+      if (clearPendingSyncs) {
+        await txn.delete('pending_sync');
+      }
+    });
+    developer.log('[LocalDatabase] Session tables cleared safely via transaction.');
   }
 
   /// إدراج أو استبدال مجموعة من المنتجات دفعةً واحدة (Batch Insert) باستخدام الكائنات الذكية.
@@ -322,8 +338,9 @@ class LocalDatabase {
   Future<int> addPendingSync({
     required String type,
     required String payload,
+    Transaction? txn,
   }) async {
-    final db = await database;
+    final db = txn ?? await database;
     final id = await db.insert('pending_sync', {
       'type': type,
       'payload': payload,
@@ -333,10 +350,10 @@ class LocalDatabase {
     return id;
   }
 
-  /// جلب كل العمليات المعلقة (للإرسال عند عودة الإنترنت).
-  Future<List<Map<String, dynamic>>> getPendingSyncs() async {
+  /// جلب العمليات المعلقة (للإرسال عند عودة الإنترنت) مع إمكانية تحديد العدد لتخفيف الحمل.
+  Future<List<Map<String, dynamic>>> getPendingSyncs({int? limit}) async {
     final db = await database;
-    return db.query('pending_sync', orderBy: 'created_at ASC');
+    return db.query('pending_sync', orderBy: 'created_at ASC, id ASC', limit: limit);
   }
 
   /// حذف عملية معلقة بعد إرسالها بنجاح إلى السيرفر.
@@ -369,14 +386,15 @@ class LocalDatabase {
     String? cartItemsJson, 
     String? returnsJson, 
     String? notes, 
+    Transaction? txn,
   }) async {
-    final db = await database;
+    final db = txn ?? await database;
     final Map<String, dynamic> updateData = {
       'status': status,
       'outcome': outcome,
       'cash_collected': cashCollected,
       'debt_paid': debtPaid,
-      // +++ الكي الجراحي لـ Bug 3: إجبار كتابة הـ Null في قاعدة البيانات لمسح السلة والمرتجعات في حالة (لا يوجد بيع أو مؤجل) +++
+      // +++ الكي الجراحي لـ Bug 3: إجبار كتابة  Null في قاعدة البيانات لمسح السلة والمرتجعات في حالة (لا يوجد بيع أو مؤجل) +++
       'cart_items': cartItemsJson,
       'returns': returnsJson,
       'notes': notes,
@@ -395,104 +413,149 @@ class LocalDatabase {
     );
   }
 
-  // +++ دالة جديدة: خصم المخزون محلياً وقت البيع الأوفلاين لكي تتحدث الداشبورد +++
-  Future<void> deductInventoryLocal(List<dynamic> cartItems) async {
-    final db = await database;
+  // خصم المخزون محلياً وقت البيع الأوفلاين (يشمل المبيعات والمرتجعات/الاستبدال)
+  Future<void> deductInventoryLocal(List<dynamic> cartItems, {List<dynamic>? returnItems, Transaction? txn}) async {
+    final db = txn ?? await database;
     final batch = db.batch();
+    
+    // تجميع الكميات المخصومة لكل منتج لتنفيذ التحديث مرة واحدة
+    Map<int, Map<String, int>> deductions = {};
+
+    void addToDeduction(int variantId, int qty, int packs) {
+      if (variantId == 0 || (qty == 0 && packs == 0)) return;
+      deductions.putIfAbsent(variantId, () => {'qty': 0, 'packs': 0});
+      deductions[variantId]!['qty'] = (deductions[variantId]!['qty'] ?? 0) + qty;
+      deductions[variantId]!['packs'] = (deductions[variantId]!['packs'] ?? 0) + packs;
+    }
+
+    // حساب المبيعات والعينات
     for (var item in cartItems) {
       if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
-
-      // +++ الكي الجراحي 5: التحويل الآمن للأرقام لمنع TypeError +++
       int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
-      if (variantId == 0) continue;
       
-      int qtyToDeduct =
-          ((item['quantity'] as num?)?.toInt() ?? 0) +
+      int qtyToDeduct = ((item['quantity'] as num?)?.toInt() ?? 0) +
           ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) +
           ((item['bonus_quantity'] as num?)?.toInt() ?? 0); 
           
-      int packsToDeduct =
-          ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
+      int packsToDeduct = ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
           ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
 
-      if (qtyToDeduct > 0 || packsToDeduct > 0) {
-        batch.rawUpdate(
-          '''
-          UPDATE products 
-          SET 
-            -- +++ الكي الجراحي 3: سحق قسمة السالب (Negative Modulo) بوضع MAX(0) +++
-            current_cartons = (MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?)) / CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END,
-            current_packs   = (MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?)) % CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END
-          WHERE id = ?
-        ''',
-          [qtyToDeduct, packsToDeduct, qtyToDeduct, packsToDeduct, variantId],
-        );
+      addToDeduction(variantId, qtyToDeduct, packsToDeduct);
+    }
+
+    // حساب المرتجعات (بما أنها استبدال بضاعة صالحة بتالفة، يتم خصم الصالح من العهدة)
+    if (returnItems != null) {
+      for (var ret in returnItems) {
+        if (ret['is_cancelled'] == true || ret['is_cancelled'] == 1) continue;
+        int variantId = (ret['product_variant_id'] as num?)?.toInt() ?? 0;
+        int qtyToDeduct = (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0;
+        int packsToDeduct = (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0;
+        
+        addToDeduction(variantId, qtyToDeduct, packsToDeduct);
       }
     }
+
+    // تنفيذ التحديث في قاعدة البيانات
+    for (var entry in deductions.entries) {
+      int variantId = entry.key;
+      int qty = entry.value['qty']!;
+      int packs = entry.value['packs']!;
+      
+      batch.rawUpdate(
+        '''
+        UPDATE products 
+        SET 
+          current_cartons = MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) / MAX(packs_per_carton, 1),
+          current_packs   = MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % MAX(packs_per_carton, 1)
+        WHERE id = ?
+        ''',
+        [qty, packs, qty, packs, variantId],
+      );
+    }
+    
     await batch.commit(noResult: true);
     developer.log('[LocalDatabase] Local inventory deducted successfully.');
   }
 
-  // +++ النسف المعماري (الضربة الاستباقية): التراجع عن فاتورة أوفلاين لحمايتها من الخصم المزدوج +++
-  Future<void> revertOfflineVisit(int visitId) async {
-    final db = await database;
+  // التراجع عن فاتورة أوفلاين وإعادة الرصيد (مبيعات + مرتجعات) للعهدة
+  Future<void> revertOfflineVisit(int visitId, {Transaction? txn}) async {
+    final db = txn ?? await database;
 
-    // 1. البحث عن الفاتورة القديمة في الخزنة
     final pendingSyncs = await db.query(
       'pending_sync',
       orderBy: 'created_at DESC',
     );
-    Map<String, dynamic>? oldPayload;
-    List<int> syncIdsToDelete = []; // +++ الكي الجراحي 4: حذف كل النسخ الوهمية (Ghost Replay) +++
+    List<int> syncIdsToDelete = []; 
+
+    List<Map<String, dynamic>> matchingPayloads = [];
 
     for (var p in pendingSyncs) {
       if (p['type'] == 'submit_sale') {
-        final payload = jsonDecode(p['payload'] as String);
-        if (payload['visitId'] == visitId) {
-          oldPayload ??= payload; // نأخذ أحدث Payload فقط للتراجع
-          syncIdsToDelete.add(p['id'] as int); // نجمع كل الأيديهات المكررة
+        try {
+          final payload = jsonDecode(p['payload'] as String);
+          if (payload['visitId'].toString() == visitId.toString()) {
+            matchingPayloads.add(payload);
+            syncIdsToDelete.add(p['id'] as int);
+          }
+        } catch (e) {
+          developer.log('[LocalDatabase] Corrupted payload ignored during revert: $e');
         }
       }
     }
 
-    if (oldPayload != null && syncIdsToDelete.isNotEmpty) {
+    if (matchingPayloads.isNotEmpty && syncIdsToDelete.isNotEmpty) {
       final batch = db.batch();
+      Map<int, Map<String, int>> additions = {};
 
-      // 2. إرجاع البضاعة المباعة والمرتجعة والعينات والبونص إلى رصيد السيارة
-      final List<dynamic> cartItems = oldPayload['cart_items'] ?? [];
-      for (var item in cartItems) {
-        if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
-        
-        // +++ الكي الجراحي 5: التحويل الآمن +++
-        int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
-        if (variantId == 0) continue;
+      void addToReturn(int variantId, int qty, int packs) {
+        if (variantId == 0 || (qty == 0 && packs == 0)) return;
+        additions.putIfAbsent(variantId, () => {'qty': 0, 'packs': 0});
+        additions[variantId]!['qty'] = (additions[variantId]!['qty'] ?? 0) + qty;
+        additions[variantId]!['packs'] = (additions[variantId]!['packs'] ?? 0) + packs;
+      }
 
-        int qtyToReturn =
-            ((item['quantity'] as num?)?.toInt() ?? 0) +
-            ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) +
-            ((item['bonus_quantity'] as num?)?.toInt() ?? 0);
-            
-        int packsToReturn =
-            ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
-            ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
+      for (var payload in matchingPayloads) {
+        final List<dynamic> cartItems = payload['cart_items'] ?? [];
+        for (var item in cartItems) {
+          if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
+          int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
+          int qtyToReturn = ((item['quantity'] as num?)?.toInt() ?? 0) +
+              ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) +
+              ((item['bonus_quantity'] as num?)?.toInt() ?? 0);
+          int packsToReturn = ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
+              ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
+          addToReturn(variantId, qtyToReturn, packsToReturn);
+        }
 
-        if (qtyToReturn > 0 || packsToReturn > 0) {
-          batch.rawUpdate(
-            '''
-            UPDATE products 
-            SET 
-              current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END,
-              current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % CASE WHEN packs_per_carton > 0 THEN packs_per_carton ELSE 1 END
-            WHERE id = ?
-            ''',
-            [qtyToReturn, packsToReturn, qtyToReturn, packsToReturn, variantId],
-          );
+        final List<dynamic> returns = payload['returns'] ?? [];
+        for (var ret in returns) {
+          if (ret['is_cancelled'] == true || ret['is_cancelled'] == 1) continue;
+          int variantId = (ret['product_variant_id'] as num?)?.toInt() ?? 0;
+          int qtyToReturn = (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0;
+          int packsToReturn = (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0;
+          addToReturn(variantId, qtyToReturn, packsToReturn);
         }
       }
 
-      // +++ الكي الجراحي 2: إعدام كود التراجع الخاص بالمرتجعات لأنه يسبب (Ghost Inventory Drain) +++
+      // تنفيذ التحديث
+      for (var entry in additions.entries) {
+        int variantId = entry.key;
+        int qty = entry.value['qty']!;
+        int packs = entry.value['packs']!;
 
-      // 3. حذف الفواتير القديمة المكررة من الخزنة
+        batch.rawUpdate(
+          '''
+          UPDATE products 
+          SET 
+            current_cartons = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) / MAX(packs_per_carton, 1),
+            current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % MAX(packs_per_carton, 1)
+          WHERE id = ?
+          ''',
+          [qty, packs, qty, packs, variantId],
+        );
+      }
+
+      // حذف السجلات المعلقة
       for (var id in syncIdsToDelete) {
         batch.delete(
           'pending_sync',
@@ -503,7 +566,7 @@ class LocalDatabase {
 
       await batch.commit(noResult: true);
       developer.log(
-        '[LocalDatabase] Pre-emptive Strike successful: Reverted offline visit #$visitId and cleared ${syncIdsToDelete.length} stale syncs.',
+        '[LocalDatabase] Reverted offline visit #$visitId and cleared ${syncIdsToDelete.length} stale syncs.',
       );
     }
   }
@@ -558,19 +621,30 @@ class LocalDatabase {
   Future<void> refreshSessionData(
     List<VisitModel> visits,
     List<ProductModel> products,
-    List<Map<String, dynamic>> incomingTransfers,
-  ) async {
+    List<Map<String, dynamic>>? incomingTransfers, {
+    bool clearVisits = false,
+    bool clearProducts = false,
+  }) async {
     final db = await database;
     await db.transaction((txn) async {
-      // 1. مسح القديم
-      await txn.delete('products');
-      await txn.delete('visits');
-      await txn.delete('incoming_transfers'); // +++ تنظيف الحوالات القديمة +++
+      // الاعتماد على قرارات صريحة من المستدعي لمنع بقاء بيانات شبحية عند إرسال قوائم فارغة
+      if (clearProducts) await txn.delete('products');
+      if (clearVisits) await txn.delete('visits');
+      
+      // لا نمسح الحوالات إذا كان الرد بالتنسيق القديم (List) لحماية البيانات
+      if (incomingTransfers != null) {
+        await txn.delete('incoming_transfers'); 
+      }
 
-      // 2. إدخال الجديد
+      // +++ حماية الحوالة الشبحية: جلب ردود الحوالات المعلقة لاستثنائها من الإدراج +++
+      final pendingResponses = await txn.query('pending_sync', where: "type = 'transfer_response'");
+      final List<int> answeredTransferIds = pendingResponses.map((p) {
+        try { return jsonDecode(p['payload'] as String)['transferId'] as int; } 
+        catch (_) { return -1; }
+      }).toList();
+
       final batch = txn.batch();
 
-      // +++ الكي الجراحي لـ Bug 2: بناء قاموس (Map) للمنتجات لجلب الأسماء وسعة الكرتونة بسرعة O(1) +++
       Map<int, ProductModel> productsMap = {};
       for (final product in products) {
         productsMap[product.id] = product;
@@ -589,42 +663,43 @@ class LocalDatabase {
         );
       }
 
-      for (final transfer in incomingTransfers) {
-        final int vId = (transfer['product_variant_id'] as num?)?.toInt() ?? 0;
-        final int qtyPacks = (transfer['quantity_packs'] as num?)?.toInt() ?? 0;
-        
-        // +++ الكي الجراحي لـ Bug 2: قراءة بيانات المنتج الحقيقية بدلاً من الافتراضات +++
-        final ProductModel? productInfo = productsMap[vId];
-        final int packsPerCarton = productInfo?.packsPerCarton ?? 1;
-        final String productName = productInfo?.name ?? 'غير معروف';
-        final int safePpc = packsPerCarton > 0 ? packsPerCarton : 1;
-        
-        // +++ الكي الجراحي لـ Bug 3: قسمة الأرقام السالبة بأمان رياضي تام (Absolute Math) +++
-        final int sign = qtyPacks < 0 ? -1 : 1;
-        final int absPacks = qtyPacks.abs();
-        final int deltaCartons = (absPacks ~/ safePpc) * sign;
-        final int deltaLoosePacks = (absPacks % safePpc) * sign;
-        
-        batch.insert(
-          'incoming_transfers',
-          {
-            'transfer_id': transfer['transfer_id'] ?? transfer['id'], // دعم الحالتين
-            'product_variant_id': vId,
-            'product_name': productName,
-            'delta_cartons': deltaCartons,
-            'delta_packs': deltaLoosePacks,
-            'status': transfer['status'],
-            'created_at': transfer['created_at'],
-            'batch_id': transfer['notes'] ?? transfer['batch_id'] ?? 'SINGLE_${transfer['id']}'
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+      if (incomingTransfers != null) {
+        for (final transfer in incomingTransfers) {
+          // +++ الكي الجراحي: تحويل آمن لمنع الـ TypeError في حال كان الـ API يرسل null +++
+          final int tId = int.tryParse(transfer['transfer_id']?.toString() ?? transfer['id']?.toString() ?? '') ?? 0;
+          if (tId == 0) continue; // تخطي الحوالة الفاسدة كلياً لمنع انهيار الترانزاكشن
+
+          // +++ درع الشبح: تخطي الحوالة إذا كان المندوب قد رد عليها أوفلاين ولم ترفع بعد +++
+          if (answeredTransferIds.contains(tId)) continue;
+
+          final int vId = (transfer['product_variant_id'] as num?)?.toInt() ?? 0;
+          
+          // قراءة البيانات بشكل مباشر كما يُرسلها السيرفر في (dispatch.py)
+          final int deltaCartons = (transfer['delta_cartons'] as num?)?.toInt() ?? 0;
+          final int deltaLoosePacks = (transfer['delta_packs'] as num?)?.toInt() ?? 0;
+          
+          final String productName = transfer['product_name']?.toString() ?? 'غير معروف';
+          final String batchId = transfer['batch_id']?.toString() ?? 'SINGLE_${transfer['transfer_id'] ?? transfer['id']}';
+          
+          batch.insert(
+            'incoming_transfers',
+            {
+              'transfer_id': transfer['transfer_id'] ?? transfer['id'],
+              'product_variant_id': vId,
+              'product_name': productName,
+              'delta_cartons': deltaCartons,
+              'delta_packs': deltaLoosePacks,
+              'status': transfer['status']?.toString() ?? 'pending',
+              'created_at': transfer['created_at']?.toString(),
+              'batch_id': batchId
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
       }
       await batch.commit(noResult: true);
     });
-    developer.log(
-      '[LocalDatabase] Transaction complete: Session & Transfers refreshed safely.',
-    );
+    developer.log('[LocalDatabase] Transaction complete: Session & Transfers refreshed safely.');
   }
 
   /// حذف الحوالة من الجدول المحلي بعد إتمام الرد عليها لتجنب تكرار ظهورها كشبح
@@ -632,9 +707,87 @@ class LocalDatabase {
     final db = await database;
     await db.delete(
       'incoming_transfers',
-      where: 'transfer_id = ? OR id = ?',
-      whereArgs: [transferId, transferId],
+      where: 'transfer_id = ?', // الاعتماد على الـ ID القادم من السيرفر فقط
+      whereArgs: [transferId],
     );
     developer.log('[LocalDatabase] Incoming transfer #$transferId removed locally.');
+  }
+
+  Future<void> saveOnlineInvoiceAtomic({
+    required int visitId, required String status, required String outcome,
+    required double cashCollected, required double debtPaid,
+    String? cartItemsJson, String? returnsJson, String? notes,
+    required List<dynamic> cartItems, List<dynamic>? returnItems,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await updateVisitStatus(visitId: visitId, status: status, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid, cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes, txn: txn);
+      await deductInventoryLocal(cartItems, returnItems: returnItems, txn: txn);
+    });
+  }
+
+  Future<void> saveOfflineInvoiceAtomic({
+    required int visitId, required String payload, required String status, required String outcome,
+    required double cashCollected, required double debtPaid,
+    String? cartItemsJson, String? returnsJson, String? notes,
+    required List<dynamic> cartItems, List<dynamic>? returnItems,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await revertOfflineVisit(visitId, txn: txn);
+      await addPendingSync(type: 'submit_sale', payload: payload, txn: txn);
+      await updateVisitStatus(visitId: visitId, status: status, outcome: outcome, cashCollected: cashCollected, debtPaid: debtPaid, cartItemsJson: cartItemsJson, returnsJson: returnsJson, notes: notes, txn: txn);
+      await deductInventoryLocal(cartItems, returnItems: returnItems, txn: txn);
+    });
+  }
+
+  // --- دوال إدارة الحجر الصحي (Quarantine Management) ---
+
+  /// جلب السجلات المحجورة لعرضها في شاشة المراجعة
+  Future<List<Map<String, dynamic>>> getQuarantinedSyncs() async {
+    final db = await database;
+    return db.query(
+      'pending_sync',
+      where: "type LIKE 'quarantined_%'",
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  /// حذف سجل محجور بعد معالجته يدوياً
+  Future<void> deleteQuarantinedSync(int id) async {
+    final db = await database;
+    await db.delete(
+      'pending_sync',
+      where: "id = ? AND type LIKE 'quarantined_%'",
+      whereArgs: [id],
+    );
+    developer.log('[LocalDatabase] Quarantined sync #$id deleted.');
+  }
+
+  /// مسح جميع السجلات المحجورة
+  Future<void> clearAllQuarantinedSyncs() async {
+    final db = await database;
+    await db.delete(
+      'pending_sync',
+      where: "type LIKE 'quarantined_%'",
+    );
+    developer.log('[LocalDatabase] All quarantined syncs cleared.');
+  }
+
+  /// استعادة سجل محجور لمحاولة إرساله مجدداً
+  Future<void> retryQuarantinedSync(int id) async {
+    final db = await database;
+    final record = await db.query('pending_sync', where: 'id = ?', whereArgs: [id]);
+    if (record.isNotEmpty) {
+      String type = record.first['type'] as String;
+      if (type.startsWith('quarantined_')) {
+        String originalType = type.replaceFirst('quarantined_', '');
+        if (originalType == 'corrupt') return; // لا يمكن استعادة سجل تالف الهيكل
+        if (originalType == 'draft_sale') originalType = 'submit_sale';
+        
+        await db.update('pending_sync', {'type': originalType}, where: 'id = ?', whereArgs: [id]);
+        developer.log('[LocalDatabase] Quarantined sync #$id restored for retry as $originalType.');
+      }
+    }
   }
 }

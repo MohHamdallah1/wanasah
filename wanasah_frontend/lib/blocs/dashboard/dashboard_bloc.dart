@@ -5,7 +5,7 @@
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'dart:developer' as developer;
-
+import 'dart:async';
 import '../../core/db/local_database.dart';
 import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
@@ -22,6 +22,11 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final DashboardRepository _dashboardRepo;
   final LocationService _locationService;
 
+  // +++ EVT-1: محول تسلسلي (Sequential Transformer) لإجبار البلوك على معالجة الأحداث بالدور ومنع السباق +++
+  EventTransformer<T> _sequential<T>() {
+    return (events, mapper) => events.asyncExpand(mapper);
+  }
+
   DashboardBloc({
     SyncRepository? syncRepository, 
     LocalDatabase? db,
@@ -33,22 +38,24 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       _dashboardRepo = dashboardRepo ?? DashboardRepository(),
       _locationService = locationService ?? LocationService.instance,
       super(const DashboardInitial()) {
-    on<LoadDashboardData>(_onLoadDashboardData);
-    on<ForceSyncData>(_onForceSyncData);
-    on<FetchDashboardData>(_onFetchDashboardData);
-    on<CheckPendingTransfers>(_onCheckPendingTransfers);
-    on<RespondToTransfer>(_onRespondToTransfer);
-    on<RespondToBatchTransfer>(_onRespondToBatchTransfer);
-    // +++ الكي الجراحي: تسجيل أحداث إدارة الجلسة +++
-    on<StartSessionEvent>(_onStartSession);
-    on<EndSessionEvent>(_onEndSession);
-    on<ToggleBreakEvent>(_onToggleBreak);
-    // +++ الكي الجراحي لـ Bug 3: الاستماع لحدث التنظيف في المكان الصحيح +++
+      
+    // +++ ربط جميع الأحداث بالمحول التسلسلي لمنع الانهيار المعماري +++
+    on<LoadDashboardData>(_onLoadDashboardData, transformer: _sequential());
+    on<ForceSyncData>(_onForceSyncData, transformer: _sequential());
+    on<FetchDashboardData>(_onFetchDashboardData, transformer: _sequential());
+    on<CheckPendingTransfers>(_onCheckPendingTransfers); // هذا يمكن تركه لأنه يُستدعى داخلياً بعد Fetch
+    on<RespondToTransfer>(_onRespondToTransfer, transformer: _sequential());
+    on<RespondToBatchTransfer>(_onRespondToBatchTransfer, transformer: _sequential());
+    on<StartSessionEvent>(_onStartSession, transformer: _sequential());
+    on<EndSessionEvent>(_onEndSession, transformer: _sequential());
+    on<ToggleBreakEvent>(_onToggleBreak, transformer: _sequential());
     on<ClearActionMessageEvent>((event, emit) {
       if (state is DashboardLoaded) {
         emit((state as DashboardLoaded).copyWith(clearActionMessage: true));
       }
-    });
+    }, transformer: _sequential());
+    // +++ ربط حدث التسوية +++
+    on<ClearQuarantineEvent>(_onClearQuarantine, transformer: _sequential());
   }
 
   // ─── LoadDashboardData ────────────────────────────────────────────────────
@@ -74,11 +81,20 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     ForceSyncData event,
     Emitter<DashboardState> emit,
   ) async {
-    emit(const DashboardLoading());
+    // +++ DAB-6: منع وميض الشاشة ومسح المحتوى إذا كانت البيانات محملة مسبقاً +++
+    if (state is! DashboardLoaded) emit(const DashboardLoading());
 
     try {
       // 1. مزامنة من السيرفر (تشمل syncUp داخلياً كضمان)
-      await _syncRepository.syncDown();
+      final bool syncRan = await _syncRepository.syncDown();
+      if (!syncRan) {
+        // +++ إبلاغ المندوب بأن الطابور مشغول بدلاً من تجاهل سحبه للشاشة +++
+        emit(DashboardError(message: 'المزامنة جارية بالفعل في الخلفية. يرجى الانتظار قليلاً ⏳'));
+        // نعيد عرض البيانات المحلية فوراً لكي لا تعلق الشاشة في الـ Loading
+        final cached = await _loadFromLocal(isOffline: true);
+        emit(cached);
+        return;
+      }
       developer.log('[DashboardBloc] syncDown() completed.');
 
       // 2. قراءة البيانات المحدَّثة من SQLite
@@ -86,10 +102,18 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       emit(loaded);
     } catch (e) {
       developer.log('[DashboardBloc] ForceSyncData error: $e');
-      // عند فشل الشبكة: نُحاول قراءة البيانات المحلية القديمة بدلاً من إظهار خطأ
       try {
-        // +++ تفعيل الإشارة التحذيرية للواجهة +++
-        final cached = await _loadFromLocal(isOffline: true);
+        // +++ DAB-1b: التمييز الدقيق (خطأ السيرفر الداخلي 500 ليس انقطاعاً في الإنترنت) +++
+        final bool isNetworkError = e is DioException && 
+            (e.response == null || e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout);
+        final String errorMsg = isNetworkError 
+            ? 'فشل التحديث من السيرفر. جاري عرض البيانات المحلية.' 
+            : e.toString().replaceAll('Exception: ', '');
+
+        emit(DashboardError(message: errorMsg));
+        
+        // إذا كان الخطأ برمجي/أعمال (ليس نت)، لا نظهر لافتة "أوفلاين" الحمراء
+        final cached = await _loadFromLocal(isOffline: isNetworkError);
         // نُصدر البيانات القديمة كـ Loaded لضمان استمرارية العمل Offline
         emit(cached);
         developer.log(
@@ -110,9 +134,18 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     final rawVisits = await _db.getVisits();
     final rawProducts = await _db.getProducts();
 
-    final visits = rawVisits.map((row) => VisitModel.fromJson(row)).toList();
-    final products =
-        rawProducts.map((row) => ProductModel.fromJson(row)).toList();
+    // +++ DAB-4: درع الابتلاع الآمن لمنع صف تالف واحد من تدمير الداشبورد بالكامل +++
+    final List<VisitModel> visits = [];
+    for (var row in rawVisits) {
+      try { visits.add(VisitModel.fromJson(row)); } 
+      catch (e) { developer.log('[DashboardBloc] Skipped corrupt visit row: $e'); }
+    }
+
+    final List<ProductModel> products = [];
+    for (var row in rawProducts) {
+      try { products.add(ProductModel.fromJson(row)); } 
+      catch (e) { developer.log('[DashboardBloc] Skipped corrupt product row: $e'); }
+    }
 
     // +++ الكيّ الجراحي لـ Bug 2: القراءة من المستودع بدلاً من الخزنة مباشرة +++
     final allData = await _dashboardRepo.getAllCachedData();
@@ -130,14 +163,16 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
             ? visits.where((v) => v.status == 'Pending').length
             : (int.tryParse(allData['cached_pending_visits'] ?? '0') ?? 0);
 
-    // +++ حل لغم المصادر المفقودة (salesInCompleted Offline) +++
-    final int salesInCompleted =
-        visits
-            .where((v) => v.status == 'Completed' && v.outcome == 'Sale')
-            .length;
+    // +++ الكي الجراحي: قراءة الكاش إذا كانت قاعدة البيانات فارغة لمنع التصفير الوهمي +++
+    final int salesInCompleted = visits.isNotEmpty
+        ? visits.where((v) => v.status == 'Completed' && v.outcome == 'Sale').length
+        : (int.tryParse(allData['cached_sales_in_completed'] ?? '0') ?? 0);
 
     final pendingSyncs = await _db.getPendingSyncs();
-    final int offlineCount = pendingSyncs.length;
+    // +++ تصفية السجلات السليمة للأوفلاين +++
+    final int offlineCount = pendingSyncs.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).length;
+    // +++ الكي الجراحي: حساب الفواتير المرفوضة نهائياً (الجثث) لتنبيه المندوب +++
+    final int quarantinedCount = pendingSyncs.where((p) => p['type']?.toString().startsWith('quarantined_') ?? false).length;
 
     // +++ حل فخ "فقدان الذاكرة المالية وهوية المندوب" +++
     final driverName = allData['cached_driver_name'] ?? 'مندوب (أوفلاين)';
@@ -168,6 +203,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       completedVisits: completed,
       pendingVisits: pending,
       offlineVisits: offlineCount,
+      quarantinedVisits: quarantinedCount,
       salesInCompleted: salesInCompleted,
       driverName: driverName,
       assignedRegion: assignedRegion,
@@ -182,6 +218,21 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       isOnBreak:
           isOnBreak, // +++ إرجاع حالة الاستراحة ليقلب الزر لـ "إنهاء الاستراحة" +++
     );
+  }
+  
+
+  // +++ مسح الجثث من الخزنة بعد تسويتها +++
+  Future<void> _onClearQuarantine(
+    ClearQuarantineEvent event,
+    Emitter<DashboardState> emit,
+  ) async {
+    await _db.clearAllQuarantinedSyncs();
+    if (state is DashboardLoaded) {
+      emit((state as DashboardLoaded).copyWith(
+        quarantinedVisits: 0,
+        actionSuccessMessage: 'تمت تسوية الفواتير المرفوضة ومسحها 🧹',
+      ));
+    }
   }
 
   // ─── FetchDashboardData (المحرك المالي الشامل المحصن) ─────────────────────────────
@@ -198,7 +249,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
       // +++ الدرع النوعي النخبوي (Elite Cast): منع كراش الـ TypeError بدون طرد المندوب ظلماً بسبب تعقيدات Dart +++
       if (response.data is! Map) {
-        emit(const DashboardError(message: 'استجابة غير صالحة من الخادم.'));
+        emit(DashboardError(message: 'استجابة غير صالحة من الخادم.'));
         return;
       }
       final Map<String, dynamic> data = Map<String, dynamic>.from(response.data as Map);
@@ -230,10 +281,12 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final financials = data['financials'] is Map ? Map<String, dynamic>.from(data['financials'] as Map) : null;
       final countsData = data['counts'] is Map ? Map<String, dynamic>.from(data['counts'] as Map) : null;
 
-      // +++ الكي الجراحي لـ Bug 2: تخزين الذاكرة عبر المستودع +++
+      // +++:تخزين الذاكرة عبر المستودع +++
       await _dashboardRepo.cacheDashboardData({
         'is_authorized': isAuthorized.toString(),
+        'is_on_break': isOnBreak.toString(), // +++ إصلاح ثغرة الاستراحة الشبح (تزامن إجباري مع السيرفر) +++
         'cached_driver_name': data['driver_name']?.toString() ?? '',
+        'cached_sales_in_completed': (countsData?['sales_in_completed']?.toString() ?? '0'), // +++ سد فجوة الكاش +++
         'cached_assigned_region': data['assigned_region']?.toString() ?? '',
         'cached_total_sales_cash': (financials?['total_sales_cash']?.toString() ?? '0.0'),
         'cached_total_debt_paid': (financials?['total_debt_paid']?.toString() ?? '0.0'),
@@ -247,7 +300,11 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       });
 
       try {
-        await _syncRepository.syncDown();
+        // +++ الكي الجراحي: احترام قفل المزامنة الموحد (الـ bool) وتوثيق التخطي الصامت +++
+        final bool syncRan = await _syncRepository.syncDown();
+        if (!syncRan) {
+          developer.log('[DashboardBloc] SyncDown skipped during fetch (already running).');
+        }
       } catch (syncError) {
         developer.log(
           '[DashboardBloc] SyncDown failed during fetch: $syncError',
@@ -332,7 +389,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           emit(localData);
         } catch (localErr) {
           emit(
-            const DashboardError(
+             DashboardError(
               message: 'انقطع الإنترنت ولا توجد بيانات محلية.',
             ),
           );
@@ -372,12 +429,22 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error checking transfers (Offline?): $e');
-      // +++ الدرع الأوفلاين: إذا فشل الاتصال بالسيرفر، نقرأ الحوالات من الخزنة المحلية +++
+      // +++ الكي الجراحي (البند 1): تغليف بيانات الأوفلاين المسطحة لتطابق شكل الـ API وتفهمها الشاشة +++
       try {
         final localTransfers = await _db.getIncomingTransfers();
         if (localTransfers.isNotEmpty) {
           if (state is DashboardLoaded) {
-            emit((state as DashboardLoaded).copyWith(pendingTransfer: localTransfers.first));
+            final wrappedData = {
+              'items': localTransfers.map((t) => {
+                'real_transfer_id': t['transfer_id'],
+                'product_variant_id': t['product_variant_id'],
+                'product_name': t['product_name'],
+                'delta_cartons': t['delta_cartons'],
+                'delta_packs': t['delta_packs'],
+                'status': t['status'],
+              }).toList()
+            };
+            emit((state as DashboardLoaded).copyWith(pendingTransfer: wrappedData));
           }
           developer.log('[DashboardBloc] Loaded pending transfer from local DB.');
         }
@@ -392,26 +459,31 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     Emitter<DashboardState> emit,
   ) async {
     if (state is! DashboardLoaded) return;
-
-    // +++ إخفاء الحوالة فوراً من الـ State لكي يختفي الـ Dialog من الشاشة ولا يتكرر +++
-    emit((state as DashboardLoaded).copyWith(clearPendingTransfer: true));
+    
+    // +++ DAB-2: أخذ لقطة للحالة (Snapshot) قبل مسح الحوالة لاسترجاعها عند الفشل +++
+    final snapshot = state as DashboardLoaded;
+    emit(snapshot.copyWith(clearPendingTransfer: true));
 
     try {
-      await _dashboardRepo.respondToTransfer(event.transferId, event.responseStatus);
+      // +++ الإصلاح: توجيه الرد للـ SyncRepository المحصن بدلاً من الـ Repo القديم +++
+      final wasSentLive = await _syncRepository.respondToTransfer(
+        transferId: event.transferId, 
+        responseStr: event.responseStatus,
+      );
 
-      // +++ الكي الجراحي لـ Bug 3: إعدام الحوالة من الداتابيز المحلية لكي لا تظهر كشبح لاحقاً +++
-      await _dashboardRepo.removeLocalTransfer(event.transferId);
-
-      final int? driverId = await _dashboardRepo.getDriverId();
-      if (driverId != null) {
-        add(FetchDashboardData(driverId: driverId));
+      if (wasSentLive) {
+        final int? driverId = await _dashboardRepo.getDriverId();
+        add(FetchDashboardData(driverId: driverId ?? 0));
       } else {
-        // +++ الكي الجراحي لـ Bug 4: الاستعانة بالمزامنة القسرية إذا فُقد المعرف بدلاً من الموت بصمت +++
-        add(const ForceSyncData()); 
+        emit(snapshot.copyWith(
+          clearPendingTransfer: true,
+          actionSuccessMessage: 'تم حفظ ردك. سيتم إرساله تلقائياً عند عودة الإنترنت 📡',
+        ));
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error responding to transfer: $e');
       emit(DashboardError(message: 'فشل إرسال الرد للإدارة: $e'));
+      emit(snapshot); // +++ إعادة الحوالة للشاشة لكي يحاول المندوب مرة أخرى +++
     }
   }
 
@@ -421,30 +493,41 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     Emitter<DashboardState> emit,
   ) async {
     if (state is! DashboardLoaded) return;
+    final snapshot = state as DashboardLoaded;
+    emit(snapshot.copyWith(clearPendingTransfer: true));
 
-    // +++ إخفاء الحوالة فوراً من الـ State لكي يختفي الـ Dialog من الشاشة +++
-    emit((state as DashboardLoaded).copyWith(clearPendingTransfer: true));
+    // +++ البند 9: خدعة لتنظيف الحوالة العالقة إذا كانت الدفعة فارغة +++
+    if (event.detailedTransfers.isEmpty) return;
 
     try {
-      await _dashboardRepo.respondToBatchTransfer(event.detailedTransfers);
-
-      // +++ الكي الجراحي لـ Bug 3: إعدام كافة الحوالات المستجابة محلياً +++
+      bool isAnyQueued = false;
       for (final t in event.detailedTransfers) {
-        final tid = (t['transfer_id'] as num?)?.toInt();
-        if (tid != null) {
-          await _dashboardRepo.removeLocalTransfer(tid);
-        }
+        final tid = int.tryParse(t['transfer_id']?.toString() ?? '');
+        if (tid == null) continue;
+        
+        // استلام النتيجة الحقيقية (أرسلت فوراً أم تخزنت أوفلاين)
+        final wasSentLive = await _syncRepository.respondToTransfer(
+          transferId: tid, 
+          responseStr: t['status'] as String,
+        );
+        
+        if (!wasSentLive) isAnyQueued = true;
       }
 
-      final int? driverId = await _dashboardRepo.getDriverId();
-      if (driverId != null) {
-        add(FetchDashboardData(driverId: driverId));
+      if (!isAnyQueued) {
+        final int? driverId = await _dashboardRepo.getDriverId();
+        add(FetchDashboardData(driverId: driverId ?? 0));
       } else {
-        add(const ForceSyncData());
+        emit(snapshot.copyWith(
+          clearPendingTransfer: true,
+          actionSuccessMessage: 'تم حفظ ردك. سيتم إرساله تلقائياً عند عودة الإنترنت 📡',
+        ));
       }
     } catch (e) {
-      developer.log('[DashboardBloc] Error responding to batch transfer: $e');
-      emit(DashboardError(message: 'فشل إرسال الرد الجماعي للإدارة: $e'));
+      developer.log('[DashboardBloc] Error responding to batch: $e');
+      // اصطياد الخطأ الصريح من السيرفر (4xx) الذي قمنا برميه الآن
+      emit(DashboardError(message: e.toString().replaceAll('Exception: ', '')));
+      emit(snapshot); // نعيد النافذة ليتدارك المندوب الخطأ
     }
   }
 
@@ -464,18 +547,28 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'يوجد جلسة عمل نشطة بالفعل.'));
         add(FetchDashboardData(driverId: event.driverId));
       } else if (e.response?.statusCode != 401) {
-        emit(DashboardError(message: 'خطأ: ${e.response?.data?['message'] ?? 'فشل الاتصال'}'));
+        // +++ DAB-3: درع استخراج الرسائل الآمن لمنع كراش الـ NoSuchMethodError +++
+        final data = e.response?.data;
+        // +++ الكي الجراحي (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
+      final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
+        emit(DashboardError(message: 'خطأ: $msg'));
       }
     } catch (e) {
       // +++ الكي الجراحي: اصطياد كافة مشاكل الـ GPS ومنع الجلسة من البدء بدون إحداثيات +++
       if (e.toString().contains('GPS_DISABLED')) {
-        emit(const DashboardError(message: 'الرجاء تفعيل خدمة الموقع (GPS) لبدء العمل.'));
+        emit(DashboardError(message: 'الرجاء تفعيل خدمة الموقع (GPS) لبدء العمل.'));
+      } else if (e.toString().contains('GPS_DENIED_FOREVER')) {
+        // +++ الكي الجراحي: توجيه المندوب للإعدادات بدلاً من تضليله +++
+        emit(DashboardError(message: 'صلاحية الموقع مرفوضة نهائياً. افتح إعدادات الجهاز وامنح التطبيق صلاحية الموقع ثم أعد المحاولة.'));
       } else if (e.toString().contains('GPS_DENIED')) {
-        emit(const DashboardError(message: 'صلاحية الموقع مطلوبة لبدء العمل.'));
+        emit(DashboardError(message: 'صلاحية الموقع مطلوبة لبدء العمل.'));
+      } else if (e.toString().contains('FAKE_GPS_DETECTED')) {
+        // +++ الدرع الأمني: فضح التلاعب أمام المندوب فوراً +++
+        emit(DashboardError(message: 'تحذير أمني: تم رصد تطبيق تزوير موقع (Fake GPS). أوقفه لمتابعة العمل.'));
       } else if (e.toString().contains('GPS_TIMEOUT')) {
-        emit(const DashboardError(message: 'فشل تحديد الموقع. الرجاء التأكد من قوة إشارة الـ GPS والمحاولة في مكان مفتوح.'));
+        emit(DashboardError(message: 'فشل تحديد الموقع. الرجاء التأكد من قوة إشارة الـ GPS والمحاولة في مكان مفتوح.'));
       } else {
-        emit(DashboardError(message: 'حدث خطأ غير متوقع: $e'));
+        emit(DashboardError(message: 'حدث خطأ غير متوقع: ${e.toString().replaceAll('Exception: ', '')}'));
       }
     }
   }
@@ -505,9 +598,12 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
                         e.type == DioExceptionType.unknown ||
                         e.error.toString().contains('SocketException');
 
+      final data = e.response?.data;
+      // +++ الكي الجراحي (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
+      final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
       emit(DashboardError(message: isOffline 
           ? 'لا يمكن إنهاء العمل وأنت أوفلاين. يجب الاتصال بالإنترنت لمطابقة العهدة وتسليمها.' 
-          : 'خطأ: ${e.response?.data?['message'] ?? 'فشل الإنهاء'}'));
+          : 'خطأ: $msg'));
     } catch (e) {
       emit(DashboardError(message: 'حدث خطأ أثناء إنهاء الجلسة.'));
     }
@@ -515,9 +611,15 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
   Future<void> _onToggleBreak(ToggleBreakEvent event, Emitter<DashboardState> emit) async {
     try {
-      await _dashboardRepo.toggleBreak(event.driverId, event.action);
+      // نستقبل النتيجة الحقيقية (أونلاين أم أوفلاين)
+      final wasSentLive = await _dashboardRepo.toggleBreak(event.driverId, event.action);
       
-      if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: event.action == 'start' ? 'تم بدء الاستراحة (مسجلة).' : 'تم إنهاء الاستراحة (مسجلة).'));
+      if (state is DashboardLoaded) {
+        final actionText = event.action == 'start' ? 'تم بدء الاستراحة' : 'تم إنهاء الاستراحة';
+        // +++ رسالة صادقة للمندوب بناءً على حالة الشبكة +++
+        final successMsg = wasSentLive ? '$actionText (مسجلة).' : '$actionText (محفوظة أوفلاين 📡).';
+        emit((state as DashboardLoaded).copyWith(actionSuccessMessage: successMsg));
+      }
       add(FetchDashboardData(driverId: event.driverId));
       
     } on DioException catch (e) {
@@ -528,7 +630,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         add(FetchDashboardData(driverId: event.driverId));
         return;
       }
-      emit(DashboardError(message: 'خطأ: ${e.response?.data?['message'] ?? 'فشل الاتصال'}'));
+      final data = e.response?.data;
+      // +++ الكي الجراحي (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
+      final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
+      emit(DashboardError(message: 'خطأ: $msg'));
     } catch (e) {
       emit(DashboardError(message: 'فشل في عملية الاستراحة.'));
     }

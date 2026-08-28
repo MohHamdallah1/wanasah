@@ -93,11 +93,11 @@ class Driver(Base):
     password_hash = Column(String(128), nullable=False)
     full_name     = Column(String(120), nullable=False)
     phone_number  = Column(String(20),  nullable=True)
-    is_active     = Column(Boolean,     nullable=False, default=True)
-    is_admin      = Column(Boolean,     nullable=False, default=False)
-    can_allow_debt  = Column(Boolean,       nullable=False, default=False)
-    # +++ الدرع المحاسبي: حماية الدقة من تآكل الـ Float وفرض الصفر الافتراضي في محرك قاعدة البيانات +++
-    max_debt_limit  = Column(Numeric(12, 3), nullable=False, default=Decimal('0.000'), server_default='0.000')
+    is_active     = Column(Boolean,     nullable=False, default=True, server_default='true')
+    is_admin      = Column(Boolean,     nullable=False, default=False, server_default='false')
+    can_allow_debt  = Column(Boolean,       nullable=False, default=False, server_default='false')
+    # +++ الدرع المحاسبي: حماية الدقة من تآكل الـ Float ومنع سقف الدين من الانقلاب لقيمة سالبة +++
+    max_debt_limit  = Column(Numeric(12, 3), CheckConstraint('max_debt_limit >= 0', name='chk_driver_max_debt'), nullable=False, default=Decimal('0.000'), server_default='0.000')
     created_at      = Column(DateTime,      nullable=False, default=utc_now)  # FIX ①
 
 
@@ -128,7 +128,7 @@ class ProductVariant(Base):
     packs_per_carton = Column(Integer, CheckConstraint('packs_per_carton > 0', name='chk_packs_per_carton_positive'), nullable=False, default=50)
     price_per_carton = Column(Numeric(12, 3), nullable=False)
     price_per_pack   = Column(Numeric(12, 3), nullable=True)
-    is_active        = Column(Boolean, nullable=False, default=True, index=True)
+    is_active        = Column(Boolean, nullable=False, default=True, server_default='true', index=True)
     default_max_samples_per_day = Column(Integer, nullable=False, default=0)
 
 
@@ -167,8 +167,6 @@ class VehicleLoad(Base):
 
 # =================================================================================
 # ⑥ جلسات العمل والعهدة
-# مُعرَّفة قبل DispatchRoute لأن DispatchRoute يشير إليها
-# FIX ②: حل مشكلة الترتيب - WorkSession كانت بعد DispatchRoute
 # =================================================================================
 class WorkSession(Base):
     __tablename__ = 'work_sessions'
@@ -181,8 +179,8 @@ class WorkSession(Base):
     end_time     = Column(DateTime, nullable=True,  index=True)
     # +++ الكي الجراحي (Issue 3): توحيد الزمن (Naive UTC) لنسف تعارضات قاعدة البيانات +++
     session_date = Column(Date,     nullable=False, default=lambda: utc_now().date(), index=True)
-    start_latitude  = Column(Float, nullable=True)
-    start_longitude = Column(Float, nullable=True)
+    start_latitude  = Column(Numeric(10, 7), nullable=True)
+    start_longitude = Column(Numeric(10, 7), nullable=True)
 
     is_authorized_to_sell = Column(Boolean,  nullable=False, default=False)
     break_start_time      = Column(DateTime, nullable=True)
@@ -222,8 +220,8 @@ class Shop(Base):
     id             = Column(Integer, primary_key=True)
     name           = Column(String(150), nullable=False)
     address        = Column(Text,        nullable=True)
-    latitude       = Column(Float,       nullable=True)
-    longitude      = Column(Float,       nullable=True)
+    latitude       = Column(Numeric(10, 7), nullable=True)
+    longitude      = Column(Numeric(10, 7), nullable=True)
     phone_number   = Column(String(20),  nullable=True)
     contact_person = Column(String(100), nullable=True)
     zone_id        = Column(Integer, ForeignKey('zones.id', ondelete='SET NULL'),
@@ -245,14 +243,14 @@ class Shop(Base):
 
 # =================================================================================
 # ⑧ خطوط السير اليومية (الجدولة والتوزيع)
-# مُعرَّفة بعد WorkSession لأنها تشير إليها
 # =================================================================================
 class DispatchRoute(Base):
     __tablename__ = 'dispatch_routes'
     # +++ النسف المعماري الشامل لثغرة الـ Race Condition (Partial Unique Indexes) +++
     __table_args__ = (
-        Index('uq_active_route_per_driver', 'driver_id', unique=True, postgresql_where=text("status IN ('active', 'waiting')")),
-        Index('uq_active_route_per_vehicle', 'vehicle_id', unique=True, postgresql_where=text("status IN ('active', 'waiting')")),
+        # توحيد شمول 'postponed' لجميع الفهارس لمنع تخصيص مندوب لخط جديد بينما لديه خط مؤجل
+        Index('uq_active_route_per_driver', 'driver_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
+        Index('uq_active_route_per_vehicle', 'vehicle_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
         Index('uq_active_route_per_zone', 'zone_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
     )
     
@@ -286,7 +284,7 @@ class Visit(Base):
         Index('ix_visit_session_outcome', 'work_session_id', 'outcome'),
     )
     id              = Column(Integer, primary_key=True)
-    driver_id       = Column(Integer, ForeignKey('drivers.id'),      nullable=True,  index=True)
+    driver_id       = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True,  index=True)
     shop_id         = Column(Integer, ForeignKey('shops.id'),        nullable=False, index=True)
     work_session_id = Column(Integer, ForeignKey('work_sessions.id'), nullable=True, index=True)
     visit_timestamp = Column(DateTime, nullable=False, default=utc_now, index=True)  # FIX ①
@@ -305,8 +303,8 @@ class Visit(Base):
     no_sale_reason    = Column(String(200), nullable=True)
     shop_balance_before = Column(Numeric(12, 3), nullable=True)
     shop_balance_after  = Column(Numeric(12, 3), nullable=True)
-    latitude   = Column(Float,   nullable=True)
-    longitude  = Column(Float,   nullable=True)
+    latitude   = Column(Numeric(10, 7), nullable=True)
+    longitude  = Column(Numeric(10, 7), nullable=True)
     sequence   = Column(Integer, nullable=True)
     status     = Column(String(50), nullable=False, default='Pending', index=True)
     notes      = Column(Text,    nullable=True)
@@ -336,10 +334,10 @@ class VisitItem(Base):
     bonus_quantity = Column(Integer, CheckConstraint('bonus_quantity >= 0', name='chk_vitem_bqty'), nullable=False, default=0, server_default='0')   # بونص كراتين
     sample_quantity = Column(Integer, CheckConstraint('sample_quantity >= 0', name='chk_vitem_sqty'), nullable=False, default=0, server_default='0')   # عينات مجانية
     sample_packs_quantity = Column(Integer, CheckConstraint('sample_packs_quantity >= 0', name='chk_vitem_spqty'), nullable=False, default=0, server_default='0')
-    price_per_unit_at_sale = Column(Numeric(12, 3), nullable=True)
+    price_per_unit_at_sale = Column(Numeric(12, 3), nullable=False) # +++ إلزامي لحماية الفواتير +++
     total_price            = Column(Numeric(12, 3), nullable=False, default=Decimal('0.000'), server_default='0.000')
     sample_reason = Column(String(255), nullable=True)
-    is_cancelled = Column(Boolean, default=False) # +++ لمنع طمس الأدلة +++
+    is_cancelled = Column(Boolean, nullable=False, default=False, server_default='false') # +++ لمنع طمس الأدلة وإغلاق ثغرة الـ NULL بالداتابيز +++
 
     product_variant = relationship('ProductVariant', lazy='raise')
 
@@ -350,6 +348,9 @@ class VisitReturn(Base):
     return_type: Factory_Defect | Expired | Damaged
     """
     __tablename__ = 'visit_returns'
+    __table_args__ = (
+        Index('ix_visit_return_composite', 'visit_id', 'product_variant_id'),
+    )
     id                 = Column(Integer, primary_key=True)
     visit_id           = Column(Integer, ForeignKey('visits.id', ondelete='CASCADE'),    nullable=False, index=True)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
@@ -359,7 +360,7 @@ class VisitReturn(Base):
     packs_quantity = Column(Integer, CheckConstraint('packs_quantity >= 0', name='chk_vret_pqty'), nullable=False, default=0)
     return_type = Column(String(50), nullable=False)
     reason      = Column(Text,       nullable=True)
-    is_cancelled = Column(Boolean, default=False) # +++ لمنع طمس الأدلة +++
+    is_cancelled = Column(Boolean, nullable=False, default=False, server_default='false') # +++ لمنع طمس الأدلة وإغلاق ثغرة الـ NULL بالداتابيز +++
 
     product_variant = relationship('ProductVariant', lazy='raise')
     visit = relationship('Visit', backref=backref('returns', lazy='raise',
@@ -383,7 +384,7 @@ class ShortageRequest(Base):
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'),
                                    nullable=False, index=True)
 
-    quantity   = Column(Integer, CheckConstraint('quantity >= 0', name='chk_shortage_qty'), nullable=False)
+    quantity   = Column(Integer, CheckConstraint('quantity > 0', name='chk_shortage_qty_positive'), nullable=False)
     status     = Column(String(50), nullable=False, default='pending', index=True)
     wait_time  = Column(String(50), nullable=True,  default='الآن')
     notes      = Column(Text,       nullable=True)   # بدل product_name - لو في ملاحظات إضافية
@@ -406,7 +407,8 @@ class OfferRule(Base):
     threshold_quantity = Column(Integer, nullable=False)
     offer_type         = Column(String(50), nullable=False)
     bonus_quantity     = Column(Integer,    nullable=False, default=0)
-    discount_value     = Column(Numeric(12, 3), nullable=False, default=0.0)
+    # +++ حماية القروش من التآكل (Float vs Decimal) +++
+    discount_value     = Column(Numeric(12, 3), nullable=False, default=Decimal('0.000'), server_default='0.000')
     is_active          = Column(Boolean,    nullable=False, default=True)
 
 
@@ -449,7 +451,7 @@ class InventoryLedger(Base):
     )
     id                 = Column(Integer, primary_key=True)
     work_session_id    = Column(Integer, ForeignKey('work_sessions.id'), nullable=True, index=True)
-    driver_id          = Column(Integer, ForeignKey('drivers.id'),       nullable=False)
+    driver_id          = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
     vehicle_id         = Column(Integer, ForeignKey('vehicles.id'),      nullable=True)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id'), nullable=False)
 
@@ -507,6 +509,9 @@ class WorkBreakLog(Base):
 # =================================================================================
 class InventoryTransfer(Base):
     __tablename__ = 'inventory_transfers'
+    __table_args__ = (
+        Index('uq_pending_transfer', 'work_session_id', 'product_variant_id', unique=True, postgresql_where=text("status = 'pending'")),
+    )
     id                 = Column(Integer, primary_key=True)
     work_session_id    = Column(Integer, ForeignKey('work_sessions.id',    ondelete='RESTRICT'), nullable=False)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
@@ -514,8 +519,7 @@ class InventoryTransfer(Base):
     quantity_packs = Column(Integer,    nullable=False)  # موجب للزيادة، سالب للسحب
     status         = Column(String(20), nullable=False, default='pending')  # pending | accepted | rejected
 
-    admin_id   = Column(Integer, ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True)
-    # FIX ④: إزالة .replace(tzinfo=None) - كان يُنشئ naive datetime مخالف لبقية الجداول
+    admin_id   = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
     created_at = Column(DateTime, nullable=False, default=utc_now)
     notes = Column(String(255), nullable=True)
 
@@ -593,8 +597,8 @@ class WarehouseLedger(Base):
     __tablename__ = 'warehouse_ledger'
     __table_args__ = (
         Index('idx_ledger_variant_created', 'product_variant_id', 'created_at'),
-        # +++ النسف المعماري الحقيقي: إضافة 'product_variant_id' للفهرس ليسمح بتكرار رقم الفاتورة بشرط اختلاف الصنف داخل نفس الفاتورة +++
-        Index('uq_ledger_supplier_ref', 'reference_id', 'product_variant_id', unique=True, postgresql_where=text("transaction_type = 'INBOUND_SUPPLIER' AND reference_id IS NOT NULL AND reference_id != 'بدون فاتورة'")),
+        # +++ سحق الـ Magic String العربي واعتماد IS NOT NULL مع منع الفراغ +++
+        Index('uq_ledger_supplier_ref', 'reference_id', 'product_variant_id', unique=True, postgresql_where=text("transaction_type = 'INBOUND_SUPPLIER' AND reference_id IS NOT NULL AND trim(reference_id) != ''")),
     )
     id = Column(Integer, primary_key=True)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
@@ -621,8 +625,8 @@ class WarehouseLedger(Base):
 class TokenBlacklist(Base):
     __tablename__ = 'token_blacklist'
     id = Column(Integer, primary_key=True)
-    token = Column(String(500), unique=True, nullable=False, index=True)
-    blacklisted_at = Column(DateTime, nullable=False, default=utc_now)
+    token = Column(String(500), unique=True, nullable=False)
+    blacklisted_at = Column(DateTime, nullable=False, default=utc_now, index=True) # +++ فهرس لتسريع الحذف التلقائي +++
 
 
 # =================================================================================
@@ -631,9 +635,9 @@ class TokenBlacklist(Base):
 class RefreshToken(Base):
     __tablename__ = 'refresh_tokens'
     id = Column(Integer, primary_key=True)
-    token = Column(String(500), unique=True, nullable=False, index=True)
-    driver_id = Column(Integer, ForeignKey('drivers.id', ondelete='CASCADE'), nullable=False)
-    expires_at = Column(DateTime, nullable=False)
+    token = Column(String(500), unique=True, nullable=False)
+    driver_id = Column(Integer, ForeignKey('drivers.id', ondelete='CASCADE'), nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True) # +++ فهرس لتسريع تنظيف الداتابيز +++
     created_at = Column(DateTime, nullable=False, default=utc_now)
     is_revoked = Column(Boolean, nullable=False, default=False)
     

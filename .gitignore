@@ -53,4 +53,19 @@ coverage.xml
 *.tar.gz
 *.rar
 *.7z
+# Custom Virtual Environments
+wa_backend/venv_wsl/
+
+# Rotated Logs
+*.log.*
+
+# Temporary & Office Files
+~$*.docx
+~*.tmp
+*.tmp
+*.swp
+
+# Test Reports & Dynamic outputs
+wa_backend/scripts/*_report.txt
+wa_backend/scripts/*_summary.json
 ```

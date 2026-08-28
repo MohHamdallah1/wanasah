@@ -8,6 +8,7 @@ from database import get_db
 from api.dependencies import get_current_driver, get_current_admin
 from datetime import timedelta, datetime, timezone
 from sqlalchemy.orm import joinedload
+from sqlalchemy.exc import IntegrityError
 from decimal import Decimal
 from typing import List 
 from fastapi.responses import JSONResponse
@@ -49,7 +50,7 @@ async def authorize_session(
 ):
 
     # 1. جلب الجلسة مع قفل التزامن (Row-Level Lock)
-    stmt = select(WorkSession).filter_by(id=session_id).with_for_update()
+    stmt = select(WorkSession).filter_by(id=session_id).order_by(WorkSession.id.asc()).with_for_update()
     session = (await db.execute(stmt)).scalar_one_or_none()
 
     if not session:
@@ -329,6 +330,8 @@ async def get_session_settlement_report(
         ProductVariant, ProductVariant.id == VisitItem.product_variant_id
     ).filter(
         Visit.work_session_id == session_id,
+        Visit.status != 'Cancelled', # +++ إخفاء زيارات تم التراجع عنها +++
+        VisitItem.is_cancelled == False, # +++ إخفاء بنود ملغاة +++
         or_(VisitItem.sample_quantity > 0, VisitItem.sample_packs_quantity > 0)
     )
     samples_raw = (await db.execute(stmt_samples)).all()
@@ -388,7 +391,7 @@ async def settle_session(
     current_admin: Driver = Depends(get_current_admin)
 ):
 
-    stmt_session = select(WorkSession).with_for_update().filter_by(id=session_id)
+    stmt_session = select(WorkSession).filter_by(id=session_id).order_by(WorkSession.id.asc()).with_for_update()
     session = (await db.execute(stmt_session)).scalar_one_or_none()
 
     if not session:
@@ -412,96 +415,82 @@ async def settle_session(
         stats = (await db.execute(stmt_stats)).first()
 
         expected_cash_dec = Decimal(str(stats.total_cash or '0')) + Decimal(str(stats.total_debt or '0'))
-        actual_cash_dec = payload.actual_cash
-        cash_difference_dec = actual_cash_dec - expected_cash_dec
-
-        # تم نقل فحص البضاعة للأسفل بعد تعريف المتغيرات لمنع الـ NameError
-
-        if cash_difference_dec != Decimal('0.0'):
-            db.add(SystemAuditLog(
-                admin_id=current_admin.id,
-                target_id=f"Session_{session.id}",
-                action_type="SETTLEMENT_CASH_DISCREPANCY",
-                old_value=f"Expected: {expected_cash_dec}",
-                new_value=f"Actual: {actual_cash_dec} | مبرر المشرف: {payload.notes}"
-            ))
-
-        # 2. تحضير البيانات
+        
+        # 2. تحضير بيانات الجرد والبضاعة قبل احتساب الكاش النهائي (لمطالبة المندوب بالعجز)
         jard_map = {}
         for item in payload.inventory_jard:
-            # +++ الكي الجراحي (B-04): منع إدخال جرد فعلي سالب لتفادي IntegrityError +++
             if item.actual < 0:
                 await db.rollback()
                 raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن إدخال جرد فعلي بقيمة سالبة.")
-            pid = item.product_id
-            jard_map[pid] = jard_map.get(pid, 0) + item.actual
+            # +++ الدرع المحاسبي: الجرد لقطة مطلقة، نعتمد آخر قراءة لنسف التكرار الوهمي +++
+            jard_map[item.product_id] = item.actual
 
-        stmt_route = select(DispatchRoute).with_for_update().filter_by(work_session_id=session.id)
+        stmt_route = select(DispatchRoute).filter_by(work_session_id=session.id).order_by(DispatchRoute.id.asc()).with_for_update()
         route = (await db.execute(stmt_route)).scalar_one_or_none()
 
         stmt_damaged = select(VisitReturn).join(Visit).filter(
-            Visit.work_session_id == session.id,
-            VisitReturn.return_type.in_(['Expired', 'Damaged', 'Factory_Defect']),
-            VisitReturn.is_cancelled == False
+            Visit.work_session_id == session.id, Visit.status != 'Cancelled',
+            VisitReturn.return_type.in_(['Expired', 'Damaged', 'Factory_Defect']), VisitReturn.is_cancelled == False
         )
         damaged_returns = (await db.execute(stmt_damaged)).scalars().all()
 
-        # جلب مبدئي لأصناف العهدة لتحديد قائمة المنتجات بدون قفل متسرع يسبب Deadlock
         stmt_inv_keys = select(SessionInventory.product_variant_id).filter_by(work_session_id=session.id)
         inv_pids = (await db.execute(stmt_inv_keys)).scalars().all()
 
-        all_involved_pids = list(set(
-            list(inv_pids) + 
-            list(jard_map.keys()) + 
-            [r.product_variant_id for r in damaged_returns]
-        ))
+        # +++ الدرع الفولاذي لحماية الأصول: إضافة بضاعة السيارة لمنع تبخرها إذا لم يجردها المشرف +++
+        veh_pids = []
+        if route and route.vehicle_id:
+            stmt_veh_pids = select(VehicleLoad.product_variant_id).filter_by(vehicle_id=route.vehicle_id)
+            veh_pids = (await db.execute(stmt_veh_pids)).scalars().all()
+
+        all_involved_pids = list(set(list(inv_pids) + list(jard_map.keys()) + [r.product_variant_id for r in damaged_returns] + list(veh_pids)))
         all_involved_pids.sort()
 
-        bulk_variants = {}
-        bulk_wh_records = {}
-        bulk_inv_records = {}
-        damaged_by_product = {}
+        bulk_variants, bulk_wh_records, bulk_inv_records, damaged_by_product = {}, {}, {}, {}
+        total_deficit_cash = Decimal('0.0')
 
         if all_involved_pids:
             stmt_vars = select(ProductVariant).filter(ProductVariant.id.in_(all_involved_pids))
             bulk_variants = {v.id: v for v in (await db.execute(stmt_vars)).scalars().all()}
 
-            # 1. الترتيب الإجباري للـ Deadlock: قفل وتفريغ السيارة أولاً
             if route and route.vehicle_id:
                 await db.execute(delete(VehicleLoad).where(VehicleLoad.vehicle_id == route.vehicle_id))
 
-            # 2. قفل المستودع ثانياً
-            stmt_wh = select(MainWarehouse).with_for_update().filter(
-                MainWarehouse.product_variant_id.in_(all_involved_pids)
-            ).order_by(MainWarehouse.product_variant_id.asc())
+            stmt_wh = select(MainWarehouse).filter(MainWarehouse.product_variant_id.in_(all_involved_pids)).order_by(MainWarehouse.product_variant_id.asc()).with_for_update()
             bulk_wh_records = {w.product_variant_id: w for w in (await db.execute(stmt_wh)).scalars().all()}
             
-            # 3. قفل عهدة الجلسة ثالثاً (الآن نحن آمنون تماماً)
-            stmt_inv = select(SessionInventory).with_for_update().filter(
-                SessionInventory.work_session_id == session.id,
-                SessionInventory.product_variant_id.in_(all_involved_pids)
-            )
-            all_session_inv = (await db.execute(stmt_inv)).scalars().all()
-            bulk_inv_records = {inv.product_variant_id: inv for inv in all_session_inv}
+            stmt_inv = select(SessionInventory).filter(SessionInventory.work_session_id == session.id, SessionInventory.product_variant_id.in_(all_involved_pids)).order_by(SessionInventory.product_variant_id.asc()).with_for_update()
+            bulk_inv_records = {inv.product_variant_id: inv for inv in (await db.execute(stmt_inv)).scalars().all()}
 
         for ret in damaged_returns:
-                var = bulk_variants.get(ret.product_variant_id)
-                if not var: continue
-                ppc = var.packs_per_carton or 1
-                ret_packs = (ret.quantity * ppc) + getattr(ret, 'packs_quantity', 0)
-                if ret_packs > 0:
-                    damaged_by_product[ret.product_variant_id] = damaged_by_product.get(ret.product_variant_id, 0) + ret_packs
-                    db.add(DamagedItemLog(
-                        product_variant_id=ret.product_variant_id,
-                        quantity_packs=ret_packs,
-                        damage_type=ret.return_type,
-                        source_driver_id=session.driver_id,
-                        source_visit_id=ret.visit_id,
-                        receiving_admin_id=current_admin.id,
-                        notes=ret.reason or "فرز تلقائي نهاية اليوم"
-                    ))
+            var = bulk_variants.get(ret.product_variant_id)
+            if not var: continue
+            ppc = var.packs_per_carton or 1
+            ret_packs = (ret.quantity * ppc) + getattr(ret, 'packs_quantity', 0)
+            if ret_packs > 0:
+                damaged_by_product[ret.product_variant_id] = damaged_by_product.get(ret.product_variant_id, 0) + ret_packs
+                db.add(DamagedItemLog(
+                    product_variant_id=ret.product_variant_id, quantity_packs=ret_packs, damage_type=ret.return_type,
+                    source_driver_id=session.driver_id, source_visit_id=ret.visit_id, receiving_admin_id=current_admin.id,
+                    notes=ret.reason or "فرز تلقائي نهاية اليوم"
+                ))
 
-        # +++ الدرع الرقابي الفولاذي (التصحيح المعماري للـ NameError): يجب فحص الجرد هنا بعد جلب وتحضير كافة البيانات +++
+        for pid in all_involved_pids:
+            inv_record = bulk_inv_records.get(pid)
+            expected_sellable = inv_record.current_remaining_quantity if inv_record else 0
+            expected_total_physical = expected_sellable + damaged_by_product.get(pid, 0)
+            actual_qty = jard_map.get(pid, expected_total_physical)
+            
+            difference = actual_qty - expected_total_physical
+            if difference < 0:
+                var = bulk_variants.get(pid)
+                if var and var.price_per_pack:
+                    total_deficit_cash += Decimal(str(var.price_per_pack)) * Decimal(str(abs(difference)))
+
+        expected_cash_dec += total_deficit_cash
+        actual_cash_dec = payload.actual_cash
+        cash_difference_dec = actual_cash_dec - expected_cash_dec
+
         has_inventory_difference = any(
             jard_map.get(pid, (bulk_inv_records.get(pid).current_remaining_quantity if bulk_inv_records.get(pid) else 0) + damaged_by_product.get(pid, 0)) != 
             ((bulk_inv_records.get(pid).current_remaining_quantity if bulk_inv_records.get(pid) else 0) + damaged_by_product.get(pid, 0))
@@ -610,6 +599,10 @@ async def settle_session(
                             wh_record = MainWarehouse(product_variant_id=prod_id, available_quantity_packs=0, reserved_quantity_packs=0)
                             db.add(wh_record)
                             bulk_wh_records[prod_id] = wh_record
+                            db.add(SystemAuditLog(
+                                admin_id=current_admin.id, target_id=f"Product_{prod_id}", action_type="SILENT_WH_HEALING",
+                                old_value="No WH Record", new_value="Created with 0 balance (Settle Return Loose)"
+                            ))
 
                         old_wh_balance = wh_record.available_quantity_packs or 0
                         # +++ الكي الجراحي 1: منع كراش الـ NoneType +++
@@ -639,6 +632,10 @@ async def settle_session(
                         wh_record = MainWarehouse(product_variant_id=prod_id, available_quantity_packs=0, reserved_quantity_packs=0)
                         db.add(wh_record)
                         bulk_wh_records[prod_id] = wh_record
+                        db.add(SystemAuditLog(
+                            admin_id=current_admin.id, target_id=f"Product_{prod_id}", action_type="SILENT_WH_HEALING",
+                            old_value="No WH Record", new_value="Created with 0 balance (Settle Fallback Return)"
+                        ))
                     
                     old_wh_balance = wh_record.available_quantity_packs or 0
                     # +++ الكي الجراحي 2: منع كراش الـ NoneType +++
@@ -761,20 +758,20 @@ async def dispatch_route(
         if lock_setting and lock_setting.setting_value == 'AUDIT_LOCK':
             raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً لغايات الجرد (Stocktake). يرجى فتح المستودع أولاً.")
 
-        stmt_driver_lock = select(Driver).with_for_update().filter_by(id=payload.driver_id)
+        stmt_driver_lock = select(Driver).filter_by(id=payload.driver_id).order_by(Driver.id.asc()).with_for_update()
         driver_lock = (await db.execute(stmt_driver_lock)).scalar_one_or_none()
         if not driver_lock:
             await db.rollback() # +++ B-07: سحق ثغرة تسريب الأقفال (Lock Leak) +++
             raise HTTPException(status_code=404, detail="المندوب غير موجود.")
 
         # +++ الكي الجراحي 1 (Phase 3b): قفل السيارة والمنطقة لمنع (Phantom Reads) وسباق الإشارات (Split-Brain) +++
-        stmt_veh_lock = select(Vehicle).with_for_update().filter_by(id=payload.vehicle_id)
+        stmt_veh_lock = select(Vehicle).filter_by(id=payload.vehicle_id).order_by(Vehicle.id.asc()).with_for_update()
         veh_lock = (await db.execute(stmt_veh_lock)).scalar_one_or_none()
         if not veh_lock:
             await db.rollback()
             raise HTTPException(status_code=404, detail="السيارة غير موجودة.")
             
-        stmt_zone_lock = select(Zone).with_for_update().filter_by(id=payload.zone_id)
+        stmt_zone_lock = select(Zone).filter_by(id=payload.zone_id).order_by(Zone.id.asc()).with_for_update()
         zone_lock = (await db.execute(stmt_zone_lock)).scalar_one_or_none()
         if not zone_lock:
             await db.rollback()
@@ -802,7 +799,7 @@ async def dispatch_route(
         new_route = DispatchRoute(zone_id=payload.zone_id, driver_id=payload.driver_id, vehicle_id=payload.vehicle_id, status='active')
         db.add(new_route)
 
-        stmt_session = select(WorkSession).with_for_update().filter_by(driver_id=payload.driver_id, end_time=None)
+        stmt_session = select(WorkSession).filter_by(driver_id=payload.driver_id, end_time=None).order_by(WorkSession.id.asc()).with_for_update()
         active_session = (await db.execute(stmt_session)).scalar_one_or_none()
         
         if payload.inventory is not None:
@@ -822,7 +819,7 @@ async def dispatch_route(
             prod_ids = list(clean_inventory.keys())
             
             # +++ الدرع الفولاذي ضد الـ Deadlock: قفل السيارة (VehicleLoad) أولاً ليتطابق مع معمارية driver.py +++
-            stmt_vloads = select(VehicleLoad).with_for_update().filter_by(vehicle_id=payload.vehicle_id)
+            stmt_vloads = select(VehicleLoad).filter_by(vehicle_id=payload.vehicle_id).order_by(VehicleLoad.id.asc()).with_for_update()
             current_v_loads = (await db.execute(stmt_vloads)).scalars().all()
             current_load_map = {vl.product_variant_id: vl for vl in current_v_loads}
             
@@ -867,6 +864,14 @@ async def dispatch_route(
                     if not wh_record:
                         wh_record = MainWarehouse(product_variant_id=p_id, available_quantity_packs=0, reserved_quantity_packs=0)
                         db.add(wh_record)
+                        # +++ الشفافية الراديكالية: توثيق الإنشاء الصامت لاكتشاف الفساد لاحقاً +++
+                        db.add(SystemAuditLog(
+                            admin_id=current_admin.id if 'current_admin' in locals() else 1, # حماية في حال عدم توفر الأدمن
+                            target_id=f"Product_{p_id}",
+                            action_type="SILENT_WH_HEALING",
+                            old_value="No WH Record",
+                            new_value="Created with 0 balance (Safety Net)"
+                        ))
                         
                     if delta_packs > 0: 
                         if wh_record.available_quantity_packs < delta_packs:
@@ -896,7 +901,7 @@ async def dispatch_route(
                         
                     if current_v_load:
                         if new_cartons == 0: 
-                            db.delete(current_v_load) # الحذف الآمن في الذاكرة (Sync)
+                            await db.delete(current_v_load) # +++ إصلاح NameError: الاسم القديم v_load بقى من إعادة تسمية غير مكتملة +++
                         else: 
                             current_v_load.quantity = new_cartons
                     elif new_cartons > 0:
@@ -911,17 +916,24 @@ async def dispatch_route(
             else:
                 # 🔴 حالة منتصف اليوم (Mid-day Handshake): المندوب نشط (نظام المصافحة)
                 # +++ قفل العهدة لمنع فقدان التحديثات (Lost Update Shield) أثناء المصافحة +++
-                stmt_sinvs = select(SessionInventory).with_for_update().filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(all_involved_pids))
+                stmt_sinvs = select(SessionInventory).filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(all_involved_pids)).order_by(SessionInventory.product_variant_id.asc()).with_for_update()
                 bulk_sinvs = {si.product_variant_id: si for si in (await db.execute(stmt_sinvs)).scalars().all()} if all_involved_pids else {}
                 
-                stmt_pending = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
-                InventoryTransfer.work_session_id == active_session.id,
-                InventoryTransfer.product_variant_id.in_(all_involved_pids),
-                InventoryTransfer.status == 'pending',
-                InventoryTransfer.quantity_packs < 0 # +++ B-05: فلترة السحوبات فقط لعدم حظر الإيداعات المشروعة +++
-            ).group_by(InventoryTransfer.product_variant_id)
-                
-                pending_transfers_map = {v_id: total for v_id, total in (await db.execute(stmt_pending)).all()} if all_involved_pids else {}
+                # +++ النسف المعماري (الرياضيات النقية): جلب خريطتين منفصلتين. واحدة للسحوبات (للتشيك الأمني) وواحدة للكل (للفروقات) +++
+                stmt_pending_all = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
+                    InventoryTransfer.work_session_id == active_session.id,
+                    InventoryTransfer.product_variant_id.in_(all_involved_pids),
+                    InventoryTransfer.status == 'pending'
+                ).group_by(InventoryTransfer.product_variant_id)
+                pending_all_map = {v_id: total for v_id, total in (await db.execute(stmt_pending_all)).all()} if all_involved_pids else {}
+
+                stmt_pending_pulls = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
+                    InventoryTransfer.work_session_id == active_session.id,
+                    InventoryTransfer.product_variant_id.in_(all_involved_pids),
+                    InventoryTransfer.status == 'pending',
+                    InventoryTransfer.quantity_packs < 0
+                ).group_by(InventoryTransfer.product_variant_id)
+                pending_pulls_map = {v_id: total for v_id, total in (await db.execute(stmt_pending_pulls)).all()} if all_involved_pids else {}
                 # +++ توحيد الزمن المعماري وطرد مكتبة time بالكامل +++
                 batch_timestamp = str(int(datetime.now(timezone.utc).timestamp()))
 
@@ -936,13 +948,15 @@ async def dispatch_route(
 
                     sess_inv = bulk_sinvs.get(p_id)
                     current_live_packs = sess_inv.current_remaining_quantity if sess_inv else 0
-                    existing_pending_packs = pending_transfers_map.get(p_id, 0)
+                    existing_all_pending = pending_all_map.get(p_id, 0)
+                    existing_pull_pending = pending_pulls_map.get(p_id, 0)
                     
-                    delta_packs = new_actual_qty_packs - (current_live_packs + existing_pending_packs)
+                    # الفروقات الحقيقية تُحسب بناءً على صافي (كل) الحوالات المعلقة
+                    delta_packs = new_actual_qty_packs - (current_live_packs + existing_all_pending)
                     
-                    # +++ درع الميدان: فحص رصيد المندوب قبل السحب (طلب البوت المفيد الوحيد هنا) +++
+                    # الدرع الميداني للسحب يستخدم الحوالات السالبة فقط لضمان عدم السحب من رصيد وهمي (قيد الإيداع)
                     if delta_packs < 0:
-                        if current_live_packs + delta_packs < 0:
+                        if current_live_packs + existing_pull_pending + delta_packs < 0:
                             await db.rollback()
                             raise HTTPException(status_code=400, detail=f"مرفوض: رصيد المندوب الحالي من ({variant.variant_name}) لا يكفي لتسجيل هذا السحب.")
                         # (نقطة هامة: لا نعدل المستودع هنا! التعديل يتم عند موافقة المندوب كما في فلاسك)
@@ -954,6 +968,14 @@ async def dispatch_route(
                     if not wh_record:
                         wh_record = MainWarehouse(product_variant_id=p_id, available_quantity_packs=0, reserved_quantity_packs=0)
                         db.add(wh_record)
+                        # +++ الشفافية الراديكالية: توثيق الإنشاء الصامت لاكتشاف الفساد لاحقاً +++
+                        db.add(SystemAuditLog(
+                            admin_id=current_admin.id if 'current_admin' in locals() else 1, # حماية في حال عدم توفر الأدمن
+                            target_id=f"Product_{p_id}",
+                            action_type="SILENT_WH_HEALING",
+                            old_value="No WH Record",
+                            new_value="Created with 0 balance (Safety Net)"
+                        ))
 
                     if delta_packs > 0: 
                         if wh_record.available_quantity_packs < delta_packs:
@@ -1043,6 +1065,10 @@ async def dispatch_route(
 
     except HTTPException:
         raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error(f"Race Condition (Unique Index): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=409, detail="تعارض: يبدو أن خط سير لهذه المنطقة قد تم إطلاقه للتو من مشرف آخر.")
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
@@ -1208,12 +1234,14 @@ async def get_route_live_inventory(
 def format_qty_py(total_packs: int, packs_per_carton: int) -> str:
     if not packs_per_carton or packs_per_carton <= 1:
         return f"{total_packs} حبة"
+    is_negative = int(total_packs) < 0
     abs_total = abs(int(total_packs))
     cartons, packs = divmod(abs_total, packs_per_carton)
     parts = []
     if cartons > 0: parts.append(f"{cartons} كرتونة")
     if packs > 0: parts.append(f"{packs} حبة")
-    return " و ".join(parts) if parts else "0 حبة"
+    res = " و ".join(parts) if parts else "0 حبة"
+    return f"-{res}" if is_negative and res != "0 حبة" else res
 
 
 # =========================================
@@ -1233,7 +1261,7 @@ async def adjust_route_inventory(
         raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً لغايات الجرد (Stocktake). يرجى فتح المستودع أولاً.")
 
     # +++ قفل خط السير لمنع بدء عمل متزامن أثناء التعديل +++
-    stmt_route_lock = select(DispatchRoute).with_for_update().filter_by(id=route_id)
+    stmt_route_lock = select(DispatchRoute).filter_by(id=route_id).order_by(DispatchRoute.id.asc()).with_for_update()
     route = (await db.execute(stmt_route_lock)).scalar_one_or_none()
     if not route or not route.driver_id:
         await db.rollback() # +++ الدرع الفولاذي: إنقاذ السيرفر من شلل الأقفال +++
@@ -1269,7 +1297,7 @@ async def adjust_route_inventory(
         variants_map = {v.id: v for v in (await db.execute(stmt_vars)).scalars().all()}
         
         # +++ الدرع الفولاذي: قفل حمولة السيارة لمنع المشرفين من التعديل المزدوج في نفس الثانية +++
-        stmt_vloads = select(VehicleLoad).with_for_update().filter(VehicleLoad.vehicle_id == route.vehicle_id, VehicleLoad.product_variant_id.in_(prod_ids))
+        stmt_vloads = select(VehicleLoad).filter(VehicleLoad.vehicle_id == route.vehicle_id, VehicleLoad.product_variant_id.in_(prod_ids)).order_by(VehicleLoad.id.asc()).with_for_update()
         bulk_vloads = {vl.product_variant_id: vl for vl in (await db.execute(stmt_vloads)).scalars().all()}
         
         # قفل المستودع بالترتيب التصاعدي لمنع التقاطع
@@ -1280,7 +1308,7 @@ async def adjust_route_inventory(
         pending_withdrawals_map = {}
         
         if active_session:
-            stmt_sinv = select(SessionInventory).with_for_update().filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids))
+            stmt_sinv = select(SessionInventory).filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids)).order_by(SessionInventory.product_variant_id.asc()).with_for_update()
             bulk_sinvs = {si.product_variant_id: si for si in (await db.execute(stmt_sinv)).scalars().all()}
             
             # جلب الحوالات السالبة المعلقة وتأمينها من None و TypeError
@@ -1406,7 +1434,7 @@ async def adjust_route_inventory(
                     v_load.quantity += delta_cartons
                     # +++ سحق ثغرة الأشباح: مسح السجل نهائياً إذا تم تصفير حمولة الصنف +++
                     if v_load.quantity <= 0:
-                        db.delete(v_load) # الحذف الآمن في الذاكرة (Sync)
+                        await db.delete(v_load) # الحذف الآمن في الذاكرة (Sync)
                 elif delta_cartons > 0: 
                     db.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=p_id, quantity=delta_cartons))
 
@@ -1621,6 +1649,10 @@ async def bulk_update_shops(
 
     except HTTPException:
         raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error(f"خطأ تعارض (FK): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="فشل الحفظ: تأكد من أن المنطقة المحددة للنقل موجودة وصالحة.")
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
@@ -1737,14 +1769,14 @@ async def admin_add_shop(
             zone_id=zone_id,
             is_active=True,
             is_archived=False,
-            # حماية الداتابيز من الأرصدة الافتتاحية السالبة
+            # حماية الداتابيز من الأرصدة والسقوف السالبة
             current_balance=max(Decimal('0.0'), safe_initial_debt),
-            max_debt_limit=safe_max_limit,
+            max_debt_limit=max(Decimal('0.0'), safe_max_limit),
             added_by_driver_id=current_admin.id,
             sequence=safe_sequence
         )
         db.add(new_shop)
-        # +++ الدرع الفولاذي (O(1)): سحب الـ ID قبل الـ Commit لمنع כراش MissingGreenlet بدون استعلام إضافي +++
+        # +++ الدرع الفولاذي (O(1)): سحب الـ ID قبل الـ Commit لمنع MissingGreenlet بدون استعلام إضافي +++
         await db.flush() 
         shop_id = new_shop.id 
         
@@ -1871,7 +1903,7 @@ async def update_route_status(
             raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً لغايات الجرد (Stocktake). يرجى فتح المستودع أولاً.")
             
     # +++ قفل خط السير لمنع التضارب أثناء التبديل أو الإغلاق +++
-    stmt_route_lock = select(DispatchRoute).with_for_update().filter_by(id=route_id)
+    stmt_route_lock = select(DispatchRoute).filter_by(id=route_id).order_by(DispatchRoute.id.asc()).with_for_update()
     route = (await db.execute(stmt_route_lock)).scalar_one_or_none()
     if not route:
         await db.rollback() # +++ الدرع الفولاذي: نسف ثغرة تسريب الأقفال (Lock Leak) +++
@@ -1890,7 +1922,7 @@ async def update_route_status(
     if is_activating:
         # +++ الكي الجراحي 2 (Phase 3b): قفل الأصول وتصحيح الـ Status Code إلى 409 بدلاً من 400 ليتوافق مع اختبارات الضغط +++
         if target_driver_id:
-            await db.execute(select(Driver).with_for_update().filter_by(id=target_driver_id))
+            await db.execute(select(Driver).filter_by(id=target_driver_id).order_by(Driver.id.asc()).with_for_update())
             stmt_dup_driver = select(DispatchRoute).filter(DispatchRoute.driver_id == target_driver_id, DispatchRoute.status == 'active', DispatchRoute.id != route.id)
             if (await db.execute(stmt_dup_driver)).first(): 
                 await db.rollback()
@@ -1898,13 +1930,13 @@ async def update_route_status(
         
         target_veh = new_vehicle_id or route.vehicle_id
         if target_veh:
-            await db.execute(select(Vehicle).with_for_update().filter_by(id=target_veh))
+            await db.execute(select(Vehicle).filter_by(id=target_veh).order_by(Vehicle.id.asc()).with_for_update())
             stmt_dup_veh = select(DispatchRoute).filter(DispatchRoute.vehicle_id == target_veh, DispatchRoute.status == 'active', DispatchRoute.id != route.id)
             if (await db.execute(stmt_dup_veh)).first(): 
                 await db.rollback()
                 raise HTTPException(status_code=409, detail="مرفوض: هذه السيارة مستخدمة في خط سير نشط آخر.")
 
-        await db.execute(select(Zone).with_for_update().filter_by(id=route.zone_id))
+        await db.execute(select(Zone).filter_by(id=route.zone_id).order_by(Zone.id.asc()).with_for_update())
         stmt_dup_zone = select(DispatchRoute).filter(DispatchRoute.zone_id == route.zone_id, DispatchRoute.status == 'active', DispatchRoute.id != route.id)
         if (await db.execute(stmt_dup_zone)).first(): 
             await db.rollback()
@@ -1950,16 +1982,22 @@ async def update_route_status(
                     old_active_session = (await db.execute(stmt_old_sess)).scalars().first()
                     
                     if old_active_session:
+                        # +++ الدرع المستودعي: جلب الحوالات المعلقة أولاً لضمان عدم ضياع أي منتج جديد بالطريق +++
+                        stmt_pend_trans = select(InventoryTransfer).filter_by(work_session_id=old_active_session.id, status='pending')
+                        old_pending_transfers = (await db.execute(stmt_pend_trans)).scalars().all()
+                        
                         stmt_live_invs = select(SessionInventory).filter_by(work_session_id=old_active_session.id)
                         live_invs = (await db.execute(stmt_live_invs)).scalars().all()
                         
-                        if live_invs:
-                            var_ids = [inv.product_variant_id for inv in live_invs]
+                        # دمج جميع IDs المنتجات من العهدة الحية والحوالات المعلقة بضربة واحدة
+                        var_ids = list(set([inv.product_variant_id for inv in live_invs] + [t.product_variant_id for t in old_pending_transfers]))
+                        
+                        if var_ids:
                             stmt_vars = select(ProductVariant).filter(ProductVariant.id.in_(var_ids))
                             variants = (await db.execute(stmt_vars)).scalars().all()
                             var_map = {v.id: (v.packs_per_carton if v.packs_per_carton else 1) for v in variants}
                             
-                            stmt_vloads = select(VehicleLoad).with_for_update().filter(VehicleLoad.vehicle_id == route.vehicle_id, VehicleLoad.product_variant_id.in_(var_ids))
+                            stmt_vloads = select(VehicleLoad).filter(VehicleLoad.vehicle_id == route.vehicle_id, VehicleLoad.product_variant_id.in_(var_ids)).order_by(VehicleLoad.id.asc()).with_for_update()
                             v_loads = (await db.execute(stmt_vloads)).scalars().all()
                             v_load_map = {vl.product_variant_id: vl for vl in v_loads}
                             
@@ -1979,6 +2017,10 @@ async def update_route_status(
                                         wh_rec = MainWarehouse(product_variant_id=live_inv.product_variant_id, available_quantity_packs=0, reserved_quantity_packs=0)
                                         db.add(wh_rec)
                                         bulk_wh_records[live_inv.product_variant_id] = wh_rec
+                                        db.add(SystemAuditLog(
+                                            admin_id=current_admin.id, target_id=f"Product_{live_inv.product_variant_id}", action_type="SILENT_WH_HEALING",
+                                            old_value="No WH Record", new_value="Created with 0 balance (Switch Driver Loose)"
+                                        ))
                                         
                                     old_wh_balance = wh_rec.available_quantity_packs or 0
                                     wh_rec.available_quantity_packs += loose_packs
@@ -1991,19 +2033,29 @@ async def update_route_status(
                                 v_load = v_load_map.get(live_inv.product_variant_id)
                                 # +++ سحق ثغرة الأشباح (Phantom Record) +++
                                 if actual_cartons <= 0:
-                                    if v_load: db.delete(v_load) 
+                                    if v_load: await db.delete(v_load) 
                                 else:
                                     if v_load: v_load.quantity = actual_cartons
                                     else: db.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=live_inv.product_variant_id, quantity=actual_cartons))
                                 
                         old_active_session.end_time = get_utc_now()
                         
-                        stmt_rej_transfers = update(InventoryTransfer).where(
-                            InventoryTransfer.work_session_id == old_active_session.id, 
-                            InventoryTransfer.status == 'pending'
-                        ).values(status='rejected')
-                        await db.execute(stmt_rej_transfers)
-
+                        # +++ تحرير البضاعة المحجوزة للمنتجات الجديدة أو الموجودة +++
+                        
+                        for ptr in old_pending_transfers:
+                            if ptr.quantity_packs > 0:
+                                wh_r = bulk_wh_records.get(ptr.product_variant_id)
+                                if wh_r:
+                                    wh_r.reserved_quantity_packs = max(0, wh_r.reserved_quantity_packs - ptr.quantity_packs)
+                                    wh_r.available_quantity_packs += ptr.quantity_packs
+                                    db.add(WarehouseLedger(
+                                        product_variant_id=ptr.product_variant_id, transaction_type='HANDSHAKE_RELEASE',
+                                        quantity_packs=ptr.quantity_packs, balance_after_packs=wh_r.available_quantity_packs,
+                                        admin_id=current_admin.id, reference_id=f"TRANS_CANCEL_{ptr.id}", 
+                                        notes="إرجاع بضاعة محجوزة للمستودع بسبب تبديل/إلغاء خط سير المندوب."
+                                    ))
+                            ptr.status = 'rejected'
+                            
                     stmt_zone_shops = select(Shop.id).filter(Shop.zone_id == route.zone_id).scalar_subquery()
                     stmt_trans_visits = update(Visit).where(
                         Visit.driver_id == route.driver_id,
@@ -2068,10 +2120,14 @@ async def update_route_status(
                         
                         if delta_packs == 0: continue
                         
-                        wh_rec = bulk_wh.get(p_id)
+                        wh_rec = bulk_wh_records.get(p_id)
                         if not wh_rec:
                             wh_rec = MainWarehouse(product_variant_id=p_id, available_quantity_packs=0, reserved_quantity_packs=0)
                             db.add(wh_rec)
+                            db.add(SystemAuditLog(
+                                admin_id=current_admin.id, target_id=f"Product_{p_id}", action_type="SILENT_WH_HEALING",
+                                old_value="No WH Record", new_value="Created with 0 balance (Adjust Morning)"
+                            ))
                             
                         old_wh_balance = wh_rec.available_quantity_packs or 0
                         if delta_packs > 0:
@@ -2108,14 +2164,21 @@ async def update_route_status(
                     stmt_sinv = select(SessionInventory).with_for_update().filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids_to_update))
                     bulk_sinvs = {si.product_variant_id: si for si in (await db.execute(stmt_sinv)).scalars().all()}
 
-                    stmt_pending = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
+                    # +++ النسف المعماري: خريطتين منفصلتين لمنع من رصيد وهمي قيد الإيداع +++
+                    stmt_pending_all = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
                         InventoryTransfer.work_session_id == active_session.id,
                         InventoryTransfer.product_variant_id.in_(prod_ids_to_update),
                         InventoryTransfer.status == 'pending'
                     ).group_by(InventoryTransfer.product_variant_id)
-                    
-                    pending_transfers_query = (await db.execute(stmt_pending)).all()
-                    pending_transfers_map = {v_id: int(total or 0) for v_id, total in pending_transfers_query if v_id}
+                    pending_all_map = {v_id: int(total or 0) for v_id, total in (await db.execute(stmt_pending_all)).all()}
+
+                    stmt_pending_pulls = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
+                        InventoryTransfer.work_session_id == active_session.id,
+                        InventoryTransfer.product_variant_id.in_(prod_ids_to_update),
+                        InventoryTransfer.status == 'pending',
+                        InventoryTransfer.quantity_packs < 0
+                    ).group_by(InventoryTransfer.product_variant_id)
+                    pending_pulls_map = {v_id: int(total or 0) for v_id, total in (await db.execute(stmt_pending_pulls)).all()}
 
                     stmt_vars = select(ProductVariant).filter(ProductVariant.id.in_(prod_ids_to_update))
                     variants_map = {v.id: v for v in (await db.execute(stmt_vars)).scalars().all()}
@@ -2138,19 +2201,30 @@ async def update_route_status(
                         safe_packs_per_carton = variant.packs_per_carton if variant.packs_per_carton else 1
                         new_actual_qty_packs = new_actual_qty_cartons * safe_packs_per_carton
                             
-                        # +++ النسف المعماري لثغرة التدبيل: ترك VehicleLoad دون مساس. الاعتماد الكلي على المصافحة (InventoryTransfer) لتعديل حمولة السيارة بشكل متزامن وآمن +++
+                        # +++ النسف المعماري لثغرة التدبيل: ترك VehicleLoad دون مساس. الاعتماد الكلي على المصافحة +++
                         sess_inv = bulk_sinvs.get(p_id)
                         current_live_packs = sess_inv.current_remaining_quantity if sess_inv else 0
-                        existing_pending_packs = pending_transfers_map.get(p_id, 0)
+                        existing_all_pending = pending_all_map.get(p_id, 0)
+                        existing_pull_pending = pending_pulls_map.get(p_id, 0)
                         
-                        difference_in_packs = new_actual_qty_packs - (current_live_packs + existing_pending_packs)
+                        difference_in_packs = new_actual_qty_packs - (current_live_packs + existing_all_pending)
                         
+                        if difference_in_packs < 0:
+                            # +++ الدرع الميداني: فحص قدرة المندوب على تغطية السحب +++
+                            if current_live_packs + existing_pull_pending + difference_in_packs < 0:
+                                await db.rollback()
+                                raise HTTPException(status_code=400, detail=f"مرفوض: رصيد المندوب الحالي من ({variant.variant_name}) لا يكفي لتسجيل سحب {abs(difference_in_packs)} حبة.")
+
                         if difference_in_packs != 0:
                             wh_record = bulk_wh_records.get(p_id)
                             if not wh_record:
                                 wh_record = MainWarehouse(product_variant_id=p_id, available_quantity_packs=0, reserved_quantity_packs=0)
                                 db.add(wh_record)
                                 bulk_wh_records[p_id] = wh_record
+                                db.add(SystemAuditLog(
+                                    admin_id=current_admin.id, target_id=f"Product_{p_id}", action_type="SILENT_WH_HEALING",
+                                    old_value="No WH Record", new_value="Created with 0 balance (Adjust Mid-day)"
+                                ))  
                                 
                             # +++ الدرع المستودعي: حجز البضاعة في حال الزيادة +++
                             if difference_in_packs > 0:
@@ -2243,6 +2317,10 @@ async def update_route_status(
         
     except HTTPException:
         raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error(f"خطأ تعارض (FK): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="فشل الحفظ: تأكد من أن المنطقة المحددة للنقل موجودة وصالحة.")
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
@@ -2259,7 +2337,7 @@ async def undo_end_work(
     current_admin: Driver = Depends(get_current_admin)
 ):
         # +++ قفل التزامن الفولاذي: قفل الجلسة لمنع أي مشرفين من التعديل عليها بنفس اللحظة +++
-    stmt_session = select(WorkSession).with_for_update().filter_by(id=session_id)
+    stmt_session = select(WorkSession).filter_by(id=session_id).order_by(WorkSession.id.asc()).with_for_update()
     session = (await db.execute(stmt_session)).scalar_one_or_none()
     
     if not session:
@@ -2320,7 +2398,7 @@ async def undo_end_work(
         session.end_time = None
         
         # ب. إعادة إحياء خط السير (الدرع الفولاذي) - مع القفل لمنع تضارب التبديل
-        stmt_route = select(DispatchRoute).with_for_update().filter_by(work_session_id=session.id)
+        stmt_route = select(DispatchRoute).filter_by(work_session_id=session.id).order_by(DispatchRoute.id.asc()).with_for_update()
         route = (await db.execute(stmt_route)).scalar_one_or_none()
         
         if route:
@@ -2427,7 +2505,7 @@ async def archive_zone(
     # +++ الدرع المعماري (Rug-Pull Shield): منع سحب منطقة يعمل بها مندوب بالشارع +++
     stmt_active_routes = select(func.count(DispatchRoute.id)).filter(
         DispatchRoute.zone_id == zone_id, 
-        DispatchRoute.status.in_(['active', 'waiting'])
+        DispatchRoute.status.in_(['active', 'waiting', 'postponed']) # +++ إضافة postponed +++
     )
     active_routes_count = (await db.execute(stmt_active_routes)).scalar() or 0
 
@@ -2613,29 +2691,50 @@ async def edit_shop_details(
                 shop.zone_id = int(zone_str)
         
         # 5. الكي الجراحي: تحديث الأموال بـ Decimal نقي ومحمي من الفراغات (ونسف لغم الـ Falsy Zero)
-        val_limit = payload.maxDebtLimit if payload.maxDebtLimit is not None else payload.max_debt_limit
+        # +++ إصلاح AttributeError: alias يقبل camelCase في الإدخال فقط؛ الخاصية الفعلية max_debt_limit +++
+        val_limit = payload.max_debt_limit
         if val_limit is not None:
             raw_limit = str(val_limit).strip()
-            if raw_limit:  # "0" أو "0.0" كنص تعتبر True في بايثون، فستمر بنجاح!
+            if raw_limit:  
                 try:
-                    shop.max_debt_limit = Decimal(raw_limit)
+                    new_limit = Decimal(raw_limit)
+                    if new_limit < 0: raise ValueError()
+                    shop.max_debt_limit = new_limit
                 except Exception:
-                    pass 
+                    await db.rollback()
+                    raise HTTPException(status_code=400, detail="سقف الدين يجب أن يكون رقماً موجباً.")
                 
-        val_debt = payload.initialDebt if payload.initialDebt is not None else payload.initial_debt
+        val_debt = payload.initial_debt
         if val_debt is not None:
             raw_debt = str(val_debt).strip()
             if raw_debt:
                 try:
-                    shop.current_balance = Decimal(raw_debt)
+                    new_balance = Decimal(raw_debt)
+                    if new_balance < 0: raise ValueError()
+                    old_balance = shop.current_balance or Decimal('0.0')
+                    if new_balance != old_balance:
+                        shop.current_balance = new_balance
+                        # +++ الدرع الرقابي: توثيق أي تعديل يدوي على رصيد المحل +++
+                        db.add(SystemAuditLog(
+                            admin_id=current_admin.id,
+                            target_id=f"Shop_{shop.id}",
+                            action_type="SHOP_BALANCE_MANUAL_EDIT",
+                            old_value=str(old_balance),
+                            new_value=f"الرصيد الجديد: {new_balance} (تعديل يدوي من لوحة التحكم)"
+                        ))
                 except Exception:
-                    pass
+                    await db.rollback()
+                    raise HTTPException(status_code=400, detail="الرصيد يجب أن يكون رقماً موجباً صريحاً.")
         
         await db.commit()
         return {"message": "تم التعديل بنجاح"}
         
     except HTTPException:
         raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error(f"خطأ تعارض (FK): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="فشل الحفظ: تأكد من أن المنطقة المحددة أو البيانات صالحة.")
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
@@ -2699,8 +2798,14 @@ async def add_shortages(
         # +++ 1. تحضير الذاكرة (Memory Maps) لنسف  ـ N+1 +++
         shop_ids = list({int(str(item.shopId).strip()) for item in payload if str(item.shopId).strip().isdigit()})
         
-        stmt_shops = select(Shop).filter(Shop.id.in_(shop_ids))
+        # +++ الدرع الميداني: تجاهل المحلات المؤرشفة تماماً لمنع خلق زيارات أشباح +++
+        stmt_shops = select(Shop).filter(Shop.id.in_(shop_ids), Shop.is_archived == False)
         bulk_shops = {sh.id: sh for sh in (await db.execute(stmt_shops)).scalars().all()}
+        # تحديث قائمة shop_ids بناءً على المحلات النشطة فقط
+        shop_ids = list(bulk_shops.keys())
+        
+        if not shop_ids:
+            return {"message": "لا توجد محلات صالحة لإضافة الطلبات (أو أنها مؤرشفة)."}
         
         # +++ النسف المعماري الحقيقي: توحيد Naive UTC لمنع تعارض قواعد البيانات +++
         today_start = get_utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2833,6 +2938,10 @@ async def add_shortages(
 
     except HTTPException:
         raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error(f"خطأ تعارض (FK): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="فشل الحفظ: إحدى المناطق أو المندوبين غير مسجلة في النظام.")
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)

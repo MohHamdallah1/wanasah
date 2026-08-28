@@ -33,19 +33,20 @@ class _SplashScreenState extends State<SplashScreen> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
-          // توجيه إلى لوحة التحكم وإزالة SplashScreen من الـ Stack
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (_) => DashboardScreen(driverId: state.driverId),
             ),
           );
-        } else if (state is AuthUnauthenticated || state is AuthError) {
-          // توجيه إلى شاشة تسجيل الدخول وإزالة SplashScreen من الـ Stack
+        } else if (state is AuthError) { // تمت إزالة AuthUnauthenticated ليتكفل بها main.dart فقط
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            MaterialPageRoute(
+              settings: const RouteSettings(name: '/login'), // تعريف المسار بوضوح لمنع العمى الجزئي
+              builder: (_) => const LoginScreen(),
+            ),
           );
         }
-        // AuthLoading → لا إجراء، نبقى على شاشة التحميل
+        // AuthLoading و AuthUnauthenticated يتم تجاهلهما هنا
       },
       child: Scaffold(
         // +++ الضربة القاضية: جعل السبلاش شفافة لرؤية التدرج العالمي في الخلف +++

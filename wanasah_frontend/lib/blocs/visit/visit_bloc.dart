@@ -32,7 +32,7 @@ class LoadCompletedVisitData extends VisitEvent {
   final String? returnsJson;
   final double cashCollected;
   final double debtPaid;
-  final String notes;
+  final String? notes; // +++ حماية من الـ Null +++
 
   const LoadCompletedVisitData({
     this.cartItemsJson,
@@ -120,12 +120,12 @@ class VisitError extends VisitState {
 class VisitSubmissionSuccess extends VisitState {}
 
 class VisitReady extends VisitState {
-  final List<ProductModel> catalog; // قائمة المنتجات للبحث السريع
-  final List<CartItemModel> cart; // السلة الذكية المدمجة
+  final List<ProductModel> catalog;
+  final List<CartItemModel> cart;
   final double shopBalance;
   final double cashCollected;
-  final double debtPaid; // +++ المتغير المحاسبي المفقود +++
-  final String? errorMessage; // +++ درع الواجهة: حقل الأخطاء اللحظية لمنع ابتلاعها +++
+  final double debtPaid;
+  final String? notes; 
 
   const VisitReady({
     required this.catalog,
@@ -133,21 +133,13 @@ class VisitReady extends VisitState {
     required this.shopBalance,
     this.cashCollected = 0.0,
     this.debtPaid = 0.0,
-    this.errorMessage, // +++
+    this.notes, 
   });
 
-  // --- حسابات الـ BLoC اللحظية (مدرسة الاستبدال العيني) ---
-  double get totalSales =>
-      cart.fold(0.0, (sum, item) => sum + item.totalSalePrice);
-  double get totalReturns =>
-      cart.fold(0.0, (sum, item) => sum + item.totalReturnPrice);
-
-  // +++ الكيّ الجراحي: المرتجعات قيمتها المالية صفر لأنها تُستبدل عيناً +++
+  double get totalSales => cart.fold(0.0, (sum, item) => sum + item.totalSalePrice);
+  double get totalReturns => cart.fold(0.0, (sum, item) => sum + item.totalReturnPrice);
   double get netInvoice => totalSales;
-
-  // الذمة تتأثر بالمبيعات فقط ولا تتأثر بالتبديل
-  double get expectedNewBalance =>
-      (shopBalance + netInvoice) - cashCollected - debtPaid;
+  double get expectedNewBalance => (shopBalance + netInvoice) - cashCollected - debtPaid;
 
   VisitReady copyWith({
     List<ProductModel>? catalog,
@@ -155,7 +147,7 @@ class VisitReady extends VisitState {
     double? shopBalance,
     double? cashCollected,
     double? debtPaid,
-    String? errorMessage,
+    String? notes, 
   }) {
     return VisitReady(
       catalog: catalog ?? this.catalog,
@@ -163,21 +155,12 @@ class VisitReady extends VisitState {
       shopBalance: shopBalance ?? this.shopBalance,
       cashCollected: cashCollected ?? this.cashCollected,
       debtPaid: debtPaid ?? this.debtPaid,
-      errorMessage: errorMessage, // +++ مسح الخطأ تلقائياً إذا لم يتم تمريره +++
+      notes: notes ?? this.notes, 
     );
   }
 
   @override
-  // CS-05 / flutter.md Issue #6: Include errorMessage in props so Equatable detects state changes
-  // when errors are emitted, allowing BlocConsumer to display SnackBars to the driver.
-  List<Object?> get props => [
-    catalog,
-    cart,
-    shopBalance,
-    cashCollected,
-    debtPaid,
-    errorMessage,
-  ];
+  List<Object?> get props => [catalog, cart, shopBalance, cashCollected, debtPaid, notes];
 }
 
 // ============================================================================
@@ -235,69 +218,29 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
     try {
       List<CartItemModel> restoredCart = [];
 
-      // 1. استعادة المبيعات والعينات
-      if (event.cartItemsJson != null && event.cartItemsJson!.isNotEmpty) {
-        final List<dynamic> cartList = jsonDecode(event.cartItemsJson!);
-        for (var item in cartList) {
-          final int pId = item['product_variant_id'];
-          // +++ درع الكراش النظيف (Elite Way): استخدام indexWhere الآمن والسريع بدون هبد الـ null casting +++
-          final int pIndex = currentState.catalog.indexWhere((p) => p.id == pId);
-          if (pIndex < 0) continue; // المنتج محذوف أو موقوف، تجاهله بأمان تام
-          final product = currentState.catalog[pIndex];
+      // 1. استعادة المبيعات وإعادة المخزون المحجوز للمتاح
+      if (event.cartItemsJson != null && event.cartItemsJson!.isNotEmpty && event.cartItemsJson != 'null') {
+        final dynamic decodedCart = jsonDecode(event.cartItemsJson!);
+        if (decodedCart is List) {
+          for (var item in decodedCart) {
+            final int pId = int.tryParse(item['product_variant_id']?.toString() ?? '') ?? 0;
+            if (pId == 0) continue;
 
-          restoredCart.add(
-            CartItemModel(
-              productVariantId: pId,
-              name: product.name,
-              pricePerCarton: product.pricePerCarton,
-              pricePerPack: product.pricePerPack,
-              packsPerCarton: product.packsPerCarton,
-              availableCartons: product.currentCartons,
-              availablePacks: product.currentPacks,
-              cartons: item['quantity'] ?? 0,
-              packs: item['packs_quantity'] ?? 0,
-              sampleCartons: item['sample_quantity'] ?? 0,
-              samplePacks: item['sample_packs_quantity'] ?? 0,
-              sampleReason: item['sample_reason'] ?? '',
-            ),
-          );
-        }
-      }
-
-      // 2. استعادة المرتجعات (ودمجها مع نفس المنتجات إن وجدت باستخدام العدادات الذكية)
-      if (event.returnsJson != null && event.returnsJson!.isNotEmpty) {
-        final List<dynamic> returnsList = jsonDecode(event.returnsJson!);
-        for (var ret in returnsList) {
-          final int pId = ret['product_variant_id'];
-          final String type = ret['return_type'] ?? '';
-          final int qty = ret['quantity'] ?? 0;
-          final int pQty = ret['packs_quantity'] ?? 0;
-
-          // +++ توجيه الكميات للعداد الصحيح بناءً على نوع التالف +++
-          int rfC = type == 'Factory_Defect' ? qty : 0;
-          int rfP = type == 'Factory_Defect' ? pQty : 0;
-          int reC = type == 'Expired' ? qty : 0;
-          int reP = type == 'Expired' ? pQty : 0;
-
-          final existingItemIndex = restoredCart.indexWhere(
-            (i) => i.productVariantId == pId,
-          );
-
-          if (existingItemIndex >= 0) {
-            // إضافة التلف للعدادات الموجودة
-            final currentItem = restoredCart[existingItemIndex];
-            restoredCart[existingItemIndex] = currentItem.copyWith(
-              returnFactoryCartons: currentItem.returnFactoryCartons + rfC,
-              returnFactoryPacks: currentItem.returnFactoryPacks + rfP,
-              returnExpiredCartons: currentItem.returnExpiredCartons + reC,
-              returnExpiredPacks: currentItem.returnExpiredPacks + reP,
-            );
-          } else {
-            // +++ درع الكراش النظيف (Elite Way) +++
             final int pIndex = currentState.catalog.indexWhere((p) => p.id == pId);
-            if (pIndex < 0) continue;
+            if (pIndex < 0) continue; 
             final product = currentState.catalog[pIndex];
-            
+
+            // +++ الكي الجراحي: إضافة المحجوز مسبقاً للمخزون الحالي ليتمكن المندوب من التعديل +++
+            final int safePpc = product.packsPerCarton > 0 ? product.packsPerCarton : 1;
+            final int savedC = item['quantity'] ?? 0;
+            final int savedP = item['packs_quantity'] ?? 0;
+            final int savedSc = item['sample_quantity'] ?? 0;
+            final int savedSp = item['sample_packs_quantity'] ?? 0;
+
+            final int totalSavedPacks = ((savedC + savedSc) * safePpc) + savedP + savedSp;
+            final int totalCurrentPacks = (product.currentCartons * safePpc) + product.currentPacks;
+            final int combinedPacks = totalCurrentPacks + totalSavedPacks;
+
             restoredCart.add(
               CartItemModel(
                 productVariantId: pId,
@@ -305,28 +248,98 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
                 pricePerCarton: product.pricePerCarton,
                 pricePerPack: product.pricePerPack,
                 packsPerCarton: product.packsPerCarton,
-                availableCartons: product.currentCartons,
-                availablePacks: product.currentPacks,
-                returnFactoryCartons: rfC,
-                returnFactoryPacks: rfP,
-                returnExpiredCartons: reC,
-                returnExpiredPacks: reP,
+                availableCartons: combinedPacks ~/ safePpc,
+                availablePacks: combinedPacks % safePpc,
+                cartons: savedC,
+                packs: savedP,
+                sampleCartons: savedSc,
+                samplePacks: savedSp,
+                sampleReason: item['sample_reason'] ?? '',
               ),
             );
           }
         }
       }
 
-      // تحديث الشاشة
+      // 2. استعادة المرتجعات وإعادة المخزون المحجوز للمتاح
+      if (event.returnsJson != null && event.returnsJson!.isNotEmpty && event.returnsJson != 'null') {
+        final dynamic decodedReturns = jsonDecode(event.returnsJson!);
+        if (decodedReturns is List) {
+          for (var ret in decodedReturns) {
+            final int pId = int.tryParse(ret['product_variant_id']?.toString() ?? '') ?? 0;
+            if (pId == 0) continue;
+
+            final String type = ret['return_type'] ?? '';
+            final int qty = ret['quantity'] ?? 0;
+            final int pQty = ret['packs_quantity'] ?? 0;
+
+            int rfC = type == 'Factory_Defect' ? qty : 0;
+            int rfP = type == 'Factory_Defect' ? pQty : 0;
+            int reC = type == 'Expired' ? qty : 0;
+            int reP = type == 'Expired' ? pQty : 0;
+
+            final existingItemIndex = restoredCart.indexWhere((i) => i.productVariantId == pId);
+
+            if (existingItemIndex >= 0) {
+              final currentItem = restoredCart[existingItemIndex];
+              
+              // +++ الكي الجراحي: إضافة التالف المحجوز للمخزون الحالي +++
+              final int safePpc = currentItem.packsPerCarton > 0 ? currentItem.packsPerCarton : 1;
+              final int returnsPacks = ((rfC + reC) * safePpc) + rfP + reP;
+              final int currentAvailablePacks = (currentItem.availableCartons * safePpc) + currentItem.availablePacks;
+              final int combinedPacks = currentAvailablePacks + returnsPacks;
+
+              restoredCart[existingItemIndex] = currentItem.copyWith(
+                availableCartons: combinedPacks ~/ safePpc,
+                availablePacks: combinedPacks % safePpc,
+                returnFactoryCartons: currentItem.returnFactoryCartons + rfC,
+                returnFactoryPacks: currentItem.returnFactoryPacks + rfP,
+                returnExpiredCartons: currentItem.returnExpiredCartons + reC,
+                returnExpiredPacks: currentItem.returnExpiredPacks + reP,
+              );
+            } else {
+              final int pIndex = currentState.catalog.indexWhere((p) => p.id == pId);
+              if (pIndex < 0) continue;
+              final product = currentState.catalog[pIndex];
+              
+              // +++ الكي الجراحي: إضافة التالف المحجوز للمخزون الحالي +++
+              final int safePpc = product.packsPerCarton > 0 ? product.packsPerCarton : 1;
+              final int returnsPacks = ((rfC + reC) * safePpc) + rfP + reP;
+              final int totalCurrentPacks = (product.currentCartons * safePpc) + product.currentPacks;
+              final int combinedPacks = totalCurrentPacks + returnsPacks;
+
+              restoredCart.add(
+                CartItemModel(
+                  productVariantId: pId,
+                  name: product.name,
+                  pricePerCarton: product.pricePerCarton,
+                  pricePerPack: product.pricePerPack,
+                  packsPerCarton: product.packsPerCarton,
+                  availableCartons: combinedPacks ~/ safePpc,
+                  availablePacks: combinedPacks % safePpc,
+                  returnFactoryCartons: rfC,
+                  returnFactoryPacks: rfP,
+                  returnExpiredCartons: reC,
+                  returnExpiredPacks: reP,
+                ),
+              );
+            }
+          }
+        }
+      }
+
       emit(
         currentState.copyWith(
           cart: restoredCart,
           cashCollected: event.cashCollected,
           debtPaid: event.debtPaid,
+          notes: event.notes, 
         ),
       );
     } catch (e) {
       developer.log('[VisitBloc] Error restoring completed visit: $e');
+      emit(const VisitError('فشل استعادة بيانات الفاتورة السابقة.'));
+      emit(currentState); 
     }
   }
 
@@ -339,13 +352,18 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
 
     // +++ F-04: درع الـ Race Condition - التحقق من الكمية داخل الـ BLoC بشكل قطعي لمنع تجاوز المخزون عند النقر السريع +++
     int safePpc = event.item.packsPerCarton > 0 ? event.item.packsPerCarton : 1;
+    // +++ تضمين المرتجعات (بما أنها استبدال) في درع السباق لمنع عجز المخزون الفعلي في سيارة المندوب +++
     int totalRequested = (event.item.cartons * safePpc) + event.item.packs + 
-                         (event.item.sampleCartons * safePpc) + event.item.samplePacks;
+                         (event.item.sampleCartons * safePpc) + event.item.samplePacks +
+                         (event.item.returnFactoryCartons * safePpc) + event.item.returnFactoryPacks +
+                         (event.item.returnExpiredCartons * safePpc) + event.item.returnExpiredPacks;
     int totalAvailable = (event.item.availableCartons * safePpc) + event.item.availablePacks;
     
     if (totalRequested > totalAvailable) {
       developer.log('[VisitBloc] Inventory Blocked (Race Condition Shield): Not enough stock for ${event.item.name}');
-      emit(currentState.copyWith(errorMessage: 'عفواً، كمية ${event.item.name} المطلوبة لا تكفي بالسيارة.'));
+      // +++ إطلاق الخطأ كـ State مستقلة لتصطادها الواجهة وتظهر SnackBar فوراً +++
+      emit(VisitError('عفواً، كمية ${event.item.name} المطلوبة لا تكفي بالسيارة.'));
+      emit(currentState); // العودة للحالة الجاهزة لمنع تجميد الشاشة
       return;
     }
 
@@ -495,13 +513,17 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
       if (e is DioException &&
           e.response?.data != null &&
           e.response!.data is Map) {
+        // +++ التوافق مع Pydantic/FastAPI لمنع ضياع سبب الرفض +++
         errorMsg =
-            e.response!.data['message'] ??
+            e.response!.data['message'] ?? e.response!.data['detail'] ??
             'رفض السيرفر العملية (${e.response!.statusCode})';
       }
 
-      // +++ إصلاح ابتلاع الأخطاء المالية: دمج رسالة الرفض داخل VisitReady لعرضها فوراً كـ SnackBar +++
-      emit(currentState.copyWith(errorMessage: errorMsg));
+      // +++ B1: إجبار الواجهة على كسر حالة التحميل الوهمي عبر إطلاق VisitError مستقل +++
+      // هذا يضمن أن BlocListener في الواجهة سيلتقط الخطأ ويعرض SnackBar ويفك القفل
+      emit(VisitError(errorMsg));
+      // +++ إعادة إرسال الحالة السابقة فوراً لضمان عدم ضياع سلة المندوب +++
+      emit(currentState);
     }
   }
 

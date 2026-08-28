@@ -14,7 +14,8 @@ from config import Config
 import traceback
 import asyncio
 import logging
-import bcrypt # +++ الدرع الفولاذي: استدعاء مكتبة التشفير مباشرة +++
+import bcrypt
+import uuid
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter(tags=["Authentication"])
@@ -29,14 +30,16 @@ def create_access_token(data: dict):
     """مفتاح الباب: استخدام Aware UTC لمنع كراش الـ Naive Datetime في PyJWT"""
     to_encode = data.copy()
     expire_timestamp = datetime.now(timezone.utc) + timedelta(minutes=15)
-    to_encode.update({"exp": expire_timestamp, "type": "access"})
+    # +++ الكي الجراحي: حقن jti (JWT ID) عشوائي لنسف التطابق التام في نفس الميكروثانية +++
+    to_encode.update({"exp": expire_timestamp, "type": "access", "jti": uuid.uuid4().hex})
     return jwt.encode(to_encode, Config.SECRET_KEY, algorithm="HS256")
 
 def create_refresh_token(data: dict):
     """مفتاح الخزنة: استخدام Aware UTC لمنع كراش الـ Naive Datetime في PyJWT"""
     to_encode = data.copy()
     expire_timestamp = datetime.now(timezone.utc) + timedelta(days=30)
-    to_encode.update({"exp": expire_timestamp, "type": "refresh"})
+    # +++ الكي الجراحي: حقن jti عشوائي لنسف انهيار UniqueViolationError في الداتابيز +++
+    to_encode.update({"exp": expire_timestamp, "type": "refresh", "jti": uuid.uuid4().hex})
     return jwt.encode(to_encode, Config.SECRET_KEY, algorithm="HS256")
 
 async def check_brute_force(ip: str, db: AsyncSession):
@@ -55,6 +58,7 @@ async def check_brute_force(ip: str, db: AsyncSession):
     
     if failed_count >= 5:
         raise HTTPException(status_code=429, detail="تم حظر عنوان IP مؤقتاً بسبب محاولات اختراق متكررة.")
+    return failed_count
 
 async def log_failed_attempt(ip: str, db: AsyncSession):
     """توثيق الفشل (FAILED_LOGIN)"""
@@ -79,7 +83,7 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
     # +++ الكي الجراحي (Local Import): نسف الاستيراد الدائري الذي يشل تشغيل السيرفر +++
     from main import get_real_ip
     ip = get_real_ip(request)
-    await check_brute_force(ip, db)
+    failed_count = await check_brute_force(ip, db)
     
     stmt = select(Driver).filter_by(username=payload.username, is_active=True)
     driver = (await db.execute(stmt)).scalar_one_or_none()
@@ -93,7 +97,13 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
 
     if not driver or not password_match:
         await log_failed_attempt(ip, db)
-        raise HTTPException(status_code=401, detail="اسم المستخدم أو كلمة المرور غير صحيحة")
+        # +++ ميزة العدّاد: إبلاغ المندوب بعدد المحاولات المتبقية قبل الحظر (الحد = 5 محاولات / 15 دقيقة) +++
+        remaining = max(0, 4 - failed_count)
+        if remaining > 0:
+            fail_detail = f"اسم المستخدم أو كلمة المرور غير صحيحة. تبقى لك {remaining} محاولات قبل الحظر المؤقت."
+        else:
+            fail_detail = "اسم المستخدم أو كلمة المرور غير صحيحة. هذه كانت المحاولة الأخيرة، وأي محاولة قادمة ستؤدي إلى حظر مؤقت."
+        raise HTTPException(status_code=401, detail=fail_detail)
 
     # +++ إصدار المفتاحين للمندوب +++
     access_token = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username})
@@ -185,8 +195,16 @@ async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depen
         if not driver or not driver.is_active:
             raise HTTPException(status_code=403, detail="تم إيقاف حسابك من قبل الإدارة.")
             
+        # +++ الدرع الفولاذي: Refresh Token Rotation (RTR) لمنع اختطاف الجلسات +++
+        db_token.is_revoked = True
+        
         new_access = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username})
-        return {"token": new_access}
+        new_refresh = create_refresh_token({"sub": str(driver.id)})
+        
+        db.add(RefreshToken(token=new_refresh, driver_id=driver.id, expires_at=utc_now() + timedelta(days=30)))
+        await db.commit()
+        
+        return {"token": new_access, "refresh_token": new_refresh}
         
     except jwt.ExpiredSignatureError:
         await db.execute(delete(RefreshToken).where(RefreshToken.token == payload.refresh_token))

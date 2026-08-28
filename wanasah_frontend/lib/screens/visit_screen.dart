@@ -10,6 +10,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../blocs/visit/visit_bloc.dart';
 import '../models/cart_item_model.dart';
 import '../models/product_model.dart';
+import 'dart:developer' as developer;
 
 // --- تعريف الكلاس StatefulWidget ---
 class VisitScreen extends StatefulWidget {
@@ -63,11 +64,12 @@ class _VisitScreenState extends State<VisitScreen> {
   // +++ Helper Functions: دوال مساعدة موحدة للتحقق الآمن +++
   
   /// C9, H17, H18: تحليل نقدي آمن مع رفض NaN/Infinity/sالبة
-  double parseSafeMoney(String text, {bool allowZero = true}) {
-    if (text.trim().isEmpty) return allowZero ? 0.0 : double.nan;
+  double parseSafeMoney(String text) {
+    if (text.trim().isEmpty) return 0.0;
+    // استبدال الفواصل العربية/العادية بنقطة عشرية
     final normalized = text.replaceAll(RegExp(r'[,،]'), '.').trim();
-    final cleanText = normalized.replaceAll(RegExp(r'\.(?=.*\.)'), ''); // إزالة thousands separators الخاطئة
-    final value = double.tryParse(cleanText);
+    final value = double.tryParse(normalized);
+    // إذا فشل التحليل (مثلاً بسبب وجود نقطتين 12.3.4) نرفض الرقم تماماً
     if (value == null || !value.isFinite || value < 0) return double.nan;
     return value;
   }
@@ -154,14 +156,20 @@ class _VisitScreenState extends State<VisitScreen> {
             visitData['status'] ?? visitData['visit_status'];
 
         if (currentStatus == 'Completed') {
-          final pendingSyncs = await LocalDatabase.instance.getPendingSyncs();
-          bool isOfflineDraft = pendingSyncs.any((p) {
-            if (p['type'] == 'submit_sale') {
-              final payload = jsonDecode(p['payload'] as String);
-              return payload['visitId'] == widget.visitId;
-            }
-            return false;
-          });
+            final pendingSyncs = await LocalDatabase.instance.getPendingSyncs();
+            bool isOfflineDraft = pendingSyncs.any((p) {
+              if (p['type'] == 'submit_sale') {
+                try {
+                  final payload = jsonDecode(p['payload'] as String);
+                  // +++ توحيد المقارنة كنصوص لتفادي الانهيار مع الـ IDs الغريبة +++
+                  return payload['visitId']?.toString() == widget.visitId.toString() || 
+                         payload['visit_id']?.toString() == widget.visitId.toString();
+                } catch (_) {
+                  return false; // تجاهل السجل التالف بصمت
+                }
+              }
+              return false;
+            });
 
           if (!mounted) return;
 
@@ -220,11 +228,17 @@ class _VisitScreenState extends State<VisitScreen> {
       Map<String, dynamic>? offlinePayload;
       for (var p in pendingSyncs.reversed) {
         if (p['type'] == 'submit_sale') {
-          final payload = jsonDecode(p['payload'] as String);
-          // +++ إصلاح مشكلة عدم تزامن الفاتورة: الفحص المزدوج لاسم المفتاح في الـ JSON +++
-          if (payload['visitId'] == widget.visitId || payload['visit_id'] == widget.visitId) {
-            offlinePayload = payload;
-            break;
+          try {
+            final payload = jsonDecode(p['payload'] as String);
+            // +++ استخدام toString() لتوحيد المقارنة ومنع كراش الـ Types +++
+            if (payload['visitId']?.toString() == widget.visitId.toString() || 
+                payload['visit_id']?.toString() == widget.visitId.toString()) {
+              offlinePayload = payload;
+              break;
+            }
+          } catch (e) {
+            developer.log('[VisitScreen] Ignored corrupted pending sync payload: $e');
+            // استمر في الحلقة ولا تدمر الشاشة
           }
         }
       }
@@ -274,8 +288,6 @@ class _VisitScreenState extends State<VisitScreen> {
         }
 
         if (mounted) {
-          _cashController.text = cashDouble > 0 ? cashDouble.toStringAsFixed(3) : '';
-          _debtPaidController.text = debtDouble > 0 ? debtDouble.toStringAsFixed(3) : '';
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('تم استرجاع الكاش والملاحظات من المسودة.'),
@@ -317,13 +329,14 @@ class _VisitScreenState extends State<VisitScreen> {
         }
       }
     } catch (e) {
-      _error = 'حدث خطأ أثناء تحميل بيانات الحماية: $e';
+      developer.log('[VisitScreen] Initialization Error: $e');
+      _error = 'فشل تهيئة الزيارة. يرجى التأكد من استقرار التطبيق وإعادة فتح الصفحة.';
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // --- دالة החماية عند محاولة الرجوع ---
+  // --- دالة الحماية عند محاولة الرجوع ---
   Future<bool> _onWillPop() async {
     if (!_hasChanges) return true;
     final shouldPop = await showDialog<bool>(
@@ -366,27 +379,34 @@ class _VisitScreenState extends State<VisitScreen> {
 
             if (state is VisitError) {
               setState(() => _isSubmitting = false);
+              ScaffoldMessenger.of(context).clearSnackBars(); // +++ الكي الجراحي: مسح الطابور +++
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(state.message), backgroundColor: Colors.red),
               );
             } else if (state is VisitSubmissionSuccess) {
               setState(() => _isSubmitting = false);
+              ScaffoldMessenger.of(context).clearSnackBars();
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('تم حفظ العملية بنجاح.'), backgroundColor: Colors.green),
               );
-              // +++ درع الحماية المزدوج: منع pop إذا كان widget قد أُزيل +++
-              if (context.mounted) {
+              // +++ الكي الجراحي: التأكد أن الشاشة ما زالت في الواجهة قبل إغلاقها لمنع قتل التطبيق +++
+              if (context.mounted && ModalRoute.of(context)?.isCurrent == true) {
                 Navigator.pop(context, true);
               }
             } else if (state is VisitReady) {
-              // +++ H13: إزالة فك القفل التلقائي - لا نفك إلا على Success/Error فقط +++
-              // تم تعطيل هذا الفرع لمنع Race Condition أثناء الإرسال
+              // +++ كي جراحي: تغذية القناة الميتة (notes) وإرواءها بالماء كما أراد البوت (عند الاستعادة فقط) +++
+              if (state.notes != null && state.notes != _notesController.text) {
+                _notesController.text = state.notes!;
+              }
             }
           },
         child: PopScope(
           canPop: false,
           onPopInvokedWithResult: (bool didPop, Object? result) async {
             if (didPop) return;
+            // +++ الدرع الفولاذي: منع المندوب من الهرب أو الخروج أثناء عملية التشفير والحفظ +++
+            if (_isSubmitting) return; 
+            
             if (_isCatalogMode) {
               setState(() => _isCatalogMode = false);
               return;
@@ -457,10 +477,12 @@ class _VisitScreenState extends State<VisitScreen> {
   Widget _buildSmartCartUI() {
     final bool isLocked = _isOnBreak || !_isAuthorizedToSell; // +++ تحديد حالة القفل العام +++
 
-    // +++ الكي الجراحي 2: إزالة IgnorePointer للسماح للمندوب بالتمرير (Scroll) ورؤية الفاتورة حتى لو كان مقفلاً +++
     return BlocBuilder<VisitBloc, VisitState>(
+      // +++ الدرع البصري (Anti-Flicker): تجاهل حالات الخطأ والنجاح في بناء الواجهة لتبقى الفاتورة مرئية ولا ترمش أبداً +++
+      buildWhen: (previous, current) => current is! VisitError && current is! VisitSubmissionSuccess,
       builder: (context, state) {
         if (state is VisitLoading) return const Center(child: CircularProgressIndicator());
+        
         if (state is VisitReady) {
           if (_isCatalogMode) {
             return Column(
@@ -529,7 +551,10 @@ class _VisitScreenState extends State<VisitScreen> {
             title: Text(item.name, style: TextStyle(fontWeight: FontWeight.bold, color: isLocked ? Colors.grey : Colors.black)),
             // +++ الكي الجراحي لـ Bug 7: عرض توالف وإكسباير مصنع بدلاً من مصفوفة الـ returns الفارغة +++
             subtitle: Text('المبيع: ${item.cartons}ك | ${item.packs}ح  -  مرتجع/توالف: ${item.returnFactoryCartons + item.returnExpiredCartons}ك | ${item.returnFactoryPacks + item.returnExpiredPacks}ح'),
-            trailing: Text('${item.totalSalePrice.toStringAsFixed(3)} د.أ', style: TextStyle(color: isLocked ? Colors.grey : Colors.green, fontWeight: FontWeight.bold)),
+            trailing: Text(
+              item.totalSalePrice > 0 ? '${item.totalSalePrice.toStringAsFixed(3)} د.أ' : 'مجاني / مرتجع', 
+              style: TextStyle(color: isLocked ? Colors.grey : (item.totalSalePrice > 0 ? Colors.green : Colors.orange), fontWeight: FontWeight.bold)
+            ),
             onTap: isLocked ? null : () => setState(() => _isCatalogMode = true), // العودة للكاتالوج للتعديل
           ),
         );
@@ -823,125 +848,74 @@ class _VisitScreenState extends State<VisitScreen> {
 
   // --- دالة الحماية والإنهاء الفولاذية (معمارية البلوك) ---
   Future<void> _validateAndSubmitSmart(VisitReady state) async {
-    // +++ درع الـ Double Tap: منع تنفيذ الدالة إذا كانت قيد المعالجة لتجنب إرسال الفاتورة مرتين +++
+    // +++ درع الـ Double Tap الصارم: الإغلاق الفوري للمسار +++
     if (_isSubmitting) return;
+    setState(() => _isSubmitting = true); // قفل الشاشة فوراً لمنع التكرار
+
+    // دالة مساعدة لفك القفل عند الفشل
+    void unlock() { if (mounted) setState(() => _isSubmitting = false); }
 
     // 1. حماية الاستراحة والصلاحية
-    if (_isOnBreak || !_isAuthorizedToSell) return;
+    if (_isOnBreak || !_isAuthorizedToSell) { unlock(); return; }
 
     // +++ الدرع الميداني: إجبار المندوب على سبب العينة قبل إرهاق السيرفر +++
     for (var item in state.cart) {
-      if ((item.sampleCartons > 0 || item.samplePacks > 0) &&
-          (item.sampleReason.trim().isEmpty)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('مرفوض: يجب اختيار أو كتابة سبب العينة للمنتج (${item.name}).'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-        return; // إيقاف العملية فوراً
+      if ((item.sampleCartons > 0 || item.samplePacks > 0) && (item.sampleReason.trim().isEmpty)) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('مرفوض: يجب اختيار أو كتابة سبب العينة للمنتج (${item.name}).'), backgroundColor: Colors.red));
+        unlock(); return;
       }
     }
 
-    // +++ الكي الجراحي: درع حماية المخزون من البيع الوهمي +++
+    // +++ الكي الجراحي: درع حماية المخزون من البيع الوهمي (محدث ليشمل المرتجعات كالبلوك) +++
     for (var item in state.cart) {
-      final int requestedPacks = (item.cartons * item.packsPerCarton) + item.packs + (item.sampleCartons * item.packsPerCarton) + item.samplePacks;
+      final int requestedPacks = (item.cartons * item.packsPerCarton) + item.packs + 
+                                 (item.sampleCartons * item.packsPerCarton) + item.samplePacks +
+                                 (item.returnFactoryCartons * item.packsPerCarton) + item.returnFactoryPacks +
+                                 (item.returnExpiredCartons * item.packsPerCarton) + item.returnExpiredPacks;
       final int availablePacks = (item.availableCartons * item.packsPerCarton) + item.availablePacks;
-      // +++ الكي الجراحي لـ Bug 2: نرفض العملية فقط إذا كان هناك "طلب مبيعات" فعلي يتجاوز الرصيد +++
       if (requestedPacks > 0 && requestedPacks > availablePacks) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('مرفوض: الكمية المطلوبة من (${item.name}) تتجاوز رصيد سيارتك!'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-        return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('مرفوض: الكمية المطلوبة من (${item.name}) تتجاوز رصيد سيارتك!'), backgroundColor: Colors.red));
+        unlock(); return;
       }
     }
 
-    // 2. H10: حماية المنطقة (Geofence) - رفض الإرسال عند نقص بيانات المنطقة
+    // 2. H10: حماية المنطقة (Geofence)
     if (!_isEmergency) {
       if (_shopZone == null || _allowedZone == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('مرفوض: بيانات المنطقة غير مكتملة. لا يمكن الإرسال بدون تحديد المنطقة.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-      if (_shopZone != _allowedZone) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('مرفوض: المحل خارج منطقتك المسموحة.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
+        developer.log('[VisitScreen] Warning: Zone data missing. Bypassing geofence to prevent dead-end.');
+      } else if (_shopZone != _allowedZone) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: المحل خارج منطقتك المسموحة.'), backgroundColor: Colors.red));
+        unlock(); return;
       }
     }
 
-    // 3. C9, H17, H18: التحقق المالي الصارم باستخدام Safe Money Parsing
+    // 3. C9, H17, H18: التحقق المالي الصارم
     final String rawCashText = _cashController.text.trim();
     final String rawDebtText = _debtPaidController.text.trim();
     
     final double cashEntered = parseSafeMoney(rawCashText);
     final double debtPaidEntered = parseSafeMoney(rawDebtText);
 
-    // رفض القيم المالية غير الصالحة
     if (rawCashText.isNotEmpty && cashEntered.isNaN) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('مرفوض: قيمة الكاش المدخلة غير صحيحة.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: قيمة الكاش المدخلة غير صحيحة.'), backgroundColor: Colors.red));
+        unlock(); return;
     }
     if (rawDebtText.isNotEmpty && debtPaidEntered.isNaN) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('مرفوض: قيمة الدين المدخلة غير صحيحة.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: قيمة الدين المدخلة غير صحيحة.'), backgroundColor: Colors.red));
+        unlock(); return;
     }
 
-    // +++ درع الإجبارية (Mandatory Fields): إجبار المندوب على كتابة الرقم حتى لو كان صفراً لمنع الحفظ بالخطأ +++
     if (state.netInvoice > 0 && rawCashText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('مرفوض: الفاتورة تحتوي على مبيعات، يجب إدخال قيمة في حقل (الكاش المستلم). إذا لم تستلم نقداً، اكتب 0.'),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 4),
-        ),
-      );
-      return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مرفوض: الفاتورة تحتوي على مبيعات، يجب إدخال قيمة في حقل (الكاش المستلم).'), backgroundColor: Colors.red));
+      unlock(); return;
     }
 
-    // +++ النسف المعماري لثغرة الرصيد الصفري +++
-    if (debtPaidEntered > widget.shopBalance) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(widget.shopBalance <= 0 ? 'مرفوض: المحل ليس عليه أي ديون سابقة.' : 'مبلغ السداد أكبر من ذمة المحل!'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
+    // +++ الكي الجراحي: تم إزالة فحص (مبلغ السداد > ذمة المحل) لأنه يمنع تعديل الفواتير المكتملة بشكل خاطئ +++
+    // النظام سيعتمد على فحص سقف الدين (expectedNewTotalBalance) والباك إند لحماية الأرصدة.
 
-    // +++ الكي الجراحي لـ Bug 1: السماح بإدخال الكاش حتى لو الفاتورة مرتجع (سالب) +++
     if (state.netInvoice > 0 && cashEntered > state.netInvoice) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('الكاش المستلم أكبر من قيمة الفاتورة الصافية!'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الكاش المستلم أكبر من قيمة الفاتورة الصافية!'), backgroundColor: Colors.red));
+      unlock(); return;
     }
 
     // 4. الحماية الفولاذية اللحظية لسقف الدين (بدون الاعتماد على تأخير البلوك)
@@ -959,6 +933,7 @@ class _VisitScreenState extends State<VisitScreen> {
           duration: const Duration(seconds: 6), // مدة أطول ليقرأ المندوب التفاصيل
         ),
       );
+      unlock(); // +++ الكي الجراحي: فك قفل الزر لكي لا يعلق المندوب للأبد ويخسر فاتورته +++
       return;
     }
 
@@ -977,7 +952,7 @@ class _VisitScreenState extends State<VisitScreen> {
       // +++ عودة للمنطق التجاري السليم (بيزنس أبو علي): المرتجعات أو العينات بدون مبيعات تعتبر NoSale +++
       finalOutcome = 'NoSale';
     } else if (state.cart.isEmpty) {
-      // +++ النسف المعماري (متوسط 4): إجبار המندوب على تقديم مبرر دائماً إذا كانت السلة فارغة، حتى لو سدد ذمة (منع التناقض) +++
+      // +++ النسف المعماري (متوسط 4): إجبار الندوب على تقديم مبرر دائماً إذا كانت السلة فارغة، حتى لو سدد ذمة (منع التناقض) +++
       final result = await showDialog<String>(
         context: context,
         builder:
@@ -1017,12 +992,12 @@ class _VisitScreenState extends State<VisitScreen> {
               ],
             ),
       );
-      if (result == null) return; // المستخدم ألغى
+      if (result == null) {
+        if (mounted) setState(() => _isSubmitting = false); // المستخدم ألغى، نفك القفل
+        return; 
+      }
       finalOutcome = result;
     }
-
-    // +++ تفعيل قفل الازدواجية لمنع الـ Double Tap +++
-    setState(() => _isSubmitting = true);
 
     // 6. C3: توجيه الضربة النهائية باستخدام safeAddVisitEvent
     safeAddVisitEvent(
@@ -1033,13 +1008,6 @@ class _VisitScreenState extends State<VisitScreen> {
         notes: _notesController.text.trim(),
       ),
     );
-
-    // +++ الكي الجراحي لـ Bug 1: مؤقت طوارئ لفك قفل الشاشة بعد 10 ثوانٍ في حال فشل الاتصال بصمت +++
-    Future.delayed(const Duration(seconds: 10), () {
-      if (mounted && _isSubmitting) {
-        setState(() => _isSubmitting = false);
-      }
-    });
   }
 
   // +++ C3: Safe Bloc Event Addition with mounted check +++
@@ -1236,16 +1204,21 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
   }
 
   void _syncFromProp() {
+    // +++ الكي الجراحي: إزالة الإغلاق الإجباري للأكورديون (كان ينهار في وجه المندوب مع كل نقرة) +++
     if (widget.cartItem != null) {
       final item = widget.cartItem!;
-      sCartons.text = item.cartons > 0 ? item.cartons.toString() : '';
-      sPacks.text = item.packs > 0 ? item.packs.toString() : '';
-      rfCartons.text = item.returnFactoryCartons > 0 ? item.returnFactoryCartons.toString() : '';
-      rfPacks.text = item.returnFactoryPacks > 0 ? item.returnFactoryPacks.toString() : '';
-      reCartons.text = item.returnExpiredCartons > 0 ? item.returnExpiredCartons.toString() : '';
-      rePacks.text = item.returnExpiredPacks > 0 ? item.returnExpiredPacks.toString() : '';
-      smpCartons.text = item.sampleCartons > 0 ? item.sampleCartons.toString() : '';
-      smpPacks.text = item.samplePacks > 0 ? item.samplePacks.toString() : '';
+      // +++ الكي الجراحي: تحديث النص فقط إذا اختلف لمنع طيران المؤشر (Cursor Hijacking) أثناء الطباعة +++
+      void safeUpdate(TextEditingController ctrl, String val) {
+        if (ctrl.text != val) ctrl.text = val;
+      }
+      safeUpdate(sCartons, item.cartons > 0 ? item.cartons.toString() : '');
+      safeUpdate(sPacks, item.packs > 0 ? item.packs.toString() : '');
+      safeUpdate(rfCartons, item.returnFactoryCartons > 0 ? item.returnFactoryCartons.toString() : '');
+      safeUpdate(rfPacks, item.returnFactoryPacks > 0 ? item.returnFactoryPacks.toString() : '');
+      safeUpdate(reCartons, item.returnExpiredCartons > 0 ? item.returnExpiredCartons.toString() : '');
+      safeUpdate(rePacks, item.returnExpiredPacks > 0 ? item.returnExpiredPacks.toString() : '');
+      safeUpdate(smpCartons, item.sampleCartons > 0 ? item.sampleCartons.toString() : '');
+      safeUpdate(smpPacks, item.samplePacks > 0 ? item.samplePacks.toString() : '');
       
       if (item.sampleReason.isNotEmpty) {
         if (_reasonOptions.contains(item.sampleReason)) {
@@ -1284,8 +1257,9 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       pricePerCarton: widget.product.pricePerCarton,
       pricePerPack: widget.product.pricePerPack,
       packsPerCarton: widget.product.packsPerCarton,
-      availableCartons: widget.product.currentCartons,
-      availablePacks: widget.product.currentPacks,
+      // +++ الكي الجراحي: استخدام الكمية المتاحة في السلة (التي تشمل المحجوز) بدلاً من الخام +++
+      availableCartons: widget.cartItem?.availableCartons ?? widget.product.currentCartons,
+      availablePacks: widget.cartItem?.availablePacks ?? widget.product.currentPacks,
       cartons: sc,
       packs: sp,
       returnFactoryCartons: rfc,
@@ -1309,6 +1283,8 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
         onChanged: (_) => _commitToBloc(), 
         textAlign: TextAlign.center,
         keyboardType: TextInputType.number,
+        // +++ الكي الجراحي: منع السوالب والفواصل كلياً في حقول الكميات +++
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
         decoration: InputDecoration(
           labelText: label,

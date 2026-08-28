@@ -39,18 +39,24 @@ def clean_zero_packs(v) -> int:
 
 def safe_decimal_input(v: Any) -> Decimal:
     if v is None or str(v).strip() == "": return Decimal('0.0')
-    try: return Decimal(str(v).strip())
+    try: 
+        dec = Decimal(str(v).strip())
+        if not dec.is_finite(): raise ValueError("قيمة مالية غير صالحة (NaN/Infinity)")
+        return dec
     except Exception: raise ValueError("قيمة مالية غير صالحة")
 
 def safe_optional_decimal(v: Any) -> Optional[Decimal]:
     if v is None or str(v).strip() == "": return None
-    try: return Decimal(str(v).strip())
+    try: 
+        dec = Decimal(str(v).strip())
+        if not dec.is_finite(): raise ValueError("قيمة مالية غير صالحة (NaN/Infinity)")
+        return dec
     except Exception: raise ValueError("قيمة مالية غير صالحة")
 
 def safe_int_input(v: Any) -> int:
     if v is None or str(v).strip() == "": return 999
     try: return int(float(str(v).strip()))
-    except Exception: return 999
+    except Exception: raise ValueError("قيمة رقمية غير صالحة")
 
 # ==========================================
 # 1. دروع الردود العامة (Generic Responses)
@@ -96,7 +102,7 @@ class ShopResponse(ShopBase):
     max_debt_limit: Annotated[str, BeforeValidator(clean_finance_str)] = "0.000"
     is_active: bool
     is_archived: bool
-    sequence: int
+    sequence: Optional[int] = 999
     model_config = ConfigDict(from_attributes=True)
 
 class TransferResponseRequest(BaseModel):
@@ -149,6 +155,7 @@ class VisitDetailsItemResponse(BaseModel):
     packs_quantity: int
     bonus_quantity: int
     sample_quantity: int
+    sample_packs_quantity: int = 0
     # +++ الدرع المالي الفولاذي: حماية السعر الإجمالي من التقريب الغبي +++
     total_price: Annotated[str, BeforeValidator(clean_finance_str)] = "0.000"
     variant_name: str = ""
@@ -171,7 +178,7 @@ class VisitDetailsReturnResponse(BaseModel):
 class VisitDetailsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
     visit_id: int = Field(validation_alias="id")
-    driver_id: int
+    driver_id: Optional[int] = None
     outcome: Optional[str] = None
     status: str
     notes: Annotated[str, BeforeValidator(clean_null_string)] = ""
@@ -332,9 +339,17 @@ class InventoryDataResponse(BaseModel):
     current_cartons: int
     current_packs: int
 
+class PendingTransferMinResponse(BaseModel):
+    transfer_id: int
+    product_variant_id: int
+    quantity_packs: int
+    status: str
+    created_at: Optional[str] = None
+
 class GetVisitsContract(BaseModel):
     visits: List[DriverVisitResponse]
     inventory: List[InventoryDataResponse]
+    pending_transfers: List[PendingTransferMinResponse] = Field(default_factory=list) # +++ إحياء الميزة الميتة +++
 
 # ==========================================
 # 7. دروع التحديث الميداني (Update Visit)
@@ -400,7 +415,12 @@ class VisitUpdateRequest(BaseModel):
     @classmethod
     def clean_empty_decimals(cls, v: Any) -> Decimal:
         if v == "" or v is None or str(v).strip() == "": return Decimal('0.00')
-        return Decimal(str(v))
+        try:
+            dec = Decimal(str(v))
+            if not dec.is_finite(): raise ValueError("قيمة غير صالحة")
+            return dec
+        except Exception:
+            raise ValueError("قيمة غير صالحة")
 
     @model_validator(mode='after')
     def validate_visit_logic(self) -> 'VisitUpdateRequest':
@@ -476,7 +496,7 @@ class AdminSampleItem(BaseModel):
     product_name: str
     sample_quantity_cartons: int
     sample_quantity_packs: int
-    reason: str
+    reason: Optional[str] = ""
 
 class AdminVisitsInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -535,7 +555,12 @@ class SettleSessionRequest(BaseModel):
     @classmethod
     def clean_empty_decimals(cls, v: Any) -> Decimal:
         if v == "" or v is None or str(v).strip() == "": return Decimal('0.00')
-        return Decimal(str(v))
+        try:
+            dec = Decimal(str(v))
+            if not dec.is_finite(): raise ValueError("قيمة غير صالحة")
+            return dec
+        except Exception:
+            raise ValueError("قيمة غير صالحة")
 
 class SettleSessionResponse(BaseModel):
     message: str
@@ -545,9 +570,9 @@ class SettleSessionResponse(BaseModel):
 class DispatchZoneResponse(BaseModel):
     id: str
     name: str
-    visitDay: str
-    startDate: str
-    frequency: str
+    visitDay: Optional[str] = ""
+    startDate: Optional[str] = ""
+    frequency: Optional[str] = ""
     scheduleStatus: str
     shopsCount: int
 
@@ -607,13 +632,13 @@ class RouteTransferResponse(BaseModel):
 class DispatchShopResponse(BaseModel):
     id: str
     name: str
-    owner: str
-    phone: str
-    mapLink: str
-    zoneId: str
-    initialDebt: float
-    maxDebtLimit: float
-    sequence: int
+    owner: Optional[str] = ""
+    phone: Optional[str] = ""
+    mapLink: Optional[str] = ""
+    zoneId: Optional[str] = ""
+    initialDebt: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
+    maxDebtLimit: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
+    sequence: Optional[int] = 999
     archived: bool
 
 class BulkUpdateShopItem(BaseModel):
@@ -641,15 +666,15 @@ class ActiveRouteResponse(BaseModel):
     id: str
     zoneId: str
     zoneName: str
-    driverId: str
-    driverName: str
-    vehicleId: str
+    driverId: Optional[str] = ""
+    driverName: Optional[str] = ""
+    vehicleId: Optional[str] = ""
     shopsRemaining: int
     status: str
     sessionEnded: bool
 
 class UpdateRouteStatusRequest(BaseModel):
-    status: Optional[str] = None
+    status: Optional[Literal['active', 'closed', 'waiting', 'postponed']] = None
     driverId: Optional[Union[int, str]] = None
     vehicleId: Optional[Union[int, str]] = None
     inventory: Optional[Dict[str, Any]] = None
@@ -673,11 +698,9 @@ class EditShopDetailsRequest(BaseModel):
     phone: Optional[str] = None
     mapLink: Optional[str] = None
     zoneId: Optional[Union[int, str]] = None
-    # +++ سد ثغرة النص العشوائي 'abc': إجبار التحويل للـ Decimal أو إرجاع خطأ 422 النظيف +++
-    maxDebtLimit: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = None
-    max_debt_limit: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = None
-    initialDebt: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = None
-    initial_debt: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = None
+    # +++ سد ثغرة الـ Pydantic Schizophrenia وتوحيد المخرجات لتطابق SQLAlchemy بسلاسة +++
+    max_debt_limit: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = Field(default=None, validation_alias=AliasChoices('maxDebtLimit', 'max_debt_limit'))
+    initial_debt: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = Field(default=None, validation_alias=AliasChoices('initialDebt', 'initial_debt'))
 
 class ShortageResponseItem(BaseModel):
     id: str
@@ -685,8 +708,8 @@ class ShortageResponseItem(BaseModel):
     zoneName: str
     shopId: str
     shopName: str
-    driverId: str
-    driverName: str
+    driverId: Optional[str] = ""
+    driverName: Optional[str] = ""
     productName: str
     quantity: int
     status: str
@@ -699,7 +722,7 @@ class CreateShortageItem(BaseModel):
     productId: Optional[Union[int, str]] = None
     productName: Optional[str] = None
     driverId: Optional[Union[int, str]] = None
-    quantity: Optional[int] = 1
+    quantity: int = Field(1, gt=0)
 
 class BulkImportShopItem(BaseModel):
     name: Optional[str] = ""
@@ -717,7 +740,7 @@ class BulkImportRequest(BaseModel):
 
 class InboundItemRequest(BaseModel):
     product_variant_id: int
-    quantity_packs: int
+    quantity_packs: int = Field(..., ge=0)
 
 # ==========================================
 # 9. دروع المستودع المركزي (Warehouse)
@@ -729,14 +752,14 @@ class WarehouseInboundRequest(BaseModel):
 
 class StocktakeItemRequest(BaseModel):
     product_variant_id: int
-    actual_packs: int
+    actual_packs: int = Field(..., ge=0)
 
 class WarehouseStocktakeRequest(BaseModel):
     items: List[StocktakeItemRequest] = Field(..., description="قائمة الأصناف المجرودة")
     notes: Optional[str] = "تسوية جرد يدوية"
 
 class ToggleLockRequest(BaseModel):
-    status: str # يجب أن تكون 'AUDIT_LOCK' أو 'ACTIVE'
+    status: Literal['AUDIT_LOCK', 'ACTIVE']
 
 class WarehouseAlertItem(BaseModel):
     product_variant_id: int
@@ -786,18 +809,20 @@ class AddProductVariantRequest(BaseModel):
     # +++ حماية Pydantic V2: يجب أن يكون النوع Decimal صراحة لمنع فقدان الدقة +++
     price_per_carton: Decimal
     packs_per_carton: int = Field(..., gt=0, description="عدد الحبات في الكرتونة")
-    price_per_pack: Decimal
+    price_per_pack: Optional[Decimal] = None
     min_threshold_packs: Optional[int] = Field(0, ge=0, description="الحد الأدنى لإنذار النواقص (بالحبات)")
     # +++ نسف الكارثة التشغيلية: استعادة سياسة العينات المفقودة مع Alias لامتصاص بيانات React +++
     default_max_samples_per_day: Optional[int] = Field(0, ge=0, alias="max_samples", description="الحد الأقصى للعينات المجانية يومياً")
 
-    # +++ درع تنظيف الأسعار وحمايتها من الـ Decimal Crash +++
+    # +++ درع تنظيف الأسعار وحمايتها من الـ Decimal Crash و الـ NaN +++
     @field_validator('price_per_carton', 'price_per_pack', mode='before')
     @classmethod
-    def clean_prices(cls, v: Any) -> Decimal:
-        if v == "" or v is None or str(v).strip() == "": return Decimal('0.00')
+    def clean_prices(cls, v: Any) -> Optional[Decimal]:
+        if v == "" or v is None or str(v).strip() == "": return None
         try:
-            return Decimal(str(v).strip())
+            dec = Decimal(str(v).strip())
+            if not dec.is_finite(): raise ValueError("صيغة السعر غير صالحة.")
+            return dec
         except Exception:
             raise ValueError("صيغة السعر غير صالحة.")
 

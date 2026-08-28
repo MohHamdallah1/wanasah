@@ -7,7 +7,9 @@ abstract class VisitListEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-class LoadVisitsEvent extends VisitListEvent {}
+class LoadVisitsEvent extends VisitListEvent {
+  const LoadVisitsEvent();
+}
 
 class FilterVisitsEvent extends VisitListEvent {
   final String status; // 'All', 'Completed', 'Pending'

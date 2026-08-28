@@ -30,6 +30,7 @@ class DashboardLoaded extends DashboardState {
   final int pendingVisits;
   final int offlineVisits;
   final int salesInCompleted;
+  final int quarantinedVisits; // +++ الكي الجراحي: عداد الفواتير المرفوضة نهائياً +++
 
   // ── المتغيرات المالية والجلسة (تم نقلها من الشاشة لحمايتها) ──
   final String driverName;
@@ -55,6 +56,7 @@ class DashboardLoaded extends DashboardState {
     required this.completedVisits,
     required this.pendingVisits,
     required this.offlineVisits,
+    this.quarantinedVisits = 0, // +++ تهيئة العداد +++
     this.salesInCompleted = 0,
     this.driverName = '...',
     this.assignedRegion = '...',
@@ -78,6 +80,7 @@ class DashboardLoaded extends DashboardState {
     completedVisits,
     pendingVisits,
     offlineVisits,
+    quarantinedVisits, // +++ تسجيله للمقارنة +++
     salesInCompleted,
     driverName,
     assignedRegion,
@@ -101,6 +104,7 @@ class DashboardLoaded extends DashboardState {
     int? completedVisits,
     int? pendingVisits,
     int? offlineVisits,
+    int? quarantinedVisits, // +++ التمرير في النسخ +++
     int? salesInCompleted,
     String? driverName,
     String? assignedRegion,
@@ -125,6 +129,7 @@ class DashboardLoaded extends DashboardState {
       completedVisits: completedVisits ?? this.completedVisits,
       pendingVisits: pendingVisits ?? this.pendingVisits,
       offlineVisits: offlineVisits ?? this.offlineVisits,
+      quarantinedVisits: quarantinedVisits ?? this.quarantinedVisits, // +++ التعيين +++
       salesInCompleted: salesInCompleted ?? this.salesInCompleted,
       driverName: driverName ?? this.driverName,
       assignedRegion: assignedRegion ?? this.assignedRegion,
@@ -152,10 +157,11 @@ class DashboardLoaded extends DashboardState {
 
 class DashboardError extends DashboardState {
   final String message;
+  final DateTime timestamp; // ختم زمني لإجبار الواجهة على الاستجابة
 
-  const DashboardError({required this.message});
+  // +++ شلنا كلمة const من هنا عشان الكومبايلر ما يزعل +++
+  DashboardError({required this.message}) : timestamp = DateTime.now();
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, timestamp];
 }
-

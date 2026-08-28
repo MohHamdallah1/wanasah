@@ -8,7 +8,9 @@ abstract class VisitListState extends Equatable {
   List<Object?> get props => [];
 }
 
-class VisitListLoading extends VisitListState {}
+class VisitListLoading extends VisitListState {
+  const VisitListLoading();
+}
 
 class VisitListLoaded extends VisitListState {
   final List<VisitModel> allVisits;
@@ -27,8 +29,10 @@ class VisitListLoaded extends VisitListState {
 
 class VisitListError extends VisitListState {
   final String message;
-  const VisitListError(this.message);
+  final DateTime timestamp; // +++ الكي الجراحي: ختم زمني لإجبار الواجهة على إظهار الأخطاء المتكررة +++
+
+  VisitListError(this.message) : timestamp = DateTime.now();
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, timestamp];
 }

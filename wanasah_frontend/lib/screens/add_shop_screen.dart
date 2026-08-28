@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:developer' as developer;
 import 'dart:async'; // لاستخدام TimeoutException
-import 'package:geolocator/geolocator.dart'; // لاستخدام geolocator
 import '../core/network/api_client.dart'; // +++ الملحق المعماري للاتصالات +++
 import 'package:dio/dio.dart'; // +++ لمعالجة أخطاء الشبكة بذكاء +++
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../services/location_service.dart'; // +++ الكي الجراحي: استيراد خدمة الموقع المركزية المحصنة +++
 
 class AddShopScreen extends StatefulWidget {
   const AddShopScreen({super.key});
@@ -64,6 +64,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
   }
 
   // --- دالة جلب الموقع الجغرافي (لا تغيير هنا) ---
+  // --- دالة جلب الموقع الجغرافي (النسخة المعمارية المحصنة) ---
   Future<void> _getCurrentLocation() async {
     if (_isGettingLocation) return;
     setState(() {
@@ -71,103 +72,49 @@ class _AddShopScreenState extends State<AddShopScreen> {
       _currentLatitude = null;
       _currentLongitude = null;
     });
-    developer.log('Starting location fetching process...');
+    
+    developer.log('Starting location fetching via LocationService...');
+    
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        developer.log('Location services are disabled.');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('الرجاء تفعيل خدمات الموقع (GPS) في جهازك.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        throw Exception('Location services are disabled.');
-      }
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        developer.log('Location permission denied, requesting permission...');
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          developer.log('Location permission denied after request.');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'تم رفض إذن الوصول للموقع. لا يمكن تحديد الموقع.',
-                ),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-          throw Exception('Location permission denied.');
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        developer.log('Location permission denied forever.');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'تم رفض إذن الوصول للموقع بشكل دائم. يرجى تفعيله من إعدادات التطبيق.',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        throw Exception('Location permission denied forever.');
-      }
-      developer.log(
-        'Location permissions granted, getting current position...',
-      );
-      Position currentPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      ).timeout(const Duration(seconds: 5));
+      // +++ الكي الجراحي: الاعتماد على الخدمة المركزية المحصنة ضد الـ Fake GPS وتزوير الوقت +++
+      final position = await LocationService.instance.getCurrentLocation();
+      
       if (mounted) {
         setState(() {
-          _currentLatitude = currentPosition.latitude;
-          _currentLongitude = currentPosition.longitude;
-          _locationFieldController.text =
-              'Lat: ${_currentLatitude?.toStringAsFixed(5)}, Lng: ${_currentLongitude?.toStringAsFixed(5)}';
+          _currentLatitude = position?.latitude;
+          _currentLongitude = position?.longitude;
+          _locationFieldController.text = 'Lat: ${_currentLatitude?.toStringAsFixed(5)}, Lng: ${_currentLongitude?.toStringAsFixed(5)}';
         });
-        developer.log(
-          'Location fetched: Lat: $_currentLatitude, Lng: $_currentLongitude',
-        );
-        // مسح حقل نص الموقع عند نجاح الالتقاط (اختياري - لتحسين التجربة)
-        // _locationFieldController.clear();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'تم تحديد الموقع بنجاح! (Lat: ${_currentLatitude?.toStringAsFixed(5)}, Lng: ${_currentLongitude?.toStringAsFixed(5)})',
-            ),
-            backgroundColor: Colors.green,
-          ),
+          const SnackBar(content: Text('تم تحديد الموقع بنجاح!'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
-      developer.log('Error getting location: $e');
+      developer.log('Error getting location in AddShop: $e');
       if (mounted) {
-        String errorMsg = 'حدث خطأ: ${e.toString()}';
-        if (e is TimeoutException) {
-          errorMsg =
-              'فشل الاتصال بالسيرفر (Timeout). الرجاء التحقق من الشبكة أو حالة السيرفر.';
-        } else if (e.toString().contains('Location services are disabled')) {
+        String errorMsg = 'حدث خطأ غير متوقع في تحديد الموقع.';
+        final errStr = e.toString();
+        
+        // ترجمة رموز الأخطاء القادمة من LocationService
+        if (errStr.contains('GPS_DISABLED')) {
           errorMsg = 'الرجاء تفعيل خدمات الموقع (GPS) في جهازك.';
-        } else if (e.toString().contains('Location permission denied')) {
+        } else if (errStr.contains('GPS_DENIED_FOREVER')) {
+          errorMsg = 'صلاحية الموقع مرفوضة نهائياً. يرجى تفعيلها من إعدادات التطبيق.';
+        } else if (errStr.contains('GPS_DENIED')) {
           errorMsg = 'تم رفض إذن الوصول للموقع.';
+        } else if (errStr.contains('GPS_TIMEOUT')) {
+          errorMsg = 'فشل الاتصال بالـ GPS (Timeout). حاول في مكان مفتوح.';
+        } else if (errStr.contains('FAKE_GPS_DETECTED')) {
+          errorMsg = 'تحذير أمني: يرجى إيقاف تطبيقات تزوير الموقع (Fake GPS).';
         }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
         );
       }
     } finally {
-      developer.log('Location fetching process finished.');
       if (mounted) {
-        setState(() {
-          _isGettingLocation = false;
-        });
+        setState(() => _isGettingLocation = false);
       }
     }
   }
@@ -179,56 +126,38 @@ class _AddShopScreenState extends State<AddShopScreen> {
       return;
     }
 
-    // +++ التحقق الإجباري من الموقع الجغرافي +++
-    if (_currentLatitude == null &&
-        _currentLongitude == null &&
-        _locationFieldController.text.trim().isEmpty) {
+    final String locationText = _locationFieldController.text.trim();
+    // 1. تقييم الشروط أولاً بناءً على نية المندوب الحقيقية (الموجود في الشاشة)
+    final bool isGpsValid = _currentLatitude != null && _currentLongitude != null && locationText.startsWith('Lat:');
+    final bool isLinkValid = !isGpsValid && locationText.isNotEmpty;
+
+    // +++ الكي الجراحي (SHP-2): التحقق الموحد لمنع ثغرة الـ Ghost GPS تماماً +++
+    if (!isGpsValid && !isLinkValid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('الرجاء تحديد الموقع عبر الـ GPS أو وضع رابط الموقع!'),
-          backgroundColor: Colors.red,
-        ),
+        const SnackBar(content: Text('الرجاء تحديد الموقع عبر الـ GPS أو وضع رابط صحيح للموقع!'), backgroundColor: Colors.red),
       );
       return;
     }
 
     if (_isSaving) return;
-    setState(() {
-      _isSaving = true;
-    });
+    setState(() => _isSaving = true);
 
     try {
-      // --- تجهيز جسم الطلب (Request Body) ---
       Map<String, dynamic> requestBody = {
         'name': _nameController.text.trim(),
         'contact_person': _contactPersonController.text.trim(),
       };
 
-      if (_governorateAreaController.text.trim().isNotEmpty) {
-        requestBody['address'] = _governorateAreaController.text.trim();
-      }
-      if (_phoneController.text.trim().isNotEmpty) {
-        requestBody['phone_number'] = _phoneController.text.trim();
-      }
-      if (_notesController.text.trim().isNotEmpty) {
-        requestBody['notes'] = _notesController.text.trim();
-      }
+      if (_governorateAreaController.text.trim().isNotEmpty) requestBody['address'] = _governorateAreaController.text.trim();
+      if (_phoneController.text.trim().isNotEmpty) requestBody['phone_number'] = _phoneController.text.trim();
+      if (_notesController.text.trim().isNotEmpty) requestBody['notes'] = _notesController.text.trim();
 
-      bool coordsCaptured = false;
-      if (_currentLatitude != null && _currentLongitude != null) {
+      // إرفاق الموقع بناءً على الشرط الذي نجح
+      if (isGpsValid) {
         requestBody['latitude'] = _currentLatitude;
         requestBody['longitude'] = _currentLongitude;
-        coordsCaptured = true;
-        developer.log(
-          'Adding coordinates to request body: Lat: $_currentLatitude, Lng: $_currentLongitude',
-        );
-      }
-
-      if (!coordsCaptured && _locationFieldController.text.trim().isNotEmpty) {
-        requestBody['location_link'] = _locationFieldController.text.trim();
-        developer.log(
-          'Adding manual location link: ${requestBody['location_link']}',
-        );
+      } else if (isLinkValid) {
+        requestBody['location_link'] = locationText;
       }
 
       developer.log('Request Body: $requestBody');
@@ -241,7 +170,8 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
       if (!mounted) return;
 
-      if (response.statusCode == 201) {
+      // +++ الكي الجراحي: حماية الشاشة من التجميد في حال تغير كود النجاح من الباك إند +++
+      if (response.statusCode == 201 || response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('تم حفظ المحل بنجاح!'),
@@ -312,17 +242,37 @@ class _AddShopScreenState extends State<AddShopScreen> {
       // SingleChildScrollView يمكن أن تكون const إذا كان الـ child والـ padding هما const
       // لكن الـ child (Form) ليس const بسبب المفتاح key
       body: IgnorePointer(
-        ignoring:
-            _isOnBreak, // +++ شل حركة إضافة المحل بالكامل وقت الاستراحة +++
+        ignoring: _isOnBreak, 
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0), // EdgeInsets.all ثابتة = const
+          padding: const EdgeInsets.all(16.0),
           child: Form(
-            key: _formKey, // وجود key يمنع Form من أن تكون const
-            // Column ليست const لأن أبناءها (TextFormField) ليسوا const
+            key: _formKey,
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.stretch, // هذه الخاصية لا تقبل const عادة
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // +++ SHP-1: لافتة تحذيرية واضحة للمندوب بدلاً من الشلل الصامت +++
+                if (_isOnBreak)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'أنت في وقت الاستراحة. لا يمكنك إضافة محلات جديدة الآن.',
+                            style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 // --- حقل اسم المحل (إجباري) ---
                 TextFormField(
                   controller: _nameController,
@@ -419,6 +369,10 @@ class _AddShopScreenState extends State<AddShopScreen> {
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return 'الرجاء إدخال رقم الهاتف';
+                    }
+                    // +++ درع Regex: التأكد من أن الإدخال رقم هاتف صالح (7 إلى 15 رقم) +++
+                    if (!RegExp(r'^\+?[0-9]{7,15}$').hasMatch(value.trim())) {
+                      return 'رقم الهاتف غير صالح';
                     }
                     return null;
                   },

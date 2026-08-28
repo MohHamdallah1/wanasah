@@ -97,14 +97,20 @@ async def warehouse_inbound(
                 continue # تجاهل المنتجات الوهمية
 
             wh_record = bulk_warehouse.get(p_id)
-            old_balance = wh_record.available_quantity_packs or 0 if wh_record else 0
-            if wh_record:
-                wh_record.available_quantity_packs += added_packs
-            else:
-                wh_record = MainWarehouse(product_variant_id=p_id, available_quantity_packs=added_packs, reserved_quantity_packs=0)
-                db.add(wh_record)
-                await db.flush() # +++ تحديث الذاكرة فوراً للحصول على الرصيد الجديد بأمان +++
-                bulk_warehouse[p_id] = wh_record # تحديث الـ Map الداخلي
+            # +++ الدرع الرقابي: إيقاف الإنشاء الصامت لمنتجات ليس لها حساب مخزني +++
+            if not wh_record:
+                await db.rollback()
+                variant_name = "غير معروف"
+                stmt_var = select(ProductVariant).filter_by(id=p_id)
+                var = (await db.execute(stmt_var)).scalar_one_or_none()
+                if var: variant_name = var.variant_name
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"خطأ حرج: المنتج [{variant_name}] ليس له حساب مخزني في المستودع الرئيسي. المرجع: ERROR-400-NO-WH-RECORD."
+                )
+                
+            old_balance = wh_record.available_quantity_packs or 0
+            wh_record.available_quantity_packs += added_packs
 
             # توثيق الحركة في الليدجر (الدفتر غير القابل للمسح)
             db.add(WarehouseLedger(
@@ -147,7 +153,8 @@ async def warehouse_stocktake(
         aggregated_items = {}
         for item in payload.items:
             if item.actual_packs < 0: continue
-            aggregated_items[item.product_variant_id] = aggregated_items.get(item.product_variant_id, 0) + item.actual_packs
+            # الجرد هو (لقطة) للرف وليس حركة تراكمية. نعتمد القراءة الأخيرة لحماية الدفاتر من التضخم.
+            aggregated_items[item.product_variant_id] = item.actual_packs
 
         var_ids = list(aggregated_items.keys())
         if not var_ids:
@@ -162,6 +169,21 @@ async def warehouse_stocktake(
         stmt_wh = select(MainWarehouse).with_for_update().filter(MainWarehouse.product_variant_id.in_(list(valid_var_ids))).order_by(MainWarehouse.product_variant_id.asc())
         bulk_warehouse = {w.product_variant_id: w for w in (await db.execute(stmt_wh)).scalars().all()}
 
+        # +++ الدرع المستودعي: الفحص المسبق للبضاعة المحجوزة قبل الجرد لمنع خلق أرصدة وهمية +++
+        blocked_items = []
+        for p_id in valid_var_ids:
+            wh_record = bulk_warehouse.get(p_id)
+            if wh_record and (wh_record.reserved_quantity_packs or 0) > 0:
+                blocked_items.append(variants_map[p_id].variant_name)
+                
+        if blocked_items:
+            await db.rollback()
+            blocked_str = "، ".join(blocked_items)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"مرفوض: لا يمكن جرد الأصناف التالية لوجود حوالات معلقة (بضاعة محجوزة) لها: [{blocked_str}]. الرجاء تصفية الحوالات المعلقة للمناديب أولاً."
+            )
+
         for p_id, actual_packs in aggregated_items.items():
             if p_id not in valid_var_ids:
                 continue 
@@ -169,31 +191,32 @@ async def warehouse_stocktake(
             variant = variants_map[p_id]
             wh_record = bulk_warehouse.get(p_id)
             
+            # +++ الدرع الرقابي: إيقاف الإنشاء الصامت لمنتجات ليس لها حساب مخزني لتوحيد المعيار مع Inbound +++
             if not wh_record:
-                wh_record = MainWarehouse(product_variant_id=p_id, available_quantity_packs=0, reserved_quantity_packs=0)
-                db.add(wh_record)
-                await db.flush() 
+                await db.rollback()
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"خطأ حرج: المنتج [{variant.variant_name}] ليس له حساب مخزني في المستودع الرئيسي. المرجع: ERROR-400-NO-WH-RECORD."
+                )
 
             # +++ 3. النسف المعماري للكارثة (العودة للواقع الميداني) +++
             # الجرد الملموس يُقارن بـ (المتاح) فقط. البضاعة المحجوزة موجودة في سيارات المناديب بالشارع وليست على الرف.
             expected_packs = wh_record.available_quantity_packs or 0 # +++ الكي الجراحي: سحق الـ NoneType +++
             difference = actual_packs - expected_packs
 
-            if difference != 0:
-                # تحديث المتاح الفعلي مباشرة (الواقع يفرض نفسه)
-                wh_record.available_quantity_packs = actual_packs
-                
-                db.add(WarehouseLedger(
-                    product_variant_id=p_id, 
-                    transaction_type='AUDIT_ADJUSTMENT',
-                    # +++ سحق لغم القيمة المطلقة (abs): إرسال العجز والزيادة بإشارتها الحقيقية (+/-) +++
-                    quantity_packs=difference, 
-                    balance_before_packs=expected_packs,  # <--- هذا السطر اللي رح يمنع الكراش
-                    balance_after_packs=actual_packs,
-                    admin_id=current_admin.id, 
-                    reference_id="STOCKTAKE_OP", 
-                    notes=f"الرصيد المتوقع بالرف: {expected_packs}، الفعلي المجرود: {actual_packs}. الفرق: {'+' if difference>0 else ''}{difference}. {payload.notes}"
-                ))
+            # +++ الكي الجراحي: تسجيل حركة الجرد دائماً (حتى لو الفرق 0) لإثبات أن المشرف قام بالجرد الفعلي (Audit Trail) +++
+            wh_record.available_quantity_packs = actual_packs
+            
+            db.add(WarehouseLedger(
+                product_variant_id=p_id, 
+                transaction_type='AUDIT_ADJUSTMENT',
+                quantity_packs=difference, 
+                balance_before_packs=expected_packs,
+                balance_after_packs=actual_packs,
+                admin_id=current_admin.id, 
+                reference_id="STOCKTAKE_OP", 
+                notes=f"الرصيد المتوقع بالرف: {expected_packs}، الفعلي المجرود: {actual_packs}. الفرق: {'+' if difference>0 else ''}{difference}. {payload.notes}"
+            ))
 
         # +++ 4. فتح المستودع تلقائياً بعد إنهاء الجرد بـ Upsert فولاذي لمنع الـ Race Condition (IntegrityError) +++
         insert_stmt = insert(SystemSetting).values(
@@ -443,33 +466,14 @@ async def get_warehouse_ledger(
             admin = log.admin
             ppc = int(variant.packs_per_carton) if variant and variant.packs_per_carton else 1
             
-            # +++ الدرع المحاسبي: حساب الرصيد السابق بناءً على نوع الحركة (لأن الإشارات تتغير حسب نوع السحب والإضافة) +++
-            # CS-WH-05 / warehouse.md Finding #7: Explicit whitelist instead of catch-all else
-            DECREASE_TYPES = {'DISPATCH_LOAD', 'HANDSHAKE_RESERVE'}
-            NEUTRAL_TYPES = {'HANDSHAKE_COMMIT'}
-            # +++ الكي الجراحي لـ Bug 3: إضافة حركات المصافحة الجديدة لقائمة الزيادة المحاسبية +++
-            INCREASE_TYPES = {
-                'INBOUND_SUPPLIER', 'INBOUND_CORRECTION', 'AUDIT_ADJUSTMENT',
-                'DISPATCH_UNLOAD', 'DISPATCH_UNLOAD_FALLBACK', 'VEHICLE_ROLLOVER',
-                'END_DAY_CLEARANCE', 'HANDSHAKE_RELEASE', 'HANDSHAKE_COMMIT_PULL'
-            }
-            if log.transaction_type in DECREASE_TYPES:
-                bal_before = log.balance_after_packs + log.quantity_packs
-            elif log.transaction_type in NEUTRAL_TYPES:
-                bal_before = log.balance_after_packs
-            elif log.transaction_type in INCREASE_TYPES:
-                bal_before = log.balance_after_packs - log.quantity_packs
-            else:
-                bal_before = None
-                logger.warning(f"Unknown ledger transaction_type '{log.transaction_type}' (entry id={log.id}) — balance_before could not be safely reconstructed.")
-
             result.append({
                 "id": log.id,
                 "product_name": variant.variant_name if variant else "غير معروف",
                 "packs_per_carton": ppc,
                 "type": log.transaction_type,
                 "quantity_packs": log.quantity_packs,
-                "balance_before": bal_before,
+                # +++ الكي الجراحي: استخدام الرصيد الموثق في الداتابيز مباشرة بدل إعادة حسابه ديناميكياً لتجنب تزوير الدفاتر +++
+                "balance_before": log.balance_before_packs,
                 "balance_after": log.balance_after_packs,
                 "admin_name": admin.full_name if admin else "غير معروف",
                 "reference": log.reference_id,
@@ -564,7 +568,8 @@ async def add_product_variant(
             price_per_carton=payload.price_per_carton,
             packs_per_carton=payload.packs_per_carton,
             price_per_pack=payload.price_per_pack,
-            default_max_samples_per_day=payload.default_max_samples_per_day,
+            # +++ الدرع الفولاذي: سحق الـ None المتسرب من Pydantic v2 لحقل العينات +++
+            default_max_samples_per_day=payload.default_max_samples_per_day or 0,
             is_active=True
         )
         db.add(new_variant)
@@ -576,7 +581,8 @@ async def add_product_variant(
             product_variant_id=new_variant.id,
             available_quantity_packs=0,
             reserved_quantity_packs=0,
-            min_threshold_packs=payload.min_threshold_packs
+            # +++ الدرع الفولاذي: سحق الـ None المتسرب من Pydantic v2 لمنع 500 Crash +++
+            min_threshold_packs=payload.min_threshold_packs or 0
         )
         db.add(new_wh_record)
 

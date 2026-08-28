@@ -22,11 +22,14 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController(
     text: kDebugMode ? 'password' : '',
   );
+  
+  bool _obscurePassword = true; // +++ الكي الجراحي: متغير التحكم برؤية كلمة المرور +++
 
   // --- دالة تسجيل الدخول (شاشة غبية ترسل الأوامر فقط) ---
   void _login() {
     final username = _usernameController.text.trim();
-    final password = _passwordController.text.trim();
+    // +++ الكي الجراحي: إياك ولمس كلمة المرور، تُرسل كما هي (بدون trim) +++
+    final password = _passwordController.text; 
 
     if (username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -120,18 +123,24 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16.0),
                       TextField(
                         controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        enableSuggestions: false, // +++ منع الاقتراحات الأمنية +++
+                        autocorrect: false, // +++ منع التصحيح التلقائي +++
+                        textInputAction: TextInputAction.done, // +++ زر Enter في الكيبورد +++
+                        onSubmitted: (_) => _login(), // +++ تسجيل الدخول فوراً عند ضغط Enter +++
                         decoration: InputDecoration(
                           labelText: 'كلمة المرور',
-                          prefixIcon: const Icon(
-                            Icons.lock_outline,
-                          ), // تغيير الأيقونة
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12.0),
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
+                            onPressed: () {
+                              setState(() => _obscurePassword = !_obscurePassword);
+                            },
                           ),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
                           filled: true,
                           fillColor: Colors.grey[100],
                         ),
-                        obscureText: true, // لإخفاء كلمة المرور
                       ),
                       const SizedBox(height: 32.0),
                       // استخدام SizedBox لتحديد ارتفاع الزر بشكل أفضل

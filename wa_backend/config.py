@@ -28,10 +28,20 @@ class Config:
     if not SQLALCHEMY_DATABASE_URI:
         raise ValueError("خطأ أمني قاتل: لم يتم العثور على DATABASE_URL في بيئة التشغيل! السيرفر يرفض الإقلاع حمايةً للبيانات.")
     
-    # +++ إعدادات تجمع الاتصالات (Connection Pool) لمنع الشلل التام (Deadlock) عند استخدام أقفال المخزون +++
+    # +++ إعدادات تجمع الاتصالات (Connection Pool) للعمل مع 4 Workers محلياً +++
     SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_size": 50,           # رفعناها لـ 50 لاستيعاب جيش المناديب الصباحي
-        "max_overflow": 20,        # فائض إضافي لحالات الضغط القصوى
+        "pool_size": 15,           # 15 * 4 = 60 اتصال أساسي
+        "max_overflow": 5,         # 5 * 4 = 20 اتصال فائض للضغط (الإجمالي 80 < 100)
         "pool_timeout": 30,        
         "pool_recycle": 1800,      
     }
+    #في بيئة الانتاج ارفعهم الى 
+    # +++ إعدادات تجمع الاتصالات (Connection Pool) لمنع الشلل التام (Deadlock) عند استخدام أقفال المخزون +++
+        #SQLALCHEMY_ENGINE_OPTIONS = {
+        #    "pool_size": 40,           # قاعدة دائمة (يجب أن تبقى أقل من max_connections في PostgreSQL)
+        #    "max_overflow": 30,        # فائض للضغط: الإجمالي الأقصى 70 اتصال < 100 (حد PostgreSQL الافتراضي)
+        #   "pool_timeout": 30,        
+        #    # +++ درع الاستضافة السحابية: لا تحذفه أبداً — يقتل الاتصالات الخاملة قبل أن تقتلها المنصة +++
+            # (Supabase/Heroku/RDS تقفل الاتصال الخامل بعد دقائق؛ بدونه ينهار أول طلب بعد فترة سكون)
+        #   "pool_recycle": 1800,      
+        #}
