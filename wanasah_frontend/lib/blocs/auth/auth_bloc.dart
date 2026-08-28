@@ -58,7 +58,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
     } catch (e) {
       developer.log('[AuthBloc] CheckAuth → Error reading storage: $e');
-      // +++ الكي الجراحي: إخفاء تفاصيل الكراش عن المندوب برسالة واضحة +++
+      // +++   إخفاء تفاصيل الكراش عن المندوب برسالة واضحة +++
       emit(AuthError(message: 'تعذر قراءة بيانات الجلسة السابقة. يرجى تسجيل الدخول مجدداً.'));
     }
   }
@@ -82,7 +82,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
       
-      // +++ النسف المعماري الحقيقي (Elite Cast): إجبار الـ Dart على تحويل أي قاموس مجهول إلى قاموس صريح لمنع كراش الـ TypeError +++
+      // +++  الحقيقي (Elite Cast): إجبار الـ Dart على تحويل أي قاموس مجهول إلى قاموس صريح لمنع كراش الـ TypeError +++
       final Map<String, dynamic> data = Map<String, dynamic>.from(response.data as Map);
       
       // حماية تحويل الأرقام (الـ JSON قد يرسل الرقم كـ double)
@@ -111,7 +111,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         developer.log('[AuthBloc] Login → Different driver ($oldDriverId → $driverId). Wiping legacy data.');
         await LocalDatabase.instance.clearSessionData(clearPendingSyncs: true);
         
-        // +++ الكي الجراحي: تنظيف كاش الـ SecureStorage لمنع تسريب عهدة وأرقام المندوب السابق (State Bleed) +++
+        // +++   تنظيف كاش الـ SecureStorage لمنع تسريب عهدة وأرقام المندوب السابق (State Bleed) +++
         final allKeys = await _storage.readAll();
         for (final k in allKeys.keys) {
           if (k.startsWith('cached_') || k == 'is_on_break' || k == 'is_authorized') {
@@ -164,7 +164,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       final oldRefresh = await _storage.read(key: 'refresh_token');
       if (oldRefresh != null && oldRefresh.isNotEmpty) {
-        // +++ الكي الجراحي: استخدام ApiClient لمنع ازدواجية الـ Dio +++
+        // +++   استخدام ApiClient لمنع ازدواجية الـ Dio +++
         ApiClient.instance.post('/logout', options: Options(headers: {'X-Refresh-Token': oldRefresh})).ignore();
       }
     } catch (_) {}
@@ -174,7 +174,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     await _storage.delete(key: 'refresh_token');
     await _storage.delete(key: 'driver_id');
     
-    // +++ الكي الجراحي: مسح كل آثار جلسة الداشبورد لتجنب الجلسات الوهمية (Ghost Sessions) عند الدخول مجدداً +++
+    // +++   مسح كل آثار جلسة الداشبورد لتجنب الجلسات الوهمية (Ghost Sessions) عند الدخول مجدداً +++
     final allKeys = await _storage.readAll();
     for (final k in allKeys.keys) {
       if (k.startsWith('cached_') || k == 'is_on_break' || k == 'is_authorized') {

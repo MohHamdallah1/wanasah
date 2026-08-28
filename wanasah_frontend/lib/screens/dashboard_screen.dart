@@ -204,7 +204,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 if (itemId == 0) return const SizedBox.shrink();
                                 final currentResponse = itemResponses[itemId];
 
-                                // +++ النسف المعماري (بسيط 2): ضبط الأبعاد وإغلاق الأقواس بشكل سليم 100% +++
+                                // +++  (بسيط 2): ضبط الأبعاد وإغلاق الأقواس بشكل سليم 100% +++
                                 return ConstrainedBox(
                                   constraints: const BoxConstraints(
                                     maxWidth: 150,
@@ -337,7 +337,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       },
     ).then((_) {
-      // +++ الكي الجراحي: تحرير القفل عند إغلاق النافذة بأي طريقة (زر أو غيره) لضمان ظهور النوافذ القادمة +++
+      // +++   تحرير القفل عند إغلاق النافذة بأي طريقة (زر أو غيره) لضمان ظهور النوافذ القادمة +++
       if (mounted) {
         _isShowingDialog = false;
       }
@@ -347,7 +347,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // +++ النسف المعماري لظاهرة الأشباح: لون صلب يمنع الشفافية +++
+      // +++  لظاهرة الأشباح: لون صلب يمنع الشفافية +++
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         backgroundColor: Colors.grey.shade50,
@@ -380,7 +380,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         listeners: [
           BlocListener<DashboardBloc, DashboardState>(
             listener: (context, state) {
-              // +++ الكي الجراحي (البند 6): تحرير القفل فقط عند صدور نتيجة حقيقية للعملية لمنع السباق +++
+              // +++  (البند 6): تحرير القفل فقط عند صدور نتيجة حقيقية للعملية لمنع السباق +++
               if (state is DashboardError || (state is DashboardLoaded && state.actionSuccessMessage != null)) {
                 if (_isActionInProgress && mounted) {
                   setState(() => _isActionInProgress = false);
@@ -395,7 +395,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 );
               } else if (state is DashboardLoaded) {
-                // +++ الكي الجراحي: اصطياد رسائل النجاح المدمجة بالـ State بدون تدمير الشجرة +++
+                // +++   اصطياد رسائل النجاح المدمجة بالـ State بدون تدمير الشجرة +++
                 if (state.actionSuccessMessage != null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -509,9 +509,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                      onPressed: () {
-                        context.read<DashboardBloc>().add(const ClearQuarantineEvent());
-                        Navigator.pop(ctx);
+                      onPressed: () async {
+                        // +++   إضافة جدار تأكيد أخير قبل إبادة السجلات المالية +++
+                        final bool? confirmed = await _showConfirmationDialog(
+                          context,
+                          'تأكيد المسح النهائي',
+                          'هل أنت متأكد من تسوية هذه الفواتير مع الإدارة؟ سيتم مسح الدليل من جهازك نهائياً ولا يمكن التراجع.',
+                        );
+                        
+                        if (confirmed == true && context.mounted) {
+                          context.read<DashboardBloc>().add(const ClearQuarantineEvent());
+                          Navigator.pop(ctx);
+                        }
                       },
                       child: const Text('تمت التسوية مع المسؤول (مسح السجلات)', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
@@ -531,7 +540,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (state.isActiveSession && state.activeSessionStartTime != null) {
       try {
         final startTime = DateTime.parse(state.activeSessionStartTime!).toLocal();
-        // +++ الكي الجراحي: استخدام الصيغة القياسية الآمنة لمنع كراش الـ Locale +++
+        // +++   استخدام الصيغة القياسية الآمنة لمنع كراش الـ Locale +++
         startTimeFormatted = DateFormat('hh:mm a').format(startTime);
       } catch (_) {
         startTimeFormatted = "غير معروف";
@@ -542,7 +551,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // +++ الكيّ الجراحي: إشعار المزامنة مع مؤشر التحميل وانتظار البلوك +++
       onRefresh: () async {
         // +++ الكيّ الجراحي: فحص الخزنة أولاً. لا نظهر الإشعار إلا إذا كان هناك فواتير معلقة +++
-        // +++ الكي الجراحي (البند 2): فلترة الجثث (quarantined) حتى لا نخدع المندوب +++
+        // +++  (البند 2): فلترة الجثث (quarantined) حتى لا نخدع المندوب +++
         final allSyncs = await LocalDatabase.instance.getPendingSyncs();
         final pendingSyncs = allSyncs.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).toList();
 
@@ -590,7 +599,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           developer.log('[Dashboard] Refresh timeout reached.');
         } catch (e) {
           developer.log('[Dashboard] Refresh error: $e');
-          // +++ الكي الجراحي: إغلاق لافتة التحميل حصراً بدون المساس بلافتات الأخطاء القادمة من الـ BLoC +++
+          // +++   إغلاق لافتة التحميل حصراً بدون المساس بلافتات الأخطاء القادمة من الـ BLoC +++
           loadingSnackBar?.close();
           await subscription?.cancel();
           return; 
@@ -602,11 +611,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         loadingSnackBar?.close();
 
         if (mounted && hasPendingData) {
-          // +++ الكي الجراحي 2: التأكد من تفريغ الخزنة فعلياً قبل إعلان النجاح للمندوب +++
+          // +++  2: التأكد من تفريغ الخزنة فعلياً قبل إعلان النجاح للمندوب +++
           final allRemaining = await LocalDatabase.instance.getPendingSyncs();
           final remainingSyncs = allRemaining.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).toList();
           
-          // +++ الكي الجراحي: درع الـ Context عبر الفجوة الزمنية (Async Gap) لمنع التحذيرات والكراش +++
+          // +++   درع الـ Context عبر الفجوة الزمنية (Async Gap) لمنع التحذيرات والكراش +++
           if (!mounted) return;
           
           if (isTimeout) {
@@ -639,8 +648,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // +++ الكي الجراحي: لافتة الحجر الصحي الحمراء (تظهر فقط إذا كان هناك فواتير مرفوضة) +++
-          // +++ الكي الجراحي: لافتة الحجر الصحي التفاعلية +++
+          // +++   لافتة الحجر الصحي الحمراء (تظهر فقط إذا كان هناك فواتير مرفوضة) +++
+          // +++   لافتة الحجر الصحي التفاعلية +++
           if (state.quarantinedVisits > 0)
             InkWell(
               onTap: () => _showQuarantineBottomSheet(context),
@@ -746,7 +755,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   state.isActiveSession ? 'هل تريد إنهاء جلسة العمل الحالية؟' : 'هل تريد بدء جلسة عمل جديدة؟',
                 );
                 
-                // +++ الكي الجراحي لـ Bug 1: حماية הـ setState من الـ Unmounted Crash +++
+                // +++  لـ Bug 1: حماية הـ setState من الـ Unmounted Crash +++
                 if (!mounted) return;
 
                 if (confirmed == true) {

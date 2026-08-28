@@ -37,7 +37,7 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops, onSuc
     const [hasDraft, setHasDraft] = useState(false);
     const [conflictRow, setConflictRow] = useState<any>(null);
 
-    // +++ الكي الجراحي: استخدام useEffect بدلاً من useMemo لمنع كراش (Should have a queue) +++
+    // +++   استخدام useEffect بدلاً من useMemo لمنع كراش (Should have a queue) +++
     // فحص وجود مسودة عند فتح النافذة
     useEffect(() => {
         if (isOpen) setHasDraft(!!localStorage.getItem("shop_import_draft"));

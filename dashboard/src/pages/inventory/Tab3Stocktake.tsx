@@ -104,7 +104,7 @@ export function Tab3Stocktake({ products, isAuditLocked, authenticatedFetch, onL
           updated.actual_cartons += Math.floor(updated.actual_loose_packs / ppc);
           updated.actual_loose_packs = updated.actual_loose_packs % ppc;
         }
-        // 2. +++ النسف المعماري (متوسط 1): الاستدانة من الكراتين (فك كرتونة) إذا نقصت الحبات عن صفر +++
+        // 2. +++  (متوسط 1): الاستدانة من الكراتين (فك كرتونة) إذا نقصت الحبات عن صفر +++
         else if (updated.actual_loose_packs < 0) {
           if (updated.actual_cartons > 0) {
             updated.actual_cartons -= 1;
@@ -221,7 +221,7 @@ export function Tab3Stocktake({ products, isAuditLocked, authenticatedFetch, onL
                           <span className="text-xs font-bold text-slate-500">ك</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {/* +++ النسف المعماري (متوسط 1): السماح للزر بالنزول لـ -1 لتشغيل منطق فك الكرتونة +++ */}
+                          {/* +++  (متوسط 1): السماح للزر بالنزول لـ -1 لتشغيل منطق فك الكرتونة +++ */}
                           <QuantityInput
                             value={r.actual_loose_packs}
                             onChange={(v) => updateRow(r.product_variant_id, "actual_loose_packs", v)}

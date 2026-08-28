@@ -71,7 +71,7 @@ if all_involved_pids:
     stmt_vars = select(ProductVariant).filter(ProductVariant.id.in_(all_involved_pids))
     bulk_variants = {v.id: v for v in (await db.execute(stmt_vars)).scalars().all()}
 
-    # +++ النسف المعماري للـ Deadlock المتصالب: تفريغ/قفل السيارة دائماً قبل قفل المستودع +++
+    # +++  للـ Deadlock المتصالب: تفريغ/قفل السيارة دائماً قبل قفل المستودع +++
     if route and route.vehicle_id:
         await db.execute(delete(VehicleLoad).where(VehicleLoad.vehicle_id == route.vehicle_id))
 

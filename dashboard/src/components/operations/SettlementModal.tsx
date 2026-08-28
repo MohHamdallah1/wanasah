@@ -27,7 +27,7 @@ export function SettlementModal({ isOpen, onClose, driver, onConfirmSettlement }
   const [settlementNotes, setSettlementNotes] = useState<string>("");
   const isInitialized = useRef(false);
 
-  // +++ النسف المعماري لقنبلة الـ Reset: التهيئة تتم مرة واحدة فقط عند فتح المودال +++
+  // +++  لقنبلة الـ Reset: التهيئة تتم مرة واحدة فقط عند فتح المودال +++
   useEffect(() => {
     if (isOpen && driver && !isInitialized.current) {
       setActualCash(String(driver.settlement.financials.expected_cash_in_hand));
@@ -69,7 +69,7 @@ export function SettlementModal({ isOpen, onClose, driver, onConfirmSettlement }
             updated.actual_cartons += Math.floor(updated.actual_loose_packs / updated.packs_per_carton);
             updated.actual_loose_packs = updated.actual_loose_packs % updated.packs_per_carton;
           }
-          // 2. +++ النسف المعماري (متوسط 1): الاستدانة من الكراتين (فك كرتونة) إذا نقصت الحبات عن صفر +++
+          // 2. +++  (متوسط 1): الاستدانة من الكراتين (فك كرتونة) إذا نقصت الحبات عن صفر +++
           else if (updated.actual_loose_packs < 0) {
             if (updated.actual_cartons > 0) {
               updated.actual_cartons -= 1;
@@ -277,7 +277,7 @@ export function SettlementModal({ isOpen, onClose, driver, onConfirmSettlement }
                           <span className="text-xs font-bold text-slate-500">ك</span>
                         </div>
                         <div className="flex items-center gap-1">
-                          {/* +++ النسف المعماري (متوسط 1): السماح بالنزول لـ -1 لتفعيل الاستدانة من الكراتين +++ */}
+                          {/* +++  (متوسط 1): السماح بالنزول لـ -1 لتفعيل الاستدانة من الكراتين +++ */}
                           <QuantityInput
                             value={item.actual_loose_packs}
                             onChange={(v) => handleJardChange(item.product_id, "actual_loose_packs", v)}

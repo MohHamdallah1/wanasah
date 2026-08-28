@@ -51,11 +51,18 @@ async def warehouse_inbound(
     if not payload.items:
         raise HTTPException(status_code=400, detail="يجب إرسال أصناف للاستلام.")
 
+    # +++   توليد رقم مرجعي فريد تلقائياً إذا تركه المحاسب فارغاً لمنع فساد الدفاتر عند التعديل اللاحق +++
     reference_id = payload.reference_id
+    if not reference_id or not reference_id.strip() or reference_id == "بدون فاتورة":
+        import time
+        reference_id = f"AUTO-INB-{int(time.time())}"
+    else:
+        reference_id = reference_id.strip()
+
     notes = payload.notes
 
-    # +++ الدرع المالي: منع تكرار أرقام فواتير الموردين لمنع دبلجة البضاعة (مطابق للفلاسك 100%) +++
-    if reference_id and reference_id.strip() and reference_id != "بدون فاتورة":
+    # +++ الدرع المالي: منع تكرار أرقام فواتير الموردين لمنع دبلجة البضاعة +++
+    if not reference_id.startswith("AUTO-INB-"):
         # CS-WH-01: Advisory lock to close TOCTOU window on same invoice number
         normalized_ref = reference_id.strip().lower()
         await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(normalized_ref))))
@@ -84,7 +91,7 @@ async def warehouse_inbound(
         stmt_variants = select(ProductVariant.id).filter(ProductVariant.id.in_(var_ids))
         valid_var_ids = set((await db.execute(stmt_variants)).scalars().all())
 
-        # +++ الكي الجراحي لـ Bug 2: نسف النجاح الوهمي إذا كانت كل الأصناف غير موجودة +++
+        # +++  لـ Bug 2: نسف النجاح الوهمي إذا كانت كل الأصناف غير موجودة +++
         if not valid_var_ids:
             raise HTTPException(status_code=400, detail="مرفوض: جميع المنتجات المرسلة في الفاتورة غير صالحة أو غير موجودة في النظام.")
 
@@ -199,12 +206,12 @@ async def warehouse_stocktake(
                     detail=f"خطأ حرج: المنتج [{variant.variant_name}] ليس له حساب مخزني في المستودع الرئيسي. المرجع: ERROR-400-NO-WH-RECORD."
                 )
 
-            # +++ 3. النسف المعماري للكارثة (العودة للواقع الميداني) +++
+            # +++ 3.  للكارثة (العودة للواقع الميداني) +++
             # الجرد الملموس يُقارن بـ (المتاح) فقط. البضاعة المحجوزة موجودة في سيارات المناديب بالشارع وليست على الرف.
-            expected_packs = wh_record.available_quantity_packs or 0 # +++ الكي الجراحي: سحق الـ NoneType +++
+            expected_packs = wh_record.available_quantity_packs or 0 # +++   سحق الـ NoneType +++
             difference = actual_packs - expected_packs
 
-            # +++ الكي الجراحي: تسجيل حركة الجرد دائماً (حتى لو الفرق 0) لإثبات أن المشرف قام بالجرد الفعلي (Audit Trail) +++
+            # +++   تسجيل حركة الجرد دائماً (حتى لو الفرق 0) لإثبات أن المشرف قام بالجرد الفعلي (Audit Trail) +++
             wh_record.available_quantity_packs = actual_packs
             
             db.add(WarehouseLedger(
@@ -283,7 +290,7 @@ async def get_warehouse_alerts(
 ):
     
 
-    # +++ النسف المعماري (تحديث اللوجستيات): الإنذار يُبنى على (المتاح للبيع) فقط! +++
+    # +++  (تحديث اللوجستيات): الإنذار يُبنى على (المتاح للبيع) فقط! +++
     # البضاعة المحجوزة (Reserved) تعتبر بحكم المُباعة ولا يعتمد عليها لتلبية طلبات الغد.
     stmt = select(MainWarehouse, ProductVariant).join(
         ProductVariant, MainWarehouse.product_variant_id == ProductVariant.id
@@ -327,7 +334,7 @@ async def get_warehouse_inventory(
 
         # +++ 2. Subquery لحمولات السيارات النائمة حصراً (نسف ثغرة الدبلجة وأشباح السيارات) +++
         # جلب أرقام السيارات النشطة حالياً في الشارع لاستبعادها
-        # +++ النسف المعماري لكارثة الأصول الوهمية: إضافة 'postponed' لأن السيارة تظل محملة وخارج المستودع +++
+        # +++  لكارثة الأصول الوهمية: إضافة 'postponed' لأن السيارة تظل محملة وخارج المستودع +++
         active_vehicles_subq = select(DispatchRoute.vehicle_id).filter(
             DispatchRoute.status.in_(['active', 'waiting', 'postponed']),
             DispatchRoute.vehicle_id.isnot(None)
@@ -380,7 +387,7 @@ async def get_warehouse_inventory(
                  vehicle_load_subq.c.total_vehicle_cartons > 0,
                  session_inv_subq.c.total_session_packs > 0,
                  damaged_subq.c.total_damaged > 0,
-                 pending_pulls_subq.c.total_pulls < 0 # +++ الكي الجراحي: إظهار السحوبات المعلقة للأصناف الموقوفة +++
+                 pending_pulls_subq.c.total_pulls < 0 # +++   إظهار السحوبات المعلقة للأصناف الموقوفة +++
              )
          )
 
@@ -447,11 +454,11 @@ async def get_warehouse_ledger(
     
     
     try:
-        # +++ الكي الجراحي (C-03): منع القيم السالبة في أرقام الصفحات +++
+        # +++  (C-03): منع القيم السالبة في أرقام الصفحات +++
         if skip < 0 or limit < 0:
             raise HTTPException(status_code=400, detail="مرفوض: لا يمكن إدخال قيم سالبة في أرقام الصفحات.")
 
-        # +++ النسف المعماري لـ N+1 مع Pagination حقيقي يحمي الذاكرة ولا يعمي المحاسب +++
+        # +++  لـ N+1 مع Pagination حقيقي يحمي الذاكرة ولا يعمي المحاسب +++
         safe_limit = max(1, min(limit, 1000)) # +++ الدرع الفولاذي: حماية الـ RAM من الانفجار بحد أقصى إجباري +++
         stmt = select(WarehouseLedger).options(
             joinedload(WarehouseLedger.product_variant), 
@@ -472,7 +479,7 @@ async def get_warehouse_ledger(
                 "packs_per_carton": ppc,
                 "type": log.transaction_type,
                 "quantity_packs": log.quantity_packs,
-                # +++ الكي الجراحي: استخدام الرصيد الموثق في الداتابيز مباشرة بدل إعادة حسابه ديناميكياً لتجنب تزوير الدفاتر +++
+                # +++   استخدام الرصيد الموثق في الداتابيز مباشرة بدل إعادة حسابه ديناميكياً لتجنب تزوير الدفاتر +++
                 "balance_before": log.balance_before_packs,
                 "balance_after": log.balance_after_packs,
                 "admin_name": admin.full_name if admin else "غير معروف",
@@ -623,7 +630,7 @@ async def adjust_warehouse_entry(
     hash_bytes = current_admin.password_hash.encode('utf-8')
     password_ok = await asyncio.to_thread(bcrypt.checkpw, pwd_bytes, hash_bytes)
     if not password_ok:
-        # +++ الكي الجراحي (C-04): منع انهيار السيرفر إذا فشل تسجيل الاختراق +++
+        # +++  (C-04): منع انهيار السيرفر إذا فشل تسجيل الاختراق +++
         try:
             audit = SystemAuditLog(
                 admin_id=current_admin.id, target_id=f"Ledger_{entry_id}",
@@ -638,7 +645,7 @@ async def adjust_warehouse_entry(
         raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة. تم رفض العملية وتوثيق المحاولة.")
 
     try:
-        # +++ الكي الجراحي (C-02): منع إدخال إجمالي سالب لتجنب تخريب الدفاتر +++
+        # +++  (C-02): منع إدخال إجمالي سالب لتجنب تخريب الدفاتر +++
         if int(payload.new_total_packs) < 0:
             raise HTTPException(status_code=400, detail="مرفوض: لا يمكن أن يكون الإجمالي الجديد قيمة سالبة.")
 
@@ -659,22 +666,24 @@ async def adjust_warehouse_entry(
 
         # 3. حساب الفرق بناءً على (الصافي الحالي للفاتورة) مع حماية المرجع الفارغ
         ref_id = original_entry.reference_id
-        if ref_id and ref_id.strip() and ref_id != "بدون فاتورة":
-            stmt_sum = select(func.sum(WarehouseLedger.quantity_packs)).filter(
-                WarehouseLedger.reference_id == ref_id,
-                WarehouseLedger.product_variant_id == original_entry.product_variant_id,
-                WarehouseLedger.transaction_type.in_(['INBOUND_SUPPLIER', 'INBOUND_CORRECTION'])
-            )
-            current_invoice_total_packs = (await db.execute(stmt_sum)).scalar() or 0
-        else:
-            current_invoice_total_packs = original_entry.quantity_packs
+        if not ref_id or not ref_id.strip() or ref_id == "بدون فاتورة":
+            # +++   منع تعديل الفواتير القديمة المجهولة لحماية الدفتر من الانهيار الرياضي +++
+            await db.rollback()
+            raise HTTPException(status_code=400, detail="مرفوض: لا يمكن تعديل فواتير قديمة لا تحمل رقماً مرجعياً. يرجى استخدام (تسوية جرد المستودع) لضبط الرصيد.")
+
+        stmt_sum = select(func.sum(WarehouseLedger.quantity_packs)).filter(
+            WarehouseLedger.reference_id == ref_id,
+            WarehouseLedger.product_variant_id == original_entry.product_variant_id,
+            WarehouseLedger.transaction_type.in_(['INBOUND_SUPPLIER', 'INBOUND_CORRECTION'])
+        )
+        current_invoice_total_packs = (await db.execute(stmt_sum)).scalar() or 0
 
         delta = int(payload.new_total_packs) - int(current_invoice_total_packs)
 
         if delta == 0:
             return {"message": "لا يوجد تغيير في الكمية. الصافي الحالي مطابق لما أدخلته."}
 
-        # 4. جلب المنتج (الكي الجراحي C-01: إزالة القفل غير المبرر لمنع الـ Deadlock)
+        # 4. جلب المنتج ( C-01: إزالة القفل غير المبرر لمنع الـ Deadlock)
         stmt_variant = select(ProductVariant).filter_by(id=original_entry.product_variant_id)
         variant = (await db.execute(stmt_variant)).scalar_one_or_none()
         if not variant:
@@ -682,7 +691,7 @@ async def adjust_warehouse_entry(
             raise HTTPException(status_code=404, detail="المنتج غير موجود.")
 
         # 5. تحديث الرصيد الحالي للمستودع (منع الرصيد السالب)
-        old_balance = wh_record.available_quantity_packs or 0  # +++ الكي الجراحي: استخراج الرصيد الآمن أولاً +++
+        old_balance = wh_record.available_quantity_packs or 0  # +++   استخراج الرصيد الآمن أولاً +++
         
         if old_balance + delta < 0:
             await db.rollback()

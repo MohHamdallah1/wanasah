@@ -8,12 +8,12 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
-  // +++ الكي الجراحي (E-10): استخدام useRef لمنع البحث في شجرة الـ DOM مع كل حركة ماوس +++
+  // +++  (E-10): استخدام useRef لمنع البحث في شجرة الـ DOM مع كل حركة ماوس +++
   const spotlightRef = useRef<HTMLDivElement>(null);
 
   // تشغيل الساعة الرقمية
   useEffect(() => {
-    // +++ الكي الجراحي (E-09): إزالة الثواني وتحديث الشاشة كل 10 ثوانٍ فقط لمنع الـ Re-render المفرط +++
+    // +++  (E-09): إزالة الثواني وتحديث الشاشة كل 10 ثوانٍ فقط لمنع الـ Re-render المفرط +++
     const updateTime = () => setCurrentTime(new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }));
     updateTime();
     const timer = setInterval(updateTime, 10000);

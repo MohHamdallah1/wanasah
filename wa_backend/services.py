@@ -17,7 +17,7 @@ async def get_setting(db_session: AsyncSession, key: str, default_value: Any, va
     except Exception: # +++ الدرع الفولاذي: التقاط جميع الانفجارات التحويلية +++
         return default_value
 
-def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event Loop: تحويلها لدالة رياضية صريحة +++
+def calculate_invoice( # +++  لتلوث الـ Event Loop: تحويلها لدالة رياضية صريحة +++
     cartons_qty: int, 
     packs_qty: int, 
     price_per_carton: Decimal, 
@@ -33,7 +33,7 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
     try:
         c_qty = int(cartons_qty)
         p_qty = int(packs_qty)
-        # +++ الكي الجراحي: استخدام 'or' لمنع تمرير أي قيم سالبة منفردة +++
+        # +++   استخدام 'or' لمنع تمرير أي قيم سالبة منفردة +++
         if c_qty < 0 or p_qty < 0 or (c_qty == 0 and p_qty == 0): 
             return _ZERO_RESULT
     except (ValueError, TypeError):
@@ -42,7 +42,7 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
     c_price = Decimal(str(price_per_carton or '0.0'))
     p_price = Decimal(str(price_per_pack or '0.0'))
     
-    # +++ النسف المعماري لقنبلة הـ N+1 (Pure Function Enforcement) +++
+    # +++  لقنبلة הـ N+1 (Pure Function Enforcement) +++
     if pre_fetched_tax is None:
         raise ValueError("هندسة مرفوضة: يجب جلب الضريبة مسبقاً وتمريرها للدالة الرياضية لمنع استنزاف قاعدة البيانات.")
     tax_pct = Decimal(str(pre_fetched_tax))
@@ -62,7 +62,7 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
     if active_offers is None:
         raise ValueError("هندسة مرفوضة: يجب جلب العروض النشطة مسبقاً وتمريرها كقائمة لمنع استنزاف قاعدة البيانات (N+1).")
         
-    # +++ الكي الجراحي: فلترة العروض المرتبطة بهذا المنتج فقط (أو العروض العامة)، والتأكد من نشاطها +++
+    # +++   فلترة العروض المرتبطة بهذا المنتج فقط (أو العروض العامة)، والتأكد من نشاطها +++
     valid_offers = [
         o for o in active_offers 
         if (o.product_variant_id is None or o.product_variant_id == variant_id) 
@@ -79,7 +79,7 @@ def calculate_invoice( # +++ النسف المعماري لتلوث الـ Event
         elif best_offer.offer_type == 'fixed_discount':
             discount_value = Decimal(str(best_offer.discount_value)) * Decimal(str(multiplier))
         elif best_offer.offer_type == 'percentage_discount':
-            # +++ النسف المعماري: الخصم يُحسب على كامل المبلغ الأساسي +++
+            # +++  الخصم يُحسب على كامل المبلغ الأساسي +++
             discount_value = base_amount * (Decimal(str(best_offer.discount_value)) / Decimal('100'))
 
     # +++ الدرع المحاسبي: الخصم المطبق لا يمكن أن يتجاوز قيمة الفاتورة لمنع تشويه تقارير الأرباح والخسائر +++
@@ -112,7 +112,7 @@ async def check_debt_limits(
 
     driver = pre_fetched_driver or await db_session.get(Driver, driver_id)
     
-    # +++ النسف المعماري لقنبلة الـ Race Condition (Phantom Read Lock) +++
+    # +++  لقنبلة الـ Race Condition (Phantom Read Lock) +++
     # تم إعدام الاعتماد على pre_fetched_shop لأنه يكسر الـ with_for_update() ويسمح بتجاوز السقف المالي
     stmt = select(Shop).with_for_update().filter_by(id=shop_id)
     shop = (await db_session.execute(stmt)).scalar_one_or_none()
@@ -295,7 +295,7 @@ async def reverse_previous_visit_state(
             variant = bulk_variants.get(item.product_variant_id)
             safe_packs = variant.packs_per_carton if variant and variant.packs_per_carton else 1
             
-            # +++ الكي الجراحي: حماية السيرفر من الانفجار بسبب الـ NoneType في حقول البونص والعينات +++
+            # +++   حماية السيرفر من الانفجار بسبب الـ NoneType في حقول البونص والعينات +++
             safe_bonus = item.bonus_quantity or 0
             safe_sample = item.sample_quantity or 0
             # +++ الدرع الفولاذي (إصلاح البوت): استخدام or 0 لسحق الـ None العائد من قاعدة البيانات +++

@@ -112,7 +112,7 @@ const Index = () => {
     try {
       const data = await authFetch("/admin/sessions/today");
       if (data && isMounted) {
-        // +++ النسف المعماري للـ Mutation: استخدام Deep Copy مع احترام Immutability +++
+        // +++  للـ Mutation: استخدام Deep Copy مع احترام Immutability +++
         const formattedData = data.map((d: any) => {
           let localTime = d.session?.start_time;
           if (localTime) {
@@ -253,7 +253,7 @@ const Index = () => {
     setDrivers((prev) => prev.map((d) => d.session.session_id === id ? { ...d, session: { ...d.session, is_authorized_to_sell: newAuthStatus } } : d));
 
     try {
-      // +++ النسف المعماري لطبقة الاتصال: استخدام الهوك الموحد لمنع كراش الـ Token Expiration +++
+      // +++  لطبقة الاتصال: استخدام الهوك الموحد لمنع كراش الـ Token Expiration +++
       const response = await authFetch(`/admin/sessions/${id}/authorize`, {
         method: 'PUT',
         body: JSON.stringify({ is_authorized: newAuthStatus, inventory: [] })
@@ -343,7 +343,7 @@ const Index = () => {
         </div>
         <div className="lg:flex-[35] min-w-0">
         <CommandCenter
-            // +++ الكي الجراحي: إجبار المترجم على قبول هيكل السيرفر الحقيقي بدل الهيكل الوهمي القديم +++
+            // +++   إجبار المترجم على قبول هيكل السيرفر الحقيقي بدل الهيكل الوهمي القديم +++
             driver={selectedDriver as any}
             onApproveSettlement={() => setIsSettlementModalOpen(true)}
             onUndoEndWork={() => {

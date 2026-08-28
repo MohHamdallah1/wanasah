@@ -156,7 +156,7 @@ app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     content={"message": "تم تجاوز الحد المسموح من الطلبات. يرجى المحاولة لاحقاً."},
 ))
 
-# +++ الكي الجراحي: إضافة نقطة التفتيش (Middleware) التي كانت مفقودة لتفعيل الحارس فعلياً +++
+# +++   إضافة نقطة التفتيش (Middleware) التي كانت مفقودة لتفعيل الحارس فعلياً +++
 from slowapi.middleware import SlowAPIMiddleware
 app.add_middleware(SlowAPIMiddleware)
 
@@ -267,7 +267,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     # S-12: Correlation ID for incident response
     request_id = getattr(request.state, 'request_id', 'N/A')
     
-    # +++ الكي الجراحي للقائد: تنظيف رسالة الخطأ نفسها لمنع Log Forging +++
+    # +++  للقائد: تنظيف رسالة الخطأ نفسها لمنع Log Forging +++
     safe_exc = sanitize_log_input(str(exc))
     raw_error = f"[req_id={request_id}] [{client_ip}] {safe_method} {safe_path} | حدث خطأ غير متوقع: {safe_exc}\n{traceback.format_exc()}"
     # S-10: Sanitize DB credentials from error messages
@@ -313,7 +313,7 @@ async def websocket_dispatch_endpoint(websocket: WebSocket):
         await websocket.close(code=1008)
         return
 
-    # +++ الكي الجراحي لـ Bug 1: فحص حالة الدرع الأمني قبل الدخول بالـ Loop +++
+    # +++  لـ Bug 1: فحص حالة الدرع الأمني قبل الدخول بالـ Loop +++
     is_connected = await dispatch_manager.connect(websocket)
     if not is_connected:
         return # إنهاء فوري بدون كراش إذا تم رفض الاتصال بسبب الـ DDoS Limit

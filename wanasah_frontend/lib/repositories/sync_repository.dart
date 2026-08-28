@@ -14,7 +14,7 @@ import '../models/visit_model.dart';
 //   syncUp()         — إعادة إرسال العمليات المعلقة عند عودة الإنترنت
 
 class SyncRepository {
-  // +++ الكي الجراحي (توحيد طبقة المزامنة - Singleton): نسخة واحدة تحكم التطبيق بأكمله لمنع تكرار الفواتير +++
+  // +++  (توحيد طبقة المزامنة - Singleton): نسخة واحدة تحكم التطبيق بأكمله لمنع تكرار الفواتير +++
   static final SyncRepository instance = SyncRepository._internal();
 
   // -----------------------------------------------------------------------
@@ -40,7 +40,7 @@ class SyncRepository {
   // -----------------------------------------------------------------------
   // syncDown — السحب من السيرفر إلى القاعدة المحلية
   // -----------------------------------------------------------------------
-  // +++ الكي الجراحي: إرجاع bool لإبلاغ البلوك إذا تم التخطي بسبب قفل المزامنة الموحد +++
+  // +++   إرجاع bool لإبلاغ البلوك إذا تم التخطي بسبب قفل المزامنة الموحد +++
   Future<bool> syncDown() async {
     if (_isSyncingDown) {
       developer.log('[SyncRepository] syncDown is already running. Skipped.');
@@ -127,7 +127,7 @@ class SyncRepository {
       developer.log('[SyncRepository] Error in syncDown: $e');
       rethrow;
     } finally {
-      // +++ الكي الجراحي لـ Bug 1: القفل يُحرر دائماً داخل الـ finally +++
+      // +++  لـ Bug 1: القفل يُحرر دائماً داخل الـ finally +++
       _isSyncingDown = false; 
     }
   }
@@ -210,7 +210,7 @@ class SyncRepository {
   // -----------------------------------------------------------------------
   // respondToTransfer — الرد على حوالة مع Fallback تلقائي آمن
   // -----------------------------------------------------------------------
-  // +++ الكي الجراحي: إرجاع bool لتحديد حالة الحوالة (true = أرسلت, false = أوفلاين) +++
+  // +++   إرجاع bool لتحديد حالة الحوالة (true = أرسلت, false = أوفلاين) +++
   Future<bool> respondToTransfer({
     required int transferId,
     required String responseStr,
@@ -238,7 +238,7 @@ class SyncRepository {
     } catch (e) {
       if (e is DioException && e.response?.statusCode != null) {
         final statusCode = e.response!.statusCode!;
-        // +++ الكي الجراحي للثغرة: إحباط التخزين الأوفلاين الكاذب وإبلاغ البلوك بالرفض النهائي +++
+        // +++  للثغرة: إحباط التخزين الأوفلاين الكاذب وإبلاغ البلوك بالرفض النهائي +++
         if (statusCode >= 400 && statusCode < 500 && statusCode != 429 && statusCode != 408) {
            throw Exception('تم رفض الرد من السيرفر (خطأ $statusCode). يرجى المحاولة مجدداً.');
         }
@@ -297,7 +297,7 @@ class SyncRepository {
         final recordId = record['id'] as int;
         final type = record['type'] as String;
         
-        // +++ الكي الجراحي: تخطي السجلات المحجورة فوراً قبل لمسها أو محاولة فك تشفيرها (منع إعادة التدوير اللانهائي) +++
+        // +++   تخطي السجلات المحجورة فوراً قبل لمسها أو محاولة فك تشفيرها (منع إعادة التدوير اللانهائي) +++
         if (type.startsWith('quarantined_')) continue;
 
         Map<String, dynamic> payload;

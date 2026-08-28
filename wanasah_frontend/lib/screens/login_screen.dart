@@ -23,12 +23,12 @@ class _LoginScreenState extends State<LoginScreen> {
     text: kDebugMode ? 'password' : '',
   );
   
-  bool _obscurePassword = true; // +++ الكي الجراحي: متغير التحكم برؤية كلمة المرور +++
+  bool _obscurePassword = true; // +++   متغير التحكم برؤية كلمة المرور +++
 
   // --- دالة تسجيل الدخول (شاشة غبية ترسل الأوامر فقط) ---
   void _login() {
     final username = _usernameController.text.trim();
-    // +++ الكي الجراحي: إياك ولمس كلمة المرور، تُرسل كما هي (بدون trim) +++
+    // +++   إياك ولمس كلمة المرور، تُرسل كما هي (بدون trim) +++
     final password = _passwordController.text; 
 
     if (username.isEmpty || password.isEmpty) {

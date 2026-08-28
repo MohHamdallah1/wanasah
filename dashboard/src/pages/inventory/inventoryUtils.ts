@@ -52,7 +52,7 @@ export interface StocktakeRow {
   actual_loose_packs: number;
 }
 
-// +++ النسف المعماري للكارثة الرياضية (الأرقام السالبة) +++
+// +++  للكارثة الرياضية (الأرقام السالبة) +++
 export function formatQty(packs: number, ppc: number): string {
   if (!ppc || ppc <= 0) ppc = 1;
 

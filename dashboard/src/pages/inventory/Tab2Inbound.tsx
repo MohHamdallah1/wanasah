@@ -12,7 +12,7 @@ interface Props {
   onSuccess: () => void;
 }
 
-// +++ النسف المعماري: إضافة tempId فريد لكل سطر لضمان سلامة الـ React State +++
+// +++  إضافة tempId فريد لكل سطر لضمان سلامة الـ React State +++
 const EMPTY_ROW = (): InboundRow & { tempId: string } => ({
   tempId: crypto.randomUUID(),
   product_variant_id: "",

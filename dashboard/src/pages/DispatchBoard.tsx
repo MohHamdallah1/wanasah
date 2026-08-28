@@ -53,7 +53,7 @@ const sortZones = (zones: Zone[]) => {
 };
 
 export default function DispatchBoard() {
-  // +++ النسف المعماري (تجاوز TypeScript): توسيع نوع TabId محلياً ليقبل "launch" +++
+  // +++  (تجاوز TypeScript): توسيع نوع TabId محلياً ليقبل "launch" +++
   const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem("activeTab") || "routes");
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void }>({ isOpen: false, title: "", message: "", onConfirm: () => { } });
   const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<string | null>(null);
@@ -167,7 +167,7 @@ export default function DispatchBoard() {
       .then(data => {
         const sorted = sortZones(data.zones || []); setZones(sorted); setDrivers(data.drivers || []); setVehicles(data.vehicles || []); setProducts(data.products || []);
 
-        // +++ الكي الجراحي (UX): الحفاظ على المنطقة المحددة حالياً، وعدم إجبار المستخدم على العودة لأول القائمة بعد الـ Refresh +++
+        // +++  (UX): الحفاظ على المنطقة المحددة حالياً، وعدم إجبار المستخدم على العودة لأول القائمة بعد الـ Refresh +++
         if (sorted.length > 0) {
           setSelectedZoneIdForZones(prev => prev ? prev : sorted[0].id);
         }
@@ -694,7 +694,7 @@ export default function DispatchBoard() {
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
         <div className="flex items-center gap-6">
           <div className="flex bg-slate-100 p-1 rounded-xl">
-            {/* +++ النسف المعماري: فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
+            {/* +++  فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
             {[
               { id: "routes", label: "الخطوط النشطة", icon: Truck },
               { id: "launch", label: "إطلاق خط جديد", icon: Plus },
@@ -725,12 +725,12 @@ export default function DispatchBoard() {
         </div>
       )}
 
-      {/* +++ النسف المعماري: تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
+      {/* +++  تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
       <div className="pt-6 pb-6 px-0 w-full">
         <AnimatePresence mode="wait">
           {activeTab === "routes" ? (
             <motion.div key="routes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex justify-center w-full">
-              {/* +++ النسف المعماري: جمع العناصر التائهة داخل حاوية "عصرية" موحدة +++ */}
+              {/* +++  جمع العناصر التائهة داخل حاوية "عصرية" موحدة +++ */}
               <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-xl w-full mt-[-15px]">
                 <div className="flex items-center justify-between mb-6 pb-3 border-b border-slate-100">
                   <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
@@ -838,7 +838,7 @@ export default function DispatchBoard() {
             </motion.div>
           ) : activeTab === "launch" ? (
             <motion.div key="launch" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="flex justify-center w-full">
-              {/* +++ النسف المعماري: إزالة max-w ليأخذ عرض الشاشة بالكامل، وسحبه للأعلى أكثر +++ */}
+              {/* +++  إزالة max-w ليأخذ عرض الشاشة بالكامل، وسحبه للأعلى أكثر +++ */}
               <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-xl w-full mt-[-15px]">
 
                 {/* 1. تقليل المسافة أسفل العنوان (mb-4 بدلاً من mb-8) */}
@@ -875,7 +875,7 @@ export default function DispatchBoard() {
                     </div>
                   </div>
 
-                  {/* +++ النسف المعماري: تقييد الارتفاع بـ 50vh مع Scrollbar أنيق +++ */}
+                  {/* +++  تقييد الارتفاع بـ 50vh مع Scrollbar أنيق +++ */}
                   <div className="max-h-[50vh] overflow-y-auto custom-scrollbar bg-white">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 z-10 bg-slate-100 shadow-sm border-b border-slate-200">

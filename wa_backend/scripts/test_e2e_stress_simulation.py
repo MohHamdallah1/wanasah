@@ -1339,7 +1339,7 @@ async def phase5_mid_day_transfers():
             return (False, driver_id, "No route")
         client = make_client(token=state.admin_tokens[0])
         try:
-            # +++ الكي الجراحي: اختيار منتج فعلي من حمولة سيارة المندوب لمنع 400 +++
+            # +++   اختيار منتج فعلي من حمولة سيارة المندوب لمنع 400 +++
             live_resp = await client.get(f"/dispatch/route/{route_id}/live_inventory")
             deltas = []
             if live_resp.status_code == 200 and live_resp.json():
@@ -1512,7 +1512,7 @@ async def phase6_cash_discrepancy_gate():
     print(header("\n═════ PHASE 6b: Cash Discrepancy Gate ═════"))
     admin_client = make_client(token=state.admin_tokens[0])
 
-    # +++ الكي الجراحي: البحث عن جلسة تمتلك كاش متوقع فعلي (> 0) بدل أخذ أول جلسة عمياء +++
+    # +++   البحث عن جلسة تمتلك كاش متوقع فعلي (> 0) بدل أخذ أول جلسة عمياء +++
     # فرق الكاش لا يُختبر إلا على جلسة فيها مبيعات نقدية حقيقية (مثل بيع 4c الآجل)
     target_session_id = None
     report = None
@@ -1535,7 +1535,7 @@ async def phase6_cash_discrepancy_gate():
     expected_cash = Decimal(expected_cash_str)
     print(f"  Expected cash: {expected_cash} (session {target_session_id})")
 
-    # +++ الكي الجراحي: يجب ضمان أن الجلسة تمتلك كاش متوقع > 0 لإنشاء فرق حقيقي +++
+    # +++   يجب ضمان أن الجلسة تمتلك كاش متوقع > 0 لإنشاء فرق حقيقي +++
     assert expected_cash > Decimal('0.0'), "Expected cash is zero! Pick a session with actual sales to test discrepancy."
     
     actual_low = expected_cash - Decimal('10')
@@ -1695,7 +1695,7 @@ async def phase7_database_autopsy():
             # ============================================================
             print(cyan("\n  --- 7b: VehicleLoad Clearing Check ---"))
             if settled_ids:
-                # +++ الكي الجراحي: البحث برقم المندوب لأن رقم الجلسة يتم تصفيره في خط السير بعد التسوية +++
+                # +++   البحث برقم المندوب لأن رقم الجلسة يتم تصفيره في خط السير بعد التسوية +++
                 stmt_routes = sa_select(DispatchRoute.vehicle_id).filter(
                     DispatchRoute.driver_id.in_(state.driver_ids),
                     DispatchRoute.vehicle_id.isnot(None),
@@ -1835,7 +1835,7 @@ async def phase6d_chaos_theft_simulation():
     print(header("\n═════ PHASE 6d: Chaos — Theft & Discrepancy Gate ═════"))
     
     admin_client = make_client(token=state.admin_tokens[0])
-    # +++ الكي الجراحي: اختيار جلسة غير مسوية صراحةً بدل أول جلسة عمياء (قد تكون سوّتها 6b/6c) +++
+    # +++   اختيار جلسة غير مسوية صراحةً بدل أول جلسة عمياء (قد تكون سوّتها 6b/6c) +++
     target_session = None
     for did in state.driver_ids:
         sid = state.session_ids.get(did)

@@ -4,7 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { toast } from "sonner"; // +++ الكي الجراحي (E-11): استدعاء الـ Toast لعرض الأخطاء +++
+import { toast } from "sonner"; // +++  (E-11): استدعاء الـ Toast لعرض الأخطاء +++
 import DashboardLayout from "@/components/operations/DashboardLayout";
 import OperationsDashboard from "./pages/OperationsDashboard";
 import DispatchBoard from "./pages/DispatchBoard";
@@ -12,7 +12,7 @@ import MainInventory from "./pages/inventory/MainInventory";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
-// +++ الكي الجراحي (E-11): إضافة Error Handling شامل للـ QueryClient +++
+// +++  (E-11): إضافة Error Handling شامل للـ QueryClient +++
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

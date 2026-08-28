@@ -134,7 +134,7 @@ export function loginStormFn(data) {
         JSON.stringify({ username: `driver_test_${driverId}`, password: 'Driver1234!' }),
         { headers: { 'Content-Type': 'application/json' }, tags: { my_route: 'login_driver' } });
 
-    // +++ الكي الجراحي: تقليل وقت الانتظار جداً لإجبار السيرفر على تجاوز 200 طلب/دقيقة +++
+    // +++   تقليل وقت الانتظار جداً لإجبار السيرفر على تجاوز 200 طلب/دقيقة +++
     if (res.status === 429) {
         shieldHits.add(1); // +++ تسجيل تصدي الدرع فعلياً في العداد +++
     }
@@ -167,7 +167,7 @@ export function handleSummary(data) {
         '',
     ];
 
-    // +++ الكي الجراحي: استخراج المقاييس فقط (metrics) وتجاهل (setup_data) لمنع تسريب التوكنات +++
+    // +++   استخراج المقاييس فقط (metrics) وتجاهل (setup_data) لمنع تسريب التوكنات +++
     const safeData = {
         generated_at: stamp,
         target_vus: TARGET_VUS,

@@ -1,7 +1,7 @@
 // File: lib/models/visit_model.dart
 import 'dart:convert';
 import 'package:equatable/equatable.dart';
-// +++ النسف المعماري للأداء (Equatable Enforcement): جعل الموديل قابلاً للمقارنة الذكية لمنع وميض الواجهة +++
+// +++  للأداء (Equatable Enforcement): جعل الموديل قابلاً للمقارنة الذكية لمنع وميض الواجهة +++
 class VisitModel extends Equatable {
   final int id;
   final int shopId;

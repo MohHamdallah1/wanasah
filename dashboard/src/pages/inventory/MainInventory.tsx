@@ -37,7 +37,7 @@ export default function MainInventory() {
   const fetchStock = useCallback(async () => {
     setLoadingStock(true);
     try {
-      // +++ النسف المعماري: استلام البيانات الجاهزة من الـ Hook الموحد +++
+      // +++  استلام البيانات الجاهزة من الـ Hook الموحد +++
       const data = await authFetch("/warehouse/inventory");
       if (Array.isArray(data)) {
         setProducts(data);
@@ -57,7 +57,7 @@ export default function MainInventory() {
       const data = await authFetch("/warehouse/alerts");
       if (Array.isArray(data)) {
         setAlerts(data);
-        // +++ الكي الجراحي (I-10): تفعيل نظام الإشعارات لنواقص المستودع +++
+        // +++  (I-10): تفعيل نظام الإشعارات لنواقص المستودع +++
         if (data.length > 0) {
           toast.warning(`تنبيه: يوجد ${data.length} منتجات تجاوزت الحد الأدنى للمخزون!`);
         }
@@ -197,7 +197,7 @@ export default function MainInventory() {
             authenticatedFetch={authFetch}
             onLockChange={async (locked) => {
               setIsAuditLocked(locked);
-              // +++ الكي الجراحي (I-09): إجبار مسح الكاش وتحديث دفتر الأستاذ (Ledger) بعد الجرد +++
+              // +++  (I-09): إجبار مسح الكاش وتحديث دفتر الأستاذ (Ledger) بعد الجرد +++
               ledgerFetchedRef.current = false;
               await Promise.all([fetchStock(), fetchAlerts(), fetchLedger(true)]);
             }}
@@ -207,7 +207,7 @@ export default function MainInventory() {
           <Tab4Ledger
             entries={ledger}
             loading={loadingLedger}
-            // +++ الكي الجراحي: تمرير دالة التحديث للابن لمنع الريفرش الإجباري +++
+            // +++   تمرير دالة التحديث للابن لمنع الريفرش الإجباري +++
             onRefresh={() => fetchLedger(true)}
           />
         )}

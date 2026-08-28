@@ -23,7 +23,7 @@ Four key flaws have been identified, ranging from an extremely critical indentat
           if payload.outcome != 'Postponed':
               new_balance = original_shop_balance + new_debt - debt_paid_input
               
-              # +++ النسف المعماري (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
+              # +++  (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
               if new_balance < Decimal('0'):
                   await db.rollback()
                   raise HTTPException(
@@ -64,7 +64,7 @@ Four key flaws have been identified, ranging from an extremely critical indentat
           if payload.outcome != 'Postponed':
               new_balance = original_shop_balance + new_debt - debt_paid_input
               
-              # +++ النسف المعماري (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
+              # +++  (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
               if new_balance < Decimal('0'):
                   await db.rollback()
                   raise HTTPException(
@@ -95,7 +95,7 @@ Four key flaws have been identified, ranging from an extremely critical indentat
       if payload.outcome != 'Postponed':
           new_balance = original_shop_balance + new_debt - debt_paid_input
           
-          # +++ النسف المعماري (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
+          # +++  (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
           if new_balance < Decimal('0'):
               await db.rollback()
               raise HTTPException(

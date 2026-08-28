@@ -384,7 +384,7 @@ class VisitReturnInput(BaseModel):
     product_variant_id: int
     quantity: int = Field(0, ge=0, validation_alias=AliasChoices('quantity', 'cartons'))
     packs_quantity: int = Field(0, ge=0, validation_alias=AliasChoices('packs_quantity', 'packs'))
-    # +++ النسف المعماري لثغرة طباعة الأموال: إعدام حالة 'Sellable' تماماً لتطابق سياسة الشركة (لا استرجاع، استبدال تالف فقط) +++
+    # +++  لثغرة طباعة الأموال: إعدام حالة 'Sellable' تماماً لتطابق سياسة الشركة (لا استرجاع، استبدال تالف فقط) +++
     return_type: Literal['Expired', 'Damaged', 'Factory_Defect'] = Field('Damaged')
     reason: Optional[str] = None
 
@@ -455,7 +455,7 @@ class ActiveSessionResponse(BaseModel):
 # 8. دروع لوحة التحكم والإدارة (Admin / Dispatch)
 # ==========================================
 class AuthorizeSessionRequest(BaseModel):
-    # +++ النسف المعماري لفخ الـ 422: إعادة القيمة الافتراضية True للوفاء بعقد الواجهة القديم +++
+    # +++  لفخ الـ 422: إعادة القيمة الافتراضية True للوفاء بعقد الواجهة القديم +++
     is_authorized: bool = Field(True, description="حالة الصلاحية المطلوبة (True للضوء الأخضر، False للإيقاف)")
 
 class AdminInventoryItem(BaseModel):
@@ -653,9 +653,17 @@ class AdminAddShopRequest(BaseModel):
     phone: Optional[str] = ""
     mapLink: Optional[str] = ""
     zoneId: int
-    # استقبال مرن جداً لحماية السيرفر من هجمات النصوص والفراغات
-    latitude: Optional[Union[float, str]] = None
-    longitude: Optional[Union[float, str]] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    
+    # +++   درع تحويل الفراغات القادمة من React إلى Null صريح لمنع كراش Postgres +++
+    @field_validator('latitude', 'longitude', mode='before')
+    @classmethod
+    def clean_geo_cords(cls, v: Any):
+        if v == "" or v is None or str(v).strip() == "": return None
+        try: return float(v)
+        except ValueError: return None
+
     # +++ سد ثغرة הـ Type Coercion: تحويل إجباري لـ Decimal قبل وصولها لـ SQLAlchemy +++
     initialDebt: Annotated[Decimal, BeforeValidator(safe_decimal_input)] = Decimal('0.0')
     maxDebtLimit: Annotated[Decimal, BeforeValidator(safe_decimal_input)] = Decimal('0.0')
@@ -717,15 +725,19 @@ class ShortageResponseItem(BaseModel):
     createdAt: Optional[str] = None
 
 class CreateShortageItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True) # السماح بقراءة productId أو product_variant_id
+    
     shopId: Union[int, str]
     zoneId: Union[int, str]
-    productId: Optional[Union[int, str]] = None
+    # +++   الإجبار على الـ ID لضمان سلامة الداتابيز (Integrity) بناءً على التحديث الأخير +++
+    product_variant_id: int = Field(..., alias="productId")
     productName: Optional[str] = None
     driverId: Optional[Union[int, str]] = None
     quantity: int = Field(1, gt=0)
 
 class BulkImportShopItem(BaseModel):
-    name: Optional[str] = ""
+    # +++   إجبار الإكسيل على توفير اسم للمحل لمنع ولادة محلات شبحية تكسر الـ UI +++
+    name: str = Field(..., min_length=2)
     owner: Optional[str] = ""
     phone: Optional[str] = ""
     mapLink: Optional[str] = ""

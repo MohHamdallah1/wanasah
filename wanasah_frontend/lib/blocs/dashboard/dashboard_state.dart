@@ -30,7 +30,7 @@ class DashboardLoaded extends DashboardState {
   final int pendingVisits;
   final int offlineVisits;
   final int salesInCompleted;
-  final int quarantinedVisits; // +++ الكي الجراحي: عداد الفواتير المرفوضة نهائياً +++
+  final int quarantinedVisits; // +++   عداد الفواتير المرفوضة نهائياً +++
 
   // ── المتغيرات المالية والجلسة (تم نقلها من الشاشة لحمايتها) ──
   final String driverName;
@@ -46,7 +46,7 @@ class DashboardLoaded extends DashboardState {
   final bool isOffline;
   // +++ جديد: للتعامل مع المصافحة المعلقة (Transfers Handshake) +++
   final Map<String, dynamic>? pendingTransfer;
-  // +++ الكي الجراحي لـ Bug 1: دمج رسالة النجاح كمتغير لحظي لمنع انهيار الشاشة +++
+  // +++  لـ Bug 1: دمج رسالة النجاح كمتغير لحظي لمنع انهيار الشاشة +++
   final String? actionSuccessMessage;
 
   const DashboardLoaded({

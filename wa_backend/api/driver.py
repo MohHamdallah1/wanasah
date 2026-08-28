@@ -39,7 +39,7 @@ async def start_work_session(
     driver_id = current_driver.id
 
     # 2. الحماية من تراكم العهدة (Unsettled Session Check)
-    # +++ النسف المعماري: استثناء الجلسة النشطة حالياً لكي لا تتضارب مع فحص الجلسة النشطة وتظهر رسالة خاطئة للمندوب +++
+    # +++  استثناء الجلسة النشطة حالياً لكي لا تتضارب مع فحص الجلسة النشطة وتظهر رسالة خاطئة للمندوب +++
     stmt_unsettled = select(WorkSession).filter(
         WorkSession.driver_id == driver_id, 
         WorkSession.is_settled == False,
@@ -106,7 +106,7 @@ async def start_work_session(
             )
             db.add(inventory_item)
             
-        # 7. +++ النسف المعماري (Bulk Update): حصر التحديث بمنطقة خط السير والطوارئ فقط لحماية دفاتر الجلسة من التلوث بمحلات خارج المنطقة +++
+        # 7. +++  (Bulk Update): حصر التحديث بمنطقة خط السير والطوارئ فقط لحماية دفاتر الجلسة من التلوث بمحلات خارج المنطقة +++
         subq_shops = select(Shop.id).where(Shop.zone_id == active_route.zone_id).scalar_subquery()
         
         stmt_bulk_visits = (
@@ -267,7 +267,7 @@ async def update_visit(
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver)
 ):
-    # +++ الكي الجراحي 1: Lock Ordering (Hierarchy) لنسف הـ Deadlock +++
+    # +++  1: Lock Ordering (Hierarchy) لنسف הـ Deadlock +++
     # الترتيب المقدس: 1. الجلسة -> 2. المحل -> 3. الزيارة -> 4. العهدة
     
     # 1. قفل الجلسة أولاً
@@ -379,7 +379,7 @@ async def update_visit(
         raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن إدخال قيم مالية سالبة في التحصيل أو النقد.")
 
     # 2. اللوجيك المحاسبي لتحصيل الذمم
-    # +++ الكي الجراحي (D-02): حماية الدالة من قيم None المتسربة +++
+    # +++  (D-02): حماية الدالة من قيم None المتسربة +++
     if debt_paid_input is not None and debt_paid_input > Decimal('0'):
         if original_shop_balance <= Decimal('0'):
             await db.rollback()
@@ -393,7 +393,7 @@ async def update_visit(
         visit.visit_timestamp = get_utc_now()
         
     visit.outcome = payload.outcome 
-    # +++ النسف المعماري لفخ الحالة: المؤجل يبقى "Pending" لكي لا يختفي من قائمة المندوب +++
+    # +++  لفخ الحالة: المؤجل يبقى "Pending" لكي لا يختفي من قائمة المندوب +++
     visit.status = 'Completed' if payload.outcome in ['Sale', 'NoSale'] else 'Pending'
     
     visit.notes = payload.notes
@@ -428,7 +428,7 @@ async def update_visit(
             Visit.visit_timestamp >= today_start,
             Visit.status == 'Completed',
             VisitItem.product_variant_id.in_(sample_pids),
-            # +++ الكي الجراحي (D-01): عزل الأصناف الملغاة لمنع تضاعف حساب عينات المندوب +++
+            # +++  (D-01): عزل الأصناف الملغاة لمنع تضاعف حساب عينات المندوب +++
             VisitItem.is_cancelled == False
         ).group_by(VisitItem.product_variant_id)
         
@@ -449,10 +449,10 @@ async def update_visit(
             # نفترض أن الحد الأقصى بالكراتين، نحوله لحبات (حسب البيزنس المتفق عليه)
             max_allowed_packs = (getattr(var, 'default_max_samples_per_day', 0) or 0) * ppc 
             
-            # +++ النسف المعماري 1: إذا كان السقف 0 (بسبب عدم جاهزية الداشبورد)، نعتبره مفتوحاً مؤقتاً +++
+            # +++  1: إذا كان السقف 0 (بسبب عدم جاهزية الداشبورد)، نعتبره مفتوحاً مؤقتاً +++
             if max_allowed_packs > 0:
                 if (past_packs + requested_packs) > max_allowed_packs:
-                    # +++ النسف المعماري 2: بناء الرسالة قبل الـ rollback لمنع كراش الـ MissingGreenlet +++
+                    # +++  2: بناء الرسالة قبل الـ rollback لمنع كراش الـ MissingGreenlet +++
                     max_cartons = max_allowed_packs // ppc
                     error_msg = f"مرفوض أمنياً: تجاوزت الحد المسموح من العينات لمنتج ({var.variant_name}). المسموح لك باليوم: {max_cartons} كرتونة."
                     await db.rollback()
@@ -480,7 +480,7 @@ async def update_visit(
             await db.rollback()
             raise HTTPException(status_code=400, detail="مرفوض أمنياً: لا يمكن إضافة صنف بكميات إجمالية (صفر) في الفاتورة.")
 
-    # 4. +++ النسف المعماري لـ N+1: جلب كل المنتجات والعهدة دفعة واحدة للذاكرة +++
+    # 4. +++  لـ N+1: جلب كل المنتجات والعهدة دفعة واحدة للذاكرة +++
     all_var_ids = list(set(cart_pids + ret_pids))
     
     variants_map = {}
@@ -500,7 +500,7 @@ async def update_visit(
         inv_map = {inv.product_variant_id: inv for inv in inv_records}
 
     # 5. +++ حماية الذاكرة (Memory Desync Trap): مسح طفيليات الحفظ من الـ RAM مباشرة +++
-    # +++ النسف المعماري: مسح فعلي (Hard Delete) لسلة المشتريات المعلقة لمنع تضخم قاعدة البيانات، وإلغاء (Soft Delete) للزيارات المكتملة +++
+    # +++  مسح فعلي (Hard Delete) لسلة المشتريات المعلقة لمنع تضخم قاعدة البيانات، وإلغاء (Soft Delete) للزيارات المكتملة +++
     if locked_original_status == 'Pending':
         for existing_item in list(visit.items):
             await db.delete(existing_item)
@@ -609,7 +609,7 @@ async def update_visit(
         # +++ الحماية من القيم المعدومة (TypeError Shield) +++
         expected_qty = (inv_record.current_remaining_quantity or 0) if inv_record else 0
         
-        # +++ النسف المعماري لنظام الاستبدال 1:1 (Exchange Logic) وتوثيق التوالف +++
+        # +++  لنظام الاستبدال 1:1 (Exchange Logic) وتوثيق التوالف +++
         # بما أن المرتجعات دائماً تالفة/منتهية، نسحب بضاعة صالحة من المندوب ونعطيها للمحل.
         if not inv_record or inv_record.current_remaining_quantity < total_ret_packs:
             error_msg = f"مرفوض: مخزونك الصالح من ({variant.variant_name}) لا يكفي للقيام باستبدال التوالف. المطلوب للتبديل: {total_ret_packs} حبة."
@@ -698,7 +698,7 @@ async def update_visit(
     if payload.outcome != 'Postponed':
         new_balance = original_shop_balance + new_debt - debt_paid_input
         
-        # +++ النسف المعماري (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
+        # +++  (Hard Fail): منع إخفاء العجز المحاسبي بصمت +++
         if new_balance < Decimal('0'):
             await db.rollback()
             raise HTTPException(
@@ -722,7 +722,7 @@ async def update_visit(
         # إذا كانت الزيارة مؤجلة، الرصيد لا يتأثر
         visit.shop_balance_after = original_shop_balance
 
-    # 5. +++ إغلاق الطوارئ وفرز المحلات بدقة (النسف المعماري للزومبي) +++
+    # 5. +++ إغلاق الطوارئ وفرز المحلات بدقة ( للزومبي) +++
     if payload.outcome in ['Sale', 'NoSale']:
         if has_active_shortage: # المتغير من القسم الأول
             stmt_close_shortage = update(ShortageRequest).where(
@@ -878,12 +878,15 @@ async def get_driver_dashboard(
             total_pending = 0
 
     elif active_route:
-        # +++ تصحيح الخطأ الموروث: استثناء المحلات مؤرشفة حتى لو لم تبدأ الجلسة +++
+        # +++   شمول الزيارات الطارئة في عداد الداشبورد قبل بدء الجلسة لمنع اختفائها عن نظر المندوب +++
         stmt_pending = select(func.count(Visit.id)).join(Shop).filter(
             Visit.driver_id == driver_id, 
             Visit.status == 'Pending',
-            Shop.zone_id == active_route.zone_id,
-            Shop.is_archived == False
+            Shop.is_archived == False,
+            or_(
+                Shop.zone_id == active_route.zone_id,
+                Visit.is_emergency == True
+            )
         )
         total_pending = (await db.execute(stmt_pending)).scalar() or 0
 
@@ -892,7 +895,7 @@ async def get_driver_dashboard(
         "assigned_region": assigned_region,
         "active_session": {
             "session_id": active_session.id,
-            # +++ النسف المعماري لانفصام الزمن: إضافة الـ UTC Timezone إجبارياً لكي لا يقرأه Flutter كـ Local Time +++
+            # +++  لانفصام الزمن: إضافة الـ UTC Timezone إجبارياً لكي لا يقرأه Flutter كـ Local Time +++
             "start_time": active_session.start_time.replace(tzinfo=timezone.utc).isoformat() if active_session.start_time else None,
             "is_authorized_to_sell": active_session.is_authorized_to_sell,
             "break_start_time": active_session.break_start_time.replace(tzinfo=timezone.utc).isoformat() if active_session.break_start_time else None,
@@ -957,7 +960,7 @@ async def respond_to_transfer(
         await db.rollback()
         raise HTTPException(status_code=400, detail="مرفوض: لا يمكن معالجة حوالة لجلسة عمل تم إنهاؤها أو تسويتها.")
 
-    # +++ الكي الجراحي (D-03): حماية السيرفر من حقن حالة وهمية (Status Hijacking) +++
+    # +++  (D-03): حماية السيرفر من حقن حالة وهمية (Status Hijacking) +++
     if payload.response not in ['accepted', 'rejected']:
         await db.rollback()
         raise HTTPException(status_code=400, detail="مرفوض أمنياً: الرد غير صالح.")
@@ -978,7 +981,7 @@ async def respond_to_transfer(
         variant = transfer.product_variant
         packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton else 1
 
-        # +++ النسف المعماري الشامل للـ Deadlock: توحيد الأقفال مع dispatch.py (السيارة -> المستودع -> العهدة) +++
+        # +++  الشامل للـ Deadlock: توحيد الأقفال مع dispatch.py (السيارة -> المستودع -> العهدة) +++
         v_load = None
         if route:
             # 1. قفل حمولة السيارة أولاً
@@ -1184,7 +1187,7 @@ async def batch_respond_to_transfers(
             await db.rollback()
             raise HTTPException(status_code=404, detail="لا يوجد حوالات صالحة للمعالجة أو لا تخصك.")
 
-        # 2. +++ النسف المعماري (Multi-Session Bug): استخراج كل الجلسات والمنتجات بدقة +++
+        # 2. +++  (Multi-Session Bug): استخراج كل الجلسات والمنتجات بدقة +++
         var_ids = list(set([t.product_variant_id for t in transfers]))
         session_ids = list(set([t.work_session_id for t in transfers]))
 
@@ -1534,7 +1537,7 @@ async def get_products(
     db: AsyncSession = Depends(get_db),
     current_driver: Driver = Depends(get_current_driver) # حماية الرابط بالتوكن الأصلي دون المساس بالـ URLContract
     ):
-        # +++ النسف المعماري النخبة لـ N+1 ومحرقة الـ CPU: استعلام مباشر وإرجاع الكائنات فوراً +++
+        # +++  النخبة لـ N+1 ومحرقة الـ CPU: استعلام مباشر وإرجاع الكائنات فوراً +++
         # لا توجد حلقات تكرارية (No Python Loops)، الداتا تُسلم مباشرة لمحرك Pydantic ليقوم بالـ Serialization بسرعة الصاروخ
         stmt = select(ProductVariant).filter_by(is_active=True).order_by(ProductVariant.id.asc())
         result = await db.execute(stmt)
@@ -1586,7 +1589,7 @@ async def get_driver_visits(
 
     visits = (await db.execute(stmt_visits)).scalars().all()
 
-    # +++ الكي الجراحي: حقن الـ allowed_zone_id في كائنات SQLAlchemy للوفاء بعقد الـ Flutter +++
+    # +++   حقن الـ allowed_zone_id في كائنات SQLAlchemy للوفاء بعقد الـ Flutter +++
     route_zone_id = active_route.zone_id if active_route else None
     for v in visits:
         v.allowed_zone_id = route_zone_id

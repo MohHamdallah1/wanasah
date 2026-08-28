@@ -9,7 +9,7 @@ class LocationService {
 
   Future<Position?> getCurrentLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) throw Exception('GPS_DISABLED'); // +++ الكي الجراحي لـ Bug 5: إجبار المندوب +++
+    if (!serviceEnabled) throw Exception('GPS_DISABLED'); // +++  لـ Bug 5: إجبار المندوب +++
     
     LocationPermission permission = await Geolocator.checkPermission();
     
@@ -60,7 +60,7 @@ class LocationService {
     } catch (e) {
       developer.log('[LocationService] Error getting location: $e');
       if (e.toString().contains('FAKE_GPS_DETECTED')) {
-        // +++ الكي الجراحي: رمي الرمز الخام ليتم ترجمته في الـ BLoC أو الشاشة (GPS-P1) +++
+        // +++   رمي الرمز الخام ليتم ترجمته في الـ BLoC أو الشاشة (GPS-P1) +++
         throw Exception('FAKE_GPS_DETECTED');
       }
       // رمي الخطأ الفعلي كما هو للواجهة إذا كان غير معروف، بدلاً من طمسه كـ TIMEOUT

@@ -6,11 +6,11 @@ class ApiConstants {
     final String? envUrl = dotenv.env['API_BASE_URL'];
 
     if (envUrl != null && envUrl.trim().isNotEmpty) {
-      // +++ الكي الجراحي 1: نسف ثغرة الـ Double Slash بإزالة كل السلاشات المتتالية في نهاية الرابط +++
+      // +++  1: نسف ثغرة الـ Double Slash بإزالة كل السلاشات المتتالية في نهاية الرابط +++
       return envUrl.trim().replaceAll(RegExp(r'/+$'), '');
     }
 
-    // +++ الكي الجراحي 2: منع التطبيق من البحث عن راوتر بيتك إذا تم رفعه للإنتاج وفشل الـ env +++
+    // +++  2: منع التطبيق من البحث عن راوتر بيتك إذا تم رفعه للإنتاج وفشل الـ env +++
     if (kReleaseMode) {
       // إما أن تضع الرابط الحي (Production URL) المباشر هنا، أو ترمي خطأ صريح لمنع التطبيق من العمل بشكل وهمي
       throw Exception('FATAL ERROR: API_BASE_URL is missing in Release environment!');

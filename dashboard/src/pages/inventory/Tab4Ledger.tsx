@@ -203,7 +203,7 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
                           <button
                             onClick={() => {
                               setAdjustingEntry(e);
-                              // +++ النسف المعماري: حساب الصافي الحالي للفاتورة (الأصل + التعديلات) في الذاكرة +++
+                              // +++  حساب الصافي الحالي للفاتورة (الأصل + التعديلات) في الذاكرة +++
                               const netPacks = entries
                                 .filter(x => x.reference === e.reference && x.product_name === e.product_name && (x.type === 'INBOUND_SUPPLIER' || x.type === 'INBOUND_CORRECTION'))
                                 .reduce((sum, x) => sum + x.quantity_packs, 0);
@@ -341,7 +341,7 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
                   setAdjustingEntry(null);
                   setAdjPassword("");
 
-                  // +++ النسف المعماري: الاعتماد على onRefresh الممرر من الأب لتحديث الداتا برمجياً بدون ريفرش للصفحة +++
+                  // +++  الاعتماد على onRefresh الممرر من الأب لتحديث الداتا برمجياً بدون ريفرش للصفحة +++
                   onRefresh();
                 } catch (e: any) {
                   toast.error(e.message || "حدث خطأ أثناء معالجة التعديل");

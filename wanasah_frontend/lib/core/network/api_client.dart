@@ -99,7 +99,7 @@ class AuthInterceptor extends Interceptor {
           if (refreshToken != null && refreshToken.isNotEmpty) {
             developer.log('[AuthInterceptor] Attempting silent token refresh...');
             
-            // +++ الكي الجراحي: استخدام محرك Dio منفصل لكن بوراثة صارمة للمهلات الزمنية الأساسية لمنع التعليق اللانهائي +++
+            // +++   استخدام محرك Dio منفصل لكن بوراثة صارمة للمهلات الزمنية الأساسية لمنع التعليق اللانهائي +++
             final refreshDio = Dio(_dio.options.copyWith(baseUrl: ApiConstants.baseUrl));
             final response = await refreshDio.post(
               '/refresh',
@@ -127,7 +127,7 @@ class AuthInterceptor extends Interceptor {
           if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
             developer.log('[AuthInterceptor] Token permanently rejected → Triggering logout');
             
-            // +++ الكي الجراحي: استخدام محرك Dio موحد بمهلات زمنية للحرق الأمني للتوكن (Fire-and-forget) +++
+            // +++   استخدام محرك Dio موحد بمهلات زمنية للحرق الأمني للتوكن (Fire-and-forget) +++
             try {
               final oldRefresh = await _storage.read(key: 'refresh_token');
               if (oldRefresh != null) {
@@ -165,7 +165,7 @@ class AuthInterceptor extends Interceptor {
   Future<void> _retryRequest(RequestOptions requestOptions, ErrorInterceptorHandler handler) async {
     try {
       final token = await _storage.read(key: 'auth_token');
-      // +++ النسف المعماري: استخدام copyWith لنسخ FormData وكل الخصائص المخفية +++
+      // +++  استخدام copyWith لنسخ FormData وكل الخصائص المخفية +++
       final newOptions = requestOptions.copyWith(
         headers: Map<String, dynamic>.from(requestOptions.headers)..['Authorization'] = 'Bearer $token',
       );

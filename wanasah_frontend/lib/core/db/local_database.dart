@@ -40,7 +40,7 @@ class LocalDatabase {
     if (_database != null) return _database!;
     
     _initDbFuture ??= _initDB();
-    // +++ الكي الجراحي 6: حماية Mutex من تعليق الـ Future للأبد +++
+    // +++  6: حماية Mutex من تعليق الـ Future للأبد +++
     try {
       _database = await _initDbFuture;
     } finally {
@@ -226,7 +226,7 @@ class LocalDatabase {
       await db.execute('''
         INSERT INTO visits_v7 SELECT
           visit_id, shop_id, shop_name,
-          -- +++ الكي الجراحي 2: حماية التحويل من الفراغات والـ NULL لمنع انهيار الترقية +++
+          -- +++  2: حماية التحويل من الفراغات والـ NULL لمنع انهيار الترقية +++
           CAST(IFNULL(NULLIF(shop_balance, ''), 0.0) AS REAL),
           CAST(IFNULL(NULLIF(max_debt_limit, ''), 0.0) AS REAL),
           shop_zone_id, allowed_zone_id, status, outcome,
@@ -394,7 +394,7 @@ class LocalDatabase {
       'outcome': outcome,
       'cash_collected': cashCollected,
       'debt_paid': debtPaid,
-      // +++ الكي الجراحي لـ Bug 3: إجبار كتابة  Null في قاعدة البيانات لمسح السلة والمرتجعات في حالة (لا يوجد بيع أو مؤجل) +++
+      // +++  لـ Bug 3: إجبار كتابة  Null في قاعدة البيانات لمسح السلة والمرتجعات في حالة (لا يوجد بيع أو مؤجل) +++
       'cart_items': cartItemsJson,
       'returns': returnsJson,
       'notes': notes,
@@ -571,7 +571,7 @@ class LocalDatabase {
     }
   }
 
-  // +++ الكي الجراحي 1: دالة التحديث المحلي لرصيد المحل (تستخدم بعد نجاح رفع الفاتورة للسيرفر) +++
+  // +++  1: دالة التحديث المحلي لرصيد المحل (تستخدم بعد نجاح رفع الفاتورة للسيرفر) +++
   Future<void> updateShopBalanceLocally(int visitId, double newBalance) async {
     final db = await database;
     await db.rawUpdate(
@@ -665,7 +665,7 @@ class LocalDatabase {
 
       if (incomingTransfers != null) {
         for (final transfer in incomingTransfers) {
-          // +++ الكي الجراحي: تحويل آمن لمنع الـ TypeError في حال كان الـ API يرسل null +++
+          // +++   تحويل آمن لمنع الـ TypeError في حال كان الـ API يرسل null +++
           final int tId = int.tryParse(transfer['transfer_id']?.toString() ?? transfer['id']?.toString() ?? '') ?? 0;
           if (tId == 0) continue; // تخطي الحوالة الفاسدة كلياً لمنع انهيار الترانزاكشن
 

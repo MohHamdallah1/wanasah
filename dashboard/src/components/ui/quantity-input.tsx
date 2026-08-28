@@ -30,7 +30,7 @@ export function QuantityInput({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") syncFromProp();
 
-    // +++ النسف المعماري: التنقل السريع بالأسهم بين عدادات الحمولة +++
+    // +++  التنقل السريع بالأسهم بين عدادات الحمولة +++
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault(); // منع تحريك المؤشر داخل خانة النص
       const allInputs = Array.from(document.querySelectorAll('input[inputmode="numeric"]')) as HTMLInputElement[];

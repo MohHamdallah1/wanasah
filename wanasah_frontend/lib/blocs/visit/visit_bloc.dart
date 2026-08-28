@@ -3,7 +3,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'dart:developer' as developer;
-import 'dart:convert'; // +++ النسف المعماري: استيراد مكتبة فك التشفير +++
+import 'dart:convert'; // +++  استيراد مكتبة فك التشفير +++
 import 'package:dio/dio.dart';
 import '../../core/db/local_database.dart';
 import '../../models/product_model.dart';
@@ -26,7 +26,7 @@ class LoadVisitCatalog extends VisitEvent {
   List<Object?> get props => [shopBalance];
 }
 
-// +++ النسف المعماري: حدث استعادة الزيارة المكتملة من SQLite (الزيارة العمياء) +++
+// +++  حدث استعادة الزيارة المكتملة من SQLite (الزيارة العمياء) +++
 class LoadCompletedVisitData extends VisitEvent {
   final String? cartItemsJson;
   final String? returnsJson;
@@ -230,7 +230,7 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
             if (pIndex < 0) continue; 
             final product = currentState.catalog[pIndex];
 
-            // +++ الكي الجراحي: إضافة المحجوز مسبقاً للمخزون الحالي ليتمكن المندوب من التعديل +++
+            // +++   إضافة المحجوز مسبقاً للمخزون الحالي ليتمكن المندوب من التعديل +++
             final int safePpc = product.packsPerCarton > 0 ? product.packsPerCarton : 1;
             final int savedC = item['quantity'] ?? 0;
             final int savedP = item['packs_quantity'] ?? 0;
@@ -283,7 +283,7 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
             if (existingItemIndex >= 0) {
               final currentItem = restoredCart[existingItemIndex];
               
-              // +++ الكي الجراحي: إضافة التالف المحجوز للمخزون الحالي +++
+              // +++   إضافة التالف المحجوز للمخزون الحالي +++
               final int safePpc = currentItem.packsPerCarton > 0 ? currentItem.packsPerCarton : 1;
               final int returnsPacks = ((rfC + reC) * safePpc) + rfP + reP;
               final int currentAvailablePacks = (currentItem.availableCartons * safePpc) + currentItem.availablePacks;
@@ -302,7 +302,7 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
               if (pIndex < 0) continue;
               final product = currentState.catalog[pIndex];
               
-              // +++ الكي الجراحي: إضافة التالف المحجوز للمخزون الحالي +++
+              // +++   إضافة التالف المحجوز للمخزون الحالي +++
               final int safePpc = product.packsPerCarton > 0 ? product.packsPerCarton : 1;
               final int returnsPacks = ((rfC + reC) * safePpc) + rfP + reP;
               final int totalCurrentPacks = (product.currentCartons * safePpc) + product.currentPacks;
@@ -372,7 +372,7 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
       (i) => i.productVariantId == event.item.productVariantId,
     );
 
-    // +++ C8: النسف المعماري - تصفية العناصر صفرية الكمية جراحياً داخل الـ BLoC +++
+    // +++ C8:  - تصفية العناصر صفرية الكمية جراحياً داخل الـ BLoC +++
     // إذا كانت جميع الكميات صفر، نحذف العنصر من السلة تماماً
     final bool hasZeroQuantities = 
         event.item.cartons == 0 &&
@@ -455,16 +455,16 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
                   'product_variant_id': i.productVariantId,
                   'quantity': i.cartons,
                   'packs_quantity':
-                      i.packs, // +++ الكي الجراحي: مطابقة اسم الحقل مع السيرفر +++
-                  'sample_quantity': i.sampleCartons, // +++ الكي الجراحي +++
+                      i.packs, // +++   مطابقة اسم الحقل مع السيرفر +++
+                  'sample_quantity': i.sampleCartons, // +++  +++
                   'sample_packs_quantity':
-                      i.samplePacks, // +++ الكي الجراحي +++
+                      i.samplePacks, // +++  +++
                   'sample_reason': i.sampleReason,
                 },
               )
               .toList();
 
-      // 2. تجميع المرتجعات والتوالف (النسف المعماري: تفكيك الـ List المدمجة)
+      // 2. تجميع المرتجعات والتوالف ( تفكيك الـ List المدمجة)
       final List<Map<String, dynamic>> returns = [];
       for (var item in currentState.cart) {
         if (item.returns.isNotEmpty) {
@@ -481,7 +481,7 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
 
       // 3. بناء الـ Payload المطابق 100% للسيرفر بعد التحديث
       final payload = <String, dynamic>{
-        'visit_id': event.visitId, // +++ الكي الجراحي: حقن الـ ID بوضوح ليتعرف التطبيق على مسودته +++
+        'visit_id': event.visitId, // +++   حقن الـ ID بوضوح ليتعرف التطبيق على مسودته +++
         'visitId': event.visitId, // ضمان التوافقية
         'outcome': event.outcome,
         'notes': event.notes ?? '',

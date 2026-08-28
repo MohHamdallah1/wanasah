@@ -102,7 +102,7 @@ class _VisitListScreenState extends State<VisitListScreen>
           }
 
           return Scaffold(
-            // +++ النسف المعماري لظاهرة الأشباح: إعطاء لون صلب يمنع شفافية الشاشات أثناء التنقل +++
+            // +++  لظاهرة الأشباح: إعطاء لون صلب يمنع شفافية الشاشات أثناء التنقل +++
             backgroundColor: Colors.grey.shade50,
             appBar: AppBar(
               backgroundColor: Colors.grey.shade50,
@@ -133,7 +133,7 @@ class _VisitListScreenState extends State<VisitListScreen>
             floatingActionButton: FloatingActionButton(
               onPressed: () async {
                 const storage = FlutterSecureStorage();
-                // +++ النسف المعماري لاختراق الاستراحة: فحص حي (Dynamic Check) للحالة من الخزنة مباشرة +++
+                // +++  لاختراق الاستراحة: فحص حي (Dynamic Check) للحالة من الخزنة مباشرة +++
                 final breakStr = await storage.read(key: 'is_on_break');
                 if (!context.mounted) return;
                 
@@ -186,7 +186,7 @@ class _VisitListScreenState extends State<VisitListScreen>
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
             child: ToggleButtons(
-              // +++ الكي الجراحي لـ Bug 2: قراءة حالة الفلتر من الـ BLoC بدلاً من المتغير الوهمي +++
+              // +++  لـ Bug 2: قراءة حالة الفلتر من الـ BLoC بدلاً من المتغير الوهمي +++
               isSelected: _filterValues.map((filter) => filter == currentFilter).toList(),
               onPressed: (int index) {
                 _visitListBloc.add(FilterVisitsEvent(_filterValues[index]));
@@ -277,7 +277,7 @@ class _VisitListScreenState extends State<VisitListScreen>
           final String shopName = visit.shopName;
           final String visitStatus = visit.status;
 
-          // +++ الكي الجراحي: توضيح الحالة الفعلية للزيارات التي تمت محاولتها ولم تكتمل بمبيعات +++
+          // +++   توضيح الحالة الفعلية للزيارات التي تمت محاولتها ولم تكتمل بمبيعات +++
           String statusInArabic;
           if (visitStatus == 'Completed') {
             statusInArabic = 'مكتملة';
@@ -323,7 +323,7 @@ class _VisitListScreenState extends State<VisitListScreen>
           }
 
           return Card(
-            // +++ الكي الجراحي (VLS-4): استخدام معرّف الزيارة لمنع كراش الواجهة إذا تكرر المحل +++
+            // +++  (VLS-4): استخدام معرّف الزيارة لمنع كراش الواجهة إذا تكرر المحل +++
             key: ValueKey(visit.id),
             elevation: isCompleted ? 0 : 2,
             margin: const EdgeInsets.only(bottom: 12.0),
@@ -337,7 +337,7 @@ class _VisitListScreenState extends State<VisitListScreen>
               splashColor: Colors.transparent,
               highlightColor: Colors.transparent,
               onTap: () async {
-                // +++ النسف المعماري لاختراق الاستراحة: فحص حي للحالة +++
+                // +++  لاختراق الاستراحة: فحص حي للحالة +++
                 final breakStr = await const FlutterSecureStorage().read(key: 'is_on_break');
                 
                 // +++ درع الـ BuildContext الشامل لحماية الشاشة بالكامل (إصلاح خطأ سطر 364) +++
@@ -370,7 +370,7 @@ class _VisitListScreenState extends State<VisitListScreen>
                   ),
                 );
 
-                // +++ الكي الجراحي: قراءة محلية فورية (O(1)) بدون تأخير وبدون إرسال طلب وهمي للسيرفر +++
+                // +++   قراءة محلية فورية (O(1)) بدون تأخير وبدون إرسال طلب وهمي للسيرفر +++
                 if (mounted) {
                   developer.log('Returned from VisitScreen, loading local data instantly...');
                   _visitListBloc.add(LoadVisitsEvent());
@@ -458,7 +458,7 @@ class _VisitListScreenState extends State<VisitListScreen>
                         final String? link = visit.locationLink;
 
                         try {
-                          // +++ الكي الجراحي لـ Bug 3: حماية الكراش وتجاهل إحداثيات المحيط الأطلسي (0.0) +++
+                          // +++  لـ Bug 3: حماية الكراش وتجاهل إحداثيات المحيط الأطلسي (0.0) +++
                           if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
                             final bool isGoogleMapsAvailable = await MapLauncher.isMapAvailable(MapType.google) ?? false;
                             
@@ -482,7 +482,7 @@ class _VisitListScreenState extends State<VisitListScreen>
                               }
                             }
                           } else if (link != null && link.trim().isNotEmpty) {
-                            // +++ الكي الجراحي لتنظيف الروابط لضمان عدم ضرب الكراش على أجهزة الأندرويد +++
+                            // +++  لتنظيف الروابط لضمان عدم ضرب الكراش على أجهزة الأندرويد +++
                             String cleanLink = link.trim();
                             if (!cleanLink.startsWith('http://') && !cleanLink.startsWith('https://')) {
                               cleanLink = 'https://$cleanLink';

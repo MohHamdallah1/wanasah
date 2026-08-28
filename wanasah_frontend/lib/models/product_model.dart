@@ -1,6 +1,6 @@
 // File: lib/models/product_model.dart
 import 'package:equatable/equatable.dart';
-// +++ النسف المعماري للأداء (Equatable Enforcement): جعل الموديل قابلاً للمقارنة الذكية +++
+// +++  للأداء (Equatable Enforcement): جعل الموديل قابلاً للمقارنة الذكية +++
 class ProductModel extends Equatable {
   final int id;
   final String name;

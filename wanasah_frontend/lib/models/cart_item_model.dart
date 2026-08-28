@@ -15,7 +15,7 @@ class CartItemModel {
   final int cartons;
   final int packs;
 
-  // +++ النسف المعماري: عدادات استبدال التوالف المباشرة (1:1) +++
+  // +++  عدادات استبدال التوالف المباشرة (1:1) +++
   final int returnFactoryCartons;
   final int returnFactoryPacks;
   final int returnExpiredCartons;
@@ -86,8 +86,8 @@ class CartItemModel {
 
   // دالة النسخ للتعديل الآمن في الـ BLoC
   CartItemModel copyWith({
-    int? availableCartons, // +++ الكي الجراحي: السماح بتحديث المخزون +++
-    int? availablePacks,   // +++ الكي الجراحي: السماح بتحديث المخزون +++
+    int? availableCartons, // +++   السماح بتحديث المخزون +++
+    int? availablePacks,   // +++   السماح بتحديث المخزون +++
     int? cartons,
     int? packs,
     int? returnFactoryCartons,

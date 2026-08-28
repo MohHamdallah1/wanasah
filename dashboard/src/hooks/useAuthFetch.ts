@@ -58,7 +58,7 @@ export function useAuthFetch() {
                     throw new Error("جلسة منتهية");
                 }
 
-                // +++ الكي الجراحي: حجز مكان في الطابور *قبل* التجديد لجميع الطلبات +++
+                // +++   حجز مكان في الطابور *قبل* التجديد لجميع الطلبات +++
                 const newTokenPromise = new Promise<string>((resolve, reject) => {
                     failedQueue.push({ resolve, reject });
                 });

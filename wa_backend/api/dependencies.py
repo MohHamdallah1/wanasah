@@ -43,7 +43,7 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
         
     driver = await db.get(Driver, driver_id_int)
     
-    # +++ الكي الجراحي: فصل الحساب الممسوح (بسبب فورمات الداتابيز) عن الحساب الموقوف إدارياً +++
+    # +++   فصل الحساب الممسوح (بسبب فورمات الداتابيز) عن الحساب الموقوف إدارياً +++
     if not driver:
         # 401 ستجعل الفرونت إند يمسح التوكن الميت بهدوء
         raise HTTPException(status_code=401, detail="الحساب غير موجود في قاعدة البيانات. يرجى تسجيل الدخول مجدداً.")

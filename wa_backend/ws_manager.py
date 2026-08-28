@@ -20,7 +20,7 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket) -> bool:
         """Accept a new WebSocket connection and add it to the active pool."""
-        # +++ الكي الجراحي: نسف هجمات استنزاف الموارد (OOM) +++
+        # +++   نسف هجمات استنزاف الموارد (OOM) +++
         if len(self.active_connections) >= MAX_WS_CONNECTIONS:
             logger.warning(f"[WS] DDoS Shield Active: Rejected connection. Max limit ({MAX_WS_CONNECTIONS}) reached.")
             await websocket.close(code=1008) # 1008 = Policy Violation

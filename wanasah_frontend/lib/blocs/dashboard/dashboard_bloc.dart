@@ -147,7 +147,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       catch (e) { developer.log('[DashboardBloc] Skipped corrupt product row: $e'); }
     }
 
-    // +++ الكيّ الجراحي لـ Bug 2: القراءة من المستودع بدلاً من الخزنة مباشرة +++
+    // +++ القراءة من المستودع بدلاً من الخزنة مباشرة +++
     final allData = await _dashboardRepo.getAllCachedData();
 
     final int total =
@@ -163,7 +163,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
             ? visits.where((v) => v.status == 'Pending').length
             : (int.tryParse(allData['cached_pending_visits'] ?? '0') ?? 0);
 
-    // +++ الكي الجراحي: قراءة الكاش إذا كانت قاعدة البيانات فارغة لمنع التصفير الوهمي +++
+    // +++   قراءة الكاش إذا كانت قاعدة البيانات فارغة لمنع التصفير الوهمي +++
     final int salesInCompleted = visits.isNotEmpty
         ? visits.where((v) => v.status == 'Completed' && v.outcome == 'Sale').length
         : (int.tryParse(allData['cached_sales_in_completed'] ?? '0') ?? 0);
@@ -171,7 +171,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     final pendingSyncs = await _db.getPendingSyncs();
     // +++ تصفية السجلات السليمة للأوفلاين +++
     final int offlineCount = pendingSyncs.where((p) => !(p['type']?.toString().startsWith('quarantined_') ?? false)).length;
-    // +++ الكي الجراحي: حساب الفواتير المرفوضة نهائياً (الجثث) لتنبيه المندوب +++
+    // +++   حساب الفواتير المرفوضة نهائياً (الجثث) لتنبيه المندوب +++
     final int quarantinedCount = pendingSyncs.where((p) => p['type']?.toString().startsWith('quarantined_') ?? false).length;
 
     // +++ حل فخ "فقدان الذاكرة المالية وهوية المندوب" +++
@@ -240,11 +240,11 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     FetchDashboardData event,
     Emitter<DashboardState> emit,
   ) async {
-    // +++ الكي الجراحي لـ Bug 3: منع الشاشة البيضاء (Jank) وتفريغ الواجهة إذا كانت محملة مسبقاً +++
+    // +++  لـ Bug 3: منع الشاشة البيضاء (Jank) وتفريغ الواجهة إذا كانت محملة مسبقاً +++
     if (state is! DashboardLoaded) emit(const DashboardLoading());
 
     try {
-      // +++ الكي الجراحي لـ Bug 2: الاعتماد على المستودع لجلب البيانات +++
+      // +++  لـ Bug 2: الاعتماد على المستودع لجلب البيانات +++
       final response = await _dashboardRepo.fetchDashboardRaw();
 
       // +++ الدرع النوعي النخبوي (Elite Cast): منع كراش الـ TypeError بدون طرد المندوب ظلماً بسبب تعقيدات Dart +++
@@ -300,7 +300,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       });
 
       try {
-        // +++ الكي الجراحي: احترام قفل المزامنة الموحد (الـ bool) وتوثيق التخطي الصامت +++
+        // +++   احترام قفل المزامنة الموحد (الـ bool) وتوثيق التخطي الصامت +++
         final bool syncRan = await _syncRepository.syncDown();
         if (!syncRan) {
           developer.log('[DashboardBloc] SyncDown skipped during fetch (already running).');
@@ -317,7 +317,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         DashboardLoaded(
           visits: localData.visits,
           products: apiProducts.isNotEmpty ? apiProducts : localData.products,
-          // +++ الكي الجراحي لـ Bug 5: الاعتماد على الإجمالي المحلي إذا كان السيرفر معطلاً أو البيانات ناقصة +++
+          // +++  لـ Bug 5: الاعتماد على الإجمالي المحلي إذا كان السيرفر معطلاً أو البيانات ناقصة +++
           totalVisits: countsData != null 
               ? (int.tryParse(countsData['total_pending']?.toString() ?? '0') ?? 0) + (int.tryParse(countsData['total_completed']?.toString() ?? '0') ?? 0)
               : localData.totalVisits,
@@ -336,7 +336,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
                   : localData.salesInCompleted,
           driverName: data['driver_name'] ?? localData.driverName,
           assignedRegion: data['assigned_region'] ?? localData.assignedRegion,
-          // +++ النسف المعماري (Float Precision Loss): قراءة المبالغ كنصوص وتحويلها بأمان لمنع الـ Crash +++
+          // +++  (Float Precision Loss): قراءة المبالغ كنصوص وتحويلها بأمان لمنع الـ Crash +++
           totalSalesCash:
               double.tryParse(
                 financials?['total_sales_cash']?.toString() ?? '0',
@@ -360,7 +360,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           isActiveSession: sessionIsActive,
           activeSessionStartTime: startTimeStr,
           isOnBreak: isOnBreak,
-          // +++ الكي الجراحي لـ Bug 5: حفظ رسالة النجاح من الطمس أثناء تحديث البيانات +++
+          // +++  لـ Bug 5: حفظ رسالة النجاح من الطمس أثناء تحديث البيانات +++
           actionSuccessMessage: (state is DashboardLoaded) ? (state as DashboardLoaded).actionSuccessMessage : null,
         ),
       );
@@ -422,14 +422,14 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final List<dynamic> transfers = rawTransfers is List ? rawTransfers : [];
 
       if (transfers.isNotEmpty) {
-        // +++ الكي الجراحي لـ Bug 1: فحص State الحية قبل الـ Emit لمنع طمس البيانات +++
+        // +++  لـ Bug 1: فحص State الحية قبل الـ Emit لمنع طمس البيانات +++
         if (state is DashboardLoaded) {
           emit((state as DashboardLoaded).copyWith(pendingTransfer: transfers.first));
         }
       }
     } catch (e) {
       developer.log('[DashboardBloc] Error checking transfers (Offline?): $e');
-      // +++ الكي الجراحي (البند 1): تغليف بيانات الأوفلاين المسطحة لتطابق شكل الـ API وتفهمها الشاشة +++
+      // +++  (البند 1): تغليف بيانات الأوفلاين المسطحة لتطابق شكل الـ API وتفهمها الشاشة +++
       try {
         final localTransfers = await _db.getIncomingTransfers();
         if (localTransfers.isNotEmpty) {
@@ -549,16 +549,16 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       } else if (e.response?.statusCode != 401) {
         // +++ DAB-3: درع استخراج الرسائل الآمن لمنع كراش الـ NoSuchMethodError +++
         final data = e.response?.data;
-        // +++ الكي الجراحي (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
+        // +++  (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
       final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
         emit(DashboardError(message: 'خطأ: $msg'));
       }
     } catch (e) {
-      // +++ الكي الجراحي: اصطياد كافة مشاكل الـ GPS ومنع الجلسة من البدء بدون إحداثيات +++
+      // +++   اصطياد كافة مشاكل الـ GPS ومنع الجلسة من البدء بدون إحداثيات +++
       if (e.toString().contains('GPS_DISABLED')) {
         emit(DashboardError(message: 'الرجاء تفعيل خدمة الموقع (GPS) لبدء العمل.'));
       } else if (e.toString().contains('GPS_DENIED_FOREVER')) {
-        // +++ الكي الجراحي: توجيه المندوب للإعدادات بدلاً من تضليله +++
+        // +++   توجيه المندوب للإعدادات بدلاً من تضليله +++
         emit(DashboardError(message: 'صلاحية الموقع مرفوضة نهائياً. افتح إعدادات الجهاز وامنح التطبيق صلاحية الموقع ثم أعد المحاولة.'));
       } else if (e.toString().contains('GPS_DENIED')) {
         emit(DashboardError(message: 'صلاحية الموقع مطلوبة لبدء العمل.'));
@@ -589,7 +589,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         return;
       }
 
-      // +++ الكي الجراحي: إضافة كافة حالات الـ Offline لمنع الخطأ الوهمي +++
+      // +++   إضافة كافة حالات الـ Offline لمنع الخطأ الوهمي +++
       final isOffline = e.response == null || 
                         e.type == DioExceptionType.connectionTimeout || 
                         e.type == DioExceptionType.receiveTimeout || 
@@ -599,7 +599,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
                         e.error.toString().contains('SocketException');
 
       final data = e.response?.data;
-      // +++ الكي الجراحي (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
+      // +++  (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
       final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
       emit(DashboardError(message: isOffline 
           ? 'لا يمكن إنهاء العمل وأنت أوفلاين. يجب الاتصال بالإنترنت لمطابقة العهدة وتسليمها.' 
@@ -623,7 +623,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       add(FetchDashboardData(driverId: event.driverId));
       
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) return; // +++ الكي الجراحي لـ Bug 6: منع الشبح والـ SnackBar الأحمر عند انتهاء الجلسة +++
+      if (e.response?.statusCode == 401) return; // +++  لـ Bug 6: منع الشبح والـ SnackBar الأحمر عند انتهاء الجلسة +++
       if (e.response?.statusCode == 404) {
         await _dashboardRepo.clearSessionLocally();
         if (state is DashboardLoaded) emit((state as DashboardLoaded).copyWith(actionSuccessMessage: 'الجلسة غير موجودة على السيرفر! تم إعادة الضبط 🧹'));
@@ -631,11 +631,11 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         return;
       }
       final data = e.response?.data;
-      // +++ الكي الجراحي (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
+      // +++  (البند 10): التوافق مع بنية أخطاء Pydantic/FastAPI +++
       final msg = (data is Map) ? (data['message'] ?? data['detail']) : 'فشل (استجابة غير متوقعة)';
       emit(DashboardError(message: 'خطأ: $msg'));
     } catch (e) {
       emit(DashboardError(message: 'فشل في عملية الاستراحة.'));
     }
   }
-} // +++ الكي الجراحي: هذا القوس اللي طار وكسرلك الملف كله! +++
+} // +++   هذا القوس اللي طار وكسرلك الملف كله! +++

@@ -7,9 +7,9 @@ interface PendingRoutesTableProps {
   onPostponeRoute: (id: string) => void;
   onCloseZone: (route: PendingRoute) => void;
   onForceWithdraw: (route: PendingRoute) => void;
-  // +++ النسف المعماري 1: إزالة onUndoEndWork لأنه كود ميت ومكانه بالصفحة الرئيسية +++
+  // +++  1: إزالة onUndoEndWork لأنه كود ميت ومكانه بالصفحة الرئيسية +++
 
-  // +++ النسف المعماري 2: استخدام Map بدل استدعاء دالة داخل الـ Loop لضمان أداء طلقة O(1) +++
+  // +++  2: استخدام Map بدل استدعاء دالة داخل الـ Loop لضمان أداء طلقة O(1) +++
   driverShortagesMap: Record<string, number>;
 
   onAdjustInventory: (route: PendingRoute) => void;
@@ -31,9 +31,9 @@ export function PendingRoutesTable({
     return <p className="text-sm text-slate-500 p-6 text-center">لا توجد مناطق معلقة حالياً.</p>;
   }
 
-  // +++ النسف المعماري 3: فصل غابة الشروط (Nested Ternaries) بدالة نظيفة ومقروءة +++
+  // +++  3: فصل غابة الشروط (Nested Ternaries) بدالة نظيفة ومقروءة +++
   const renderActionButtons = (route: PendingRoute) => {
-    // +++ النسف المعماري 4: زر الرادار أصبح "مستقلاً" ويظهر في جميع الحالات لمنع العمى المحاسبي +++
+    // +++  4: زر الرادار أصبح "مستقلاً" ويظهر في جميع الحالات لمنع العمى المحاسبي +++
     const radarButton = (
       <button
         key="radar-btn"

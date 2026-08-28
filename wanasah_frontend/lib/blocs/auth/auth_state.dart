@@ -44,7 +44,7 @@ class AuthUnauthenticated extends AuthState {
 /// نادراً ما تُستخدم، لكنها موجودة لاستيعاب أي استثناء.
 class AuthError extends AuthState {
   final String message;
-  final DateTime timestamp; // +++ الكي الجراحي: ختم زمني لإجبار الشاشة على إظهار الخطأ حتى لو تكرر نصاً +++
+  final DateTime timestamp; // +++   ختم زمني لإجبار الشاشة على إظهار الخطأ حتى لو تكرر نصاً +++
 
   AuthError({required this.message}) : timestamp = DateTime.now();
 

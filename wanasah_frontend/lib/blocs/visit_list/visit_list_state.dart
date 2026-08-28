@@ -29,7 +29,7 @@ class VisitListLoaded extends VisitListState {
 
 class VisitListError extends VisitListState {
   final String message;
-  final DateTime timestamp; // +++ الكي الجراحي: ختم زمني لإجبار الواجهة على إظهار الأخطاء المتكررة +++
+  final DateTime timestamp; // +++   ختم زمني لإجبار الواجهة على إظهار الأخطاء المتكررة +++
 
   VisitListError(this.message) : timestamp = DateTime.now();
 

@@ -100,7 +100,7 @@ async def get_admin_dashboard_data(
 ):
 
     today_date = get_utc_now().date()
-    # +++ النسف المعماري للانفصام الزمني (Timezone Drift): تجهيز الحدود الزمنية النقية لمنع الـ Full Table Scan +++
+    # +++  للانفصام الزمني (Timezone Drift): تجهيز الحدود الزمنية النقية لمنع الـ Full Table Scan +++
     today_start = datetime.combine(today_date, datetime.min.time())
     today_end = today_start + timedelta(days=1)
     limit_date_start = today_start - timedelta(days=14)
@@ -120,7 +120,7 @@ async def get_admin_dashboard_data(
     session_ids = [s.id for s in sessions]
     driver_ids = [s.driver_id for s in sessions]
     
-    # 2. +++ النسف المحاسبي (SQL Conditional Aggregation): فصل الزيارات عن المبيعات الناجحة +++
+    # 2. +++المحاسبي (SQL Conditional Aggregation): فصل الزيارات عن المبيعات الناجحة +++
     stmt_stats = select(
         Visit.work_session_id,
         func.count(Visit.id).label('total_visits'),
@@ -277,7 +277,7 @@ async def get_session_settlement_report(
     )
     stats = (await db.execute(stmt_stats)).first()
 
-    # 3. +++ النسف المعماري لفضيحة الشبح: ربط الـ Pending גلسة اليوم حصراً وليس بتاريخ المندوب +++
+    # 3. +++  لفضيحة الشبح: ربط الـ Pending גلسة اليوم حصراً وليس بتاريخ المندوب +++
     stmt_pending = select(func.count(Visit.id)).filter(
         Visit.work_session_id == session_id, 
         Visit.status == 'Pending'
@@ -353,7 +353,7 @@ async def get_session_settlement_report(
     elif session.end_time:
         status_str = "مغلقة بانتظار المحاسبة"
 
-    # +++ النسف المعماري لألغام التواريخ والـ AttributeError +++
+    # +++  لألغام التواريخ والـ AttributeError +++
     if getattr(session, 'session_date', None):
         final_date = session.session_date.isoformat()
     elif session.start_time:
@@ -605,7 +605,7 @@ async def settle_session(
                             ))
 
                         old_wh_balance = wh_record.available_quantity_packs or 0
-                        # +++ الكي الجراحي 1: منع كراش الـ NoneType +++
+                        # +++  1: منع كراش الـ NoneType +++
                         wh_record.available_quantity_packs = old_wh_balance + loose_packs
 
                         db.add(WarehouseLedger(
@@ -638,7 +638,7 @@ async def settle_session(
                         ))
                     
                     old_wh_balance = wh_record.available_quantity_packs or 0
-                    # +++ الكي الجراحي 2: منع كراش الـ NoneType +++
+                    # +++  2: منع كراش الـ NoneType +++
                     wh_record.available_quantity_packs = old_wh_balance + sellable_qty
                     
                     db.add(WarehouseLedger(
@@ -764,7 +764,7 @@ async def dispatch_route(
             await db.rollback() # +++ B-07: سحق ثغرة تسريب الأقفال (Lock Leak) +++
             raise HTTPException(status_code=404, detail="المندوب غير موجود.")
 
-        # +++ الكي الجراحي 1 (Phase 3b): قفل السيارة والمنطقة لمنع (Phantom Reads) وسباق الإشارات (Split-Brain) +++
+        # +++  1 (Phase 3b): قفل السيارة والمنطقة لمنع (Phantom Reads) وسباق الإشارات (Split-Brain) +++
         stmt_veh_lock = select(Vehicle).filter_by(id=payload.vehicle_id).order_by(Vehicle.id.asc()).with_for_update()
         veh_lock = (await db.execute(stmt_veh_lock)).scalar_one_or_none()
         if not veh_lock:
@@ -776,7 +776,7 @@ async def dispatch_route(
         if not zone_lock:
             await db.rollback()
             raise HTTPException(status_code=404, detail="المنطقة غير موجودة.")
-        # +++ الكي الجراحي: درع Split-Brain لمنع إطلاق خط سير لمنطقة مؤرشفة حديثاً +++
+        # +++   درع Split-Brain لمنع إطلاق خط سير لمنطقة مؤرشفة حديثاً +++
         if not getattr(zone_lock, 'is_active', True):
             await db.rollback()
             raise HTTPException(status_code=400, detail="مرفوض: المنطقة مؤرشفة ولا يمكن إطلاق خط سير لها.")
@@ -875,7 +875,7 @@ async def dispatch_route(
                         
                     if delta_packs > 0: 
                         if wh_record.available_quantity_packs < delta_packs:
-                            # +++ النسف المعماري (MissingGreenlet Shield): بناء الخطأ قبل الـ rollback لمنع الـ Async Crash +++
+                            # +++  (MissingGreenlet Shield): بناء الخطأ قبل الـ rollback لمنع الـ Async Crash +++
                             req_c, req_p = divmod(delta_packs, packs_per_carton)
                             av_c, av_p = divmod(wh_record.available_quantity_packs, packs_per_carton)
                             req_str = f"{req_c} كرتونة" + (f" و {req_p} حبة" if req_p else "") if req_c else f"{req_p} حبة"
@@ -919,7 +919,7 @@ async def dispatch_route(
                 stmt_sinvs = select(SessionInventory).filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(all_involved_pids)).order_by(SessionInventory.product_variant_id.asc()).with_for_update()
                 bulk_sinvs = {si.product_variant_id: si for si in (await db.execute(stmt_sinvs)).scalars().all()} if all_involved_pids else {}
                 
-                # +++ النسف المعماري (الرياضيات النقية): جلب خريطتين منفصلتين. واحدة للسحوبات (للتشيك الأمني) وواحدة للكل (للفروقات) +++
+                # +++  (الرياضيات النقية): جلب خريطتين منفصلتين. واحدة للسحوبات (للتشيك الأمني) وواحدة للكل (للفروقات) +++
                 stmt_pending_all = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
                     InventoryTransfer.work_session_id == active_session.id,
                     InventoryTransfer.product_variant_id.in_(all_involved_pids),
@@ -961,7 +961,7 @@ async def dispatch_route(
                             raise HTTPException(status_code=400, detail=f"مرفوض: رصيد المندوب الحالي من ({variant.variant_name}) لا يكفي لتسجيل هذا السحب.")
                         # (نقطة هامة: لا نعدل المستودع هنا! التعديل يتم عند موافقة المندوب كما في فلاسك)
                     
-                    # +++ النسف المعماري (The Double-Load Exploit): لا نعدل VehicleLoad هنا إطلاقاً! التعديل يتم فقط بعد موافقة المندوب في respond_to_transfer لمنع تدبيل البضاعة مرتين في قاعدة البيانات +++
+                    # +++  (The Double-Load Exploit): لا نعدل VehicleLoad هنا إطلاقاً! التعديل يتم فقط بعد موافقة المندوب في respond_to_transfer لمنع تدبيل البضاعة مرتين في قاعدة البيانات +++
                     if delta_packs == 0: continue 
 
                     wh_record = bulk_warehouse.get(p_id)
@@ -1009,7 +1009,7 @@ async def dispatch_route(
         shops_in_zone = (await db.execute(stmt_shops)).scalars().all()
         shop_ids = [s.id for s in shops_in_zone]
         
-        # +++ النسف المعماري الحقيقي: إبقاء الـ Timezone ليتطابق مع الداتابيز ومنع كراش Offset-Naive +++
+        # +++  الحقيقي: إبقاء الـ Timezone ليتطابق مع الداتابيز ومنع كراش Offset-Naive +++
         today_start = get_utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
         
@@ -1085,7 +1085,7 @@ async def get_vehicle_inventory(
     current_admin: Driver = Depends(get_current_admin)
 ):
 
-    # 1. النسف المعماري لسيارة الأشباح (نفس منطق الفلاسك)
+    # 1.  لسيارة الأشباح (نفس منطق الفلاسك)
     # +++ نسف ثغرة  ـ MultipleResultsFound بوضع Limit 1 مطابق للفلاسك +++
     stmt_unsettled = select(WorkSession).join(
         DispatchRoute, DispatchRoute.work_session_id == WorkSession.id
@@ -1155,7 +1155,7 @@ async def get_route_live_inventory(
     if not route or not route.driver_id:
         raise HTTPException(status_code=404, detail="خط السير غير موجود أو غير مرتبط بمندوب.")
 
-    # +++ النسف المعماري لـ 500 Crash: استخدام Limit(1) بدلاً من scalar_one_or_none +++
+    # +++  لـ 500 Crash: استخدام Limit(1) بدلاً من scalar_one_or_none +++
     stmt_session = select(WorkSession).filter_by(
         driver_id=route.driver_id, 
         is_settled=False
@@ -1290,7 +1290,7 @@ async def adjust_route_inventory(
             aggregated_deltas[item.product_id] = aggregated_deltas.get(item.product_id, 0) + item.delta_cartons
 
         prod_ids = list(aggregated_deltas.keys())
-        prod_ids.sort() # +++ النسف المعماري للـ Deadlock: الترتيب إجباري قبل قفل المستودع +++
+        prod_ids.sort() # +++  للـ Deadlock: الترتيب إجباري قبل قفل المستودع +++
 
         # 5. جلب الداتا كـ O(1) Batch Fetch
         stmt_vars = select(ProductVariant).filter(ProductVariant.id.in_(prod_ids))
@@ -1486,7 +1486,7 @@ async def get_route_transfers(
     if not route or not route.driver_id:
         return []
 
-    # +++ النسف المعماري (حرج 4): إبقاء الحوالات مرئية للإدارة حتى بعد إنهاء العمل وقبل التسوية +++
+    # +++  (حرج 4): إبقاء الحوالات مرئية للإدارة حتى بعد إنهاء العمل وقبل التسوية +++
     # +++ درع الحماية: استخدام limit(1) لسحق كراش MultipleResultsFound +++
     stmt_session = select(WorkSession).filter_by(
         driver_id=route.driver_id, 
@@ -1590,7 +1590,7 @@ async def bulk_update_shops(
         zone_ids_to_check = set()
         for s in payload:
             if s.archived is False:
-                # +++ الكي الجراحي: إجبار التحويل لنص لمنع AttributeError +++
+                # +++   إجبار التحويل لنص لمنع AttributeError +++
                 clean_id = str(s.id).replace('s', '')
                 z_id = s.zoneId
                 if not z_id and clean_id in bulk_shops:
@@ -1636,7 +1636,7 @@ async def bulk_update_shops(
                 if s_data.zoneId is not None and str(s_data.zoneId).isdigit():
                     shop.zone_id = int(s_data.zoneId)
                     
-        # 5. الكي الجراحي: إلغاء الزيارات المعلقة للمحلات التي تم أرشفتها للتو (Cascade Cancel)
+        # 5.   إلغاء الزيارات المعلقة للمحلات التي تم أرشفتها للتو (Cascade Cancel)
         if archived_shop_ids:
             stmt_cancel = update(Visit).where(
                 Visit.shop_id.in_(archived_shop_ids), 
@@ -1821,7 +1821,7 @@ async def get_active_routes(
     session_ended_map = {} 
     
     if driver_ids:
-        # +++ النسف المعماري لـ "كمين الصفر": نعد المحلات المعلقة بضربة واحدة للداتابيز (O(1)) +++
+        # +++  لـ "كمين الصفر": نعد المحلات المعلقة بضربة واحدة للداتابيز (O(1)) +++
         active_zone_ids = list({r.zone_id for r in routes if r.status == 'active' and r.zone_id})
         
         if active_zone_ids:
@@ -1920,7 +1920,7 @@ async def update_route_status(
     is_activating = (new_status == 'active') or (not new_status and route.status == 'active')
     
     if is_activating:
-        # +++ الكي الجراحي 2 (Phase 3b): قفل الأصول وتصحيح الـ Status Code إلى 409 بدلاً من 400 ليتوافق مع اختبارات الضغط +++
+        # +++  2 (Phase 3b): قفل الأصول وتصحيح الـ Status Code إلى 409 بدلاً من 400 ليتوافق مع اختبارات الضغط +++
         if target_driver_id:
             await db.execute(select(Driver).filter_by(id=target_driver_id).order_by(Driver.id.asc()).with_for_update())
             stmt_dup_driver = select(DispatchRoute).filter(DispatchRoute.driver_id == target_driver_id, DispatchRoute.status == 'active', DispatchRoute.id != route.id)
@@ -1975,7 +1975,7 @@ async def update_route_status(
         # ========================================================
         if new_driver_id: 
             if new_driver_id != route.driver_id:
-                # +++ لغم الـ Null Driver (الكي الجراحي): لا ننظف إلا إذا كان هناك مندوب قديم فعلاً +++
+                # +++ لغم الـ Null Driver (): لا ننظف إلا إذا كان هناك مندوب قديم فعلاً +++
                 if route.driver_id:
                     # +++ قفل الجلسة القديمة لمنع تضارب الإنهاء أثناء التبديل +++
                     stmt_old_sess = select(WorkSession).with_for_update().filter_by(driver_id=route.driver_id, end_time=None).limit(1)
@@ -2038,6 +2038,16 @@ async def update_route_status(
                                     if v_load: v_load.quantity = actual_cartons
                                     else: db.add(VehicleLoad(vehicle_id=route.vehicle_id, product_variant_id=live_inv.product_variant_id, quantity=actual_cartons))
                                 
+                                # +++  (The Stolen Goods Exploit): تصفير عهدة المندوب القديم بعد سحب البضاعة منه وتوثيق الحركة مالياً لمنع اتهامه بعجز وهمي بآلاف الدنانير +++
+                                old_quantity = live_inv.current_remaining_quantity
+                                live_inv.current_remaining_quantity = 0
+                                db.add(InventoryLedger(
+                                    work_session_id=old_active_session.id, driver_id=route.driver_id, vehicle_id=route.vehicle_id,
+                                    product_variant_id=live_inv.product_variant_id, transaction_type='ROUTE_REASSIGNMENT_PULL', 
+                                    expected_quantity=old_quantity, actual_quantity=0, difference=-old_quantity, 
+                                    admin_id=current_admin.id, notes=f"سحب العهدة آلياً بسبب تحويل خط السير لمندوب آخر (ID: {new_driver_id})."
+                                ))
+                                
                         old_active_session.end_time = get_utc_now()
                         
                         # +++ تحرير البضاعة المحجوزة للمنتجات الجديدة أو الموجودة +++
@@ -2083,7 +2093,7 @@ async def update_route_status(
             active_session = (await db.execute(stmt_active_sess)).scalars().first() if stmt_active_sess is not None else None
             
             if not active_session:
-                # +++ النسف المعماري لكارثة تبخر المستودع (Warehouse Evaporation): حساب الفروقات بدقة وإرجاعها/سحبها من المستودع المركزي قبل تعديل السيارة لمنع ضياع البضاعة +++
+                # +++  لكارثة تبخر المستودع (Warehouse Evaporation): حساب الفروقات بدقة وإرجاعها/سحبها من المستودع المركزي قبل تعديل السيارة لمنع ضياع البضاعة +++
                 prod_ids_to_check = [int(p) for p, q in payload.inventory.items() if str(q).strip() != '']
                 # +++ قفل VehicleLoad أولاً لمنع Deadlock متصالب مع ترتيب أقفال باقي الدوال +++
                 stmt_existing_vl = select(VehicleLoad).with_for_update().filter_by(vehicle_id=route.vehicle_id)
@@ -2164,7 +2174,7 @@ async def update_route_status(
                     stmt_sinv = select(SessionInventory).with_for_update().filter(SessionInventory.work_session_id == active_session.id, SessionInventory.product_variant_id.in_(prod_ids_to_update))
                     bulk_sinvs = {si.product_variant_id: si for si in (await db.execute(stmt_sinv)).scalars().all()}
 
-                    # +++ النسف المعماري: خريطتين منفصلتين لمنع من رصيد وهمي قيد الإيداع +++
+                    # +++  خريطتين منفصلتين لمنع من رصيد وهمي قيد الإيداع +++
                     stmt_pending_all = select(InventoryTransfer.product_variant_id, func.sum(InventoryTransfer.quantity_packs)).filter(
                         InventoryTransfer.work_session_id == active_session.id,
                         InventoryTransfer.product_variant_id.in_(prod_ids_to_update),
@@ -2201,7 +2211,7 @@ async def update_route_status(
                         safe_packs_per_carton = variant.packs_per_carton if variant.packs_per_carton else 1
                         new_actual_qty_packs = new_actual_qty_cartons * safe_packs_per_carton
                             
-                        # +++ النسف المعماري لثغرة التدبيل: ترك VehicleLoad دون مساس. الاعتماد الكلي على المصافحة +++
+                        # +++  لثغرة التدبيل: ترك VehicleLoad دون مساس. الاعتماد الكلي على المصافحة +++
                         sess_inv = bulk_sinvs.get(p_id)
                         current_live_packs = sess_inv.current_remaining_quantity if sess_inv else 0
                         existing_all_pending = pending_all_map.get(p_id, 0)
@@ -2263,7 +2273,7 @@ async def update_route_status(
             shop_ids = [s.id for s in shops_in_zone]
             
             if shop_ids:
-                # +++ الكي الجراحي: جلب جلسة المندوب الجديد لربطها بالأيتام فوراً +++
+                # +++   جلب جلسة المندوب الجديد لربطها بالأيتام فوراً +++
                 stmt_new_sess = select(WorkSession).filter_by(driver_id=route.driver_id, end_time=None).limit(1)
                 new_active_sess = (await db.execute(stmt_new_sess)).scalars().first()
                 
@@ -2279,7 +2289,7 @@ async def update_route_status(
                 ).values(**update_vals)
                 await db.execute(stmt_adopt_orphans)
                 
-                # +++ النسف المعماري الحقيقي: توحيد Naive UTC لمنع تعارض قواعد البيانات +++
+                # +++  الحقيقي: توحيد Naive UTC لمنع تعارض قواعد البيانات +++
                 today_start = get_utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
                 today_end = today_start + timedelta(days=1)
                 
@@ -2513,7 +2523,7 @@ async def archive_zone(
         raise HTTPException(status_code=400, detail=f"مرفوض: يوجد خط سير نشط أو قيد الانتظار يعمل في منطقة ({zone.name}). يجب إغلاق خط السير أولاً.")
 
     try:
-        # +++ النسف المعماري لجريمة الـ N+1 (Cascade Archive O(1)) +++
+        # +++  لجريمة الـ N+1 (Cascade Archive O(1)) +++
         # تحديث آلاف المحلات بضربة واحدة في قاعدة البيانات بدون تحميلها في الذاكرة
         stmt_archive_shops = update(Shop).where(Shop.zone_id == zone_id).values(is_archived=True)
         await db.execute(stmt_archive_shops)
@@ -2625,7 +2635,7 @@ async def restore_zone(
 
     try:
         zone.is_active = True
-        # +++ الكي الجراحي (B-03): استعادة جميع محلات المنطقة تلقائياً +++
+        # +++  (B-03): استعادة جميع محلات المنطقة تلقائياً +++
         stmt_restore_shops = update(Shop).where(Shop.zone_id == zone_id).values(is_archived=False)
         await db.execute(stmt_restore_shops)
         
@@ -2690,7 +2700,7 @@ async def edit_shop_details(
             if zone_str.isdigit():
                 shop.zone_id = int(zone_str)
         
-        # 5. الكي الجراحي: تحديث الأموال بـ Decimal نقي ومحمي من الفراغات (ونسف لغم الـ Falsy Zero)
+        # 5.   تحديث الأموال بـ Decimal نقي ومحمي من الفراغات (ونسف لغم الـ Falsy Zero)
         # +++ إصلاح AttributeError: alias يقبل camelCase في الإدخال فقط؛ الخاصية الفعلية max_debt_limit +++
         val_limit = payload.max_debt_limit
         if val_limit is not None:
@@ -2807,7 +2817,7 @@ async def add_shortages(
         if not shop_ids:
             return {"message": "لا توجد محلات صالحة لإضافة الطلبات (أو أنها مؤرشفة)."}
         
-        # +++ النسف المعماري الحقيقي: توحيد Naive UTC لمنع تعارض قواعد البيانات +++
+        # +++  الحقيقي: توحيد Naive UTC لمنع تعارض قواعد البيانات +++
         today_start = get_utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
         
@@ -3116,7 +3126,7 @@ async def bulk_import_shops(
                 safe_debt = Decimal('0.0')
 
             try:
-                # +++ الكي الجراحي (B-06): حماية الصفر (0) من اعتباره Falsy Value +++
+                # +++  (B-06): حماية الصفر (0) من اعتباره Falsy Value +++
                 raw_seq = str(s.sequence).strip() if s.sequence is not None else '999'
                 safe_seq = int(float(raw_seq)) 
             except Exception:

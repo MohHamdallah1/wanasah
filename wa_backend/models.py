@@ -177,7 +177,7 @@ class WorkSession(Base):
     driver_id    = Column(Integer, ForeignKey('drivers.id'), nullable=False, index=True)
     start_time   = Column(DateTime, nullable=False, default=utc_now)           # FIX ①
     end_time     = Column(DateTime, nullable=True,  index=True)
-    # +++ الكي الجراحي (Issue 3): توحيد الزمن (Naive UTC) لنسف تعارضات قاعدة البيانات +++
+    # +++  (Issue 3): توحيد الزمن (Naive UTC) لنسف تعارضات قاعدة البيانات +++
     session_date = Column(Date,     nullable=False, default=lambda: utc_now().date(), index=True)
     start_latitude  = Column(Numeric(10, 7), nullable=True)
     start_longitude = Column(Numeric(10, 7), nullable=True)
@@ -204,7 +204,7 @@ class SessionInventory(Base):
     work_session_id    = Column(Integer, ForeignKey('work_sessions.id'),    nullable=False) # تمت إزالة الـ index المكرر بسبب الـ UniqueConstraint
     product_variant_id = Column(Integer, ForeignKey('product_variants.id'), nullable=False, index=True)
     
-    # +++ النسف المعماري (حرج 3): فصل حمولة الصباح عن التعديلات لمنع تدمير تقارير الجرد +++
+    # +++  (حرج 3): فصل حمولة الصباح عن التعديلات لمنع تدمير تقارير الجرد +++
     starting_quantity          = Column(Integer, nullable=False, default=0)
     net_transfers              = Column(Integer, nullable=False, default=0) # موجب للحوالة المستلمة، سالب للحوالة المسحوبة
     current_remaining_quantity = Column(Integer, CheckConstraint('current_remaining_quantity >= 0', name='chk_positive_inventory'), nullable=False, default=0)
@@ -226,7 +226,7 @@ class Shop(Base):
     contact_person = Column(String(100), nullable=True)
     zone_id        = Column(Integer, ForeignKey('zones.id', ondelete='SET NULL'),
                                nullable=True, index=True)
-    # +++ النسف المعماري: حماية الـ Decimal، فرض server_default، وتطبيق سياسة (SET NULL) لحماية الداتابيز +++
+    # +++  حماية الـ Decimal، فرض server_default، وتطبيق سياسة (SET NULL) لحماية الداتابيز +++
     current_balance  = Column(Numeric(12, 3), CheckConstraint('current_balance >= 0', name='chk_positive_balance'), nullable=False, default=Decimal('0.000'), server_default='0.000')
     max_debt_limit   = Column(Numeric(12, 3), CheckConstraint('max_debt_limit >= 0', name='chk_positive_max_debt'), nullable=False, default=Decimal('0.000'), server_default='0.000')
     added_by_driver_id = Column(Integer, ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True)
@@ -246,7 +246,7 @@ class Shop(Base):
 # =================================================================================
 class DispatchRoute(Base):
     __tablename__ = 'dispatch_routes'
-    # +++ النسف المعماري الشامل لثغرة الـ Race Condition (Partial Unique Indexes) +++
+    # +++  الشامل لثغرة الـ Race Condition (Partial Unique Indexes) +++
     __table_args__ = (
         # توحيد شمول 'postponed' لجميع الفهارس لمنع تخصيص مندوب لخط جديد بينما لديه خط مؤجل
         Index('uq_active_route_per_driver', 'driver_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
@@ -259,7 +259,7 @@ class DispatchRoute(Base):
     driver_id       = Column(Integer, ForeignKey('drivers.id'),       nullable=True,  index=True)
     vehicle_id      = Column(Integer, ForeignKey('vehicles.id'),      nullable=True,  index=True)
     work_session_id = Column(Integer, ForeignKey('work_sessions.id'), nullable=True,  index=True)
-    # +++ الكي الجراحي (Issue 3): توحيد الزمن لنسف الانفصام الزمني +++
+    # +++  (Issue 3): توحيد الزمن لنسف الانفصام الزمني +++
     dispatch_date   = Column(Date,    nullable=False, default=lambda: utc_now().date(), index=True)
     status          = Column(String(50), nullable=False, default='waiting', index=True)
     created_at      = Column(DateTime,   nullable=False, default=utc_now)  # FIX ①
@@ -402,7 +402,7 @@ class ShortageRequest(Base):
 class OfferRule(Base):
     __tablename__ = 'offer_rules'
     id                 = Column(Integer, primary_key=True)
-    # +++ الكي الجراحي (G-01): ربط العرض بمنتج معين. (Null تعني عرض عام لجميع المنتجات) +++
+    # +++  (G-01): ربط العرض بمنتج معين. (Null تعني عرض عام لجميع المنتجات) +++
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='CASCADE'), nullable=True, index=True)
     threshold_quantity = Column(Integer, nullable=False)
     offer_type         = Column(String(50), nullable=False)
@@ -445,7 +445,7 @@ class InventoryLedger(Base):
     transaction_type: Deficit (عجز) | Surplus (زيادة) | Adjustment (تعديل)
     """
     __tablename__ = 'inventory_ledgers'
-    # +++ الكي الجراحي (G-04): إجبار الداتابيز على حساب الفرق بدقة لمنع التلاعب المالي +++
+    # +++  (G-04): إجبار الداتابيز على حساب الفرق بدقة لمنع التلاعب المالي +++
     __table_args__ = (
         CheckConstraint('difference = actual_quantity - expected_quantity', name='chk_ledger_difference'),
     )

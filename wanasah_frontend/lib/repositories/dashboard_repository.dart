@@ -85,7 +85,7 @@ class DashboardRepository {
   }
 
   Future<void> cacheDashboardData(Map<String, String> data) async {
-    // +++ الكي الجراحي لـ Bug 3: التخزين بشكل متسلسل لحماية الـ KeyStore في أجهزة الأندرويد من الكراش +++
+    // +++  لـ Bug 3: التخزين بشكل متسلسل لحماية الـ KeyStore في أجهزة الأندرويد من الكراش +++
     for (final entry in data.entries) {
       await _storage.write(key: entry.key, value: entry.value);
     }

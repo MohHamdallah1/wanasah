@@ -79,7 +79,7 @@ class _VisitScreenState extends State<VisitScreen> {
     super.initState();
     _visitBloc = VisitBloc();
 
-    // +++ النسف المعماري للـ Jank (التداخل): تأخير العمليات الثقيلة حتى ينتهي Navigator Animation +++
+    // +++  للـ Jank (التداخل): تأخير العمليات الثقيلة حتى ينتهي Navigator Animation +++
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _visitBloc.add(LoadVisitCatalog(widget.shopBalance));
@@ -173,7 +173,7 @@ class _VisitScreenState extends State<VisitScreen> {
 
           if (!mounted) return;
 
-          // +++ النسف المعماري: السماح بتعديل المسودة الأوفلاين (Local Authority) +++
+          // +++  السماح بتعديل المسودة الأوفلاين (Local Authority) +++
           if (isOfflineDraft) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -186,7 +186,7 @@ class _VisitScreenState extends State<VisitScreen> {
             );
           }
 
-          // +++ النسف المعماري (متوسط 3): إنذار الكاش المزلزل لمنع السرقة أو نسيان إرجاع المال +++
+          // +++  (متوسط 3): إنذار الكاش المزلزل لمنع السرقة أو نسيان إرجاع المال +++
           final double oldCash = double.tryParse(visitData['cash_collected']?.toString() ?? '0') ?? 0.0;
           final double oldDebt = double.tryParse(visitData['debt_paid']?.toString() ?? '0') ?? 0.0;
           final double totalOldMoney = oldCash + oldDebt;
@@ -243,7 +243,7 @@ class _VisitScreenState extends State<VisitScreen> {
         }
       }
 
-      // +++ النسف المعماري: استخراج الحالة للتحقق من المزامنة العكسية بأمان +++
+      // +++  استخراج الحالة للتحقق من المزامنة العكسية بأمان +++
       final String? currentStatus =
           visitData['status'] ?? visitData['visit_status'];
 
@@ -256,11 +256,11 @@ class _VisitScreenState extends State<VisitScreen> {
         _notesController.text =
             offlinePayload['notes'] ?? offlinePayload['no_sale_reason'] ?? '';
 
-        // +++ النسف المعماري (حرج 5): استرجاع السلة والتوالف من الخزنة السرية إذا كانت الزيارة أوفلاين +++
+        // +++  (حرج 5): استرجاع السلة والتوالف من الخزنة السرية إذا كانت الزيارة أوفلاين +++
         if (offlinePayload['cart_items'] != null ||
             offlinePayload['returns'] != null) {
           
-          // +++ الكي الجراحي الأضخم: إجبار الكود على الانتظار حتى يجهز البلوك (VisitReady) قبل حقن الفاتورة +++
+          // +++  الأضخم: إجبار الكود على الانتظار حتى يجهز البلوك (VisitReady) قبل حقن الفاتورة +++
           // +++ درع التعليق اللانهائي: الخروج من الانتظار إذا نجح التحميل أو فشل لمنع تجميد التطبيق +++
           if (_visitBloc.state is! VisitReady) {
             await _visitBloc.stream.firstWhere(
@@ -379,7 +379,7 @@ class _VisitScreenState extends State<VisitScreen> {
 
             if (state is VisitError) {
               setState(() => _isSubmitting = false);
-              ScaffoldMessenger.of(context).clearSnackBars(); // +++ الكي الجراحي: مسح الطابور +++
+              ScaffoldMessenger.of(context).clearSnackBars(); // +++   مسح الطابور +++
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(state.message), backgroundColor: Colors.red),
               );
@@ -389,7 +389,7 @@ class _VisitScreenState extends State<VisitScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('تم حفظ العملية بنجاح.'), backgroundColor: Colors.green),
               );
-              // +++ الكي الجراحي: التأكد أن الشاشة ما زالت في الواجهة قبل إغلاقها لمنع قتل التطبيق +++
+              // +++   التأكد أن الشاشة ما زالت في الواجهة قبل إغلاقها لمنع قتل التطبيق +++
               if (context.mounted && ModalRoute.of(context)?.isCurrent == true) {
                 Navigator.pop(context, true);
               }
@@ -412,7 +412,7 @@ class _VisitScreenState extends State<VisitScreen> {
               return;
             }
             final bool shouldPop = await _onWillPop();
-            // +++ الكي الجراحي: استخدام context.mounted بشكل صريح وحصري بعد الـ await لمنع خطأ الـ Async Gap +++
+            // +++   استخدام context.mounted بشكل صريح وحصري بعد الـ await لمنع خطأ الـ Async Gap +++
             if (!context.mounted) return; 
             if (shouldPop) {
               Navigator.of(context).pop();
@@ -430,7 +430,7 @@ class _VisitScreenState extends State<VisitScreen> {
                   if (_isCatalogMode) {
                     setState(() => _isCatalogMode = false);
                   } else {
-                    // +++ الكي الجراحي لـ Bug 2: تفويض الخروج للـ PopScope لمنع تكرار رسالة التأكيد مرتين +++
+                    // +++  لـ Bug 2: تفويض الخروج للـ PopScope لمنع تكرار رسالة التأكيد مرتين +++
                     Navigator.maybePop(context);
                   }
                 },
@@ -549,7 +549,7 @@ class _VisitScreenState extends State<VisitScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.grey.shade200)),
           child: ListTile(
             title: Text(item.name, style: TextStyle(fontWeight: FontWeight.bold, color: isLocked ? Colors.grey : Colors.black)),
-            // +++ الكي الجراحي لـ Bug 7: عرض توالف وإكسباير مصنع بدلاً من مصفوفة الـ returns الفارغة +++
+            // +++  لـ Bug 7: عرض توالف وإكسباير مصنع بدلاً من مصفوفة الـ returns الفارغة +++
             subtitle: Text('المبيع: ${item.cartons}ك | ${item.packs}ح  -  مرتجع/توالف: ${item.returnFactoryCartons + item.returnExpiredCartons}ك | ${item.returnFactoryPacks + item.returnExpiredPacks}ح'),
             trailing: Text(
               item.totalSalePrice > 0 ? '${item.totalSalePrice.toStringAsFixed(3)} د.أ' : 'مجاني / مرتجع', 
@@ -633,7 +633,7 @@ class _VisitScreenState extends State<VisitScreen> {
                           if (await canLaunchUrl(phoneUri)) {
                             await launchUrl(phoneUri);
                           } else {
-                            // +++ النسف المعماري لخطأ الـ Async Gap: فحص الـ context حصرياً +++
+                            // +++  لخطأ الـ Async Gap: فحص الـ context حصرياً +++
                             if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('تعذر فتح تطبيق الاتصال'), backgroundColor: Colors.red),
@@ -866,7 +866,7 @@ class _VisitScreenState extends State<VisitScreen> {
       }
     }
 
-    // +++ الكي الجراحي: درع حماية المخزون من البيع الوهمي (محدث ليشمل المرتجعات كالبلوك) +++
+    // +++   درع حماية المخزون من البيع الوهمي (محدث ليشمل المرتجعات كالبلوك) +++
     for (var item in state.cart) {
       final int requestedPacks = (item.cartons * item.packsPerCarton) + item.packs + 
                                  (item.sampleCartons * item.packsPerCarton) + item.samplePacks +
@@ -910,7 +910,7 @@ class _VisitScreenState extends State<VisitScreen> {
       unlock(); return;
     }
 
-    // +++ الكي الجراحي: تم إزالة فحص (مبلغ السداد > ذمة المحل) لأنه يمنع تعديل الفواتير المكتملة بشكل خاطئ +++
+    // +++   تم إزالة فحص (مبلغ السداد > ذمة المحل) لأنه يمنع تعديل الفواتير المكتملة بشكل خاطئ +++
     // النظام سيعتمد على فحص سقف الدين (expectedNewTotalBalance) والباك إند لحماية الأرصدة.
 
     if (state.netInvoice > 0 && cashEntered > state.netInvoice) {
@@ -922,7 +922,7 @@ class _VisitScreenState extends State<VisitScreen> {
     final double newInvoiceDebt = state.netInvoice - cashEntered; // ما تبقى من الفاتورة كدين
     final double expectedNewTotalBalance = widget.shopBalance - debtPaidEntered + newInvoiceDebt;
 
-    // +++ الكي الجراحي لـ Bug 5: استخدام هامش التقريب (Epsilon 0.0001) لمنع رفض الفواتير الصحيحة +++
+    // +++  لـ Bug 5: استخدام هامش التقريب (Epsilon 0.0001) لمنع رفض الفواتير الصحيحة +++
     if ((expectedNewTotalBalance - _maxDebtLimit) > 0.0001) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -933,14 +933,14 @@ class _VisitScreenState extends State<VisitScreen> {
           duration: const Duration(seconds: 6), // مدة أطول ليقرأ المندوب التفاصيل
         ),
       );
-      unlock(); // +++ الكي الجراحي: فك قفل الزر لكي لا يعلق المندوب للأبد ويخسر فاتورته +++
+      unlock(); // +++   فك قفل الزر لكي لا يعلق المندوب للأبد ويخسر فاتورته +++
       return;
     }
 
     // 5. استنتاج النتيجة الذكي (Smart Outcome)
     String finalOutcome = 'NoSale';
     bool hasSales = state.cart.any((i) => i.cartons > 0 || i.packs > 0);
-    // +++ الكي الجراحي لـ Bug 7: قراءة القيم الحقيقية للمرتجعات +++
+    // +++  لـ Bug 7: قراءة القيم الحقيقية للمرتجعات +++
     bool hasReturns = state.cart.any((i) => i.returnFactoryCartons > 0 || i.returnFactoryPacks > 0 || i.returnExpiredCartons > 0 || i.returnExpiredPacks > 0);
     bool hasSamples = state.cart.any(
       (i) => i.sampleCartons > 0 || i.samplePacks > 0,
@@ -952,7 +952,7 @@ class _VisitScreenState extends State<VisitScreen> {
       // +++ عودة للمنطق التجاري السليم (بيزنس أبو علي): المرتجعات أو العينات بدون مبيعات تعتبر NoSale +++
       finalOutcome = 'NoSale';
     } else if (state.cart.isEmpty) {
-      // +++ النسف المعماري (متوسط 4): إجبار الندوب على تقديم مبرر دائماً إذا كانت السلة فارغة، حتى لو سدد ذمة (منع التناقض) +++
+      // +++  (متوسط 4): إجبار الندوب على تقديم مبرر دائماً إذا كانت السلة فارغة، حتى لو سدد ذمة (منع التناقض) +++
       final result = await showDialog<String>(
         context: context,
         builder:
@@ -1096,7 +1096,7 @@ class _SearchableCatalogState extends State<_SearchableCatalog> {
                 final cartItem = cartItemIndex != -1 ? widget.cart[cartItemIndex] : null;
 
                 return _AccordionProductCard(
-                  key: ValueKey(product.id), // +++ الكي الجراحي لـ Bug 6: لمنع انتقال الكميات لمنتج آخر عند البحث +++
+                  key: ValueKey(product.id), // +++  لـ Bug 6: لمنع انتقال الكميات لمنتج آخر عند البحث +++
                   product: product,
                   cartItem: cartItem,
                   isExpanded: true, 
@@ -1143,7 +1143,7 @@ class _AccordionProductCard extends StatefulWidget {
   final VoidCallback onCartUpdated;
 
   const _AccordionProductCard({
-    super.key, // +++ الكي الجراحي: السماح للكلاس باستقبال الـ Key لمنع الخطأ +++
+    super.key, // +++   السماح للكلاس باستقبال الـ Key لمنع الخطأ +++
     required this.product,
     required this.cartItem,
     required this.isExpanded,
@@ -1204,10 +1204,10 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
   }
 
   void _syncFromProp() {
-    // +++ الكي الجراحي: إزالة الإغلاق الإجباري للأكورديون (كان ينهار في وجه المندوب مع كل نقرة) +++
+    // +++   إزالة الإغلاق الإجباري للأكورديون (كان ينهار في وجه المندوب مع كل نقرة) +++
     if (widget.cartItem != null) {
       final item = widget.cartItem!;
-      // +++ الكي الجراحي: تحديث النص فقط إذا اختلف لمنع طيران المؤشر (Cursor Hijacking) أثناء الطباعة +++
+      // +++   تحديث النص فقط إذا اختلف لمنع طيران المؤشر (Cursor Hijacking) أثناء الطباعة +++
       void safeUpdate(TextEditingController ctrl, String val) {
         if (ctrl.text != val) ctrl.text = val;
       }
@@ -1249,7 +1249,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
     int smpC = int.tryParse(smpCartons.text) ?? 0;
     int smpP = int.tryParse(smpPacks.text) ?? 0;
 
-    // +++ الكي الجراحي لـ Bug 3: لا نحذف المنتج فوراً أثناء تصفير الحقل كي لا يضيع تركيز الكيبورد +++
+    // +++  لـ Bug 3: لا نحذف المنتج فوراً أثناء تصفير الحقل كي لا يضيع تركيز الكيبورد +++
     // سيتم إرساله للـ BLoC بكميات صفرية، وسيتولى البلوك فلترته عند الحفظ النهائي.
     final updatedItem = CartItemModel(
       productVariantId: widget.product.id,
@@ -1257,7 +1257,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
       pricePerCarton: widget.product.pricePerCarton,
       pricePerPack: widget.product.pricePerPack,
       packsPerCarton: widget.product.packsPerCarton,
-      // +++ الكي الجراحي: استخدام الكمية المتاحة في السلة (التي تشمل المحجوز) بدلاً من الخام +++
+      // +++   استخدام الكمية المتاحة في السلة (التي تشمل المحجوز) بدلاً من الخام +++
       availableCartons: widget.cartItem?.availableCartons ?? widget.product.currentCartons,
       availablePacks: widget.cartItem?.availablePacks ?? widget.product.currentPacks,
       cartons: sc,
@@ -1283,7 +1283,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
         onChanged: (_) => _commitToBloc(), 
         textAlign: TextAlign.center,
         keyboardType: TextInputType.number,
-        // +++ الكي الجراحي: منع السوالب والفواصل كلياً في حقول الكميات +++
+        // +++   منع السوالب والفواصل كلياً في حقول الكميات +++
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
         decoration: InputDecoration(
@@ -1298,7 +1298,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
               HapticFeedback.lightImpact();
               int curr = int.tryParse(controller.text) ?? 0;
               if (curr > 0) {
-                // +++ الكي الجراحي لـ Bug 9: إبقاء مؤشر الكيبورد في نهاية النص لمنع طفرات الكتابة +++
+                // +++  لـ Bug 9: إبقاء مؤشر الكيبورد في نهاية النص لمنع طفرات الكتابة +++
                 final newVal = (curr - 1).toString();
                 controller.value = TextEditingValue(text: newVal, selection: TextSelection.collapsed(offset: newVal.length));
                 _commitToBloc(); 

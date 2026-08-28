@@ -20,7 +20,7 @@ import uuid
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter(tags=["Authentication"])
 
-# +++ الكي الجراحي (A-02): هاش ثابت مسبق الحساب لمنع إرهاق الـ CPU وبطء السيرفر عند كل إعادة تشغيل +++
+# +++  (A-02): هاش ثابت مسبق الحساب لمنع إرهاق الـ CPU وبطء السيرفر عند كل إعادة تشغيل +++
 DUMMY_PASSWORD_HASH = "$2b$12$C.O1Tz2R8o7Vq78UoA61ueh3b7Qz7t0V1H1t.zU0TzO1Q0xO7Qz.O"
 
 class RefreshRequest(BaseModel):
@@ -30,7 +30,7 @@ def create_access_token(data: dict):
     """مفتاح الباب: استخدام Aware UTC لمنع كراش الـ Naive Datetime في PyJWT"""
     to_encode = data.copy()
     expire_timestamp = datetime.now(timezone.utc) + timedelta(minutes=15)
-    # +++ الكي الجراحي: حقن jti (JWT ID) عشوائي لنسف التطابق التام في نفس الميكروثانية +++
+    # +++   حقن jti (JWT ID) عشوائي لنسف التطابق التام في نفس الميكروثانية +++
     to_encode.update({"exp": expire_timestamp, "type": "access", "jti": uuid.uuid4().hex})
     return jwt.encode(to_encode, Config.SECRET_KEY, algorithm="HS256")
 
@@ -38,13 +38,13 @@ def create_refresh_token(data: dict):
     """مفتاح الخزنة: استخدام Aware UTC لمنع كراش الـ Naive Datetime في PyJWT"""
     to_encode = data.copy()
     expire_timestamp = datetime.now(timezone.utc) + timedelta(days=30)
-    # +++ الكي الجراحي: حقن jti عشوائي لنسف انهيار UniqueViolationError في الداتابيز +++
+    # +++   حقن jti عشوائي لنسف انهيار UniqueViolationError في الداتابيز +++
     to_encode.update({"exp": expire_timestamp, "type": "refresh", "jti": uuid.uuid4().hex})
     return jwt.encode(to_encode, Config.SECRET_KEY, algorithm="HS256")
 
 async def check_brute_force(ip: str, db: AsyncSession):
     """درع الحماية مع معالجة الـ Deadlock المحتملة"""
-    # +++ النسف المعماري لهجوم الـ DDoS والـ Permanent Ban +++
+    # +++  لهجوم الـ DDoS والـ Permanent Ban +++
     # إيقاف الـ DELETE مع كل طلب لأنه يفجر الداتابيز بالـ Row Locks أثناء الهجوم
     limit_time = utc_now() - timedelta(minutes=15)
 
@@ -63,7 +63,7 @@ async def check_brute_force(ip: str, db: AsyncSession):
 async def log_failed_attempt(ip: str, db: AsyncSession):
     """توثيق الفشل (FAILED_LOGIN)"""
     try:
-        # +++ النسف المعماري للاستعلام المهدر: لا داعي للبحث عن مشرف لتوثيق اختراق من مجهول +++
+        # +++  للاستعلام المهدر: لا داعي للبحث عن مشرف لتوثيق اختراق من مجهول +++
         audit = SystemAuditLog(
             admin_id=None, # السماح بـ NULL لأن المخترق ليس مشرفاً
             target_id=ip,
@@ -75,12 +75,12 @@ async def log_failed_attempt(ip: str, db: AsyncSession):
         await db.commit()
     except Exception as e:
         await db.rollback()
-        # +++ الكي الجراحي (A-06): منع ابتلاع الأخطاء وتسجيلها لفريق الـ Operations +++
+        # +++  (A-06): منع ابتلاع الأخطاء وتسجيلها لفريق الـ Operations +++
         logger.error(f"Failed to log audit event (FAILED_LOGIN): {e}")
 
 @router.post("/driver/login", response_model=LoginResponse)
 async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # +++ الكي الجراحي (Local Import): نسف الاستيراد الدائري الذي يشل تشغيل السيرفر +++
+    # +++  (Local Import): نسف الاستيراد الدائري الذي يشل تشغيل السيرفر +++
     from main import get_real_ip
     ip = get_real_ip(request)
     failed_count = await check_brute_force(ip, db)
@@ -88,7 +88,7 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
     stmt = select(Driver).filter_by(username=payload.username, is_active=True)
     driver = (await db.execute(stmt)).scalar_one_or_none()
 
-    # +++ النسف المعماري الشامل: منع (Timing Attack) وحماية (SQLAlchemy) من شلل الـ Threads +++
+    # +++  الشامل: منع (Timing Attack) وحماية (SQLAlchemy) من شلل الـ Threads +++
     hash_to_check = driver.password_hash if driver else DUMMY_PASSWORD_HASH
     pwd_bytes = payload.password.encode('utf-8')
     hash_bytes = hash_to_check.encode('utf-8')
@@ -125,7 +125,7 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
 
 @router.post("/login", response_model=LoginResponse)
 async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # +++ الكي الجراحي (Local Import): حماية الـ Runtime من الـ Circular Dependency +++
+    # +++  (Local Import): حماية الـ Runtime من الـ Circular Dependency +++
     from main import get_real_ip
     ip = get_real_ip(request)
     await check_brute_force(ip, db)
@@ -133,7 +133,7 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
     stmt = select(Driver).filter_by(username=payload.username, is_active=True)
     admin = (await db.execute(stmt)).scalar_one_or_none()
 
-    # +++ الكي الجراحي (A-03): التحقق من أنه مشرف *قبل* فحص الباسوورد لمنع تسريب المعلومات واستهلاك الـ CPU +++
+    # +++  (A-03): التحقق من أنه مشرف *قبل* فحص الباسوورد لمنع تسريب المعلومات واستهلاك الـ CPU +++
     is_valid_admin = admin is not None and admin.is_admin
     hash_to_check = admin.password_hash if is_valid_admin else DUMMY_PASSWORD_HASH
     
@@ -180,8 +180,8 @@ async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depen
             raise HTTPException(status_code=401, detail="توكن غير صالح.")
         driver_id = int(sub_val)
         
-        # +++ الكي الجراحي: البحث عن التوكن بدون is_revoked لتجنب مشاكل فحص البوليان في قواعد البيانات +++
-        stmt = select(RefreshToken).filter_by(token=payload.refresh_token)
+        # +++ البحث عن التوكن مع قفل التزامن (with_for_update) لنسف الـ Race Condition عند إرسال طلبات متزامنة من React +++
+        stmt = select(RefreshToken).filter_by(token=payload.refresh_token).with_for_update()
         db_token = (await db.execute(stmt)).scalars().first()
         
         if not db_token:
@@ -219,6 +219,11 @@ async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depen
 @router.post("/logout", status_code=200)
 async def logout(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)):
     access_token = credentials.credentials
+    
+    # +++ حماية السيرفر من هجوم الإغراق (DoS) بنصوص ضخمة تؤدي لانهيار قاعدة البيانات +++
+    if len(access_token) > 500:
+        raise HTTPException(status_code=400, detail="توكن غير صالح.")
+        
     # قراءة الـ Refresh Token من الهيدر (إن وجد)
     refresh_token = request.headers.get("X-Refresh-Token")
     

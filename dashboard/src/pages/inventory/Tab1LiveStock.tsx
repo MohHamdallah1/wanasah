@@ -44,7 +44,7 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* +++ النسف المعماري للنواقص المخفية: جعل التنبيه Clickable لفلترة الجدول فوراً +++ */}
+      {/* +++  للنواقص المخفية: جعل التنبيه Clickable لفلترة الجدول فوراً +++ */}
       {alerts.length > 0 && (
         <div
           onClick={() => setShowOnlyAlerts(!showOnlyAlerts)}

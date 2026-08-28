@@ -4,7 +4,7 @@ import 'dart:async'; // لاستخدام TimeoutException
 import '../core/network/api_client.dart'; // +++ الملحق المعماري للاتصالات +++
 import 'package:dio/dio.dart'; // +++ لمعالجة أخطاء الشبكة بذكاء +++
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../services/location_service.dart'; // +++ الكي الجراحي: استيراد خدمة الموقع المركزية المحصنة +++
+import '../services/location_service.dart'; // +++   استيراد خدمة الموقع المركزية المحصنة +++
 
 class AddShopScreen extends StatefulWidget {
   const AddShopScreen({super.key});
@@ -76,7 +76,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
     developer.log('Starting location fetching via LocationService...');
     
     try {
-      // +++ الكي الجراحي: الاعتماد على الخدمة المركزية المحصنة ضد الـ Fake GPS وتزوير الوقت +++
+      // +++   الاعتماد على الخدمة المركزية المحصنة ضد الـ Fake GPS وتزوير الوقت +++
       final position = await LocationService.instance.getCurrentLocation();
       
       if (mounted) {
@@ -131,7 +131,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
     final bool isGpsValid = _currentLatitude != null && _currentLongitude != null && locationText.startsWith('Lat:');
     final bool isLinkValid = !isGpsValid && locationText.isNotEmpty;
 
-    // +++ الكي الجراحي (SHP-2): التحقق الموحد لمنع ثغرة الـ Ghost GPS تماماً +++
+    // +++  (SHP-2): التحقق الموحد لمنع ثغرة الـ Ghost GPS تماماً +++
     if (!isGpsValid && !isLinkValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('الرجاء تحديد الموقع عبر الـ GPS أو وضع رابط صحيح للموقع!'), backgroundColor: Colors.red),
@@ -170,7 +170,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
 
       if (!mounted) return;
 
-      // +++ الكي الجراحي: حماية الشاشة من التجميد في حال تغير كود النجاح من الباك إند +++
+      // +++   حماية الشاشة من التجميد في حال تغير كود النجاح من الباك إند +++
       if (response.statusCode == 201 || response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -231,7 +231,7 @@ class _AddShopScreenState extends State<AddShopScreen> {
   Widget build(BuildContext context) {
     // Scaffold لا يمكن أن تكون const بسبب الـ body والـ AppBar
     return Scaffold(
-      // +++ النسف المعماري لظاهرة الأشباح: إغلاق الثقب البصري بلون صلب حتى اكتمال تصميم الواجهة الزجاجية +++
+      // +++  لظاهرة الأشباح: إغلاق الثقب البصري بلون صلب حتى اكتمال تصميم الواجهة الزجاجية +++
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         backgroundColor: Colors.grey.shade50,

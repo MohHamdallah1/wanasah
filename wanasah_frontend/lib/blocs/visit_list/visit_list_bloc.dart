@@ -5,14 +5,14 @@ import '../../core/db/local_database.dart';
 import '../../models/visit_model.dart';
 import 'visit_list_event.dart';
 import 'visit_list_state.dart';
-import 'package:dio/dio.dart'; // +++ الكي الجراحي: استيراد Dio للتمييز بين الانقطاع وأخطاء الأعمال +++
+import 'package:dio/dio.dart'; // +++   استيراد Dio للتمييز بين الانقطاع وأخطاء الأعمال +++
 
 // +++ استيراد الـ Sync Repository +++
 import '../../repositories/sync_repository.dart';
 
 class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
   final LocalDatabase _db;
-  final SyncRepository _syncRepository; // +++ الكي الجراحي لـ Bug 3 +++
+  final SyncRepository _syncRepository; // +++  لـ Bug 3 +++
 
   VisitListBloc({LocalDatabase? db, SyncRepository? syncRepo})
     : _db = db ?? LocalDatabase.instance,
@@ -23,7 +23,7 @@ class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
     on<RefreshVisitsEvent>(_onRefreshVisits); // +++ إضافة الـ Event الجديد +++
   }
 
-  // +++ الكي الجراحي الشامل: دالة مركزية لجلب البيانات من SQLite دون المرور بـ Event Bus +++
+  // +++  الشامل: دالة مركزية لجلب البيانات من SQLite دون المرور بـ Event Bus +++
   Future<void> _loadVisitsInternal(Emitter<VisitListState> emit) async {
     try {
       final List<Map<String, dynamic>> rawVisits = await _db.getVisits();
@@ -40,7 +40,7 @@ class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
 
       List<VisitModel> filtered = visits;
       if (currentFilter != 'All') {
-        // +++ الكي الجراحي: توحيد الفلتر ليكون غير حساس لحالة الأحرف (Case-insensitive) +++
+        // +++   توحيد الفلتر ليكون غير حساس لحالة الأحرف (Case-insensitive) +++
         filtered = visits.where((v) => v.status.toLowerCase() == currentFilter.toLowerCase()).toList();
       }
 
@@ -59,7 +59,7 @@ class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
     LoadVisitsEvent event,
     Emitter<VisitListState> emit,
   ) async {
-    // +++ الكي الجراحي: منع وميض الشاشة المستفز إذا كانت القائمة محملة مسبقاً +++
+    // +++   منع وميض الشاشة المستفز إذا كانت القائمة محملة مسبقاً +++
     if (state is! VisitListLoaded) {
       emit(const VisitListLoading()); // تأكد من وجود const هنا لأننا صلحناها بملف الـ State
     }
@@ -88,7 +88,7 @@ class VisitListBloc extends Bloc<VisitListEvent, VisitListState> {
         await _loadVisitsInternal(emit);
         return;
       }
-      // +++ الكي الجراحي لـ Bug 3: تحميل داخلي مباشر لمنع دورة الـ Event البطيئة +++
+      // +++  لـ Bug 3: تحميل داخلي مباشر لمنع دورة الـ Event البطيئة +++
       await _loadVisitsInternal(emit); 
     } catch (e) {
       developer.log('[VisitListBloc] Error syncing visits: $e');
