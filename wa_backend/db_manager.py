@@ -122,60 +122,90 @@ async def clean_operations():
             print(f"❌  Cleaning Error: {e}")
 
 # ====================================================================
-# 3. Inject Extras (حقن المنتجات الإضافية)
+# 3. Inject Extras (حقن 20 مناديب، سيارات، ومحقونات منتجات إضافية)
 # ====================================================================
 async def inject_extras():
-    print("\n🛒  Injecting extra products and test driver...")
+    print("\n🛒  Injecting 20 Drivers, 20 Vehicles, and 20 Products...")
     async with AsyncSessionLocal() as session:
         try:
-            test_phone = "0799999999"
-            stmt_driver = select(Driver).filter_by(phone_number=test_phone)
-            if not (await session.execute(stmt_driver)).first():
-                new_driver = Driver(username="test_driver2", full_name="مندوب تجارب (مؤقت)", phone_number=test_phone, is_admin=False, is_active=True, can_allow_debt=True)
-                new_driver.set_password("123456")
-                session.add(new_driver)
-            
-            sample_sku = "SAMPLE-001"
-            stmt_sample = select(ProductVariant).filter_by(sku=sample_sku)
-            if not (await session.execute(stmt_sample)).first():
-                stmt_parent = select(Product).filter_by(base_name="عينات ترويجية")
-                parent = (await session.execute(stmt_parent)).scalars().first()
-                if not parent:
-                    parent = Product(base_name="عينات ترويجية", brand="وناسة", category="عينات")
-                    session.add(parent)
-                    await session.flush()
-                new_sample = ProductVariant(product_id=parent.id, variant_name="عينة ترويجية", sku=sample_sku, price_per_carton=Decimal('0.0'), price_per_pack=Decimal('0.0'), packs_per_carton=10, default_max_samples_per_day=5)
-                session.add(new_sample)
-            
-            products_data = [
-                {"base_name": "بسكويت شاي", "brand": "وناسة", "category": "بسكويت", "variants": [
-                    {"name": "بسكويت شاي سادة (كبير)", "sku": "BIS-SH-L", "packs": 24, "price_c": '12.0', "price_p": '0.5'},
-                    {"name": "بسكويت شاي بالكاكاو (صغير)", "sku": "BIS-SH-S", "packs": 48, "price_c": '15.0', "price_p": '0.35'}
-                ]},
-                {"base_name": "كيك وناسة", "brand": "وناسة", "category": "كيك", "variants": [
-                    {"name": "كيك رول فانيلا", "sku": "CAK-ROL-V", "packs": 12, "price_c": '6.0', "price_p": '0.55'},
-                    {"name": "كيك بار شوكولاتة", "sku": "CAK-BAR-C", "packs": 36, "price_c": '18.0', "price_p": '0.5'}
-                ]},
-                {"base_name": "عصير فريش", "brand": "وناسة", "category": "مشروبات", "variants": [
-                    {"name": "عصير برتقال 250 مل", "sku": "JUC-ORG-250", "packs": 24, "price_c": '8.0', "price_p": '0.35'},
-                    {"name": "عصير تفاح 1 لتر", "sku": "JUC-APL-1L", "packs": 6, "price_c": '9.0', "price_p": '1.5'}
-                ]}
+            # 1. إضافة 20 مندوب
+            for i in range(1, 21):
+                username = f"driver_{i}"
+                stmt_driver = select(Driver).filter_by(username=username)
+                if not (await session.execute(stmt_driver)).first():
+                    driver = Driver(
+                        username=username,
+                        full_name=f"مندوب مبيعات {i}",
+                        phone_number=f"0790000{i:03d}",
+                        is_admin=False,
+                        is_active=True,
+                        can_allow_debt=True,
+                        max_debt_limit=Decimal(str(1000 + i * 100))
+                    )
+                    driver.set_password("123456")
+                    session.add(driver)
+
+            # 2. إضافة 20 سيارة
+            v_types = ["باص كيا", "دينا ايسوزو", "تويوتا هايس", "ميتسوبيشي كانتر"]
+            for i in range(1, 21):
+                plate = f"50-{20000 + i}"
+                stmt_v = select(Vehicle).filter_by(plate_number=plate)
+                if not (await session.execute(stmt_v)).first():
+                    v_type = v_types[i % len(v_types)]
+                    vehicle = Vehicle(
+                        plate_number=plate,
+                        vehicle_type=v_type,
+                        current_mileage=50000 + (i * 3500),
+                        maintenance_status="Active"
+                    )
+                    session.add(vehicle)
+
+            # 3. إضافة 20 منتج مع أصنافه (Variants)
+            products_list = [
+                ("بسكويت شاي", "وناسة", "بسكويت", "BIS-SH", 24, "12.0", "0.5"),
+                ("كيك رول فانيلا", "وناسة", "كيك", "CAK-ROL", 12, "6.0", "0.55"),
+                ("عصير برتقال", "وناسة", "مشروبات", "JUC-ORG", 24, "8.0", "0.35"),
+                ("شيبس بطاطس", "وناسة", "تسالي", "CHP-POT", 30, "15.0", "0.5"),
+                ("غزل البنات", "وناسة", "حلويات", "SND-CND", 20, "10.0", "0.5"),
+                ("ويفر شوكولاتة", "وناسة", "بسكويت", "WAF-CHO", 40, "20.0", "0.5"),
+                ("عصير تفاح 1 لتر", "وناسة", "مشروبات", "JUC-APL", 12, "12.0", "1.0"),
+                ("عصير مانجو", "وناسة", "مشروبات", "JUC-MNG", 24, "9.0", "0.40"),
+                ("مكسرات مشكلة", "وناسة", "تسالي", "NUTS-MIX", 15, "30.0", "2.0"),
+                ("فول سوداني محمص", "وناسة", "تسالي", "PEANUT", 24, "12.0", "0.5"),
+                ("شوكولاتة بالحليب", "وناسة", "حلويات", "CHO-MLK", 36, "18.0", "0.5"),
+                ("علكة نعناع", "وناسة", "حلويات", "GUM-MNT", 50, "10.0", "0.2"),
+                ("بسكويت بالتمر", "وناسة", "بسكويت", "BIS-DAT", 24, "14.0", "0.6"),
+                ("كيك شوكولاتة", "وناسة", "كيك", "CAK-CHO", 12, "7.0", "0.6"),
+                ("كرواسون فانيلا", "وناسة", "مخبوزات", "CRO-VAN", 20, "10.0", "0.5"),
+                ("مياه معدنية 500 مل", "وناسة", "مشروبات", "WAT-500", 24, "3.0", "0.15"),
+                ("مياه معدنية 1.5 لتر", "وناسة", "مشروبات", "WAT-1.5L", 12, "4.0", "0.35"),
+                ("شيبس حار نار", "وناسة", "تسالي", "CHP-HOT", 30, "15.0", "0.5"),
+                ("حلوى جلي فواكه", "وناسة", "حلويات", "JEL-CND", 40, "16.0", "0.4"),
+                ("مشروب طاقة", "وناسة", "مشروبات", "ENG-DRK", 24, "24.0", "1.0")
             ]
-            
-            for prod in products_data:
-                stmt_parent = select(Product).filter_by(base_name=prod["base_name"])
+
+            for idx, (b_name, brand, cat, sku_prefix, packs, p_carton, p_pack) in enumerate(products_list, 1):
+                stmt_parent = select(Product).filter_by(base_name=b_name)
                 parent = (await session.execute(stmt_parent)).scalars().first()
                 if not parent:
-                    parent = Product(base_name=prod["base_name"], brand=prod["brand"], category=prod["category"])
+                    parent = Product(base_name=b_name, brand=brand, category=cat)
                     session.add(parent)
                     await session.flush()
-                for var in prod["variants"]:
-                    stmt_var = select(ProductVariant).filter_by(sku=var["sku"])
-                    if not (await session.execute(stmt_var)).first():
-                        session.add(ProductVariant(product_id=parent.id, variant_name=var["name"], sku=var["sku"], packs_per_carton=var["packs"], price_per_carton=Decimal(var["price_c"]), price_per_pack=Decimal(var["price_p"])))
-            
+                
+                sku = f"{sku_prefix}-{idx:03d}"
+                stmt_var = select(ProductVariant).filter_by(sku=sku)
+                if not (await session.execute(stmt_var)).first():
+                    session.add(ProductVariant(
+                        product_id=parent.id,
+                        variant_name=f"{b_name} - قياسي",
+                        sku=sku,
+                        packs_per_carton=packs,
+                        price_per_carton=Decimal(p_carton),
+                        price_per_pack=Decimal(p_pack)
+                    ))
+
             await session.commit()
-            print("✅  Extra products and driver injected successfully!")
+            print("✅  Successfully injected 20 Drivers, 20 Vehicles, and 20 Products/Variants!")
         except Exception as e:
             await session.rollback()
             print(f"❌  Injection Error: {str(e)}")

@@ -1,6 +1,7 @@
 import { Search, Calendar } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Zone } from "@/types/dispatch";
+import { useMemo } from "react";
 
 interface ScheduleModalProps {
   isOpen: boolean;
@@ -41,8 +42,9 @@ export function ScheduleModal({
   onCustomDaysChange,
   onUpdateScheduling,
 }: ScheduleModalProps) {
-  const filteredZones = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase()));
-  const allSelected = filteredZones.length > 0 && filteredZones.every(z => selectedBulkZoneIds.includes(z.id));
+  // +++ الكي الجراحي: استخدام useMemo لمنع تقطيع لوحة المفاتيح أثناء البحث +++
+  const filteredZones = useMemo(() => zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())), [zones, bulkZoneSearch]);
+  const allSelected = useMemo(() => filteredZones.length > 0 && filteredZones.every(z => selectedBulkZoneIds.includes(z.id)), [filteredZones, selectedBulkZoneIds]);
 
   return (
     <Modal

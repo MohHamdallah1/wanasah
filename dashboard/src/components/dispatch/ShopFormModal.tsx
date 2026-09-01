@@ -106,7 +106,8 @@ export function ShopFormModal({
             <input
               type="number"
               value={shopForm.maxDebtLimit}
-              onChange={e => onShopFormChange({ ...shopForm, maxDebtLimit: Number(e.target.value) })}
+              // +++ الكي الجراحي: استخدام Math.max لمنع إدخال ذمم سالبة تكسر الحسابات +++
+              onChange={e => onShopFormChange({ ...shopForm, maxDebtLimit: Math.max(0, Number(e.target.value)) })}
               onFocus={(e) => e.target.select()}
               className="w-full rounded-xl border border-slate-200 pr-9 pl-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
               placeholder="0.00"
@@ -118,7 +119,8 @@ export function ShopFormModal({
           <input
             type="number"
             value={shopForm.initialDebt}
-            onChange={e => onShopFormChange({ ...shopForm, initialDebt: Number(e.target.value) })}
+            // +++ الكي الجراحي: استخدام Math.max لمنع إدخال ذمم سالبة تكسر الحسابات +++
+            onChange={e => onShopFormChange({ ...shopForm, initialDebt: Math.max(0, Number(e.target.value)) })}
             onFocus={(e) => e.target.select()}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
             placeholder="0.00"

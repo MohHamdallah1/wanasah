@@ -20,11 +20,7 @@
 │   ├── components
 │   │   ├── NavLink.tsx
 │   │   ├── dashboard
-│   │   │   ├── ActiveOperationsTable.tsx
-│   │   │   ├── DriverSidebar.tsx
 │   │   │   ├── HeroSettlement.tsx
-│   │   │   ├── MetricCards.tsx
-│   │   │   └── TopNav.tsx
 │   │   ├── dispatch
 │   │   │   ├── PendingRoutesTable.tsx
 │   │   │   ├── ShopTable.tsx

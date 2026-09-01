@@ -28,18 +28,32 @@ export function QuantityInput({
 
   const handleBlur = () => syncFromProp();
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") syncFromProp();
+    // +++ الكي الجراحي: زر Enter يحفظ القيمة وينتقل للحقل التالي فوراً بدون إرسال الفورم +++
+    if (e.key === "Enter") {
+      e.preventDefault();
+      syncFromProp();
+      
+      const allInputs = Array.from(document.querySelectorAll('input[inputmode="numeric"]')) as HTMLInputElement[];
+      const currentIndex = allInputs.indexOf(e.currentTarget);
+      const nextInput = allInputs[currentIndex + 1];
 
-    // +++  التنقل السريع بالأسهم بين عدادات الحمولة +++
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.select();
+      }
+      return;
+    }
+
+    // +++ التنقل السريع بالأسهم بين عدادات الحمولة +++
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault(); // منع تحريك المؤشر داخل خانة النص
+      e.preventDefault();
       const allInputs = Array.from(document.querySelectorAll('input[inputmode="numeric"]')) as HTMLInputElement[];
       const currentIndex = allInputs.indexOf(e.currentTarget);
       const nextInput = e.key === "ArrowDown" ? allInputs[currentIndex + 1] : allInputs[currentIndex - 1];
 
       if (nextInput) {
         nextInput.focus();
-        nextInput.select(); // تحديد النص بالكامل لسرعة التغيير بالكيبورد
+        nextInput.select();
       }
     }
   };
@@ -61,6 +75,7 @@ export function QuantityInput({
       <button
         type="button"
         onClick={dec}
+        tabIndex={-1} // +++ الكي الجراحي: إزالة الزر من مسار الـ Tab لتسريع الإدخال +++
         className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
         aria-label="نقص"
       >
@@ -79,6 +94,7 @@ export function QuantityInput({
       <button
         type="button"
         onClick={inc}
+        tabIndex={-1} // +++ الكي الجراحي: إزالة الزر من مسار الـ Tab لتسريع الإدخال +++
         className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors"
         aria-label="زيادة"
       >

@@ -22,10 +22,22 @@ export function useAuthFetch() {
     const navigate = useNavigate();
 
     const forceLogout = useCallback((message: string) => {
+        // +++ الكي الجراحي (Security): إبلاغ السيرفر بحرق التوكنات (Blacklist & Revoke) قبل مسحها محلياً +++
+        const currentToken = localStorage.getItem("admin_token");
+        const currentRefresh = localStorage.getItem("refresh_token");
+        if (currentToken) {
+            fetch(`${API}/logout`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${currentToken}`,
+                    'X-Refresh-Token': currentRefresh || ''
+                }
+            }).catch(() => {}); // Fire and forget: لا ننتظر الرد لكي لا نؤخر خروج المدير
+        }
+
         localStorage.removeItem("admin_token");
         localStorage.removeItem("refresh_token");
         navigate("/login", { replace: true });
-        // لا داعي لرمي خطأ مرعب، التوجيه يكفي
     }, [navigate]);
 
     return useCallback(async (path: string, opts: RequestInit = {}) => {
@@ -76,6 +88,10 @@ export function useAuthFetch() {
                         const data = await refreshRes.json();
                         
                         localStorage.setItem("admin_token", data.token);
+                        // +++ إغلاق حلقة الـ RTR: حفظ الـ refresh_token الجديد المُدار فوراً (الباكند يبطل القديم — عدم الحفظ هنا = طرد قسري كل 30 دقيقة) +++
+                        if (data.refresh_token) {
+                            localStorage.setItem("refresh_token", data.refresh_token);
+                        }
                         isRefreshing = false;
                         // سيقوم هذا السطر بفك تعليق جميع الطلبات بما فيها الطلب الحالي
                         processQueue(null, data.token); 
@@ -87,23 +103,33 @@ export function useAuthFetch() {
                     }
                 }
 
-                // انتظار الحصول على التوكن الجديد من الطابور (سواء كان هذا الطلب هو من جدد أو غيره)
+                // انتظار الحصول على التوكن الجديد من الطابور
                 const newToken = await newTokenPromise;
 
-                res = await fetch(`${API}${cleanPath}`, {
-                    ...opts,
-                    signal: opts.signal ?? timeoutController.signal,
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${newToken}`,
-                        ...(opts.headers ?? {})
-                    },
-                });
+                // +++ الكي الجراحي (UX): إيقاف العداد القديم وبناء عداد جديد للطلب المعوّض لمنع الانقطاع التعسفي +++
+                clearTimeout(timeoutId); 
+                const retryTimeoutController = new AbortController();
+                const retryTimeoutId = setTimeout(() => retryTimeoutController.abort(), 15_000);
+
+                try {
+                    res = await fetch(`${API}${cleanPath}`, {
+                        ...opts,
+                        signal: opts.signal ?? retryTimeoutController.signal,
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${newToken}`,
+                            ...(opts.headers ?? {})
+                        },
+                    });
+                } finally {
+                    clearTimeout(retryTimeoutId);
+                }
+            } else {
+                // +++ تنظيف العداد للطلب السليم الذي لم يمر بمسار التجديد +++
+                clearTimeout(timeoutId);
             }
 
-            clearTimeout(timeoutId);
-
-            // xử lý lỗi bình thường
+            
             let data: any = null;
             const text = await res.text();
             if (text) {
@@ -115,9 +141,10 @@ export function useAuthFetch() {
             }
 
             if (!res.ok) {
-                // إذا كان 403 (تم إيقافه إدارياً) نوجهه للخروج فوراً
-                if (res.status === 403 && data?.detail?.includes("موقوف")) {
-                    forceLogout("موقوف إدارياً");
+                // إذا كان 403 (حساب موقوف إدارياً) نوجهه للخروج فوراً
+                // نص المطابقة حرفي من dependencies.py:52 ("تم إيقاف حسابك") — لا نطرد عند 403 الصلاحيات العادية (مرفوض أمنياً: لا تملك صلاحية...)
+                if (res.status === 403 && data?.detail?.includes("تم إيقاف حسابك")) {
+                    forceLogout("تم إيقاف حسابك من قبل الإدارة");
                 }
                 const errorInstance: any = new Error(data?.detail || data?.message || `خطأ سيرفر (${res.status})`);
                 throw errorInstance;

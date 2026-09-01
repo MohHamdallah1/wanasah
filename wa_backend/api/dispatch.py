@@ -153,7 +153,11 @@ async def get_admin_dashboard_data(
     inv_map = {}
     for inv in (await db.execute(stmt_inv)).scalars().all():
         inv_map.setdefault(inv.work_session_id, []).append(inv)
-
+    
+    # +++ الكي الجراحي: جلب السيارات المربوطة بالجلسات بضربة O(1) لدعم شاشة العمليات +++
+    stmt_veh = select(DispatchRoute).options(joinedload(DispatchRoute.vehicle)).filter(DispatchRoute.work_session_id.in_(session_ids))
+    veh_map = {r.work_session_id: r.vehicle for r in (await db.execute(stmt_veh)).scalars().all() if r.vehicle}
+    
     # 5. التجميع الصاروخي بالذاكرة
     drivers_data = []
     for session in sessions:
@@ -216,7 +220,9 @@ async def get_admin_dashboard_data(
                 "driver_name": driver.full_name,
                 "start_time": session.start_time.replace(tzinfo=timezone.utc).isoformat() if session.start_time else None,
                 "is_authorized_to_sell": session.is_authorized_to_sell,
-                "is_on_break": is_on_break
+                "is_on_break": is_on_break,
+                # +++ حقن رقم السيارة لكي تعمل نافذة CommandCenter والـ HeroSettlement بشكل مثالي +++
+                "vehicle_label": veh_map[session.id].plate_number if session.id in veh_map else "بدون سيارة"
             },
             "settlement": {
                 "driver_name": driver.full_name,

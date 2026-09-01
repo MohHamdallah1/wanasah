@@ -1,38 +1,42 @@
 import { CheckCircle } from "lucide-react";
-// تم إزالة الاستيراد القديم لـ DriverData لأنه لا يحتوي على الحقول الجديدة من السيرفر
 
 interface HeroSettlementProps {
-  driver: any | null; // +++ درع التجاوز: السماح باستقبال كائن السيرفر الديناميكي (ActiveSessionResponse) بالكامل +++
+  driver: any | null; 
 }
 
 export function HeroSettlement({ driver }: HeroSettlementProps) {
   if (!driver) return null;
 
   const GLOBAL_CURRENCY = "د.أ";
-  const formatMoney = (val: number) => parseFloat(Number(val).toFixed(2)).toLocaleString('en-US');
+  const formatMoney = (val: number | string) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
 
-  const s = driver.session;
-  const f = driver.financials;
-  const inventory = driver.settlement?.inventory || [];
+  // الاستخراج الآمن للبيانات لتجنب أخطاء Undefined
+  const s = driver.session || {};
+  const st = driver.settlement || {};
+  const f = st.financials || {};
+  const inventory = st.inventory || [];
+  
+  const driverName = s.driver_name || st.driver_name || "غير معروف";
 
   return (
     <div className="bg-white rounded-3xl shadow-xl border border-slate-100 p-6 md:p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-300">
       
-      {/* Driver info (Clean Header) */}
+      {/* Driver info */}
       <div className="flex items-center gap-4">
         <div className="w-14 h-14 rounded-full bg-slate-50 border border-slate-200 text-slate-700 flex items-center justify-center font-black text-lg shadow-sm">
-          {s.driver_name.substring(0, 2).toUpperCase()}
+          {/* حماية دالة substring من القيم الفارغة */}
+          {driverName.substring(0, 2).toUpperCase()}
         </div>
         <div>
-          <p className="text-lg font-black text-slate-800">{s.driver_name}</p>
+          <p className="text-lg font-black text-slate-800">{driverName}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{s.vehicle_label}</span>
-            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">{driver.settlement.status}</span>
+            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{s.vehicle_label || "مركبة"}</span>
+            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">{st.status || "نشط"}</span>
           </div>
         </div>
       </div>
 
-      {/* Financial breakdown (Modern Layout) */}
+      {/* Financial breakdown */}
       <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 flex flex-col gap-3">
         <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">الخلاصة المالية</p>
         <div className="flex justify-between items-center text-sm">
@@ -52,7 +56,7 @@ export function HeroSettlement({ driver }: HeroSettlementProps) {
         </div>
       </div>
 
-      {/* Smart Inventory Section (Cartons + Loose) */}
+      {/* Smart Inventory Section */}
       <div className="flex flex-col gap-3">
         <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">تفاصيل المخزون (كرتونة وفرط)</p>
         
@@ -64,8 +68,11 @@ export function HeroSettlement({ driver }: HeroSettlementProps) {
               const ppc = item.packs_per_carton || 1;
               const soldCartons = Math.floor((item.sold_quantity || 0) / ppc);
               const soldLoose = (item.sold_quantity || 0) % ppc;
-              const remainCartons = Math.floor((item.current_quantity || 0) / ppc);
-              const remainLoose = (item.current_quantity || 0) % ppc;
+              
+              // تصحيح الحقل ليتطابق مع مخرجات السيرفر (remaining_quantity)
+              const remainingQuantity = item.remaining_quantity || item.current_remaining_quantity || 0;
+              const remainCartons = Math.floor(remainingQuantity / ppc);
+              const remainLoose = remainingQuantity % ppc;
               
               return (
                 <div key={idx} className="bg-white border border-slate-200 hover:border-blue-300 transition-colors rounded-xl p-3 flex flex-col gap-2 shadow-sm">

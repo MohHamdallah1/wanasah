@@ -483,6 +483,8 @@ class AdminSessionInfo(BaseModel):
     start_time: Optional[str] = None
     is_authorized_to_sell: bool
     is_on_break: bool
+    # +++ الكي الجراحي: السماح للباك-إند بتمرير رقم السيارة للداشبورد +++
+    vehicle_label: Optional[str] = "بدون سيارة"
 
 class AdminFinancials(BaseModel):
     model_config = ConfigDict(from_attributes=True)

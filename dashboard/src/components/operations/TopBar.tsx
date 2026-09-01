@@ -23,12 +23,35 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    // 1. مسح كل البيانات من المتصفح
+  const handleLogout = async () => {
+    // 1. حرق الجلسة خلفياً: إبطال الـ access (Blacklist) والـ refresh (حذف من القاعدة) قبل مسح المتصفح
+    const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+    const adminToken = localStorage.getItem('admin_token');
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (API_URL && adminToken) {
+      try {
+        // مهلة قصيرة: لا نُبقي المشرف عالقاً إذا كان الاتصال سيئاً — الخروج المحلي يكتمل دائماً
+        await Promise.race([
+          fetch(`${API_URL}/logout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${adminToken}`,
+              ...(refreshToken ? { 'X-Refresh-Token': refreshToken } : {}),
+            },
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('logout timeout')), 1500)),
+        ]);
+      } catch {
+        // تجاهل: انقطاع الشبكة لا يمنع تسجيل الخروج محلياً
+      }
+    }
+
+    // 2. مسح كل البيانات من المتصفح
     localStorage.clear();
     sessionStorage.clear();
     
-    // 2. الخيار النووي: طرد المتصفح بالكامل وإعادة تحميل الصفحة من الصفر
+    // 3. الخيار النووي: طرد المتصفح بالكامل وإعادة تحميل الصفحة من الصفر
     window.location.replace('/login');
   };
 

@@ -1,34 +1,3 @@
-├── .ai-review
-│   ├── 00_PROJECT_MAP.md
-│   ├── 01_ARCHITECTURE.md
-│   ├── 02_DATA_FLOW.md
-│   ├── 03_DEPENDENCY_GRAPH.md
-│   ├── 04_BUSINESS_RULES.md
-│   ├── FINAL_REPORT.md
-│   ├── REMEDIATION_TRACKER.md
-│   ├── REMEDIATION_TRACKER2.md
-│   ├── production
-│   │   └── production_readiness.md
-│   └── reviews
-│       ├── backend
-│       │   ├── auth.md
-│       │   ├── dispatch.md
-│       │   ├── driver.md
-│       │   └── warehouse.md
-│       ├── cross-stack
-│       │   └── system.md
-│       ├── database
-│       │   └── schema.md
-│       ├── frontend
-│       │   ├── dashboard.md
-│       │   └── flutter.md
-│       └── security
-│           └── security.md
-├── .gitignore
-├── .rules
-├── .vscode
-│   └── settings.json
-├── RUN.txt
 ├── dashboard
 │   ├── .env
 │   ├── .env.example
@@ -37,26 +6,20 @@
 │   ├── bun.lockb
 │   ├── components.json
 │   ├── dashboard_structure.txt
+│   ├── dist
 │   ├── eslint.config.js
 │   ├── index.html
 │   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
 │   ├── public
-│   │   ├── favicon.ico
-│   │   ├── placeholder.svg
-│   │   └── robots.txt
 │   ├── src
 │   │   ├── App.css
 │   │   ├── App.tsx
 │   │   ├── components
 │   │   │   ├── NavLink.tsx
 │   │   │   ├── dashboard
-│   │   │   │   ├── ActiveOperationsTable.tsx
-│   │   │   │   ├── DriverSidebar.tsx
-│   │   │   │   ├── HeroSettlement.tsx
-│   │   │   │   ├── MetricCards.tsx
-│   │   │   │   └── TopNav.tsx
+│   │   │   │   └── HeroSettlement.tsx
 │   │   │   ├── dispatch
 │   │   │   │   ├── AdjustInventoryModal.tsx
 │   │   │   │   ├── BulkTransferModal.tsx
@@ -81,61 +44,7 @@
 │   │   │   │   ├── SettlementModal.tsx
 │   │   │   │   └── TopBar.tsx
 │   │   │   └── ui
-│   │   │       ├── accordion.tsx
-│   │   │       ├── alert-dialog.tsx
-│   │   │       ├── alert.tsx
-│   │   │       ├── aspect-ratio.tsx
-│   │   │       ├── avatar.tsx
-│   │   │       ├── badge.tsx
-│   │   │       ├── breadcrumb.tsx
-│   │   │       ├── button.tsx
-│   │   │       ├── calendar.tsx
-│   │   │       ├── card.tsx
-│   │   │       ├── carousel.tsx
-│   │   │       ├── chart.tsx
-│   │   │       ├── checkbox.tsx
-│   │   │       ├── collapsible.tsx
-│   │   │       ├── command.tsx
-│   │   │       ├── context-menu.tsx
-│   │   │       ├── custom-select.tsx
-│   │   │       ├── dialog.tsx
-│   │   │       ├── drawer.tsx
-│   │   │       ├── dropdown-menu.tsx
-│   │   │       ├── form.tsx
-│   │   │       ├── hover-card.tsx
-│   │   │       ├── input-otp.tsx
-│   │   │       ├── input.tsx
-│   │   │       ├── label.tsx
-│   │   │       ├── menubar.tsx
-│   │   │       ├── modal.tsx
-│   │   │       ├── navigation-menu.tsx
-│   │   │       ├── pagination.tsx
-│   │   │       ├── popover.tsx
-│   │   │       ├── progress.tsx
-│   │   │       ├── quantity-input.tsx
-│   │   │       ├── radio-group.tsx
-│   │   │       ├── resizable.tsx
-│   │   │       ├── scroll-area.tsx
-│   │   │       ├── select.tsx
-│   │   │       ├── separator.tsx
-│   │   │       ├── sequence-input.tsx
-│   │   │       ├── sheet.tsx
-│   │   │       ├── sidebar.tsx
-│   │   │       ├── skeleton.tsx
-│   │   │       ├── slider.tsx
-│   │   │       ├── sonner.tsx
-│   │   │       ├── switch.tsx
-│   │   │       ├── table.tsx
-│   │   │       ├── tabs.tsx
-│   │   │       ├── textarea.tsx
-│   │   │       ├── toast.tsx
-│   │   │       ├── toaster.tsx
-│   │   │       ├── toggle-group.tsx
-│   │   │       ├── toggle.tsx
-│   │   │       ├── tooltip.tsx
-│   │   │       └── use-toast.ts
 │   │   ├── data
-│   │   │   ├── dashboard-data.ts
 │   │   │   └── operations-data.ts
 │   │   ├── hooks
 │   │   │   ├── use-mobile.tsx
@@ -143,7 +52,6 @@
 │   │   │   └── useAuthFetch.ts
 │   │   ├── index.css
 │   │   ├── lib
-│   │   │   └── utils.ts
 │   │   ├── main.tsx
 │   │   ├── pages
 │   │   │   ├── DispatchBoard.tsx
@@ -158,8 +66,6 @@
 │   │   │       ├── Tab4Ledger.tsx
 │   │   │       └── inventoryUtils.ts
 │   │   ├── test
-│   │   │   ├── example.test.ts
-│   │   │   └── setup.ts
 │   │   ├── types
 │   │   │   └── dispatch.ts
 │   │   └── vite-env.d.ts
@@ -169,10 +75,6 @@
 │   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   └── vitest.config.ts
-├── documentation
-│   ├── ~$ة العمل الجديدة.docx
-│   ├── ~WRL3084.tmp
-│   └── مقدمة تعريفية.docx
 ├── wa_backend
 │   ├── .env
 │   ├── alembic
@@ -180,8 +82,6 @@
 │   │   ├── env.py
 │   │   ├── script.py.mako
 │   │   └── versions
-│   │       ├── 56c127cae59d_initial_clean_schema.py
-│   │       └── be4ccee5ee8d_harden_models_constraints_and_server_.py
 │   ├── alembic.ini
 │   ├── api
 │   │   ├── auth.py
@@ -198,13 +98,9 @@
 │   ├── requirements.txt
 │   ├── schemas.py
 │   ├── scripts
-│   │   ├── backup_db.sh
-│   │   ├── generate_migration.sh
-│   │   ├── run_migration.sh
-│   │   ├── test_e2e_report.txt
-│   │   ├── test_e2e_stress_simulation.py
-│   │   └── test_smoke.py
 │   ├── services.py
+│   ├── venv_wsl
+│   │   └── pyvenv.cfg
 │   └── ws_manager.py
 └── wanasah_frontend
     ├── .env
@@ -257,5 +153,4 @@
     ├── pubspec.lock
     ├── pubspec.yaml
     ├── test
-    │   └── widget_test.dart
     └── wanasah_frontend.iml

@@ -11,6 +11,7 @@ interface CustomSelectProps {
   className?: string;
   placeholder?: string;
   disabled?: boolean;
+  labelBg?: string; // +++ الكي الجراحي: السماح للمطور بتحديد لون خلفية الكلمة لتطابق الحاوية +++
 }
 
 export function CustomSelect({
@@ -21,6 +22,7 @@ export function CustomSelect({
   className = "",
   placeholder = "—",
   disabled = false,
+  labelBg = "bg-white", // +++ اللون الافتراضي أبيض +++
 }: CustomSelectProps) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -44,13 +46,20 @@ export function CustomSelect({
   );
 
   return (
-    <div ref={ref} className={`flex flex-col gap-1.5 ${className}`}>
-      {label && <span className="text-xs font-semibold text-slate-600">{label}</span>}
+    <div ref={ref} className={`relative mt-2 ${className}`}>
+      {/* +++ الكي الجراحي: تحويل العنوان (Label) ليكون Floating Badge يقطع الإطار +++ */}
+      {label && (
+        // +++ الكي الجراحي: استخدام labelBg لتختفي الكلمة بنعومة داخل أي خلفية +++
+        <span className={`absolute -top-2 right-3 px-1.5 text-[10px] font-black text-slate-500 z-10 leading-none ${labelBg}`}>
+          {label}
+        </span>
+      )}
       <div className="relative">
         <button
           type="button"
           onClick={() => !disabled && setOpen((p) => !p)}
-          className={`w-full min-w-[180px] rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors flex items-center justify-between gap-2 ${
+          // +++ تقليل الارتفاع (py-2 بدل py-2.5) لكسب مساحة عمودية أكبر +++
+          className={`w-full min-w-[180px] rounded-xl border px-4 py-2 text-sm font-medium transition-colors flex items-center justify-between gap-2 ${
             disabled
               ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed"
               : "bg-white border-slate-300 text-slate-800 hover:bg-slate-50 hover:border-slate-400"

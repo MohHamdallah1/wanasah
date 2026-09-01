@@ -1,4 +1,5 @@
-export type TabId = "routes" | "zones";
+// +++ الكي الجراحي: إضافة تبويب الإطلاق لتطابق الـ UI +++
+export type TabId = "routes" | "zones" | "launch";
 export type ScheduleStatus = "overdue" | "soon" | "upcoming" | "future" | "today" | "null" | null;
 export type RouteStatus = "waiting" | "active" | "postponed";
 

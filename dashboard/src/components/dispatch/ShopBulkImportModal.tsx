@@ -6,6 +6,8 @@ import { Upload, ClipboardPaste, FileDown, Trash2, AlertCircle, CheckCircle2, Ar
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { toast } from "sonner";
+// +++ الكي الجراحي: استيراد الهوك الأمني +++
+import { useAuthFetch } from "@/hooks/useAuthFetch";
 
 interface ShopBulkImportModalProps {
     isOpen: boolean;
@@ -27,11 +29,13 @@ interface ParsedShop {
 }
 
 export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops, onSuccess }: ShopBulkImportModalProps) {
+    const authenticatedFetch = useAuthFetch(); // +++ تفعيل الهوك +++
     const [step, setStep] = useState<1 | 2>(1);
     const [selectedZoneId, setSelectedZoneId] = useState("");
     const [pasteText, setPasteText] = useState("");
     const [gridData, setGridData] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [fileName, setFileName] = useState<string>(""); // +++ حفظ اسم الملف +++
 
     // +++ متغيرات المسودة والتعارض +++
     const [hasDraft, setHasDraft] = useState(false);
@@ -78,7 +82,7 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops, onSuc
             if (fileInputRef.current) fileInputRef.current.value = "";
             return toast.error("⚠️ يرجى اختيار المنطقة أولاً");
         }
-
+        setFileName(file.name); // +++ حفظ اسم الملف قبل مسح الـ Ref +++
         const reader = new FileReader();
         reader.onload = (evt) => {
             const bstr = evt.target?.result;
@@ -147,10 +151,9 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops, onSuc
     const handleBulkImport = async () => {
         if (stats.invalid > 0) return toast.error("يرجى تصحيح الأخطاء الحمراء قبل الرفع");
 
-        const token = localStorage.getItem("admin_token") || localStorage.getItem("token");
         const payload = {
             zoneId: selectedZoneId,
-            fileName: fileInputRef.current?.files?.[0]?.name || "لصق سريع",
+            fileName: fileName || "لصق سريع", // +++ استخدام الاسم المحفوظ +++
             shops: gridData.map((row, index) => ({
                 name: row.name,
                 phone: row.phone,
@@ -163,14 +166,11 @@ export function ShopBulkImportModal({ isOpen, onClose, zones, activeShops, onSuc
 
         const toastId = toast.loading("جاري رفع المحلات وحماية قاعدة البيانات...");
         try {
-            const res = await fetch(import.meta.env.VITE_API_URL + "/dispatch/shops/bulk_import", {
+            // +++ الكي الجراحي: استخدام authenticatedFetch لضمان التجديد الصامت للتوكن +++
+            const resData = await authenticatedFetch("/dispatch/shops/bulk_import", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                 body: JSON.stringify(payload)
             });
-
-            const resData = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(resData.message || "حدث خطأ أثناء الرفع");
 
             toast.success(resData.message || "تم رفع المحلات بنجاح", { id: toastId });
             clearDraft();

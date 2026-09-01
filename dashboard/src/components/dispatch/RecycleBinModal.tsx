@@ -1,6 +1,7 @@
 import { Search, RotateCcw } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Shop, Zone } from "@/types/dispatch";
+import { useMemo } from "react";
 
 interface RecycleBinModalProps {
   isOpen: boolean;
@@ -21,6 +22,14 @@ export function RecycleBinModal({
   zones,
   onRestoreShop,
 }: RecycleBinModalProps) {
+
+  // +++ الكي الجراحي: بناء فهرس (Map) للمناطق مرة واحدة فقط لنجعل البحث بسرعة O(1) +++
+  const zonesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    zones.forEach(z => map.set(z.id, z.name));
+    return map;
+  }, [zones]);
+
   return (
     <Modal
       isOpen={isOpen}
@@ -47,7 +56,7 @@ export function RecycleBinModal({
                 <div>
                   <p className="font-bold text-slate-800">
                     {shop.name} 
-                    <span className="text-xs font-medium text-slate-400 mr-2">({zones.find(z => z.id === shop.zoneId)?.name})</span>
+                    <span className="text-xs font-medium text-slate-400 mr-2">({zonesMap.get(shop.zoneId) || "غير محدد"})</span>
                   </p>
                   <p className="text-xs text-slate-500">{shop.owner} · {shop.phone}</p>
                 </div>

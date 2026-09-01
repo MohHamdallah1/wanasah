@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Minus, Plus, Trash2, Pencil, ChevronDown, ChevronUp,
   Package, AlertTriangle, Clock, X, Eraser,
@@ -75,7 +75,9 @@ function groupByShop(shortages: Shortage[]) {
 /** Arabic human-readable relative time + clock HH:MM · date */
 function formatTimestamp(isoStr?: string | null): string {
   if (!isoStr) return "الآن";
-  const date = new Date(isoStr);
+  // +++ الكي الجراحي: استخدام الدرع الزمني الموحد لمنع كراش Invalid Date +++
+  const safeIso = isoStr.endsWith("Z") || isoStr.includes("+") ? isoStr : isoStr + "Z";
+  const date = new Date(safeIso);
   if (isNaN(date.getTime())) return "الآن";
 
   const diffMs = Date.now() - date.getTime();
@@ -327,7 +329,8 @@ export function ShortageModal({
   shortageDriverId,
   onDriverChange,
 }: ShortageModalProps) {
-  const grouped = groupByShop(shortages);
+  // +++ الكي الجراحي: تغليف الدالة بـ useMemo لمنع إعادة تجميع المصفوفة مع كل رندرة +++
+  const grouped = useMemo(() => groupByShop(shortages), [shortages]);
   const isEditMode = editingShortageIds.length > 0;
 
   return (

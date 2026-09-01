@@ -54,7 +54,8 @@ export function SettlementModal({ isOpen, onClose, driver, onConfirmSettlement }
 
   if (!driver) return null;
 
-  const expected = driver.settlement.financials.expected_cash_in_hand;
+  // +++ الكي الجراحي: تحويل النص القادم من السيرفر إلى رقم بشكل آمن لمنع أخطاء الرياضيات (NaN) +++
+  const expected = parseFloat(driver.settlement.financials.expected_cash_in_hand as unknown as string) || 0;
   const actual = parseFloat(actualCash) || 0;
   const diff = actual - expected;
 
@@ -150,9 +151,10 @@ export function SettlementModal({ isOpen, onClose, driver, onConfirmSettlement }
               <span className="text-lg font-bold text-slate-400 mr-1">د.أ</span>
             </p>
             <div className="flex gap-3 mt-2 text-xs text-slate-500">
-              <span>مبيعات: <strong>{driver.settlement.financials.cash_from_sales.toLocaleString("ar-JO")} د.أ</strong></span>
+              {/* +++ الكي الجراحي: تمرير النصوص للدوال الرياضية يتطلب ParseFloat +++ */}
+              <span>مبيعات: <strong>{parseFloat(driver.settlement.financials.cash_from_sales as unknown as string || "0").toLocaleString("ar-JO")} د.أ</strong></span>
               <span className="text-slate-300">•</span>
-              <span>ذمم: <strong>{driver.settlement.financials.cash_from_debts.toLocaleString("ar-JO")} د.أ</strong></span>
+              <span>ذمم: <strong>{parseFloat(driver.settlement.financials.cash_from_debts as unknown as string || "0").toLocaleString("ar-JO")} د.أ</strong></span>
             </div>
           </div>
 

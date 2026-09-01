@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
 from decimal import Decimal
+import bcrypt
 
 convention = {
     "ix": 'ix_%(column_0_label)s',
@@ -99,6 +100,11 @@ class Driver(Base):
     # +++ الدرع المحاسبي: حماية الدقة من تآكل الـ Float ومنع سقف الدين من الانقلاب لقيمة سالبة +++
     max_debt_limit  = Column(Numeric(12, 3), CheckConstraint('max_debt_limit >= 0', name='chk_driver_max_debt'), nullable=False, default=Decimal('0.000'), server_default='0.000')
     created_at      = Column(DateTime,      nullable=False, default=utc_now)  # FIX ①
+
+    def set_password(self, raw_password: str):
+        """تشفير كلمة المرور بناءً على آلية bcrypt المستخدمة في نظام المصادقة"""
+        salt = bcrypt.gensalt()
+        self.password_hash = bcrypt.hashpw(raw_password.encode('utf-8'), salt).decode('utf-8')
 
 
 

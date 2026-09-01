@@ -9,10 +9,11 @@ interface DriverVisits {
   pending: number;
 }
 
+// +++ الكي الجراحي: مطابقة العقد مع السيرفر (FastAPI) الذي يرسل الفلوس كنصوص لحماية الكسور +++
 interface Financials {
-  cash_from_sales: number;
-  cash_from_debts: number;
-  expected_cash_in_hand: number;
+  cash_from_sales: string;
+  cash_from_debts: string;
+  expected_cash_in_hand: string;
 }
 
 interface InventoryItem {
@@ -54,7 +55,8 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
   
   const canApprove = driver?.settlement?.status === "مغلقة بانتظار التسوية";
   const GLOBAL_CURRENCY = "د.أ";
-  const formatMoney = (val: number) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
+  // +++ الكي الجراحي: السماح للدالة باستقبال النصوص وتحويلها بأمان تام +++
+  const formatMoney = (val: string | number) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
 
   // +++ الدرع اللغوي: أخذ الحرف الأول فقط لتجنب كوارث دمج الحروف العربية (مت، سم، دم) +++
   const getInitials = (name: string) => {
@@ -67,7 +69,7 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
 
   return (
     //الكود المسؤول عن لون البطاقة العام bg-white
-    <div className="relative bg-[#FBB117] rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200 overflow-hidden flex flex-col gap-5 min-h-[420px]">
+    <div className="relative bg-[#FBB117] rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200 overflow-hidden flex flex-col gap-5 h-[calc(100vh-205px)]">
       <AnimatePresence mode="wait">
         {!driver ? (
           <motion.div
@@ -99,9 +101,12 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
               <div>
                 <h3 className="text-lg font-black text-slate-800 tracking-tight">{driver.session.driver_name}</h3>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
-                    {driver.session.vehicle_label}
-                  </span>
+                  {/* +++ الكي الجراحي: حماية المكون من المتغيرات المفقودة (Undefined) +++ */}
+                  {driver.session.vehicle_label && (
+                    <span className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
+                      {driver.session.vehicle_label}
+                    </span>
+                  )}
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
                     canApprove ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-emerald-50 text-emerald-600 border-emerald-200"
                   }`}>

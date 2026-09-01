@@ -13,12 +13,11 @@ import { AlertTriangle, RotateCcw, X, PackageOpen, BarChart3, TrendingUp } from 
 
 // +++ المكون المعماري الجديد: نافذة تفاصيل المبيعات (Modern Light Glassmorphism) +++
 const SalesDetailsModal = ({ isOpen, onClose, productSales, totalLogisticsCartons }: { isOpen: boolean, onClose: () => void, productSales: any[], totalLogisticsCartons: number }) => {
-  if (!isOpen) return null;
-  
   const getCartonWord = (n: number) => n === 1 ? "كرتونة" : n === 2 ? "كرتونتان" : (n >= 3 && n <= 10) ? "كراتين" : "كرتونة";
 
   return (
     <AnimatePresence>
+      {isOpen && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6" dir="rtl">
         {/* خلفية ضبابية ناعمة */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
@@ -92,6 +91,7 @@ const SalesDetailsModal = ({ isOpen, onClose, productSales, totalLogisticsCarton
           </div>
         </motion.div>
       </div>
+      )}
     </AnimatePresence>
   );
 };
@@ -112,24 +112,8 @@ const Index = () => {
     try {
       const data = await authFetch("/admin/sessions/today");
       if (data && isMounted) {
-        // +++  للـ Mutation: استخدام Deep Copy مع احترام Immutability +++
-        const formattedData = data.map((d: any) => {
-          let localTime = d.session?.start_time;
-          if (localTime) {
-            const utcDate = new Date(localTime);
-            localTime = utcDate.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
-          }
-          
-          return {
-            ...d,
-            session: {
-              ...d.session,
-              start_time: localTime // حقل جديد بدون المساس بالكائن الأصلي
-            }
-          };
-        });
-        
-        setDrivers(formattedData);
+        // +++ الكي الجراحي: تمرير الـ ISO الزمني الخام لمنع كراش مكونات الـ UI التي تحلله بنفسها +++
+        setDrivers(data);
       }
     } catch (error: any) {
       console.error("فشل الاتصال بالسيرفر:", error);
@@ -236,11 +220,9 @@ const Index = () => {
     return { productSales, totalLogisticsCartons };
   }, [drivers]);
 
-  // --- متغيرات النظام العامة (يسهل ربطها بالـ API لاحقاً) ---
-  const GLOBAL_CURRENCY = "د.أ"; 
-
   // دالة زر الضوء الأخضر (مُحصنة بـ authFetch)
   const handleToggleAuth = async (id: number) => {
+    // +++ الدرع الميداني: إعادة هذا الشرط لأن المندوب الذي لم يبدأ عمله يحمل ID سالباً في الواجهة +++
     if (id < 0) {
       toast.error("لا يمكن إعطاء صلاحية البيع لمندوب لم يبدأ دوامه الفعلي من التطبيق.");
       return;
@@ -256,7 +238,7 @@ const Index = () => {
       // +++  لطبقة الاتصال: استخدام الهوك الموحد لمنع كراش الـ Token Expiration +++
       const response = await authFetch(`/admin/sessions/${id}/authorize`, {
         method: 'PUT',
-        body: JSON.stringify({ is_authorized: newAuthStatus, inventory: [] })
+        body: JSON.stringify({ is_authorized: newAuthStatus })
       });
       if (!response) throw new Error('فشل في تحديث الصلاحية من السيرفر');
     } catch (error) {
@@ -278,7 +260,7 @@ const Index = () => {
 
       toast.success(`تم اعتماد تسوية ${selectedDriver.session.driver_name} وإغلاق العهدة بنجاح!`);
       setIsSettlementModalOpen(false);
-      fetchLiveOperations();
+      fetchLiveOperations().catch(() => {});
     } catch (error: any) {
       // +++ E-08: منع ظهور رسالة فارغة (Undefined) عند رمي أخطاء غير قياسية +++
       toast.error(error?.message || (typeof error === 'string' ? error : "حدث خطأ غير معروف أثناء التسوية"));
@@ -294,7 +276,7 @@ const Index = () => {
       });
       if (res) {
         toast.success("تم التراجع بنجاح. يمكن للمندوب متابعة عمله.");
-        fetchLiveOperations();
+        fetchLiveOperations().catch(() => {});
       } else {
         throw new Error("حدث خطأ أثناء التراجع.");
       }
@@ -306,7 +288,8 @@ const Index = () => {
   };
 
   return (
-    <div className="w-full flex flex-col gap-4 animate-in fade-in duration-500">
+    // +++ الكي الجراحي: تقليل التأخير المصطنع لـ 200ms لكي تشعر باستجابة لحظية +++
+    <div className="w-full flex flex-col gap-4 animate-in fade-in duration-200">
 
       <PulseBar
         totalCash={stats.totalCash}

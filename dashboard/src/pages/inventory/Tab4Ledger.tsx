@@ -66,38 +66,47 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
   }, [selectedReference, entries]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="glass-card overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-white/40 flex-wrap">
-          <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-            <History className="w-4 h-4 text-blue-600" />
-            سجل الحركات ({filtered.length})
-          </h3>
+    <div className="flex flex-col gap-4 mt-2">
+      {/* +++ الكي الجراحي: استخدام الـ Floating Badge لتوحيد الـ UI مع باقي النظام +++ */}
+      <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm">
+        
+        {/* الشريطة العائمة */}
+        <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+          <History className="w-4 h-4" /> سجل الحركات ({filtered.length})
+        </div>
+
+        {/* شريط الفلترة والبحث (مدمج وأنيق داخل رأس البطاقة) */}
+        <div className="p-3 pt-5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-3 bg-slate-50 rounded-t-2xl">
           <div className="flex items-center gap-3 w-full sm:w-auto">
+            {/* قائمة الفلترة */}
             <select
               value={filterType}
               onChange={(e) => { setFilterType(e.target.value); setCurrentPage(1); }}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300 shadow-sm cursor-pointer"
             >
               <option value="ALL">جميع الحركات</option>
               {uniqueTypes.map(t => <option key={t} value={t}>{getLedgerBadge(t).label}</option>)}
             </select>
+            
+            {/* مربع البحث */}
             <div className="relative flex-1 sm:w-64">
-              <Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" strokeWidth={1.5} />
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" strokeWidth={1.5} />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="ابحث في السجل..."
-                className="rounded-xl border border-slate-200 bg-white ps-3 pe-9 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 w-full"
+                className="w-full rounded-xl border border-slate-200 bg-white pr-9 pl-3 py-2 text-xs font-bold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 shadow-sm"
               />
             </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* +++ مفتاح المعايرة 🔑: هنا تتحكم بارتفاع الجدول. غير [65vh] إلى [70vh] أو أي رقم يناسبك +++ */}
+        <div className="h-[71vh] overflow-y-auto overflow-x-auto custom-scrollbar bg-white rounded-b-2xl">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50/60 border-b border-slate-100 text-right">
+            {/* +++ تثبيت الترويسة لتبقى ظاهرة أثناء النزول +++ */}
+            <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur shadow-sm border-b border-slate-200 text-right">
+              <tr>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">نوع العملية</th>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">المنتج</th>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">الرصيد قبل</th>
@@ -109,7 +118,7 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">التاريخ</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-50">
               {loading && (
                 <tr>
                   <td colSpan={9} className="text-center py-12 text-slate-400 font-bold">جارٍ التحميل...</td>
@@ -125,7 +134,7 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
                 const isNeg = e.quantity_packs < 0;
                 const ppc = e.packs_per_carton || 1;
                 return (
-                  <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                  <tr key={e.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[11px] font-black ${badge.bg} ${badge.text}`}>
                         {badge.label}
@@ -133,29 +142,25 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
                     </td>
                     <td className="px-4 py-3 font-bold text-slate-800 text-sm">{e.product_name}</td>
 
-                    {/* +++ الرصيد قبل +++ */}
                     <td className="px-4 py-3 text-slate-500 font-semibold text-xs">
                       {formatQty(e.balance_before, ppc)}
                     </td>
 
                     <td className={`px-4 py-3 font-bold text-xs ${isNeg ? "text-red-600" : "text-emerald-600"}`}>
-                      {/* +++ استخدام dir="rtl" لضمان ظهور الإشارة والرقم والنص بترتيب محاسبي سليم +++ */}
                       <div dir="rtl" className="flex items-center gap-1 justify-end">
                         <span>{isNeg ? "-" : "+"}</span>
                         <span>{formatQty(Math.abs(e.quantity_packs), ppc)}</span>
                       </div>
                     </td>
 
-                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50">
+                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50 border-r border-l border-slate-100">
                       {formatQty(e.balance_after, ppc)}
                     </td>
 
-                    {/* +++ اسم المشرف +++ */}
                     <td className="px-4 py-3 text-slate-600 text-xs font-bold">
                       {e.admin_name || "—"}
                     </td>
 
-                    {/* +++ المرجع الذكي (ترجمة الرموز البرمجية للمسؤول) +++ */}
                     <td className="px-4 py-3">
                       {e.reference && e.reference !== "بدون فاتورة" ? (
                         e.reference.startsWith("MANUAL_ADJUST") ? (
@@ -198,17 +203,15 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
                           </button>
                         ) : <span className="text-slate-300">—</span>}
 
-                        {/* +++ زر التعديل الإيليت: يظهر فقط للتوريد +++ */}
                         {e.type === 'INBOUND_SUPPLIER' && (
                           <button
                             onClick={() => {
                               setAdjustingEntry(e);
-                              // +++  حساب الصافي الحالي للفاتورة (الأصل + التعديلات) في الذاكرة +++
                               const netPacks = entries
                                 .filter(x => x.reference === e.reference && x.product_name === e.product_name && (x.type === 'INBOUND_SUPPLIER' || x.type === 'INBOUND_CORRECTION'))
                                 .reduce((sum, x) => sum + x.quantity_packs, 0);
 
-                              const currentNetTotal = Math.max(0, netPacks); // لتجنب الأرقام السالبة الغريبة في الواجهة
+                              const currentNetTotal = Math.max(0, netPacks);
                               setNewQty({ cartons: Math.floor(currentNetTotal / ppc), loose: currentNetTotal % ppc });
                             }}
                             className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 bg-purple-50 px-2 py-1 rounded-lg transition-all border border-purple-100 hover:border-purple-300"
@@ -229,8 +232,9 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
           </table>
         </div>
 
+        {/* الفوتر - الترقيم */}
         {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/50">
+          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-2xl">
             <span className="text-xs font-bold text-slate-500">
               صفحة {currentPage} من {totalPages}
             </span>
@@ -238,14 +242,14 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all"
+                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all"
+                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -269,7 +273,10 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
               <FileText className="w-5 h-5 text-blue-600" />
               <span className="font-bold text-blue-800">رقم المرجع: {selectedReference}</span>
             </div>
-            <span className="text-xs font-bold text-slate-500">{deliveryNoteItems[0]?.date ? new Date(deliveryNoteItems[0].date + "Z").toLocaleString("ar-EG") : ""}</span>
+            {/* +++ الكي الجراحي: استخدام نفس الدرع الزمني الموجود في الجدول لمنع كراش Invalid Date +++ */}
+            <span className="text-xs font-bold text-slate-500">
+              {deliveryNoteItems[0]?.date ? new Date(deliveryNoteItems[0].date.endsWith("Z") || deliveryNoteItems[0].date.includes("+") ? deliveryNoteItems[0].date : deliveryNoteItems[0].date + "Z").toLocaleString("ar-EG") : ""}
+            </span>
           </div>
 
           <div className="border border-slate-200 rounded-xl overflow-hidden">

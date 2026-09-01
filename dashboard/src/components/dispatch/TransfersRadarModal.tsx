@@ -3,6 +3,7 @@ import { Modal } from "@/components/ui/modal";
 import { Radar, CheckCircle, XCircle, Clock, Package, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { PendingRoute } from "@/types/dispatch";
+import { useAuthFetch } from "@/hooks/useAuthFetch";
 
 const STATUS_MAP: Record<string, { bg: string; text: string; label: string; icon: any }> = {
     pending: { bg: "bg-amber-100", text: "text-amber-700", label: "بانتظار المندوب", icon: Clock },
@@ -23,10 +24,11 @@ interface TransfersRadarModalProps {
     isOpen: boolean;
     onClose: () => void;
     route: PendingRoute | null;
-    authenticatedFetch: (path: string, opts?: RequestInit) => Promise<any>;
+    // تم إزالة authenticatedFetch من هنا
 }
 
-export function TransfersRadarModal({ isOpen, onClose, route, authenticatedFetch }: TransfersRadarModalProps) {
+export function TransfersRadarModal({ isOpen, onClose, route }: TransfersRadarModalProps) {
+    const authenticatedFetch = useAuthFetch(); // +++ الكي الجراحي: استخدام الهوك من الداخل لمنع الـ Infinite Re-renders +++
     const [transfers, setTransfers] = useState<TransferRecord[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -60,7 +62,8 @@ export function TransfersRadarModal({ isOpen, onClose, route, authenticatedFetch
             const key = `${baseKey}_${t.status}`;
 
             if (!acc[key]) {
-                const rawDate = new Date(t.created_at + "Z");
+                // +++ الكي الجراحي: توحيد الدرع الزمني لمنع كراش Invalid Date +++
+                const rawDate = new Date(t.created_at.endsWith("Z") || t.created_at.includes("+") ? t.created_at : t.created_at + "Z");
                 acc[key] = {
                     batch_id: key,
                     rawTimestamp: rawDate.getTime(),

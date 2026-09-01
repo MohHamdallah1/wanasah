@@ -52,14 +52,16 @@ export default function Login() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username, password }),
+        // +++ الكي الجراحي: قص مسافات اسم المستخدم فقط، وترك كلمة المرور مقدسة كما هي +++
+        body: JSON.stringify({ username: username.trim(), password }),
       });
 
       const data = await response.json();
 
       // 2. التحقق من الرد
       if (!response.ok) {
-        throw new Error(data.message || 'فشل تسجيل الدخول، تأكد من البيانات');
+        // +++ الكي الجراحي: التقاط مفتاح 'detail' الخاص بـ FastAPI لمنع ابتلاع رسائل الحظر (Brute Force) +++
+        throw new Error(data.detail || data.message || 'فشل تسجيل الدخول، تأكد من البيانات');
       }
 
       // 3. حماية اللوحة
@@ -70,6 +72,10 @@ export default function Login() {
       // 4. حفظ بيانات الجلسة
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('refresh_token', data.refresh_token);
+      // +++ الكي الجراحي: حفظ اسم المدير لكي يقرأه شريط TopBar ولا يظهر كشبح +++
+      if (data.driver_name) {
+        localStorage.setItem('admin_name', data.driver_name);
+      }
 
       // 5. التوجيه
       navigate('/'); 

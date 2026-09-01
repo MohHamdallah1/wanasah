@@ -1,15 +1,24 @@
-from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect
-from fastapi.exceptions import HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import traceback
-import logging
-from logging.handlers import RotatingFileHandler
-import ipaddress
+import os
 import re
 import uuid
+import logging
+import asyncio
+import traceback
+import ipaddress
+from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 
-# Step 5.2: Sentry error tracking (gated behind SENTRY_DSN env var)
+import jwt
+from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+# Step 5.2: Sentry error tracking
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
@@ -18,15 +27,15 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
-# S-03/S-06/S-12: Custom security middlewares
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
-
-# +++ استيراد الروترز من مجلد api +++
+# +++ استيراد المكونات الداخلية للنظام +++
 from api import auth, driver, dispatch, warehouse
+from config import Config
+from database import engine, get_db
+from ws_manager import dispatch_manager
 
-import asyncio
+
 # ═══ S-01: Hardened IP extraction (trusted proxy CIDRs) ═══
 TRUSTED_PROXY_CIDRS = [
     ipaddress.ip_network("10.0.0.0/8"),
@@ -122,30 +131,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# S-04: Restrictive CORS — origins from env var, explicit methods/headers
-# +++ إصلاح جراحي: إضافة منافذ التطوير المحلية للسماح بتسجيل الدخول في بيئة التطوير +++
-_CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000")
+# S-04: Restrictive CORS configuration
+_CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com")
 ALLOWED_ORIGINS = [origin.strip() for origin in _CORS_RAW.split(",") if origin.strip()]
 
-# +++ الدرع المعماري: نسف الكراش الناتج عن دمج * مع allow_credentials +++
-CORS_ALLOW_ALL = False
 if ENV == "development" or os.getenv("ENABLE_CORS_WILDCARD", "false").lower() in ("true", "1", "yes"):
-    ALLOWED_ORIGINS = [] 
-    CORS_ALLOW_ALL = True
+    DEV_ORIGINS = [
+        "http://localhost:8080", "http://127.0.0.1:8080",
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:3000", "http://127.0.0.1:3000"
+    ]
+    for origin in DEV_ORIGINS:
+        if origin not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(origin)
 
 if ENV == "production" and not ALLOWED_ORIGINS:
     raise ValueError("CORS_ALLOWED_ORIGINS must be set in production environment!")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS, 
-    allow_origin_regex=".*" if CORS_ALLOW_ALL else None,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
-    expose_headers=["X-Request-Id"],
-    max_age=600,
-)
+# ملاحظة: تم إزالة إضافة CORSMiddleware من هنا لنقلها للأسفل في الخطوة القادمة
 
 # S-02: Global rate limiter (200 req/min default per IP)
 # +++ تم ربط الـ Limiter بـ get_real_ip المصفحة بدلاً من الدالة الافتراضية لمنع تزوير الـ IP +++
@@ -174,9 +177,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
+        # +++ الكي الجراحي: إضافة ws: و wss: لمنع الـ CSP من خنق اتصالات غرفة العمليات +++
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+            "img-src 'self' data:; connect-src 'self ws: wss: http: https:'; frame-ancestors 'none'; "
             "base-uri 'self'; form-action 'self'"
         )
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -224,15 +228,23 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestIDMiddleware)
 
+# +++ الكي الجراحي: إضافة CORSMiddleware كآخر طبقة (Outermost Layer) لضمان إرسال هيدرات الـ CORS دائماً، حتى لو قام الـ Limiter أو Security برفض الطلب +++
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS, 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Request-Id"],
+    max_age=600,
+)
+
 # +++ ISSUE-19: نقاط الفحص السحابية (Liveness & Readiness) للـ Docker/K8s +++
 @app.get("/health", tags=["DevOps"])
 async def health_check():
     """Liveness Probe: السيرفر يعمل"""
     return {"status": "alive"}
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
 @app.get("/ready", tags=["DevOps"])
 async def readiness_check(db: AsyncSession = Depends(get_db)):
     """Readiness Probe: الاتصال بقاعدة البيانات سليم"""
@@ -242,12 +254,14 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
     except Exception:
         raise HTTPException(status_code=503, detail="Database connection failed")
 
-# +++ المترجم العسكري: تحويل detail الخاصة بـ FastAPI إلى message ليفهمها تطبيق الموبايل القديم +++
-from fastapi.exceptions import RequestValidationError
-
+# +++ المترجم العسكري: تحويل detail الخاصة بـ FastAPI إلى message مع الحفاظ على الترويسات +++
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse(status_code=exc.status_code, content={"message": exc.detail})
+    return JSONResponse(
+        status_code=exc.status_code, 
+        content={"message": exc.detail},
+        headers=exc.headers
+    )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -284,22 +298,16 @@ async def global_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# Step 5.7a: Import WebSocket connection manager
-from ws_manager import dispatch_manager
-
 # +++ تفعيل الروترز لتتطابق مع طلبات React و Flutter الحقيقية +++
 app.include_router(auth.router, tags=["Authentication"])
 app.include_router(driver.router, tags=["Driver Operations"])
 app.include_router(dispatch.router, tags=["Dispatch & Routing"])
 app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 
-import jwt
-from config import Config
-
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates
 @app.websocket("/ws/dispatch")
 async def websocket_dispatch_endpoint(websocket: WebSocket):
-    # +++ الدرع الفولاذي: إجبار التحقق من التوكن لمنع تجسس الغرباء على غرفة العمليات +++
+    # +++ الدرع الفولاذي: إجبار التحقق من التوكن لمنع تجسس الغرباء +++
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=1008)
@@ -313,16 +321,20 @@ async def websocket_dispatch_endpoint(websocket: WebSocket):
         await websocket.close(code=1008)
         return
 
-    # +++  لـ Bug 1: فحص حالة الدرع الأمني قبل الدخول بالـ Loop +++
+    # فحص حالة الدرع الأمني قبل الدخول بالـ Loop
     is_connected = await dispatch_manager.connect(websocket)
     if not is_connected:
         return # إنهاء فوري بدون كراش إذا تم رفض الاتصال بسبب الـ DDoS Limit
 
     try:
         while True:
-            # Keep the connection alive; we broadcast from API endpoints
+            # إبقاء الاتصال حياً
             await websocket.receive_text()
-    except WebSocketDisconnect:
+    except Exception as e:
+        # +++ الكي الجراحي: اصطياد كافة الأخطاء (انقطاع مفاجئ، نوم متصفح، فصل شبكة) بصمت +++
+        pass
+    finally:
+        # +++ التنظيف الإجباري (Graceful Disconnect): يضمن مسح الاتصال الميت من الذاكرة 100% مهما كانت طريقة خروج المستخدم +++
         dispatch_manager.disconnect(websocket)
 
 @app.get("/")

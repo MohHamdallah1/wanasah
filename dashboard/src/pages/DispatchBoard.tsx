@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Rocket } from "lucide-react";
+import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 // Components
@@ -174,7 +174,7 @@ export default function DispatchBoard() {
 
         if (data.products?.length > 0) setNewShortage({ productName: data.products[0].name, quantity: 1 });
       })
-      .catch(err => err.name !== 'AbortError' && toast.error("خطأ في الاتصال بالخادم (Init): " + err.message));
+      .catch(err => { if (err.name !== 'AbortError') console.warn("تأخير بسيط في جلب البيانات:", err.message); });
 
     // H-02: Pass abort signal to all parallel fetches for clean unmount cleanup
     // H-03: Add Array.isArray guards to prevent .map is not a function crashes
@@ -203,10 +203,13 @@ export default function DispatchBoard() {
 
     // Build WebSocket URL from VITE_API_URL
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const wsUrl = apiUrl.replace(/^http/, 'ws') + '/ws/dispatch';
+    const token = localStorage.getItem('admin_token');
+    // +++ الكي الجراحي: حقن التوكن في الرابط لمنع اختراق الـ WebSocket +++
+    const wsUrl = apiUrl.replace(/\/+$/, '').replace(/^http/, 'ws') + '/ws/dispatch' + (token ? `?token=${token}` : '');
 
     let ws: WebSocket;
     let reconnectTimer: ReturnType<typeof setTimeout>;
+    let retryCount = 0;
 
     const connectWS = () => {
       ws = new WebSocket(wsUrl);
@@ -238,16 +241,31 @@ export default function DispatchBoard() {
       };
 
       ws.onclose = () => {
-        // Auto-reconnect after 3 seconds if disconnected
-        reconnectTimer = setTimeout(connectWS, 3000);
+        // +++ الكي الجراحي: إيقاف محاولات الاتصال إذا كان التبويب مخفياً لتوفير موارد متصفح المشرف +++
+        if (document.visibilityState === 'hidden') return;
+        const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
+        retryCount++;
+        reconnectTimer = setTimeout(connectWS, backoff);
       };
+      ws.onopen = () => { retryCount = 0; };
+      ws.onerror = () => {}; // التقاط أخطاء الاتصال بصمت لمنع امتلاء الكونسول باللون الأحمر
     };
 
     connectWS();
 
+    // +++ إعادة تشغيل الـ WebSocket فور عودة المشرف للتبويب إذا كان الاتصال مفصولاً +++
+    const handleVisChange = () => {
+      if (document.visibilityState === 'visible' && (!ws || ws.readyState === WebSocket.CLOSED)) {
+        retryCount = 0;
+        connectWS();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisChange);
+
     return () => {
       controller.abort();
       clearTimeout(reconnectTimer);
+      document.removeEventListener('visibilitychange', handleVisChange);
       if (ws) {
         ws.onclose = null; // Prevent reconnect loop on unmount
         ws.close();
@@ -309,8 +327,10 @@ export default function DispatchBoard() {
       setSelectedShopIds([]);
       fetchInitialData();
       toast.success("تم حفظ التعديلات بنجاح ✓");
+      return true;
     } catch (err: any) {
       toast.error("خطأ في حفظ التعديلات: " + err.message);
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -388,8 +408,8 @@ export default function DispatchBoard() {
       .then(() => {
         toast.success("تم إطلاق خط السير بنجاح");
         setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setPreloadQuantities({});
-        // +++ التحديث الفوري للقائمة بدون ريفرش +++
-        authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(data)).catch(err => console.error(err));
+        // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
+        authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(Array.isArray(data) ? data : [])).catch(err => console.error(err));
       })
       .catch(err => toast.error("خطأ في إطلاق خط السير: " + err.message));
   };
@@ -397,7 +417,9 @@ export default function DispatchBoard() {
   const handleConfirmRouteAction = async () => {
     if (!activeRoute) return;
     const totalInventory = Object.values(preloadQuantities).reduce((acc, q) => acc + (typeof q === 'number' ? q : 0), 0);
-    if (totalInventory === 0) {
+    
+    // +++ الكي الجراحي: السماح بحمولة صفر فقط في حال كان الإجراء "تحويل مندوب" أو "متابعة" لمنع الشلل المنطقي +++
+    if (totalInventory === 0 && routeModalType !== "transfer" && routeModalType !== "follow_up") {
       toast.error("⚠️ لا يمكن إطلاق خط السير بحمولة صفر.");
       return;
     }
@@ -417,7 +439,7 @@ export default function DispatchBoard() {
 
       // +++ التحديث الفوري للقائمة بدون ريفرش من السيرفر مباشرة لضمان الدقة +++
       const freshRoutes = await authenticatedFetch("/dispatch/active_routes");
-      setPendingRoutes(freshRoutes);
+      setPendingRoutes(Array.isArray(freshRoutes) ? freshRoutes : []);
 
       toast.success("تم تفعيل خط السير بنجاح");
       setIsRouteModalOpen(false);
@@ -437,7 +459,9 @@ export default function DispatchBoard() {
         body: JSON.stringify({
           frequency: schedulingForm.frequency,
           visitDay: schedulingForm.visitDay,
-          startDate: schedulingForm.startDate
+          startDate: schedulingForm.startDate,
+          // +++ الكي الجراحي: إرسال الأيام المخصصة للباك-إند إذا اختار المدير جدولة مخصصة +++
+          customDays: schedulingForm.frequency.includes("مخصص") ? customDays : null
         })
       })
     ));
@@ -490,19 +514,22 @@ export default function DispatchBoard() {
   };
 
   const handleSaveShop = async () => {
+    if (isSaving) return; // +++ درع الحماية: منع النقر المزدوج وازدواجية البيانات +++
     if (!shopForm.name.trim() || !shopForm.phone.trim() || !shopForm.mapLink.trim() || !shopForm.zoneId) {
       toast.error("⚠️ يرجى إكمال جميع البيانات");
       return;
     }
+    setIsSaving(true);
 
+    // +++ الكي الجراحي: مطابقة أسماء المتغيرات بدقة مع Pydantic Schemas لنسف خطأ 422 +++
     const apiPayload = {
       name: shopForm.name,
       owner: shopForm.owner,
       phone: shopForm.phone,
-      initial_debt: Number(shopForm.initialDebt) || 0,
-      max_debt_limit: Number(shopForm.maxDebtLimit) || 0,
-      map_link: shopForm.mapLink,
-      zone_id: shopForm.zoneId
+      initialDebt: Number(shopForm.initialDebt) || 0,
+      maxDebtLimit: Number(shopForm.maxDebtLimit) || 0,
+      mapLink: shopForm.mapLink,
+      zoneId: Number(shopForm.zoneId) // تحويل المنطقة لرقم صريح
     };
 
     const localShopState = {
@@ -549,6 +576,8 @@ export default function DispatchBoard() {
       } else {
         toast.error(`❌ خطأ: ${error.message}`);
       }
+    } finally {
+      setIsSaving(false); // +++ تحرير الدرع بعد انتهاء العملية +++
     }
   };
 
@@ -690,8 +719,9 @@ export default function DispatchBoard() {
   };
 
   return (
-    <div className="w-full flex flex-col animate-in fade-in duration-500">
-      <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-20">
+    <div className="w-full flex flex-col animate-in fade-in duration-200">
+      {/* +++ الكي الجراحي: إزالة التثبيت (sticky) لكي يصعد البار مع السكرول ولا يتداخل مع المحتوى +++ */}
+      <div className="glass-card rounded-2xl h-16 md:h-20 px-4 md:px-6 flex items-center justify-between gap-3 relative z-20">
         <div className="flex items-center gap-6">
           <div className="flex bg-slate-100 p-1 rounded-xl">
             {/* +++  فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
@@ -726,192 +756,212 @@ export default function DispatchBoard() {
       )}
 
       {/* +++  تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
-      <div className="pt-6 pb-6 px-0 w-full">
-        <AnimatePresence mode="wait">
+      <div className="pt-2 pb-6 px-0 w-full">
+        <>
           {activeTab === "routes" ? (
-            <motion.div key="routes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex justify-center w-full">
-              {/* +++  جمع العناصر التائهة داخل حاوية "عصرية" موحدة +++ */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-xl w-full mt-[-15px]">
-                <div className="flex items-center justify-between mb-6 pb-3 border-b border-slate-100">
-                  <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
-                    <Truck className="w-6 h-6 text-[#1e87bb]" /> مناطق قيد العمل (الخطوط النشطة)
-                  </h2>
+            <div key="routes" className="flex flex-col w-full gap-4 mt-4">
+              {/* +++ الكي الجراحي: إزالة overflow-hidden لحماية الشريطة من القص، وإضافة mt-5 لتوفير مساحة للطفو +++ */}
+              <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2">
+                
+                {/* الشريطة العائمة */}
+                <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+                  <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
+                </div>
+
+                {/* شريط الأدوات */}
+                <div className="p-3 pt-2 border-b border-slate-100 flex items-center justify-end bg-slate-50 rounded-t-2xl">
                   {(() => {
                     const hasPostponed = pendingRoutes.some(r => r.status === "postponed");
                     return (
                       <button
                         onClick={() => setIsShowPostponedModalOpen(true)}
+                        /* +++ تكبير الزر عبر px-4 py-2 text-sm +++ */
                         className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
                       >
                         <Eye className="w-4 h-4" />
                         {hasPostponed && (
-                          <span className="relative flex h-2.5 w-2.5">
+                          <span className="relative flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
                           </span>
                         )}
-                        👁️ عرض المؤجل ({pendingRoutes.filter(r => r.status === "postponed").length})
+                        عرض المؤجل ({pendingRoutes.filter(r => r.status === "postponed").length})
                       </button>
                     );
                   })()}
                 </div>
-                <PendingRoutesTable
-                  routes={pendingRoutes.filter(r => r.status !== "postponed")}
-                  onAdjustInventory={(route) => {
-                    setInventoryRoute(route);
-                    setIsInventoryModalOpen(true);
-                  }}
-                  onOpenRadar={(route) => {
-                    setRadarRoute(route);
-                    setIsRadarModalOpen(true);
-                  }}
-                  onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setIsRouteModalOpen(true); }}
-                  onPostponeRoute={async (id) => {
-                    try {
-                      await authenticatedFetch(`/dispatch/route/${id}/status`, {
-                        method: "PUT",
-                        body: JSON.stringify({ status: "postponed" })
-                      });
-                      setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
-                      toast.info("تم تأجيل المنطقة");
-                    } catch (e: any) {
-                      toast.error(e.message);
-                    }
-                  }}
-                  onCloseZone={route => {
-                    const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
-                    const message = isAlmostDone
-                      ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط لإنهاء المنطقة! هل أنت متأكد من الإغلاق والتصفير؟`
-                      : "هل أنت متأكد من إغلاق وتصفير هذه المنطقة؟";
 
-                    setConfirmDialog({
-                      isOpen: true,
-                      title: "تأكيد الإغلاق والتصفير",
-                      message: message,
-                      onConfirm: async () => {
-                        try {
-                          await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
-                            method: "PUT",
-                            body: JSON.stringify({ status: "closed" })
-                          });
-                          setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
-                          fetchInitialData();
-                          toast.success("تم إغلاق المنطقة وتصفير السيارة");
-                        } catch (e: any) {
-                          toast.error(e.message);
-                        } finally {
-                          setConfirmDialog(d => ({ ...d, isOpen: false }));
-                        }
+                {/* +++ مفتاح المعايرة 🔑: الارتفاع مقفل بـ 75vh، وتم إضافة rounded-b-2xl لضمان انحناء الزوايا السفلية +++ */}
+                <div className="h-[72vh] overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
+                  <PendingRoutesTable
+                    routes={pendingRoutes.filter(r => r.status !== "postponed")}
+                    onAdjustInventory={(route) => {
+                      setInventoryRoute(route);
+                      setIsInventoryModalOpen(true);
+                    }}
+                    onOpenRadar={(route) => {
+                      setRadarRoute(route);
+                      setIsRadarModalOpen(true);
+                    }}
+                    onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setPreloadQuantities({}); setIsRouteModalOpen(true); }}
+                    onPostponeRoute={async (id) => {
+                      try {
+                        await authenticatedFetch(`/dispatch/route/${id}/status`, {
+                          method: "PUT",
+                          body: JSON.stringify({ status: "postponed" })
+                        });
+                        setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
+                        toast.info("تم تأجيل المنطقة");
+                      } catch (e: any) {
+                        toast.error(e.message);
                       }
-                    })
-                  }}
-                  onForceWithdraw={route => {
-                    const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
-                    const message = isAlmostDone
-                      ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط! هل أنت متأكد من إيقاف وسحب المنطقة؟`
-                      : "هل أنت متأكد من إيقاف المنطقة وإعادتها للانتظار؟";
+                    }}
+                    onCloseZone={route => {
+                      const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
+                      const message = isAlmostDone
+                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط لإنهاء المنطقة! هل أنت متأكد من الإغلاق والتصفير؟`
+                        : "هل أنت متأكد من إغلاق وتصفير هذه المنطقة؟";
 
-                    setConfirmDialog({
-                      isOpen: true,
-                      title: "إيقاف المنطقة",
-                      message: message,
-                      onConfirm: async () => {
-                        try {
-                          await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
-                            method: "PUT",
-                            body: JSON.stringify({ status: "waiting" })
-                          });
-                          setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting", driverId: "", vehicleId: "" } : r));
-                          fetchInitialData();
-                          toast.success("تم إيقاف المنطقة وسحبها بنجاح");
-                        } catch (e: any) {
-                          toast.error(e.message);
-                        } finally {
-                          setConfirmDialog(d => ({ ...d, isOpen: false }));
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: "تأكيد الإغلاق والتصفير",
+                        message: message,
+                        onConfirm: async () => {
+                          try {
+                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
+                              method: "PUT",
+                              body: JSON.stringify({ status: "closed" })
+                            });
+                            setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
+                            fetchInitialData();
+                            toast.success("تم إغلاق المنطقة وتصفير السيارة");
+                          } catch (e: any) {
+                            toast.error(e.message);
+                          } finally {
+                            setConfirmDialog(d => ({ ...d, isOpen: false }));
+                          }
                         }
-                      }
-                    })
-                  }}
-                  driverShortagesMap={driverShortagesMap}
-                />
+                      })
+                    }}
+                    onForceWithdraw={route => {
+                      const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
+                      const message = isAlmostDone
+                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط! هل أنت متأكد من إيقاف وسحب المنطقة؟`
+                        : "هل أنت متأكد من إيقاف المنطقة وإعادتها للانتظار؟";
+
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: "إيقاف المنطقة",
+                        message: message,
+                        onConfirm: async () => {
+                          try {
+                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
+                              method: "PUT",
+                              body: JSON.stringify({ status: "waiting" })
+                            });
+                            setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting", driverId: "", vehicleId: "" } : r));
+                            fetchInitialData();
+                            toast.success("تم إيقاف المنطقة وسحبها بنجاح");
+                          } catch (e: any) {
+                            toast.error(e.message);
+                          } finally {
+                            setConfirmDialog(d => ({ ...d, isOpen: false }));
+                          }
+                        }
+                      })
+                    }}
+                    driverShortagesMap={driverShortagesMap}
+                  />
+                </div>
               </div>
-            </motion.div>
+            </div>
           ) : activeTab === "launch" ? (
-            <motion.div key="launch" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="flex justify-center w-full">
-              {/* +++  إزالة max-w ليأخذ عرض الشاشة بالكامل، وسحبه للأعلى أكثر +++ */}
-              <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 shadow-xl w-full mt-[-15px]">
-
-                {/* 1. تقليل المسافة أسفل العنوان (mb-4 بدلاً من mb-8) */}
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                  <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
-                    <Rocket className="w-6 h-6 text-[#1e87bb]" /> إطلاق خط سير جديد
-                  </h2>
+            <div key="launch" className="flex flex-col w-full gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              
+              {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
+              <div className="relative grid grid-cols-1 md:grid-cols-3 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
+                <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+                  <Rocket className="w-4 h-4" /> إطلاق خط سير جديد
                 </div>
+                
+                {/* +++ تمرير labelBg="bg-slate-50" ليذوب العنوان في خلفية الحاوية تماماً +++ */}
+                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus }))} value={selectedZoneId} onChange={setSelectedZoneId} placeholder="اختر المنطقة" />
+                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={drivers.map(d => ({ id: d.id, label: d.name }))} value={selectedDriverId} onChange={setSelectedDriverId} placeholder="اختر المندوب" />
+                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={vehicles.map(v => ({ id: v.id, label: v.label }))} value={selectedVehicleId} onChange={setSelectedVehicleId} placeholder="اختر السيارة" />
+              </div>
 
-                {/* 2. تقليل المسافة أسفل مستطيل الاختيارات (mb-4 بدلاً من mb-8) وتقليل حشوته الداخلية (p-4 بدلاً من p-6) */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <CustomSelect label="المنطقة" options={zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus }))} value={selectedZoneId} onChange={setSelectedZoneId} placeholder="اختر المنطقة" />
-                  <CustomSelect label="المندوب" options={drivers.map(d => ({ id: d.id, label: d.name }))} value={selectedDriverId} onChange={setSelectedDriverId} placeholder="اختر المندوب" />
-                  <CustomSelect label="السيارة" options={vehicles.map(v => ({ id: v.id, label: v.label }))} value={selectedVehicleId} onChange={setSelectedVehicleId} placeholder="اختر السيارة" />
+              {/* +++ الحاوية الثانية: جدول الحمولة (محدود الارتفاع بـ 400px لحل مشكلة المليون منتج) +++ */}
+              <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm mb-4 mt-0">
+                <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+                  📦 إدخال الحمولة (كرتونة)
                 </div>
-
-                <div className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col">
-                  <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-white">
-                    <span className="text-base font-bold text-slate-700">جرد الحمولة (كرتونة)</span>
-                    <div className="flex items-center gap-4">
-                      {/* +++ مربع البحث السريع في المنتجات +++ */}
-                      {/* C-03: React-state based filtering — replaces DOM manipulation */}
-                      <div className="relative">
-                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                          type="search"
-                          placeholder="ابحث عن منتج..."
-                          value={productSearch}
-                          onChange={(e) => setProductSearch(e.target.value)}
-                          className="pl-4 pr-9 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-[#1e87bb] w-64 bg-slate-50 transition-all"
-                        />
-                      </div>
-                      <button onClick={() => setPreloadQuantities({})} className="text-sm font-bold text-red-500 hover:text-red-700 flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg transition-colors"><Eraser className="w-4 h-4" /> تصفير الكل</button>
-                    </div>
-                  </div>
-
-                  {/* +++  تقييد الارتفاع بـ 50vh مع Scrollbar أنيق +++ */}
-                  <div className="max-h-[50vh] overflow-y-auto custom-scrollbar bg-white">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10 bg-slate-100 shadow-sm border-b border-slate-200">
-                        <tr className="text-slate-500 text-xs uppercase">
-                          <th className="text-start py-3 px-6 font-extrabold w-2/3">المنتج</th>
-                          <th className="text-center py-3 px-6 font-extrabold">الكمية (كرتونة)</th>
+                
+                {/* +++ تقييد الارتفاع الصارم h-[400px] لمنع تمدد الصفحة اللانهائي +++ */}
+                <div className="w-full mt-6 h-[400px] overflow-y-auto custom-scrollbar rounded-b-2xl">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 z-10 bg-slate-50/90 backdrop-blur-md shadow-sm border-b border-slate-200">
+                      <tr className="text-slate-500 text-xs uppercase">
+                        <th className="text-start py-3 px-6 font-extrabold w-2/3">
+                          <div className="flex flex-col md:flex-row md:items-center gap-4">
+                            <span>المنتج</span>
+                            <div className="relative font-normal flex-1 max-w-sm">
+                              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                              <input
+                                type="search"
+                                placeholder="ابحث عن منتج (مثال: لولو شيبس)..."
+                                value={productSearch}
+                                onChange={(e) => setProductSearch(e.target.value)}
+                                className="w-full pl-4 pr-9 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-[#1e87bb] bg-white transition-all shadow-sm"
+                              />
+                            </div>
+                          </div>
+                        </th>
+                        <th className="text-center py-3 px-6 font-extrabold relative">
+                          {/* +++ سنترة الكلمة فوق العدادات بالضبط +++ */}
+                          <span className="block w-full text-center">الكمية (كرتونة)</span>
+                          {/* +++ زر التصفير تم نقله لأقصى اليسار ليفسح المجال للسنترة المطلقة +++ */}
+                          <button onClick={() => setPreloadQuantities({})} className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500 hover:text-red-700 flex items-center gap-1 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors border border-red-100 shadow-sm shrink-0">
+                            <Eraser className="w-3.5 h-3.5" /> تصفير الحمولة
+                          </button>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {products
+                        .filter(prod => {
+                          // +++ خوارزمية البحث المرن (Tokenized Search) +++
+                          if (!productSearch.trim()) return true;
+                          const searchTokens = productSearch.toLowerCase().trim().split(/\s+/);
+                          return searchTokens.every(token => prod.name.toLowerCase().includes(token));
+                        })
+                        .map(prod => (
+                        <tr key={prod.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
+                          <td className="py-3 px-6">
+                            <div className="flex justify-center">
+                              <QuantityInput value={preloadQuantities[prod.id] ?? 0} onChange={n => setPreloadQuantities(p => ({ ...p, [prod.id]: n }))} />
+                            </div>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {products
-                          .filter(prod => !productSearch.trim() || prod.name.toLowerCase().includes(productSearch.toLowerCase()))
-                          .map(prod => (
-                          <tr key={prod.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
-                            <td className="py-3 px-6">
-                              <div className="flex justify-center">
-                                <QuantityInput value={preloadQuantities[prod.id] ?? 0} onChange={n => setPreloadQuantities(p => ({ ...p, [prod.id]: n }))} />
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
+              </div>
 
+              {/* +++ الزر: تصغيره وتنسيقه بالأسفل +++ */}
+              <div className="flex justify-end mb-8">
                 <button
                   onClick={handleDispatchRoute}
-                  className="w-full mt-8 bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 text-white py-4 rounded-2xl text-lg font-black shadow-xl transition-all active:scale-[0.99] flex items-center justify-center gap-3"
+                  className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
                 >
-                  <Rocket className="w-6 h-6" /> اعتماد وإطلاق خط السير
+                  <Rocket className="w-5 h-5" /> اعتماد وإطلاق خط السير
                 </button>
               </div>
-            </motion.div>
+
+            </div>
           ) : (
-            <motion.div key="zones" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex gap-4 h-[calc(100vh-120px)] w-full mt-[-10px]">
+            <div key="zones" className="flex gap-4 h-[calc(100vh-120px)] w-full mt-[4px]">
               <div className="w-[29%] flex flex-col gap-4 min-h-0">
                 <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
                   <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
@@ -959,21 +1009,28 @@ export default function DispatchBoard() {
               {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
               <div className="w-[75%] flex flex-col gap-4 min-h-0">
                 <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
-                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> إلغاء</button><button onClick={handleSaveReorder} disabled={isSaving || !hasUnsavedChanges} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : <><Save className="w-4 h-4" /> حفظ</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />ترتيب وإدارة</button>)}<button
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> إلغاء</button><button onClick={handleSaveReorder} disabled={isSaving || !hasUnsavedChanges} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : <><Save className="w-4 h-4" /> حفظ</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />تعديل</button>)}<button
                     onClick={() => setShowRecycleBin(true)}
-                    className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm transition-all hover:text-red-500"
+                    className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm transition-all hover:text-blue-600"
                     title="فتح أرشيف المحلات المؤرشفة"
                   >
-                    <Trash2 className="w-5 h-5" />
+                    <Archive className="w-5 h-5" />
                   </button><button onClick={() => { setEditingShopId(null); setShopForm({ name: "", owner: "", phone: "", mapLink: "", zoneId: selectedZoneIdForZones, initialDebt: 0, maxDebtLimit: 0 }); setIsShopModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
                   <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={(id, n) => { const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === id); const to = Math.max(0, Math.min(n - 1, list.length - 1)); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
                     if (isEditMode) {
-                      // +++ التصفيح: إضافة تأكيد قبل "الإخفاء" لمنع الأخطاء الطائشة +++
-                      if (!window.confirm("⚠️ هل أنت متأكد من رغبتك في أرشفة هذا المحل؟")) return;
-                      setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
-                      setZones(prev => sortZones(prev.map(z => z.id === shops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: Math.max(0, (z.shopsCount || 0) - 1) } : z)));
-                      setHasUnsavedChanges(true);
-                      toast.info("تم إخفاء المحل محلياً. اضغط 'حفظ التعديلات' لتأكيد النقل للأرشيف.");
+                      // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: "تأكيد الإخفاء",
+                        message: "هل أنت متأكد من رغبتك في إخفاء هذا المحل مؤقتاً؟",
+                        onConfirm: () => {
+                          setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
+                          setZones(prev => sortZones(prev.map(z => z.id === shops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: Math.max(0, (z.shopsCount || 0) - 1) } : z)));
+                          setHasUnsavedChanges(true);
+                          setConfirmDialog(d => ({ ...d, isOpen: false }));
+                          toast.info("تم إخفاء المحل محلياً. اضغط 'حفظ التعديلات' لتأكيد النقل للأرشيف.");
+                        }
+                      });
                     } else {
                       // الأرشفة الفورية العادية إذا لم يكن في وضع التعديل
                       setConfirmDialog({
@@ -1003,9 +1060,9 @@ export default function DispatchBoard() {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
+        </>
       </div>
 
       <ShortageModal
@@ -1096,11 +1153,10 @@ export default function DispatchBoard() {
         isOpen={isRadarModalOpen}
         onClose={() => setIsRadarModalOpen(false)}
         route={radarRoute}
-        authenticatedFetch={authenticatedFetch} // +++ تمرير دالة الحماية لقتل الخطأ +++
       />
 
       <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
-      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed")} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify({ status: "waiting" }) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة بنجاح"); } catch (e: any) { toast.error(e.message); } }} />
+      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed")} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify({ status: "waiting", driverId: route?.driverId }) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: any) { toast.error(e.message); } }} />
       <ZoneRecycleBinModal isOpen={isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
         isOpen={isBulkImportModalOpen}
@@ -1181,9 +1237,11 @@ export default function DispatchBoard() {
               </button>
               <button
                 onClick={async () => {
-                  await handleSaveReorder();
-                  setActiveTab(unsavedTabPrompt);
-                  setUnsavedTabPrompt(null);
+                  const success = await handleSaveReorder();
+                  if (success) {
+                    setActiveTab(unsavedTabPrompt);
+                    setUnsavedTabPrompt(null);
+                  }
                 }}
                 className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold hover:bg-emerald-600 transition-colors shadow-lg"
               >

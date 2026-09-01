@@ -23,7 +23,9 @@ type TabId = typeof TABS[number]["id"];
 export default function MainInventory() {
   const authFetch = useAuthFetch();
 
-  const [activeTab, setActiveTab] = useState<TabId>("live");
+  // +++ الكي الجراحي: قراءة التبويب الأخير من الذاكرة، وحفظه فور تغييره +++
+  const [activeTab, setActiveTab] = useState<TabId>(() => (localStorage.getItem("inventory_active_tab") as TabId) || "live");
+  useEffect(() => { localStorage.setItem("inventory_active_tab", activeTab); }, [activeTab]);
   const [products, setProducts] = useState<WarehouseProduct[]>([]);
   const [alerts, setAlerts] = useState<WarehouseAlert[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
@@ -32,6 +34,8 @@ export default function MainInventory() {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingStock, setLoadingStock] = useState(false);
   const [loadingLedger, setLoadingLedger] = useState(false);
+  // +++ الكي الجراحي: حالة وقت التحديث للبار العلوي +++
+  const [lastSync, setLastSync] = useState<Date>(new Date());
 
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
@@ -41,6 +45,7 @@ export default function MainInventory() {
       const data = await authFetch("/warehouse/inventory");
       if (Array.isArray(data)) {
         setProducts(data);
+        setLastSync(new Date()); // +++ تحديث الوقت اللحظي +++
       } else {
         throw new Error("تنسيق بيانات المخزون غير صالح");
       }
@@ -115,10 +120,12 @@ export default function MainInventory() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-4 w-full animate-in fade-in duration-500">
+    // +++ الكي الجراحي: نسف الـ duration-500 البطيء واستبداله بـ 200 لسرعة صاروخية تناسب الـ SPAs +++
+    <div className="flex flex-col gap-4 w-full animate-in fade-in duration-200">
 
       {/* ═══ Tab Bar ═══ */}
-      <nav className="glass-card px-3 py-2 flex items-center justify-between gap-1">
+      {/* +++ الكي الجراحي: إضافة الارتفاع h-16 md:h-20 وتدوير الزوايا rounded-2xl ليطابق البار الرئيسي +++ */}
+      <nav className="glass-card h-16 md:h-20 rounded-2xl px-3 md:px-6 py-2 flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">
           {TABS.map(({ id, label, icon: Icon }) => {
             const active = activeTab === id;
@@ -138,31 +145,31 @@ export default function MainInventory() {
           })}
         </div>
 
-        {/* +++ الحقن المعماري: دمج بيانات البنك المركزي وزر الريفرش في طرف الـ Tab Bar +++ */}
+        {/* +++ الحقن المعماري: نقل معلومات الرصيد الحي، وقت التحديث، وزر التحديث الكامل للبار العلوي +++ */}
         <div className="flex items-center gap-4 px-2">
-          <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
-            <Package className="w-4 h-4 text-[#1e87bb]" />
-            <span className="text-sm font-black text-slate-700">
-              البنك المركزي — <span className="text-[#1e87bb]">{products.length}</span> {
-                products.length === 0 ? "منتجات" :
-                products.length === 1 ? "منتج" :
-                products.length === 2 ? "منتجان" :
-                (products.length >= 3 && products.length <= 10) ? "منتجات" : "منتج"
-              }
-            </span>
-            {isAuditLocked && (
-              <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                مقفل 🔒
+          <div className="flex flex-col items-end border-l border-slate-200 pl-4 justify-center">
+            <div className="flex items-center gap-2">
+              <Package className="w-4 h-4 text-[#1e87bb]" />
+              <span className="text-sm font-black text-slate-700">
+                الرصيد الحي — <span className="text-[#1e87bb]">{products.length}</span> صنف
               </span>
-            )}
+              {isAuditLocked && (
+                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                  مقفل 🔒
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] font-bold text-slate-400 mt-0.5">
+              آخر تحديث: {lastSync.toLocaleTimeString("ar-EG")}
+            </span>
           </div>
           <button
-            onClick={() => { fetchStock(); fetchStatus(); }}
+            onClick={() => { fetchStock(); fetchStatus(); fetchAlerts(); }}
             disabled={loadingStock}
-            className="p-2 rounded-xl text-slate-400 hover:text-[#1e87bb] hover:bg-blue-50 transition-all active:scale-95"
-            title="تحديث البيانات"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-50 hover:text-[#1e87bb] hover:border-[#1e87bb]/30 transition-all shadow-sm disabled:opacity-50 active:scale-95"
           >
-            <RefreshCcw className={`w-4 h-4 ${loadingStock ? "animate-spin" : ""}`} />
+            <RefreshCcw className={`w-3.5 h-3.5 ${loadingStock ? "animate-spin" : ""}`} />
+            تحديث
           </button>
         </div>
       </nav>
@@ -174,7 +181,8 @@ export default function MainInventory() {
             products={products}
             alerts={alerts}
             loading={loadingStock}
-            onRefresh={fetchStock}
+            // +++ الكي الجراحي: عند ضغط زر التحديث من داخل الجدول، نحدث النواقص والمخزون معاً +++
+            onRefresh={() => { fetchStock(); fetchAlerts(); }}
           />
         )}
         {activeTab === "inbound" && (

@@ -1,4 +1,4 @@
-// Data structures matching Flask backend exactly
+// Data structures matching FastAPI backend exactly
 
 export interface Session {
   session_id: number;
@@ -11,18 +11,27 @@ export interface Session {
 export interface InventoryItem {
   product_id: number;
   product_name: string;
+  // الكميات الإجمالية
   starting_quantity: number;
   sold_quantity: number;
   remaining_quantity: number;
+  // التفاصيل (كراتين وحبات)
+  packs_per_carton: number;
+  starting_cartons: number;
+  starting_loose_packs: number;
+  sold_cartons: number;
+  sold_loose_packs: number;
+  remaining_cartons: number;
+  remaining_loose_packs: number;
 }
 
 export interface SettlementReport {
   driver_name: string;
-  status: string; // "نشطة الآن" | "مغلقة بانتظار التسوية" | "في استراحة"
+  status: string;
   financials: {
-    expected_cash_in_hand: number;
-    cash_from_sales: number;
-    cash_from_debts: number;
+    expected_cash_in_hand: string; // تم التعديل إلى نص لتطابق الخادم
+    cash_from_sales: string;       // تم التعديل إلى نص لتطابق الخادم
+    cash_from_debts: string;       // تم التعديل إلى نص لتطابق الخادم
   };
   visits: {
     completed_total: number;
@@ -35,9 +44,8 @@ export interface SettlementReport {
 export interface DriverData {
   session: Session;
   settlement: SettlementReport;
-  avatar: string;
+  avatar?: string; // اختياري لأنه لا يأتي من الخادم حالياً
 }
-
 
 export const systemAlerts = [
   { id: 1, text: "أحمد تجاوز وقت الاستراحة بـ 15 دقيقة", type: "warning" as const },
@@ -47,12 +55,16 @@ export const systemAlerts = [
 
 // Computed fleet stats
 export function getFleetStats(drivers: DriverData[]) {
-  const totalCash = drivers.reduce((s, d) => s + d.settlement.financials.expected_cash_in_hand, 0);
-  const cashFromSales = drivers.reduce((s, d) => s + d.settlement.financials.cash_from_sales, 0);
-  const cashFromDebts = drivers.reduce((s, d) => s + d.settlement.financials.cash_from_debts, 0);
+  // استخدام parseFloat لتحويل النصوص القادمة من الخادم إلى أرقام للعمليات الحسابية
+  const totalCash = drivers.reduce((s, d) => s + parseFloat(d.settlement.financials.expected_cash_in_hand || "0"), 0);
+  const cashFromSales = drivers.reduce((s, d) => s + parseFloat(d.settlement.financials.cash_from_sales || "0"), 0);
+  const cashFromDebts = drivers.reduce((s, d) => s + parseFloat(d.settlement.financials.cash_from_debts || "0"), 0);
+  
+  // +++ الكي الجراحي: جمع الكراتين الصافية فقط بدلاً من إجمالي الحبات لحساب الإحصائيات بدقة +++
   const totalSoldCartons = drivers.reduce(
-    (s, d) => s + d.settlement.inventory.reduce((si, item) => si + item.sold_quantity, 0), 0
+    (s, d) => s + d.settlement.inventory.reduce((si, item) => si + (item.sold_cartons || 0), 0), 0
   );
+  
   const completedVisits = drivers.reduce((s, d) => s + d.settlement.visits.completed_total, 0);
   const pendingVisits = drivers.reduce((s, d) => s + d.settlement.visits.pending_remaining, 0);
   const activeDrivers = drivers.filter((d) => d.settlement.status !== "غير متصل" && d.settlement.status !== "مغلقة بانتظار التسوية" && !d.session.is_on_break).length;

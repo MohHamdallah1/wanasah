@@ -38,6 +38,8 @@ export function ZoneModal({
             onChange={e => onZoneFormNameChange(e.target.value)}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
             placeholder="مثلاً: عمان الغربية"
+            autoFocus // +++ الكي الجراحي: وضع المؤشر تلقائياً لسرعة الإدخال +++
+            required // +++ الكي الجراحي: منع الإرسال الفارغ من المتصفح مباشرة +++
           />
         </div>
       </form>

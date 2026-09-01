@@ -1,16 +1,18 @@
-import { Component } from "react";
-import { Toaster } from "@/components/ui/toaster";
+import { Component, lazy, Suspense } from "react";
+// +++ الكي الجراحي: إزالة Toaster الميتة والإبقاء على Sonner فقط لتخفيف حجم المشروع +++
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { toast } from "sonner"; // +++  (E-11): استدعاء الـ Toast لعرض الأخطاء +++
-import DashboardLayout from "@/components/operations/DashboardLayout";
-import OperationsDashboard from "./pages/OperationsDashboard";
-import DispatchBoard from "./pages/DispatchBoard";
-import MainInventory from "./pages/inventory/MainInventory";
-import Login from "./pages/Login";
-import NotFound from "./pages/NotFound";
+
+// +++ الكي الجراحي: تحميل ديناميكي للصفحات لتفكيك الكتلة الضخمة في ملف index +++
+const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayout"));
+const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
+const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
+const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
+const Login = lazy(() => import("./pages/Login"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 // +++  (E-11): إضافة Error Handling شامل للـ QueryClient +++
 const queryClient = new QueryClient({
@@ -27,29 +29,21 @@ const queryClient = new QueryClient({
   },
 });
 
-// H-05: Helper to check JWT expiry before trusting localStorage token
-// Step 4.3c.1: Base64URL-safe and UTF-8-aware JWT decoder
+// +++ الكي الجراحي: حارس ذكي يفحص الـ Payload بدون مكتبات خارجية، يمنع الوميض، ويحترم التجديد الصامت +++
 const isTokenValid = (): boolean => {
-  const token = localStorage.getItem('admin_token');
-  if (!token) return false;
+  const refresh = localStorage.getItem('refresh_token');
+  if (!refresh) return false; // إذا لم يوجد مفتاح تجديد، فهو مطرود قطعاً
   try {
-    const parts = token.split('.');
+    const parts = refresh.split('.');
     if (parts.length !== 3) return false;
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    const payload = JSON.parse(jsonPayload);
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    // فحص انتهاء مفتاح التجديد (30 يوم)
     if (payload.exp && payload.exp * 1000 < Date.now()) {
-      localStorage.removeItem('admin_token');
+      localStorage.clear();
       return false;
     }
     return true;
   } catch {
-    localStorage.removeItem('admin_token');
     return false;
   }
 };
@@ -85,7 +79,20 @@ class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, Er
             <h1 className="text-2xl font-bold text-white mb-4">حدث خطأ غير متوقع</h1>
             <p className="text-slate-400 mb-6">نعتذر عن هذا الخلل. يرجى تحديث الصفحة أو التواصل مع الدعم الفني.</p>
             <button
-              onClick={() => { localStorage.clear(); window.location.href = '/login'; }}
+              onClick={() => { 
+                // +++ الكي الجراحي: إبلاغ السيرفر بحرق التوكن (Blacklist) حتى لو انهارت الشاشة +++
+                const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+                const token = localStorage.getItem('admin_token');
+                const refresh = localStorage.getItem('refresh_token');
+                if (API_URL && token) {
+                  fetch(`${API_URL}/logout`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'X-Refresh-Token': refresh || '' }
+                  }).catch(() => {}); // Fire and forget
+                }
+                localStorage.clear(); 
+                window.location.href = '/login'; 
+              }}
               className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3 rounded-xl font-bold transition-all"
             >
               العودة لصفحة الدخول
@@ -104,23 +111,26 @@ class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, Er
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
+      {/* إزالة Toaster من الرندرة */}
       <Sonner />
       <BrowserRouter>
         <DashboardErrorBoundary>
-          <Routes>
-            {/* مسار الدخول محمي بـ PublicRoute */}
-            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+          {/* +++ الكي الجراحي: إزالة الشاشة الزرقاء المزعجة وجعل التحميل صامتاً للحفاظ على إحساس السرعة اللحظية +++ */}
+          <Suspense fallback={null}>
+            <Routes>
+              {/* مسار الدخول محمي بـ PublicRoute */}
+              <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
 
-            {/* لوحة التحكم الموحدة محمية بـ ProtectedRoute */}
-            <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
-              <Route path="/" element={<OperationsDashboard />} />
-              <Route path="/dispatch" element={<DispatchBoard />} />
-              <Route path="/inventory" element={<MainInventory />} />
-            </Route>
+              {/* لوحة التحكم الموحدة محمية بـ ProtectedRoute */}
+              <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+                <Route path="/" element={<OperationsDashboard />} />
+                <Route path="/dispatch" element={<DispatchBoard />} />
+                <Route path="/inventory" element={<MainInventory />} />
+              </Route>
 
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </DashboardErrorBoundary>
       </BrowserRouter>
     </TooltipProvider>

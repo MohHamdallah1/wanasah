@@ -4,23 +4,7 @@ import { Package, Search, Plus, Minus, Save, ArrowRight, Eye } from "lucide-reac
 import { toast } from "sonner";
 import { PendingRoute } from "@/types/dispatch";
 
-// دالة الجلب المخصصة
-const authenticatedFetch = async (endpoint: string, options: RequestInit = {}) => {
-    const token = localStorage.getItem("admin_token") || localStorage.getItem("token");
-    const res = await fetch(import.meta.env.VITE_API_URL + endpoint, {
-        ...options,
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
-            ...options.headers
-        }
-    });
-    if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || "حدث خطأ غير متوقع");
-    }
-    return res.json();
-};
+import { useAuthFetch } from "@/hooks/useAuthFetch";
 
 interface ProductInventory {
     product_id: string;
@@ -37,6 +21,7 @@ interface AdjustInventoryModalProps {
 }
 
 export function AdjustInventoryModal({ isOpen, onClose, route, onSuccess }: AdjustInventoryModalProps) {
+    const authenticatedFetch = useAuthFetch(); // +++ استدعاء الدرع الأمني +++
     const [inventory, setInventory] = useState<ProductInventory[]>([]);
     const [deltas, setDeltas] = useState<Record<string, number>>({});
     const [searchQuery, setSearchQuery] = useState("");
@@ -86,10 +71,11 @@ export function AdjustInventoryModal({ isOpen, onClose, route, onSuccess }: Adju
     const handleSave = async () => {
         const payloadDeltas = Object.entries(deltas)
             .filter(([_, delta]) => delta !== 0)
-            .map(([id, delta]) => ({ product_id: id, delta_cartons: delta }));
+            .map(([id, delta]) => ({ product_id: parseInt(id), delta_cartons: delta })); // +++ تحويل الـ ID لرقم +++
 
         setIsSaving(true);
         try {
+            // +++ الكي الجراحي: التراجع عن المصفوفة المباشرة وإعادتها ككائن لتطابق Pydantic Strict Schema مع إبقاء parseInt +++
             await authenticatedFetch(`/dispatch/route/${route?.id}/adjust_inventory`, {
                 method: "PUT",
                 body: JSON.stringify({ deltas: payloadDeltas })
@@ -108,15 +94,15 @@ export function AdjustInventoryModal({ isOpen, onClose, route, onSuccess }: Adju
         return inventory.filter(item => item.product_name.toLowerCase().includes(searchQuery.toLowerCase()));
     }, [inventory, searchQuery]);
 
-    const inVanItems = filteredInventory.filter(item => item.current_cartons > 0 || item.current_packs > 0 || (deltas[item.product_id] && deltas[item.product_id] !== 0));
-    const otherItems = filteredInventory.filter(item => item.current_cartons === 0 && item.current_packs === 0 && (!deltas[item.product_id] || deltas[item.product_id] === 0));
-
+    const inVanItems = useMemo(() => filteredInventory.filter(item => item.current_cartons > 0 || item.current_packs > 0 || (deltas[item.product_id] && deltas[item.product_id] !== 0)), [filteredInventory, deltas]);
+    const otherItems = useMemo(() => filteredInventory.filter(item => item.current_cartons === 0 && item.current_packs === 0 && (!deltas[item.product_id] || deltas[item.product_id] === 0)), [filteredInventory, deltas]);
+    
     // العناصر التي تم تعديلها فقط (لشاشة المراجعة)
-    const modifiedItems = inventory.filter(item => deltas[item.product_id] && deltas[item.product_id] !== 0);
+    const modifiedItems = useMemo(() => inventory.filter(item => deltas[item.product_id] && deltas[item.product_id] !== 0), [inventory, deltas]);
 
     const renderItemRow = (item: ProductInventory, isReviewMode: boolean = false) => {
         const delta = deltas[item.product_id] || 0;
-        const newTotal = item.current_cartons + delta;
+        const newCartons = item.current_cartons + delta; // +++ حساب الكراتين الصافية +++
         const isNegative = delta < 0;
         const isPositive = delta > 0;
 
@@ -155,8 +141,8 @@ export function AdjustInventoryModal({ isOpen, onClose, route, onSuccess }: Adju
 
                     <div className="flex flex-col items-center">
                         <span className="text-[10px] text-slate-400">بعد الحفظ</span>
-                        <div className={`w-16 text-center py-1 rounded-lg border text-sm font-bold ${isPositive ? 'bg-emerald-100 border-emerald-300 text-emerald-800' : isNegative ? 'bg-red-100 border-red-300 text-red-800' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
-                            {newTotal}
+                        <div className={`px-2 text-center py-1 rounded-lg border text-xs font-bold ${isPositive ? 'bg-emerald-100 border-emerald-300 text-emerald-800' : isNegative ? 'bg-red-100 border-red-300 text-red-800' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                            {item.current_cartons + delta} ك {item.current_packs > 0 ? ` و ${item.current_packs} ح` : ''}
                         </div>
                     </div>
                 </div>

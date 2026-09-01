@@ -71,59 +71,58 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
         </div>
       )}
 
-      <div className="glass-card overflow-hidden">
-        {/* +++ إضافة شريط الأدوات (محرك البحث + وقت التحديث) +++ */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-5 py-4 border-b border-white/40 bg-slate-50/50">
-          <div className="flex flex-col gap-1 w-full sm:w-auto">
-            <h3 className="text-sm font-bold text-slate-700">الرصيد الحي ({displayedProducts.length} صنف)</h3>
-            <span className="text-[10px] font-semibold text-slate-400">
-              آخر تحديث: {lastSync.toLocaleTimeString("ar-EG")}
-            </span>
-          </div>
+      <div className="glass-card overflow-hidden pt-0">
+        {/* +++ تم إعدام الـ div الفارغ الذي كان يسبب المساحة البرتقالية العلوية +++ */}
 
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="relative flex-1 sm:w-64">
-              <Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" strokeWidth={1.5} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="ابحث عن صنف أو SKU..."
-                className="w-full rounded-xl border border-slate-200 bg-white ps-3 pe-9 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              />
-            </div>
-            <button
-              onClick={onRefresh}
-              disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
-            >
-              <RefreshCcw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              تحديث
-            </button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
+        {/* +++ الكي الجراحي: استخدام h الثابت بدلاً من max-h لإجبار الجدول على التمدد للأسفل ليطابق القائمة الجانبية +++ */}
+        <div className={`h-[82vh] overflow-y-auto overflow-x-auto custom-scrollbar transition-all duration-300 ${loading ? "opacity-50 pointer-events-none select-none grayscale-[20%]" : "opacity-100"}`}>
           <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-100/50 border-b border-slate-200 text-right">
-                <th className="px-4 py-3 text-xs font-bold text-slate-500">المنتج</th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500" title="الباركود أو المعرف الفريد للمنتج">رمز الصنف (SKU)</th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500">في المستودع</th>
-                {/* +++ Tooltips لشرح المصطلحات للموظف +++ */}
-                <th className="px-4 py-3 text-xs font-bold text-slate-500 cursor-help" title="البضاعة التي تم تعديلها للمندوب وبانتظار موافقته (تتصفر فور القبول وتنتقل لعهدته)">
-                  <span className="flex items-center gap-1 border-b border-dashed border-slate-400 w-max">
-                    قيد التحويل (بانتظار الموافقة) <Info className="w-3 h-3" />
-                  </span>
+            <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur shadow-sm border-b border-slate-200 text-right">
+              <tr>
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 w-1/3 min-w-[250px] align-middle">
+                  <div className="flex items-center gap-3">
+                    <span>المنتج</span>
+                    <div className="relative font-normal flex-1">
+                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        type="search"
+                        placeholder="ابحث عن صنف أو SKU..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full pl-4 pr-9 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-[#1e87bb] bg-white transition-all shadow-sm"
+                      />
+                    </div>
+                  </div>
                 </th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500 cursor-help" title="إجمالي البضاعة الحالية داخل المستودع (المتاح للبيع + السيارات)">
-                  <span className="flex items-center gap-1 border-b border-dashed border-slate-400 w-max">
-                    إجمالي البضاعة (السيارات+المستودع) <Info className="w-3 h-3" />
-                  </span>
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">رمز الصنف (SKU)</th>
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">في المستودع</th>
+                
+                {/* +++ تولتيب صاروخي: (hidden group-hover:block) لظهور فوري بدون أي تأخير، وتوجيه للأسفل (top-full mt-2) +++ */}
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
+                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
+                    قيد التحويل <Info className="w-3 h-3" />
+                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
+                      البضاعة التي تم تعديلها للمندوب وبانتظار موافقته
+                    </div>
+                  </div>
                 </th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500 cursor-help" title="التوالف والمرتجعات المعزولة في المستودع بانتظار الإتلاف">
-                  <span className="flex items-center gap-1 border-b border-dashed border-slate-400 w-max">
+                
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
+                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
+                    إجمالي البضاعة <Info className="w-3 h-3" />
+                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
+                      إجمالي البضاعة الحالية داخل المستودع (المتاح للبيع + السيارات)
+                    </div>
+                  </div>
+                </th>
+                
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
+                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
                     التوالف بالفرع <Info className="w-3 h-3" />
-                  </span>
+                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
+                      التوالف والمرتجعات المعزولة في المستودع بانتظار الإتلاف
+                    </div>
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -140,9 +139,10 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
                 return (
                   <tr
                     key={p.id}
-                    className={`border-b border-slate-50 transition-colors ${isAlert
-                      ? "bg-red-50/60 hover:bg-red-50"
-                      : "hover:bg-white/80"
+                    /* +++ الكي الجراحي: فصل بخط slate-100/80 فائق النعومة، وإضاءة الصف تلقائياً عند مرور الماوس +++ */
+                    className={`border-b border-slate-100/80 transition-all duration-200 ${isAlert
+                      ? "bg-red-50/50 hover:bg-red-50/80"
+                      : "bg-white hover:bg-slate-50/60"
                       }`}
                   >
                     <td className="px-4 py-3 font-semibold text-slate-800 flex items-center gap-2">
