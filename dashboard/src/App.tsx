@@ -111,8 +111,14 @@ class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, Er
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      {/* إزالة Toaster من الرندرة */}
-      <Sonner />
+      {/* +++ الكي الجراحي: إزالة تحديد الموقع لتعود لمكانها الافتراضي مع الاحتفاظ بزر الإغلاق والثبات +++ */}
+      <Sonner 
+        richColors 
+        closeButton 
+        duration={6000} 
+        pauseWhenPageIsHidden 
+        expand={true} 
+      />
       <BrowserRouter>
         <DashboardErrorBoundary>
           {/* +++ الكي الجراحي: إزالة الشاشة الزرقاء المزعجة وجعل التحميل صامتاً للحفاظ على إحساس السرعة اللحظية +++ */}

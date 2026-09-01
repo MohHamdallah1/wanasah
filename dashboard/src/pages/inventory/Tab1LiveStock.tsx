@@ -43,7 +43,7 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
   }, [products, search, showOnlyAlerts, alertIds]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3 h-full flex-1 min-h-0">
       {/* +++  للنواقص المخفية: جعل التنبيه Clickable لفلترة الجدول فوراً +++ */}
       {alerts.length > 0 && (
         <div
@@ -71,11 +71,11 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
         </div>
       )}
 
-      <div className="glass-card overflow-hidden pt-0">
+      <div className="glass-card overflow-hidden pt-0 flex flex-col flex-1 min-h-0">
         {/* +++ تم إعدام الـ div الفارغ الذي كان يسبب المساحة البرتقالية العلوية +++ */}
 
-        {/* +++ الكي الجراحي: استخدام h الثابت بدلاً من max-h لإجبار الجدول على التمدد للأسفل ليطابق القائمة الجانبية +++ */}
-        <div className={`h-[82vh] overflow-y-auto overflow-x-auto custom-scrollbar transition-all duration-300 ${loading ? "opacity-50 pointer-events-none select-none grayscale-[20%]" : "opacity-100"}`}>
+        {/* +++ الكي الجراحي: استخدام flex-1 min-h-0 بدلاً من vh لتمتص الحاوية المساحة المتبقية فقط +++ */}
+        <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar transition-all duration-300 ${loading ? "opacity-50 pointer-events-none select-none grayscale-[20%]" : "opacity-100"}`}>
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur shadow-sm border-b border-slate-200 text-right">
               <tr>

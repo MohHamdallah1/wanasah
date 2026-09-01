@@ -66,9 +66,9 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
   }, [selectedReference, entries]);
 
   return (
-    <div className="flex flex-col gap-4 mt-2">
-      {/* +++ الكي الجراحي: استخدام الـ Floating Badge لتوحيد الـ UI مع باقي النظام +++ */}
-      <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm">
+    <div className="flex flex-col h-full flex-1 min-h-0 pt-1">
+      {/* +++ الكي الجراحي: توحيد المسافة عبر إلغاء mt-2 و gap-4 +++ */}
+      <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm flex-1 min-h-0">
         
         {/* الشريطة العائمة */}
         <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
@@ -101,8 +101,8 @@ export function Tab4Ledger({ entries, loading, onRefresh }: Props) {
           </div>
         </div>
 
-        {/* +++ مفتاح المعايرة 🔑: هنا تتحكم بارتفاع الجدول. غير [65vh] إلى [70vh] أو أي رقم يناسبك +++ */}
-        <div className="h-[71vh] overflow-y-auto overflow-x-auto custom-scrollbar bg-white rounded-b-2xl">
+        {/* +++ الكي الجراحي: نسف الـ vh واستخدام flex-1 min-h-0 ليتمدد الجدول بمرونة تامة +++ */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar bg-white rounded-b-2xl">
           <table className="w-full text-sm">
             {/* +++ تثبيت الترويسة لتبقى ظاهرة أثناء النزول +++ */}
             <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur shadow-sm border-b border-slate-200 text-right">

@@ -9,8 +9,8 @@ const DashboardLayout = () => {
     const location = useLocation();
 
     return (
-        // +++ الكي الجراحي 1: فك قفل الشاشة (min-h-screen بدل h-screen) وإضافة items-start لمنع تمدد القائمة الجانبية لنهاية الصفحة +++
-        <div className="min-h-screen mesh-gradient-bg p-3 md:p-4 flex gap-4 items-start" dir="rtl">
+        // +++ الكي الجراحي 1: قفل الشاشة الإجباري (h-screen overflow-hidden) لنسف أي سكرول خارجي نهائياً +++
+        <div className="h-screen overflow-hidden mesh-gradient-bg p-3 md:p-4 flex gap-4" dir="rtl">
             
             {/* القائمة الجانبية ستصبح Sticky من الداخل لتبقى ملتصقة أثناء النزول */}
             <OperationsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -27,7 +27,7 @@ const DashboardLayout = () => {
                     <Menu className="w-5 h-5 text-slate-700" />
                 </button>
 
-                <main className="flex-1 flex flex-col gap-4 mt-2">
+                <main className="flex-1 flex flex-col gap-4 mt-2 min-h-0">
                     <Outlet />
                 </main>
             </div>

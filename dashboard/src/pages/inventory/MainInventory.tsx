@@ -13,8 +13,8 @@ import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء ال�
 const TABS = [
   { id: "live", label: "الرصيد الحي", icon: Package },
   { id: "inbound", label: "توريد بضاعة", icon: FilePlus },
-  { id: "stocktake", label: "جرد وتسوية", icon: Lock },
   { id: "ledger", label: "سجل الحركات", icon: History },
+  { id: "stocktake", label: "جرد وتسوية", icon: Lock },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -120,8 +120,7 @@ export default function MainInventory() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    // +++ الكي الجراحي: نسف الـ duration-500 البطيء واستبداله بـ 200 لسرعة صاروخية تناسب الـ SPAs +++
-    <div className="flex flex-col gap-4 w-full animate-in fade-in duration-200">
+    <div className="flex flex-col gap-4 w-full h-full flex-1 min-h-0 animate-in fade-in duration-200">
 
       {/* ═══ Tab Bar ═══ */}
       {/* +++ الكي الجراحي: إضافة الارتفاع h-16 md:h-20 وتدوير الزوايا rounded-2xl ليطابق البار الرئيسي +++ */}
@@ -175,7 +174,7 @@ export default function MainInventory() {
       </nav>
 
       {/* ═══ Tab Content ═══ */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 flex flex-col">
         {activeTab === "live" && (
           <Tab1LiveStock
             products={products}

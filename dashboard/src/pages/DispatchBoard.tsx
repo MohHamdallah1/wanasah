@@ -719,7 +719,7 @@ export default function DispatchBoard() {
   };
 
   return (
-    <div className="w-full flex flex-col animate-in fade-in duration-200">
+    <div className="w-full h-full flex flex-col flex-1 min-h-0 animate-in fade-in duration-200">
       {/* +++ الكي الجراحي: إزالة التثبيت (sticky) لكي يصعد البار مع السكرول ولا يتداخل مع المحتوى +++ */}
       <div className="glass-card rounded-2xl h-16 md:h-20 px-4 md:px-6 flex items-center justify-between gap-3 relative z-20">
         <div className="flex items-center gap-6">
@@ -756,12 +756,12 @@ export default function DispatchBoard() {
       )}
 
       {/* +++  تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
-      <div className="pt-2 pb-6 px-0 w-full">
+      {/* +++ الكي الجراحي: تحويل الحاوية لـ flex-1 لتمتص المساحة وإزالة الـ padding السفلي الزائد الذي يضرب القائمة الجانبية +++ */}
+      <div className="pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
         <>
           {activeTab === "routes" ? (
-            <div key="routes" className="flex flex-col w-full gap-4 mt-4">
-              {/* +++ الكي الجراحي: إزالة overflow-hidden لحماية الشريطة من القص، وإضافة mt-5 لتوفير مساحة للطفو +++ */}
-              <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2">
+            <div key="routes" className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
+              <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
                 
                 {/* الشريطة العائمة */}
                 <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
@@ -791,8 +791,8 @@ export default function DispatchBoard() {
                   })()}
                 </div>
 
-                {/* +++ مفتاح المعايرة 🔑: الارتفاع مقفل بـ 75vh، وتم إضافة rounded-b-2xl لضمان انحناء الزوايا السفلية +++ */}
-                <div className="h-[72vh] overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
+                {/* +++ الكي الجراحي: نسف الـ vh واستخدام flex-1 min-h-0 ليتمدد الجدول حسب المساحة المتاحة فقط +++ */}
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
                   <PendingRoutesTable
                     routes={pendingRoutes.filter(r => r.status !== "postponed")}
                     onAdjustInventory={(route) => {
@@ -961,7 +961,7 @@ export default function DispatchBoard() {
 
             </div>
           ) : (
-            <div key="zones" className="flex gap-4 h-[calc(100vh-120px)] w-full mt-[4px]">
+            <div key="zones" className="flex gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
               <div className="w-[29%] flex flex-col gap-4 min-h-0">
                 <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
                   <div className="p-4 border-b border-slate-100 flex flex-col gap-3">

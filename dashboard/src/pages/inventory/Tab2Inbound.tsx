@@ -113,16 +113,16 @@ export function Tab2Inbound({ products, authenticatedFetch, onSuccess }: Props) 
   }, [products, search]);
 
   return (
-    <div className="flex flex-col gap-4 animate-in fade-in duration-300">
-      {/* +++ الكي الجراحي: تحويل الحاوية لتدعم الـ Floating Badge، ونقل أدوات البحث والتصفير لترويسة الجدول +++ */}
-        <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm mt-4 pb-2">
+    <div className="flex flex-col h-full flex-1 min-h-0 pt-1 animate-in fade-in duration-300">
+      {/* +++ الكي الجراحي: نسف الفراغات المتراكمة (gap-4 و mt-4) لتوحيد المسافة مع باقي التبويبات +++ */}
+      <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
           
           <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
             <FilePlus className="w-4 h-4" /> توريد بضاعة (الاستلام المخزني)
           </div>
 
-          {/* Grid Data Entry - Locked Height (زيادة الارتفاع بعد ضغط الفوتر) */}
-          <div className="h-[67vh] overflow-y-auto custom-scrollbar bg-white mt-5 border-b border-slate-100">
+          {/* Grid Data Entry - Locked Height */}
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white mt-5 border-b border-slate-100">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 shadow-sm border-b border-slate-200">
                 <tr className="text-slate-500 text-xs uppercase text-right">
