@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Float, Text, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Float, Text, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -22,12 +22,128 @@ def utc_now():
 
 
 # =================================================================================
+# 0. الكيانات السيادية للمنصة (System-Owned Tables) - لا تتبع لأي شركة[cite: 9]
+# =================================================================================
+class PlatformAdmin(Base):
+    """آلهة المنصة (God Mode): حساب منفصل لإدارة الشركات والاشتراكات[cite: 9]"""
+    __tablename__ = 'platform_admins'
+    id            = Column(Integer, primary_key=True)
+    username      = Column(String(80), unique=True, nullable=False)
+    password_hash = Column(String(128), nullable=False)
+    is_active     = Column(Boolean, nullable=False, default=True)
+    created_at    = Column(DateTime, nullable=False, default=utc_now)
+
+class UOM(Base):
+    """وحدات القياس العالمية (Pack, Box, Pallet)[cite: 9]"""
+    __tablename__ = 'uom'
+    id   = Column(Integer, primary_key=True)
+    name = Column(String(50), nullable=False, unique=True)
+    code = Column(String(20), nullable=False, unique=True)
+
+class LoginAttempt(Base):
+    """سجل محاولات الدخول (نظام حماية Brute-Force السيادي)"""
+    __tablename__ = 'login_attempts'
+    id = Column(Integer, primary_key=True)
+    ip_address = Column(String(50), nullable=False, index=True)
+    username_attempted = Column(String(80), nullable=True)
+    company_code_attempted = Column(String(50), nullable=True)
+    is_successful = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    
+# =================================================================================
+# 0.1 كيانات الـ SaaS الأساسية (Tenant-Owned Core)[cite: 9]
+# =================================================================================
+class Company(Base):
+    """الكيان المستأجر (Tenant): السور الفولاذي الذي يعزل البيانات[cite: 9]"""
+    __tablename__ = 'companies'
+    __table_args__ = (CheckConstraint("subscription_status IN ('active', 'suspended', 'expired', 'trial')", name='company_sub_status'),)
+    id                  = Column(Integer, primary_key=True)
+    name                = Column(String(150), nullable=False)
+    company_code        = Column(String(50), unique=True, nullable=False, index=True)
+    is_active           = Column(Boolean, nullable=False, default=True)
+    subscription_status = Column(String(50), nullable=False, default='active')
+    currency_code       = Column(String(10), nullable=False, default='JOD')
+    timezone            = Column(String(50), nullable=False, default='Asia/Amman')
+    created_at          = Column(DateTime, nullable=False, default=utc_now)
+
+class Branch(Base):
+    """التقسيم الإداري لفروع الشركة[cite: 9]"""
+    __tablename__ = 'branches'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'branch_code', name='uq_company_branch_code'),
+        UniqueConstraint('company_id', 'id', name='uq_branches_company_id'), # +++ Parent Guard +++
+    )
+    id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    name       = Column(String(150), nullable=False)
+    branch_code= Column(String(50), nullable=False)
+    is_active  = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+
+    company = relationship('Company', backref='branches', lazy='raise')
+
+# =================================================================================
+# 0.2 نظام الصلاحيات الديناميكي (RBAC)[cite: 9]
+# =================================================================================
+class Role(Base):
+    __tablename__ = 'roles'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'name', name='uq_company_role_name'),
+        UniqueConstraint('company_id', 'id', name='uq_roles_company_id'), # +++ Parent Guard +++
+    )
+    id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    name       = Column(String(100), nullable=False)
+    is_system_role = Column(Boolean, nullable=False, default=False)
+
+class Permission(Base):
+    __tablename__ = 'permissions'
+    id   = Column(Integer, primary_key=True)
+    code = Column(String(100), unique=True, nullable=False)
+
+role_permissions = Table('role_permissions', Base.metadata,
+    Column('role_id', Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True)
+)
+
+
+class UserRole(Base):
+    """ربط المستخدم بالدور الخاص به[cite: 9]"""
+    __tablename__ = 'user_roles'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'driver_id', 'role_id', name='uq_user_role_tenant'),
+        ForeignKeyConstraint(['company_id', 'driver_id'], ['drivers.company_id', 'drivers.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['company_id', 'role_id'], ['roles.company_id', 'roles.id'], ondelete='CASCADE'),
+    )
+    id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, nullable=False, index=True) # +++ تمت إضافته (Blocker 2) +++
+    driver_id  = Column(Integer, nullable=False, index=True)
+    role_id    = Column(Integer, nullable=False, index=True)
+
+class UserLocationAccess(Base):
+    """من يرى أو ينقل من أي مستودع بدقة[cite: 9]"""
+    __tablename__ = 'user_location_access'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'driver_id', 'location_id', 'role_id', name='uq_user_loc_access_tenant'),
+        ForeignKeyConstraint(['company_id', 'driver_id'], ['drivers.company_id', 'drivers.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['company_id', 'role_id'], ['roles.company_id', 'roles.id'], ondelete='RESTRICT'),
+    )
+    id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, nullable=False, index=True)
+    driver_id   = Column(Integer, nullable=False, index=True)
+    location_id = Column(Integer, nullable=False, index=True)
+    role_id     = Column(Integer, nullable=False, index=True) # +++ فهرس لتسريع الـ Cascade Delete +++
+
+
+# =================================================================================
 # ① الإعدادات العامة للنظام
 # =================================================================================
 class SystemSetting(Base):
     __tablename__ = 'system_settings'
+    __table_args__ = (UniqueConstraint('company_id', 'setting_key', name='uq_company_setting_key'),) # +++ تحويل الـ Unique Constraint[cite: 9] +++
     id            = Column(Integer, primary_key=True)
-    setting_key   = Column(String(50),  unique=True, nullable=False)
+    company_id    = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True) # +++ زرع الهوية[cite: 9] +++
+    setting_key   = Column(String(50), nullable=False)
     setting_value = Column(String(100), nullable=False)
     description   = Column(String(200), nullable=True)
 
@@ -64,9 +180,12 @@ class Zone(Base):
     """
     __tablename__ = 'zones'
     __table_args__ = (
-        UniqueConstraint('name', 'governorate_id', name='uq_zone_name_per_governorate'),
+        UniqueConstraint('company_id', 'name', 'governorate_id', name='uq_company_zone_gov'),
+        Index('idx_uq_zone_company_name_null_gov', 'company_id', 'name', unique=True, postgresql_where=text("governorate_id IS NULL")),
+        UniqueConstraint('company_id', 'id', name='uq_zones_company_id'), # +++ Parent Guard +++
     )
     id              = Column(Integer, primary_key=True)
+    company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     name            = Column(String(100), nullable=False)
     governorate_id  = Column(Integer, ForeignKey('governorates.id', ondelete='SET NULL'), nullable=True)
     sequence_number = Column(Integer, nullable=True)   # ترتيب خطوط السير
@@ -84,13 +203,16 @@ class Zone(Base):
 
 # =================================================================================
 # ③ المستخدمون (المندوبون والمسؤولون)
-# ملاحظة معمارية: حالياً الأدوار داخل نفس الجدول (is_admin, can_allow_debt).
-# هاد كافي للمرحلة الحالية، ولما نروح لـ SaaS نفصل جدول Roles مستقل.
 # =================================================================================
 class Driver(Base):
     __tablename__ = 'drivers'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'username', name='uq_company_username'),
+        UniqueConstraint('company_id', 'id', name='uq_drivers_company_id'), # +++ Parent Guard +++
+    )
     id            = Column(Integer, primary_key=True)
-    username      = Column(String(80),  unique=True, nullable=False)
+    company_id    = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True) # +++ زرع الهوية[cite: 9] +++
+    username      = Column(String(80), nullable=False)
     password_hash = Column(String(128), nullable=False)
     full_name     = Column(String(120), nullable=False)
     phone_number  = Column(String(20),  nullable=True)
@@ -113,8 +235,13 @@ class Driver(Base):
 # =================================================================================
 class Product(Base):
     __tablename__ = 'products'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'base_name', name='uq_company_base_name'),
+        UniqueConstraint('company_id', 'id', name='uq_products_company_id'), # +++ Parent Guard +++
+    )
     id         = Column(Integer, primary_key=True)
-    base_name  = Column(String(150), nullable=False, unique=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True) # +++ زرع الهوية[cite: 9] +++
+    base_name  = Column(String(150), nullable=False)
     brand      = Column(String(100), nullable=True)
     category   = Column(String(100), nullable=True)
     created_at = Column(DateTime,   nullable=False, default=utc_now)  # FIX ①
@@ -122,15 +249,32 @@ class Product(Base):
     variants = relationship('ProductVariant', backref='product', lazy='raise')
 
 
+class UOMConversion(Base):
+    """معاملات التحويل بين الوحدات لكل منتج[cite: 9]"""
+    __tablename__ = 'uom_conversions'
+    __table_args__ = (UniqueConstraint('company_id', 'product_variant_id', 'from_uom_id', 'to_uom_id', name='uq_uom_conversion'),)
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='CASCADE'), nullable=False)
+    from_uom_id = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
+    to_uom_id   = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
+    conversion_factor = Column(Numeric(10, 4), CheckConstraint('conversion_factor > 0', name='chk_positive_conversion'), nullable=False)
+
 class ProductVariant(Base):
     __tablename__ = 'product_variants'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'sku', name='uq_company_sku'),
+        UniqueConstraint('company_id', 'id', name='uq_product_variants_company_id'), # +++ Parent Guard +++
+    )
     id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True) # +++ زرع الهوية[cite: 9] +++
     product_id = Column(Integer, ForeignKey('products.id'), nullable=False)
+    base_uom_id= Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False) # +++ NOT NULL الإلزامي +++
 
     variant_name    = Column(String(200), nullable=False)
     flavor          = Column(String(50),  nullable=True)
     size            = Column(String(50),  nullable=True)
-    sku             = Column(String(100), nullable=True, unique=True)
+    sku             = Column(String(100), nullable=True)
     packs_per_carton = Column(Integer, CheckConstraint('packs_per_carton > 0', name='chk_packs_per_carton_positive'), nullable=False, default=50)
     price_per_carton = Column(Numeric(12, 3), nullable=False)
     price_per_pack   = Column(Numeric(12, 3), nullable=True)
@@ -143,8 +287,13 @@ class ProductVariant(Base):
 # =================================================================================
 class Vehicle(Base):
     __tablename__ = 'vehicles'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'plate_number', name='uq_company_plate_number'),
+        UniqueConstraint('company_id', 'id', name='uq_vehicles_company_id'), # +++ Parent Guard +++
+    )
     id                 = Column(Integer, primary_key=True)
-    plate_number       = Column(String(20), unique=True, nullable=False)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    plate_number       = Column(String(20), nullable=False)
     vehicle_type       = Column(String(50), nullable=True)
     current_mileage    = Column(Integer,    nullable=False, default=0)
     next_oil_change    = Column(Integer,    nullable=True)
@@ -163,6 +312,7 @@ class VehicleLoad(Base):
         UniqueConstraint('vehicle_id', 'product_variant_id', name='uq_vehicle_variant_load'),
     )
     id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     vehicle_id         = Column(Integer, ForeignKey('vehicles.id'),         nullable=False) # تم نسف الـ index المكرر لحماية الـ RAM
     product_variant_id = Column(Integer, ForeignKey('product_variants.id'), nullable=False)
     quantity           = Column(Integer, CheckConstraint('quantity >= 0', name='chk_vload_qty'), nullable=False, default=0)
@@ -178,8 +328,10 @@ class WorkSession(Base):
     __tablename__ = 'work_sessions'
     __table_args__ = (
         Index('ix_ws_driver_unsettled', 'driver_id', 'is_settled', 'end_time'),
+        UniqueConstraint('company_id', 'id', name='uq_work_sessions_company_id'), # +++ Parent Guard +++
     )
     id           = Column(Integer, primary_key=True)
+    company_id   = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     driver_id    = Column(Integer, ForeignKey('drivers.id'), nullable=False, index=True)
     start_time   = Column(DateTime, nullable=False, default=utc_now)           # FIX ①
     end_time     = Column(DateTime, nullable=True,  index=True)
@@ -207,6 +359,7 @@ class SessionInventory(Base):
         UniqueConstraint('work_session_id', 'product_variant_id', name='uq_session_variant_inv'),
     )
     id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     work_session_id    = Column(Integer, ForeignKey('work_sessions.id'),    nullable=False) # تمت إزالة الـ index المكرر بسبب الـ UniqueConstraint
     product_variant_id = Column(Integer, ForeignKey('product_variants.id'), nullable=False, index=True)
     
@@ -223,7 +376,9 @@ class SessionInventory(Base):
 # =================================================================================
 class Shop(Base):
     __tablename__ = 'shops'
+    __table_args__ = (UniqueConstraint('company_id', 'id', name='uq_shops_company_id'),) # +++ Parent Guard +++
     id             = Column(Integer, primary_key=True)
+    company_id     = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     name           = Column(String(150), nullable=False)
     address        = Column(Text,        nullable=True)
     latitude       = Column(Numeric(10, 7), nullable=True)
@@ -252,15 +407,15 @@ class Shop(Base):
 # =================================================================================
 class DispatchRoute(Base):
     __tablename__ = 'dispatch_routes'
-    # +++  الشامل لثغرة الـ Race Condition (Partial Unique Indexes) +++
     __table_args__ = (
-        # توحيد شمول 'postponed' لجميع الفهارس لمنع تخصيص مندوب لخط جديد بينما لديه خط مؤجل
-        Index('uq_active_route_per_driver', 'driver_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
-        Index('uq_active_route_per_vehicle', 'vehicle_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
-        Index('uq_active_route_per_zone', 'zone_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
+        # +++ الدرع الفولاذي: دمج company_id مع الفهارس الجزئية لمنع اختلاط الخطوط بين الشركات +++
+        Index('uq_active_route_per_driver', 'company_id', 'driver_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
+        Index('uq_active_route_per_vehicle', 'company_id', 'vehicle_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
+        Index('uq_active_route_per_zone', 'company_id', 'zone_id', unique=True, postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
     )
     
     id              = Column(Integer, primary_key=True)
+    company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     zone_id         = Column(Integer, ForeignKey('zones.id'),         nullable=False, index=True)
     driver_id       = Column(Integer, ForeignKey('drivers.id'),       nullable=True,  index=True)
     vehicle_id      = Column(Integer, ForeignKey('vehicles.id'),      nullable=True,  index=True)
@@ -290,6 +445,7 @@ class Visit(Base):
         Index('ix_visit_session_outcome', 'work_session_id', 'outcome'),
     )
     id              = Column(Integer, primary_key=True)
+    company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     driver_id       = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True,  index=True)
     shop_id         = Column(Integer, ForeignKey('shops.id'),        nullable=False, index=True)
     work_session_id = Column(Integer, ForeignKey('work_sessions.id'), nullable=True, index=True)
@@ -330,6 +486,7 @@ class VisitItem(Base):
     """
     __tablename__ = 'visit_items'
     id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     visit_id           = Column(Integer, ForeignKey('visits.id'),                        nullable=False, index=True)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
 
@@ -358,6 +515,7 @@ class VisitReturn(Base):
         Index('ix_visit_return_composite', 'visit_id', 'product_variant_id'),
     )
     id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     visit_id           = Column(Integer, ForeignKey('visits.id', ondelete='CASCADE'),    nullable=False, index=True)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
 
@@ -383,6 +541,7 @@ class VisitReturn(Base):
 class ShortageRequest(Base):
     __tablename__ = 'shortage_requests'
     id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     zone_id            = Column(Integer, ForeignKey('zones.id'),            nullable=False, index=True)
     shop_id            = Column(Integer, ForeignKey('shops.id'),            nullable=False, index=True)
     driver_id          = Column(Integer, ForeignKey('drivers.id'),          nullable=True,  index=True)
@@ -408,6 +567,7 @@ class ShortageRequest(Base):
 class OfferRule(Base):
     __tablename__ = 'offer_rules'
     id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     # +++  (G-01): ربط العرض بمنتج معين. (Null تعني عرض عام لجميع المنتجات) +++
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='CASCADE'), nullable=True, index=True)
     threshold_quantity = Column(Integer, nullable=False)
@@ -428,6 +588,7 @@ class ImportLog(Base):
     """
     __tablename__ = 'import_logs'
     id            = Column(Integer, primary_key=True)
+    company_id    = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     # +++ حماية الداتابيز من كراش الـ IntegrityError عند إلغاء حساب موظف +++
     admin_id      = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
     zone_id       = Column(Integer, ForeignKey('zones.id'),   nullable=False)
@@ -483,6 +644,7 @@ class InventoryLedger(Base):
 class SystemAuditLog(Base):
     __tablename__ = 'system_audit_logs'
     id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     # +++ تأمين بقاء سجل الرقابة حتى لو تم حذف حساب المدير (SET NULL بدلاً من الكراش) +++
     admin_id    = Column(Integer, ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True, index=True)
     target_id   = Column(String(100), nullable=False, index=True)   # رقم الجلسة أو المندوب
@@ -501,6 +663,7 @@ class SystemAuditLog(Base):
 class WorkBreakLog(Base):
     __tablename__ = 'work_break_logs'
     id              = Column(Integer, primary_key=True)
+    company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     work_session_id = Column(Integer, ForeignKey('work_sessions.id'), nullable=False, index=True)
     break_start     = Column(DateTime, nullable=False)
     break_end       = Column(DateTime, nullable=True)
@@ -516,9 +679,10 @@ class WorkBreakLog(Base):
 class InventoryTransfer(Base):
     __tablename__ = 'inventory_transfers'
     __table_args__ = (
-        Index('uq_pending_transfer', 'work_session_id', 'product_variant_id', unique=True, postgresql_where=text("status = 'pending'")),
+        Index('uq_pending_transfer', 'company_id', 'work_session_id', 'product_variant_id', unique=True, postgresql_where=text("status = 'pending'")),
     )
     id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     work_session_id    = Column(Integer, ForeignKey('work_sessions.id',    ondelete='RESTRICT'), nullable=False)
     product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
 

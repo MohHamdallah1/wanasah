@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import delete, func
-from database import get_db
+from sqlalchemy import delete, func, text
+from database import get_db, tenant_context
 from models import Driver, SystemAuditLog, TokenBlacklist, RefreshToken, utc_now
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 security = HTTPBearer()
@@ -26,69 +26,83 @@ DUMMY_PASSWORD_HASH = "$2b$12$C.O1Tz2R8o7Vq78UoA61ueh3b7Qz7t0V1H1t.zU0TzO1Q0xO7Q
 class RefreshRequest(BaseModel):
     refresh_token: str
 
-def create_access_token(data: dict):
-    """مفتاح الباب: استخدام Aware UTC لمنع كراش الـ Naive Datetime في PyJWT"""
+from models import Company, LoginAttempt
+from context import tenant_context
+
+def create_access_token(data: dict, company_id: int, role_name: str = "Driver"): 
     to_encode = data.copy()
     expire_timestamp = datetime.now(timezone.utc) + timedelta(minutes=15)
-    # +++   حقن jti (JWT ID) عشوائي لنسف التطابق التام في نفس الميكروثانية +++
-    to_encode.update({"exp": expire_timestamp, "type": "access", "jti": uuid.uuid4().hex})
+    to_encode.update({
+        "exp": expire_timestamp, 
+        "type": "access", 
+        "jti": uuid.uuid4().hex,
+        "company_id": company_id,
+        "role": role_name  # +++ حقن الـ Role للـ RBAC +++
+    })
     return jwt.encode(to_encode, Config.SECRET_KEY, algorithm="HS256")
 
-def create_refresh_token(data: dict):
-    """مفتاح الخزنة: استخدام Aware UTC لمنع كراش الـ Naive Datetime في PyJWT"""
+def create_refresh_token(data: dict, company_id: int):
     to_encode = data.copy()
     expire_timestamp = datetime.now(timezone.utc) + timedelta(days=30)
-    # +++   حقن jti عشوائي لنسف انهيار UniqueViolationError في الداتابيز +++
-    to_encode.update({"exp": expire_timestamp, "type": "refresh", "jti": uuid.uuid4().hex})
+    to_encode.update({
+        "exp": expire_timestamp, 
+        "type": "refresh", 
+        "jti": uuid.uuid4().hex,
+        "company_id": company_id
+    })
     return jwt.encode(to_encode, Config.SECRET_KEY, algorithm="HS256")
 
 async def check_brute_force(ip: str, db: AsyncSession):
-    """درع الحماية مع معالجة الـ Deadlock المحتملة"""
-    # +++  لهجوم الـ DDoS والـ Permanent Ban +++
-    # إيقاف الـ DELETE مع كل طلب لأنه يفجر الداتابيز بالـ Row Locks أثناء الهجوم
     limit_time = utc_now() - timedelta(minutes=15)
-
-    # فحص عدد المحاولات الفاشلة في آخر 15 دقيقة فقط (بدون حذف)
-    stmt_count = select(func.count()).select_from(SystemAuditLog).where(
-        SystemAuditLog.action_type == 'FAILED_LOGIN',
-        SystemAuditLog.target_id == ip,
-        SystemAuditLog.timestamp >= limit_time # +++ الدرع الفولاذي: استخدام اسم العمود الصحيح لمنع كراش الـ 500 +++
+    stmt_count = select(func.count()).select_from(LoginAttempt).where(
+        LoginAttempt.ip_address == ip,
+        LoginAttempt.is_successful == False,
+        LoginAttempt.created_at >= limit_time 
     )
     failed_count = (await db.execute(stmt_count)).scalar() or 0
-    
     if failed_count >= 5:
         raise HTTPException(status_code=429, detail="تم حظر عنوان IP مؤقتاً بسبب محاولات اختراق متكررة.")
     return failed_count
 
-async def log_failed_attempt(ip: str, db: AsyncSession):
-    """توثيق الفشل (FAILED_LOGIN)"""
-    try:
-        # +++  للاستعلام المهدر: لا داعي للبحث عن مشرف لتوثيق اختراق من مجهول +++
-        audit = SystemAuditLog(
-            admin_id=None, # السماح بـ NULL لأن المخترق ليس مشرفاً
-            target_id=ip,
-            action_type='FAILED_LOGIN',
-            old_value='Brute Force Attempt',
-            new_value='Failed'
-        )
-        db.add(audit)
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        # +++  (A-06): منع ابتلاع الأخطاء وتسجيلها لفريق الـ Operations +++
-        logger.error(f"Failed to log audit event (FAILED_LOGIN): {e}")
+def queue_login_attempt(ip: str, payload: LoginRequest, success: bool, db: AsyncSession):
+    """
+    + الدرع المعماري: إضافة السجل للجلسة الحالية دون عمل commit مستقل 
+    لمنع كسر الـ Transaction الخاص بـ SQLAlchemy ولتفادي خطأ (This connection is closed)
+    """
+    attempt = LoginAttempt(
+        ip_address=ip,
+        username_attempted=payload.username,
+        company_code_attempted=payload.company_code,
+        is_successful=success
+    )
+    db.add(attempt)
+
+from models import Company # تأكد من وجود الاستيراد في أعلى الملف
 
 @router.post("/driver/login", response_model=LoginResponse)
 async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # +++  (Local Import): نسف الاستيراد الدائري الذي يشل تشغيل السيرفر +++
     from main import get_real_ip
     ip = get_real_ip(request)
     failed_count = await check_brute_force(ip, db)
     
-    stmt = select(Driver).filter_by(username=payload.username, is_active=True)
+    stmt_comp = select(Company.id).filter_by(company_code=payload.company_code, is_active=True)
+    comp_id = (await db.execute(stmt_comp)).scalar_one_or_none()
+    
+    if not comp_id:
+        queue_login_attempt(ip, payload, False, db)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="رمز الشركة غير صحيح أو الشركة غير مفعلة.")
+        
+    # +++ حقن السياق فوراً لفتح بوابات الـ RLS قبل استعلام المندوب +++
+    tenant_context.set(comp_id)
+    # +++ (QA) زرع الهوية على الاتصال الحي: الـ checkout وقع أثناء استعلام الشركة
+    # (قبل معرفة الهوية) بسياق فارغ، والسياسات RESTRICTIVE ستحجب استعلام المندوب
+    # التالي على نفس الاتصال ما لم تُزرع الهوية الآن صراحةً +++
+    await db.execute(text("SELECT set_config('app.current_tenant', :v, false)"), {"v": str(comp_id)})
+    
+    stmt = select(Driver).filter_by(username=payload.username, company_id=comp_id, is_active=True)
     driver = (await db.execute(stmt)).scalar_one_or_none()
 
-    # +++  الشامل: منع (Timing Attack) وحماية (SQLAlchemy) من شلل الـ Threads +++
     hash_to_check = driver.password_hash if driver else DUMMY_PASSWORD_HASH
     pwd_bytes = payload.password.encode('utf-8')
     hash_bytes = hash_to_check.encode('utf-8')
@@ -96,22 +110,17 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
     password_match = await asyncio.to_thread(bcrypt.checkpw, pwd_bytes, hash_bytes)
 
     if not driver or not password_match:
-        await log_failed_attempt(ip, db)
-        # +++ ميزة العدّاد: إبلاغ المندوب بعدد المحاولات المتبقية قبل الحظر (الحد = 5 محاولات / 15 دقيقة) +++
+        queue_login_attempt(ip, payload, False, db)
+        await db.commit()
         remaining = max(0, 4 - failed_count)
-        if remaining > 0:
-            fail_detail = f"اسم المستخدم أو كلمة المرور غير صحيحة. تبقى لك {remaining} محاولات قبل الحظر المؤقت."
-        else:
-            fail_detail = "اسم المستخدم أو كلمة المرور غير صحيحة. هذه كانت المحاولة الأخيرة، وأي محاولة قادمة ستؤدي إلى حظر مؤقت."
+        fail_detail = f"البيانات غير صحيحة. تبقى لك {remaining} محاولات." if remaining > 0 else "البيانات غير صحيحة. هذه المحاولة الأخيرة."
         raise HTTPException(status_code=401, detail=fail_detail)
 
-    # +++ إصدار المفتاحين للمندوب +++
-    access_token = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username})
-    refresh_token = create_refresh_token({"sub": str(driver.id)})
+    queue_login_attempt(ip, payload, True, db)
+    access_token = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username}, company_id=comp_id, role_name="Driver")
+    refresh_token = create_refresh_token({"sub": str(driver.id)}, company_id=comp_id)
     
-    # حفظ مفتاح التجديد في قاعدة البيانات للمراقبة وإمكانية الإلغاء
-    expire_date = utc_now() + timedelta(days=30)
-    db.add(RefreshToken(token=refresh_token, driver_id=driver.id, expires_at=expire_date))
+    db.add(RefreshToken(token=refresh_token, driver_id=driver.id, expires_at=utc_now() + timedelta(days=30)))
     await db.commit()
 
     return {
@@ -125,15 +134,25 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
 
 @router.post("/login", response_model=LoginResponse)
 async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # +++  (Local Import): حماية الـ Runtime من الـ Circular Dependency +++
     from main import get_real_ip
     ip = get_real_ip(request)
-    await check_brute_force(ip, db)
+    failed_count = await check_brute_force(ip, db)
     
-    stmt = select(Driver).filter_by(username=payload.username, is_active=True)
+    stmt_comp = select(Company.id).filter_by(company_code=payload.company_code, is_active=True)
+    comp_id = (await db.execute(stmt_comp)).scalar_one_or_none()
+    
+    if not comp_id:
+        queue_login_attempt(ip, payload, False, db)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="رمز الشركة غير صحيح أو الشركة غير مفعلة.")
+        
+    tenant_context.set(comp_id)
+    # +++ (QA) زرع الهوية على الاتصال الحي — نفس درع driver_login +++
+    await db.execute(text("SELECT set_config('app.current_tenant', :v, false)"), {"v": str(comp_id)})
+
+    stmt = select(Driver).filter_by(username=payload.username, company_id=comp_id, is_active=True)
     admin = (await db.execute(stmt)).scalar_one_or_none()
 
-    # +++  (A-03): التحقق من أنه مشرف *قبل* فحص الباسوورد لمنع تسريب المعلومات واستهلاك الـ CPU +++
     is_valid_admin = admin is not None and admin.is_admin
     hash_to_check = admin.password_hash if is_valid_admin else DUMMY_PASSWORD_HASH
     
@@ -143,17 +162,15 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
     password_match = await asyncio.to_thread(bcrypt.checkpw, pwd_bytes, hash_bytes)
 
     if not is_valid_admin or not password_match:
-        await log_failed_attempt(ip, db)
-        # نوحد الرسالة دائماً بـ 401 لمنع التخمين للمخترق
-        raise HTTPException(status_code=401, detail="اسم المستخدم أو كلمة المرور غير صحيحة، أو الحساب غير مصرح له")
+        queue_login_attempt(ip, payload, False, db)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="البيانات غير صحيحة، أو الحساب غير مصرح له")
 
-    # +++ إصدار المفتاحين (Facebook Architecture) +++
-    access_token = create_access_token({"sub": str(admin.id), "is_admin": admin.is_admin, "username": admin.username})
-    refresh_token = create_refresh_token({"sub": str(admin.id)})
+    queue_login_attempt(ip, payload, True, db)
+    access_token = create_access_token({"sub": str(admin.id), "is_admin": admin.is_admin, "username": admin.username}, company_id=comp_id, role_name="Admin")
+    refresh_token = create_refresh_token({"sub": str(admin.id)}, company_id=comp_id)
     
-    # حفظ مفتاح التجديد في قاعدة البيانات للمراقبة وإمكانية الإلغاء
-    expire_date = utc_now() + timedelta(days=30)
-    db.add(RefreshToken(token=refresh_token, driver_id=admin.id, expires_at=expire_date))
+    db.add(RefreshToken(token=refresh_token, driver_id=admin.id, expires_at=utc_now() + timedelta(days=30)))
     await db.commit()
 
     return {
@@ -165,9 +182,6 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
         "is_admin": admin.is_admin
     }
 
-# =========================================
-# +++ مسار التجديد الصامت (Silent Refresh) +++
-# =========================================
 @router.post("/refresh", status_code=200)
 async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     try:
@@ -175,31 +189,35 @@ async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depen
         if decoded.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="نوع التوكن غير صالح.")
             
-        sub_val = str(decoded.get("sub", ""))
-        if not sub_val.isdigit():
-            raise HTTPException(status_code=401, detail="توكن غير صالح.")
-        driver_id = int(sub_val)
+        driver_id = int(decoded.get("sub", 0))
+        company_id = decoded.get("company_id")
         
-        # +++ البحث عن التوكن مع قفل التزامن (with_for_update) لنسف الـ Race Condition عند إرسال طلبات متزامنة من React +++
+        if not driver_id or not company_id:
+            raise HTTPException(status_code=401, detail="توكن غير صالح أو مفقود الهوية.")
+            
+        tenant_context.set(company_id)
+        
+        # +++ الحقن غير المتزامن (Native Async RLS): تأمين مسار التجديد قبل لمس الداتابيز +++
+        await db.execute(text("SELECT set_config('app.current_tenant', :c, false)"), {"c": str(company_id)})
+        
         stmt = select(RefreshToken).filter_by(token=payload.refresh_token).with_for_update()
         db_token = (await db.execute(stmt)).scalars().first()
         
-        if not db_token:
-            logger.error(f"Refresh token missing from DB: {payload.refresh_token[:20]}...")
-            raise HTTPException(status_code=401, detail="تم إلغاء الجلسة من قبل الإدارة.")
-            
-        if db_token.is_revoked:
-            raise HTTPException(status_code=401, detail="التوكن تم إيقافه.")
+        if not db_token or db_token.is_revoked:
+            await db.rollback() # +++ الإغلاق الآمن للـ Row Lock لمنع تسريب الاتصالات +++
+            raise HTTPException(status_code=401, detail="التوكن ملغي أو تم تسجيل الخروج.")
             
         driver = await db.get(Driver, driver_id)
-        if not driver or not driver.is_active:
-            raise HTTPException(status_code=403, detail="تم إيقاف حسابك من قبل الإدارة.")
+        company = await db.get(Company, company_id) # +++ جلب الشركة للتحقق من حالتها +++
+        
+        if not driver or not getattr(driver, 'is_active', False) or driver.company_id != company_id or not company or not getattr(company, 'is_active', False):
+            await db.rollback() # +++ الإغلاق الآمن للـ Row Lock لمنع تسريب الاتصالات +++
+            raise HTTPException(status_code=403, detail="الحساب أو الشركة موقوفة. لا يمكن تجديد الجلسة.")
             
-        # +++ الدرع الفولاذي: Refresh Token Rotation (RTR) لمنع اختطاف الجلسات +++
         db_token.is_revoked = True
         
-        new_access = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username})
-        new_refresh = create_refresh_token({"sub": str(driver.id)})
+        new_access = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username}, company_id=company_id, role_name="Driver" if not driver.is_admin else "Admin")
+        new_refresh = create_refresh_token({"sub": str(driver.id)}, company_id=company_id)
         
         db.add(RefreshToken(token=new_refresh, driver_id=driver.id, expires_at=utc_now() + timedelta(days=30)))
         await db.commit()
@@ -209,7 +227,7 @@ async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depen
     except jwt.ExpiredSignatureError:
         await db.execute(delete(RefreshToken).where(RefreshToken.token == payload.refresh_token))
         await db.commit()
-        raise HTTPException(status_code=401, detail="انتهت صلاحية الجلسة بالكامل. يرجى تسجيل الدخول.")
+        raise HTTPException(status_code=401, detail="انتهت صلاحية الجلسة.")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="توكن غير صالح.")
     
@@ -220,9 +238,13 @@ async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depen
 async def logout(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)):
     access_token = credentials.credentials
     
-    # +++ حماية السيرفر من هجوم الإغراق (DoS) بنصوص ضخمة تؤدي لانهيار قاعدة البيانات +++
+    # +++ حماية السيرفر من هجوم الإغراق (DoS) والتحقق الهيكلي من التوكن قبل إجهاد الداتابيز +++
     if len(access_token) > 500:
         raise HTTPException(status_code=400, detail="توكن غير صالح.")
+    try:
+        jwt.decode(access_token, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=400, detail="صيغة التوكن غير صالحة ولا يمكن إدراجه في القائمة السوداء.")
         
     # قراءة الـ Refresh Token من الهيدر (إن وجد)
     refresh_token = request.headers.get("X-Refresh-Token")

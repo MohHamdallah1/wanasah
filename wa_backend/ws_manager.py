@@ -16,38 +16,48 @@ class ConnectionManager:
     """Manages WebSocket connections for the dispatch dashboard live feed."""
 
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        # +++ عزل الشركات: القاموس يربط كل شركة بقائمة اتصالاتها الخاصة +++
+        self.active_connections: dict[int, list[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket) -> bool:
-        """Accept a new WebSocket connection and add it to the active pool."""
+    async def connect(self, websocket: WebSocket, company_id: int) -> bool:
+        """Accept a new WebSocket connection and add it to the active pool of the tenant."""
+        # +++ حساب الإجمالي لكل الشركات لمنع استنزاف الرام +++
+        total_connections = sum(len(conns) for conns in self.active_connections.values())
+        
         # +++   نسف هجمات استنزاف الموارد (OOM) +++
-        if len(self.active_connections) >= MAX_WS_CONNECTIONS:
+        if total_connections >= MAX_WS_CONNECTIONS:
             logger.warning(f"[WS] DDoS Shield Active: Rejected connection. Max limit ({MAX_WS_CONNECTIONS}) reached.")
             await websocket.close(code=1008) # 1008 = Policy Violation
             return False
 
         await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"[WS] Client connected. Total active: {len(self.active_connections)}")
+        if company_id not in self.active_connections:
+            self.active_connections[company_id] = []
+        self.active_connections[company_id].append(websocket)
+        
+        logger.info(f"[WS] Client connected to Company {company_id}. Total active globally: {total_connections + 1}")
         return True
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket, company_id: int):
         """Remove a disconnected WebSocket from the active pool."""
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            logger.info(f"[WS] Client disconnected. Total active: {len(self.active_connections)}")
+        if company_id in self.active_connections and websocket in self.active_connections[company_id]:
+            self.active_connections[company_id].remove(websocket)
+            # +++ تنظيف القاموس إذا فرغت الشركة من الاتصالات +++
+            if not self.active_connections[company_id]:
+                del self.active_connections[company_id]
+            logger.info(f"[WS] Client disconnected from Company {company_id}.")
 
-    async def broadcast(self, message: dict):
-        """Send a JSON-serialisable dictionary to all connected clients in parallel.
+    async def broadcast(self, message: dict, company_id: int):
+        """Send a JSON-serialisable dictionary to all connected clients of a specific company in parallel.
 
         Uses asyncio.gather to prevent slow connections from blocking others.
         Disconnected or failing clients are cleaned up safely.
         """
-        if not self.active_connections:
+        if company_id not in self.active_connections or not self.active_connections[company_id]:
             return
 
-        # +++ لقطة آمنة بالذاكرة لمنع RuntimeError: list changed size during iteration +++
-        connections = list(self.active_connections)
+        # +++ لقطة آمنة بالذاكرة لعملاء الشركة المعنية فقط +++
+        connections = list(self.active_connections[company_id])
         
         # +++ بث بالتوازي لكل الشاشات فوراً دون انتظار العميل البطيء +++
         results = await asyncio.gather(
@@ -59,7 +69,7 @@ class ConnectionManager:
         for connection, result in zip(connections, results):
             if isinstance(result, Exception):
                 logger.warning(f"[WS] Removing failed/dead connection: {result}")
-                self.disconnect(connection)
+                self.disconnect(connection, company_id)
 
 # Global singleton used by the WS endpoint and dispatch APIs
 dispatch_manager = ConnectionManager()

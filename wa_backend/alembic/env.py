@@ -25,9 +25,17 @@ target_metadata = Base.metadata
 # access to the values within the .ini file in use.
 config = context.config
 
-# Dynamic override from .env — allows Alembic to pick up DATABASE_URL
-db_url = os.getenv("DATABASE_URL")
+# Dynamic override from .env — Alembic MUST run as the superuser (DATABASE_URL_MIGRATION)
+# because it creates roles, grants privileges, and manages RLS policies that a
+# restricted app user is not allowed to execute. Falls back to DATABASE_URL only
+# when the migration URL is absent (e.g., legacy local setups).
+db_url = os.getenv("DATABASE_URL_MIGRATION") or os.getenv("DATABASE_URL")
 if db_url:
+    # +++ درع السحاب: ضمان توافق البروتوكول مع asyncpg مهما كان صيغ الرابط +++
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    if db_url.startswith("postgresql://") and "asyncpg" not in db_url:
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.

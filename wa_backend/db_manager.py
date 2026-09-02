@@ -5,14 +5,31 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select, delete
 from sqlalchemy.exc import IntegrityError
-# استيراد إعدادات قاعدة البيانات الجديدة
-from database import engine, AsyncSessionLocal
+import os
+from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+load_dotenv()
+
+# +++ الدرع الإداري: سكربت زراعة البيانات يجب أن يتصل بحساب الـ Superuser لتخطي الـ RLS وحذف الجداول +++
+raw_db_url = os.getenv("DATABASE_URL_MIGRATION", "postgresql+asyncpg://postgres:009621484-Azmh@localhost:5432/velotrack_db")
+# +++ درع السحاب: معالجة بروتوكولات postgres و postgresql لتعمل مع asyncpg الإجباري +++
+if raw_db_url.startswith("postgres://"):
+    raw_db_url = raw_db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif raw_db_url.startswith("postgresql://") and "asyncpg" not in raw_db_url:
+    raw_db_url = raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+DB_URL = raw_db_url
+engine = create_async_engine(DB_URL, echo=False)
+AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+
 from models import (
     Base, SystemSetting, Country, Governorate, Zone, Driver, Product, 
     ProductVariant, OfferRule, Shop, Visit, Vehicle, VehicleLoad,
     WorkSession, WorkBreakLog, SessionInventory, InventoryLedger, 
     WarehouseLedger, DamagedItemLog, SystemAuditLog, ImportLog, 
-    InventoryTransfer, VisitItem, VisitReturn, ShortageRequest, MainWarehouse, DispatchRoute
+    InventoryTransfer, VisitItem, VisitReturn, ShortageRequest, MainWarehouse, DispatchRoute,
+    Company, Branch, UOM # +++ الكيانات الجديدة للـ SaaS +++
 )
 
 # ====================================================================
@@ -30,8 +47,7 @@ async def reset_and_seed_db():
     
     async with AsyncSessionLocal() as session:
         try:
-            session.add(SystemSetting(setting_key='tax_percentage', setting_value='0.0', description='الضريبة'))
-            
+            # +++ إنشاء الكيانات السيادية (System-Owned) +++
             qatar = Country(name="قطر")
             session.add(qatar)
             await session.flush()
@@ -39,50 +55,62 @@ async def reset_and_seed_db():
             doha = Governorate(name="بلدية الدوحة", country_id=qatar.id)
             rayyan = Governorate(name="بلدية الريان", country_id=qatar.id)
             session.add_all([doha, rayyan])
-            await session.flush()
             
-            zone_1 = Zone(name="خط الدوحة الكورنيش", governorate_id=doha.id, sequence_number=1, schedule_frequency="أسبوعي", visit_day="الأحد")
-            zone_2 = Zone(name="خط الريان التجاري", governorate_id=rayyan.id, sequence_number=2, schedule_frequency="أسبوعي", visit_day="الاثنين")
+            uom_pack = UOM(name="حبة", code="PACK")
+            uom_carton = UOM(name="كرتونة", code="CARTON")
+            session.add_all([uom_pack, uom_carton])
+            await session.flush()
+
+            # +++ إنشاء الشركة الافتراضية (Tenant-Owned Core) +++
+            company = Company(name="شركة وناسة المحدودة", company_code="WNS-01")
+            session.add(company)
+            await session.flush()
+            cid = company.id
+
+            session.add(SystemSetting(company_id=cid, setting_key='tax_percentage', setting_value='0.0', description='الضريبة'))
+            
+            zone_1 = Zone(company_id=cid, name="خط الدوحة الكورنيش", governorate_id=doha.id, sequence_number=1, schedule_frequency="أسبوعي", visit_day="الأحد")
+            zone_2 = Zone(company_id=cid, name="خط الريان التجاري", governorate_id=rayyan.id, sequence_number=2, schedule_frequency="أسبوعي", visit_day="الاثنين")
             session.add_all([zone_1, zone_2])
             
-            admin_driver = Driver(username='abuali', full_name='أبو علي (المدير)', is_active=True, is_admin=True, can_allow_debt=True, max_debt_limit=50000.0)
+            admin_driver = Driver(company_id=cid, username='abuali', full_name='أبو علي (المدير)', is_active=True, is_admin=True, can_allow_debt=True, max_debt_limit=50000.0)
             admin_driver.set_password('password')
             
-            test_driver = Driver(username='testdriver', full_name='مندوب تجريبي', is_active=True, is_admin=False, can_allow_debt=True, max_debt_limit=2000.0)
+            test_driver = Driver(company_id=cid, username='testdriver', full_name='مندوب تجريبي', is_active=True, is_admin=False, can_allow_debt=True, max_debt_limit=2000.0)
             test_driver.set_password('password')
             session.add_all([admin_driver, test_driver])
             await session.flush()
             
-            v1 = Vehicle(plate_number="50-12345", vehicle_type="باص كيا", current_mileage=150000, maintenance_status="Active")
-            v2 = Vehicle(plate_number="50-67890", vehicle_type="دينا ايسوزو", current_mileage=85000, maintenance_status="Active")
+            v1 = Vehicle(company_id=cid, plate_number="50-12345", vehicle_type="باص كيا", current_mileage=150000, maintenance_status="Active")
+            v2 = Vehicle(company_id=cid, plate_number="50-67890", vehicle_type="دينا ايسوزو", current_mileage=85000, maintenance_status="Active")
             session.add_all([v1, v2])
             await session.flush()
             
-            product_lulu = Product(base_name='شيبس لولو', brand='Lulu', category='Snacks')
-            product_police = Product(base_name='شيبس الشرطي', brand='Police', category='Snacks')
+            product_lulu = Product(company_id=cid, base_name='شيبس لولو', brand='Lulu', category='Snacks')
+            product_police = Product(company_id=cid, base_name='شيبس الشرطي', brand='Police', category='Snacks')
             session.add_all([product_lulu, product_police])
             await session.flush()
             
-            var1 = ProductVariant(product_id=product_lulu.id, variant_name='شيبس لولو - حجم عائلي', sku='CHP-LULU-1', packs_per_carton=50, price_per_carton=Decimal('50.0'), price_per_pack=Decimal('1.0'))
-            var2 = ProductVariant(product_id=product_police.id, variant_name='شيبس الشرطي - حار', sku='CHP-POL-1', packs_per_carton=24, price_per_carton=Decimal('24.0'), price_per_pack=Decimal('1.0'))
+            var1 = ProductVariant(company_id=cid, product_id=product_lulu.id, base_uom_id=uom_carton.id, variant_name='شيبس لولو - حجم عائلي', sku='CHP-LULU-1', packs_per_carton=50, price_per_carton=Decimal('50.0'), price_per_pack=Decimal('1.0'))
+            var2 = ProductVariant(company_id=cid, product_id=product_police.id, base_uom_id=uom_carton.id, variant_name='شيبس الشرطي - حار', sku='CHP-POL-1', packs_per_carton=24, price_per_carton=Decimal('24.0'), price_per_pack=Decimal('1.0'))
             session.add_all([var1, var2])
             await session.flush()
             
             session.add_all([
-                VehicleLoad(vehicle_id=v1.id, product_variant_id=var1.id, quantity=150),
-                VehicleLoad(vehicle_id=v1.id, product_variant_id=var2.id, quantity=48)
+                VehicleLoad(company_id=cid, vehicle_id=v1.id, product_variant_id=var1.id, quantity=150),
+                VehicleLoad(company_id=cid, vehicle_id=v1.id, product_variant_id=var2.id, quantity=48)
             ])
             
             session.add_all([
-                OfferRule(threshold_quantity=50, offer_type='free_items', bonus_quantity=7),
-                OfferRule(threshold_quantity=25, offer_type='free_items', bonus_quantity=3)
+                OfferRule(company_id=cid, threshold_quantity=50, offer_type='free_items', bonus_quantity=7),
+                OfferRule(company_id=cid, threshold_quantity=25, offer_type='free_items', bonus_quantity=3)
             ])
             
             for i in range(1, 11):
-                shop = Shop(name=f"بقالة قطر {i}", current_balance=Decimal('0.0'), max_debt_limit=Decimal('1000.0'), zone_id=zone_1.id if i <= 5 else zone_2.id, added_by_driver_id=admin_driver.id)
+                shop = Shop(company_id=cid, name=f"بقالة قطر {i}", current_balance=Decimal('0.0'), max_debt_limit=Decimal('1000.0'), zone_id=zone_1.id if i <= 5 else zone_2.id, added_by_driver_id=admin_driver.id)
                 session.add(shop)
                 await session.flush()
-                visit = Visit(driver_id=test_driver.id, shop_id=shop.id, status='Pending', sequence=i, visit_timestamp=datetime.now(timezone.utc).replace(tzinfo=None))
+                visit = Visit(company_id=cid, driver_id=test_driver.id, shop_id=shop.id, status='Pending', sequence=i, visit_timestamp=datetime.now(timezone.utc).replace(tzinfo=None))
                 session.add(visit)
                 
             await session.commit()
@@ -128,12 +156,22 @@ async def inject_extras():
     print("\n🛒  Injecting 20 Drivers, 20 Vehicles, and 20 Products...")
     async with AsyncSessionLocal() as session:
         try:
+            # +++ جلب الشركة الافتراضية ووحدة القياس لحقنها في السجلات +++
+            company = (await session.execute(select(Company).limit(1))).scalars().first()
+            if not company:
+                print("❌  لا توجد شركة! قم بتنفيذ (Full Reset) أولاً.")
+                return
+            cid = company.id
+            uom = (await session.execute(select(UOM).limit(1))).scalars().first()
+            uom_id = uom.id if uom else 1
+
             # 1. إضافة 20 مندوب
             for i in range(1, 21):
                 username = f"driver_{i}"
-                stmt_driver = select(Driver).filter_by(username=username)
+                stmt_driver = select(Driver).filter_by(username=username, company_id=cid)
                 if not (await session.execute(stmt_driver)).first():
                     driver = Driver(
+                        company_id=cid,
                         username=username,
                         full_name=f"مندوب مبيعات {i}",
                         phone_number=f"0790000{i:03d}",
@@ -149,10 +187,11 @@ async def inject_extras():
             v_types = ["باص كيا", "دينا ايسوزو", "تويوتا هايس", "ميتسوبيشي كانتر"]
             for i in range(1, 21):
                 plate = f"50-{20000 + i}"
-                stmt_v = select(Vehicle).filter_by(plate_number=plate)
+                stmt_v = select(Vehicle).filter_by(plate_number=plate, company_id=cid)
                 if not (await session.execute(stmt_v)).first():
                     v_type = v_types[i % len(v_types)]
                     vehicle = Vehicle(
+                        company_id=cid,
                         plate_number=plate,
                         vehicle_type=v_type,
                         current_mileage=50000 + (i * 3500),
@@ -185,18 +224,20 @@ async def inject_extras():
             ]
 
             for idx, (b_name, brand, cat, sku_prefix, packs, p_carton, p_pack) in enumerate(products_list, 1):
-                stmt_parent = select(Product).filter_by(base_name=b_name)
+                stmt_parent = select(Product).filter_by(base_name=b_name, company_id=cid)
                 parent = (await session.execute(stmt_parent)).scalars().first()
                 if not parent:
-                    parent = Product(base_name=b_name, brand=brand, category=cat)
+                    parent = Product(company_id=cid, base_name=b_name, brand=brand, category=cat)
                     session.add(parent)
                     await session.flush()
                 
                 sku = f"{sku_prefix}-{idx:03d}"
-                stmt_var = select(ProductVariant).filter_by(sku=sku)
+                stmt_var = select(ProductVariant).filter_by(sku=sku, company_id=cid)
                 if not (await session.execute(stmt_var)).first():
                     session.add(ProductVariant(
+                        company_id=cid,
                         product_id=parent.id,
+                        base_uom_id=uom_id,
                         variant_name=f"{b_name} - قياسي",
                         sku=sku,
                         packs_per_carton=packs,

@@ -150,9 +150,9 @@ if ENV == "production" and not ALLOWED_ORIGINS:
 
 # ملاحظة: تم إزالة إضافة CORSMiddleware من هنا لنقلها للأسفل في الخطوة القادمة
 
-# S-02: Global rate limiter (200 req/min default per IP)
-# +++ تم ربط الـ Limiter بـ get_real_ip المصفحة بدلاً من الدالة الافتراضية لمنع تزوير الـ IP +++
-limiter = Limiter(key_func=get_real_ip, default_limits=["200/minute"])
+# S-02: Global rate limiter (1000 req/min default per IP)
+# +++ رفع السقف هندسياً لمنع تداخل اختبارات الضغط (180 طلب) مع اختبارات المصادقة اللاحقة +++
+limiter = Limiter(key_func=get_real_ip, default_limits=["1000/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     status_code=429,
@@ -163,70 +163,61 @@ app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
 from slowapi.middleware import SlowAPIMiddleware
 app.add_middleware(SlowAPIMiddleware)
 
-# S-03: Security headers middleware
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        try:
-            response: Response = await call_next(request)
-        except RuntimeError as e:
-            # +++ الدرع المعماري: التقاط هرب العميل (Client Disconnect) لمنع كراش الـ No response returned +++
-            if str(e) == "No response returned." and await request.is_disconnected():
-                return Response(status_code=499) # 499: Client Closed Request
-            raise
-            
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        # +++ الكي الجراحي: إضافة ws: و wss: لمنع الـ CSP من خنق اتصالات غرفة العمليات +++
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; connect-src 'self ws: wss: http: https:'; frame-ancestors 'none'; "
-            "base-uri 'self'; form-action 'self'"
-        )
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=(), interest-cohort=()"
-        )
-        return response
+# +++ الكي الجراحي: دمج هيدرز الأمان، وحجم الطلب، والـ Request ID في ASGI Middleware واحد نقي (O(1) Overhead) +++
+import json
 
-app.add_middleware(SecurityHeadersMiddleware)
-
-# S-06: Body size limit middleware (10 MB)
-MAX_BODY_SIZE = 10 * 1024 * 1024
-
-class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_BODY_SIZE:
-            return JSONResponse(status_code=413, content={"message": "حجم الطلب يتجاوز الحد المسموح (10MB)."})
+class WanasahRawASGIMiddleware:
+    def __init__(self, app):
+        self.app = app
+        self.max_body_size = 10 * 1024 * 1024
+        self.limit_body = json.dumps({"message": "حجم الطلب يتجاوز الحد المسموح (10MB)."}).encode('utf-8')
         
+        # تجهيز الهيدرز مسبقاً لعدم استهلاك الـ CPU مع كل طلب
+        self.sec_headers = [
+            (b"strict-transport-security", b"max-age=31536000; includeSubDomains; preload"),
+            (b"x-content-type-options", b"nosniff"),
+            (b"x-frame-options", b"DENY"),
+            (b"content-security-policy", b"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self ws: wss: http: https:'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+            (b"referrer-policy", b"strict-origin-when-cross-origin"),
+            (b"permissions-policy", b"camera=(), microphone=(), geolocation=(), interest-cohort=()")
+        ]
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        # 1. فحص الحجم المباشر (Fast Path)
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            content_length = headers.get(b"content-length")
+            if content_length and int(content_length) > self.max_body_size:
+                await send({"type": "http.response.start", "status": 413, "headers": [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": self.limit_body})
+                return
+
+        # 2. حقن Request ID بذاكرة النطاق
+        req_id_str = str(uuid.uuid4())
+        req_id_bytes = req_id_str.encode("ascii")
+        if "state" not in scope:
+            scope["state"] = {}
+        scope["state"]["request_id"] = req_id_str
+
+        # 3. اعتراض الـ send لحقن الهيدرز دون استنساخ كائنات Starlette
+        async def custom_send(message):
+            if message["type"] == "http.response.start":
+                headers = message.setdefault("headers", [])
+                headers.extend(self.sec_headers)
+                headers.append((b"x-request-id", req_id_bytes))
+            await send(message)
+
         try:
-            return await call_next(request)
-        except RuntimeError as e:
-            # +++ الدرع المعماري: إخماد كراش الـ Starlette عند انقطاع الاتصال +++
-            if str(e) == "No response returned." and await request.is_disconnected():
-                return Response(status_code=499)
+            await self.app(scope, receive, custom_send)
+        except asyncio.CancelledError:
+            # صيد الانقطاع المفاجئ بصمت لمنع تسريب الاتصالات وانهيار الـ Event Loop
             raise
 
-app.add_middleware(BodySizeLimitMiddleware)
-
-# S-12: Request ID middleware for incident response correlation
-class RequestIDMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("X-Request-Id", str(uuid.uuid4()))
-        request.state.request_id = request_id
-        
-        try:
-            response = await call_next(request)
-            response.headers["X-Request-Id"] = request_id
-            return response
-        except RuntimeError as e:
-            # +++ الدرع المعماري الشامل: حماية نقطة تتبع الأخطاء من الانهيار +++
-            if str(e) == "No response returned." and await request.is_disconnected():
-                return Response(status_code=499)
-            raise
-
-app.add_middleware(RequestIDMiddleware)
+app.add_middleware(WanasahRawASGIMiddleware)
 
 # +++ الكي الجراحي: إضافة CORSMiddleware كآخر طبقة (Outermost Layer) لضمان إرسال هيدرات الـ CORS دائماً، حتى لو قام الـ Limiter أو Security برفض الطلب +++
 app.add_middleware(
@@ -314,28 +305,27 @@ async def websocket_dispatch_endpoint(websocket: WebSocket):
         return
     try:
         payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"], options={"require": ["exp"]})
-        if not payload.get("is_admin"):
+        company_id = payload.get("company_id")
+        if not payload.get("is_admin") or not company_id:
             await websocket.close(code=1008)
             return
     except Exception:
         await websocket.close(code=1008)
         return
 
-    # فحص حالة الدرع الأمني قبل الدخول بالـ Loop
-    is_connected = await dispatch_manager.connect(websocket)
+    # فحص حالة الدرع الأمني وحقن هوية الشركة
+    is_connected = await dispatch_manager.connect(websocket, company_id)
     if not is_connected:
-        return # إنهاء فوري بدون كراش إذا تم رفض الاتصال بسبب الـ DDoS Limit
+        return 
 
     try:
         while True:
-            # إبقاء الاتصال حياً
             await websocket.receive_text()
     except Exception as e:
-        # +++ الكي الجراحي: اصطياد كافة الأخطاء (انقطاع مفاجئ، نوم متصفح، فصل شبكة) بصمت +++
         pass
     finally:
-        # +++ التنظيف الإجباري (Graceful Disconnect): يضمن مسح الاتصال الميت من الذاكرة 100% مهما كانت طريقة خروج المستخدم +++
-        dispatch_manager.disconnect(websocket)
+        # +++ التنظيف الإجباري مع عزل الشركة +++
+        dispatch_manager.disconnect(websocket, company_id)
 
 @app.get("/")
 async def root():

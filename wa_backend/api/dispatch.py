@@ -1066,7 +1066,7 @@ async def dispatch_route(
                          visit_to_update.is_emergency = True
 
         await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast({"event": "ROUTE_DISPATCHED", "message": "تم إطلاق خط سير جديد"}))
+        asyncio.create_task(dispatch_manager.broadcast({"event": "ROUTE_DISPATCHED", "message": "تم إطلاق خط سير جديد"}, company_id=current_admin.company_id))
         return {"message": "تم إطلاق خط السير بنجاح"}
 
     except HTTPException:
@@ -1463,7 +1463,7 @@ async def adjust_route_inventory(
         ))
 
         await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast({"event": "INVENTORY_ADJUSTED", "message": "تم تعديل حمولة سيارة"}))
+        asyncio.create_task(dispatch_manager.broadcast({"event": "INVENTORY_ADJUSTED", "message": "تم تعديل حمولة سيارة"}, company_id=current_admin.company_id))
         
         msg = "تم تحديث حمولة السيارة."
         if active_session:
@@ -2328,7 +2328,7 @@ async def update_route_status(
                              visit_to_update.is_emergency = True
  
         await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast({"event": "ROUTE_STATUS_UPDATED", "message": "تم تحديث حالة خط السير"}))
+        asyncio.create_task(dispatch_manager.broadcast({"event": "ROUTE_STATUS_UPDATED", "message": "تم تحديث حالة خط السير"}, company_id=current_admin.company_id))
         return {"message": "تم تحديث خط السير بنجاح"}
         
     except HTTPException:
@@ -2949,7 +2949,7 @@ async def add_shortages(
                     bulk_visits[shop_id] = new_visit 
                     
         await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast({"event": "SHORTAGE_ADDED", "message": "تم إضافة نواقص جديدة"}))
+        asyncio.create_task(dispatch_manager.broadcast({"event": "SHORTAGE_ADDED", "message": "تم إضافة نواقص جديدة"}, company_id=current_admin.company_id))
         return {"message": "تم تسجيل الطلبات بنجاح"}
 
     except HTTPException:
@@ -3006,7 +3006,7 @@ async def delete_shortage(
                         target_visit.work_session_id = None
         
         await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast({"event": "SHORTAGE_DELETED", "message": "تم معالجة نواقص"}))
+        asyncio.create_task(dispatch_manager.broadcast({"event": "SHORTAGE_DELETED", "message": "تم معالجة نواقص"}, company_id=current_admin.company_id))
         return {"message": "تم حذف الطلب وتنظيف الميدان بنجاح"}
         
     except Exception as e:

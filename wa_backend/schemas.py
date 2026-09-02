@@ -68,6 +68,7 @@ class MessageResponse(BaseModel):
 # 2. دروع المصادقة وتسجيل الدخول (Auth)
 # ==========================================
 class LoginRequest(BaseModel):
+    company_code: str = Field(..., min_length=2, max_length=50, strip_whitespace=True)
     username: str = Field(..., min_length=2, description="اسم المستخدم")
     password: str = Field(..., min_length=4, description="كلمة المرور")
 

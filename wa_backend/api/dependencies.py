@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
 from config import Config
-from database import get_db
+from database import get_db, tenant_context
 from models import Driver, TokenBlacklist
 from sqlalchemy.future import select
 
@@ -21,27 +21,42 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
             options={"require": ["exp"]} 
         )
         driver_id = payload.get("sub")
-        if driver_id is None:
+        company_id = payload.get("company_id") # +++ استخراج الهوية +++
+        
+        if driver_id is None or company_id is None:
             raise HTTPException(status_code=401, detail="Invalid token structure")
+            
+        # +++ زرع هوية الشركة في السياق (Context) لفتح بوابة الـ RLS قبل أي استعلام +++
+        tenant_context.set(int(company_id))
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token is invalid or expired")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Token processing error")
 
-    # +++ A-01: التحقق من أن التوكن ليس محروقاً في القائمة السوداء +++
-    stmt_blacklisted = select(TokenBlacklist).filter_by(token=token)
-    is_blacklisted = (await db.execute(stmt_blacklisted)).scalars().first()
-    if is_blacklisted:
-        raise HTTPException(status_code=401, detail="مرفوض أمنياً: تم تسجيل الخروج مسبقاً (التوكن محروق).")
-
-    # الدرع الفولاذي: استعلام واحد فقط (O(1)) لمنع إرهاق قاعدة البيانات
-    # +++ حماية הـ 500 Crash: التحقق من أن الـ driver_id هو رقم صالح لتجنب هجمات حقن النصوص +++
     try:
-        driver_id_int = int(driver_id)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=401, detail="Token payload is invalid")
-        
-    driver = await db.get(Driver, driver_id_int)
+        # +++ A-01: التحقق من أن التوكن ليس محروقاً في القائمة السوداء +++
+        stmt_blacklisted = select(TokenBlacklist).filter_by(token=token)
+        is_blacklisted = (await db.execute(stmt_blacklisted)).scalars().first()
+        if is_blacklisted:
+            raise HTTPException(status_code=401, detail="مرفوض أمنياً: تم تسجيل الخروج مسبقاً (التوكن محروق).")
+
+        # الدرع الفولاذي: استعلام واحد فقط (O(1)) لمنع إرهاق قاعدة البيانات
+        try:
+            driver_id_int = int(driver_id)
+            comp_id_int = int(company_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=401, detail="Token payload is invalid")
+            
+        # +++ التحقق الصارم من أن المندوب ينتمي للشركة الموجودة في التوكن +++
+        stmt_driver = select(Driver).filter_by(id=driver_id_int, company_id=comp_id_int)
+        driver = (await db.execute(stmt_driver)).scalar_one_or_none()
+    except HTTPException:
+        raise
+    except Exception as e:
+        # +++ الدرع المعماري: اصطياد خطأ (This connection is closed) وتحويله لرفض أمني دون كسر السيرفر +++
+        import logging
+        logging.getLogger("wanasah_logger").error(f"DB Dependency Connection Error: {e}")
+        raise HTTPException(status_code=401, detail="انقطع الاتصال بقاعدة البيانات. يرجى إعادة المحاولة.")
     
     # +++   فصل الحساب الممسوح (بسبب فورمات الداتابيز) عن الحساب الموقوف إدارياً +++
     if not driver:

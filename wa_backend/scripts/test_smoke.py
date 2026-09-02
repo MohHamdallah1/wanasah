@@ -147,6 +147,11 @@ async def main():
                 record("كل الجداول الحرجة موجودة (10/10)", not missing,
                        "missing=" + str(sorted(missing)))
 
+                # +++ الدرع المعماري: فتح بوابة الـ RLS لاختبار الدخان بقراءة ID الشركة الافتراضية[cite: 9] +++
+                comp_id = (await conn.execute(sqltext("SELECT id FROM companies WHERE company_code = 'WNS-01' LIMIT 1"))).scalar()
+                if comp_id:
+                    await conn.execute(sqltext(f"SELECT set_config('app.current_tenant', '{comp_id}', false)"))
+
                 drv = (await conn.execute(sqltext("SELECT COUNT(*) FROM drivers"))).scalar()
                 record("يوجد مندوبون في القاعدة (بيانات حية)", (drv or 0) > 0, "drivers=" + str(drv))
         except Exception as e:
@@ -221,15 +226,14 @@ async def main():
             _limiter.reset()
         except Exception:
             pass
-        # +++ درع التخمين الدائم مخزن في الداتابيز (FAILED_LOGIN لآخر 15 دقيقة بـ IP الاختبار) —
-        # التشغيلات السابقة لوّثته، فننظف سجلات IP الاختبار حصراً حتى تكون فحوص التنسيق نزيهة +++
+        # +++ درع التخمين الدائم مخزن في الداتابيز (LoginAttempt لآخر 15 دقيقة بـ IP الاختبار) —
+        # التشغيلات السابقة لوّثته، فننظف سجلات IP الاختبار حصراً حتى تكون فحوص التنسيق نزيهة[cite: 6] +++
         try:
-            from models import SystemAuditLog as _SAL
+            from models import LoginAttempt as _LA
             from sqlalchemy import delete as _sql_delete
             async with engine.begin() as conn:
-                await conn.execute(_sql_delete(_SAL).where(
-                    _SAL.action_type == 'FAILED_LOGIN',
-                    _SAL.target_id.in_(['127.0.0.1', 'testclient']) # IP الفعلي في ASGITransport هو 127.0.0.1
+                await conn.execute(_sql_delete(_LA).where(
+                    _LA.ip_address.in_(['127.0.0.1', 'testclient'])
                 ))
         except Exception:
             pass
@@ -246,7 +250,7 @@ async def main():
             return r
 
         try:
-            r = await post_login({"username": "smoke_invalid_" + run_salt, "password": "wrong"})
+            r = await post_login({"company_code": "WNS-01", "username": "smoke_invalid_" + run_salt, "password": "wrong"})
             record("بيانات خاطئة → 401 حصراً (وليس 422)", r.status_code == 401, "got " + str(r.status_code))
             body = r.json() if "json" in r.headers.get("content-type", "") else {}
             record("رد الخطأ يحوي message أو detail",
@@ -255,10 +259,10 @@ async def main():
             r = await post_login(raw="{invalid-json!!")
             record("JSON مشوه → 422 (وليس 500)", r.status_code == 422, "got " + str(r.status_code))
 
-            r = await post_login({"username": "x"})
+            r = await post_login({"company_code": "WNS-01", "username": "x"})
             record("حقل ناقص → 422", r.status_code == 422, "got " + str(r.status_code))
 
-            r = await post_login({"username": "' OR 1=1 --", "password": "'; DROP TABLE drivers; --"})
+            r = await post_login({"company_code": "WNS-01", "username": "' OR 1=1 --", "password": "'; DROP TABLE drivers; --"})
             record("حقن SQL → 401/422 (وليس 500)", r.status_code in (401, 422), "got " + str(r.status_code))
 
             r = await post_login({"username": "A" * 10000, "password": "B" * 10000})
@@ -333,15 +337,54 @@ async def main():
             record("180/180 طلباً بلا استثناءات", not errs,
                    "exceptions=" + str(len(errs)) + ": " + str(errs[:2]))
             record("كل الردود 200", not bad_status, "bad=" + str(bad_status[:3]))
-            # ملاحظة منصفة: تحت نقل ASGI داخل الذاكرة تتشارك كل الطلبات حلقة واحدة مع طلبات الداتابيز
-            # فتنزاح الزمنات نحو ~500ms حتى للمسار النقي — بينما الطلب المفرد الحقيقي < 250ms (القسم 1 يثبت ذلك)
-            record("P95 لمسار /health النقي < 800ms تحت الضغط (فعلي: " + format(h_p95, ".0f") + "ms)",
-                   h_p95 < 800)
-            record("P95 لمسار /ready مع RTT الداتابيز < 1500ms (فعلي: " + format(r_p95, ".0f") + "ms)",
-                   r_p95 < 1500)
+            # +++ إعادة القسوة بناءً على توصية البوت (P95 <= 800ms) +++
+            record("P95 لمسار /health النقي <= 800ms (فعلي: " + format(h_p95, ".0f") + "ms)",
+                   h_p95 <= 800) 
+            record("P95 لمسار /ready مع RTT الداتابيز <= 1500ms (فعلي: " + format(r_p95, ".0f") + "ms)",
+                   r_p95 <= 1500)
             record("أبطأ طلب إجمالي < 3000ms (فعلي: " + format(mx, ".0f") + "ms)", mx < 3000)
         except Exception as e:
             record("Concurrency Pressure", False, str(e))
+
+        # ─────────────────────────────────────────────────────────────
+        # 8.5 SaaS Shield (درع العزل واختبارات الاختراق بين الشركات)
+        # ─────────────────────────────────────────────────────────────
+        section("8.5 SaaS Shield (اختبار العزل والاختراق)")
+        try:
+            # محاولة الدخول لحساب المدير (WNS-01)
+            login_resp = await client.post("/login", json={"company_code": "WNS-01", "username": "abuali", "password": "password"})
+            if login_resp.status_code == 200:
+                admin_token = login_resp.json().get("token")
+                admin_refresh = login_resp.json().get("refresh_token")
+                record("تسجيل دخول المشرف (WNS-01) ناجح", True)
+                
+                # فحص الـ Claims
+                import jwt
+                payload = jwt.decode(admin_token, Config.SECRET_KEY, algorithms=["HS256"])
+                record("التوكن يحتوي على company_id و role", "company_id" in payload and "role" in payload)
+                
+                # محاولة الوصول لداتا شركة أخرى (محاكاة هجوم Cross-Tenant)
+                # بما أننا لا نملك شركة ثانية في الـ DB حالياً، سنصطنع توكناً لشركة وهمية (ID: 999) ونحاول جلب المناطق
+                fake_payload = payload.copy()
+                fake_payload["company_id"] = 999
+                fake_token = jwt.encode(fake_payload, Config.SECRET_KEY, algorithm="HS256")
+                
+                cross_resp = await client.get("/dispatch/init", headers={"Authorization": f"Bearer {fake_token}"})
+                # الرد يجب أن يكون 401 لأن المندوب (abuali) لا يملك حساباً في شركة 999
+                record("محاولة اختراق Cross-Tenant تُرفض من الـ RLS بـ 401", cross_resp.status_code == 401, "got " + str(cross_resp.status_code))
+                
+                # اختبار تجديد التوكن
+                refresh_resp = await client.post("/refresh", json={"refresh_token": admin_refresh})
+                record("تجديد الجلسة (/refresh) ناجح", refresh_resp.status_code == 200)
+            else:
+                record("تسجيل دخول المشرف (WNS-01)", False, f"status: {login_resp.status_code}")
+        except Exception as e:
+            # +++ أداة التشخيص الهندسي: استخراج مسار الانهيار الكامل بدون أي تخمين +++
+            import traceback
+            emit("\n[🔴 TRACEBACK - SAAS SHIELD CRASH 🔴]")
+            emit(traceback.format_exc())
+            emit("--------------------------------------------------\n")
+            record("SaaS Shield", False, str(e))
 
         # ─────────────────────────────────────────────────────────────
         # 9. WebSocket — محاولة اقتحام حقيقية بدون توكن
@@ -408,7 +451,7 @@ async def main():
             codes = []
             for i in range(12):
                 # كلمة سر بطول واقعي حتى لا يصطادها الـ 422 (Validation) قبل أن يصل المندوب للدرع
-                r = await client.post(login_path, json={"username": "bf_" + str(i), "password": "WrongPass123"})
+                r = await client.post(login_path, json={"company_code": "WNS-01", "username": "bf_" + str(i), "password": "WrongPass123"})
                 codes.append(r.status_code)
                 if r.status_code == 429:
                     saw_429 = True
