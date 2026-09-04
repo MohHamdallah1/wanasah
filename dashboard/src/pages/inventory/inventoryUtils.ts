@@ -44,12 +44,16 @@ export interface InboundRow {
 }
 
 export interface StocktakeRow {
+  row_key: string;
   product_variant_id: number;
+  batch_id: number | null;
   product_name: string;
+  batch_number: string | null;
+  expiry_date: string | null;
   packs_per_carton: number;
-  expected_packs: number;
   actual_cartons: number;
   actual_loose_packs: number;
+  counted: boolean;
 }
 
 // +++  للكارثة الرياضية (الأرقام السالبة) +++

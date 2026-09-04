@@ -649,8 +649,8 @@ class SystemAuditLog(Base):
     __tablename__ = 'system_audit_logs'
     id          = Column(Integer, primary_key=True)
     company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
-    # +++ تأمين بقاء سجل الرقابة حتى لو تم حذف حساب المدير (SET NULL بدلاً من الكراش) +++
-    admin_id    = Column(Integer, ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True, index=True)
+    # +++ سجل رقابي غير قابل لتغيير هوية الفاعل: المستخدمون الذين لهم سجل يُعطّلون ولا يُحذفون. +++
+    admin_id    = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True, index=True)
     target_id   = Column(String(100), nullable=False, index=True)   # رقم الجلسة أو المندوب
     action_type = Column(String(100), nullable=False, index=True)   # UNDO_END_WORK إلخ
     old_value   = Column(Text, nullable=True)
@@ -977,52 +977,208 @@ class InventoryTransferLine(Base):
 # [المرحلة السادسة] محرك الجرد القانوني (Stocktake Engine)
 # =================================================================================
 class StocktakeSession(Base):
-    """جلسة الجرد: توثق من بدأ، من جرد، ومن اعتمد (مسؤوليات الجرد)"""
+    """جلسة الجرد: تدير دورة الحياة وتفصل بين Snapshot المخزون ومحاولات العد."""
     __tablename__ = 'stocktake_sessions'
     __table_args__ = (
         UniqueConstraint('company_id', 'reference_number', name='uq_stocktake_session_ref'),
-        UniqueConstraint('company_id', 'id', name='uq_stocktake_sessions_company_id'), # +++ Parent Guard +++
+        UniqueConstraint('company_id', 'id', name='uq_stocktake_sessions_company_id'),
         CheckConstraint("status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED', 'POSTED', 'CANCELLED')", name='chk_stocktake_status'),
         CheckConstraint("stocktake_type IN ('FULL_COUNT', 'CYCLE_COUNT', 'VEHICLE_RECON')", name='chk_stocktake_type'),
+
+        ForeignKeyConstraint(
+            ['company_id', 'location_id'],
+            ['inventory_locations.company_id', 'inventory_locations.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_session_tenant_location'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'started_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_session_started_by'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'counted_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_session_counted_by'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'approved_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_session_approved_by'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'pending_recount_authorized_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_session_pending_recount_authorizer'
+        ),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
-    location_id        = Column(Integer, ForeignKey('inventory_locations.id', ondelete='RESTRICT'), nullable=False, index=True)
+    location_id        = Column(Integer, nullable=False, index=True)
     reference_number   = Column(String(100), nullable=False, index=True)
     stocktake_type     = Column(String(50), nullable=False)
-    status             = Column(String(50), nullable=False, default='DRAFT', index=True) 
-    
-    # +++ مسؤوليات الجرد الصارمة +++
-    started_by         = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
-    counted_by         = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True)
-    approved_by        = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True)
-    
+    status             = Column(String(50), nullable=False, default='DRAFT', index=True)
+
+    started_by         = Column(Integer, nullable=False)
+    counted_by         = Column(Integer, nullable=True)
+    approved_by        = Column(Integer, nullable=True)
+
+    # حالة تشغيلية مؤقتة لإعادة العد؛ التاريخ الدائم ينسخ داخل محاولة العد وسجل الرقابة.
+    pending_recount_authorized_by = Column(Integer, nullable=True)
+    pending_recount_reason        = Column(Text, nullable=True)
+    independent_recount_required  = Column(Boolean, nullable=False, default=False, server_default='false')
+
     notes              = Column(Text, nullable=True)
     created_at         = Column(DateTime, nullable=False, default=utc_now)
     updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
+
 class StocktakeLine(Base):
-    """تفاصيل الجرد: Snapshot للرصيد المتوقع (Blind Count) والفعلي المجرود"""
+    """Snapshot ثابت للرصيد المتوقع لحظة بدء الجرد؛ لا يخزن العد الفعلي."""
     __tablename__ = 'stocktake_lines'
     __table_args__ = (
-        UniqueConstraint('stocktake_session_id', 'product_variant_id', 'batch_id', name='uq_stocktake_line_item'),
         UniqueConstraint('company_id', 'id', name='uq_stocktake_lines_company_id'),
-        ForeignKeyConstraint(['company_id', 'stocktake_session_id'],
-                             ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
-                             ondelete='CASCADE', name='fk_stocktake_lines_tenant_session'),
-        # +++ الدرع الرياضي: فرض دقة الفروقات على مستوى الداتابيز +++
-        CheckConstraint('variance_quantity = actual_quantity - expected_quantity', name='chk_st_line_variance'),
+        ForeignKeyConstraint(
+            ['company_id', 'stocktake_session_id'],
+            ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
+            ondelete='CASCADE',
+            name='fk_stocktake_lines_tenant_session'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_line_tenant_variant'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'batch_id'],
+            ['product_batches.company_id', 'product_batches.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_line_tenant_batch'
+        ),
+        Index(
+            'uq_stocktake_line_item_batch',
+            'company_id', 'stocktake_session_id', 'product_variant_id', 'batch_id',
+            unique=True,
+            postgresql_where=text("batch_id IS NOT NULL")
+        ),
+        Index(
+            'uq_stocktake_line_item_no_batch',
+            'company_id', 'stocktake_session_id', 'product_variant_id',
+            unique=True,
+            postgresql_where=text("batch_id IS NULL")
+        ),
     )
     id                   = Column(Integer, primary_key=True)
     company_id           = Column(Integer, nullable=False, index=True)
     stocktake_session_id = Column(Integer, nullable=False, index=True)
-    product_variant_id   = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
-    batch_id             = Column(Integer, ForeignKey('product_batches.id', ondelete='RESTRICT'), nullable=True)
-    
+    product_variant_id   = Column(Integer, nullable=False)
+    batch_id             = Column(Integer, nullable=True)
+
     expected_quantity    = Column(Integer, CheckConstraint('expected_quantity >= 0', name='chk_st_line_exp_qty'), nullable=False)
-    actual_quantity      = Column(Integer, CheckConstraint('actual_quantity >= 0', name='chk_st_line_act_qty'), nullable=True) 
-    variance_quantity    = Column(Integer, nullable=True) 
     notes                = Column(Text, nullable=True)
+
+
+class StocktakeCountAttempt(Base):
+    """محاولة عد مستقلة: كل إنهاء عد ينشئ نسخة جديدة ولا يستبدل أي محاولة سابقة."""
+    __tablename__ = 'stocktake_count_attempts'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_stocktake_count_attempts_company_id'),
+        UniqueConstraint('company_id', 'stocktake_session_id', 'attempt_number', name='uq_stocktake_attempt_number'),
+        ForeignKeyConstraint(
+            ['company_id', 'stocktake_session_id'],
+            ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_attempt_tenant_session'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'recount_of_attempt_id'],
+            ['stocktake_count_attempts.company_id', 'stocktake_count_attempts.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_attempt_recount_parent'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'counted_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_attempt_counted_by'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'authorized_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_attempt_authorized_by'
+        ),
+        CheckConstraint('attempt_number > 0', name='chk_stocktake_attempt_number_positive'),
+    )
+    id                   = Column(Integer, primary_key=True)
+    company_id           = Column(Integer, nullable=False, index=True)
+    stocktake_session_id = Column(Integer, nullable=False, index=True)
+    attempt_number       = Column(Integer, nullable=False)
+    recount_of_attempt_id= Column(Integer, nullable=True, index=True)
+
+    counted_by           = Column(Integer, nullable=False, index=True)
+    authorized_by        = Column(Integer, nullable=True, index=True)
+    recount_reason       = Column(Text, nullable=True)
+    requires_independent_recount = Column(Boolean, nullable=False, default=False, server_default='false')
+
+    submitted_at         = Column(DateTime, nullable=False, default=utc_now, index=True)
+
+
+class StocktakeCountAttemptLine(Base):
+    """أسطر محاولة العد: تحفظ المتوقع الفعّال والفعلي والفرق كما كانت لحظة الإرسال."""
+    __tablename__ = 'stocktake_count_attempt_lines'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_stocktake_count_attempt_lines_company_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'count_attempt_id'],
+            ['stocktake_count_attempts.company_id', 'stocktake_count_attempts.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_attempt_line_tenant_attempt'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_attempt_line_tenant_variant'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'batch_id'],
+            ['product_batches.company_id', 'product_batches.id'],
+            ondelete='RESTRICT',
+            name='fk_stocktake_attempt_line_tenant_batch'
+        ),
+        Index(
+            'uq_stocktake_attempt_line_batch',
+            'company_id', 'count_attempt_id', 'product_variant_id', 'batch_id',
+            unique=True,
+            postgresql_where=text("batch_id IS NOT NULL")
+        ),
+        Index(
+            'uq_stocktake_attempt_line_no_batch',
+            'company_id', 'count_attempt_id', 'product_variant_id',
+            unique=True,
+            postgresql_where=text("batch_id IS NULL")
+        ),
+        CheckConstraint('expected_quantity >= 0', name='chk_stocktake_attempt_line_expected'),
+        CheckConstraint('actual_quantity >= 0', name='chk_stocktake_attempt_line_actual'),
+        CheckConstraint('variance_quantity = actual_quantity - expected_quantity', name='chk_stocktake_attempt_line_variance'),
+    )
+    id                   = Column(Integer, primary_key=True)
+    company_id           = Column(Integer, nullable=False, index=True)
+    count_attempt_id     = Column(Integer, nullable=False, index=True)
+    product_variant_id   = Column(Integer, nullable=False)
+    batch_id             = Column(Integer, nullable=True)
+
+    expected_quantity    = Column(Integer, nullable=False)
+    actual_quantity      = Column(Integer, nullable=False)
+    variance_quantity    = Column(Integer, nullable=False)
+    notes                = Column(Text, nullable=True)
+
 
 class InventoryLock(Base):
     """الأقفال الجراحية: تمنع الحركات على رف/صنف/دفعة محددة دون شل باقي المستودع"""

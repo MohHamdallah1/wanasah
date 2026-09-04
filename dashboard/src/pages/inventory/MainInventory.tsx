@@ -95,20 +95,32 @@ export default function MainInventory() {
     }
   }, [authFetch, selectedLocationId]); 
 
+  // جلب حالة القفل للمستودع المحدد فقط دون التأثير على باقي المستودعات.
   const fetchStatus = useCallback(async () => {
+    if (!selectedLocationId) {
+      setIsAuditLocked(false);
+      return;
+    }
+
     setLoadingStatus(true);
+
     try {
-      const data = await authFetch("/warehouse/status");
+      const data = await authFetch(
+        `/warehouse/status?location_id=${selectedLocationId}`
+      );
+
       if (data) {
         setIsAuditLocked(data.status === "AUDIT_LOCK");
       }
     } catch (e: any) {
-      toast.error("خطأ حرج: تعذر التأكد من حالة قفل المستودع. تم تعطيل العمليات لضمان الأمان.");
-      setIsAuditLocked(true); 
+      toast.error(
+        "خطأ حرج: تعذر التأكد من حالة قفل المستودع المحدد."
+      );
+      setIsAuditLocked(true);
     } finally {
       setLoadingStatus(false);
     }
-  }, [authFetch]);
+  }, [authFetch, selectedLocationId]);
 
   const fetchLedger = useCallback(async (force = false) => {
     if (!selectedLocationId) return;

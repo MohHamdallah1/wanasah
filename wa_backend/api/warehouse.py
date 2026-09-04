@@ -13,32 +13,128 @@ import bcrypt
 import logging
 logger = logging.getLogger("wanasah_logger")
 import uuid
+import hashlib
+import json
 from services import check_inventory_lock as _check_inventory_lock  # +++ توحيد الحارس: نسخة واحدة في المشروع (المرجع المركزي في services) +++
-from models import (Driver, Product, MainWarehouse, WarehouseLedger, ProductVariant, SystemSetting,
+from models import (Driver, Product, MainWarehouse, WarehouseLedger, ProductVariant,
 DamagedItemLog, VehicleLoad, SessionInventory, WorkSession, InventoryTransfer, DispatchRoute, Vehicle, SystemAuditLog,
-InventoryLocation, InventoryBalance, InventoryMovement, ProductBatch, InventoryTransferHeader, InventoryTransferLine, OverrideReason, StocktakeSession, StocktakeLine, InventoryLock,
+InventoryLocation, InventoryBalance, InventoryMovement, ProductBatch, InventoryTransferHeader, InventoryTransferLine, OverrideReason, SystemSetting,
+StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock,
 Role, Permission, UserRole, role_permissions)
 
-from schemas import (UnifiedStocktakeStartRequest, WarehouseStocktakeRequest, ToggleLockRequest, WarehouseAlertItem,
+from schemas import (UnifiedStocktakeStartRequest, WarehouseAlertItem,
 WarehouseInventoryItem, WarehouseLedgerItem, WarehouseStatusResponse, SimpleProductVariantItem,
-AddProductVariantRequest, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest, UnifiedStocktakeStartRequest, UnifiedStocktakeCountRequest )
+AddProductVariantRequest, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest,
+UnifiedStocktakeStartRequest, UnifiedStocktakeCountRequest, StocktakeRecountRequest, StocktakeApprovalRequest, StocktakeCancelRequest )
 
 router = APIRouter()
+
+# التحقق من بيانات مشرف مخول داخل نفس الشركة دون كشف سبب فشل المصادقة.
+async def _verify_stocktake_admin_credentials(
+    db: AsyncSession,
+    company_id: int,
+    username: str,
+    password: str
+) -> Optional[Driver]:
+    stmt = select(Driver).filter_by(
+        company_id=company_id,
+        username=username.strip(),
+        is_active=True,
+        is_admin=True
+    )
+    admin = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not admin:
+        return None
+
+    password_ok = await asyncio.to_thread(
+        bcrypt.checkpw,
+        password.encode('utf-8'),
+        admin.password_hash.encode('utf-8')
+    )
+    return admin if password_ok else None
+
+
+# تحديد ما إذا كان العجز يتطلب إعادة عد مستقلة؛ الوضع الافتراضي الآمن يعتبر أي عجز مادياً حتى تضبط الشركة حدودها.
+async def _requires_independent_stocktake_recount(
+    db: AsyncSession,
+    company_id: int,
+    line_values: list[tuple[int, int]]
+) -> bool:
+    shortages = [
+        (expected_qty, abs(variance_qty))
+        for expected_qty, variance_qty in line_values
+        if variance_qty < 0
+    ]
+
+    if not shortages:
+        return False
+
+    stmt_settings = select(
+        SystemSetting.setting_key,
+        SystemSetting.setting_value
+    ).filter(
+        SystemSetting.company_id == company_id,
+        SystemSetting.setting_key.in_([
+            'stocktake_material_shortage_packs',
+            'stocktake_material_shortage_percent'
+        ])
+    )
+    settings = {
+        key: value
+        for key, value in (await db.execute(stmt_settings)).all()
+    }
+
+    packs_threshold = None
+    percent_threshold = None
+
+    try:
+        if settings.get('stocktake_material_shortage_packs') is not None:
+            packs_threshold = max(
+                0,
+                int(settings['stocktake_material_shortage_packs'])
+            )
+    except (TypeError, ValueError):
+        packs_threshold = None
+
+    try:
+        if settings.get('stocktake_material_shortage_percent') is not None:
+            percent_threshold = max(
+                0.0,
+                float(settings['stocktake_material_shortage_percent'])
+            )
+    except (TypeError, ValueError):
+        percent_threshold = None
+
+    # Secure-by-default: إذا لم تضبط الشركة سياسة بعد، أي عجز يتطلب عدّاً مستقلاً.
+    if packs_threshold is None and percent_threshold is None:
+        return True
+
+    for expected_qty, shortage_qty in shortages:
+        shortage_percent = (
+            (shortage_qty / expected_qty) * 100
+            if expected_qty > 0
+            else 100.0
+        )
+
+        packs_hit = (
+            packs_threshold is not None
+            and shortage_qty >= packs_threshold
+        )
+        percent_hit = (
+            percent_threshold is not None
+            and shortage_percent >= percent_threshold
+        )
+
+        if packs_hit or percent_hit:
+            return True
+
+    return False
+
 
 # =================================================================================
 # دوال مساعدة للمستودع (Helper Functions)
 # =================================================================================
-async def check_warehouse_lock(db: AsyncSession, company_id: int) -> bool:
-    """
-    درع العزل المعماري: التحقق من القفل حصراً للشركة الحالية.
-    تم سحق ثغرة الشلل العام (Global Lock) التي كانت تعطل كل الشركات إذا قامت شركة واحدة بالجرد.
-    """
-    stmt = select(SystemSetting).filter_by(company_id=company_id, setting_key='warehouse_status')
-    lock_setting = (await db.execute(stmt)).scalar_one_or_none()
-    if lock_setting and lock_setting.setting_value == 'AUDIT_LOCK':
-        return True
-    return False
-
 @router.get("/warehouse/locations", status_code=200)
 async def get_warehouse_locations(
     db: AsyncSession = Depends(get_db),
@@ -75,9 +171,6 @@ async def warehouse_inbound(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    # +++ تمرير الـ company_id الإلزامي لدرع القفل +++
-    if await check_warehouse_lock(db, current_admin.company_id):
-        raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً بسبب عملية جرد.")
 
     if not payload.items:
         raise HTTPException(status_code=400, detail="يجب إرسال أصناف للاستلام.")
@@ -90,13 +183,23 @@ async def warehouse_inbound(
 
     if not reference_id.startswith("AUTO-INB-"):
         normalized_ref = reference_id.strip().lower()
-        await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(normalized_ref))))
-        stmt_ref = select(WarehouseLedger.id).filter(
-            WarehouseLedger.transaction_type.in_(['INBOUND_SUPPLIER', 'INBOUND_CORRECTION']), 
-            func.lower(func.trim(WarehouseLedger.reference_id)) == normalized_ref
+        lock_key = f"{current_admin.company_id}:{normalized_ref}"
+
+        await db.execute(
+            select(func.pg_advisory_xact_lock(func.hashtext(lock_key)))
         )
+
+        stmt_ref = select(InventoryMovement.id).filter(
+            InventoryMovement.company_id == current_admin.company_id,
+            InventoryMovement.reference_type == 'INBOUND_SUPPLIER',
+            func.lower(func.trim(InventoryMovement.reference_id)) == normalized_ref
+        ).limit(1)
+
         if (await db.execute(stmt_ref)).first():
-            raise HTTPException(status_code=409, detail=f"مرفوض: رقم الفاتورة '{reference_id}' مسجل مسبقاً.")
+            raise HTTPException(
+                status_code=409,
+                detail=f"مرفوض: رقم الفاتورة '{reference_id}' مسجل مسبقاً."
+            )
 
     try:
         # +++ الاعتماد على المستودع المختار من الداشبورد +++
@@ -108,16 +211,47 @@ async def warehouse_inbound(
             await db.rollback()
             raise HTTPException(status_code=404, detail="المستودع المختار غير موجود أو لا ينتمي لشركتك.")
 
-        aggregated_items = {}
-        for item in payload.items:
-            if item.quantity_packs <= 0: continue
-            
-            # +++ الدرع الرياضي: المحرك الموحد يرفض البضاعة بلا دفعة أو منتهية الصلاحية +++
-            if not item.batch_number or not item.expiry_date:
-                raise HTTPException(status_code=422, detail="مرفوض: النظام الموحد يفرض إدخال رقم الدفعة وتاريخ الصلاحية.")
-            if item.expiry_date < date.today():
-                raise HTTPException(status_code=422, detail=f"مرفوض: لا يمكن استلام بضاعة منتهية الصلاحية (الدفعة: {item.batch_number}).")
+        prepared_items = []
+        requested_var_ids = set()
 
+        for item in payload.items:
+            if item.quantity_packs <= 0:
+                continue
+
+            if not item.batch_number or not item.expiry_date:
+                raise HTTPException(
+                    status_code=422,
+                    detail="مرفوض: النظام الموحد يفرض إدخال رقم الدفعة وتاريخ الصلاحية."
+                )
+
+            if item.expiry_date < date.today():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"مرفوض: لا يمكن استلام بضاعة منتهية الصلاحية (الدفعة: {item.batch_number})."
+                )
+
+            prepared_items.append(item)
+            requested_var_ids.add(item.product_variant_id)
+
+        if not prepared_items:
+            return {"message": "لا توجد كميات صالحة للإدخال."}
+
+        stmt_variants = select(ProductVariant.id).filter(
+            ProductVariant.company_id == current_admin.company_id,
+            ProductVariant.id.in_(list(requested_var_ids))
+        )
+        valid_var_ids = set((await db.execute(stmt_variants)).scalars().all())
+
+        invalid_var_ids = requested_var_ids - valid_var_ids
+        if invalid_var_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="يوجد صنف غير صالح أو لا يتبع شركتك ضمن فاتورة الاستلام."
+            )
+
+        aggregated_items = {}
+
+        for item in prepared_items:
             stmt_batch_ins = pg_insert(ProductBatch).values(
                 company_id=current_admin.company_id,
                 product_variant_id=item.product_variant_id,
@@ -126,72 +260,106 @@ async def warehouse_inbound(
                 expiry_date=item.expiry_date,
                 is_active=True
             ).on_conflict_do_nothing(
-                index_elements=['company_id', 'product_variant_id', 'batch_number']
+                index_elements=[
+                    'company_id',
+                    'product_variant_id',
+                    'batch_number'
+                ]
             )
             await db.execute(stmt_batch_ins)
 
-            stmt_batch = select(ProductBatch.id).filter_by(
+            stmt_batch = select(ProductBatch).filter_by(
                 company_id=current_admin.company_id,
                 product_variant_id=item.product_variant_id,
                 batch_number=item.batch_number
             )
-            batch_id = (await db.execute(stmt_batch)).scalar_one()
-            
-            # التجميع يعتمد الآن على الصنف والدفعة معاً (Tuple)
-            key = (item.product_variant_id, batch_id)
-            aggregated_items[key] = aggregated_items.get(key, 0) + item.quantity_packs
+            batch = (await db.execute(stmt_batch)).scalar_one()
 
-        if not aggregated_items:
-            return {"message": "لا توجد كميات صالحة للإدخال."}
-            
-        var_ids = list(set([k[0] for k in aggregated_items.keys()]))
-        
-        stmt_variants = select(ProductVariant.id).filter(
-            ProductVariant.id.in_(var_ids),
-            ProductVariant.company_id == current_admin.company_id
-        )
-        valid_var_ids = set((await db.execute(stmt_variants)).scalars().all())
-        if not valid_var_ids:
-            raise HTTPException(status_code=400, detail="مرفوض: جميع المنتجات غير صالحة.")
+            if batch.expiry_date != item.expiry_date:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"الدفعة ({item.batch_number}) موجودة مسبقاً بتاريخ صلاحية مختلف."
+                )
 
-        stmt_wh = select(MainWarehouse).with_for_update().filter(MainWarehouse.product_variant_id.in_(list(valid_var_ids))).order_by(MainWarehouse.product_variant_id.asc())
-        bulk_warehouse = {w.product_variant_id: w for w in (await db.execute(stmt_wh)).scalars().all()}
+            if (
+                batch.production_date is not None
+                and item.production_date is not None
+                and batch.production_date != item.production_date
+            ):
+                await db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"الدفعة ({item.batch_number}) موجودة مسبقاً بتاريخ إنتاج مختلف."
+                )
+
+            key = (item.product_variant_id, batch.id)
+            aggregated_items[key] = (
+                aggregated_items.get(key, 0) + item.quantity_packs
+            )
 
         for (p_id, b_id), added_packs in aggregated_items.items():
             if p_id not in valid_var_ids: continue
 
-            wh_record = bulk_warehouse.get(p_id)
-            if not wh_record:
-                await db.rollback()
-                raise HTTPException(status_code=400, detail=f"خطأ حرج: المنتج ليس له حساب مخزني في النظام القديم.")
-                
-            # +++ نشر الحارس: منع التوريد لرف مقفول (P0-1) +++
-            await _check_inventory_lock(db, current_admin.company_id, main_loc.id, p_id, b_id)
+            # منع الحركة على صنف/دفعة مقفلة بسبب الجرد
+            await _check_inventory_lock(
+                db,
+                current_admin.company_id,
+                main_loc.id,
+                p_id,
+                b_id
+            )
 
-            # 1. تحديث النظام القديم (لضمان عمل الـ Flutter والـ Dashboard)
-            old_balance = wh_record.available_quantity_packs or 0
-            wh_record.available_quantity_packs += added_packs
-            db.add(WarehouseLedger(
-                product_variant_id=p_id, transaction_type='INBOUND_SUPPLIER', quantity_packs=added_packs,
-                balance_before_packs=old_balance, balance_after_packs=wh_record.available_quantity_packs,
-                admin_id=current_admin.id, reference_id=reference_id, notes=payload.notes
-            ))
-
-            # 2. +++ الـ Dual-Write: الكتابة في المحرك الموحد (المرحلة 3 و 4) +++
+            # =========================================================
+            # Unified Inventory Engine — Source of Truth
+            # =========================================================
             stmt_upsert = pg_insert(InventoryBalance).values(
-                company_id=current_admin.company_id, location_id=main_loc.id,
-                product_variant_id=p_id, batch_id=b_id, stock_status='AVAILABLE', 
-                on_hand_quantity=added_packs, reserved_quantity=0 # +++ سحق الـ quantity الوهمي (P0-1) +++
+                company_id=current_admin.company_id,
+                location_id=main_loc.id,
+                product_variant_id=p_id,
+                batch_id=b_id,
+                stock_status='AVAILABLE',
+                on_hand_quantity=added_packs,
+                reserved_quantity=0
             ).on_conflict_do_update(
-                index_elements=['company_id', 'location_id', 'product_variant_id', 'batch_id', 'stock_status'],
+                index_elements=[
+                    'company_id',
+                    'location_id',
+                    'product_variant_id',
+                    'batch_id',
+                    'stock_status'
+                ],
                 set_=dict(
                     on_hand_quantity=InventoryBalance.on_hand_quantity + added_packs
                 )
             )
             await db.execute(stmt_upsert)
 
+            movement_raw_key = (
+                f"{current_admin.company_id}|{reference_id.strip().lower()}|"
+                f"{main_loc.id}|{p_id}|{b_id}"
+            )
+            movement_key = (
+                "INB-" +
+                hashlib.sha256(movement_raw_key.encode("utf-8")).hexdigest()
+            )
+
+            db.add(InventoryMovement(
+                company_id=current_admin.company_id,
+                performed_by=current_admin.id,
+                source_location_id=None,
+                destination_location_id=main_loc.id,
+                product_variant_id=p_id,
+                batch_id=b_id,
+                quantity=added_packs,
+                reference_type='INBOUND_SUPPLIER',
+                reference_id=reference_id,
+                idempotency_key=movement_key,
+                notes=payload.notes
+            ))
+
         await db.commit()
-        return {"message": "تم إدخال البضاعة وتحديث الأرصدة (بالنظامين) بنجاح"}
+        return {"message": "تم إدخال البضاعة وتحديث المخزون بنجاح"}
         
     except HTTPException:
         raise
@@ -201,146 +369,7 @@ async def warehouse_inbound(
         raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء استلام البضاعة.")
 
 # =================================================================================
-# 2. جرد وتسوية المستودع (Stocktake & Audit) - البنك المركزي (مصفح ضد البضاعة الوهمية)
-# =================================================================================
-@router.post("/warehouse/stocktake", status_code=200)
-async def warehouse_stocktake(
-    payload: WarehouseStocktakeRequest,
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
-):
-    
-        
-    if not payload.items:
-        raise HTTPException(status_code=400, detail="يجب إرسال أصناف للجرد.")
-
-    try:
-        # +++ 1. درع التجميع (Payload Aggregation): حماية السيرفر من تكرار الصنف في نفس الطلب +++
-        aggregated_items = {}
-        for item in payload.items:
-            if item.actual_packs < 0: continue
-            # الجرد هو (لقطة) للرف وليس حركة تراكمية. نعتمد القراءة الأخيرة لحماية الدفاتر من التضخم.
-            aggregated_items[item.product_variant_id] = item.actual_packs
-
-        var_ids = list(aggregated_items.keys())
-        if not var_ids:
-            return {"message": "لا توجد بيانات صالحة لمعالجتها."}
-
-        # جلب المنتجات للتحقق منها واستخدام أسمائها في رسائل الخطأ
-        stmt_variants = select(ProductVariant).filter(ProductVariant.id.in_(var_ids))
-        variants_map = {v.id: v for v in (await db.execute(stmt_variants)).scalars().all()}
-        valid_var_ids = set(variants_map.keys())
-
-        # +++ 2. قفل التزامن الجراحي (Row-Level Lock) مع الترتيب الهرمي لنسف الـ Deadlock +++
-        stmt_wh = select(MainWarehouse).with_for_update().filter(MainWarehouse.product_variant_id.in_(list(valid_var_ids))).order_by(MainWarehouse.product_variant_id.asc())
-        bulk_warehouse = {w.product_variant_id: w for w in (await db.execute(stmt_wh)).scalars().all()}
-
-        # +++ الدرع المستودعي: الفحص المسبق للبضاعة المحجوزة قبل الجرد لمنع خلق أرصدة وهمية +++
-        blocked_items = []
-        for p_id in valid_var_ids:
-            wh_record = bulk_warehouse.get(p_id)
-            if wh_record and (wh_record.reserved_quantity_packs or 0) > 0:
-                blocked_items.append(variants_map[p_id].variant_name)
-                
-        if blocked_items:
-            await db.rollback()
-            blocked_str = "، ".join(blocked_items)
-            raise HTTPException(
-                status_code=400, 
-                detail=f"مرفوض: لا يمكن جرد الأصناف التالية لوجود حوالات معلقة (بضاعة محجوزة) لها: [{blocked_str}]. الرجاء تصفية الحوالات المعلقة للمناديب أولاً."
-            )
-
-        for p_id, actual_packs in aggregated_items.items():
-            if p_id not in valid_var_ids:
-                continue 
-
-            variant = variants_map[p_id]
-            wh_record = bulk_warehouse.get(p_id)
-            
-            # +++ الدرع الرقابي: إيقاف الإنشاء الصامت لمنتجات ليس لها حساب مخزني لتوحيد المعيار مع Inbound +++
-            if not wh_record:
-                await db.rollback()
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"خطأ حرج: المنتج [{variant.variant_name}] ليس له حساب مخزني في المستودع الرئيسي. المرجع: ERROR-400-NO-WH-RECORD."
-                )
-
-            # +++ 3.  للكارثة (العودة للواقع الميداني) +++
-            # الجرد الملموس يُقارن بـ (المتاح) فقط. البضاعة المحجوزة موجودة في سيارات المناديب بالشارع وليست على الرف.
-            expected_packs = wh_record.available_quantity_packs or 0 # +++   سحق الـ NoneType +++
-            difference = actual_packs - expected_packs
-
-            # +++   تسجيل حركة الجرد دائماً (حتى لو الفرق 0) لإثبات أن المشرف قام بالجرد الفعلي (Audit Trail) +++
-            wh_record.available_quantity_packs = actual_packs
-            
-            db.add(WarehouseLedger(
-                product_variant_id=p_id, 
-                transaction_type='AUDIT_ADJUSTMENT',
-                quantity_packs=difference, 
-                balance_before_packs=expected_packs,
-                balance_after_packs=actual_packs,
-                admin_id=current_admin.id, 
-                reference_id="STOCKTAKE_OP", 
-                notes=f"الرصيد المتوقع بالرف: {expected_packs}، الفعلي المجرود: {actual_packs}. الفرق: {'+' if difference>0 else ''}{difference}. {payload.notes}"
-            ))
-
-        # +++ 4. فتح المستودع تلقائياً بعد إنهاء الجرد (P0 Fixed: استخدام company_id) +++
-        insert_stmt = pg_insert(SystemSetting).values(
-            company_id=current_admin.company_id,
-            setting_key='warehouse_status', 
-            setting_value='ACTIVE'
-        ).on_conflict_do_update(
-            index_elements=['company_id', 'setting_key'],
-            set_=dict(setting_value='ACTIVE')
-        )
-        await db.execute(insert_stmt)
-
-        await db.commit()
-        return {"message": "تمت تسوية المستودع بنجاح، وتم فتح النظام للعمليات تلقائياً."}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء تسوية المستودع.")
-
-# =================================================================================
-# 3. قفل / فتح المستودع يدوياً
-# =================================================================================
-@router.put("/warehouse/lock", status_code=200)
-async def toggle_warehouse_lock(
-    payload: ToggleLockRequest,
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
-):
-    new_status = payload.status
-    if new_status not in ['AUDIT_LOCK', 'ACTIVE']:
-        raise HTTPException(status_code=400, detail="حالة غير صالحة.")
-
-    try:
-        # +++ حقن company_id لتخصيص القفل وعزل الشركات +++
-        insert_stmt = pg_insert(SystemSetting).values(
-            company_id=current_admin.company_id,
-            setting_key='warehouse_status', 
-            setting_value=new_status
-        ).on_conflict_do_update(
-            index_elements=['company_id', 'setting_key'], # الاعتماد على القيد المركب الجديد
-            set_=dict(setting_value=new_status)
-        )
-        await db.execute(insert_stmt)
-        await db.commit()
-        msg = "تم إقفال المستودع لغايات الجرد. جميع عمليات التحميل معلقة." if new_status == 'AUDIT_LOCK' else "تم فتح المستودع للعمليات."
-        return {"message": msg}
-        
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم.")
-
-
-# =================================================================================
-# 4. إشعارات النواقص (Threshold Alerts - Reorder Point)
+# 2. إشعارات النواقص (Threshold Alerts - Reorder Point)
 # =================================================================================
 @router.get("/warehouse/alerts", response_model=List[WarehouseAlertItem], status_code=200)
 async def get_warehouse_alerts(
@@ -380,7 +409,7 @@ async def get_warehouse_alerts(
     return result
 
 # =================================================================================
-# 5. جلب حالة المستودع بالكامل (الرصيد الحي، التوالف، المناديب، السيارات)
+# 3. جلب حالة المستودع بالكامل (الرصيد الحي، التوالف، المناديب، السيارات)
 # =================================================================================
 @router.get("/warehouse/inventory", response_model=List[WarehouseInventoryItem], status_code=200)
 async def get_warehouse_inventory(
@@ -509,7 +538,7 @@ async def get_warehouse_inventory(
 
 
 # =================================================================================
-# 6. جلب سجل حركات المستودع (Ledger) - الدفتر غير القابل للمسح
+# 4. جلب سجل حركات المستودع (Ledger) - الدفتر غير القابل للمسح
 # =================================================================================
 @router.get("/warehouse/ledger", response_model=List[WarehouseLedgerItem], status_code=200)
 async def get_warehouse_ledger(
@@ -568,23 +597,46 @@ async def get_warehouse_ledger(
 
 
 # =================================================================================
-# 7. جلب حالة قفل المستودع
+# 5. جلب حالة قفل المستودع
 # =================================================================================
+# جلب حالة قفل مستودع محدد اعتماداً على الأقفال الفعلية للمحرك الموحد.
 @router.get("/warehouse/status", response_model=WarehouseStatusResponse, status_code=200)
 async def get_warehouse_status(
+    location_id: int,
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    # (P0 Fixed): فلترة بـ company_id لمنع MultipleResultsFound
-    stmt = select(SystemSetting).filter_by(company_id=current_admin.company_id, setting_key='warehouse_status')
-    setting = (await db.execute(stmt)).scalar_one_or_none()
-    
-    status = setting.setting_value if setting else 'ACTIVE'
-    return {"status": status}
+    stmt_location = select(InventoryLocation.id).filter_by(
+        id=location_id,
+        company_id=current_admin.company_id,
+        location_type='WAREHOUSE',
+        is_active=True
+    )
+    location_exists = (await db.execute(stmt_location)).scalar_one_or_none()
+
+    if location_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail="المستودع غير موجود أو لا يتبع شركتك."
+        )
+
+    stmt_lock = select(InventoryLock.id).filter(
+        InventoryLock.company_id == current_admin.company_id,
+        InventoryLock.location_id == location_id,
+        InventoryLock.product_variant_id.is_(None),
+        InventoryLock.batch_id.is_(None),
+        InventoryLock.released_at.is_(None)
+    ).limit(1)
+
+    active_lock = (await db.execute(stmt_lock)).scalar_one_or_none()
+
+    return {
+        "status": "AUDIT_LOCK" if active_lock is not None else "ACTIVE"
+    }
 
 
 # =================================================================================
-# 8. جلب قائمة المنتجات فقط (للقوائم المنسدلة Dropdowns)
+# 6. جلب قائمة المنتجات فقط (للقوائم المنسدلة Dropdowns)
 # =================================================================================
 @router.get("/product_variants/simple", response_model=List[SimpleProductVariantItem], status_code=200)
 async def get_simple_product_variants(
@@ -603,7 +655,7 @@ async def get_simple_product_variants(
     } for v in variants]
 
 # =================================================================================
-# 9. إضافة منتج جديد لكتالوج الشركة (مع التهيئة المخزنية التلقائية)
+# 7. إضافة منتج جديد لكتالوج الشركة (مع التهيئة المخزنية التلقائية)
 # =================================================================================
 @router.post("/warehouse/product_variants", status_code=201)
 async def add_product_variant(
@@ -699,7 +751,7 @@ async def add_product_variant(
 
 
 # =================================================================================
-# 10. تعديل وإرجاع حركات المستودع (التصحيح العكسي) - Reversal 
+# 8. تعديل وإرجاع حركات المستودع (التصحيح العكسي) - Reversal 
 # =================================================================================
 @router.post("/warehouse/ledger/{entry_id}/adjust", status_code=200)
 async def adjust_warehouse_entry(
@@ -989,10 +1041,7 @@ async def unified_transfer_dispatch(
 
     if not payload.items:
         raise HTTPException(status_code=400, detail="مرفوض: يجب إرسال أصناف لتنفيذ الحوالة.")
-
-    if await check_warehouse_lock(db, current_admin.company_id):
-        raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً بسبب عملية جرد.")
-        
+       
     # حظر الإرسال لنفس الموقع
     if payload.source_location_id == payload.destination_location_id:
         raise HTTPException(status_code=400, detail="مرفوض: لا يمكن الإرسال لنفس الموقع.")
@@ -1127,11 +1176,7 @@ async def unified_transfer_receive(
     current_admin: Driver = Depends(get_current_admin)
 ):
     """الخطوة 2: تأكيد الاستلام (من IN_TRANSIT للوجهة) بناءً على الـ Header"""
-    company_id = current_admin.company_id
-    
-    if await check_warehouse_lock(db, current_admin.company_id):
-        raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً.")
-        
+    company_id = current_admin.company_id  
     try:
         await _verify_location_ownership(db, company_id, payload.destination_location_id)
         
@@ -1210,10 +1255,6 @@ async def unified_transfer_cancel(
 ):
     """دورة الحياة: إلغاء الحوالة وإرجاع البضاعة من IN_TRANSIT إلى المصدر"""
     company_id = current_admin.company_id
-    
-    if await check_warehouse_lock(db, company_id):
-        raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً.")
-
     try:
         stmt_header = select(InventoryTransferHeader).with_for_update().filter_by(
             id=header_id, company_id=company_id
@@ -1271,9 +1312,6 @@ async def unified_transfer_reject(
     """دورة الحياة: رفض المستلم للحوالة وإرجاع البضاعة من IN_TRANSIT إلى المصدر"""
     company_id = current_admin.company_id
     
-    if await check_warehouse_lock(db, company_id):
-        raise HTTPException(status_code=403, detail="مرفوض: المستودع مقفل حالياً.")
-
     try:
         stmt_header = select(InventoryTransferHeader).with_for_update().filter_by(id=header_id, company_id=company_id)
         header = (await db.execute(stmt_header)).scalar_one_or_none()
@@ -1336,8 +1374,60 @@ async def start_unified_stocktake(
         raise HTTPException(status_code=422, detail="مرفوض: نوع الجرد غير صالح.")
         
     try:
-        await _verify_location_ownership(db, company_id, payload.location_id)
-        
+        if payload.stocktake_type == 'VEHICLE_RECON':
+            await _verify_location_ownership(
+                db,
+                company_id,
+                payload.location_id,
+                allowed_types=['VEHICLE']
+            )
+        else:
+            await _verify_location_ownership(
+                db,
+                company_id,
+                payload.location_id,
+                allowed_types=['WAREHOUSE']
+            )
+
+        if payload.stocktake_type == 'FULL_COUNT':
+            if payload.product_variant_id is not None or payload.batch_id is not None:
+                raise ValueError(
+                    "مرفوض: الجرد الشامل FULL_COUNT يجرد المستودع كاملاً ولا يقبل تحديد صنف أو دفعة."
+                )
+
+        if payload.stocktake_type == 'CYCLE_COUNT':
+            if not payload.product_variant_id:
+                raise ValueError(
+                    "مرفوض: الجرد الدوري CYCLE_COUNT يتطلب تحديد الصنف."
+                )
+
+        if payload.product_variant_id is not None:
+            stmt_variant_scope = select(ProductVariant.id).filter_by(
+                id=payload.product_variant_id,
+                company_id=company_id
+            )
+            if (await db.execute(stmt_variant_scope)).scalar_one_or_none() is None:
+                raise ValueError(
+                    "الصنف المحدد غير موجود أو لا يتبع شركتك."
+                )
+
+        if payload.batch_id is not None:
+            if payload.product_variant_id is None:
+                raise ValueError(
+                    "مرفوض: لا يمكن تحديد دفعة بدون تحديد الصنف."
+                )
+
+            stmt_batch_scope = select(ProductBatch.id).filter_by(
+                id=payload.batch_id,
+                company_id=company_id,
+                product_variant_id=payload.product_variant_id,
+                is_active=True
+            )
+            if (await db.execute(stmt_batch_scope)).scalar_one_or_none() is None:
+                raise ValueError(
+                    "الدفعة المحددة غير موجودة أو لا تتبع الصنف والشركة."
+                )
+
         # 1. (P1-5 Fixed): منع تضارب الجرد الشامل والدوري بدقة
         stmt_active = select(StocktakeSession).filter(
             StocktakeSession.company_id == company_id,
@@ -1368,8 +1458,13 @@ async def start_unified_stocktake(
 
         # 3. تجميد المخزون (Snapshot) لتطبيق الـ Blind Count
         stmt_balances = select(InventoryBalance).filter_by(
-            company_id=company_id, location_id=payload.location_id, stock_status='AVAILABLE'
-        )
+            company_id=company_id,
+            location_id=payload.location_id,
+            stock_status='AVAILABLE'
+        ).order_by(
+            InventoryBalance.product_variant_id.asc(),
+            InventoryBalance.batch_id.asc()
+        ).with_for_update()
         if payload.stocktake_type == 'CYCLE_COUNT':
             if not payload.product_variant_id:
                 raise ValueError("مرفوض: الجرد الدوري (Cycle Count) يتطلب تحديد الصنف المراد جرده.")
@@ -1385,13 +1480,14 @@ async def start_unified_stocktake(
             st_line = StocktakeLine(
                 company_id=company_id, stocktake_session_id=session.id,
                 product_variant_id=bal.product_variant_id, batch_id=bal.batch_id,
-                expected_quantity=bal.on_hand_quantity, # توثيق الرصيد الدفتري الحالي
-                actual_quantity=None # إجباري Null لضمان الجرد الأعمى (Blind Count)
+                expected_quantity=bal.on_hand_quantity
             )
             db.add(st_line)
 
-        # 4. الأقفال الجراحية: تُفرض فقط على الجرد الشامل والسيارات، وتُستثنى من الجرد الدوري المستمر
-        if payload.stocktake_type != 'CYCLE_COUNT':
+        # 4. القفل الكامل للموقع يطبق فقط على FULL_COUNT.
+        # CYCLE_COUNT يعتمد Snapshot + Movement Reconciliation.
+        # VEHICLE_RECON سيتم ربطه بأقفال سير المندوب عند ترحيل dispatch/driver.
+        if payload.stocktake_type == 'FULL_COUNT':
             lock = InventoryLock(
                 company_id=company_id,
                 stocktake_session_id=session.id,
@@ -1416,8 +1512,96 @@ async def start_unified_stocktake(
         await db.rollback()
         logger.error(f"خطأ في بدء الجرد: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء فتح جلسة الجرد.")
+    
+# جلب ورقة عد عمياء للجلسة؛ لا يعاد أي رصيد متوقع إلى المتصفح أثناء COUNTING.
+@router.get("/warehouse/unified/stocktake/{session_id}/count-sheet", status_code=200)
+async def get_stocktake_count_sheet(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_admin)
+):
+    company_id = current_admin.company_id
 
+    stmt_session = select(StocktakeSession).filter_by(
+        id=session_id,
+        company_id=company_id
+    )
+    session = (await db.execute(stmt_session)).scalar_one_or_none()
 
+    if not session:
+        raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة.")
+
+    if session.status not in ['COUNTING', 'RECOUNT_REQUIRED']:
+        raise HTTPException(
+            status_code=400,
+            detail=f"لا يمكن فتح ورقة العد لجلسة بحالة ({session.status})."
+        )
+
+    # إذا كانت إعادة العد مستقلة إلزامية، نفس الشخص الذي نفذ آخر عد ممنوع من تنفيذها.
+    if session.status == 'RECOUNT_REQUIRED' and session.independent_recount_required:
+        stmt_previous_attempt = select(StocktakeCountAttempt).filter_by(
+            company_id=company_id,
+            stocktake_session_id=session.id
+        ).order_by(
+            StocktakeCountAttempt.attempt_number.desc()
+        ).limit(1)
+        previous_attempt = (
+            await db.execute(stmt_previous_attempt)
+        ).scalar_one_or_none()
+
+        if (
+            previous_attempt
+            and previous_attempt.counted_by == current_admin.id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="مرفوض رقابياً: إعادة العد المستقلة يجب أن ينفذها مستخدم مخول آخر."
+            )
+
+    stmt_lines = select(
+        StocktakeLine.product_variant_id,
+        StocktakeLine.batch_id,
+        ProductVariant.variant_name,
+        ProductVariant.packs_per_carton,
+        ProductBatch.batch_number,
+        ProductBatch.expiry_date
+    ).join(
+        ProductVariant,
+        ProductVariant.id == StocktakeLine.product_variant_id
+    ).outerjoin(
+        ProductBatch,
+        ProductBatch.id == StocktakeLine.batch_id
+    ).filter(
+        StocktakeLine.company_id == company_id,
+        StocktakeLine.stocktake_session_id == session.id,
+        ProductVariant.company_id == company_id
+    ).order_by(
+        ProductVariant.variant_name.asc(),
+        ProductBatch.expiry_date.asc().nulls_last()
+    )
+
+    rows = (await db.execute(stmt_lines)).all()
+
+    return [
+        {
+            "product_variant_id": product_variant_id,
+            "batch_id": batch_id,
+            "product_name": product_name,
+            "packs_per_carton": packs_per_carton or 1,
+            "batch_number": batch_number,
+            "expiry_date": expiry_date.isoformat() if expiry_date else None
+        }
+        for (
+            product_variant_id,
+            batch_id,
+            product_name,
+            packs_per_carton,
+            batch_number,
+            expiry_date
+        ) in rows
+    ]
+
+# تثبيت محاولة عد جديدة كنسخة مستقلة لا يمكن أن تستبدل أي محاولة سابقة.
 @router.post("/warehouse/unified/stocktake/{session_id}/count", status_code=200)
 async def submit_stocktake_count(
     session_id: int,
@@ -1425,297 +1609,913 @@ async def submit_stocktake_count(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    """الخطوة 2: إدخال الجرد الفعلي، احتساب الـ Variance، ورفع الجلسة للمراجعة"""
+    """تثبيت محاولة عد جديدة بشكل مستقل دون تعديل أي محاولة سابقة."""
     company_id = current_admin.company_id
 
     try:
-        # 1. قفل الجلسة (Row-Level Lock) لمنع إرسال الجرد مرتين في نفس اللحظة
+        # قفل الجلسة وحدها يكفي لتسلسل محاولات العد ومنع رقم محاولة مكرر.
         stmt_session = select(StocktakeSession).with_for_update().filter_by(
-            id=session_id, company_id=company_id
+            id=session_id,
+            company_id=company_id
         )
         session = (await db.execute(stmt_session)).scalar_one_or_none()
 
         if not session:
             raise ValueError("جلسة الجرد غير موجودة.")
-        if session.status not in ['COUNTING', 'RECOUNT_REQUIRED']:
-            raise ValueError(f"مرفوض: لا يمكن إدخال كميات لجلسة بحالة ({session.status}).")
 
-        # 2. جلب وتجهيز أسطر الـ Snapshot وترتيبها حسب الـ FEFO (P0-A Fixed)
-        # نستخدم Join مع ProductBatch لضمان فرز الأسطر بناءً على أقدمية الصلاحية
-        stmt_lines = select(StocktakeLine, ProductBatch.expiry_date).outerjoin(
-            ProductBatch, StocktakeLine.batch_id == ProductBatch.id
+        if session.status not in ['COUNTING', 'RECOUNT_REQUIRED']:
+            raise ValueError(
+                f"مرفوض: لا يمكن تثبيت عد لجلسة بحالة ({session.status})."
+            )
+
+        stmt_snapshot = select(
+            StocktakeLine,
+            ProductBatch.expiry_date
+        ).outerjoin(
+            ProductBatch,
+            StocktakeLine.batch_id == ProductBatch.id
         ).filter(
+            StocktakeLine.company_id == company_id,
             StocktakeLine.stocktake_session_id == session.id
         ).order_by(
+            StocktakeLine.product_variant_id.asc(),
             ProductBatch.expiry_date.asc().nulls_last()
         )
-        
-        existing_lines_raw = (await db.execute(stmt_lines)).all()
-        # بناء مصفوفة مرتبة ومفهرسة لضمان التوزيع الصحيح
-        ordered_lines = [row[0] for row in existing_lines_raw]
-        lines_map = {(line.product_variant_id, line.batch_id): line for line in ordered_lines}
 
-        # 3. تجميع الكميات المُدخلة لحماية الداتابيز من الأسطر المكررة
-        aggregated_counts = {}
+        snapshot_rows = (await db.execute(stmt_snapshot)).all()
+        snapshot_lines = [row[0] for row in snapshot_rows]
+        snapshot_map = {
+            (line.product_variant_id, line.batch_id): line
+            for line in snapshot_lines
+        }
+
+        if not snapshot_map:
+            raise ValueError("لا تحتوي جلسة الجرد على أي أسطر قابلة للعد.")
+
+        submitted_counts = {}
         for item in payload.items:
-            if item.actual_quantity < 0:
-                raise ValueError("مرفوض: لا يمكن إدخال كمية سالبة في الجرد الفعلي.")
             key = (item.product_variant_id, item.batch_id)
-            aggregated_counts[key] = aggregated_counts.get(key, 0) + item.actual_quantity
 
-        # 4. مطابقة الفعلي مع المتوقع واحتساب الفروقات
-        # +++ الدرع المعماري (P0-A): FEFO-Based Allocation Engine +++
-        unprocessed_lines = set(lines_map.keys())
-        
-        for (v_id, b_id), actual_qty in aggregated_counts.items():
-            if b_id is None:
-                # استخراج مفاتيح الصنف من المصفوفة المرتبة مسبقاً (FEFO)
-                prod_keys = [k for k in lines_map.keys() if k[0] == v_id]
-                if not prod_keys:
-                    if session.stocktake_type == 'CYCLE_COUNT':
-                        raise ValueError(f"مرفوض: الصنف ({v_id}) غير مشمول في الجرد الدوري.")
-                    new_line = StocktakeLine(
-                        company_id=company_id, stocktake_session_id=session.id,
-                        product_variant_id=v_id, batch_id=None,
-                        expected_quantity=0, actual_quantity=actual_qty, variance_quantity=actual_qty
-                    )
-                    db.add(new_line)
-                else:
-                    remaining_actual = actual_qty
-                    for i, k in enumerate(prod_keys):
-                        line = lines_map[k]
-                        if i == len(prod_keys) - 1:
-                            # الدفعة الأخيرة تمتص الباقي (زيادة أو عجز)
-                            line.actual_quantity = remaining_actual
-                        else:
-                            take = min(line.expected_quantity, remaining_actual)
-                            line.actual_quantity = take
-                            remaining_actual -= take
-                        line.variance_quantity = line.actual_quantity - line.expected_quantity
-                        unprocessed_lines.discard(k)
-            else:
-                line = lines_map.get((v_id, b_id))
-                if line:
-                    line.actual_quantity = actual_qty
-                    # تطبيق التسوية الحركية التلقائية للجرد الدوري (Cutoff Reconciliation)
-                    if session.stocktake_type == 'CYCLE_COUNT':
-                        net_movements = await _reconcile_cycle_count_movements(
-                            db, company_id, session.location_id, v_id, b_id, session.created_at
-                        )
-                        effective_expected = line.expected_quantity + net_movements
-                        line.variance_quantity = actual_qty - effective_expected
-                        line.notes = f"Snapshot: {line.expected_quantity} | Net Movements: {net_movements} | Effective Expected: {effective_expected}"
-                    else:
-                        line.variance_quantity = actual_qty - line.expected_quantity
-                    unprocessed_lines.discard((v_id, b_id))
-                else:
-                    if session.stocktake_type == 'CYCLE_COUNT':
-                        raise ValueError(f"مرفوض: الصنف ({v_id}) غير مشمول.")
-                    new_line = StocktakeLine(
-                        company_id=company_id, stocktake_session_id=session.id,
-                        product_variant_id=v_id, batch_id=b_id,
-                        expected_quantity=0, actual_quantity=actual_qty, variance_quantity=actual_qty
-                    )
-                    db.add(new_line)
+            if key in submitted_counts:
+                raise ValueError(
+                    f"مرفوض: تم إرسال الصنف ({item.product_variant_id}) والدفعة ({item.batch_id}) أكثر من مرة."
+                )
 
-        # سحق ثقب الأسطر الفارغة مع التسوية الحركية
-        for k in unprocessed_lines:
-            line = lines_map[k]
-            line.actual_quantity = 0
+            submitted_counts[key] = item.actual_quantity
+
+        expected_keys = set(snapshot_map.keys())
+        submitted_keys = set(submitted_counts.keys())
+
+        missing_keys = expected_keys - submitted_keys
+        extra_keys = submitted_keys - expected_keys
+
+        if missing_keys:
+            raise ValueError(
+                f"مرفوض: يوجد {len(missing_keys)} سطر لم يتم عده. "
+                "الصفر يجب إدخاله صراحة ولا يعتبر السطر غير المعدود صفراً."
+            )
+
+        if extra_keys:
+            raise ValueError(
+                "مرفوض: تم إرسال أصناف أو دفعات غير موجودة في ورقة الجرد الحالية."
+            )
+
+        stmt_previous_attempt = select(
+            StocktakeCountAttempt
+        ).filter_by(
+            company_id=company_id,
+            stocktake_session_id=session.id
+        ).order_by(
+            StocktakeCountAttempt.attempt_number.desc()
+        ).limit(1)
+
+        previous_attempt = (
+            await db.execute(stmt_previous_attempt)
+        ).scalar_one_or_none()
+
+        if session.status == 'RECOUNT_REQUIRED':
+            if (
+                session.pending_recount_authorized_by is None
+                or not session.pending_recount_reason
+            ):
+                raise ValueError(
+                    "مرفوض رقابياً: إعادة العد لم تحصل على تفويض موثق."
+                )
+
+            if (
+                session.independent_recount_required
+                and previous_attempt
+                and previous_attempt.counted_by == current_admin.id
+            ):
+                raise ValueError(
+                    "مرفوض رقابياً: إعادة العد المستقلة يجب أن ينفذها مستخدم آخر."
+                )
+
+        elif previous_attempt is not None:
+            raise ValueError(
+                "مرفوض: توجد محاولة عد سابقة لهذه الجلسة ولا يمكن إنشاء محاولة جديدة دون Recount موثق."
+            )
+
+        attempt_number = (
+            previous_attempt.attempt_number + 1
+            if previous_attempt
+            else 1
+        )
+
+        attempt = StocktakeCountAttempt(
+            company_id=company_id,
+            stocktake_session_id=session.id,
+            attempt_number=attempt_number,
+            recount_of_attempt_id=(
+                previous_attempt.id
+                if session.status == 'RECOUNT_REQUIRED' and previous_attempt
+                else None
+            ),
+            counted_by=current_admin.id,
+            authorized_by=(
+                session.pending_recount_authorized_by
+                if session.status == 'RECOUNT_REQUIRED'
+                else None
+            ),
+            recount_reason=(
+                session.pending_recount_reason
+                if session.status == 'RECOUNT_REQUIRED'
+                else None
+            )
+        )
+        db.add(attempt)
+        await db.flush()
+
+        attempt_line_values = []
+
+        for line in snapshot_lines:
+            key = (line.product_variant_id, line.batch_id)
+            actual_qty = submitted_counts[key]
+
+            effective_expected = line.expected_quantity
+
             if session.stocktake_type == 'CYCLE_COUNT':
                 net_movements = await _reconcile_cycle_count_movements(
-                    db, company_id, session.location_id, line.product_variant_id, line.batch_id, session.created_at
+                    db,
+                    company_id,
+                    session.location_id,
+                    line.product_variant_id,
+                    line.batch_id,
+                    session.created_at
                 )
-                effective_expected = line.expected_quantity + net_movements
-                line.variance_quantity = -effective_expected
-                line.notes = f"Uncounted Zero | Snapshot: {line.expected_quantity} | Net Movements: {net_movements} | Effective Expected: {effective_expected}"
-            else:
-                line.variance_quantity = -line.expected_quantity
+                effective_expected += net_movements
 
-        # 5. ترقية دورة الحياة وتوثيق المسؤولية
+            variance_qty = actual_qty - effective_expected
+
+            db.add(StocktakeCountAttemptLine(
+                company_id=company_id,
+                count_attempt_id=attempt.id,
+                product_variant_id=line.product_variant_id,
+                batch_id=line.batch_id,
+                expected_quantity=effective_expected,
+                actual_quantity=actual_qty,
+                variance_quantity=variance_qty,
+                notes=(
+                    f"Snapshot={line.expected_quantity}"
+                    if session.stocktake_type != 'CYCLE_COUNT'
+                    else f"Snapshot={line.expected_quantity}; EffectiveExpected={effective_expected}"
+                )
+            ))
+
+            attempt_line_values.append(
+                (effective_expected, variance_qty)
+            )
+
+        requires_independent = await _requires_independent_stocktake_recount(
+            db,
+            company_id,
+            attempt_line_values
+        )
+
+        attempt.requires_independent_recount = requires_independent
+
         session.status = 'PENDING_REVIEW'
         session.counted_by = current_admin.id
+        session.independent_recount_required = requires_independent
+
+        # تفويض الـ Recount الحالي استُهلك وأصبح محفوظاً داخل محاولة العد نفسها.
+        session.pending_recount_authorized_by = None
+        session.pending_recount_reason = None
+
         if payload.notes:
-            session.notes = (session.notes or "") + f" | ملاحظات الإدخال: {payload.notes}"
+            session.notes = (
+                f"{session.notes or ''} | "
+                f"Attempt #{attempt_number}: {payload.notes}"
+            ).strip(" |")
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_COUNT_SUBMITTED",
+            old_value=(
+                f"previous_attempt={previous_attempt.attempt_number}"
+                if previous_attempt
+                else "previous_attempt=None"
+            ),
+            new_value=json.dumps(
+                {
+                    "attempt_id": attempt.id,
+                    "attempt_number": attempt_number,
+                    "counted_by": current_admin.id,
+                    "authorized_by": attempt.authorized_by,
+                    "recount_of_attempt_id": attempt.recount_of_attempt_id,
+                    "requires_independent_recount": requires_independent
+                },
+                ensure_ascii=False
+            )
+        ))
 
         await db.commit()
-        return {"message": "تم حفظ الكميات واحتساب الفروقات، والجلسة الآن بانتظار مراجعة الإدارة."}
+
+        return {
+            "message": "تم تثبيت العد بنجاح. لا يمكن تعديل هذه المحاولة بعد الآن.",
+            "attempt_id": attempt.id,
+            "attempt_number": attempt_number,
+            "requires_independent_recount": requires_independent,
+            "status": "PENDING_REVIEW"
+        }
 
     except ValueError as ve:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         await db.rollback()
-        logger.error(f"خطأ في إدخال الجرد: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء حفظ بيانات الجرد.")
+        logger.error(
+            f"خطأ في تثبيت محاولة الجرد: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء تثبيت محاولة الجرد."
+        )
 
-@router.post("/warehouse/unified/stocktake/{session_id}/approve", status_code=200)
-async def approve_stocktake_session(
+# جلب آخر محاولة عد وتاريخ المحاولات بعد تثبيت الأرقام، مع إظهار المتوقع والفروقات للمراجعة.
+@router.get("/warehouse/unified/stocktake/{session_id}/review", status_code=200)
+async def get_stocktake_review(
     session_id: int,
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    """الخطوة 3: الاعتماد الصارم، توليد القيود للفروقات، وفك الأقفال الجراحية"""
     company_id = current_admin.company_id
 
-    # TODO: سيتم الاستبدال بنظام الصلاحيات (RBAC) لاحقاً
     if not current_admin.is_admin:
-        raise HTTPException(status_code=403, detail="مرفوض: الاعتماد يتطلب صلاحية مشرف.")
+        raise HTTPException(
+            status_code=403,
+            detail="مرفوض: مراجعة الجرد تتطلب صلاحية مشرف."
+        )
+
+    stmt_session = select(StocktakeSession).filter_by(
+        id=session_id,
+        company_id=company_id
+    )
+    session = (await db.execute(stmt_session)).scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة.")
+
+    if session.status != 'PENDING_REVIEW':
+        raise HTTPException(
+            status_code=400,
+            detail=f"الجلسة ليست بانتظار المراجعة. حالتها الحالية: {session.status}."
+        )
+
+    stmt_attempts = select(
+        StocktakeCountAttempt
+    ).filter_by(
+        company_id=company_id,
+        stocktake_session_id=session.id
+    ).order_by(
+        StocktakeCountAttempt.attempt_number.asc()
+    )
+
+    attempts = (await db.execute(stmt_attempts)).scalars().all()
+
+    if not attempts:
+        raise HTTPException(
+            status_code=409,
+            detail="لا توجد محاولة عد مثبتة لهذه الجلسة."
+        )
+
+    latest_attempt = attempts[-1]
+    attempts_by_id = {attempt.id: attempt for attempt in attempts}
+    parent_attempt = (
+        attempts_by_id.get(latest_attempt.recount_of_attempt_id)
+        if latest_attempt.recount_of_attempt_id
+        else None
+    )
+    independent_recount_satisfied = (
+        not latest_attempt.requires_independent_recount
+        or (
+            parent_attempt is not None
+            and parent_attempt.requires_independent_recount
+            and parent_attempt.counted_by != latest_attempt.counted_by
+        )
+    )
+
+    user_ids = {
+        user_id
+        for attempt in attempts
+        for user_id in (attempt.counted_by, attempt.authorized_by)
+        if user_id is not None
+    }
+
+    users_map = {}
+    if user_ids:
+        stmt_users = select(
+            Driver.id,
+            Driver.full_name
+        ).filter(
+            Driver.company_id == company_id,
+            Driver.id.in_(user_ids)
+        )
+        users_map = {
+            user_id: full_name
+            for user_id, full_name in (await db.execute(stmt_users)).all()
+        }
+
+    stmt_lines = select(
+        StocktakeCountAttemptLine,
+        ProductVariant.variant_name,
+        ProductVariant.packs_per_carton,
+        ProductBatch.batch_number,
+        ProductBatch.expiry_date
+    ).join(
+        ProductVariant,
+        ProductVariant.id == StocktakeCountAttemptLine.product_variant_id
+    ).outerjoin(
+        ProductBatch,
+        ProductBatch.id == StocktakeCountAttemptLine.batch_id
+    ).filter(
+        StocktakeCountAttemptLine.company_id == company_id,
+        StocktakeCountAttemptLine.count_attempt_id == latest_attempt.id,
+        ProductVariant.company_id == company_id
+    ).order_by(
+        ProductVariant.variant_name.asc(),
+        ProductBatch.expiry_date.asc().nulls_last()
+    )
+
+    rows = (await db.execute(stmt_lines)).all()
+
+    return {
+        "session_id": session.id,
+        "reference_number": session.reference_number,
+        "stocktake_type": session.stocktake_type,
+        "status": session.status,
+        "location_id": session.location_id,
+        "independent_recount_satisfied": independent_recount_satisfied,
+        "latest_attempt": {
+            "id": latest_attempt.id,
+            "attempt_number": latest_attempt.attempt_number,
+            "counted_by": latest_attempt.counted_by,
+            "counted_by_name": users_map.get(latest_attempt.counted_by, "غير معروف"),
+            "authorized_by": latest_attempt.authorized_by,
+            "authorized_by_name": (
+                users_map.get(latest_attempt.authorized_by)
+                if latest_attempt.authorized_by
+                else None
+            ),
+            "recount_of_attempt_id": latest_attempt.recount_of_attempt_id,
+            "recount_reason": latest_attempt.recount_reason,
+            "requires_independent_recount": latest_attempt.requires_independent_recount,
+            "submitted_at": (
+                latest_attempt.submitted_at.replace(
+                    tzinfo=timezone.utc
+                ).isoformat()
+                if latest_attempt.submitted_at
+                else None
+            )
+        },
+        "attempt_history": [
+            {
+                "id": attempt.id,
+                "attempt_number": attempt.attempt_number,
+                "counted_by": attempt.counted_by,
+                "counted_by_name": users_map.get(attempt.counted_by, "غير معروف"),
+                "authorized_by": attempt.authorized_by,
+                "authorized_by_name": (
+                    users_map.get(attempt.authorized_by)
+                    if attempt.authorized_by
+                    else None
+                ),
+                "recount_reason": attempt.recount_reason,
+                "requires_independent_recount": attempt.requires_independent_recount,
+                "submitted_at": (
+                    attempt.submitted_at.replace(
+                        tzinfo=timezone.utc
+                    ).isoformat()
+                    if attempt.submitted_at
+                    else None
+                )
+            }
+            for attempt in attempts
+        ],
+        "lines": [
+            {
+                "attempt_line_id": line.id,
+                "product_variant_id": line.product_variant_id,
+                "batch_id": line.batch_id,
+                "product_name": product_name,
+                "packs_per_carton": packs_per_carton or 1,
+                "batch_number": batch_number,
+                "expiry_date": expiry_date.isoformat() if expiry_date else None,
+                "expected_quantity": line.expected_quantity,
+                "actual_quantity": line.actual_quantity,
+                "variance_quantity": line.variance_quantity,
+                "notes": line.notes
+            }
+            for (
+                line,
+                product_name,
+                packs_per_carton,
+                batch_number,
+                expiry_date
+            ) in rows
+        ]
+    }
+
+# اعتماد آخر محاولة عد مثبتة وترحيل فروقاتها بعد إعادة تحقق المشرف.
+@router.post("/warehouse/unified/stocktake/{session_id}/approve", status_code=200)
+async def approve_stocktake_session(
+    session_id: int,
+    payload: StocktakeApprovalRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_admin)
+):
+    """اعتماد آخر محاولة مثبتة وترحيل فروقاتها بعد إعادة تحقق المشرف."""
+    company_id = current_admin.company_id
+
+    if not current_admin.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="مرفوض: الاعتماد يتطلب صلاحية مشرف."
+        )
+
+    password_ok = await asyncio.to_thread(
+        bcrypt.checkpw,
+        payload.password.encode('utf-8'),
+        current_admin.password_hash.encode('utf-8')
+    )
+
+    if not password_ok:
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session_id}",
+            action_type="STOCKTAKE_APPROVAL_REJECTED",
+            old_value="PENDING_REVIEW",
+            new_value="Wrong password"
+        ))
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="كلمة المرور غير صحيحة. تم رفض الاعتماد وتوثيق المحاولة."
+        )
 
     try:
-        # 1. قفل الجلسة (Row-Level Lock) لمنع الاعتماد المزدوج
         stmt_session = select(StocktakeSession).with_for_update().filter_by(
-            id=session_id, company_id=company_id
+            id=session_id,
+            company_id=company_id
         )
         session = (await db.execute(stmt_session)).scalar_one_or_none()
 
         if not session:
             raise ValueError("جلسة الجرد غير موجودة.")
+
         if session.status != 'PENDING_REVIEW':
-            raise ValueError(f"مرفوض: لا يمكن اعتماد جلسة بحالة ({session.status}).")
+            raise ValueError(
+                f"مرفوض: لا يمكن اعتماد جلسة بحالة ({session.status})."
+            )
 
-        # +++ الدرع الرقابي المرن (P0-B Fixed): استثناء الفصل الإداري لمدراء المستودع المركزي +++
-        if session.counted_by == current_admin.id:
-            if current_admin.is_admin:
-                # توثيق الاستثناء الرقابي بدقة في دفتر النظام
-                db.add(SystemAuditLog(
-                    company_id=company_id, admin_id=current_admin.id, target_id=f"Stocktake_{session.id}", 
-                    action_type="SEPARATION_OF_DUTIES_OVERRIDE", old_value="BLOCKED", 
-                    new_value="ALLOWED: SuperAdmin self-approved central warehouse stocktake."
-                ))
-            else:
-                raise ValueError("مرفوض رقابياً: لا يمكن لمن قام بإدخال الجرد أن يعتمده لنفسه. يرجى طلب مشرف آخر للاعتماد.")
+        stmt_latest_attempt = select(
+            StocktakeCountAttempt
+        ).filter_by(
+            company_id=company_id,
+            stocktake_session_id=session.id
+        ).order_by(
+            StocktakeCountAttempt.attempt_number.desc()
+        ).limit(1)
 
-        stmt_lines = select(StocktakeLine).filter_by(stocktake_session_id=session.id)
+        latest_attempt = (
+            await db.execute(stmt_latest_attempt)
+        ).scalar_one_or_none()
+
+        if not latest_attempt:
+            raise ValueError("لا توجد محاولة عد مثبتة لاعتمادها.")
+
+        # إذا كانت النتيجة الحالية ما زالت عجزاً مادياً، يجب أن تكون نفسها ناتجة عن إعادة عد مستقلة لنتيجة مادية سابقة.
+        if latest_attempt.requires_independent_recount:
+            if latest_attempt.recount_of_attempt_id is None:
+                raise ValueError(
+                    "مرفوض رقابياً: العجز المادي يتطلب إعادة عد مستقلة قبل الاعتماد."
+                )
+
+            stmt_parent_attempt = select(
+                StocktakeCountAttempt
+            ).filter_by(
+                id=latest_attempt.recount_of_attempt_id,
+                company_id=company_id,
+                stocktake_session_id=session.id
+            )
+            parent_attempt = (
+                await db.execute(stmt_parent_attempt)
+            ).scalar_one_or_none()
+
+            if (
+                not parent_attempt
+                or not parent_attempt.requires_independent_recount
+                or parent_attempt.counted_by == latest_attempt.counted_by
+            ):
+                raise ValueError(
+                    "مرفوض رقابياً: العجز الحالي لم يتم تأكيده بعد بواسطة عدّاد مستقل."
+                )
+
+        stmt_lines = select(
+            StocktakeCountAttemptLine
+        ).filter_by(
+            company_id=company_id,
+            count_attempt_id=latest_attempt.id
+        ).order_by(
+            StocktakeCountAttemptLine.product_variant_id.asc(),
+            StocktakeCountAttemptLine.batch_id.asc()
+        )
+
         lines = (await db.execute(stmt_lines)).scalars().all()
 
-        # +++ سحق ثقب العد الجزئي (P1-1): منع الاعتماد إذا ترك الموظف أسطراً فارغة +++
-        if any(line.actual_quantity is None for line in lines):
-            raise ValueError("مرفوض: يوجد أسطر في الجلسة لم يتم جردها (فارغة). يجب جرد جميع الأصناف أو إدخال صفر صراحة.")
+        if not lines:
+            raise ValueError("محاولة العد الحالية لا تحتوي على أسطر.")
 
-        # 2. ترحيل القيود (POSTING) وتحديث الأرصدة بناءً على الفروقات فقط
         for line in lines:
-            if not line.variance_quantity or line.variance_quantity == 0: 
-                continue 
+            if line.variance_quantity == 0:
+                continue
 
-            # +++ الدرع المعماري (القرار ب): العزلة الكاملة لسيارات المناديب (VEHICLE_RECON) +++
-            # سيارات المناديب لا تُحدّث InventoryBalance حالياً لأن مبيعاتها تدار في النظام القديم.
-            # نكتفي بتسجيل (الالتزام المالي) في دفتر الأستاذ الموحد ليراه المحاسب (سحق P0, P1-1, P1-3).
             if session.stocktake_type == 'VEHICLE_RECON':
-                ref_type = 'DRIVER_SHORTAGE' if line.variance_quantity < 0 else 'DRIVER_SURPLUS'
-                
-                db.add(InventoryMovement(
-                    company_id=company_id, performed_by=current_admin.id,
-                    source_location_id=session.location_id if line.variance_quantity < 0 else None,
-                    destination_location_id=session.location_id if line.variance_quantity > 0 else None,
-                    product_variant_id=line.product_variant_id, batch_id=None, # המندوب لا يجرد دفعات
-                    quantity=abs(line.variance_quantity),
-                    reference_type=ref_type, 
-                    reference_id=session.reference_number,
-                    idempotency_key=f"AUDIT-{session.id}-{line.id}",
-                    notes="تسوية إدارية/مالية لسيارة المندوب (المخزون الفعلي يدار عبر SessionInventory مؤقتاً)"
-                ))
-            else:
-                # +++ الجرد القانوني للمستودعات المركزية (FULL/CYCLE) +++
-                await _upsert_inventory_balance(
-                    db, company_id, session.location_id,
-                    line.product_variant_id, line.batch_id, line.variance_quantity
+                ref_type = (
+                    'DRIVER_SHORTAGE'
+                    if line.variance_quantity < 0
+                    else 'DRIVER_SURPLUS'
                 )
 
                 db.add(InventoryMovement(
-                    company_id=company_id, performed_by=current_admin.id,
-                    source_location_id=session.location_id if line.variance_quantity < 0 else None,
-                    destination_location_id=session.location_id if line.variance_quantity > 0 else None,
-                    product_variant_id=line.product_variant_id, batch_id=line.batch_id,
+                    company_id=company_id,
+                    performed_by=current_admin.id,
+                    source_location_id=(
+                        session.location_id
+                        if line.variance_quantity < 0
+                        else None
+                    ),
+                    destination_location_id=(
+                        session.location_id
+                        if line.variance_quantity > 0
+                        else None
+                    ),
+                    product_variant_id=line.product_variant_id,
+                    batch_id=line.batch_id,
+                    quantity=abs(line.variance_quantity),
+                    reference_type=ref_type,
+                    reference_id=session.reference_number,
+                    idempotency_key=(
+                        f"AUDIT-{session.id}-{latest_attempt.id}-{line.id}"
+                    ),
+                    notes="تسوية جرد سيارة موثقة من آخر محاولة عد معتمدة."
+                ))
+            else:
+                await _upsert_inventory_balance(
+                    db,
+                    company_id,
+                    session.location_id,
+                    line.product_variant_id,
+                    line.batch_id,
+                    line.variance_quantity
+                )
+
+                db.add(InventoryMovement(
+                    company_id=company_id,
+                    performed_by=current_admin.id,
+                    source_location_id=(
+                        session.location_id
+                        if line.variance_quantity < 0
+                        else None
+                    ),
+                    destination_location_id=(
+                        session.location_id
+                        if line.variance_quantity > 0
+                        else None
+                    ),
+                    product_variant_id=line.product_variant_id,
+                    batch_id=line.batch_id,
                     quantity=abs(line.variance_quantity),
                     reference_type='AUDIT_ADJUSTMENT',
                     reference_id=session.reference_number,
-                    idempotency_key=f"AUDIT-{session.id}-{line.id}"
+                    idempotency_key=(
+                        f"AUDIT-{session.id}-{latest_attempt.id}-{line.id}"
+                    )
                 ))
 
-        # 3. فك الأقفال الجراحية (Guillotine Release) لتحرير المستودع
-        stmt_locks = select(InventoryLock).filter_by(stocktake_session_id=session.id, released_at=None)
+        stmt_locks = select(InventoryLock).filter_by(
+            company_id=company_id,
+            stocktake_session_id=session.id,
+            released_at=None
+        )
         active_locks = (await db.execute(stmt_locks)).scalars().all()
+
         for lock in active_locks:
             lock.released_at = sa_func.now()
 
-        # 4. ترقية حالة الجلسة للختام
         session.status = 'POSTED'
         session.approved_by = current_admin.id
         session.updated_at = sa_func.now()
 
+        if payload.notes:
+            session.notes = (
+                f"{session.notes or ''} | Approval: {payload.notes}"
+            ).strip(" |")
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_APPROVED",
+            old_value=json.dumps(
+                {
+                    "status": "PENDING_REVIEW",
+                    "attempt_id": latest_attempt.id,
+                    "attempt_number": latest_attempt.attempt_number
+                },
+                ensure_ascii=False
+            ),
+            new_value=json.dumps(
+                {
+                    "status": "POSTED",
+                    "approved_by": current_admin.id
+                },
+                ensure_ascii=False
+            )
+        ))
+
         await db.commit()
-        return {"message": "تم اعتماد الجرد بنجاح، رُحلت قيود الفروقات، وفُكت الأقفال ليعود العمل طبيعياً."}
+
+        return {
+            "message": "تم اعتماد الجرد وترحيل فروقات آخر محاولة مثبتة وفك الأقفال.",
+            "attempt_number": latest_attempt.attempt_number,
+            "status": "POSTED"
+        }
 
     except ValueError as ve:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         await db.rollback()
-        logger.error(f"خطأ في اعتماد الجرد: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء الاعتماد.")
+        logger.error(
+            f"خطأ في اعتماد الجرد: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء اعتماد الجرد."
+        )
 
-
+# تفويض Recount جديد بسبب موثق مع الحفاظ الكامل على كل محاولات العد السابقة.
 @router.post("/warehouse/unified/stocktake/{session_id}/recount", status_code=200)
 async def recount_stocktake_session(
     session_id: int,
+    payload: StocktakeRecountRequest,
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    """قرار المدير: رفض الجرد وإعادته للعد (RECOUNT_REQUIRED) مع إبقاء الأقفال"""
+    """تفويض إعادة عد جديدة دون تعديل أو مسح أي محاولة عد سابقة."""
     company_id = current_admin.company_id
-    if not current_admin.is_admin: raise HTTPException(status_code=403, detail="مرفوض: يتطلب صلاحية مشرف.")
+
+    if not current_admin.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="مرفوض: تفويض إعادة العد يتطلب صلاحية مشرف."
+        )
 
     try:
-        stmt_session = select(StocktakeSession).with_for_update().filter_by(id=session_id, company_id=company_id)
+        stmt_session = select(StocktakeSession).with_for_update().filter_by(
+            id=session_id,
+            company_id=company_id
+        )
         session = (await db.execute(stmt_session)).scalar_one_or_none()
-        
-        if not session or session.status != 'PENDING_REVIEW':
-            raise ValueError("لا يمكن إعادة الجلسة للعد. يجب أن تكون بانتظار المراجعة.")
-            
-        session.status = 'RECOUNT_REQUIRED'
-        
-        # تصفير الكميات المُدخلة لإجبارهم على العد من جديد (Blind Count Again)
-        stmt_lines = select(StocktakeLine).filter_by(stocktake_session_id=session.id)
-        for line in (await db.execute(stmt_lines)).scalars().all():
-            line.actual_quantity = None
-            line.variance_quantity = None
 
-        # توثيق القرار
-        db.add(SystemAuditLog(company_id=company_id, admin_id=current_admin.id, target_id=f"Stocktake_{session.id}", action_type="RECOUNT_DECISION", old_value="PENDING_REVIEW", new_value="RECOUNT_REQUIRED"))
+        if not session:
+            raise ValueError("جلسة الجرد غير موجودة.")
+
+        if session.status != 'PENDING_REVIEW':
+            raise ValueError(
+                "لا يمكن طلب إعادة العد إلا لجلسة بانتظار المراجعة."
+            )
+
+        stmt_latest_attempt = select(
+            StocktakeCountAttempt
+        ).filter_by(
+            company_id=company_id,
+            stocktake_session_id=session.id
+        ).order_by(
+            StocktakeCountAttempt.attempt_number.desc()
+        ).limit(1)
+
+        latest_attempt = (
+            await db.execute(stmt_latest_attempt)
+        ).scalar_one_or_none()
+
+        if not latest_attempt:
+            raise ValueError("لا توجد محاولة عد مثبتة لإعادة عدها.")
+
+        authorizer = await _verify_stocktake_admin_credentials(
+            db,
+            company_id,
+            payload.authorizer_username,
+            payload.authorizer_password
+        )
+
+        if not authorizer:
+            db.add(SystemAuditLog(
+                company_id=company_id,
+                admin_id=current_admin.id,
+                target_id=f"Stocktake_{session.id}",
+                action_type="STOCKTAKE_RECOUNT_AUTH_REJECTED",
+                old_value=f"attempt={latest_attempt.attempt_number}",
+                new_value="Invalid authorizer credentials"
+            ))
+            await db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="بيانات المستخدم المخول غير صحيحة. تم رفض العملية وتوثيق المحاولة."
+            )
+
+        if (
+            latest_attempt.requires_independent_recount
+            and authorizer.id == latest_attempt.counted_by
+        ):
+            raise ValueError(
+                "مرفوض رقابياً: العجز المادي يتطلب تفويض مستخدم مخول آخر غير منفذ العد الحالي."
+            )
+
+        session.status = 'RECOUNT_REQUIRED'
+        session.pending_recount_authorized_by = authorizer.id
+        session.pending_recount_reason = payload.reason.strip()
+        session.independent_recount_required = (
+            latest_attempt.requires_independent_recount
+        )
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_RECOUNT_AUTHORIZED",
+            old_value=json.dumps(
+                {
+                    "status": "PENDING_REVIEW",
+                    "attempt_id": latest_attempt.id,
+                    "attempt_number": latest_attempt.attempt_number,
+                    "counted_by": latest_attempt.counted_by,
+                    "requires_independent_recount": latest_attempt.requires_independent_recount
+                },
+                ensure_ascii=False
+            ),
+            new_value=json.dumps(
+                {
+                    "status": "RECOUNT_REQUIRED",
+                    "authorized_by": authorizer.id,
+                    "reason": payload.reason.strip()
+                },
+                ensure_ascii=False
+            )
+        ))
+
         await db.commit()
-        return {"message": "تم إرجاع الجلسة للعد من جديد. الأقفال لا تزال فعالة."}
+
+        return {
+            "message": (
+                "تم تفويض إعادة العد. المحاولة السابقة محفوظة ولن يتم تعديلها."
+            ),
+            "requires_independent_counter": (
+                latest_attempt.requires_independent_recount
+            ),
+            "previous_attempt_number": latest_attempt.attempt_number,
+            "status": "RECOUNT_REQUIRED"
+        }
+
+    except HTTPException:
+        raise
     except ValueError as ve:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"خطأ في تفويض إعادة الجرد: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء تفويض إعادة العد."
+        )
 
+# إلغاء جلسة الجرد بسبب موثق مع إبقاء تاريخ العد والسجل محفوظين.
 @router.post("/warehouse/unified/stocktake/{session_id}/cancel", status_code=200)
 async def cancel_stocktake_session(
     session_id: int,
+    payload: StocktakeCancelRequest,
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    """قرار المدير: إلغاء الجرد بالكامل وفك الأقفال الجراحية فوراً (مخرج الطوارئ)"""
+    """إلغاء جلسة الجرد بسبب موثق وبعد إعادة تحقق المشرف، مع إبقاء تاريخ العد محفوظاً."""
     company_id = current_admin.company_id
-    if not current_admin.is_admin: raise HTTPException(status_code=403, detail="مرفوض: يتطلب صلاحية مشرف.")
+
+    if not current_admin.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="مرفوض: إلغاء الجرد يتطلب صلاحية مشرف."
+        )
+
+    password_ok = await asyncio.to_thread(
+        bcrypt.checkpw,
+        payload.password.encode('utf-8'),
+        current_admin.password_hash.encode('utf-8')
+    )
+
+    if not password_ok:
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session_id}",
+            action_type="STOCKTAKE_CANCEL_REJECTED",
+            old_value="ACTIVE_STOCKTAKE",
+            new_value="Wrong password"
+        ))
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="كلمة المرور غير صحيحة. تم رفض الإلغاء وتوثيق المحاولة."
+        )
 
     try:
-        stmt_session = select(StocktakeSession).with_for_update().filter_by(id=session_id, company_id=company_id)
+        stmt_session = select(StocktakeSession).with_for_update().filter_by(
+            id=session_id,
+            company_id=company_id
+        )
         session = (await db.execute(stmt_session)).scalar_one_or_none()
-        
-        if not session or session.status in ['POSTED', 'CANCELLED']:
+
+        if not session:
+            raise ValueError("جلسة الجرد غير موجودة.")
+
+        if session.status in ['POSTED', 'CANCELLED']:
             raise ValueError("لا يمكن إلغاء هذه الجلسة.")
-            
+
+        previous_status = session.status
         session.status = 'CANCELLED'
-        
-        # فك الأقفال الجراحية
-        stmt_locks = select(InventoryLock).filter_by(stocktake_session_id=session.id, released_at=None)
+        session.pending_recount_authorized_by = None
+        session.pending_recount_reason = None
+
+        stmt_locks = select(InventoryLock).filter_by(
+            company_id=company_id,
+            stocktake_session_id=session.id,
+            released_at=None
+        )
+
         for lock in (await db.execute(stmt_locks)).scalars().all():
             lock.released_at = sa_func.now()
 
-        db.add(SystemAuditLog(company_id=company_id, admin_id=current_admin.id, target_id=f"Stocktake_{session.id}", action_type="CANCEL_STOCKTAKE", old_value="ACTIVE", new_value="CANCELLED"))
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_CANCELLED",
+            old_value=previous_status,
+            new_value=json.dumps(
+                {
+                    "status": "CANCELLED",
+                    "reason": payload.reason.strip()
+                },
+                ensure_ascii=False
+            )
+        ))
+
         await db.commit()
-        return {"message": "تم إلغاء الجلسة بالكامل وفك الأقفال عن المستودع."}
+
+        return {
+            "message": "تم إلغاء جلسة الجرد وفك الأقفال، مع الاحتفاظ بجميع محاولات العد والسجل.",
+            "status": "CANCELLED"
+        }
+
     except ValueError as ve:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"خطأ في إلغاء الجرد: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء إلغاء الجرد."
+        )

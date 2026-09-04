@@ -767,14 +767,6 @@ class WarehouseInboundRequest(BaseModel):
     reference_id: Optional[str] = "بدون فاتورة"
     notes: Optional[str] = ""
 
-class StocktakeItemRequest(BaseModel):
-    product_variant_id: int
-    actual_packs: int = Field(..., ge=0)
-
-class WarehouseStocktakeRequest(BaseModel):
-    items: List[StocktakeItemRequest] = Field(..., description="قائمة الأصناف المجرودة")
-    notes: Optional[str] = "تسوية جرد يدوية"
-
 class ToggleLockRequest(BaseModel):
     status: Literal['AUDIT_LOCK', 'ACTIVE']
 
@@ -892,8 +884,25 @@ class UnifiedStocktakeStartRequest(BaseModel):
 class StocktakeCountItem(BaseModel):
     product_variant_id: int
     batch_id: Optional[int] = None
-    actual_quantity: int = Field(..., ge=0) # +++ منع الكميات السالبة من الطبقة الأولى +++
+    actual_quantity: int = Field(..., ge=0)
+
 
 class UnifiedStocktakeCountRequest(BaseModel):
-    items: List[StocktakeCountItem]
+    items: List[StocktakeCountItem] = Field(..., min_length=1)
     notes: Optional[str] = None
+
+
+class StocktakeRecountRequest(BaseModel):
+    reason: str = Field(..., min_length=5, max_length=500)
+    authorizer_username: str = Field(..., min_length=1, max_length=80)
+    authorizer_password: str = Field(..., min_length=1, max_length=200)
+
+
+class StocktakeApprovalRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=200)
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+class StocktakeCancelRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=200)
+    reason: str = Field(..., min_length=5, max_length=500)
