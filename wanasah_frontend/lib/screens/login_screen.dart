@@ -16,6 +16,9 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   // +++ الدرع الأمني (Production Shield): حقن بيانات الدخول الافتراضية في بيئة التطوير فقط لمنع تسريبها في الإنتاج +++
+  final _companyCodeController = TextEditingController(
+    text: kDebugMode ? 'WNS-01' : '', // +++ حقن رمز الشركة الافتراضي للتطوير +++
+  );
   final _usernameController = TextEditingController(
     text: kDebugMode ? 'testdriver' : '',
   );
@@ -27,14 +30,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // --- دالة تسجيل الدخول (شاشة غبية ترسل الأوامر فقط) ---
   void _login() {
+    final companyCode = _companyCodeController.text.trim();
     final username = _usernameController.text.trim();
     // +++   إياك ولمس كلمة المرور، تُرسل كما هي (بدون trim) +++
     final password = _passwordController.text; 
 
-    if (username.isEmpty || password.isEmpty) {
+    if (companyCode.isEmpty || username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('الرجاء إدخال اسم المستخدم وكلمة المرور'),
+          content: Text('الرجاء إدخال رمز الشركة واسم المستخدم وكلمة المرور'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -46,12 +50,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
     // إرسال أمر تسجيل الدخول للعقل المدبر ليتولى هو كل شيء
     context.read<AuthBloc>().add(
-      LoginRequested(username: username, password: password),
+      LoginRequested(companyCode: companyCode, username: username, password: password),
     );
   }
 
   @override
   void dispose() {
+    _companyCodeController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -103,6 +108,22 @@ class _LoginScreenState extends State<LoginScreen> {
                       // يمكنك إضافة شعار هنا إذا أردت
                       // Image.asset('assets/logo.png', height: 100),
                       // const SizedBox(height: 40.0),
+                      
+                      // +++ حقل رمز الشركة الجديد (Tenant Code) +++
+                      TextField(
+                        controller: _companyCodeController,
+                        decoration: InputDecoration(
+                          labelText: 'رمز الشركة',
+                          prefixIcon: const Icon(Icons.business),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0)),
+                          filled: true,
+                          fillColor: Colors.grey[100],
+                        ),
+                        keyboardType: TextInputType.text,
+                        textInputAction: TextInputAction.next,
+                      ),
+                      const SizedBox(height: 16.0),
+                      
                       TextField(
                         controller: _usernameController,
                         decoration: InputDecoration(

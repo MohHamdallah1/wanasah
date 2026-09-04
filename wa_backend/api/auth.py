@@ -129,7 +129,9 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
         "refresh_token": refresh_token,
         "driver_id": driver.id,
         "driver_name": driver.full_name,
-        "is_admin": driver.is_admin
+        "is_admin": driver.is_admin,
+        "company_id": comp_id, # +++ تسليم الهوية للموبايل +++
+        "company_code": payload.company_code # +++ تسليم الرمز لاسم ملف الداتابيز +++
     }
 
 @router.post("/login", response_model=LoginResponse)
@@ -179,7 +181,9 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
         "refresh_token": refresh_token,
         "driver_id": admin.id,
         "driver_name": admin.full_name,
-        "is_admin": admin.is_admin
+        "is_admin": admin.is_admin,
+        "company_id": comp_id, # +++ تسليم الهوية للداشبورد +++
+        "company_code": payload.company_code
     }
 
 @router.post("/refresh", status_code=200)

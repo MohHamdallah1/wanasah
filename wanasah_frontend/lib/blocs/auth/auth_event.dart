@@ -20,13 +20,14 @@ class CheckAuthEvent extends AuthEvent {
 // ─── طلب تسجيل الدخول ───────────────────────────────────────
 /// يُرسَل من LoginScreen مع بيانات الدخول، ليقوم العقل المدبر بالاتصال بالسيرفر.
 class LoginRequested extends AuthEvent {
+  final String companyCode; // +++ إضافة رمز الشركة +++
   final String username;
   final String password;
 
-  const LoginRequested({required this.username, required this.password});
+  const LoginRequested({required this.companyCode, required this.username, required this.password});
 
   @override
-  List<Object?> get props => [username, password];
+  List<Object?> get props => [companyCode, username, password];
 }
 
 // ─── تسجيل الخروج ───────────────────────────────────────────────────────────

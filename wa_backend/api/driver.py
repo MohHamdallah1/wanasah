@@ -9,16 +9,16 @@ from typing import List
 from api.dependencies import get_current_driver
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from services import reverse_previous_visit_state, InventoryReversalError, get_setting, calculate_invoice, check_debt_limits
+from services import reverse_previous_visit_state, InventoryReversalError, get_setting, calculate_invoice, check_debt_limits, check_inventory_lock
 import logging
 
-from models import (Driver, WorkSession, DispatchRoute, VehicleLoad, SessionInventory, Visit, InventoryTransfer,
-WorkBreakLog, VisitItem, Shop, ProductVariant, VisitReturn, OfferRule, InventoryLedger, Zone,
-WarehouseLedger, MainWarehouse, ShortageRequest, SystemAuditLog)
+from models import (Driver, WorkSession, DispatchRoute, Visit,
+WorkBreakLog, VisitItem, Shop, ProductVariant, VisitReturn, OfferRule, Zone,
+ShortageRequest, SystemAuditLog, InventoryLocation, InventoryTransfer, InventoryBalance, InventoryMovement, ProductBatch, MainWarehouse, WarehouseLedger, SessionInventory, InventoryLedger, VehicleLoad)
 
 from schemas import (SessionStartRequest, BreakToggleRequest, TransferResponseRequest,
 BatchTransferResponseRequest, PendingBatchResponse, AddShopRequest, ProductVariantResponse,
-GetVisitsContract, VisitDetailsResponse, ActiveSessionResponse, VisitUpdateRequest)
+GetVisitsContract, VisitDetailsResponse, ActiveSessionResponse, VisitUpdateRequest,)
 
 logger = logging.getLogger("wanasah_logger")
 
@@ -75,36 +75,20 @@ async def start_work_session(
             await db.rollback() # +++ الإغلاق اليدوي للقفل +++
             raise HTTPException(status_code=409, detail="لديك جلسة عمل نشطة بالفعل لم يتم إنهاؤها.")
 
-        # 5. إنشاء الجلسة الجديدة
+        # 5. إنشاء الجلسة الجديدة مع ربط الشركة الصارم
         new_session = WorkSession(
+            company_id=current_driver.company_id,
             driver_id=driver_id,
             start_time=get_utc_now(),
             start_latitude=payload.latitude,
             start_longitude=payload.longitude,
-            is_authorized_to_sell=False # يبدأ بالضوء الأحمر
+            is_authorized_to_sell=False
         )
         db.add(new_session)
         await db.flush() # للحصول على new_session.id لاستخدامه في الخطوات التالية
 
-        # 6. +++ ربط خط السير ونقل حمولة السيارة للعهدة (مصافحة الصباح) +++
+        # 6. ربط خط السير بالجلسة (المحرك الموحد: رصيد السيارة موجود مسبقاً في InventoryBalance)
         active_route.work_session_id = new_session.id
-        
-        # جلب حمولة السيارة مع تفاصيل المنتجات (استخدام selectinload لمنع الـ Deadlock مع with_for_update)
-        stmt_loads = select(VehicleLoad).options(selectinload(VehicleLoad.product_variant)).filter_by(vehicle_id=active_route.vehicle_id).order_by(VehicleLoad.id.asc()).with_for_update()
-        vehicle_loads = (await db.execute(stmt_loads)).scalars().all()
-        
-        for load in vehicle_loads:
-            variant = load.product_variant
-            packs_per_carton = variant.packs_per_carton if variant and variant.packs_per_carton else 1
-            total_packs = load.quantity * packs_per_carton
-            
-            inventory_item = SessionInventory(
-                work_session_id=new_session.id,
-                product_variant_id=load.product_variant_id,
-                starting_quantity=total_packs,
-                current_remaining_quantity=total_packs
-            )
-            db.add(inventory_item)
             
         # 7. +++  (Bulk Update): حصر التحديث بمنطقة خط السير والطوارئ فقط لحماية دفاتر الجلسة من التلوث بمحلات خارج المنطقة +++
         subq_shops = select(Shop.id).where(Shop.zone_id == active_route.zone_id).scalar_subquery()
@@ -131,8 +115,6 @@ async def start_work_session(
             "session_id": new_session.id
         }
 
-    except HTTPException:
-        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -234,6 +216,7 @@ async def toggle_break(
             
             # توثيق الحركة في جدول الاستراحات
             break_log = WorkBreakLog(
+                company_id=current_driver.company_id,
                 work_session_id=active_session.id,
                 break_start=active_session.break_start_time,
                 break_end=end_t,
@@ -339,6 +322,23 @@ async def update_visit(
     if shop.zone_id != current_route.zone_id and not (is_emergency_request or has_active_shortage):
         await db.rollback()
         raise HTTPException(status_code=403, detail="مرفوض أمنياً: لا يمكنك البيع لمحل خارج منطقة عملك المخصصة إلا بتصريح طلب عاجل.")
+
+    # +++ 5.5. الدرع الجراحي (P0): حراسة السيارة من البيع أثناء الجرد (VEHICLE_RECON) +++
+    stmt_veh_loc = select(InventoryLocation.id).filter_by(
+        company_id=current_driver.company_id, vehicle_id=current_route.vehicle_id, location_type='VEHICLE'
+    )
+    veh_loc_id = (await db.execute(stmt_veh_loc)).scalar_one_or_none()
+    if veh_loc_id:
+        try:
+            # فحص القفل الشامل للسيارة (مثال: تسوية نهاية اليوم معلقة)
+            await check_inventory_lock(db, current_driver.company_id, veh_loc_id)
+            # فحص الأقفال الجزئية لكل صنف وارد في السلة أو المرتجعات
+            all_incoming_variants = list(set([i.product_variant_id for i in payload.cart_items] + [r.product_variant_id for r in payload.returns]))
+            for v_id in all_incoming_variants:
+                await check_inventory_lock(db, current_driver.company_id, veh_loc_id, variant_id=v_id)
+        except ValueError as ve:
+            await db.rollback()
+            raise HTTPException(status_code=403, detail=f"تم تجميد مبيعات سيارتك مؤقتاً لمراجعة العهدة: {str(ve)}")
 
     # 6. حماية الاستراحة والضوء الأخضر والمصافحة
     if active_session.break_start_time and not active_session.break_end_time:
@@ -573,6 +573,7 @@ async def update_visit(
 
         # +++ الدرع الديناميكي: حماية السيرفر من الانفجار إذا كان عمود كسور العينات غير موجود بقاعدة البيانات +++
         visit_item_data = {
+            "company_id": current_driver.company_id,
             "visit_id": visit.id, 
             "product_variant_id": item.product_variant_id,
             "quantity": item.quantity, 
@@ -646,6 +647,7 @@ async def update_visit(
         ))
         
         db.add(VisitReturn(
+            company_id=current_driver.company_id,
             visit_id=visit.id, product_variant_id=ret.product_variant_id,
             quantity=ret.quantity, packs_quantity=ret.packs_quantity,
             return_type=ret.return_type, reason=ret.reason
@@ -976,6 +978,18 @@ async def respond_to_transfer(
         if not route or not route.vehicle_id:
             await db.rollback()
             raise HTTPException(status_code=400, detail="مرفوض: لا يوجد سيارة مرتبطة بخط السير الحالي لإتمام المعاملة.")
+            
+        # +++ نشر الحارس الجراحي (P0): منع المصافحة إذا كانت السيارة مقفلة للجرد/التسوية +++
+        stmt_veh_loc = select(InventoryLocation.id).filter_by(
+            company_id=current_driver.company_id, vehicle_id=route.vehicle_id, location_type='VEHICLE'
+        )
+        veh_loc_id = (await db.execute(stmt_veh_loc)).scalar_one_or_none()
+        if veh_loc_id:
+            try:
+                await check_inventory_lock(db, current_driver.company_id, veh_loc_id, variant_id=transfer.product_variant_id)
+            except ValueError as ve:
+                await db.rollback()
+                raise HTTPException(status_code=403, detail=f"مرفوض أمنياً، سيارتك مجمدة: {str(ve)}")
         
         # +++ سحق الاستعلام المكرر: قراءة المنتج مباشرة من الـ RAM بعد شحنه استباقياً وتوفير Query كاملة +++
         variant = transfer.product_variant
@@ -1265,6 +1279,19 @@ async def batch_respond_to_transfers(
                 bulk_warehouse[p_id] = wh_record
 
             if current_response == 'accepted':
+                # +++ نشر الحارس الجراحي (P0): منع المصافحة الجماعية لسيارة مقفلة +++
+                if route and route.vehicle_id:
+                    stmt_veh_loc = select(InventoryLocation.id).filter_by(
+                        company_id=current_driver.company_id, vehicle_id=route.vehicle_id, location_type='VEHICLE'
+                    )
+                    veh_loc_id = (await db.execute(stmt_veh_loc)).scalar_one_or_none()
+                    if veh_loc_id:
+                        try:
+                            await check_inventory_lock(db, current_driver.company_id, veh_loc_id, variant_id=p_id)
+                        except ValueError as ve:
+                            await db.rollback()
+                            raise HTTPException(status_code=403, detail=f"مرفوض في الحوالة ({transfer.id}): سيارتك مجمدة. {str(ve)}")
+
                 # +++ درع الأصناف النشطة: المندوب يمكنه إرجاع (Pull) صنف موقوف، لكن لا يمكنه استلام (Push) صنف جديد موقوف +++
                 if transfer.quantity_packs > 0 and variant and not variant.is_active:
                     await db.rollback()
@@ -1478,7 +1505,7 @@ async def add_new_shop(
     if not clean_phone:
         raise HTTPException(status_code=400, detail="مرفوض: رقم الهاتف إجباري لضمان التواصل مع المحل وتوثيق الذمم.")
         
-    stmt_dup = select(Shop).filter_by(phone_number=clean_phone)
+    stmt_dup = select(Shop).filter_by(company_id=current_driver.company_id, phone_number=clean_phone)
     existing_shop = (await db.execute(stmt_dup)).scalars().first()
     if existing_shop:
         raise HTTPException(status_code=409, detail=f"فشل الحفظ: رقم الهاتف مسجل مسبقاً للمحل ({existing_shop.name}).")
@@ -1486,6 +1513,7 @@ async def add_new_shop(
     try:
         # Pydantic قام بالتنظيف المسبق للـ Whitespaces، نعين القيم مباشرة
         new_shop = Shop(
+            company_id=current_driver.company_id,
             name=payload.name,
             address=payload.address,
             phone_number=payload.phone_number,
@@ -1497,20 +1525,19 @@ async def add_new_shop(
             zone_id=active_route.zone_id, 
             added_by_driver_id=driver_id,
             sequence=999,
-            # +++ الدرع المالي: تهيئة الأرصدة كـ Decimal نقي لمنع 500 Crash في الزيارات +++
             current_balance=Decimal('0.0'),
             max_debt_limit=Decimal('0.0') 
         )
         db.add(new_shop)
-        await db.flush() # دفع البيانات للحصول على ID المحل
+        await db.flush()
 
-        # +++ نسف ثغرة الزيارة اليتيمة وإضافة الترتيب +++
         new_visit = Visit(
+            company_id=current_driver.company_id,
             driver_id=driver_id,
             shop_id=new_shop.id,
-            work_session_id=active_session.id, # ربط الزيارة بالجلسة الحالية
+            work_session_id=active_session.id,
             status='Pending',
-            sequence=new_shop.sequence, # ربط الترتيب لتظهر في المكان الصحيح بالموبايل
+            sequence=new_shop.sequence,
             visit_timestamp=get_utc_now()
         )
         db.add(new_visit)

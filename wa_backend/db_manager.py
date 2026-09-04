@@ -1,412 +1,172 @@
 import asyncio
 import sys
+import os
+import re
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select, delete
 from sqlalchemy.exc import IntegrityError
-import os
-from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from dotenv import load_dotenv
 
 load_dotenv()
 
-# +++ الدرع الإداري: سكربت زراعة البيانات يجب أن يتصل بحساب الـ Superuser لتخطي الـ RLS وحذف الجداول +++
-raw_db_url = os.getenv("DATABASE_URL_MIGRATION", "postgresql+asyncpg://postgres:009621484-Azmh@localhost:5432/velotrack_db")
-# +++ درع السحاب: معالجة بروتوكولات postgres و postgresql لتعمل مع asyncpg الإجباري +++
-if raw_db_url.startswith("postgres://"):
-    raw_db_url = raw_db_url.replace("postgres://", "postgresql+asyncpg://", 1)
-elif raw_db_url.startswith("postgresql://") and "asyncpg" not in raw_db_url:
-    raw_db_url = raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+# +++ اتصال السوبريوزر: للبناء والزراعة فقط (يتجاوز RLS) +++
+DB_URL = os.getenv("DATABASE_URL_MIGRATION")
+if not DB_URL:
+    raise ValueError("CRITICAL: DATABASE_URL_MIGRATION is missing from .env")
+if DB_URL.startswith("postgres://"): DB_URL = DB_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DB_URL.startswith("postgresql://") and "asyncpg" not in DB_URL: DB_URL = DB_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-DB_URL = raw_db_url
+# +++ اتصال مستخدم التطبيق: لاستخراج اسم المستخدم ومنحه الصلاحيات على الجداول الجديدة +++
+APP_DB_URL = os.getenv("DATABASE_URL")
+if not APP_DB_URL:
+    raise ValueError("CRITICAL: DATABASE_URL is missing from .env")
+
 engine = create_async_engine(DB_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
-from models import (
-    Base, SystemSetting, Country, Governorate, Zone, Driver, Product, 
-    ProductVariant, OfferRule, Shop, Visit, Vehicle, VehicleLoad,
-    WorkSession, WorkBreakLog, SessionInventory, InventoryLedger, 
-    WarehouseLedger, DamagedItemLog, SystemAuditLog, ImportLog, 
-    InventoryTransfer, VisitItem, VisitReturn, ShortageRequest, MainWarehouse, DispatchRoute,
-    Company, Branch, UOM # +++ الكيانات الجديدة للـ SaaS +++
-)
+from models import *
 
 # ====================================================================
-# 1. Full Reset & Seed Basic Data (تصفير كامل وزراعة)
+# 1. إعادة بناء قاعدة البيانات من الصفر (بدون Alembic - بيئة التطوير)
+#    create_all من الـ Models + فرض RLS ديناميكياً على كل جدول يحمل company_id
 # ====================================================================
-async def reset_and_seed_db():
-    print("\n⚠️  WARNING: Wiping entire database and rebuilding from scratch...")
-    
+async def rebuild_schema():
+    print("WARNING: Wiping the public schema and rebuilding from Models...")
+
     async with engine.begin() as conn:
-        await conn.execute(text('DROP TABLE IF EXISTS alembic_version CASCADE'))
-        await conn.run_sync(Base.metadata.drop_all)
+        # 1. طرد الاتصالات الأخرى حتى لا يمنعنا DROP SCHEMA
+        await conn.execute(text(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+        ))
+
+        # 2. المسح الشامل وإعادة بناء المخطط من الـ Models (المصدر الوحيد للحقيقة)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
         await conn.run_sync(Base.metadata.create_all)
-        
-    print("✅  Schema rebuilt successfully. Seeding initial data...")
-    
+        print(f"[1/3] Created {len(Base.metadata.tables)} tables from Models.")
+
+        # 3. فرض درع RLS ديناميكياً على كل جدول يملك company_id (المستأجَر)
+        #    أي جدول جديد سيُضاف مستقبلاً ويحمل company_id سيُحمى تلقائياً هنا
+        tenant_tables = [name for name, t in Base.metadata.tables.items() if "company_id" in t.columns]
+        for t_name in tenant_tables:
+            await conn.execute(text(f"ALTER TABLE {t_name} ENABLE ROW LEVEL SECURITY"))
+            await conn.execute(text(f"ALTER TABLE {t_name} FORCE ROW LEVEL SECURITY"))
+            await conn.execute(text(f"DROP POLICY IF EXISTS tenant_isolation_policy ON {t_name}"))
+            await conn.execute(text(f"""
+                CREATE POLICY tenant_isolation_policy ON {t_name}
+                FOR ALL
+                USING (company_id = NULLIF(current_setting('app.current_tenant', true), '')::integer)
+                WITH CHECK (company_id = NULLIF(current_setting('app.current_tenant', true), '')::integer)
+            """))
+        print(f"[2/3] RLS (ENABLE + FORCE + Policy) applied to {len(tenant_tables)} tenant tables.")
+
+
+
+        # 5. منح مستخدم التطبيق صلاحيات كاملة (الجداول أنشئت بواسطة السوبريوزر)
+        m = re.match(r"postgresql(?:\+asyncpg)?://([^:@]+):", APP_DB_URL)
+        if not m:
+            raise ValueError("CRITICAL: cannot resolve app username from DATABASE_URL")
+        app_user = m.group(1)
+        await conn.execute(text(f'GRANT USAGE ON SCHEMA public TO "{app_user}"'))
+        await conn.execute(text(f'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "{app_user}"'))
+        await conn.execute(text(f'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "{app_user}"'))
+        await conn.execute(text(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "{app_user}"'))
+        await conn.execute(text(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "{app_user}"'))
+        print(f"[3/3] Grants applied to app user '{app_user}'.")
+
+# ====================================================================
+# 2. زراعة شركات متعددة (كل شركة: مستودعان + سيارة/مندوب/منتج/دفعة/رصيد)
+# ====================================================================
+async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
+    import bcrypt
+    hashed_pw = bcrypt.hashpw("password".encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
     async with AsyncSessionLocal() as session:
         try:
-            # +++ إنشاء الكيانات السيادية (System-Owned) +++
-            qatar = Country(name="قطر")
-            session.add(qatar)
+            country = Country(name="المملكة الأردنية الهاشمية")
+            session.add(country)
             await session.flush()
-            
-            doha = Governorate(name="بلدية الدوحة", country_id=qatar.id)
-            rayyan = Governorate(name="بلدية الريان", country_id=qatar.id)
-            session.add_all([doha, rayyan])
-            
-            uom_pack = UOM(name="حبة", code="PACK")
+            gov = Governorate(name="عمان", country_id=country.id)
+            session.add(gov)
             uom_carton = UOM(name="كرتونة", code="CARTON")
-            session.add_all([uom_pack, uom_carton])
+            session.add(uom_carton)
             await session.flush()
 
-            # +++ إنشاء الشركة الافتراضية (Tenant-Owned Core) +++
-            company = Company(name="شركة وناسة المحدودة", company_code="WNS-01")
-            session.add(company)
-            await session.flush()
-            cid = company.id
+            for i in range(1, num_companies + 1):
+                c_name = "شركة وناسة" if i == 1 else f"شركة النسر {i}"
+                c_code = "WNS-01" if i == 1 else f"EAGLE-{i:02d}"
 
-            session.add(SystemSetting(company_id=cid, setting_key='tax_percentage', setting_value='0.0', description='الضريبة'))
-            
-            zone_1 = Zone(company_id=cid, name="خط الدوحة الكورنيش", governorate_id=doha.id, sequence_number=1, schedule_frequency="أسبوعي", visit_day="الأحد")
-            zone_2 = Zone(company_id=cid, name="خط الريان التجاري", governorate_id=rayyan.id, sequence_number=2, schedule_frequency="أسبوعي", visit_day="الاثنين")
-            session.add_all([zone_1, zone_2])
-            
-            admin_driver = Driver(company_id=cid, username='abuali', full_name='أبو علي (المدير)', is_active=True, is_admin=True, can_allow_debt=True, max_debt_limit=50000.0)
-            admin_driver.set_password('password')
-            
-            test_driver = Driver(company_id=cid, username='testdriver', full_name='مندوب تجريبي', is_active=True, is_admin=False, can_allow_debt=True, max_debt_limit=2000.0)
-            test_driver.set_password('password')
-            session.add_all([admin_driver, test_driver])
-            await session.flush()
-            
-            v1 = Vehicle(company_id=cid, plate_number="50-12345", vehicle_type="باص كيا", current_mileage=150000, maintenance_status="Active")
-            v2 = Vehicle(company_id=cid, plate_number="50-67890", vehicle_type="دينا ايسوزو", current_mileage=85000, maintenance_status="Active")
-            session.add_all([v1, v2])
-            await session.flush()
-            
-            product_lulu = Product(company_id=cid, base_name='شيبس لولو', brand='Lulu', category='Snacks')
-            product_police = Product(company_id=cid, base_name='شيبس الشرطي', brand='Police', category='Snacks')
-            session.add_all([product_lulu, product_police])
-            await session.flush()
-            
-            var1 = ProductVariant(company_id=cid, product_id=product_lulu.id, base_uom_id=uom_carton.id, variant_name='شيبس لولو - حجم عائلي', sku='CHP-LULU-1', packs_per_carton=50, price_per_carton=Decimal('50.0'), price_per_pack=Decimal('1.0'))
-            var2 = ProductVariant(company_id=cid, product_id=product_police.id, base_uom_id=uom_carton.id, variant_name='شيبس الشرطي - حار', sku='CHP-POL-1', packs_per_carton=24, price_per_carton=Decimal('24.0'), price_per_pack=Decimal('1.0'))
-            session.add_all([var1, var2])
-            await session.flush()
-            
-            session.add_all([
-                VehicleLoad(company_id=cid, vehicle_id=v1.id, product_variant_id=var1.id, quantity=150),
-                VehicleLoad(company_id=cid, vehicle_id=v1.id, product_variant_id=var2.id, quantity=48)
-            ])
-            
-            session.add_all([
-                OfferRule(company_id=cid, threshold_quantity=50, offer_type='free_items', bonus_quantity=7),
-                OfferRule(company_id=cid, threshold_quantity=25, offer_type='free_items', bonus_quantity=3)
-            ])
-            
-            for i in range(1, 11):
-                shop = Shop(company_id=cid, name=f"بقالة قطر {i}", current_balance=Decimal('0.0'), max_debt_limit=Decimal('1000.0'), zone_id=zone_1.id if i <= 5 else zone_2.id, added_by_driver_id=admin_driver.id)
-                session.add(shop)
+                comp = Company(name=c_name, company_code=c_code, is_active=True)
+                session.add(comp)
                 await session.flush()
-                visit = Visit(company_id=cid, driver_id=test_driver.id, shop_id=shop.id, status='Pending', sequence=i, visit_timestamp=datetime.now(timezone.utc).replace(tzinfo=None))
-                session.add(visit)
-                
-            await session.commit()
-            print("✅  Database seeded successfully!")
-        except Exception as e:
-            await session.rollback()
-            print(f"❌  Seed Error: {str(e)}")
+                cid = comp.id
 
-# ====================================================================
-# 2. Clean Operations Only (تنظيف العمليات فقط)
-# ====================================================================
-async def clean_operations():
-    print("\n🧹  Cleaning operational data (Keeping Shops, Products, Zones)...")
-    async with AsyncSessionLocal() as session:
-        try:
-            await session.execute(delete(WorkBreakLog))
-            await session.execute(delete(VisitItem))
-            await session.execute(delete(VisitReturn))
-            await session.execute(delete(Visit))
-            await session.execute(delete(ShortageRequest))
-            await session.execute(delete(InventoryTransfer))
-            await session.execute(delete(InventoryLedger))
-            await session.execute(delete(SessionInventory))
-            await session.execute(delete(VehicleLoad))
-            await session.execute(delete(DispatchRoute))
-            await session.execute(delete(WorkSession))
-            await session.execute(delete(WarehouseLedger))
-            await session.execute(delete(DamagedItemLog))
-            await session.execute(delete(SystemAuditLog))
-            await session.execute(delete(ImportLog))
-            await session.execute(delete(MainWarehouse))
-            
-            await session.commit()
-            print("✅  Operations cleaned successfully. System is ready.")
-        except Exception as e:
-            await session.rollback()
-            print(f"❌  Cleaning Error: {e}")
+                session.add(SystemSetting(company_id=cid, setting_key="tax_percentage", setting_value="0.0"))
+                session.add(OverrideReason(company_id=cid, code="EXPIRED_REPLACEMENT", description="استبدال تالف", is_active=True))
 
-# ====================================================================
-# 3. Inject Extras (حقن 20 مناديب، سيارات، ومحقونات منتجات إضافية)
-# ====================================================================
-async def inject_extras():
-    print("\n🛒  Injecting 20 Drivers, 20 Vehicles, and 20 Products...")
-    async with AsyncSessionLocal() as session:
-        try:
-            # +++ جلب الشركة الافتراضية ووحدة القياس لحقنها في السجلات +++
-            company = (await session.execute(select(Company).limit(1))).scalars().first()
-            if not company:
-                print("❌  لا توجد شركة! قم بتنفيذ (Full Reset) أولاً.")
-                return
-            cid = company.id
-            uom = (await session.execute(select(UOM).limit(1))).scalars().first()
-            uom_id = uom.id if uom else 1
+                loc_main = InventoryLocation(company_id=cid, name="المستودع الرئيسي", code=f"WH-MAIN-{cid}", location_type="WAREHOUSE", is_active=True)
+                loc_sec = InventoryLocation(company_id=cid, name="المستودع الفرعي", code=f"WH-SEC-{cid}", location_type="WAREHOUSE", is_active=True)
+                loc_transit = InventoryLocation(company_id=cid, name="بضاعة في الطريق", code="TRANSIT-SYS", location_type="IN_TRANSIT", is_active=True)
+                session.add_all([loc_main, loc_sec, loc_transit])
 
-            # 1. إضافة 20 مندوب
-            for i in range(1, 21):
-                username = f"driver_{i}"
-                stmt_driver = select(Driver).filter_by(username=username, company_id=cid)
-                if not (await session.execute(stmt_driver)).first():
-                    driver = Driver(
-                        company_id=cid,
-                        username=username,
-                        full_name=f"مندوب مبيعات {i}",
-                        phone_number=f"0790000{i:03d}",
-                        is_admin=False,
-                        is_active=True,
-                        can_allow_debt=True,
-                        max_debt_limit=Decimal(str(1000 + i * 100))
-                    )
-                    driver.set_password("123456")
-                    session.add(driver)
+                zone = Zone(company_id=cid, name=f"منطقة {cid}", governorate_id=gov.id, sequence_number=1, schedule_frequency="أسبوعي", visit_day="الأحد")
+                session.add(zone)
 
-            # 2. إضافة 20 سيارة
-            v_types = ["باص كيا", "دينا ايسوزو", "تويوتا هايس", "ميتسوبيشي كانتر"]
-            for i in range(1, 21):
-                plate = f"50-{20000 + i}"
-                stmt_v = select(Vehicle).filter_by(plate_number=plate, company_id=cid)
-                if not (await session.execute(stmt_v)).first():
-                    v_type = v_types[i % len(v_types)]
-                    vehicle = Vehicle(
-                        company_id=cid,
-                        plate_number=plate,
-                        vehicle_type=v_type,
-                        current_mileage=50000 + (i * 3500),
-                        maintenance_status="Active"
-                    )
-                    session.add(vehicle)
+                admin = Driver(company_id=cid, username=f"admin_{i}", full_name=f"مدير {c_name}", password_hash=hashed_pw, is_admin=True, is_active=True, max_debt_limit=Decimal("50000.0"))
+                driver = Driver(company_id=cid, username=f"driver_{i}", full_name=f"مندوب {c_name}", password_hash=hashed_pw, is_admin=False, is_active=True, max_debt_limit=Decimal("2000.0"))
+                session.add_all([admin, driver])
+                await session.flush()
 
-            # 3. إضافة 20 منتج مع أصنافه (Variants)
-            products_list = [
-                ("بسكويت شاي", "وناسة", "بسكويت", "BIS-SH", 24, "12.0", "0.5"),
-                ("كيك رول فانيلا", "وناسة", "كيك", "CAK-ROL", 12, "6.0", "0.55"),
-                ("عصير برتقال", "وناسة", "مشروبات", "JUC-ORG", 24, "8.0", "0.35"),
-                ("شيبس بطاطس", "وناسة", "تسالي", "CHP-POT", 30, "15.0", "0.5"),
-                ("غزل البنات", "وناسة", "حلويات", "SND-CND", 20, "10.0", "0.5"),
-                ("ويفر شوكولاتة", "وناسة", "بسكويت", "WAF-CHO", 40, "20.0", "0.5"),
-                ("عصير تفاح 1 لتر", "وناسة", "مشروبات", "JUC-APL", 12, "12.0", "1.0"),
-                ("عصير مانجو", "وناسة", "مشروبات", "JUC-MNG", 24, "9.0", "0.40"),
-                ("مكسرات مشكلة", "وناسة", "تسالي", "NUTS-MIX", 15, "30.0", "2.0"),
-                ("فول سوداني محمص", "وناسة", "تسالي", "PEANUT", 24, "12.0", "0.5"),
-                ("شوكولاتة بالحليب", "وناسة", "حلويات", "CHO-MLK", 36, "18.0", "0.5"),
-                ("علكة نعناع", "وناسة", "حلويات", "GUM-MNT", 50, "10.0", "0.2"),
-                ("بسكويت بالتمر", "وناسة", "بسكويت", "BIS-DAT", 24, "14.0", "0.6"),
-                ("كيك شوكولاتة", "وناسة", "كيك", "CAK-CHO", 12, "7.0", "0.6"),
-                ("كرواسون فانيلا", "وناسة", "مخبوزات", "CRO-VAN", 20, "10.0", "0.5"),
-                ("مياه معدنية 500 مل", "وناسة", "مشروبات", "WAT-500", 24, "3.0", "0.15"),
-                ("مياه معدنية 1.5 لتر", "وناسة", "مشروبات", "WAT-1.5L", 12, "4.0", "0.35"),
-                ("شيبس حار نار", "وناسة", "تسالي", "CHP-HOT", 30, "15.0", "0.5"),
-                ("حلوى جلي فواكه", "وناسة", "حلويات", "JEL-CND", 40, "16.0", "0.4"),
-                ("مشروب طاقة", "وناسة", "مشروبات", "ENG-DRK", 24, "24.0", "1.0")
-            ]
+                prod = Product(company_id=cid, base_name=f"منتج أساسي {cid}")
+                session.add(prod)
+                await session.flush()
 
-            for idx, (b_name, brand, cat, sku_prefix, packs, p_carton, p_pack) in enumerate(products_list, 1):
-                stmt_parent = select(Product).filter_by(base_name=b_name, company_id=cid)
-                parent = (await session.execute(stmt_parent)).scalars().first()
-                if not parent:
-                    parent = Product(company_id=cid, base_name=b_name, brand=brand, category=cat)
-                    session.add(parent)
-                    await session.flush()
-                
-                sku = f"{sku_prefix}-{idx:03d}"
-                stmt_var = select(ProductVariant).filter_by(sku=sku, company_id=cid)
-                if not (await session.execute(stmt_var)).first():
-                    session.add(ProductVariant(
-                        company_id=cid,
-                        product_id=parent.id,
-                        base_uom_id=uom_id,
-                        variant_name=f"{b_name} - قياسي",
-                        sku=sku,
-                        packs_per_carton=packs,
-                        price_per_carton=Decimal(p_carton),
-                        price_per_pack=Decimal(p_pack)
-                    ))
+                var = ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, variant_name=f"صنف {cid}", sku=f"SKU-{cid}", packs_per_carton=24, price_per_carton=Decimal("24.0"), price_per_pack=Decimal("1.0"), is_active=True)
+                session.add(var)
+                await session.flush()
+
+                batch = ProductBatch(company_id=cid, product_variant_id=var.id, batch_number=f"B-{cid}-01", production_date=datetime.now(timezone.utc).date(), expiry_date=datetime.now(timezone.utc).date() + timedelta(days=365), is_active=True)
+                session.add(batch)
+                await session.flush()
+
+                session.add(InventoryBalance(company_id=cid, location_id=loc_main.id, product_variant_id=var.id, batch_id=batch.id, stock_status="AVAILABLE", on_hand_quantity=1000, reserved_quantity=0))
+                session.add(MainWarehouse(product_variant_id=var.id, available_quantity_packs=1000, reserved_quantity_packs=0, min_threshold_packs=10))
+
+                # فاتورة قديمة لاختبار Vector 12 (تعديل عكسي عابر للشركات)
+                session.add(WarehouseLedger(product_variant_id=var.id, quantity_packs=1000, balance_before_packs=0, balance_after_packs=1000, transaction_type="INBOUND_SUPPLIER", admin_id=admin.id, reference_id=f"TEST-INV-{cid}", notes="فاتورة تجريبية"))
+
+                # حقن مكثف لاختبارات التحميل
+                if inject_heavy:
+                    for v_idx in range(1, 21):
+                        session.add(Vehicle(company_id=cid, plate_number=f"{cid}-{v_idx:04d}", vehicle_type="باص", current_mileage=10000, maintenance_status="Active"))
+                    for d_idx in range(1, 21):
+                        session.add(Driver(company_id=cid, username=f"drv_{cid}_{d_idx}", full_name=f"مندوب {d_idx}", password_hash=hashed_pw, is_admin=False, is_active=True, max_debt_limit=Decimal("1000.0")))
+                    for p_idx in range(1, 21):
+                        session.add(ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, variant_name=f"صنف إضافي {p_idx}", sku=f"SKU-{cid}-{p_idx}", packs_per_carton=12, price_per_carton=Decimal("10.0"), price_per_pack=Decimal("1.0"), is_active=True))
 
             await session.commit()
-            print("✅  Successfully injected 20 Drivers, 20 Vehicles, and 20 Products/Variants!")
+            print(f"SEED OK: {num_companies} companies seeded." + (" (Heavy Injection)" if inject_heavy else ""))
         except Exception as e:
             await session.rollback()
-            print(f"❌  Injection Error: {str(e)}")
+            print(f"SEED ERROR: {e}")
+            sys.exit(1)
 
 # ====================================================================
-# 4. Kill Product (إعدام منتج)
+# 3. التشغيل (CLI)
 # ====================================================================
-async def kill_product():
-    sku = input("🔫  Enter product SKU to KILL (e.g. CHP-FAM-1): ").strip()
-    if not sku: return
-    
-    async with AsyncSessionLocal() as session:
-        try:
-            stmt = select(ProductVariant).filter_by(sku=sku)
-            variant = (await session.execute(stmt)).scalars().first()
-            if variant:
-                parent_id = variant.product_id
-                await session.execute(delete(ProductVariant).where(ProductVariant.id == variant.id))
-                
-                stmt_check = select(ProductVariant).filter_by(product_id=parent_id)
-                if not (await session.execute(stmt_check)).first():
-                    await session.execute(delete(Product).where(Product.id == parent_id))
-                    print("💥  Parent product family also destroyed as it became empty!")
-                
-                await session.commit()
-                print(f"🎯  Variant ({variant.variant_name}) Killed successfully!")
-            else:
-                print("⚠️  SKU not found!")
-        except IntegrityError as e:
-            # +++ الدرع الفولاذي: التقاط خطأ القيود الخارجية (Foreign Key Constraint) +++
-            await session.rollback()
-            print(f"❌  Kill Error: لا يمكن حذف هذا المنتج لأنه مرتبط بحركات مبيعات أو جرد سابقة. (اجعله is_active=False بدلاً من حذفه).")
-        except Exception as e:
-            await session.rollback()
-            print(f"❌  Kill Error: {str(e)}")
-
-# ====================================================================
-# 5. Reset EXCEPT Logins, Vehicles, Products (مسح شامل مع الإبقاء على الأساسيات)
-# ====================================================================
-async def reset_except_essentials():
-    print("\n⚠️  Deleting everything EXCEPT Logins, Vehicles, and Products...")
-    async with AsyncSessionLocal() as session:
-        try:
-            # مسح العمليات
-            await session.execute(delete(WorkBreakLog))
-            await session.execute(delete(VisitItem))
-            await session.execute(delete(VisitReturn))
-            await session.execute(delete(Visit))
-            await session.execute(delete(ShortageRequest))
-            await session.execute(delete(InventoryTransfer))
-            await session.execute(delete(InventoryLedger))
-            await session.execute(delete(SessionInventory))
-            await session.execute(delete(VehicleLoad))
-            await session.execute(delete(DispatchRoute))
-            await session.execute(delete(WorkSession))
-            await session.execute(delete(WarehouseLedger))
-            await session.execute(delete(DamagedItemLog))
-            await session.execute(delete(SystemAuditLog))
-            await session.execute(delete(ImportLog))
-            await session.execute(delete(MainWarehouse))
-            
-            # مسح الإعدادات الجغرافية والمحلات
-            await session.execute(delete(Shop))
-            await session.execute(delete(OfferRule))
-            await session.execute(delete(Zone))
-            await session.execute(delete(Governorate))
-            await session.execute(delete(Country))
-            
-            await session.commit()
-            print("✅  Done! Only Drivers, Vehicles, and Products remain.")
-        except Exception as e:
-            await session.rollback()
-            print(f"❌  Error: {e}")
-
-# ====================================================================
-# 6. Reset EXCEPT Logins ONLY (مسح كامل وإبقاء المشرف والمندوب فقط)
-# ====================================================================
-async def reset_except_logins():
-    print("\n⚠️  Deleting EVERYTHING except Driver/Admin Logins...")
-    async with AsyncSessionLocal() as session:
-        try:
-            # مسح العمليات
-            await session.execute(delete(WorkBreakLog))
-            await session.execute(delete(VisitItem))
-            await session.execute(delete(VisitReturn))
-            await session.execute(delete(Visit))
-            await session.execute(delete(ShortageRequest))
-            await session.execute(delete(InventoryTransfer))
-            await session.execute(delete(InventoryLedger))
-            await session.execute(delete(SessionInventory))
-            await session.execute(delete(VehicleLoad))
-            await session.execute(delete(DispatchRoute))
-            await session.execute(delete(WorkSession))
-            await session.execute(delete(WarehouseLedger))
-            await session.execute(delete(DamagedItemLog))
-            await session.execute(delete(SystemAuditLog))
-            await session.execute(delete(ImportLog))
-            await session.execute(delete(MainWarehouse))
-            
-            # مسح الإعدادات الجغرافية والمحلات
-            await session.execute(delete(Shop))
-            await session.execute(delete(OfferRule))
-            await session.execute(delete(Zone))
-            await session.execute(delete(Governorate))
-            await session.execute(delete(Country))
-            
-            # +++ مسح المنتجات والسيارات +++
-            await session.execute(delete(ProductVariant))
-            await session.execute(delete(Product))
-            await session.execute(delete(Vehicle))
-            
-            await session.commit()
-            print("✅  Done! Database is completely empty except for Logins and System Settings.")
-        except Exception as e:
-            await session.rollback()
-            print(f"❌  Error: {e}")
-
-# ====================================================================
-# القائمة الرئيسية (The CLI Menu)
-# ====================================================================
-async def main():
-    while True:
-        print("\n" + "="*60)
-        print("🛠️  Wanasah DB Manager (FastAPI) 🛠️")
-        print("="*60)
-        print("1. Clean Operations Only (Keep Shops, Products, Vehicles)")
-        print("2. FULL RESET & Seed Basic Data (Wipes EVERYTHING!)")
-        print("3. Inject Extra Products & Test Driver")
-        print("4. Kill Specific Product (by SKU)")
-        print("5. Reset EXCEPT Logins, Vehicles, & Products")
-        print("6. Reset EXCEPT Logins ONLY (Bare Minimum)")
-        print("7. Exit")
-        
-        choice = input("\n👉 Select an option (1-7): ").strip()
-        
-        if choice == '1':
-            confirm = input("⚠️  Are you sure? Type YES to confirm: ").strip().upper()
-            if confirm == 'YES': await clean_operations()
-            else: print("❌  Operation Cancelled.")
-        elif choice == '2':
-            confirm = input("🛑 DANGER: This will wipe the ENTIRE DB! Type YES to confirm: ").strip().upper()
-            if confirm == 'YES': await reset_and_seed_db()
-            else: print("❌  Operation Cancelled.")
-        elif choice == '3':
-            await inject_extras()
-        elif choice == '4':
-            await kill_product()
-        elif choice == '5':
-            confirm = input("⚠️  Delete all shops and operations? Type YES to confirm: ").strip().upper()
-            if confirm == 'YES': await reset_except_essentials()
-            else: print("❌  Operation Cancelled.")
-        elif choice == '6':
-            confirm = input("🛑 DANGER: Keep ONLY Logins? Type YES to confirm: ").strip().upper()
-            if confirm == 'YES': await reset_except_logins()
-            else: print("❌  Operation Cancelled.")
-        elif choice == '7':
-            print("👋  Goodbye!")
-            break
-        else:
-            print("❌  Invalid option, try again.")
+async def main_reset(num_companies: int, heavy: bool):
+    await rebuild_schema()
+    await mass_seed(num_companies=num_companies, inject_heavy=heavy)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    is_mass = "--mass" in sys.argv
+    if "--reset" in sys.argv:
+        asyncio.run(main_reset(num_companies=10 if is_mass else 2, heavy=is_mass))
+    else:
+        print("Usage: python db_manager.py --reset [--mass]")
+        print("  --reset : Drop schema, rebuild from Models, apply RLS + Grants, seed 2 companies")
+        print("  --mass  : Seed 10 companies + heavy injection (20 drivers/vehicles/products per company)")

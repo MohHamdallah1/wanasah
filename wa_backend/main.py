@@ -7,7 +7,7 @@ import traceback
 import ipaddress
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
-
+from api import platform
 import jwt
 from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import HTTPException, RequestValidationError
@@ -17,24 +17,20 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
-
 # Step 5.2: Sentry error tracking
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-
 # S-02: Rate limiting
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-
 # +++ استيراد المكونات الداخلية للنظام +++
-from api import auth, driver, dispatch, warehouse
+from api import auth, driver, dispatch, warehouse, reconciliation
 from config import Config
 from database import engine, get_db
 from ws_manager import dispatch_manager
-
 
 # ═══ S-01: Hardened IP extraction (trusted proxy CIDRs) ═══
 TRUSTED_PROXY_CIDRS = [
@@ -130,6 +126,8 @@ app = FastAPI(
     openapi_url="/openapi.json" if ENABLE_API_DOCS else None,
     lifespan=lifespan
 )
+app.include_router(reconciliation.router, tags=["Reconciliation"])
+app.include_router(platform.router)
 
 # S-04: Restrictive CORS configuration
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com")
@@ -153,6 +151,9 @@ if ENV == "production" and not ALLOWED_ORIGINS:
 # S-02: Global rate limiter (1000 req/min default per IP)
 # +++ رفع السقف هندسياً لمنع تداخل اختبارات الضغط (180 طلب) مع اختبارات المصادقة اللاحقة +++
 limiter = Limiter(key_func=get_real_ip, default_limits=["1000/minute"])
+# +++ TEMPORARY (Stage 9 Testing): rate limiter disabled for isolation/load testing +++
+#احذف السطر بس تخلص الاختبار
+limiter.enabled = False
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     status_code=429,

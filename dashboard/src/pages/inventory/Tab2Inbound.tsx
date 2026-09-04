@@ -8,11 +8,12 @@ import { Modal } from "@/components/ui/modal"; // +++ الكي الجراحي: �
 
 interface Props {
   products: WarehouseProduct[];
+  locationId: number; // +++ استقبال معرف المستودع لحل ثغرة P0-1 +++
   authenticatedFetch: (url: string, opts?: RequestInit) => Promise<any>;
   onSuccess: () => void;
 }
 
-export function Tab2Inbound({ products, authenticatedFetch, onSuccess }: Props) {
+export function Tab2Inbound({ products, locationId, authenticatedFetch, onSuccess }: Props) {
   const [quantities, setQuantities] = useState<Record<string, { cartons: number; loose_packs: number }>>(() => {
     const saved = localStorage.getItem("inbound_draft_quantities");
     return saved ? JSON.parse(saved) : {};
@@ -86,7 +87,8 @@ export function Tab2Inbound({ products, authenticatedFetch, onSuccess }: Props) 
     try {
       const data = await authenticatedFetch("/warehouse/inbound", {
         method: "POST",
-        body: JSON.stringify({ items: itemsToSubmit, reference_id: referenceId.trim(), notes }),
+        // +++ الكي الجراحي: إرسال location_id للباك إند لمنع الـ 422 (P0-1 Fixed) +++
+        body: JSON.stringify({ location_id: locationId, items: itemsToSubmit, reference_id: referenceId.trim(), notes }),
       });
 
       toast.success(data?.message || "تم استلام البضاعة وتوثيقها بنجاح ✅");

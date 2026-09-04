@@ -121,18 +121,19 @@ class UserRole(Base):
     role_id    = Column(Integer, nullable=False, index=True)
 
 class UserLocationAccess(Base):
-    """من يرى أو ينقل من أي مستودع بدقة[cite: 9]"""
+    """من يرى أو ينقل من أي مستودع بدقة"""
     __tablename__ = 'user_location_access'
     __table_args__ = (
         UniqueConstraint('company_id', 'driver_id', 'location_id', 'role_id', name='uq_user_loc_access_tenant'),
         ForeignKeyConstraint(['company_id', 'driver_id'], ['drivers.company_id', 'drivers.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['company_id', 'role_id'], ['roles.company_id', 'roles.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['company_id', 'location_id'], ['inventory_locations.company_id', 'inventory_locations.id'], ondelete='CASCADE'),
     )
     id          = Column(Integer, primary_key=True)
     company_id  = Column(Integer, nullable=False, index=True)
     driver_id   = Column(Integer, nullable=False, index=True)
     location_id = Column(Integer, nullable=False, index=True)
-    role_id     = Column(Integer, nullable=False, index=True) # +++ فهرس لتسريع الـ Cascade Delete +++
+    role_id     = Column(Integer, nullable=False, index=True)
 
 
 # =================================================================================
@@ -302,6 +303,8 @@ class Vehicle(Base):
     is_active          = Column(Boolean,    nullable=False, default=True)
 
 
+# =================================================================================
+# ⑥ جلسات العمل (المحرك الموحد: العهدة أصبحت تدار عبر InventoryBalance لموقع السيارة)
 class VehicleLoad(Base):
     """
     مسودة الحمولة التي يجهزها أمين المستودع ليلاً.
@@ -320,22 +323,19 @@ class VehicleLoad(Base):
 
     product_variant = relationship('ProductVariant', lazy='raise')
 
-
-# =================================================================================
-# ⑥ جلسات العمل والعهدة
 # =================================================================================
 class WorkSession(Base):
     __tablename__ = 'work_sessions'
     __table_args__ = (
         Index('ix_ws_driver_unsettled', 'driver_id', 'is_settled', 'end_time'),
-        UniqueConstraint('company_id', 'id', name='uq_work_sessions_company_id'), # +++ Parent Guard +++
+        Index('uq_active_session_per_driver', 'company_id', 'driver_id', unique=True, postgresql_where=text("end_time IS NULL")),
+        UniqueConstraint('company_id', 'id', name='uq_work_sessions_company_id'),
     )
     id           = Column(Integer, primary_key=True)
     company_id   = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     driver_id    = Column(Integer, ForeignKey('drivers.id'), nullable=False, index=True)
-    start_time   = Column(DateTime, nullable=False, default=utc_now)           # FIX ①
+    start_time   = Column(DateTime, nullable=False, default=utc_now)
     end_time     = Column(DateTime, nullable=True,  index=True)
-    # +++  (Issue 3): توحيد الزمن (Naive UTC) لنسف تعارضات قاعدة البيانات +++
     session_date = Column(Date,     nullable=False, default=lambda: utc_now().date(), index=True)
     start_latitude  = Column(Numeric(10, 7), nullable=True)
     start_longitude = Column(Numeric(10, 7), nullable=True)
@@ -345,8 +345,7 @@ class WorkSession(Base):
     break_end_time        = Column(DateTime, nullable=True)
     is_settled            = Column(Boolean,  nullable=False, default=False, index=True)
 
-    driver    = relationship('Driver', backref=backref('work_sessions', lazy='raise'))
-    inventory = relationship('SessionInventory', backref='work_session', lazy='raise', cascade='all, delete-orphan')
+    driver = relationship('Driver', backref=backref('work_sessions', lazy='raise'))
 
 
 class SessionInventory(Base):
@@ -369,7 +368,6 @@ class SessionInventory(Base):
     current_remaining_quantity = Column(Integer, CheckConstraint('current_remaining_quantity >= 0', name='chk_positive_inventory'), nullable=False, default=0)
 
     product_variant = relationship('ProductVariant', lazy='raise')
-
 
 # =================================================================================
 # ⑦ المحلات
@@ -606,6 +604,13 @@ class ImportLog(Base):
 # ⑬ سجل حركات المخزون (Inventory Ledger) - دفتر الأستاذ
 # السجل المالي غير القابل للمسح
 # =================================================================================
+# (تمت إزالة InventoryLedger: استُبدل بدفتر الأستاذ الموحد InventoryMovement)
+
+
+# =================================================================================
+# ⑬ سجل حركات المخزون (Inventory Ledger) - دفتر الأستاذ
+# السجل المالي غير القابل للمسح
+# =================================================================================
 class InventoryLedger(Base):
     """
     يوثق العجز والزيادة وأي تسوية على سيارة المندوب.
@@ -635,7 +640,6 @@ class InventoryLedger(Base):
     product_variant = relationship('ProductVariant', lazy='raise')
     driver          = relationship('Driver', foreign_keys=[driver_id], lazy='raise')
     admin           = relationship('Driver', foreign_keys=[admin_id], lazy='raise')
-
 
 # =================================================================================
 # ⑭ سجل النظام الشامل (System Audit Log)
@@ -676,27 +680,7 @@ class WorkBreakLog(Base):
 # ⑯ الحوالات المعلقة (المصافحة - Handshake)
 # عنق الزجاجة الذي يمنع دخول أي بضاعة للعهدة إلا بموافقة المندوب
 # =================================================================================
-class InventoryTransfer(Base):
-    __tablename__ = 'inventory_transfers'
-    __table_args__ = (
-        Index('uq_pending_transfer', 'company_id', 'work_session_id', 'product_variant_id', unique=True, postgresql_where=text("status = 'pending'")),
-    )
-    id                 = Column(Integer, primary_key=True)
-    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
-    work_session_id    = Column(Integer, ForeignKey('work_sessions.id',    ondelete='RESTRICT'), nullable=False)
-    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
-
-    quantity_packs = Column(Integer,    nullable=False)  # موجب للزيادة، سالب للسحب
-    status         = Column(String(20), nullable=False, default='pending')  # pending | accepted | rejected
-
-    admin_id   = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=utc_now)
-    notes = Column(String(255), nullable=True)
-
-    product_variant = relationship('ProductVariant', lazy='raise')
-    work_session    = relationship('WorkSession',
-                                      backref=backref('transfers', lazy='raise',
-                                                         cascade='all, delete-orphan'))
+# (تمت إزالة InventoryTransfer و MainWarehouse: استُبدلا بـ InventoryTransferHeader/Line و InventoryBalance)
 
 
 # =================================================================================
@@ -721,6 +705,31 @@ class MainWarehouse(Base):
 
     product_variant = relationship('ProductVariant', lazy='raise')
 
+# =================================================================================
+# ⑯ الحوالات المعلقة (المصافحة - Handshake)
+# عنق الزجاجة الذي يمنع دخول أي بضاعة للعهدة إلا بموافقة المندوب
+# =================================================================================
+class InventoryTransfer(Base):
+    __tablename__ = 'inventory_transfers'
+    __table_args__ = (
+        Index('uq_pending_transfer', 'company_id', 'work_session_id', 'product_variant_id', unique=True, postgresql_where=text("status = 'pending'")),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    work_session_id    = Column(Integer, ForeignKey('work_sessions.id',    ondelete='RESTRICT'), nullable=False)
+    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+
+    quantity_packs = Column(Integer,    nullable=False)  # موجب للزيادة، سالب للسحب
+    status         = Column(String(20), nullable=False, default='pending')  # pending | accepted | rejected
+
+    admin_id   = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    notes = Column(String(255), nullable=True)
+
+    product_variant = relationship('ProductVariant', lazy='raise')
+    work_session    = relationship('WorkSession',
+                                      backref=backref('transfers', lazy='raise',
+                                                         cascade='all, delete-orphan'))
 
 # =================================================================================
 # ⑱ مقبرة التوالف (Damaged Goods Log)
@@ -748,6 +757,12 @@ class DamagedItemLog(Base):
     admin = relationship('Driver', foreign_keys=[receiving_admin_id], lazy='raise')
     visit = relationship('Visit', lazy='raise')
 
+
+# =================================================================================
+# ⑲ دفتر أستاذ المستودع (Warehouse Ledger)
+# السجل المالي للبضاعة - لا يمكن مسحه أو تعديله. يوثق الموردين وحركات التحميل.
+# =================================================================================
+# (تمت إزالة WarehouseLedger: استُبدل بدفتر الأستاذ الموحد للحركات InventoryMovement)
 
 # =================================================================================
 # ⑲ دفتر أستاذ المستودع (Warehouse Ledger)
@@ -812,3 +827,223 @@ class RefreshToken(Base):
     is_revoked = Column(Boolean, nullable=False, default=False)
     
     driver = relationship('Driver', lazy='raise')
+
+
+# =================================================================================
+# [المرحلة الثالثة والرابعة] المحرك الموحد للمخزون ودورة حياة الصلاحية (Batches)
+# =================================================================================
+class ProductBatch(Base):
+    """جدول الدفعات (لإدارة تواريخ الإنتاج والصلاحية ونظام FEFO)"""
+    __tablename__ = 'product_batches'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'product_variant_id', 'batch_number', name='uq_product_batch_number'),
+        UniqueConstraint('company_id', 'id', name='uq_product_batches_company_id'), # +++ Parent Guard +++
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
+    batch_number       = Column(String(100), nullable=False, index=True)
+    production_date    = Column(Date, nullable=True)
+    expiry_date        = Column(Date, nullable=False, index=True) # إلزامي لنظام FEFO
+    is_active          = Column(Boolean, nullable=False, default=True)
+    created_at         = Column(DateTime, nullable=False, default=utc_now)
+
+class OverrideReason(Base):
+    """قائمة أسباب تجاوز نظام FEFO للمشرفين"""
+    __tablename__ = 'override_reasons'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'code', name='uq_override_reason_code'),
+    )
+    id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    code        = Column(String(50), nullable=False)
+    description = Column(String(255), nullable=False)
+    is_active   = Column(Boolean, nullable=False, default=True)
+    
+class InventoryLocation(Base):
+    """سجل المواقع: يوحد المستودعات، سيارات المناديب، ومناطق العبور"""
+    __tablename__ = 'inventory_locations'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'code', name='uq_inv_loc_company_code'),
+        UniqueConstraint('company_id', 'id', name='uq_inventory_locations_company_id'), # +++ Parent Guard +++
+        CheckConstraint("location_type IN ('WAREHOUSE', 'VEHICLE', 'IN_TRANSIT', 'SCRAP')", name='chk_inv_loc_type'),
+    )
+    id            = Column(Integer, primary_key=True)
+    company_id    = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    branch_id     = Column(Integer, ForeignKey('branches.id', ondelete='CASCADE'), nullable=True, index=True)
+    name          = Column(String(150), nullable=False)
+    code          = Column(String(50),  nullable=False)
+    location_type = Column(String(50),  nullable=False, index=True) 
+    driver_id     = Column(Integer, ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True, index=True)
+    vehicle_id    = Column(Integer, ForeignKey('vehicles.id', ondelete='SET NULL'), nullable=True, index=True) # +++ لربط الموقع بالسيارة الفعلية +++
+    is_active     = Column(Boolean, nullable=False, default=True)
+    created_at    = Column(DateTime, nullable=False, default=utc_now)
+
+class InventoryBalance(Base):
+    """مصدر الحقيقة الوحيد للأرصدة في المحرك الموحد"""
+    __tablename__ = 'inventory_balances'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'location_id', 'product_variant_id', 'batch_id', 'stock_status', name='uq_inv_balance_core'),
+        UniqueConstraint('company_id', 'id', name='uq_inventory_balances_company_id'),
+        ForeignKeyConstraint(['company_id', 'location_id'], ['inventory_locations.company_id', 'inventory_locations.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'], ondelete='RESTRICT'),
+        ForeignKeyConstraint(['company_id', 'batch_id'], ['product_batches.company_id', 'product_batches.id'], ondelete='RESTRICT'),
+        CheckConstraint("stock_status IN ('AVAILABLE', 'RESERVED', 'DAMAGED')", name='chk_inv_bal_status'),
+        Index('ix_inv_balance_search', 'company_id', 'location_id', 'product_variant_id', 'stock_status'),
+        Index('ix_inv_balance_fefo', 'company_id', 'product_variant_id', 'batch_id'),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    location_id        = Column(Integer, nullable=False, index=True)
+    product_variant_id = Column(Integer, nullable=False, index=True)
+    batch_id           = Column(Integer, nullable=False, index=True)
+    stock_status       = Column(String(50), nullable=False, default='AVAILABLE') 
+    
+    # +++ فصل الأرصدة لدعم الحوالات المعلقة (IN_TRANSIT) بناءً على خطتك +++
+    on_hand_quantity   = Column(Integer, CheckConstraint('on_hand_quantity >= 0', name='chk_inv_bal_onhand_qty'), nullable=False, default=0)
+    reserved_quantity  = Column(Integer, CheckConstraint('reserved_quantity >= 0', name='chk_inv_bal_res_qty'), nullable=False, default=0)
+    
+    last_updated       = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+class InventoryMovement(Base):
+    """دفتر الأستاذ للحركات: يوثق كل إبرة تتحرك داخل النظام لمنع التلاعب المحاسبي"""
+    __tablename__ = 'inventory_movements'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'idempotency_key', name='uq_inv_movement_idempotency'),
+        UniqueConstraint('company_id', 'id', name='uq_inventory_movements_company_id'), # +++ Parent Guard +++
+        Index('ix_inv_movement_locations', 'company_id', 'source_location_id', 'destination_location_id'),
+    )
+    id                      = Column(Integer, primary_key=True)
+    company_id              = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    performed_by            = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+    source_location_id      = Column(Integer, ForeignKey('inventory_locations.id', ondelete='RESTRICT'), nullable=True, index=True)
+    destination_location_id = Column(Integer, ForeignKey('inventory_locations.id', ondelete='RESTRICT'), nullable=True, index=True)
+    product_variant_id      = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False, index=True)
+    batch_id                = Column(Integer, ForeignKey('product_batches.id', ondelete='RESTRICT'), nullable=True, index=True)
+    quantity                = Column(Integer, CheckConstraint('quantity > 0', name='chk_inv_movement_qty_positive'), nullable=False)
+    reference_type          = Column(String(50), nullable=False, index=True) 
+    reference_id            = Column(String(100), nullable=False, index=True)
+    idempotency_key         = Column(String(100), nullable=False)
+    notes                   = Column(Text, nullable=True)
+    created_at              = Column(DateTime, nullable=False, default=utc_now)
+
+
+# =================================================================================
+# [المرحلة الخامسة] هيكلة الحوالات الصارمة (Header & Line Architecture)
+# =================================================================================
+class InventoryTransferHeader(Base):
+    """رأس الحوالة: يتحكم بحالة النقل بين المستودعات والسيارات"""
+    __tablename__ = 'inventory_transfer_headers'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'reference_number', name='uq_transfer_header_ref'),
+        UniqueConstraint('company_id', 'id', name='uq_transfer_headers_company_id'),
+        # +++ عقد دورة الحياة الصارمة: فرض الحالات المسموحة على مستوى محرك قاعدة البيانات +++
+        CheckConstraint("status IN ('DRAFT', 'PENDING', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')", name='chk_transfer_header_status'),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    reference_number   = Column(String(100), nullable=False, index=True)
+    source_location_id = Column(Integer, ForeignKey('inventory_locations.id', ondelete='RESTRICT'), nullable=False, index=True)
+    destination_location_id = Column(Integer, ForeignKey('inventory_locations.id', ondelete='RESTRICT'), nullable=False, index=True)
+    
+    # +++ دورة الحياة الصارمة (خطتك الشاملة): DRAFT, PENDING, ACCEPTED, REJECTED, POSTED, CANCELLED +++
+    status             = Column(String(50), nullable=False, default='PENDING', index=True) 
+    
+    dispatched_by      = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+    received_by        = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True)
+    created_at         = Column(DateTime, nullable=False, default=utc_now)
+    updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+class InventoryTransferLine(Base):
+    """تفاصيل الحوالة: يمنع حشر الداتا ويوثق الدفعات المحولة"""
+    __tablename__ = 'inventory_transfer_lines'
+    __table_args__ = (
+        UniqueConstraint('transfer_header_id', 'product_variant_id', 'batch_id', name='uq_transfer_line_item'),
+        UniqueConstraint('company_id', 'id', name='uq_inventory_transfer_lines_company_id'), # +++ Parent Guard +++
+        # +++ Cross-Tenant FK Guard: خط الحوالة لا يمكن أن يتبع رأس حوالة لشركة أخرى +++
+        ForeignKeyConstraint(['company_id', 'transfer_header_id'],
+                             ['inventory_transfer_headers.company_id', 'inventory_transfer_headers.id'],
+                             ondelete='CASCADE', name='fk_transfer_lines_tenant_header'),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, nullable=False, index=True) # +++ زرع الهوية (بند الخطة: كل الجداول) +++
+    transfer_header_id = Column(Integer, nullable=False, index=True) # الربط المرجعي يتم عبر الـ FK المركب أعلاه (fk_transfer_lines_tenant_header)
+    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+    batch_id           = Column(Integer, ForeignKey('product_batches.id', ondelete='RESTRICT'), nullable=True)
+    quantity           = Column(Integer, CheckConstraint('quantity > 0', name='chk_transfer_line_qty'), nullable=False)
+
+
+# =================================================================================
+# [المرحلة السادسة] محرك الجرد القانوني (Stocktake Engine)
+# =================================================================================
+class StocktakeSession(Base):
+    """جلسة الجرد: توثق من بدأ، من جرد، ومن اعتمد (مسؤوليات الجرد)"""
+    __tablename__ = 'stocktake_sessions'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'reference_number', name='uq_stocktake_session_ref'),
+        UniqueConstraint('company_id', 'id', name='uq_stocktake_sessions_company_id'), # +++ Parent Guard +++
+        CheckConstraint("status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED', 'POSTED', 'CANCELLED')", name='chk_stocktake_status'),
+        CheckConstraint("stocktake_type IN ('FULL_COUNT', 'CYCLE_COUNT', 'VEHICLE_RECON')", name='chk_stocktake_type'),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    location_id        = Column(Integer, ForeignKey('inventory_locations.id', ondelete='RESTRICT'), nullable=False, index=True)
+    reference_number   = Column(String(100), nullable=False, index=True)
+    stocktake_type     = Column(String(50), nullable=False)
+    status             = Column(String(50), nullable=False, default='DRAFT', index=True) 
+    
+    # +++ مسؤوليات الجرد الصارمة +++
+    started_by         = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+    counted_by         = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True)
+    approved_by        = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=True)
+    
+    notes              = Column(Text, nullable=True)
+    created_at         = Column(DateTime, nullable=False, default=utc_now)
+    updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+class StocktakeLine(Base):
+    """تفاصيل الجرد: Snapshot للرصيد المتوقع (Blind Count) والفعلي المجرود"""
+    __tablename__ = 'stocktake_lines'
+    __table_args__ = (
+        UniqueConstraint('stocktake_session_id', 'product_variant_id', 'batch_id', name='uq_stocktake_line_item'),
+        UniqueConstraint('company_id', 'id', name='uq_stocktake_lines_company_id'),
+        ForeignKeyConstraint(['company_id', 'stocktake_session_id'],
+                             ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
+                             ondelete='CASCADE', name='fk_stocktake_lines_tenant_session'),
+        # +++ الدرع الرياضي: فرض دقة الفروقات على مستوى الداتابيز +++
+        CheckConstraint('variance_quantity = actual_quantity - expected_quantity', name='chk_st_line_variance'),
+    )
+    id                   = Column(Integer, primary_key=True)
+    company_id           = Column(Integer, nullable=False, index=True)
+    stocktake_session_id = Column(Integer, nullable=False, index=True)
+    product_variant_id   = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+    batch_id             = Column(Integer, ForeignKey('product_batches.id', ondelete='RESTRICT'), nullable=True)
+    
+    expected_quantity    = Column(Integer, CheckConstraint('expected_quantity >= 0', name='chk_st_line_exp_qty'), nullable=False)
+    actual_quantity      = Column(Integer, CheckConstraint('actual_quantity >= 0', name='chk_st_line_act_qty'), nullable=True) 
+    variance_quantity    = Column(Integer, nullable=True) 
+    notes                = Column(Text, nullable=True)
+
+class InventoryLock(Base):
+    """الأقفال الجراحية: تمنع الحركات على رف/صنف/دفعة محددة دون شل باقي المستودع"""
+    __tablename__ = 'inventory_locks'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_inventory_locks_company_id'),
+        ForeignKeyConstraint(['company_id', 'stocktake_session_id'],
+                             ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
+                             ondelete='CASCADE', name='fk_inv_lock_tenant_session'),
+        # +++ فهرس جزئي لتسريع فحص الأقفال الفعالة فقط (P2-3) +++
+        Index('ix_active_inv_lock', 'company_id', 'location_id', postgresql_where=text("released_at IS NULL")),
+    )
+    id                   = Column(Integer, primary_key=True)
+    company_id           = Column(Integer, nullable=False, index=True)
+    stocktake_session_id = Column(Integer, nullable=False, index=True)
+    location_id          = Column(Integer, ForeignKey('inventory_locations.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # +++ للـ Cycle Count: يمكن قفل صنف أو دفعة معينة فقط. إذا كانا Null، يقفل الموقع بالكامل (FULL_COUNT) +++
+    product_variant_id   = Column(Integer, ForeignKey('product_variants.id', ondelete='CASCADE'), nullable=True)
+    batch_id             = Column(Integer, ForeignKey('product_batches.id', ondelete='CASCADE'), nullable=True)
+    
+    created_by           = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+    created_at           = Column(DateTime, nullable=False, default=utc_now)
+    released_at          = Column(DateTime, nullable=True) # Null تعني القفل فعال

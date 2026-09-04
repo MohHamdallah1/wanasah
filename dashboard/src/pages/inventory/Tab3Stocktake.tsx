@@ -8,6 +8,7 @@ import { toTotalPacks, formatQty } from "./inventoryUtils";
 
 interface Props {
   products: WarehouseProduct[];
+  locationId: number; // +++ P1 Fixed +++
   isAuditLocked: boolean;
   authenticatedFetch: (url: string, opts?: RequestInit) => Promise<any>;
   onLockChange: (locked: boolean) => void;
@@ -15,7 +16,7 @@ interface Props {
 
 const DRAFT_KEY = "wanasah_audit_draft";
 
-export function Tab3Stocktake({ products, isAuditLocked, authenticatedFetch, onLockChange }: Props) {
+export function Tab3Stocktake({ products, locationId, isAuditLocked, authenticatedFetch, onLockChange }: Props) {
   const [showLockModal, setShowLockModal] = useState(false);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false); 
@@ -70,11 +71,22 @@ export function Tab3Stocktake({ products, isAuditLocked, authenticatedFetch, onL
     const newStatus = isAuditLocked ? "ACTIVE" : "AUDIT_LOCK";
     setLocking(true);
     try {
-      const data = await authenticatedFetch("/warehouse/lock", {
-        method: "PUT",
-        body: JSON.stringify({ status: newStatus }),
-      });
-      toast.success(data?.message || "تم تغيير حالة المستودع");
+      if (newStatus === "AUDIT_LOCK") {
+        // +++ توجيه الجرد للمحرك الموحد (P0-1 Fixed): بدء جلسة جرد شاملة +++
+        const data = await authenticatedFetch("/warehouse/unified/stocktake/start", {
+          method: "POST",
+          body: JSON.stringify({ location_id: locationId, stocktake_type: "FULL_COUNT", notes: "بدء جرد مركزي" }),
+        });
+        localStorage.setItem("unified_session_id", data.session_id.toString());
+      } else {
+        // +++ إلغاء جلسة الجرد המوحدة وفك الأقفال الجراحية +++
+        const sid = localStorage.getItem("unified_session_id");
+        if (sid) {
+          await authenticatedFetch(`/warehouse/unified/stocktake/${sid}/cancel`, { method: "POST" });
+          localStorage.removeItem("unified_session_id");
+        }
+      }
+      toast.success(newStatus === "AUDIT_LOCK" ? "تم بدء الجرد وأخذ لقطة المخزون" : "تم إلغاء الجرد وفتح المستودع");
       onLockChange(newStatus === "AUDIT_LOCK");
       if (newStatus === "ACTIVE") localStorage.removeItem(DRAFT_KEY);
     } catch (e: any) {
@@ -123,21 +135,36 @@ export function Tab3Stocktake({ products, isAuditLocked, authenticatedFetch, onL
   }, []);
 
   const handleSubmit = async () => {
+    const sid = localStorage.getItem("unified_session_id");
+    if (!sid) {
+      toast.error("خطأ حرج: جلسة الجرد غير موجودة.");
+      return;
+    }
+
     const items = rows.map((r) => ({
       product_variant_id: r.product_variant_id,
-      actual_packs: toTotalPacks(r.actual_cartons, r.actual_loose_packs, r.packs_per_carton),
+      actual_quantity: toTotalPacks(r.actual_cartons, r.actual_loose_packs, r.packs_per_carton),
     }));
+    
     setSubmitting(true);
     try {
-      const data = await authenticatedFetch("/warehouse/stocktake", {
+      // 1. إرسال العد الفعلي للمحرك الموحد
+      await authenticatedFetch(`/warehouse/unified/stocktake/${sid}/count`, {
         method: "POST",
         body: JSON.stringify({ items, notes }),
       });
+      
+      // 2. اعتماد الجرد مباشرة وترحيل الفروقات
+      const data = await authenticatedFetch(`/warehouse/unified/stocktake/${sid}/approve`, {
+        method: "POST"
+      });
+
       toast.success(data?.message || "تمت تسوية المستودع وفتحه للعمليات بنجاح");
       setNotes("");
       localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem("unified_session_id");
       onLockChange(false);
-      setShowSubmitModal(false); // +++ إغلاق نافذة الاعتماد +++
+      setShowSubmitModal(false);
     } catch (e: any) {
       toast.error(e.message || "فشل تسوية المستودع");
     } finally {

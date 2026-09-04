@@ -6,6 +6,7 @@ from config import Config
 from database import get_db, tenant_context
 from models import Driver, TokenBlacklist
 from sqlalchemy.future import select
+from sqlalchemy import text
 
 security = HTTPBearer()
 
@@ -47,6 +48,9 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
         except (ValueError, TypeError):
             raise HTTPException(status_code=401, detail="Token payload is invalid")
             
+        # +++ زرع هوية المستأجر مباشرة على الاتصال الحي المسحوب من الـ Pool قبل أي استعلام +++
+        await db.execute(text("SELECT set_config('app.current_tenant', :c, false)"), {"c": str(comp_id_int)})
+
         # +++ التحقق الصارم من أن المندوب ينتمي للشركة الموجودة في التوكن +++
         stmt_driver = select(Driver).filter_by(id=driver_id_int, company_id=comp_id_int)
         driver = (await db.execute(stmt_driver)).scalar_one_or_none()

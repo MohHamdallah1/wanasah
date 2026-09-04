@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator, BaseModel
 from pydantic.functional_validators import BeforeValidator
 from typing import Optional, List, Any, Literal, Annotated, Dict, Union
 from datetime import datetime, timezone, date
@@ -79,6 +79,8 @@ class LoginResponse(BaseModel):
     driver_id: int
     driver_name: str
     is_admin: bool
+    company_id: int # +++ زرع الهوية لحقنها في الموبايل والداشبورد +++
+    company_code: str # +++ إجبارية لبناء ملف الـ SQLite الفيزيائي +++
 
 # ==========================================
 # 3. دروع العمليات المشتركة والمنتجات الفرعية (Shared)
@@ -845,3 +847,53 @@ class AdjustWarehouseEntryRequest(BaseModel):
     password: str = Field(..., description="كلمة مرور المشرف للتأكيد")
     new_total_packs: int = Field(..., ge=0, description="الصافي الجديد المطلوب للكمية (بالحبات)")
     notes: Optional[str] = "تعديل خطأ إدخال"
+
+# =================================================================================
+# [المرحلة 3 و 4 و 5] Pydantic Schemas (المحرك الموحد ودعم الدفعات)
+# =================================================================================
+class InboundBatchItem(BaseModel):
+    product_variant_id: int
+    quantity_packs: int
+    batch_number: Optional[str] = None
+    production_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+
+class UpgradedInboundRequest(BaseModel):
+    location_id: int # +++ إضافة حقل الموقع لاختيار المستودع +++
+    reference_id: Optional[str] = None
+    notes: Optional[str] = None
+    items: List[InboundBatchItem]
+
+class UnifiedTransferItem(BaseModel):
+    product_variant_id: int
+    quantity: int
+    is_fefo_override: bool = False
+    override_batch_id: Optional[int] = None
+    override_reason_id: Optional[int] = None 
+
+class UnifiedDispatchRequest(BaseModel):
+    source_location_id: int
+    destination_location_id: int
+    items: List[UnifiedTransferItem]
+    notes: str = ""
+
+class UnifiedReceiveRequest(BaseModel):
+    transfer_header_id: int 
+    destination_location_id: int
+
+
+class UnifiedStocktakeStartRequest(BaseModel):
+    location_id: int
+    stocktake_type: Literal['FULL_COUNT', 'CYCLE_COUNT', 'VEHICLE_RECON']
+    product_variant_id: Optional[int] = None
+    batch_id: Optional[int] = None
+    notes: Optional[str] = None
+
+class StocktakeCountItem(BaseModel):
+    product_variant_id: int
+    batch_id: Optional[int] = None
+    actual_quantity: int = Field(..., ge=0) # +++ منع الكميات السالبة من الطبقة الأولى +++
+
+class UnifiedStocktakeCountRequest(BaseModel):
+    items: List[StocktakeCountItem]
+    notes: Optional[str] = None

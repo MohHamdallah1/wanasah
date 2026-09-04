@@ -1,8 +1,10 @@
+import os
+from config import Config
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.dialects.postgresql import insert
-from models import SystemSetting, OfferRule, Driver, Shop, WorkSession, SessionInventory, ProductVariant, InventoryLedger, MainWarehouse, WarehouseLedger
+from models import SystemSetting, OfferRule, Driver, Shop, WorkSession, SessionInventory, ProductVariant, InventoryLedger, MainWarehouse, WarehouseLedger, InventoryLock
 from typing import Any, Type, Optional, List, Dict, Tuple
 
 async def get_setting(db_session: AsyncSession, key: str, default_value: Any, value_type: Type = str) -> Any:
@@ -392,3 +394,74 @@ async def reverse_previous_visit_state(
     # إرجاع لحالة الانتظار
     visit.outcome = 'Pending'
     visit.status = 'Pending'
+
+# =================================================================================
+# [المرحلة الثالثة] البند 5: Isolation Middleware (درع البنية التحتية للـ SaaS)
+# =================================================================================
+
+def get_tenant_cache_key(company_id: int, base_key: str) -> str:
+    if not company_id:
+        raise ValueError("خطأ أمني: لا يمكن الوصول للكاش بدون company_id")
+    return f"tenant_{int(company_id)}:{base_key}"
+
+def get_tenant_storage_path(company_id: int, filename: str) -> str:
+    """
+    (Storage Isolation): يوجه الملفات لمسار آمن ومحصن ضد هجمات (Path Traversal).
+    ملاحظة: إنشاء المجلد (os.makedirs) يجب أن يتم في مسار الـ Upload النهائي (Async) وليس هنا لمنع خنق السيرفر.
+    """
+    try:
+        comp_id = int(company_id)
+    except (ValueError, TypeError):
+        raise ValueError("خطأ أمني: رمز الشركة غير صالح.")
+        
+    if not filename or not isinstance(filename, str):
+        raise ValueError("خطأ أمني: اسم الملف غير صالح.")
+
+    # الدرع الأول: سحق أي مسار خبيث (../ أو /absolute/) واستخراج اسم الملف النقي
+    safe_filename = os.path.basename(filename)
+    if not safe_filename or safe_filename == '.' or safe_filename == '..':
+        raise ValueError("خطأ أمني: محاولة اختراق مسار الملف.")
+    
+    base_path = getattr(Config, 'STORAGE_BASE_PATH', 'local_storage/')
+    tenant_folder = os.path.join(base_path, f"company_{comp_id}")
+    target_path = os.path.join(tenant_folder, safe_filename)
+    
+    # الدرع الثاني (Defense-in-Depth): التأكد النهائي أن المسار الناتج يقع حصراً داخل مجلد الشركة
+    if not os.path.abspath(target_path).startswith(os.path.abspath(tenant_folder) + os.sep):
+        raise ValueError("خطأ أمني: مسار الملف يقع خارج النطاق المسموح للشركة.")
+        
+    return target_path
+    
+def enforce_tenant_background_job(company_id: int, **kwargs) -> dict:
+    try:
+        comp_id = int(company_id)
+    except (ValueError, TypeError):
+        raise ValueError("خطأ أمني: لا يمكن إرسال مهمة خلفية بدون رمز شركة صالح.")
+    
+    kwargs['company_id'] = comp_id
+    return kwargs
+
+async def check_inventory_lock(db_session: AsyncSession, company_id: int, location_id: int, variant_id: Optional[int] = None, batch_id: Optional[int] = None):
+    """
+    (P0 Fixed): حارس الأقفال الجراحية المركزي.
+    يُسقط أي عملية (في النظام القديم أو الجديد) إذا كان الموقع/الصنف تحت الجرد.
+    """
+    stmt_full = select(InventoryLock.id).filter_by(
+        company_id=company_id, location_id=location_id, product_variant_id=None, released_at=None
+    )
+    if (await db_session.execute(stmt_full)).first():
+        raise ValueError(f"الموقع ({location_id}) تحت الجرد الشامل ومقفل بالكامل.")
+        
+    if variant_id:
+        from sqlalchemy import or_
+        stmt_partial = select(InventoryLock.id).filter(
+            InventoryLock.company_id == company_id,
+            InventoryLock.location_id == location_id,
+            InventoryLock.product_variant_id == variant_id,
+            InventoryLock.released_at.is_(None)
+        )
+        if batch_id:
+            stmt_partial = stmt_partial.filter(or_(InventoryLock.batch_id == batch_id, InventoryLock.batch_id.is_(None)))
+            
+        if (await db_session.execute(stmt_partial)).first():
+            raise ValueError(f"الصنف/الدفعة مقفل جراحياً بسبب جرد دوري نشط.")

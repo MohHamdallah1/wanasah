@@ -1,0 +1,15 @@
+{
+  "company_id": 1,
+  "source": {
+    "id": 1,
+    "code": "WH-MAIN-1"
+  },
+  "destination": {
+    "id": 2,
+    "code": "WH-SEC-1"
+  },
+  "state": {
+    "1:1": 1000
+  },
+  "deadlocks": 0
+}

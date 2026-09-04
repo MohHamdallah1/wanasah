@@ -36,13 +36,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       final String? token = await _storage.read(key: 'auth_token');
       final String? driverIdString = await _storage.read(key: 'driver_id');
+      final String? companyCode = await _storage.read(key: 'company_code'); // +++ جلب رمز الشركة +++
 
-      if (token != null && token.isNotEmpty && driverIdString != null) {
+      if (token != null && token.isNotEmpty && driverIdString != null && companyCode != null) {
         final int? driverId = int.tryParse(driverIdString);
 
         if (driverId != null) {
+          // +++ تفعيل العزل الفيزيائي فوراً بفتح قاعدة البيانات المخصصة للشركة المحفوظة +++
+          await LocalDatabase.instance.setTenant(companyCode);
+          
           developer.log(
-            '[AuthBloc] CheckAuth → Authenticated (driverId=$driverId)',
+            '[AuthBloc] CheckAuth → Authenticated (driverId=$driverId, Tenant=$companyCode)',
           );
           emit(AuthAuthenticated(driverId: driverId));
         } else {
@@ -72,7 +76,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // 1. الاتصال المباشر بالسيرفر عبر ApiClient الموحد
       final response = await ApiClient.instance.post(
         '/driver/login',
-        data: {'username': event.username, 'password': event.password},
+        data: {'company_code': event.companyCode, 'username': event.username, 'password': event.password}, // +++ إرسال رمز الشركة للسيرفر +++
       );
 
       // +++ الدرع النوعي الصارم (Type Safe Shield): فحص الهيكل الأساسي أولاً +++
@@ -105,13 +109,42 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
-      // +++ درع تعدد الحسابات: مندوب مختلف على نفس الجهاز = مسح شامل لبيانات سابقه +++
+      final String returnedCompanyCode = data['company_code']?.toString() ?? event.companyCode;
+
       final String? oldDriverId = await _storage.read(key: 'driver_id');
-      if (oldDriverId != null && oldDriverId.isNotEmpty && oldDriverId != driverId.toString()) {
-        developer.log('[AuthBloc] Login → Different driver ($oldDriverId → $driverId). Wiping legacy data.');
+      final String? oldCompanyCode = await _storage.read(key: 'company_code');
+
+      // +++ الدرع المالي (P1-2): منع التبديل لشركة أخرى إذا كانت الشركة الحالية تمتلك فواتير أوفلاين غير مرفوعة +++
+      if (oldCompanyCode != null && oldCompanyCode.isNotEmpty && oldCompanyCode != returnedCompanyCode) {
+        try {
+          // جلب المعلقات للشركة الحالية (قبل التبديل للجديدة)
+          final pending = await LocalDatabase.instance.getPendingSyncs();
+          final activePending = pending.where((p) => !p['type'].toString().startsWith('quarantined_')).toList();
+          if (activePending.isNotEmpty) {
+             developer.log('[AuthBloc] Login → Aborted: Active pending syncs found for old company ($oldCompanyCode).');
+             emit(AuthError(message: 'مرفوض مالياً: يرجى استكمال مزامنة فواتير الأوفلاين للشركة السابقة قبل التبديل لشركة أخرى لحماية مبيعاتك.'));
+             return;
+          }
+        } catch (e) {
+          developer.log('[AuthBloc] Login → Ignored DB error during pending sync check: $e');
+        }
+      }
+
+      // +++ تفعيل العزل الفيزيائي للشركة الجديدة (سيقوم بفتح/إنشاء قاعدة بيانات مخصصة لها) +++
+      await LocalDatabase.instance.setTenant(returnedCompanyCode);
+
+      // +++ درع تعدد الحسابات: مندوب مختلف في نفس الشركة = مسح العهدة، شركة مختلفة = بقاء الداتابيز القديمة معزولة +++
+      bool needToClearCache = false;
+      if (oldCompanyCode != null && oldCompanyCode != returnedCompanyCode) {
+        developer.log('[AuthBloc] Login → Switched to different company ($oldCompanyCode → $returnedCompanyCode). DB isolated.');
+        needToClearCache = true;
+      } else if (oldDriverId != null && oldDriverId.isNotEmpty && oldDriverId != driverId.toString()) {
+        developer.log('[AuthBloc] Login → Different driver for same company ($oldDriverId → $driverId). Wiping legacy data.');
         await LocalDatabase.instance.clearSessionData(clearPendingSyncs: true);
-        
-        // +++   تنظيف كاش الـ SecureStorage لمنع تسريب عهدة وأرقام المندوب السابق (State Bleed) +++
+        needToClearCache = true;
+      }
+      
+      if (needToClearCache) {
         final allKeys = await _storage.readAll();
         for (final k in allKeys.keys) {
           if (k.startsWith('cached_') || k == 'is_on_break' || k == 'is_authorized') {
@@ -120,11 +153,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         }
       }
 
+      await _storage.write(key: 'company_code', value: returnedCompanyCode);
       await _storage.write(key: 'auth_token', value: token);
       await _storage.write(key: 'refresh_token', value: refreshToken);
       await _storage.write(key: 'driver_id', value: driverId.toString());
 
-      developer.log('[AuthBloc] Login → Authenticated (driverId=$driverId)');
+      developer.log('[AuthBloc] Login → Authenticated (driverId=$driverId, Tenant=$returnedCompanyCode)');
       emit(AuthAuthenticated(driverId: driverId));
     } on DioException catch (e) {
       developer.log(
@@ -173,6 +207,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     await _storage.delete(key: 'auth_token');
     await _storage.delete(key: 'refresh_token');
     await _storage.delete(key: 'driver_id');
+    await _storage.delete(key: 'company_code'); // +++ مسح الهوية للعودة إلى حالة الصفر +++
     
     // +++   مسح كل آثار جلسة الداشبورد لتجنب الجلسات الوهمية (Ghost Sessions) عند الدخول مجدداً +++
     final allKeys = await _storage.readAll();
@@ -186,7 +221,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     //     ودرع تعدد الحسابات في _onLogin يمسحها إذا سجّل مندوب مختلف +++
     try {
       await LocalDatabase.instance.clearSessionData(clearPendingSyncs: false);
-      developer.log('[AuthBloc] Logout → Session cleared (offline invoices preserved).');
+      await LocalDatabase.instance.resetTenant(); // +++ إغلاق القاعدة لضمان العزل الفيزيائي التام +++
+      developer.log('[AuthBloc] Logout → Session cleared (offline invoices preserved) and DB closed.');
     } catch (dbError) {
       developer.log('[AuthBloc] Logout → Error wiping SQLite: $dbError');
     }

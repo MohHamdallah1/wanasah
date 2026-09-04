@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 
 export default function Login() {
   const navigate = useNavigate();
+  // +++ حقن رمز الشركة الافتراضي في بيئة التطوير فقط (Dev Environment) +++
+  const [companyCode, setCompanyCode] = useState(import.meta.env.DEV ? 'WNS-01' : '');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -33,8 +35,8 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) {
-      setError("الرجاء إدخال اسم المستخدم وكلمة المرور.");
+    if (!companyCode || !username || !password) {
+      setError("الرجاء إدخال رمز الشركة واسم المستخدم وكلمة المرور.");
       return;
     }
     setError('');
@@ -52,15 +54,14 @@ export default function Login() {
         headers: {
           'Content-Type': 'application/json',
         },
-        // +++ الكي الجراحي: قص مسافات اسم المستخدم فقط، وترك كلمة المرور مقدسة كما هي +++
-        body: JSON.stringify({ username: username.trim(), password }),
+        // +++ إرسال الرمز الديناميكي بدلاً من الـ Hardcoded +++
+        body: JSON.stringify({ company_code: companyCode.trim(), username: username.trim(), password }),
       });
 
       const data = await response.json();
 
       // 2. التحقق من الرد
       if (!response.ok) {
-        // +++ الكي الجراحي: التقاط مفتاح 'detail' الخاص بـ FastAPI لمنع ابتلاع رسائل الحظر (Brute Force) +++
         throw new Error(data.detail || data.message || 'فشل تسجيل الدخول، تأكد من البيانات');
       }
 
@@ -69,10 +70,11 @@ export default function Login() {
         throw new Error('عذراً، هذا الحساب غير مصرح له بالدخول للوحة التحكم');
       }
 
-      // 4. حفظ بيانات الجلسة
+      // 4. حفظ بيانات الجلسة (شاملة هوية الشركة)
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('refresh_token', data.refresh_token);
-      // +++ الكي الجراحي: حفظ اسم المدير لكي يقرأه شريط TopBar ولا يظهر كشبح +++
+      if (data.company_id) localStorage.setItem('company_id', data.company_id.toString());
+      if (data.company_code) localStorage.setItem('company_code', data.company_code);
       if (data.driver_name) {
         localStorage.setItem('admin_name', data.driver_name);
       }
@@ -115,6 +117,19 @@ export default function Login() {
           <h2 className="text-2xl font-bold text-white mb-6 text-center">تسجيل الدخول</h2>
           
           <form onSubmit={handleSubmit} className="space-y-5 text-start">
+            {/* +++ حقل إدخال رمز الشركة +++ */}
+            <div className="space-y-2">
+              <label className="text-gray-300 text-sm font-medium">رمز الشركة</label>
+              <input
+                type="text"
+                value={companyCode}
+                onChange={(e) => setCompanyCode(e.target.value)}
+                className="w-full bg-slate-800/70 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all uppercase"
+                placeholder="أدخل رمز الشركة (مثال: WNS-01)"
+                disabled={isSubmitting}
+              />
+            </div>
+
             <div className="space-y-2">
               <label className="text-gray-300 text-sm font-medium">اسم المستخدم</label>
               <input

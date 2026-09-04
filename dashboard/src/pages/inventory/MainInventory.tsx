@@ -23,29 +23,51 @@ type TabId = typeof TABS[number]["id"];
 export default function MainInventory() {
   const authFetch = useAuthFetch();
 
-  // +++ الكي الجراحي: قراءة التبويب الأخير من الذاكرة، وحفظه فور تغييره +++
   const [activeTab, setActiveTab] = useState<TabId>(() => (localStorage.getItem("inventory_active_tab") as TabId) || "live");
   useEffect(() => { localStorage.setItem("inventory_active_tab", activeTab); }, [activeTab]);
+  
+  // +++ حالة اختيار المستودع +++
+  const [locations, setLocations] = useState<{ id: number, name: string, code: string }[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
+  const [locationError, setLocationError] = useState<boolean>(false); // +++ التفرقة بين فشل الشبكة والمستودع الفارغ +++
+  
   const [products, setProducts] = useState<WarehouseProduct[]>([]);
   const [alerts, setAlerts] = useState<WarehouseAlert[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-  const ledgerFetchedRef = useRef(false); // +++ درع حماية الـ IO لمنع التكرار (Caching) +++
+  const ledgerFetchedRef = useRef(false); 
   const [isAuditLocked, setIsAuditLocked] = useState<boolean>(true);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingStock, setLoadingStock] = useState(false);
   const [loadingLedger, setLoadingLedger] = useState(false);
-  // +++ الكي الجراحي: حالة وقت التحديث للبار العلوي +++
   const [lastSync, setLastSync] = useState<Date>(new Date());
+
+  // جلب المستودعات المتاحة للشركة عند الدخول
+  useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        setLocationError(false);
+        const data = await authFetch("/warehouse/locations");
+        if (Array.isArray(data) && data.length > 0) {
+          setLocations(data);
+          setSelectedLocationId(data[0].id); // التحديد التلقائي لأول مستودع متاح
+        }
+      } catch (e: any) {
+        setLocationError(true);
+        toast.error("فشل الاتصال بالخادم لجلب المستودعات.");
+      }
+    };
+    fetchLocations();
+  }, [authFetch]);
 
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
+    if (!selectedLocationId) return;
     setLoadingStock(true);
     try {
-      // +++  استلام البيانات الجاهزة من الـ Hook الموحد +++
-      const data = await authFetch("/warehouse/inventory");
+      const data = await authFetch(`/warehouse/inventory?location_id=${selectedLocationId}`);
       if (Array.isArray(data)) {
         setProducts(data);
-        setLastSync(new Date()); // +++ تحديث الوقت اللحظي +++
+        setLastSync(new Date()); 
       } else {
         throw new Error("تنسيق بيانات المخزون غير صالح");
       }
@@ -55,14 +77,14 @@ export default function MainInventory() {
     } finally {
       setLoadingStock(false);
     }
-  }, [authFetch]);
+  }, [authFetch, selectedLocationId]); // +++ سحق Stale Closure (P0-2) +++
 
   const fetchAlerts = useCallback(async () => {
+    if (!selectedLocationId) return;
     try {
-      const data = await authFetch("/warehouse/alerts");
+      const data = await authFetch(`/warehouse/alerts?location_id=${selectedLocationId}`);
       if (Array.isArray(data)) {
         setAlerts(data);
-        // +++  (I-10): تفعيل نظام الإشعارات لنواقص المستودع +++
         if (data.length > 0) {
           toast.warning(`تنبيه: يوجد ${data.length} منتجات تجاوزت الحد الأدنى للمخزون!`);
         }
@@ -71,7 +93,7 @@ export default function MainInventory() {
       console.error("Alerts Fetch Error:", e);
       toast.warning("تنبيه: فشل الاتصال بخدمة التنبيهات");
     }
-  }, [authFetch]);
+  }, [authFetch, selectedLocationId]); 
 
   const fetchStatus = useCallback(async () => {
     setLoadingStatus(true);
@@ -82,17 +104,18 @@ export default function MainInventory() {
       }
     } catch (e: any) {
       toast.error("خطأ حرج: تعذر التأكد من حالة قفل المستودع. تم تعطيل العمليات لضمان الأمان.");
-      setIsAuditLocked(true); // +++ إغلاق المستودع إجبارياً لحماية البيانات +++
+      setIsAuditLocked(true); 
     } finally {
       setLoadingStatus(false);
     }
   }, [authFetch]);
 
   const fetchLedger = useCallback(async (force = false) => {
+    if (!selectedLocationId) return;
     if (!force && ledgerFetchedRef.current) return;
     setLoadingLedger(true);
     try {
-      const data = await authFetch("/warehouse/ledger");
+      const data = await authFetch(`/warehouse/ledger?location_id=${selectedLocationId}`);
       if (Array.isArray(data)) {
         setLedger(data);
         ledgerFetchedRef.current = true;
@@ -103,20 +126,40 @@ export default function MainInventory() {
     } finally {
       setLoadingLedger(false);
     }
-  }, [authFetch]);
+  }, [authFetch, selectedLocationId]); // +++ سحق Stale Closure (P0-2) +++
 
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchStatus();
-    fetchStock();
-    fetchAlerts();
-  }, [fetchStatus, fetchStock, fetchAlerts]);
+  }, [fetchStatus]);
 
+  // جلب المخزون فور توفر المستودع
   useEffect(() => {
-    if (activeTab === "ledger" && !ledgerFetchedRef.current) {
-      fetchLedger();
+    if (selectedLocationId) {
+      ledgerFetchedRef.current = false; // إعادة طلب السجل للمستودع الجديد
+      fetchStock();
+      fetchAlerts();
+      if (activeTab === "ledger") fetchLedger();
     }
-  }, [activeTab, fetchLedger]);
+  }, [selectedLocationId, fetchStock, fetchAlerts, fetchLedger, activeTab]);
+
+  // +++ الدرع المعماري (P2 Fixed): حماية الشاشة البيضاء في حال انعدام المواقع (مع استثناء فشل الشبكة) +++
+  if (!loadingStatus && locations.length === 0 && !locationError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full bg-slate-50/50 rounded-3xl border border-slate-200 p-8 text-center animate-in fade-in duration-500">
+        <div className="w-24 h-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-6 shadow-inner">
+          <Package className="w-10 h-10" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-800 mb-2">لا توجد مستودعات متاحة</h2>
+        <p className="text-slate-500 font-bold max-w-md">
+          لم يتم العثور على أي مستودعات فعالة لشركتك. يرجى التواصل مع الدعم الفني أو تحديث الصفحة لتوليد المستودع الرئيسي تلقائياً.
+        </p>
+        <button onClick={() => window.location.reload()} className="mt-8 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2">
+          <RefreshCcw className="w-5 h-5" /> تحديث النظام
+        </button>
+      </div>
+    );
+  }
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
@@ -146,6 +189,21 @@ export default function MainInventory() {
 
         {/* +++ الحقن المعماري: نقل معلومات الرصيد الحي، وقت التحديث، وزر التحديث الكامل للبار العلوي +++ */}
         <div className="flex items-center gap-4 px-2">
+          {/* +++ محدد المستودعات +++ */}
+          {locations.length > 0 && (
+            <select
+              className="bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              value={selectedLocationId || ""}
+              onChange={(e) => setSelectedLocationId(Number(e.target.value))}
+            >
+              {locations.map(loc => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}
+                </option>
+              ))}
+            </select>
+          )}
+
           <div className="flex flex-col items-end border-l border-slate-200 pl-4 justify-center">
             <div className="flex items-center gap-2">
               <Package className="w-4 h-4 text-[#1e87bb]" />
@@ -184,9 +242,10 @@ export default function MainInventory() {
             onRefresh={() => { fetchStock(); fetchAlerts(); }}
           />
         )}
-        {activeTab === "inbound" && (
+        {activeTab === "inbound" && selectedLocationId && (
           <Tab2Inbound
             products={products}
+            locationId={selectedLocationId} // +++ تمرير الموقع لعملية الإدخال +++
             authenticatedFetch={authFetch}
             onSuccess={async () => {
               await Promise.all([
@@ -197,9 +256,10 @@ export default function MainInventory() {
             }}
           />
         )}
-        {activeTab === "stocktake" && (
+        {activeTab === "stocktake" && selectedLocationId && (
           <Tab3Stocktake
             products={products}
+            locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
             isAuditLocked={isAuditLocked}
             authenticatedFetch={authFetch}
             onLockChange={async (locked) => {

@@ -23,6 +23,10 @@ class Config:
             "خطأ أمني قاتل: SECRET_KEY يجب أن يحتوي على أحرف كبيرة وصغيرة وأرقام على الأقل."
         )
     
+    # +++ إعدادات البنية التحتية للعزل (Redis & Storage) +++
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    STORAGE_BASE_PATH = os.environ.get('STORAGE_BASE_PATH', 'local_storage/')
+    
     # إعدادات قاعدة البيانات PostgreSQL
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     if not SQLALCHEMY_DATABASE_URI:

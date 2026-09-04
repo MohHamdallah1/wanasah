@@ -1,7 +1,7 @@
 // File: lib/core/db/local_database.dart
 //
 // الوظيفة الكاملة لهذا الملف:
-//   - إنشاء وإدارة قاعدة البيانات المحلية SQLite (wanasah_offline.db).
+//   - إنشاء وإدارة قاعدة البيانات المحلية المعزولة فيزيائياً (wanasah_local_$companyCode.db).
 //   - توفير نقطة وصول واحدة (Singleton) لتجنب فتح اتصالات متعددة.
 //   - تعريف مخطط الجداول الثلاثة: products, visits, pending_sync.
 //
@@ -34,41 +34,91 @@ class LocalDatabase {
   // +++ الدرع المعماري (Mutex Lock): منع التطبيق من محاولة فتح القاعدة مرتين بنفس اللحظة +++
   static Future<Database>? _initDbFuture;
 
+  // +++ الدرع السيادي الفيزيائي (Physical Tenant Isolation) +++
+  String? _companyCode;
+  int _dbGeneration = 0; // +++ عداد الجيل (Generation Counter) لنسف سباق الأقفال +++
+
+  Future<void> setTenant(String companyCode) async {
+    if (_companyCode == companyCode) return; 
+
+    _dbGeneration++; // إبطال أي عملية فتح جارية في الخلفية
+    _companyCode = companyCode;
+
+    if (_database != null) {
+      await _database?.close(); // استخدام ?. لسحق خطأ الـ Null Safety
+    }
+    _database = null;
+    _initDbFuture = null;
+
+    developer.log('[LocalDatabase] 🛡️ Physical Tenant Isolation Active: $_companyCode (Gen: $_dbGeneration)');
+  }
+
+  Future<void> resetTenant() async {
+    _dbGeneration++;
+    if (_database != null) {
+      await _database?.close();
+    }
+    _database = null;
+    _initDbFuture = null;
+    _companyCode = null;
+    developer.log('[LocalDatabase] 🛡️ Tenant Identity Cleared. DB Closed.');
+  }
+
+  String get currentTenant {
+    if (_companyCode == null) {
+      throw Exception('🚨 حرج أمنياً: لم يتم حقن رمز الشركة (Tenant Code) في قاعدة البيانات. التطبيق يحاول كسر العزل.');
+    }
+    return _companyCode!;
+  }
+
   /// نقطة الوصول العامة للاتصال.
   /// إذا لم يتم فتح الاتصال بعد، يتم استدعاء [_initDB] تلقائياً (Lazy Init).
   Future<Database> get database async {
-    if (_database != null) return _database!;
-    
-    _initDbFuture ??= _initDB();
-    // +++  6: حماية Mutex من تعليق الـ Future للأبد +++
-    try {
-      _database = await _initDbFuture;
-    } finally {
-      _initDbFuture = null; 
+    while (true) {
+      if (_database != null && _database!.isOpen) return _database!;
+
+      final currentGen = _dbGeneration;
+      _initDbFuture ??= _initDB();
+
+      try {
+        final db = await _initDbFuture!;
+        
+        // +++ حارس الجيل: إذا تغير الجيل أثناء الفتح (تم تغيير الشركة)، نغلقها فوراً ونعيد المحاولة من خلال الحلقة +++
+        if (currentGen != _dbGeneration) {
+          developer.log('[LocalDatabase] ⚠️ Generation mismatch detected ($currentGen != $_dbGeneration). Reconnecting...');
+          await db.close();
+          _initDbFuture = null;
+          continue; // عودة لبداية الـ while دون استدعاء ذاتي (Recursion)
+        }
+        
+        _database = db;
+        return _database!;
+      } finally {
+        if (currentGen == _dbGeneration) {
+          _initDbFuture = null; 
+        }
+      }
     }
-    
-    return _database!;
   }
 
   // -----------------------------------------------------------------------
   // التهيئة: فتح / إنشاء ملف قاعدة البيانات
   // -----------------------------------------------------------------------
   Future<Database> _initDB() async {
-    // الحصول على مجلد التخزين الخاص بالتطبيق على الجهاز
     final documentsDirectory = await getApplicationDocumentsDirectory();
-    final dbPath = join(documentsDirectory.path, 'wanasah_offline.db');
+    // +++ العزل الفيزيائي (Physical Isolation): اسم الملف يتغير تلقائياً حسب رمز الشركة +++
+    final dbPath = join(documentsDirectory.path, 'wanasah_local_$currentTenant.db');
 
-    developer.log('[LocalDatabase] Opening database at: $dbPath');
+    developer.log('[LocalDatabase] Opening isolated database at: $dbPath');
 
     return await openDatabase(
       dbPath,
-      version: 9, // +++ ترقية فولاذية لدعم حقول المبيعات الصافية +++
+      version: 9, // رجعنا لـ v9 لأنه لم يعد هناك حاجة لحقول company_id
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
 
-  // دالة مساعدة لتجاهل خطأ (العمود موجود مسبقاً) أثناء الترقية
   Future<void> _safeAlterTable(Database db, String sql) async {
     try {
       await db.execute(sql);
@@ -80,13 +130,11 @@ class LocalDatabase {
   }
 
   // -----------------------------------------------------------------------
-  // onCreate: بناء الجداول عند إنشاء قاعدة البيانات لأول مرة
+  // onCreate: بناء الجداول النظيفة (بدون company_id)
   // -----------------------------------------------------------------------
   Future<void> _onCreate(Database db, int version) async {
     developer.log('[LocalDatabase] Creating tables for version $version...');
 
-    // --- جدول المنتجات ---
-    // يُخزِّن قائمة المنتجات (مخزون السيارة) مع توسعة الاستلام
     await db.execute('''
       CREATE TABLE products (
         id                 INTEGER PRIMARY KEY,
@@ -103,8 +151,6 @@ class LocalDatabase {
       )
     ''');
 
-    // --- جدول الزيارات ---
-    // يُخزِّن قائمة زيارات اليوم (محدث ليتطابق حرفياً مع VisitModel)
     await db.execute('''
         CREATE TABLE visits (
           visit_id INTEGER PRIMARY KEY, 
@@ -131,12 +177,6 @@ class LocalDatabase {
         )
       ''');
 
-    // --- جدول المزامنة المعلقة (الخزنة السرية) ---
-    // يُخزِّن أي عملية (بيع، إرجاع، ...) لم تصل إلى السيرفر بعد.
-    //   type    : نوع العملية (مثال: "submit_sale", "return_visit")
-    //   payload : بيانات العملية كاملة بصيغة JSON نصي
-    //   created_at: توقيت الإنشاء بصيغة ISO 8601
-    // --- جدول الحوالات الواردة (المصافحات) ---
     await db.execute('''
       CREATE TABLE incoming_transfers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,19 +203,13 @@ class LocalDatabase {
     developer.log('[LocalDatabase] All tables created successfully.');
   }
 
-  // -----------------------------------------------------------------------
-  // onUpgrade: للاستخدام المستقبلي عند رفع version رقم الـ DB
-  // -----------------------------------------------------------------------
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    developer.log(
-      '[LocalDatabase] Upgrading DB from v$oldVersion to v$newVersion',
-    );
+    developer.log('[LocalDatabase] Upgrading DB from v$oldVersion to v$newVersion');
     if (oldVersion < 2) {
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN cash_collected REAL DEFAULT 0.0');
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN debt_paid REAL DEFAULT 0.0');
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN max_debt_limit REAL DEFAULT 0.0');
     }
-    // +++ الدرع الواقي: حماية التطبيق من الانهيار عند تحديث المندوب للنسخة الجديدة (v3) +++
     if (oldVersion < 3) {
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN visit_sequence INTEGER DEFAULT 999');
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN is_emergency INTEGER DEFAULT 0');
@@ -183,7 +217,6 @@ class LocalDatabase {
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN latitude REAL');
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN longitude REAL');
     }
-    // +++ الترقية الفولاذية (v4) لدعم حفظ محتويات الزيارات المكتملة +++
     if (oldVersion < 4) {
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN cart_items TEXT');
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN returns TEXT');
@@ -191,12 +224,10 @@ class LocalDatabase {
     if (oldVersion < 5) {
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN notes TEXT');
     }
-    // +++ الترقية الفولاذية (v6) لدعم معلومات الاتصال بالمالك +++
     if (oldVersion < 6) {
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN shop_owner TEXT');
       await _safeAlterTable(db, 'ALTER TABLE visits ADD COLUMN shop_phone TEXT');
     }
-    // flutter.md Issue #1 (v7): Normalize monetary columns from TEXT to REAL
     if (oldVersion < 7) {
       await db.execute('''
         CREATE TABLE visits_v7 (
@@ -226,7 +257,6 @@ class LocalDatabase {
       await db.execute('''
         INSERT INTO visits_v7 SELECT
           visit_id, shop_id, shop_name,
-          -- +++  2: حماية التحويل من الفراغات والـ NULL لمنع انهيار الترقية +++
           CAST(IFNULL(NULLIF(shop_balance, ''), 0.0) AS REAL),
           CAST(IFNULL(NULLIF(max_debt_limit, ''), 0.0) AS REAL),
           shop_zone_id, allowed_zone_id, status, outcome,
@@ -241,8 +271,6 @@ class LocalDatabase {
       await db.execute('ALTER TABLE visits_v7 RENAME TO visits');
       developer.log('[LocalDatabase] v7 migration: Normalized monetary columns to REAL.');
     }
-
-  // +++ الترقية الفولاذية (v8) لدعم المصافحات الأوفلاين +++
     if (oldVersion < 8) {
       await db.execute('''
         CREATE TABLE IF NOT EXISTS incoming_transfers (
@@ -257,29 +285,22 @@ class LocalDatabase {
           batch_id TEXT
         )
       ''');
-      developer.log('[LocalDatabase] v8 migration: Created incoming_transfers table.');
     }
-  
-  // +++ الترقية الفولاذية (v9) لدعم حقول المبيعات الصافية من السيرفر +++
     if (oldVersion < 9) {
       await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN starting_packs INTEGER DEFAULT 0');
       await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_cartons INTEGER DEFAULT 0');
       await _safeAlterTable(db, 'ALTER TABLE products ADD COLUMN sold_packs INTEGER DEFAULT 0');
-      developer.log('[LocalDatabase] v9 migration: Added sales tracking columns to products table.');
     }
+    // مسحنا V10 نهائياً لتطبيق العزل الفيزيائي.
   }
 
   // -----------------------------------------------------------------------
   // دوال مساعدة عامة للـ CRUD
   // -----------------------------------------------------------------------
 
-  /// حذف جميع بيانات الجلسة السابقة (products + visits) مع الحفاظ على pending_sync.
-  /// يُستدعى في بداية كل جلسة عمل جديدة لضمان البيانات المحدَّثة.
-  /// CS-04 / flutter.md Issue #13: Add optional clearPendingSyncs parameter (default false)
   Future<void> clearSessionData({bool clearPendingSyncs = false}) async {
     final db = await database;
     
-    // حماية H-2: منع مسح البيانات إذا كان هناك مزامنة معلقة (إلا إذا طُلب المسح الإجباري)
     if (!clearPendingSyncs) {
       final pendingCount = Sqflite.firstIntValue(await db.query(
         'pending_sync',
@@ -292,7 +313,6 @@ class LocalDatabase {
       }
     }
 
-    // تطبيق M-1: استخدام Transaction
     await db.transaction((txn) async {
       await txn.delete('products');
       await txn.delete('visits');
@@ -304,37 +324,32 @@ class LocalDatabase {
     developer.log('[LocalDatabase] Session tables cleared safely via transaction.');
   }
 
-  /// إدراج أو استبدال مجموعة من المنتجات دفعةً واحدة (Batch Insert) باستخدام الكائنات الذكية.
   Future<void> insertProducts(List<ProductModel> products) async {
     final db = await database;
     final batch = db.batch();
     for (final product in products) {
       batch.insert(
         'products',
-        product.toJson(), // +++ تفكيك الكائن بأمان تام +++
+        product.toJson(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
     await batch.commit(noResult: true);
-    developer.log('[LocalDatabase] Inserted ${products.length} products.');
   }
 
-  /// إدراج أو استبدال مجموعة من الزيارات دفعةً واحدة (Batch Insert) باستخدام الكائنات الذكية.
   Future<void> insertVisits(List<VisitModel> visits) async {
     final db = await database;
     final batch = db.batch();
     for (final visit in visits) {
       batch.insert(
         'visits',
-        visit.toJson(), // +++ تفكيك الكائن بأمان تام +++
+        visit.toJson(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
     await batch.commit(noResult: true);
-    developer.log('[LocalDatabase] Inserted ${visits.length} visits.');
   }
 
-  /// إضافة عملية معلقة إلى الخزنة السرية (pending_sync).
   Future<int> addPendingSync({
     required String type,
     required String payload,
@@ -346,36 +361,29 @@ class LocalDatabase {
       'payload': payload,
       'created_at': DateTime.now().toIso8601String(),
     });
-    developer.log('[LocalDatabase] PendingSync added → id=$id, type=$type');
     return id;
   }
 
-  /// جلب العمليات المعلقة (للإرسال عند عودة الإنترنت) مع إمكانية تحديد العدد لتخفيف الحمل.
   Future<List<Map<String, dynamic>>> getPendingSyncs({int? limit}) async {
     final db = await database;
     return db.query('pending_sync', orderBy: 'created_at ASC, id ASC', limit: limit);
   }
 
-  /// حذف عملية معلقة بعد إرسالها بنجاح إلى السيرفر.
   Future<void> deletePendingSync(int id) async {
     final db = await database;
     await db.delete('pending_sync', where: 'id = ?', whereArgs: [id]);
-    developer.log('[LocalDatabase] PendingSync deleted → id=$id');
   }
 
-  /// جلب كل المنتجات المحلية.
   Future<List<Map<String, dynamic>>> getProducts() async {
     final db = await database;
     return db.query('products');
   }
 
-  /// جلب كل الزيارات المحلية.
   Future<List<Map<String, dynamic>>> getVisits() async {
     final db = await database;
     return db.query('visits');
   }
 
-  /// تحديث حالة زيارة محددة محلياً (عند إتمام البيع Offline).
   Future<void> updateVisitStatus({
     required int visitId,
     required String status,
@@ -394,7 +402,6 @@ class LocalDatabase {
       'outcome': outcome,
       'cash_collected': cashCollected,
       'debt_paid': debtPaid,
-      // +++  لـ Bug 3: إجبار كتابة  Null في قاعدة البيانات لمسح السلة والمرتجعات في حالة (لا يوجد بيع أو مؤجل) +++
       'cart_items': cartItemsJson,
       'returns': returnsJson,
       'notes': notes,
@@ -408,17 +415,11 @@ class LocalDatabase {
       where: 'visit_id = ?',
       whereArgs: [visitId],
     );
-    developer.log(
-      '[LocalDatabase] Visit #$visitId updated locally with ALL financials and cart data.',
-    );
   }
 
-  // خصم المخزون محلياً وقت البيع الأوفلاين (يشمل المبيعات والمرتجعات/الاستبدال)
   Future<void> deductInventoryLocal(List<dynamic> cartItems, {List<dynamic>? returnItems, Transaction? txn}) async {
     final db = txn ?? await database;
     final batch = db.batch();
-    
-    // تجميع الكميات المخصومة لكل منتج لتنفيذ التحديث مرة واحدة
     Map<int, Map<String, int>> deductions = {};
 
     void addToDeduction(int variantId, int qty, int packs) {
@@ -428,39 +429,25 @@ class LocalDatabase {
       deductions[variantId]!['packs'] = (deductions[variantId]!['packs'] ?? 0) + packs;
     }
 
-    // حساب المبيعات والعينات
     for (var item in cartItems) {
       if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
       int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
-      
-      int qtyToDeduct = ((item['quantity'] as num?)?.toInt() ?? 0) +
-          ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) +
-          ((item['bonus_quantity'] as num?)?.toInt() ?? 0); 
-          
-      int packsToDeduct = ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
-          ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
-
+      int qtyToDeduct = ((item['quantity'] as num?)?.toInt() ?? 0) + ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) + ((item['bonus_quantity'] as num?)?.toInt() ?? 0); 
+      int packsToDeduct = ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) + ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
       addToDeduction(variantId, qtyToDeduct, packsToDeduct);
     }
 
-    // حساب المرتجعات (بما أنها استبدال بضاعة صالحة بتالفة، يتم خصم الصالح من العهدة)
     if (returnItems != null) {
       for (var ret in returnItems) {
         if (ret['is_cancelled'] == true || ret['is_cancelled'] == 1) continue;
         int variantId = (ret['product_variant_id'] as num?)?.toInt() ?? 0;
         int qtyToDeduct = (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0;
         int packsToDeduct = (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0;
-        
         addToDeduction(variantId, qtyToDeduct, packsToDeduct);
       }
     }
 
-    // تنفيذ التحديث في قاعدة البيانات
     for (var entry in deductions.entries) {
-      int variantId = entry.key;
-      int qty = entry.value['qty']!;
-      int packs = entry.value['packs']!;
-      
       batch.rawUpdate(
         '''
         UPDATE products 
@@ -469,15 +456,12 @@ class LocalDatabase {
           current_packs   = MAX(0, (current_cartons * packs_per_carton) + current_packs - (? * packs_per_carton) - ?) % MAX(packs_per_carton, 1)
         WHERE id = ?
         ''',
-        [qty, packs, qty, packs, variantId],
+        [entry.value['qty']!, entry.value['packs']!, entry.value['qty']!, entry.value['packs']!, entry.key],
       );
     }
-    
     await batch.commit(noResult: true);
-    developer.log('[LocalDatabase] Local inventory deducted successfully.');
   }
 
-  // التراجع عن فاتورة أوفلاين وإعادة الرصيد (مبيعات + مرتجعات) للعهدة
   Future<void> revertOfflineVisit(int visitId, {Transaction? txn}) async {
     final db = txn ?? await database;
 
@@ -518,31 +502,17 @@ class LocalDatabase {
         final List<dynamic> cartItems = payload['cart_items'] ?? [];
         for (var item in cartItems) {
           if (item['is_cancelled'] == true || item['is_cancelled'] == 1) continue;
-          int variantId = (item['product_variant_id'] as num?)?.toInt() ?? 0;
-          int qtyToReturn = ((item['quantity'] as num?)?.toInt() ?? 0) +
-              ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) +
-              ((item['bonus_quantity'] as num?)?.toInt() ?? 0);
-          int packsToReturn = ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) +
-              ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0);
-          addToReturn(variantId, qtyToReturn, packsToReturn);
+          addToReturn((item['product_variant_id'] as num?)?.toInt() ?? 0, ((item['quantity'] as num?)?.toInt() ?? 0) + ((item['sample_quantity'] as num?)?.toInt() ?? (item['sample_cartons'] as num?)?.toInt() ?? 0) + ((item['bonus_quantity'] as num?)?.toInt() ?? 0), ((item['packs_quantity'] as num?)?.toInt() ?? (item['packs'] as num?)?.toInt() ?? 0) + ((item['sample_packs_quantity'] as num?)?.toInt() ?? (item['sample_packs'] as num?)?.toInt() ?? 0));
         }
 
         final List<dynamic> returns = payload['returns'] ?? [];
         for (var ret in returns) {
           if (ret['is_cancelled'] == true || ret['is_cancelled'] == 1) continue;
-          int variantId = (ret['product_variant_id'] as num?)?.toInt() ?? 0;
-          int qtyToReturn = (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0;
-          int packsToReturn = (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0;
-          addToReturn(variantId, qtyToReturn, packsToReturn);
+          addToReturn((ret['product_variant_id'] as num?)?.toInt() ?? 0, (ret['quantity'] as num?)?.toInt() ?? (ret['cartons'] as num?)?.toInt() ?? 0, (ret['packs_quantity'] as num?)?.toInt() ?? (ret['packs'] as num?)?.toInt() ?? 0);
         }
       }
 
-      // تنفيذ التحديث
       for (var entry in additions.entries) {
-        int variantId = entry.key;
-        int qty = entry.value['qty']!;
-        int packs = entry.value['packs']!;
-
         batch.rawUpdate(
           '''
           UPDATE products 
@@ -551,11 +521,10 @@ class LocalDatabase {
             current_packs = ((current_cartons * packs_per_carton) + current_packs + (? * packs_per_carton) + ?) % MAX(packs_per_carton, 1)
           WHERE id = ?
           ''',
-          [qty, packs, qty, packs, variantId],
+          [entry.value['qty']!, entry.value['packs']!, entry.value['qty']!, entry.value['packs']!, entry.key],
         );
       }
 
-      // حذف السجلات المعلقة
       for (var id in syncIdsToDelete) {
         batch.delete(
           'pending_sync',
@@ -563,25 +532,18 @@ class LocalDatabase {
           whereArgs: [id],
         );
       }
-
       await batch.commit(noResult: true);
-      developer.log(
-        '[LocalDatabase] Reverted offline visit #$visitId and cleared ${syncIdsToDelete.length} stale syncs.',
-      );
     }
   }
 
-  // +++  1: دالة التحديث المحلي لرصيد المحل (تستخدم بعد نجاح رفع الفاتورة للسيرفر) +++
   Future<void> updateShopBalanceLocally(int visitId, double newBalance) async {
     final db = await database;
     await db.rawUpdate(
       'UPDATE visits SET shop_balance = ? WHERE visit_id = ?',
       [newBalance, visitId],
     );
-    developer.log('[LocalDatabase] Shop balance updated locally to $newBalance for visit #$visitId.');
   }
 
-  /// إغلاق الاتصال بقاعدة البيانات (يُستخدم عند الاختبار أو عند إعادة التهيئة).
   Future<void> close() async {
     if (_database != null) {
       await _database!.close();
@@ -590,7 +552,6 @@ class LocalDatabase {
     }
   }
 
-  // CS-02 / flutter.md Issue #3: Refresh only visits table, leaving products intact
   Future<void> refreshVisitsOnly(List<VisitModel> visits) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -605,19 +566,13 @@ class LocalDatabase {
       }
       await batch.commit(noResult: true);
     });
-    developer.log(
-      '[LocalDatabase] Transaction complete: Visits refreshed (products left intact).',
-    );
   }
 
-  // +++ المعاملة الفولاذية (Transaction) لمزامنة السيرفر بدون فقدان بيانات +++
-  // +++ إضافة دالة لجلب الحوالات الأوفلاين +++
   Future<List<Map<String, dynamic>>> getIncomingTransfers() async {
     final db = await database;
     return db.query('incoming_transfers');
   }
 
-  // +++ المعاملة الفولاذية (Transaction) لمزامنة السيرفر بدون فقدان بيانات +++
   Future<void> refreshSessionData(
     List<VisitModel> visits,
     List<ProductModel> products,
@@ -627,16 +582,12 @@ class LocalDatabase {
   }) async {
     final db = await database;
     await db.transaction((txn) async {
-      // الاعتماد على قرارات صريحة من المستدعي لمنع بقاء بيانات شبحية عند إرسال قوائم فارغة
       if (clearProducts) await txn.delete('products');
       if (clearVisits) await txn.delete('visits');
-      
-      // لا نمسح الحوالات إذا كان الرد بالتنسيق القديم (List) لحماية البيانات
       if (incomingTransfers != null) {
         await txn.delete('incoming_transfers'); 
       }
 
-      // +++ حماية الحوالة الشبحية: جلب ردود الحوالات المعلقة لاستثنائها من الإدراج +++
       final pendingResponses = await txn.query('pending_sync', where: "type = 'transfer_response'");
       final List<int> answeredTransferIds = pendingResponses.map((p) {
         try { return jsonDecode(p['payload'] as String)['transferId'] as int; } 
@@ -645,9 +596,7 @@ class LocalDatabase {
 
       final batch = txn.batch();
 
-      Map<int, ProductModel> productsMap = {};
       for (final product in products) {
-        productsMap[product.id] = product;
         batch.insert(
           'products',
           product.toJson(),
@@ -665,30 +614,18 @@ class LocalDatabase {
 
       if (incomingTransfers != null) {
         for (final transfer in incomingTransfers) {
-          // +++   تحويل آمن لمنع الـ TypeError في حال كان الـ API يرسل null +++
           final int tId = int.tryParse(transfer['transfer_id']?.toString() ?? transfer['id']?.toString() ?? '') ?? 0;
-          if (tId == 0) continue; // تخطي الحوالة الفاسدة كلياً لمنع انهيار الترانزاكشن
-
-          // +++ درع الشبح: تخطي الحوالة إذا كان المندوب قد رد عليها أوفلاين ولم ترفع بعد +++
-          if (answeredTransferIds.contains(tId)) continue;
-
-          final int vId = (transfer['product_variant_id'] as num?)?.toInt() ?? 0;
+          if (tId == 0 || answeredTransferIds.contains(tId)) continue;
           
-          // قراءة البيانات بشكل مباشر كما يُرسلها السيرفر في (dispatch.py)
-          final int deltaCartons = (transfer['delta_cartons'] as num?)?.toInt() ?? 0;
-          final int deltaLoosePacks = (transfer['delta_packs'] as num?)?.toInt() ?? 0;
-          
-          final String productName = transfer['product_name']?.toString() ?? 'غير معروف';
           final String batchId = transfer['batch_id']?.toString() ?? 'SINGLE_${transfer['transfer_id'] ?? transfer['id']}';
-          
           batch.insert(
             'incoming_transfers',
             {
               'transfer_id': transfer['transfer_id'] ?? transfer['id'],
-              'product_variant_id': vId,
-              'product_name': productName,
-              'delta_cartons': deltaCartons,
-              'delta_packs': deltaLoosePacks,
+              'product_variant_id': (transfer['product_variant_id'] as num?)?.toInt() ?? 0,
+              'product_name': transfer['product_name']?.toString() ?? 'غير معروف',
+              'delta_cartons': (transfer['delta_cartons'] as num?)?.toInt() ?? 0,
+              'delta_packs': (transfer['delta_packs'] as num?)?.toInt() ?? 0,
               'status': transfer['status']?.toString() ?? 'pending',
               'created_at': transfer['created_at']?.toString(),
               'batch_id': batchId
@@ -699,18 +636,15 @@ class LocalDatabase {
       }
       await batch.commit(noResult: true);
     });
-    developer.log('[LocalDatabase] Transaction complete: Session & Transfers refreshed safely.');
   }
 
-  /// حذف الحوالة من الجدول المحلي بعد إتمام الرد عليها لتجنب تكرار ظهورها كشبح
   Future<void> removeIncomingTransfer(int transferId) async {
     final db = await database;
     await db.delete(
       'incoming_transfers',
-      where: 'transfer_id = ?', // الاعتماد على الـ ID القادم من السيرفر فقط
+      where: 'transfer_id = ?',
       whereArgs: [transferId],
     );
-    developer.log('[LocalDatabase] Incoming transfer #$transferId removed locally.');
   }
 
   Future<void> saveOnlineInvoiceAtomic({
@@ -741,9 +675,6 @@ class LocalDatabase {
     });
   }
 
-  // --- دوال إدارة الحجر الصحي (Quarantine Management) ---
-
-  /// جلب السجلات المحجورة لعرضها في شاشة المراجعة
   Future<List<Map<String, dynamic>>> getQuarantinedSyncs() async {
     final db = await database;
     return db.query(
@@ -753,7 +684,6 @@ class LocalDatabase {
     );
   }
 
-  /// حذف سجل محجور بعد معالجته يدوياً
   Future<void> deleteQuarantinedSync(int id) async {
     final db = await database;
     await db.delete(
@@ -761,20 +691,16 @@ class LocalDatabase {
       where: "id = ? AND type LIKE 'quarantined_%'",
       whereArgs: [id],
     );
-    developer.log('[LocalDatabase] Quarantined sync #$id deleted.');
   }
 
-  /// مسح جميع السجلات المحجورة
   Future<void> clearAllQuarantinedSyncs() async {
     final db = await database;
     await db.delete(
       'pending_sync',
       where: "type LIKE 'quarantined_%'",
     );
-    developer.log('[LocalDatabase] All quarantined syncs cleared.');
   }
 
-  /// استعادة سجل محجور لمحاولة إرساله مجدداً
   Future<void> retryQuarantinedSync(int id) async {
     final db = await database;
     final record = await db.query('pending_sync', where: 'id = ?', whereArgs: [id]);
@@ -782,11 +708,10 @@ class LocalDatabase {
       String type = record.first['type'] as String;
       if (type.startsWith('quarantined_')) {
         String originalType = type.replaceFirst('quarantined_', '');
-        if (originalType == 'corrupt') return; // لا يمكن استعادة سجل تالف الهيكل
+        if (originalType == 'corrupt') return; 
         if (originalType == 'draft_sale') originalType = 'submit_sale';
         
         await db.update('pending_sync', {'type': originalType}, where: 'id = ?', whereArgs: [id]);
-        developer.log('[LocalDatabase] Quarantined sync #$id restored for retry as $originalType.');
       }
     }
   }
