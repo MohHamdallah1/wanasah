@@ -848,6 +848,15 @@ class SettleSessionRequest(RequestModel):
         return _optional_text(v)
 
 
+    # السطر المكرر يُسقط نتيجة عد سابقة عند بناء قاموس التسوية؛ نرفض التعارض قبل المعالجة.
+    @model_validator(mode="after")
+    def reject_duplicate_jard_products(self) -> "SettleSessionRequest":
+        ids = [item.product_id for item in self.inventory_jard]
+        if len(ids) != len(set(ids)):
+            raise ValueError("لا يجوز تكرار نفس المنتج في جرد التسوية.")
+        return self
+
+
 class SettleSessionResponse(BaseModel):
     message: str
     cash_difference: Annotated[str, BeforeValidator(clean_finance_str)]
@@ -1118,10 +1127,18 @@ class EditShopDetailsRequest(RequestModel):
         validation_alias=AliasChoices("initialDebt", "initial_debt"),
     )
 
-    @field_validator("name", "owner", "phone", "mapLink", mode="before")
+    @field_validator("name", "phone", mode="before")
     @classmethod
     def normalize_text(cls, v: Any) -> Optional[str]:
         return _optional_text(v)
+
+    # النص الفارغ يحذف القيمة الاختيارية؛ None يبقى بمعنى عدم تعديلها في مسار المحلات الحالي.
+    @field_validator("owner", "mapLink", mode="before")
+    @classmethod
+    def normalize_clearable_text(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        return _optional_text(v) or ""
 
     @model_validator(mode="after")
     def require_update(self) -> "EditShopDetailsRequest":

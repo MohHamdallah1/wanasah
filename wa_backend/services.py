@@ -386,7 +386,7 @@ async def check_debt_limits(
     ):
         return False, "المندوب غير صالح لهذه الشركة."
 
-    stmt_driver = select(Driver).filter_by(
+    stmt_driver = select(Driver).execution_options(populate_existing=True).filter_by(
         id=driver_id,
         company_id=company_id,
         is_active=True,
@@ -395,7 +395,7 @@ async def check_debt_limits(
     driver = (await db_session.execute(stmt_driver)).scalar_one_or_none()
 
     # لا نعتمد أي Shop pre-fetched في القرار المالي؛ يجب قفل الصف الحقيقي دائماً.
-    stmt_shop = select(Shop).filter_by(
+    stmt_shop = select(Shop).execution_options(populate_existing=True).filter_by(
         id=shop_id,
         company_id=company_id,
     ).with_for_update()
@@ -680,7 +680,7 @@ async def apply_inventory_movement(
 
     existing = (
         await db_session.execute(
-            select(InventoryMovement).filter_by(
+            select(InventoryMovement).execution_options(populate_existing=True).filter_by(
                 company_id=company_id,
                 idempotency_key=idempotency_key,
             )
@@ -801,7 +801,7 @@ async def apply_inventory_movement(
         )
         for location_id, stock_status in keys
     ]
-    stmt_balances = select(InventoryBalance).filter(
+    stmt_balances = select(InventoryBalance).execution_options(populate_existing=True).filter(
         InventoryBalance.company_id == company_id,
         InventoryBalance.product_variant_id == product_variant_id,
         InventoryBalance.batch_id == batch_id,
@@ -970,7 +970,7 @@ async def post_approved_stocktake_adjustments(
 
     session = (
         await db_session.execute(
-            select(StocktakeSession).filter_by(
+            select(StocktakeSession).execution_options(populate_existing=True).filter_by(
                 company_id=company_id,
                 id=stocktake_session_id,
             ).with_for_update()
@@ -1025,7 +1025,7 @@ async def post_approved_stocktake_adjustments(
 
     latest_attempt = (
         await db_session.execute(
-            select(StocktakeCountAttempt).filter_by(
+            select(StocktakeCountAttempt).execution_options(populate_existing=True).filter_by(
                 company_id=company_id,
                 stocktake_session_id=session.id,
             ).order_by(
@@ -1041,14 +1041,19 @@ async def post_approved_stocktake_adjustments(
             "المحاولة المطلوب ترحيلها ليست آخر محاولة عد مثبتة؛ أعد فتح المراجعة."
         )
 
-    if latest_attempt.requires_independent_recount:
-        if latest_attempt.recount_of_attempt_id is None:
-            raise InventoryMutationError(
-                "العجز المادي يتطلب إعادة عد مستقلة قبل الترحيل."
-            )
+    if (
+        latest_attempt.submitted_at is None
+        or session.snapshot_cutoff_at is None
+        or latest_attempt.submitted_at < session.snapshot_cutoff_at
+        or latest_attempt.submitted_at > session.approved_at
+    ):
+        raise InventoryMutationError("توقيت آخر محاولة عد لا يطابق اللقطة والاعتماد.")
+
+    parent_attempt = None
+    if latest_attempt.recount_of_attempt_id is not None:
         parent_attempt = (
             await db_session.execute(
-                select(StocktakeCountAttempt).filter_by(
+                select(StocktakeCountAttempt).execution_options(populate_existing=True).filter_by(
                     company_id=company_id,
                     stocktake_session_id=session.id,
                     id=latest_attempt.recount_of_attempt_id,
@@ -1057,16 +1062,23 @@ async def post_approved_stocktake_adjustments(
         ).scalar_one_or_none()
         if (
             parent_attempt is None
-            or not parent_attempt.requires_independent_recount
-            or parent_attempt.counted_by == latest_attempt.counted_by
+            or parent_attempt.attempt_number != latest_attempt.attempt_number - 1
+            or parent_attempt.submitted_at > latest_attempt.submitted_at
         ):
-            raise InventoryMutationError(
-                "آخر محاولة لا تحقق شرط إعادة العد المستقلة للعجز المادي."
-            )
+            raise InventoryMutationError("سلسلة إعادة العد لا ترتبط بالمحاولة السابقة مباشرة.")
+        if (
+            parent_attempt.requires_independent_recount
+            and parent_attempt.counted_by == latest_attempt.counted_by
+        ):
+            raise InventoryMutationError("إعادة العد الإلزامية يجب أن ينفذها مستخدم مستقل.")
+    if latest_attempt.requires_independent_recount and (
+        parent_attempt is None or not parent_attempt.requires_independent_recount
+    ):
+        raise InventoryMutationError("العجز المادي يتطلب إعادة عد مستقلة قبل الترحيل.")
 
     # تحميل Snapshot ومحاولة العد معاً يكشف أي سطر مفقود دون Query لكل صنف.
     stmt_lines = (
-        select(StocktakeLine, StocktakeCountAttemptLine)
+        select(StocktakeLine, StocktakeCountAttemptLine).execution_options(populate_existing=True)
         .outerjoin(
             StocktakeCountAttemptLine,
             and_(
@@ -1087,6 +1099,7 @@ async def post_approved_stocktake_adjustments(
             StocktakeLine.stock_status.asc(),
             StocktakeLine.id.asc(),
         )
+        .limit(_MAX_STOCKTAKE_POST_LINES + 1)
     )
     line_rows = (await db_session.execute(stmt_lines)).all()
     if not line_rows:
@@ -1123,7 +1136,7 @@ async def post_approved_stocktake_adjustments(
 
     active_locks = (
         await db_session.execute(
-            select(InventoryLock).filter(
+            select(InventoryLock).execution_options(populate_existing=True).filter(
                 InventoryLock.company_id == company_id,
                 InventoryLock.location_id == session.location_id,
                 InventoryLock.released_at.is_(None),
@@ -1180,18 +1193,31 @@ async def post_approved_stocktake_adjustments(
                 )
 
     specs = []
+    expected_by_key = {}
     for stocktake_line, attempt_line in line_rows:
-        if attempt_line.count_attempt_id != latest_attempt.id:
-            raise InventoryMutationError("تم اكتشاف سطر عد مرتبط بمحاولة مختلفة.")
-        variance = int(attempt_line.variance_quantity or 0)
-        if variance != int(attempt_line.actual_quantity) - int(attempt_line.expected_quantity):
+        if (
+            stocktake_line.company_id != company_id
+            or stocktake_line.stocktake_session_id != session.id
+            or attempt_line.company_id != company_id
+            or attempt_line.stocktake_session_id != session.id
+            or attempt_line.stocktake_line_id != stocktake_line.id
+            or attempt_line.count_attempt_id != latest_attempt.id
+        ):
+            raise InventoryMutationError("هوية سطر العد لا تطابق لقطة الجرد والمحاولة.")
+        stock_status = stocktake_line.stock_status
+        if stock_status not in {"AVAILABLE", "DAMAGED"}:
+            raise InventoryMutationError("حالة مخزون غير صالحة في سطر الجرد.")
+        key = (stocktake_line.product_variant_id, stocktake_line.batch_id, stock_status)
+        if key in expected_by_key:
+            raise InventoryMutationError("لقطة الجرد تحتوي هوية صنف/دفعة/حالة مكررة.")
+        if attempt_line.expected_quantity != stocktake_line.expected_quantity:
+            raise InventoryMutationError("الكمية المتوقعة في العد تختلف عن لقطة الجرد المقفلة.")
+        expected_by_key[key] = stocktake_line.expected_quantity
+        variance = attempt_line.variance_quantity
+        if variance != attempt_line.actual_quantity - attempt_line.expected_quantity:
             raise InventoryMutationError("تم اكتشاف فرق جرد غير متسق حسابياً.")
         if variance == 0:
             continue
-
-        stock_status = str(stocktake_line.stock_status or "").strip().upper()
-        if stock_status not in {"AVAILABLE", "DAMAGED"}:
-            raise InventoryMutationError("حالة مخزون غير صالحة في سطر الجرد.")
 
         if variance < 0:
             source_location_id = session.location_id
@@ -1243,7 +1269,7 @@ async def post_approved_stocktake_adjustments(
     # اقرأ كل حركات المحاولة، لا الحركات ذات المفاتيح المتوقعة فقط، لكشف أي أثر زائد أو جزئي.
     existing_movements = (
         await db_session.execute(
-            select(InventoryMovement).filter(
+            select(InventoryMovement).execution_options(populate_existing=True).filter(
                 InventoryMovement.company_id == company_id,
                 InventoryMovement.stocktake_session_id == session.id,
                 InventoryMovement.stocktake_count_attempt_id == latest_attempt.id,
@@ -1322,44 +1348,52 @@ async def post_approved_stocktake_adjustments(
             rows=list(positive_rows),
         )
 
-    balance_keys = {
-        (
-            spec["product_variant_id"],
-            spec["batch_id"],
-            spec["stock_status"],
+    # اقرأ نطاق الجرد كله مرة واحدة لكشف أي رصيد موجب أغفلته اللقطة، بما فيه الأسطر بلا فرق.
+    stmt_balances = select(InventoryBalance).execution_options(populate_existing=True).filter(
+        InventoryBalance.company_id == company_id,
+        InventoryBalance.location_id == session.location_id,
+    )
+    if session.stocktake_type == "CYCLE_COUNT":
+        stmt_balances = stmt_balances.filter(
+            InventoryBalance.product_variant_id == session.scope_product_variant_id,
         )
-        for spec in specs
-    }
-    balances = []
-    if balance_keys:
-        balances = (
-            await db_session.execute(
-                select(InventoryBalance).filter(
-                    InventoryBalance.company_id == company_id,
-                    InventoryBalance.location_id == session.location_id,
-                    tuple_(
-                        InventoryBalance.product_variant_id,
-                        InventoryBalance.batch_id,
-                        InventoryBalance.stock_status,
-                    ).in_(sorted(balance_keys)),
-                ).order_by(
-                    InventoryBalance.product_variant_id.asc(),
-                    InventoryBalance.batch_id.asc(),
-                    InventoryBalance.stock_status.asc(),
-                ).with_for_update()
+        if session.scope_batch_id is not None:
+            stmt_balances = stmt_balances.filter(
+                InventoryBalance.batch_id == session.scope_batch_id,
             )
-        ).scalars().all()
+    # تجاهل الأرصدة الصفرية التاريخية خارج اللقطة، وحدّ حجم النتيجة قبل تحميلها في الذاكرة.
+    stmt_balances = stmt_balances.filter(or_(
+        InventoryBalance.on_hand_quantity > 0,
+        tuple_(
+            InventoryBalance.product_variant_id,
+            InventoryBalance.batch_id,
+            InventoryBalance.stock_status,
+        ).in_(sorted(expected_by_key)),
+    ))
+    balances = (await db_session.execute(stmt_balances.order_by(
+        InventoryBalance.product_variant_id.asc(),
+        InventoryBalance.batch_id.asc(),
+        InventoryBalance.stock_status.asc(),
+    ).limit(_MAX_STOCKTAKE_POST_LINES + 1).with_for_update())).scalars().all()
+    if len(balances) > _MAX_STOCKTAKE_POST_LINES:
+        raise InventoryMutationError("الأرصدة الفعلية تتجاوز نطاق لقطة الجرد المسموح.")
     balance_map = {
         (row.product_variant_id, row.batch_id, row.stock_status): row
         for row in balances
     }
-    if set(balance_map) != balance_keys:
-        raise InventoryMutationError("تعذر امتلاك جميع أرصدة الجرد المطلوبة للترحيل.")
+    for key, balance in balance_map.items():
+        if key not in expected_by_key and balance.on_hand_quantity != 0:
+            raise InventoryMutationError("يوجد رصيد فعلي خارج أسطر لقطة الجرد؛ تم رفض الترحيل.")
+    for key, expected_quantity in expected_by_key.items():
+        balance = balance_map.get(key)
+        current_quantity = balance.on_hand_quantity if balance is not None else 0
+        if current_quantity != expected_quantity:
+            raise InventoryMutationError("الرصيد الحي تغيّر عن لقطة الجرد المقفلة؛ تم رفض الترحيل.")
 
     # إعادة تحقق واحدة بعد Row Locks؛ ثابتة التكلفة ولا تتكرر لكل سطر.
     refreshed_locks = (
         await db_session.execute(
-            select(InventoryLock).filter(
+            select(InventoryLock).execution_options(populate_existing=True).filter(
                 InventoryLock.company_id == company_id,
                 InventoryLock.location_id == session.location_id,
                 InventoryLock.released_at.is_(None),
@@ -1372,14 +1406,17 @@ async def post_approved_stocktake_adjustments(
         )
 
     before_by_key = {}
-    movements = []
+    prepared = []
+    # تحقق من جميع النتائج قبل تغيير أي كائن ORM؛ فشل السطر الأخير لا يترك أسطراً معدلة.
     for spec in specs:
         key = (
             spec["product_variant_id"],
             spec["batch_id"],
             spec["stock_status"],
         )
-        balance = balance_map[key]
+        balance = balance_map.get(key)
+        if balance is None:
+            raise InventoryMutationError("رصيد مطلوب لترحيل فرق الجرد غير موجود.")
         before_on_hand = int(balance.on_hand_quantity or 0)
         before_reserved = int(balance.reserved_quantity or 0)
         after_on_hand = before_on_hand + int(spec["variance"])
@@ -1397,6 +1434,10 @@ async def post_approved_stocktake_adjustments(
             )
 
         before_by_key[key] = (before_on_hand, before_reserved)
+        prepared.append((spec, balance, after_on_hand))
+
+    movements = []
+    for spec, balance, after_on_hand in prepared:
         balance.on_hand_quantity = after_on_hand
         movement = InventoryMovement(
             company_id=company_id,
@@ -1567,7 +1608,7 @@ async def allocate_fefo_inventory(
         ).scalars().all()
 
     if locked_batch_ids:
-        stmt = select(InventoryBalance, ProductBatch).join(
+        stmt = select(InventoryBalance, ProductBatch).execution_options(populate_existing=True).join(
             ProductBatch,
             and_(
                 ProductBatch.company_id == InventoryBalance.company_id,
@@ -1660,6 +1701,8 @@ async def reverse_inventory_movement(
 
     reference_type = str(reference_type or "").strip()
     reference_id = str(reference_id or "").strip()
+    if reference_type != "VISIT_REVERSAL":
+        raise InventoryMutationError("عكس الزيارة يجب أن يحمل مرجع VISIT_REVERSAL حصراً.")
     if not reference_type or not reference_id:
         raise InventoryMutationError("مرجع الحركة العكسية إلزامي.")
     if "\x00" in reference_type or "\x00" in reference_id:
@@ -1672,7 +1715,7 @@ async def reverse_inventory_movement(
         raise InventoryMutationError("notes لا تقبل محرف NUL.")
 
     # لا نثق بكائن ORM الممرر وحده؛ نقرأ الحركة الأصلية المقفلة من قاعدة البيانات.
-    stmt_original = select(InventoryMovement).filter_by(
+    stmt_original = select(InventoryMovement).execution_options(populate_existing=True).filter_by(
         company_id=company_id,
         id=original_id,
     ).with_for_update()
@@ -1705,7 +1748,7 @@ async def reverse_inventory_movement(
 
     existing = (
         await db_session.execute(
-            select(InventoryMovement).filter_by(
+            select(InventoryMovement).execution_options(populate_existing=True).filter_by(
                 company_id=company_id,
                 idempotency_key=reversal_key,
             )
@@ -1868,7 +1911,7 @@ async def reverse_previous_visit_state(
     # نعيد امتلاك الأقفال داخل الخدمة بنفس الترتيب الرسمي: session -> shop -> visit.
     locked_session = None
     if active_session is not None:
-        stmt_session = select(WorkSession).filter_by(
+        stmt_session = select(WorkSession).execution_options(populate_existing=True).filter_by(
             company_id=company_id,
             id=active_session.id,
         ).with_for_update()
@@ -1880,7 +1923,7 @@ async def reverse_previous_visit_state(
                 "جلسة العمل غير موجودة أو لا تنتمي لنفس الشركة."
             )
 
-    stmt_shop = select(Shop).filter_by(
+    stmt_shop = select(Shop).execution_options(populate_existing=True).filter_by(
         company_id=company_id,
         id=shop_id,
     ).with_for_update()
@@ -1890,7 +1933,7 @@ async def reverse_previous_visit_state(
             "المحل غير موجود أو لا ينتمي لنفس الشركة."
         )
 
-    stmt_visit = select(Visit).filter_by(
+    stmt_visit = select(Visit).execution_options(populate_existing=True).filter_by(
         company_id=company_id,
         id=visit_id,
     ).with_for_update()
@@ -1947,13 +1990,13 @@ async def reverse_previous_visit_state(
         )
 
     # نقفل تفاصيل الزيارة كي لا تتغير بالتوازي أثناء بناء القيد العكسي.
-    stmt_items = select(VisitItem).filter_by(
+    stmt_items = select(VisitItem).execution_options(populate_existing=True).filter_by(
         company_id=company_id,
         visit_id=locked_visit.id,
     ).order_by(VisitItem.id.asc()).with_for_update()
     visit_items = (await db_session.execute(stmt_items)).scalars().all()
 
-    stmt_returns = select(VisitReturn).filter_by(
+    stmt_returns = select(VisitReturn).execution_options(populate_existing=True).filter_by(
         company_id=company_id,
         visit_id=locked_visit.id,
     ).order_by(VisitReturn.id.asc()).with_for_update()
@@ -2025,7 +2068,7 @@ async def reverse_previous_visit_state(
     )
 
     if locked_session is not None:
-        stmt_movements = select(InventoryMovement).filter(
+        stmt_movements = select(InventoryMovement).execution_options(populate_existing=True).filter(
             InventoryMovement.company_id == company_id,
             InventoryMovement.work_session_id == locked_session.id,
             InventoryMovement.reference_id == str(locked_visit.id),
@@ -2127,9 +2170,11 @@ def get_tenant_storage_path(company_id: int, filename: str) -> str:
         raise ValueError("خطأ أمني: اسم الملف أطول من الحد الآمن لنظام الملفات.")
 
     base_path = getattr(Config, "STORAGE_BASE_PATH", "local_storage/")
-    tenant_folder = os.path.realpath(
-        os.path.join(base_path, f"company_{comp_id}")
-    )
+    storage_root = os.path.realpath(base_path)
+    tenant_folder = os.path.join(storage_root, f"company_{comp_id}")
+    # مجلد الشركة نفسه لا يجوز أن يكون رابطاً يعيد توجيهها إلى شركة أخرى أو خارج الجذر.
+    if os.path.normcase(os.path.realpath(tenant_folder)) != os.path.normcase(tenant_folder):
+        raise ValueError("خطأ أمني: مجلد الشركة يعيد التوجيه إلى مسار غير مسموح.")
     target_path = os.path.realpath(os.path.join(tenant_folder, clean_name))
 
     try:
