@@ -1,0 +1,344 @@
+--- a/wa_backend/models.py
++++ b/wa_backend/models.py
+@@ -402,16 +402,26 @@
+             ['company_id', 'product_variant_id'],
+             ['product_variants.company_id', 'product_variants.id'],
+             ondelete='RESTRICT',
+             name='fk_session_snapshot_tenant_variant'
+         ),
++        ForeignKeyConstraint(
++            ['company_id', 'settled_by'],
++            ['drivers.company_id', 'drivers.id'],
++            ondelete='RESTRICT',
++            name='fk_session_snapshot_tenant_settler'
++        ),
+         CheckConstraint('starting_quantity >= 0', name='chk_session_snapshot_starting'),
+         CheckConstraint('ending_quantity IS NULL OR ending_quantity >= 0', name='chk_session_snapshot_ending'),
+         CheckConstraint(
+-            "((settled_at IS NULL AND ending_quantity IS NULL) OR "
+-            "(settled_at IS NOT NULL AND ending_quantity IS NOT NULL))",
+-            name='chk_session_snapshot_settlement_pair'
++            "((settled_at IS NULL AND ending_quantity IS NULL AND settled_by IS NULL) OR "
++            "(settled_at IS NOT NULL AND ending_quantity IS NOT NULL AND settled_by IS NOT NULL))",
++            name='chk_session_snapshot_settlement_triplet'
++        ),
++        CheckConstraint(
++            'settled_at IS NULL OR settled_at >= created_at',
++            name='chk_session_snapshot_settlement_time'
+         ),
+     )
+ 
+     id                 = Column(Integer, primary_key=True)
+     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+@@ -420,10 +430,11 @@
+     product_variant_id = Column(Integer, nullable=False, index=True)
+ 
+     starting_quantity = Column(Integer, nullable=False)
+     ending_quantity   = Column(Integer, nullable=True)
+     created_at        = Column(DateTime, nullable=False, default=utc_now)
++    settled_by        = Column(Integer, nullable=True, index=True)
+     settled_at        = Column(DateTime, nullable=True, index=True)
+ 
+ # =================================================================================
+ # ⑦ المحلات
+ # =================================================================================
+@@ -549,10 +560,11 @@
+     ملاحظة: الحقول المالية هنا (final_amount_due إلخ) هي القيم المُجمَّعة
+     المحسوبة وقت الحفظ. مصدر الحقيقة الأول هو VisitItem.
+     """
+     __tablename__ = 'visits'
+     __table_args__ = (
++        UniqueConstraint('company_id', 'id', name='uq_visits_company_id'),
+         Index('ix_visit_shop_timestamp', 'shop_id', 'visit_timestamp'),
+         Index('ix_visit_session_outcome', 'work_session_id', 'outcome'),
+     )
+     id              = Column(Integer, primary_key=True)
+     company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+@@ -787,10 +799,16 @@
+             ['inventory_movements.company_id', 'inventory_movements.id'],
+             ondelete='RESTRICT',
+             name='fk_inventory_damage_event_tenant_movement'
+         ),
+         ForeignKeyConstraint(
++            ['company_id', 'source_visit_id'],
++            ['visits.company_id', 'visits.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_damage_event_tenant_visit'
++        ),
++        ForeignKeyConstraint(
+             ['company_id', 'source_driver_id'],
+             ['drivers.company_id', 'drivers.id'],
+             ondelete='RESTRICT',
+             name='fk_inventory_damage_event_tenant_driver'
+         ),
+@@ -807,11 +825,11 @@
+     )
+ 
+     id                    = Column(Integer, primary_key=True)
+     company_id            = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+     inventory_movement_id = Column(Integer, nullable=False, index=True)
+-    source_visit_id       = Column(Integer, ForeignKey('visits.id', ondelete='RESTRICT'), nullable=True, index=True)
++    source_visit_id       = Column(Integer, nullable=True, index=True)
+     source_driver_id      = Column(Integer, nullable=True, index=True)
+     receiving_admin_id    = Column(Integer, nullable=False, index=True)
+     damage_type           = Column(String(50), nullable=False)
+     notes                 = Column(Text, nullable=True)
+     created_at            = Column(DateTime, nullable=False, default=utc_now, index=True)
+@@ -856,10 +874,11 @@
+     # دفعة Tenant-safe لإدارة الإنتاج والصلاحية وFEFO.
+     __tablename__ = 'product_batches'
+     __table_args__ = (
+         UniqueConstraint('company_id', 'product_variant_id', 'batch_number', name='uq_product_batch_number'),
+         UniqueConstraint('company_id', 'id', name='uq_product_batches_company_id'),
++        UniqueConstraint('company_id', 'product_variant_id', 'id', name='uq_product_batches_variant_id'),
+         ForeignKeyConstraint(
+             ['company_id', 'product_variant_id'],
+             ['product_variants.company_id', 'product_variants.id'],
+             ondelete='RESTRICT',
+             name='fk_product_batch_tenant_variant'
+@@ -952,14 +971,16 @@
+     __table_args__ = (
+         UniqueConstraint('company_id', 'location_id', 'product_variant_id', 'batch_id', 'stock_status', name='uq_inv_balance_core'),
+         UniqueConstraint('company_id', 'id', name='uq_inventory_balances_company_id'),
+         ForeignKeyConstraint(['company_id', 'location_id'], ['inventory_locations.company_id', 'inventory_locations.id'],
+                              ondelete='RESTRICT', name='fk_inv_balance_tenant_location'),
+-        ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'],
+-                             ondelete='RESTRICT', name='fk_inv_balance_tenant_variant'),
+-        ForeignKeyConstraint(['company_id', 'batch_id'], ['product_batches.company_id', 'product_batches.id'],
+-                             ondelete='RESTRICT', name='fk_inv_balance_tenant_batch'),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id', 'batch_id'],
++            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
++            ondelete='RESTRICT',
++            name='fk_inv_balance_variant_batch'
++        ),
+         CheckConstraint("stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inv_bal_status'),
+         CheckConstraint('on_hand_quantity >= 0', name='chk_inv_bal_onhand_qty'),
+         CheckConstraint('reserved_quantity >= 0', name='chk_inv_bal_res_qty'),
+         CheckConstraint('reserved_quantity <= on_hand_quantity', name='chk_inv_bal_reserved_within_onhand'),
+         CheckConstraint("stock_status <> 'DAMAGED' OR reserved_quantity = 0", name='chk_inv_bal_damaged_not_reserved'),
+@@ -986,14 +1007,16 @@
+                              ondelete='RESTRICT', name='fk_inv_movement_tenant_actor'),
+         ForeignKeyConstraint(['company_id', 'source_location_id'], ['inventory_locations.company_id', 'inventory_locations.id'],
+                              ondelete='RESTRICT', name='fk_inv_movement_tenant_source'),
+         ForeignKeyConstraint(['company_id', 'destination_location_id'], ['inventory_locations.company_id', 'inventory_locations.id'],
+                              ondelete='RESTRICT', name='fk_inv_movement_tenant_destination'),
+-        ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'],
+-                             ondelete='RESTRICT', name='fk_inv_movement_tenant_variant'),
+-        ForeignKeyConstraint(['company_id', 'batch_id'], ['product_batches.company_id', 'product_batches.id'],
+-                             ondelete='RESTRICT', name='fk_inv_movement_tenant_batch'),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id', 'batch_id'],
++            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
++            ondelete='RESTRICT',
++            name='fk_inv_movement_variant_batch'
++        ),
+         ForeignKeyConstraint(['company_id', 'work_session_id'], ['work_sessions.company_id', 'work_sessions.id'],
+                              ondelete='RESTRICT', name='fk_inv_movement_tenant_session'),
+         ForeignKeyConstraint(['company_id', 'transfer_header_id'], ['inventory_transfer_headers.company_id', 'inventory_transfer_headers.id'],
+                              ondelete='RESTRICT', name='fk_inv_movement_tenant_transfer'),
+         ForeignKeyConstraint(['company_id', 'stocktake_session_id'], ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
+@@ -1063,69 +1086,49 @@
+     notes           = Column(Text, nullable=True)
+     created_at      = Column(DateTime, nullable=False, default=utc_now, index=True)
+ 
+ class InventoryMovementImpact(Base):
+     """
+-    لقطة الرصيد قبل/بعد لكل Balance تأثر بحركة واحدة.
+-
+-    هذا هو البديل الجنائي المنظم لـ balance_before/balance_after في WarehouseLedger،
+-    ويمنع فقدان قابلية التتبع بعد توحيد جميع الحركات في InventoryMovement.
++    لقطة الرصيد قبل/بعد لكل InventoryBalance تأثر بحركة واحدة.
++
++    لا تُكرر هوية الرصيد هنا؛ inventory_balance_id يشير إلى صف الرصيد الحقيقي،
++    بينما before/after مجرد Snapshot رقابي غير قابل لأن يصبح مصدراً حياً للمخزون.
+     """
+     __tablename__ = 'inventory_movement_impacts'
+     __table_args__ = (
+         UniqueConstraint(
+-            'company_id', 'movement_id', 'location_id', 'product_variant_id', 'batch_id', 'stock_status',
++            'company_id', 'movement_id', 'inventory_balance_id',
+             name='uq_inventory_movement_impact_balance'
+         ),
+         ForeignKeyConstraint(
+             ['company_id', 'movement_id'],
+             ['inventory_movements.company_id', 'inventory_movements.id'],
+             ondelete='RESTRICT',
+             name='fk_inventory_movement_impact_tenant_movement'
+         ),
+         ForeignKeyConstraint(
+-            ['company_id', 'location_id'],
+-            ['inventory_locations.company_id', 'inventory_locations.id'],
+-            ondelete='RESTRICT',
+-            name='fk_inventory_movement_impact_tenant_location'
+-        ),
+-        ForeignKeyConstraint(
+-            ['company_id', 'product_variant_id'],
+-            ['product_variants.company_id', 'product_variants.id'],
+-            ondelete='RESTRICT',
+-            name='fk_inventory_movement_impact_tenant_variant'
+-        ),
+-        ForeignKeyConstraint(
+-            ['company_id', 'batch_id'],
+-            ['product_batches.company_id', 'product_batches.id'],
+-            ondelete='RESTRICT',
+-            name='fk_inventory_movement_impact_tenant_batch'
+-        ),
+-        CheckConstraint("stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inventory_movement_impact_status'),
++            ['company_id', 'inventory_balance_id'],
++            ['inventory_balances.company_id', 'inventory_balances.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_movement_impact_tenant_balance'
++        ),
+         CheckConstraint('on_hand_before >= 0', name='chk_inventory_movement_impact_onhand_before'),
+         CheckConstraint('on_hand_after >= 0', name='chk_inventory_movement_impact_onhand_after'),
+         CheckConstraint('reserved_before >= 0', name='chk_inventory_movement_impact_reserved_before'),
+         CheckConstraint('reserved_after >= 0', name='chk_inventory_movement_impact_reserved_after'),
+         CheckConstraint('reserved_before <= on_hand_before', name='chk_inventory_movement_impact_reserved_before_bound'),
+         CheckConstraint('reserved_after <= on_hand_after', name='chk_inventory_movement_impact_reserved_after_bound'),
+         CheckConstraint(
+-            "stock_status <> 'DAMAGED' OR (reserved_before = 0 AND reserved_after = 0)",
+-            name='chk_inventory_movement_impact_damaged_not_reserved'
+-        ),
+-        CheckConstraint(
+             'on_hand_before <> on_hand_after OR reserved_before <> reserved_after',
+             name='chk_inventory_movement_impact_has_change'
+         ),
+     )
+ 
+-    id                 = Column(Integer, primary_key=True)
+-    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+-    movement_id        = Column(Integer, nullable=False, index=True)
+-    location_id        = Column(Integer, nullable=False, index=True)
+-    product_variant_id = Column(Integer, nullable=False, index=True)
+-    batch_id           = Column(Integer, nullable=False, index=True)
+-    stock_status       = Column(String(50), nullable=False, index=True)
++    id                   = Column(Integer, primary_key=True)
++    company_id           = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
++    movement_id          = Column(Integer, nullable=False, index=True)
++    inventory_balance_id = Column(Integer, nullable=False, index=True)
+ 
+     on_hand_before  = Column(Integer, nullable=False)
+     on_hand_after   = Column(Integer, nullable=False)
+     reserved_before = Column(Integer, nullable=False)
+     reserved_after  = Column(Integer, nullable=False)
+@@ -1272,12 +1275,16 @@
+     __tablename__ = 'inventory_transfer_lines'
+     __table_args__ = (
+         UniqueConstraint('company_id', 'transfer_header_id', 'product_variant_id', 'batch_id', name='uq_transfer_line_item'),
+         UniqueConstraint('company_id', 'id', name='uq_inventory_transfer_lines_company_id'),
+         ForeignKeyConstraint(['company_id', 'transfer_header_id'], ['inventory_transfer_headers.company_id', 'inventory_transfer_headers.id'], ondelete='RESTRICT', name='fk_transfer_lines_tenant_header'),
+-        ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'], ondelete='RESTRICT', name='fk_transfer_line_tenant_variant'),
+-        ForeignKeyConstraint(['company_id', 'batch_id'], ['product_batches.company_id', 'product_batches.id'], ondelete='RESTRICT', name='fk_transfer_line_tenant_batch'),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id', 'batch_id'],
++            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
++            ondelete='RESTRICT',
++            name='fk_transfer_line_variant_batch'
++        ),
+         ForeignKeyConstraint(['company_id', 'fefo_override_reason_id'], ['override_reasons.company_id', 'override_reasons.id'], ondelete='RESTRICT', name='fk_transfer_line_tenant_override_reason'),
+         ForeignKeyConstraint(['company_id', 'fefo_overridden_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_transfer_line_tenant_override_actor'),
+         CheckConstraint('quantity > 0', name='chk_transfer_line_qty'),
+         CheckConstraint("((fefo_override_reason_id IS NULL AND fefo_overridden_by IS NULL) OR (fefo_override_reason_id IS NOT NULL AND fefo_overridden_by IS NOT NULL))", name='chk_transfer_line_fefo_override_pair'),
+     )
+@@ -1298,13 +1305,19 @@
+     # جلسة جرد قانونية تحفظ النطاق والـSnapshot وحالة الاعتماد دون طمس التاريخ.
+     __tablename__ = 'stocktake_sessions'
+     __table_args__ = (
+         UniqueConstraint('company_id', 'reference_number', name='uq_stocktake_session_ref'),
+         UniqueConstraint('company_id', 'id', name='uq_stocktake_sessions_company_id'),
++        UniqueConstraint('company_id', 'id', 'location_id', name='uq_stocktake_session_location'),
+         ForeignKeyConstraint(['company_id', 'location_id'], ['inventory_locations.company_id', 'inventory_locations.id'], ondelete='RESTRICT', name='fk_stocktake_session_tenant_location'),
+         ForeignKeyConstraint(['company_id', 'scope_product_variant_id'], ['product_variants.company_id', 'product_variants.id'], ondelete='RESTRICT', name='fk_stocktake_session_tenant_scope_variant'),
+-        ForeignKeyConstraint(['company_id', 'scope_batch_id'], ['product_batches.company_id', 'product_batches.id'], ondelete='RESTRICT', name='fk_stocktake_session_tenant_scope_batch'),
++        ForeignKeyConstraint(
++            ['company_id', 'scope_product_variant_id', 'scope_batch_id'],
++            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
++            ondelete='RESTRICT',
++            name='fk_stocktake_session_scope_variant_batch'
++        ),
+         ForeignKeyConstraint(['company_id', 'related_work_session_id'], ['work_sessions.company_id', 'work_sessions.id'], ondelete='RESTRICT', name='fk_stocktake_session_tenant_work_session'),
+         ForeignKeyConstraint(['company_id', 'started_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_stocktake_session_started_by'),
+         ForeignKeyConstraint(['company_id', 'counted_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_stocktake_session_counted_by'),
+         ForeignKeyConstraint(['company_id', 'approved_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_stocktake_session_approved_by'),
+         ForeignKeyConstraint(['company_id', 'cancelled_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_stocktake_session_cancelled_by'),
+@@ -1362,11 +1375,13 @@
+             name='chk_stocktake_cancelled_time'
+         ),
+         Index('uq_active_full_stocktake_location', 'company_id', 'location_id', unique=True,
+               postgresql_where=text("stocktake_type IN ('FULL_COUNT', 'VEHICLE_RECON') AND status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED')")),
+         Index('uq_active_cycle_stocktake_product', 'company_id', 'location_id', 'scope_product_variant_id', unique=True,
+-              postgresql_where=text("stocktake_type = 'CYCLE_COUNT' AND status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED')")),
++              postgresql_where=text("stocktake_type = 'CYCLE_COUNT' AND scope_batch_id IS NULL AND status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED')")),
++        Index('uq_active_cycle_stocktake_batch', 'company_id', 'location_id', 'scope_product_variant_id', 'scope_batch_id', unique=True,
++              postgresql_where=text("stocktake_type = 'CYCLE_COUNT' AND scope_batch_id IS NOT NULL AND status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED')")),
+     )
+     id                       = Column(Integer, primary_key=True)
+     company_id               = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+     location_id              = Column(Integer, nullable=False, index=True)
+     reference_number         = Column(String(100), nullable=False, index=True)
+@@ -1380,13 +1395,13 @@
+     started_by  = Column(Integer, nullable=False)
+     counted_by  = Column(Integer, nullable=True)
+     approved_by = Column(Integer, nullable=True)
+     cancelled_by= Column(Integer, nullable=True)
+ 
+-    pending_recount_authorized_by = Column(Integer, nullable=True)
+-    pending_recount_reason        = Column(Text, nullable=True)
+-    independent_recount_required  = Column(Boolean, nullable=False, default=False, server_default='false')
++    pending_recount_authorized_by       = Column(Integer, nullable=True)
++    pending_recount_reason              = Column(Text, nullable=True)
++    pending_independent_recount_required= Column(Boolean, nullable=False, default=False, server_default='false')
+ 
+     cancellation_reason = Column(Text, nullable=True)
+     notes               = Column(Text, nullable=True)
+ 
+     created_at   = Column(DateTime, nullable=False, default=utc_now)
+@@ -1405,14 +1420,16 @@
+             'company_id', 'stocktake_session_id', 'product_variant_id', 'batch_id', 'stock_status',
+             name='uq_stocktake_line_item'
+         ),
+         ForeignKeyConstraint(['company_id', 'stocktake_session_id'], ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
+                              ondelete='RESTRICT', name='fk_stocktake_lines_tenant_session'),
+-        ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'],
+-                             ondelete='RESTRICT', name='fk_stocktake_line_tenant_variant'),
+-        ForeignKeyConstraint(['company_id', 'batch_id'], ['product_batches.company_id', 'product_batches.id'],
+-                             ondelete='RESTRICT', name='fk_stocktake_line_tenant_batch'),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id', 'batch_id'],
++            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
++            ondelete='RESTRICT',
++            name='fk_stocktake_line_variant_batch'
++        ),
+         ForeignKeyConstraint(['company_id', 'discovered_by'], ['drivers.company_id', 'drivers.id'],
+                              ondelete='RESTRICT', name='fk_stocktake_line_tenant_discoverer'),
+         CheckConstraint("stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_stocktake_line_status'),
+         CheckConstraint("line_origin IN ('SNAPSHOT', 'DISCOVERED')", name='chk_stocktake_line_origin'),
+         CheckConstraint('expected_quantity >= 0', name='chk_st_line_exp_qty'),
+@@ -1531,14 +1548,24 @@
+ class InventoryLock(Base):
+     # قفل جراحي قابل للتتبع؛ لا يُحذف بعد التحرير بل يبقى كسجل تاريخي.
+     __tablename__ = 'inventory_locks'
+     __table_args__ = (
+         UniqueConstraint('company_id', 'id', name='uq_inventory_locks_company_id'),
+-        ForeignKeyConstraint(['company_id', 'stocktake_session_id'], ['stocktake_sessions.company_id', 'stocktake_sessions.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_session'),
++        ForeignKeyConstraint(
++            ['company_id', 'stocktake_session_id', 'location_id'],
++            ['stocktake_sessions.company_id', 'stocktake_sessions.id', 'stocktake_sessions.location_id'],
++            ondelete='RESTRICT',
++            name='fk_inv_lock_same_stocktake_location'
++        ),
+         ForeignKeyConstraint(['company_id', 'location_id'], ['inventory_locations.company_id', 'inventory_locations.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_location'),
+         ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_variant'),
+-        ForeignKeyConstraint(['company_id', 'batch_id'], ['product_batches.company_id', 'product_batches.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_batch'),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id', 'batch_id'],
++            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
++            ondelete='RESTRICT',
++            name='fk_inv_lock_variant_batch'
++        ),
+         ForeignKeyConstraint(['company_id', 'created_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_creator'),
+         ForeignKeyConstraint(['company_id', 'released_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_releaser'),
+         CheckConstraint('batch_id IS NULL OR product_variant_id IS NOT NULL', name='chk_inv_lock_batch_requires_product'),
+         CheckConstraint(
+             "((released_at IS NULL AND released_by IS NULL AND release_reason IS NULL) "
