@@ -1,0 +1,183 @@
+diff --git a/wa_backend/schemas.py b/wa_backend/schemas.py
+index a21e795..be79777 100644
+--- a/wa_backend/schemas.py
++++ b/wa_backend/schemas.py
+@@ -305,6 +305,12 @@ class TransferResponseRequest(RequestModel):
+     def normalize_reason(cls, v: Any) -> Optional[str]:
+         return _optional_text(v)
+ 
++    # الرفض قرار نهائي رقابي؛ يجب أن يحمل سبباً صريحاً ليتوافق مع سجل الحوالة النهائي.
++    @model_validator(mode="after")
++    def require_rejection_reason(self) -> "TransferResponseRequest":
++        if self.response == "rejected" and not self.reason:
++            raise ValueError("رفض الحوالة يتطلب سبباً واضحاً.")
++        return self
+ 
+ 
+ class ProductVariantResponse(BaseModel):
+@@ -402,6 +408,19 @@ class BreakToggleRequest(RequestModel):
+ class BatchTransferItem(RequestModel):
+     transfer_id: PositiveDbInt
+     status: Literal["accepted", "rejected"]
++    reason: Optional[str] = Field(None, max_length=1000)
++
++    @field_validator("reason", mode="before")
++    @classmethod
++    def normalize_reason(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    # كل رفض ضمن الرد الجماعي يجب أن يبقى قابلاً للتدقيق ولا يمر بلا سبب.
++    @model_validator(mode="after")
++    def require_rejection_reason(self) -> "BatchTransferItem":
++        if self.status == "rejected" and not self.reason:
++            raise ValueError("رفض الحوالة ضمن الدفعة يتطلب سبباً واضحاً.")
++        return self
+ 
+ 
+ class BatchTransferResponseRequest(RequestModel):
+@@ -653,6 +672,21 @@ class VisitUpdateRequest(RequestModel):
+ 
+     @model_validator(mode="after")
+     def validate_visit_logic(self) -> "VisitUpdateRequest":
++        cart_product_ids = [item.product_variant_id for item in self.cart_items]
++        if len(cart_product_ids) != len(set(cart_product_ids)):
++            raise ValueError(
++                "لا يجوز تكرار نفس المنتج في سلة الزيارة؛ اجمع البيع والعينات في سطر واحد."
++            )
++
++        return_keys = [
++            (item.product_variant_id, item.return_type)
++            for item in self.returns
++        ]
++        if len(return_keys) != len(set(return_keys)):
++            raise ValueError(
++                "لا يجوز تكرار نفس المنتج ونوع المرتجع في أكثر من سطر."
++            )
++
+         has_real_sales = any(
+             item.quantity > 0 or item.packs_quantity > 0
+             for item in self.cart_items
+@@ -667,8 +701,10 @@ class VisitUpdateRequest(RequestModel):
+         )
+ 
+         if self.outcome == "Sale":
+-            if not self.cart_items:
+-                raise ValueError("لا يمكن تسجيل حالة بيع دون وجود منتجات في السلة.")
++            if not has_real_sales:
++                raise ValueError(
++                    "حالة Sale تتطلب كمية بيع فعلية؛ العينات أو المرتجعات وحدها تسجل كـ NoSale."
++                )
+         elif self.outcome == "NoSale":
+             if has_real_sales or self.cash_collected > Decimal("0"):
+                 raise ValueError(
+@@ -1013,9 +1049,9 @@ class UpdateRouteStatusRequest(RequestModel):
+             self.status is None
+             and self.driverId is None
+             and self.vehicleId is None
+-            and self.inventory is None
++            and not self.inventory
+         ):
+-            raise ValueError("يجب إرسال حقل واحد على الأقل لتحديث المسار.")
++            raise ValueError("يجب إرسال تغيير فعلي واحد على الأقل لتحديث المسار.")
+         return self
+ 
+ 
+@@ -1347,7 +1383,9 @@ class UnifiedDispatchRequest(RequestModel):
+     def validate_transfer_shape(self) -> "UnifiedDispatchRequest":
+         if self.source_location_id == self.destination_location_id:
+             raise ValueError("المصدر والوجهة يجب أن يكونا مختلفين.")
++
+         seen = set()
++        modes_by_product: Dict[int, set[bool]] = {}
+         for item in self.items:
+             key = (item.product_variant_id, item.override_batch_id)
+             if key in seen:
+@@ -1355,6 +1393,14 @@ class UnifiedDispatchRequest(RequestModel):
+                     "لا يجوز تكرار نفس الصنف/الدفعة في طلب الحوالة؛ اجمع الكمية في سطر واحد."
+                 )
+             seen.add(key)
++            modes_by_product.setdefault(item.product_variant_id, set()).add(
++                item.is_fefo_override
++            )
++
++        if any(len(modes) > 1 for modes in modes_by_product.values()):
++            raise ValueError(
++                "لا يجوز خلط FEFO التلقائي وتجاوز FEFO لنفس المنتج في حوالة واحدة."
++            )
+         return self
+ 
+ 
+@@ -1369,6 +1415,7 @@ class UnifiedStocktakeStartRequest(RequestModel):
+     stocktake_type: Literal["FULL_COUNT", "CYCLE_COUNT", "VEHICLE_RECON"]
+     product_variant_id: OptionalPositiveDbInt = None
+     batch_id: OptionalPositiveDbInt = None
++    related_work_session_id: OptionalPositiveDbInt = None
+     notes: Optional[str] = Field(None, max_length=4000)
+ 
+     @field_validator("notes", mode="before")
+@@ -1381,11 +1428,29 @@ class UnifiedStocktakeStartRequest(RequestModel):
+         if self.stocktake_type == "CYCLE_COUNT":
+             if self.product_variant_id is None:
+                 raise ValueError("CYCLE_COUNT يتطلب product_variant_id.")
+-        else:
++            if self.related_work_session_id is not None:
++                raise ValueError(
++                    "related_work_session_id مخصص حصراً لـ VEHICLE_RECON."
++                )
++        elif self.stocktake_type == "VEHICLE_RECON":
+             if self.product_variant_id is not None or self.batch_id is not None:
+                 raise ValueError(
+-                    "FULL_COUNT و VEHICLE_RECON لا يقبلان product_variant_id أو batch_id."
++                    "VEHICLE_RECON لا يقبل product_variant_id أو batch_id."
+                 )
++            if self.related_work_session_id is None:
++                raise ValueError(
++                    "VEHICLE_RECON يجب أن يرتبط بجلسة العمل التي تتم تسويتها."
++                )
++        else:  # FULL_COUNT
++            if self.product_variant_id is not None or self.batch_id is not None:
++                raise ValueError(
++                    "FULL_COUNT يجرد الموقع كاملاً ولا يقبل product_variant_id أو batch_id."
++                )
++            if self.related_work_session_id is not None:
++                raise ValueError(
++                    "related_work_session_id مخصص حصراً لـ VEHICLE_RECON."
++                )
++
+         if self.batch_id is not None and self.product_variant_id is None:
+             raise ValueError("batch_id يتطلب product_variant_id.")
+         return self
+@@ -1394,10 +1459,10 @@ class UnifiedStocktakeStartRequest(RequestModel):
+ class StocktakeCountItem(RequestModel):
+     product_variant_id: PositiveDbInt
+     batch_id: PositiveDbInt
++    stock_status: Literal["AVAILABLE", "DAMAGED"]
+     actual_quantity: NonNegativeDbInt
+ 
+ 
+-
+ class UnifiedStocktakeCountRequest(RequestModel):
+     items: List[StocktakeCountItem] = Field(..., min_length=1, max_length=10000)
+     notes: Optional[str] = Field(None, max_length=4000)
+@@ -1409,9 +1474,14 @@ class UnifiedStocktakeCountRequest(RequestModel):
+ 
+     @model_validator(mode="after")
+     def reject_duplicate_lines(self) -> "UnifiedStocktakeCountRequest":
+-        keys = [(item.product_variant_id, item.batch_id) for item in self.items]
++        keys = [
++            (item.product_variant_id, item.batch_id, item.stock_status)
++            for item in self.items
++        ]
+         if len(keys) != len(set(keys)):
+-            raise ValueError("لا يجوز تكرار نفس الصنف/الدفعة في محاولة العد.")
++            raise ValueError(
++                "لا يجوز تكرار نفس الصنف/الدفعة/حالة المخزون في محاولة العد."
++            )
+         return self
+ 
+ 
+@@ -1462,4 +1532,3 @@ class StocktakeCancelRequest(RequestModel):
+     @classmethod
+     def normalize_reason(cls, v: Any) -> str:
+         return _required_text(v)
+-

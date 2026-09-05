@@ -1,0 +1,32 @@
+diff --git a/wa_backend/schemas.py b/wa_backend/schemas.py
+index be79777..b72b955 100644
+--- a/wa_backend/schemas.py
++++ b/wa_backend/schemas.py
+@@ -828,7 +828,8 @@ class JardItemInput(RequestModel):
+ 
+ 
+ class SettleSessionRequest(RequestModel):
+-    actual_cash: MoneyInput = Decimal("0.000")
++    # مبلغ التسوية قرار محاسبي صريح؛ غيابه أو إرساله فارغاً لا يتحول إلى صفر بصمت.
++    actual_cash: RequiredMoneyInput
+     inventory_jard: List[JardItemInput] = Field(default_factory=list, max_length=5000)
+     notes: Optional[str] = Field(None, max_length=4000)
+ 
+@@ -1487,6 +1488,8 @@ class UnifiedStocktakeCountRequest(RequestModel):
+ 
+ 
+ class StocktakeRecountRequest(RequestModel):
++    # يثبت أي محاولة راجعها المشرف قبل تفويض إعادة العد ويمنع Recount على نسخة أحدث بالخطأ.
++    count_attempt_id: PositiveDbInt
+     reason: str = Field(..., min_length=5, max_length=500)
+     authorizer_username: str = Field(..., min_length=1, max_length=80)
+     authorizer_password: str
+@@ -1504,6 +1507,8 @@ class StocktakeRecountRequest(RequestModel):
+ 
+ 
+ class StocktakeApprovalRequest(RequestModel):
++    # Optimistic concurrency: الاعتماد يجب أن يخص محاولة العد التي شاهدها المشرف فعلياً.
++    count_attempt_id: PositiveDbInt
+     password: str
+     notes: Optional[str] = Field(None, max_length=500)
+ 

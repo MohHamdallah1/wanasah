@@ -1,0 +1,188 @@
+--- a/wa_backend/services.py
++++ b/wa_backend/services.py
+@@ -276,10 +276,18 @@
+     destination_location_id = int(destination_location_id) if destination_location_id is not None else None
+ 
+     if quantity <= 0:
+         raise InventoryMutationError("الكمية يجب أن تكون أكبر من صفر.")
+ 
++    # منع إساءة استخدام استثناء القفل: لا يجوز تجاهل قفل جرد إلا لحركة مرتبطة بنفس جلسة الجرد.
++    if ignore_stocktake_session_id is not None:
++        ignore_stocktake_session_id = int(ignore_stocktake_session_id)
++        if stocktake_session_id is None or int(stocktake_session_id) != ignore_stocktake_session_id:
++            raise InventoryMutationError(
++                "لا يجوز تجاوز قفل الجرد إلا عند ترحيل حركة مرتبطة بنفس جلسة الجرد."
++            )
++
+     movement_kind = str(movement_kind).strip().upper()
+     if movement_kind not in {"PHYSICAL", "RESERVATION", "STATUS_CHANGE"}:
+         raise InventoryMutationError("نوع حركة المخزون غير صالح.")
+ 
+     reference_type = str(reference_type or "").strip()
+@@ -333,10 +341,19 @@
+             raise InventoryMutationError("الحركة الفيزيائية تحتاج مصدراً أو وجهة.")
+         if source_location_id is not None and destination_location_id is not None and source_location_id == destination_location_id:
+             raise InventoryMutationError("الحركة الفيزيائية بين نفس الموقع غير صالحة.")
+         if (source_location_id is not None and source_stock_status is None) or (destination_location_id is not None and destination_stock_status is None):
+             raise InventoryMutationError("حالة مخزون المصدر/الوجهة إلزامية.")
++        # النقل الفيزيائي يغيّر الموقع فقط؛ تغيير AVAILABLE/DAMAGED يجب أن يمر حصراً عبر STATUS_CHANGE.
++        if (
++            source_location_id is not None
++            and destination_location_id is not None
++            and source_stock_status != destination_stock_status
++        ):
++            raise InventoryMutationError(
++                "الحركة PHYSICAL لا يجوز أن تغيّر حالة المخزون؛ استخدم STATUS_CHANGE."
++            )
+ 
+     advisory_key = f"inventory:{company_id}:{idempotency_key}"
+     await db_session.execute(select(func.pg_advisory_xact_lock(func.hashtext(advisory_key))))
+ 
+     existing = (await db_session.execute(select(InventoryMovement).filter_by(
+@@ -506,59 +523,89 @@
+         )
+ 
+     return movement
+ 
+ 
+-# تخصيص FEFO مقفل ترتيبياً دون استهلاك أي كمية؛ التنفيذ الفعلي يتم عبر apply_inventory_movement.
++# تخصيص FEFO على الدفعات غير المقفلة؛ يجب استهلاك النتيجة في نفس المعاملة دون commit بين التخصيص والتنفيذ.
+ async def allocate_fefo_inventory(
+     db_session: AsyncSession,
+     *,
+     company_id: int,
+     location_id: int,
+     product_variant_id: int,
+     quantity: int,
+-    as_of_date: Optional[date] = None,
++    as_of_date: date,
+ ) -> List[Tuple[int, int]]:
++    company_id = int(company_id)
++    location_id = int(location_id)
++    product_variant_id = int(product_variant_id)
+     quantity = int(quantity)
+-    as_of_date = as_of_date or date.today()
++
++    if type(as_of_date) is not date:
++        raise InventoryMutationError(
++            "as_of_date إجباري ويجب أن يكون تاريخ العمل المحلي للشركة."
++        )
+     if quantity <= 0:
+         return []
+ 
+-    await check_inventory_lock(db_session, int(company_id), int(location_id), int(product_variant_id))
++    # يفحص القفل الشامل وقفل الصنف العام فقط؛ أقفال دفعات بعينها لا يجب أن توقف الصنف كله.
++    await check_inventory_lock(
++        db_session,
++        company_id,
++        location_id,
++        product_variant_id,
++    )
++
++    # استبعاد الدفعات المقفلة جراحياً من FEFO بدلاً من إيقاف الصنف بكامله.
++    locked_batches = select(InventoryLock.batch_id).filter(
++        InventoryLock.company_id == company_id,
++        InventoryLock.location_id == location_id,
++        InventoryLock.product_variant_id == product_variant_id,
++        InventoryLock.batch_id.is_not(None),
++        InventoryLock.released_at.is_(None),
++    )
+ 
+     stmt = select(InventoryBalance, ProductBatch).join(
+         ProductBatch,
+         and_(
+             ProductBatch.company_id == InventoryBalance.company_id,
+             ProductBatch.product_variant_id == InventoryBalance.product_variant_id,
+             ProductBatch.id == InventoryBalance.batch_id,
+         ),
+     ).filter(
+-        InventoryBalance.company_id == int(company_id),
+-        InventoryBalance.location_id == int(location_id),
+-        InventoryBalance.product_variant_id == int(product_variant_id),
++        InventoryBalance.company_id == company_id,
++        InventoryBalance.location_id == location_id,
++        InventoryBalance.product_variant_id == product_variant_id,
+         InventoryBalance.stock_status == "AVAILABLE",
+         InventoryBalance.on_hand_quantity > InventoryBalance.reserved_quantity,
+         ProductBatch.is_active.is_(True),
+         ProductBatch.expiry_date >= as_of_date,
+-    ).order_by(ProductBatch.expiry_date.asc(), ProductBatch.id.asc()).with_for_update()
++        ~InventoryBalance.batch_id.in_(locked_batches),
++    ).order_by(
++        ProductBatch.expiry_date.asc(),
++        ProductBatch.id.asc(),
++    ).with_for_update(of=InventoryBalance)
+ 
+     rows = (await db_session.execute(stmt)).all()
+     remaining = quantity
+     allocation: List[Tuple[int, int]] = []
++
+     for balance, batch in rows:
+         available = int(balance.on_hand_quantity or 0) - int(balance.reserved_quantity or 0)
+         if available <= 0:
+             continue
++
+         take = min(available, remaining)
+         allocation.append((batch.id, take))
+         remaining -= take
+         if remaining == 0:
+             break
+ 
+     if remaining > 0:
+-        raise InventoryMutationError(f"الرصيد المتاح لا يغطي الكمية المطلوبة. العجز: {remaining} حبة.")
++        raise InventoryMutationError(
++            f"الرصيد المتاح غير المقفل وغير المنتهي لا يغطي الكمية المطلوبة. العجز: {remaining} حبة."
++        )
+ 
+     return allocation
+ 
+ 
+ # إنشاء الحركة العكسية الدقيقة لحركة موحدة سابقة مع إبقاء السجل الأصلي دون تعديل.
+@@ -797,11 +844,18 @@
+         InventoryLock.company_id == company_id,
+         InventoryLock.location_id == location_id,
+         InventoryLock.released_at.is_(None),
+     ]
+     if ignore_stocktake_session_id is not None:
+-        base_filters.append(InventoryLock.stocktake_session_id != int(ignore_stocktake_session_id))
++        ignored_session_id = int(ignore_stocktake_session_id)
++        # SQL: NULL != X ليست True؛ لذلك يجب إبقاء الأقفال اليدوية/غير المرتبطة بجلسة ضمن الحظر.
++        base_filters.append(
++            or_(
++                InventoryLock.stocktake_session_id.is_(None),
++                InventoryLock.stocktake_session_id != ignored_session_id,
++            )
++        )
+ 
+     stmt_full = select(InventoryLock.id).filter(
+         *base_filters,
+         InventoryLock.product_variant_id.is_(None),
+         InventoryLock.batch_id.is_(None),
+@@ -810,12 +864,24 @@
+         raise ValueError(f"الموقع ({location_id}) تحت الجرد الشامل ومقفل بالكامل.")
+ 
+     if variant_id is None:
+         return
+ 
+-    partial_filters = [*base_filters, InventoryLock.product_variant_id == int(variant_id)]
+-    if batch_id is not None:
+-        partial_filters.append(or_(InventoryLock.batch_id == int(batch_id), InventoryLock.batch_id.is_(None)))
++    partial_filters = [
++        *base_filters,
++        InventoryLock.product_variant_id == int(variant_id),
++    ]
++    if batch_id is None:
++        # طلب عام على الصنف: قفل دفعة واحدة لا يجب أن يتحول إلى قفل للصنف كله.
++        partial_filters.append(InventoryLock.batch_id.is_(None))
++    else:
++        # طلب على دفعة محددة: يحترم قفل الدفعة نفسها أو قفل الصنف العام.
++        partial_filters.append(
++            or_(
++                InventoryLock.batch_id == int(batch_id),
++                InventoryLock.batch_id.is_(None),
++            )
++        )
+ 
+     stmt_partial = select(InventoryLock.id).filter(*partial_filters)
+     if (await db_session.execute(stmt_partial)).first():
+         raise ValueError("الصنف/الدفعة مقفل جراحياً بسبب جرد دوري نشط.")
