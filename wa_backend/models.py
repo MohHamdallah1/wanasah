@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Float, Text, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Float, Text, JSON, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -280,6 +280,7 @@ class ProductVariant(Base):
     __table_args__ = (
         UniqueConstraint('company_id', 'sku', name='uq_company_sku'),
         UniqueConstraint('company_id', 'id', name='uq_product_variants_company_id'),
+        Index('ix_product_variant_company_name_id', 'company_id', 'variant_name', 'id'),
         ForeignKeyConstraint(
             ['company_id', 'product_id'],
             ['products.company_id', 'products.id'],
@@ -355,6 +356,10 @@ class WorkSession(Base):
         CheckConstraint(
             'end_time IS NULL OR end_time >= start_time',
             name='chk_work_session_time_order'
+        ),
+        CheckConstraint(
+            'is_settled IS FALSE OR end_time IS NOT NULL',
+            name='chk_work_session_settlement_requires_end'
         ),
     )
     id           = Column(Integer, primary_key=True)
@@ -493,6 +498,8 @@ class DispatchRoute(Base):
               postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
         Index('uq_active_route_per_zone', 'company_id', 'zone_id', unique=True,
               postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
+        # يدعم lookup أحدث route لكل سيارة عبر equality prefix ثم backward scan على id.
+        Index('ix_dispatch_route_company_vehicle_latest', 'company_id', 'vehicle_id', 'id'),
         UniqueConstraint('company_id', 'id', name='uq_dispatch_routes_company_id'),
         ForeignKeyConstraint(['company_id', 'zone_id'], ['zones.company_id', 'zones.id'],
                              ondelete='RESTRICT', name='fk_dispatch_route_tenant_zone'),
@@ -938,6 +945,59 @@ class RefreshToken(Base):
 # =================================================================================
 # [المرحلة الثالثة والرابعة] المحرك الموحد للمخزون ودورة حياة الصلاحية (Batches)
 # =================================================================================
+class OperationIdempotency(Base):
+    # سجل عام للـ idempotency على مستوى العملية التجارية داخل Tenant واحد.
+    __tablename__ = 'operation_idempotency'
+    __table_args__ = (
+        UniqueConstraint(
+            'company_id', 'operation', 'request_id',
+            name='uq_operation_idempotency_request'
+        ),
+        UniqueConstraint(
+            'company_id', 'id',
+            name='uq_operation_idempotency_company_id'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'created_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_operation_idempotency_tenant_actor'
+        ),
+        CheckConstraint(
+            "length(trim(operation)) > 0",
+            name='chk_operation_idempotency_operation_not_blank'
+        ),
+        CheckConstraint(
+            "request_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
+            name='chk_operation_idempotency_request_id_format'
+        ),
+        CheckConstraint(
+            "request_hash ~ '^[0-9a-f]{64}$'",
+            name='chk_operation_idempotency_hash_format'
+        ),
+        CheckConstraint(
+            "((response_json IS NULL AND completed_at IS NULL) OR "
+            "(response_json IS NOT NULL AND completed_at IS NOT NULL))",
+            name='chk_operation_idempotency_completion_pair'
+        ),
+    )
+
+    id            = Column(Integer, primary_key=True)
+    company_id    = Column(
+        Integer,
+        ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    operation     = Column(String(80), nullable=False)
+    request_id    = Column(String(36), nullable=False)
+    request_hash  = Column(String(64), nullable=False)
+    created_by    = Column(Integer, nullable=False, index=True)
+    response_json = Column(JSON, nullable=True)
+    created_at    = Column(DateTime, nullable=False, default=utc_now, index=True)
+    completed_at  = Column(DateTime, nullable=True)
+
+
 class ProductBatch(Base):
     # دفعة Tenant-safe لإدارة الإنتاج والصلاحية وFEFO.
     __tablename__ = 'product_batches'
@@ -987,9 +1047,14 @@ class InventoryLocation(Base):
         ForeignKeyConstraint(['company_id', 'vehicle_id'], ['vehicles.company_id', 'vehicles.id'],
                              ondelete='RESTRICT', name='fk_inventory_location_tenant_vehicle'),
         CheckConstraint("location_type IN ('WAREHOUSE', 'VEHICLE', 'IN_TRANSIT', 'SCRAP')", name='chk_inv_loc_type'),
+        CheckConstraint("length(trim(name)) > 0", name='chk_inv_loc_name_not_blank'),
         CheckConstraint("length(trim(code)) > 0", name='chk_inv_loc_code_not_blank'),
         CheckConstraint("vehicle_id IS NULL OR location_type = 'VEHICLE'", name='chk_inv_loc_vehicle_type'),
         CheckConstraint("location_type <> 'VEHICLE' OR vehicle_id IS NOT NULL", name='chk_inv_loc_vehicle_required'),
+        Index(
+            'ix_inventory_location_company_type_active_id',
+            'company_id', 'location_type', 'is_active', 'id'
+        ),
         Index('uq_active_inventory_location_vehicle', 'company_id', 'vehicle_id', unique=True,
               postgresql_where=text("vehicle_id IS NOT NULL AND is_active IS TRUE")),
     )
@@ -1127,6 +1192,11 @@ class InventoryMovement(Base):
         Index('ix_inv_movement_locations', 'company_id', 'source_location_id', 'destination_location_id'),
         Index('ix_inv_movement_item_created', 'company_id', 'product_variant_id', 'batch_id', 'created_at'),
         Index('ix_inv_movement_stocktake_attempt', 'company_id', 'stocktake_count_attempt_id'),
+        # Keyset pagination / exact-reference paths for the append-only ledger.
+        Index('ix_inv_movement_company_created_id', 'company_id', 'created_at', 'id'),
+        Index('ix_inv_movement_company_source_created_id', 'company_id', 'source_location_id', 'created_at', 'id'),
+        Index('ix_inv_movement_company_destination_created_id', 'company_id', 'destination_location_id', 'created_at', 'id'),
+        Index('ix_inv_movement_company_reference', 'company_id', 'reference_id'),
     )
     id                       = Column(Integer, primary_key=True)
     company_id               = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
@@ -1253,7 +1323,7 @@ class InventoryTransferHeader(Base):
             name='chk_transfer_header_transit_location_scope'
         ),
         CheckConstraint(
-            "workflow_type <> 'TRANSIT' OR status IN ('DRAFT', 'CANCELLED') OR transit_location_id IS NOT NULL",
+            "workflow_type <> 'TRANSIT' OR status = 'DRAFT' OR transit_location_id IS NOT NULL",
             name='chk_transfer_header_transit_location_required'
         ),
         CheckConstraint(
@@ -1267,6 +1337,19 @@ class InventoryTransferHeader(Base):
         CheckConstraint(
             "workflow_type = 'HANDSHAKE' OR expected_receiver_id IS NULL",
             name='chk_transfer_header_receiver_scope'
+        ),
+        CheckConstraint(
+            "workflow_type = 'HANDSHAKE' OR work_session_id IS NULL",
+            name='chk_transfer_header_session_scope'
+        ),
+        CheckConstraint(
+            "status IN ('ACCEPTED', 'REJECTED', 'POSTED') OR received_by IS NULL",
+            name='chk_transfer_header_received_by_scope'
+        ),
+        CheckConstraint(
+            "workflow_type <> 'TRANSIT' OR status NOT IN ('POSTED', 'REJECTED') "
+            "OR received_by <> dispatched_by",
+            name='chk_transfer_header_separation_of_duties'
         ),
         CheckConstraint(
             "status NOT IN ('REJECTED', 'CANCELLED') OR "
@@ -1326,6 +1409,11 @@ class InventoryTransferHeader(Base):
         CheckConstraint(
             "posted_at IS NULL OR accepted_at IS NULL OR posted_at >= accepted_at",
             name='chk_transfer_header_post_after_accept'
+        ),
+        Index(
+            'ix_transfer_header_transit_queue',
+            'company_id', 'status', 'created_at', 'id',
+            postgresql_where=text("workflow_type = 'TRANSIT'")
         ),
     )
     id                      = Column(Integer, primary_key=True)
@@ -1408,7 +1496,11 @@ class StocktakeSession(Base):
         CheckConstraint("stocktake_type IN ('FULL_COUNT', 'CYCLE_COUNT', 'VEHICLE_RECON')", name='chk_stocktake_type'),
         CheckConstraint('scope_batch_id IS NULL OR scope_product_variant_id IS NOT NULL', name='chk_stocktake_scope_batch_requires_product'),
         CheckConstraint("((stocktake_type = 'CYCLE_COUNT' AND scope_product_variant_id IS NOT NULL) OR (stocktake_type IN ('FULL_COUNT', 'VEHICLE_RECON') AND scope_product_variant_id IS NULL AND scope_batch_id IS NULL))", name='chk_stocktake_scope_by_type'),
-        CheckConstraint("related_work_session_id IS NULL OR stocktake_type = 'VEHICLE_RECON'", name='chk_stocktake_work_session_scope'),
+        CheckConstraint(
+            "((stocktake_type = 'VEHICLE_RECON' AND related_work_session_id IS NOT NULL) OR "
+            "(stocktake_type <> 'VEHICLE_RECON' AND related_work_session_id IS NULL))",
+            name='chk_stocktake_work_session_scope'
+        ),
         CheckConstraint(
             "status IN ('DRAFT', 'CANCELLED') OR snapshot_cutoff_at IS NOT NULL",
             name='chk_stocktake_snapshot_cutoff'
@@ -1458,6 +1550,17 @@ class StocktakeSession(Base):
         CheckConstraint(
             "cancelled_at IS NULL OR cancelled_at >= created_at",
             name='chk_stocktake_cancelled_time'
+        ),
+        Index(
+            'uq_vehicle_recon_work_session',
+            'company_id',
+            'related_work_session_id',
+            unique=True,
+            postgresql_where=text(
+                "stocktake_type = 'VEHICLE_RECON' "
+                "AND related_work_session_id IS NOT NULL "
+                "AND status <> 'CANCELLED'"
+            ),
         ),
         Index('uq_active_full_stocktake_location', 'company_id', 'location_id', unique=True,
               postgresql_where=text("stocktake_type IN ('FULL_COUNT', 'VEHICLE_RECON') AND status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED')")),

@@ -1,81 +1,118 @@
-import { useState, useMemo, useEffect } from "react";
-import { AlertTriangle, RefreshCcw, Search, Info, FilterX } from "lucide-react";
-import type { WarehouseProduct, WarehouseAlert } from "./inventoryUtils";
+import { useState, useEffect } from "react";
+import { AlertTriangle, RefreshCcw, Search, Info, FilterX, ChevronRight, ChevronLeft } from "lucide-react";
+import type { WarehouseProduct } from "./inventoryUtils";
 import { formatQty } from "./inventoryUtils";
 
 interface Props {
+  locationId: number;
   products: WarehouseProduct[];
-  alerts: WarehouseAlert[];
   loading: boolean;
+  alertCount: number;
+  alertSamples: string[];
+  matchingTotal: number | null;
+  pageNumber: number;
+  hasMore: boolean;
+  hasPrevious: boolean;
+  onlyAlerts: boolean;
+  onSearchChange: (search: string) => void;
+  onOnlyAlertsChange: (onlyAlerts: boolean) => void;
+  onNext: () => void;
+  onPrevious: () => void;
   onRefresh: () => void;
 }
 
-export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
-  // +++ الأداء الإيليت: Cache لمعرفات النواقص +++
-  const alertIds = useMemo(() => new Set(alerts.map((a) => a.product_variant_id)), [alerts]);
-
-  // +++ إضافة محرك البحث والفلترة الذكية +++
-  const [search, setSearch] = useState("");
-  const [showOnlyAlerts, setShowOnlyAlerts] = useState(false);
-
-  // +++ إضافة "طابع الزمن" (Timestamp) لمنع خداع المدير ببيانات بايتة +++
+export function Tab1LiveStock({
+  locationId,
+  products,
+  loading,
+  alertCount,
+  alertSamples,
+  matchingTotal,
+  pageNumber,
+  hasMore,
+  hasPrevious,
+  onlyAlerts,
+  onSearchChange,
+  onOnlyAlertsChange,
+  onNext,
+  onPrevious,
+  onRefresh,
+}: Props) {
+  const [searchInput, setSearchInput] = useState("");
   const [lastSync, setLastSync] = useState<Date>(new Date());
 
   useEffect(() => {
-    if (!loading && products.length > 0) {
-      setLastSync(new Date());
-    }
-  }, [products, loading]);
-  // +++ درع الحماية: إنهاء حالة "الجدول الميت" تلقائياً إذا اختفت النواقص +++
-  useEffect(() => {
-    if (alerts.length === 0 && showOnlyAlerts) {
-      setShowOnlyAlerts(false);
-    }
-  }, [alerts.length, showOnlyAlerts]);
+    setSearchInput("");
+  }, [locationId]);
 
-  // +++ فلترة الجدول بناءً على البحث وزر النواقص +++
-  const displayedProducts = useMemo(() => {
-    return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || (p.sku && p.sku.toLowerCase().includes(search.toLowerCase()));
-      const matchesAlert = showOnlyAlerts ? alertIds.has(p.id) : true;
-      return matchesSearch && matchesAlert;
-    });
-  }, [products, search, showOnlyAlerts, alertIds]);
+  useEffect(() => {
+    const handler = window.setTimeout(() => {
+      const clean = searchInput.trim();
+      onSearchChange(clean.length >= 2 ? clean : "");
+    }, 300);
+    return () => window.clearTimeout(handler);
+  }, [searchInput, onSearchChange]);
+
+  useEffect(() => {
+    if (!loading) setLastSync(new Date());
+  }, [products, loading]);
+
+  useEffect(() => {
+    if (alertCount === 0 && onlyAlerts) {
+      onOnlyAlertsChange(false);
+    }
+  }, [alertCount, onlyAlerts, onOnlyAlertsChange]);
 
   return (
     <div className="flex flex-col gap-3 h-full flex-1 min-h-0">
-      {/* +++  للنواقص المخفية: جعل التنبيه Clickable لفلترة الجدول فوراً +++ */}
-      {alerts.length > 0 && (
+      {alertCount > 0 && (
         <div
-          onClick={() => setShowOnlyAlerts(!showOnlyAlerts)}
-          className={`flex flex-col sm:flex-row items-start gap-3 border rounded-2xl px-4 py-3 w-full cursor-pointer transition-all shadow-sm ${showOnlyAlerts ? "bg-red-100 border-red-400" : "bg-red-50 border-red-200 hover:bg-red-100 pulse-border-red"
-            }`}
+          onClick={() => onOnlyAlertsChange(!onlyAlerts)}
+          className={`flex flex-col sm:flex-row items-start gap-3 border rounded-2xl px-4 py-3 w-full cursor-pointer transition-all shadow-sm ${
+            onlyAlerts
+              ? "bg-red-100 border-red-400"
+              : "bg-red-50 border-red-200 hover:bg-red-100 pulse-border-red"
+          }`}
           title="اضغط هنا لفلترة الجدول وعرض النواقص فقط"
         >
-          <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${showOnlyAlerts ? "text-red-600" : "text-red-500"}`} />
+          <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${onlyAlerts ? "text-red-600" : "text-red-500"}`} />
           <div className="flex-1 min-w-0 flex justify-between items-center">
             <div>
               <p className="text-sm font-bold text-red-700">
-                تحذير: {alerts.length} صنف وصل للحد الأدنى
+                تحذير: {alertCount} صنف وصل للحد الأدنى
               </p>
               <p className="text-xs text-red-500 mt-0.5">
-                {showOnlyAlerts
+                {onlyAlerts
                   ? "تمت تصفية الجدول لعرض هذه الأصناف بالأسفل ↓"
-                  : `(اضغط هنا لعرضها بالجدول) منها: ${alerts.slice(0, 3).map((a) => a.product_name).join(" • ")}${alerts.length > 3 ? "..." : ""}`}
+                  : `(اضغط هنا لعرضها بالجدول) منها: ${alertSamples.join(" • ")}${alertCount > alertSamples.length ? "..." : ""}`}
               </p>
             </div>
-            {showOnlyAlerts && (
-              <FilterX className="w-5 h-5 text-red-500 opacity-70" />
-            )}
+            {onlyAlerts && <FilterX className="w-5 h-5 text-red-500 opacity-70" />}
           </div>
         </div>
       )}
 
       <div className="glass-card overflow-hidden pt-0 flex flex-col flex-1 min-h-0">
-        {/* +++ تم إعدام الـ div الفارغ الذي كان يسبب المساحة البرتقالية العلوية +++ */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-white/70">
+          <div className="text-[11px] font-bold text-slate-400">
+            {matchingTotal !== null ? `النتائج: ${matchingTotal}` : `صفحة ${pageNumber}`}
+            <span className="mx-2">•</span>
+            آخر تحديث: {lastSync.toLocaleTimeString("ar-EG")}
+          </div>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#1e87bb] disabled:opacity-40"
+          >
+            <RefreshCcw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            تحديث
+          </button>
+        </div>
 
-        {/* +++ الكي الجراحي: استخدام flex-1 min-h-0 بدلاً من vh لتمتص الحاوية المساحة المتبقية فقط +++ */}
-        <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar transition-all duration-300 ${loading ? "opacity-50 pointer-events-none select-none grayscale-[20%]" : "opacity-100"}`}>
+        <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar transition-all duration-300 ${
+          loading ? "opacity-50 pointer-events-none select-none grayscale-[20%]" : "opacity-100"
+        }`}>
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur shadow-sm border-b border-slate-200 text-right">
               <tr>
@@ -87,8 +124,8 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
                       <input
                         type="search"
                         placeholder="ابحث عن صنف أو SKU..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
                         className="w-full pl-4 pr-9 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-[#1e87bb] bg-white transition-all shadow-sm"
                       />
                     </div>
@@ -96,26 +133,22 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
                 </th>
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">رمز الصنف (SKU)</th>
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">في المستودع</th>
-                
-                {/* +++ تولتيب صاروخي: (hidden group-hover:block) لظهور فوري بدون أي تأخير، وتوجيه للأسفل (top-full mt-2) +++ */}
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
                   <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
                     قيد التحويل <Info className="w-3 h-3" />
                     <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
-                      البضاعة التي تم تعديلها للمندوب وبانتظار موافقته
+                      البضاعة المحجوزة داخل الرصيد الفيزيائي وغير المتاحة حالياً للصرف
                     </div>
                   </div>
                 </th>
-                
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
                   <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
                     إجمالي البضاعة <Info className="w-3 h-3" />
                     <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
-                      إجمالي البضاعة الحالية داخل المستودع (المتاح للبيع + السيارات)
+                      الرصيد الفيزيائي في المستودع والسيارات المرتبطة بهذا المستودع
                     </div>
                   </div>
                 </th>
-                
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
                   <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
                     التوالف بالفرع <Info className="w-3 h-3" />
@@ -127,23 +160,22 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
               </tr>
             </thead>
             <tbody>
-              {displayedProducts.length === 0 && (
+              {products.length === 0 && (
                 <tr>
                   <td colSpan={6} className="text-center py-12 text-slate-400 text-sm">
                     {loading ? "جارٍ التحميل..." : "لا توجد بيانات مطابقة"}
                   </td>
                 </tr>
               )}
-              {displayedProducts.map((p) => {
-                const isAlert = alertIds.has(p.id);
+
+              {products.map((p) => {
+                const isAlert = p.min_threshold > 0 && p.available_packs <= p.min_threshold;
                 return (
                   <tr
                     key={p.id}
-                    /* +++ الكي الجراحي: فصل بخط slate-100/80 فائق النعومة، وإضاءة الصف تلقائياً عند مرور الماوس +++ */
-                    className={`border-b border-slate-100/80 transition-all duration-200 ${isAlert
-                      ? "bg-red-50/50 hover:bg-red-50/80"
-                      : "bg-white hover:bg-slate-50/60"
-                      }`}
+                    className={`border-b border-slate-100/80 transition-all duration-200 ${
+                      isAlert ? "bg-red-50/50 hover:bg-red-50/80" : "bg-white hover:bg-slate-50/60"
+                    }`}
                   >
                     <td className="px-4 py-3 font-semibold text-slate-800 flex items-center gap-2">
                       {isAlert && (
@@ -156,6 +188,11 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
                     <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku || "—"}</td>
                     <td className="px-4 py-3 text-emerald-700 font-semibold">
                       {formatQty(p.available_packs, p.packs_per_carton)}
+                      {p.blocked_packs > 0 && (
+                        <div className="text-[10px] font-bold text-amber-600 mt-0.5">
+                          محجوب عن الصرف: {formatQty(p.blocked_packs, p.packs_per_carton)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-violet-600 font-semibold">
                       {formatQty(p.reserved_packs, p.packs_per_carton)}
@@ -172,6 +209,32 @@ export function Tab1LiveStock({ products, alerts, loading, onRefresh }: Props) {
             </tbody>
           </table>
         </div>
+
+        {(hasPrevious || hasMore) && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50">
+            <span className="text-xs font-bold text-slate-500">صفحة {pageNumber}</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onPrevious}
+                disabled={!hasPrevious || loading}
+                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
+                title="الصفحة السابقة"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onNext}
+                disabled={!hasMore || loading}
+                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
+                title="الصفحة التالية"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

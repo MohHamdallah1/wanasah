@@ -2,7 +2,9 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices
 from pydantic.functional_validators import BeforeValidator
 from typing import Optional, List, Any, Literal, Annotated, Dict, Union
 from datetime import datetime, timezone, date
+from uuid import UUID
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import re
 
 # ==========================================
 # 0. Boundary primitives — fail closed, preserve DB precision, and reject lossy coercion.
@@ -1256,14 +1258,25 @@ class WarehouseInventoryItem(BaseModel):
     packs_per_carton: int
     available_packs: int
     reserved_packs: int
+    blocked_packs: int
     total_packs: int
     damaged_packs: int
     available_cartons: int
     available_loose_packs: int
     min_threshold: int
 
+class WarehouseInventoryCursorPage(BaseModel):
+    items: List[WarehouseInventoryItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+    alert_count: Optional[int] = None
+    alert_samples: List[str] = Field(default_factory=list)
+
+
 class WarehouseLedgerItem(BaseModel):
     id: int
+    product_variant_id: int
     product_name: str
     packs_per_carton: int
     type: str
@@ -1275,13 +1288,131 @@ class WarehouseLedgerItem(BaseModel):
     notes: Optional[str] = None
     date: str
 
+class WarehouseLedgerCursorPage(BaseModel):
+    items: List[WarehouseLedgerItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+    available_types: List[str] = Field(default_factory=list)
+
+
 class WarehouseStatusResponse(BaseModel):
     status: str
+
+
+def _warehouse_code_input(v: Any) -> str:
+    value = _required_text(v).upper()
+    if len(value) > 50:
+        raise ValueError("كود المستودع يجب ألا يتجاوز 50 حرفاً.")
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]*", value):
+        raise ValueError(
+            "كود المستودع يقبل أحرف A-Z وأرقاماً والرمزين - و _ فقط، "
+            "ويجب أن يبدأ بحرف أو رقم."
+        )
+    return value
+
+
+class WarehouseLocationCreateRequest(RequestModel):
+    request_id: UUID
+    name: str = Field(..., min_length=1, max_length=150)
+    code: str = Field(..., min_length=1, max_length=50)
+    branch_id: OptionalPositiveDbInt = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: Any) -> str:
+        return _required_text(v)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, v: Any) -> str:
+        return _warehouse_code_input(v)
+
+
+class WarehouseLocationUpdateRequest(RequestModel):
+    request_id: UUID
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    code: Optional[str] = Field(None, min_length=1, max_length=50)
+    branch_id: OptionalPositiveDbInt = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        return _required_text(v)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        return _warehouse_code_input(v)
+
+    @model_validator(mode="after")
+    def require_mutation(self) -> "WarehouseLocationUpdateRequest":
+        if not ({"name", "code", "branch_id"} & self.model_fields_set):
+            raise ValueError("يجب إرسال حقل واحد على الأقل لتعديل المستودع.")
+        return self
+
+
+class WarehouseLocationStateRequest(RequestModel):
+    request_id: UUID
+    reason: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
+
+
+class WarehouseLocationItem(BaseModel):
+    id: int
+    name: str
+    code: str
+    branch_id: Optional[int] = None
+    branch_name: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class WarehouseLocationCursorPage(BaseModel):
+    items: List[WarehouseLocationItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
+class WarehouseLocationMutationResponse(BaseModel):
+    message: str
+    location: WarehouseLocationItem
+
 
 class SimpleProductVariantItem(BaseModel):
     id: int
     name: str
+    sku: Optional[str] = None
     packs_per_carton: int
+
+
+class SimpleProductVariantCursorPage(BaseModel):
+    items: List[SimpleProductVariantItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
+class ProductVariantResolveRequest(RequestModel):
+    ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=5000)
+
+    @field_validator("ids")
+    @classmethod
+    def deduplicate_ids(cls, values: List[int]) -> List[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("قائمة معرفات المنتجات لا يجوز أن تحتوي تكراراً.")
+        return values
+
 
 class AddProductVariantRequest(RequestModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -1352,6 +1483,7 @@ class InboundBatchItem(RequestModel):
 
 
 class UpgradedInboundRequest(RequestModel):
+    request_id: UUID
     location_id: PositiveDbInt
     reference_id: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = Field(None, max_length=4000)
@@ -1402,6 +1534,7 @@ class UnifiedTransferItem(RequestModel):
 
 
 class UnifiedDispatchRequest(RequestModel):
+    request_id: UUID
     source_location_id: PositiveDbInt
     destination_location_id: PositiveDbInt
     items: List[UnifiedTransferItem] = Field(..., min_length=1, max_length=5000)
@@ -1438,9 +1571,70 @@ class UnifiedDispatchRequest(RequestModel):
 
 
 class UnifiedReceiveRequest(RequestModel):
+    request_id: UUID
     transfer_header_id: PositiveDbInt
     destination_location_id: PositiveDbInt
 
+
+class UnifiedTransferDecisionRequest(RequestModel):
+    request_id: UUID
+    decision_reason: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("decision_reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, v: Any) -> str:
+        return _required_text(v)
+
+
+class WarehouseTransferListItem(BaseModel):
+    id: int
+    reference_number: str
+    source_location_id: int
+    source_location_name: str
+    destination_location_id: int
+    destination_location_name: str
+    status: str
+    dispatched_by: int
+    dispatched_by_name: str
+    received_by: Optional[int] = None
+    received_by_name: Optional[str] = None
+    cancelled_by: Optional[int] = None
+    cancelled_by_name: Optional[str] = None
+    line_count: int
+    total_quantity: int
+    notes: Optional[str] = None
+    decision_reason: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    accepted_at: Optional[datetime] = None
+    rejected_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    posted_at: Optional[datetime] = None
+
+
+class WarehouseTransferCursorPage(BaseModel):
+    items: List[WarehouseTransferListItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
+class WarehouseTransferLineItem(BaseModel):
+    id: int
+    product_variant_id: int
+    product_name: str
+    batch_id: int
+    batch_number: str
+    expiry_date: date
+    quantity: int
+    fefo_override_reason_id: Optional[int] = None
+    fefo_overridden_by: Optional[int] = None
+    fefo_override_note: Optional[str] = None
+
+
+class WarehouseTransferDetail(BaseModel):
+    transfer: WarehouseTransferListItem
+    lines: List[WarehouseTransferLineItem]
 
 
 class UnifiedStocktakeStartRequest(RequestModel):
@@ -1497,7 +1691,7 @@ class StocktakeCountItem(RequestModel):
 
 
 class UnifiedStocktakeCountRequest(RequestModel):
-    items: List[StocktakeCountItem] = Field(..., min_length=1, max_length=10000)
+    items: List[StocktakeCountItem] = Field(..., max_length=10000)
     notes: Optional[str] = Field(None, max_length=4000)
 
     @field_validator("notes", mode="before")

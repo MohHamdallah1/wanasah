@@ -5,7 +5,7 @@ import { Tab1LiveStock } from "./Tab1LiveStock";
 import { Tab2Inbound } from "./Tab2Inbound";
 import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
-import type { WarehouseProduct, WarehouseAlert, LedgerEntry } from "./inventoryUtils";
+import type { WarehouseProduct } from "./inventoryUtils";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء الدستور الموحد +++
 
@@ -31,14 +31,23 @@ export default function MainInventory() {
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
   const [locationError, setLocationError] = useState<boolean>(false); // +++ التفرقة بين فشل الشبكة والمستودع الفارغ +++
   
-  const [products, setProducts] = useState<WarehouseProduct[]>([]);
-  const [alerts, setAlerts] = useState<WarehouseAlert[]>([]);
-  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-  const ledgerFetchedRef = useRef(false); 
+  const [stockItems, setStockItems] = useState<WarehouseProduct[]>([]);
+  const [stockTotal, setStockTotal] = useState<number | null>(null);
+  const [stockMatchingTotal, setStockMatchingTotal] = useState<number | null>(null);
+  const [stockAlertCount, setStockAlertCount] = useState(0);
+  const [stockAlertSamples, setStockAlertSamples] = useState<string[]>([]);
+  const [stockCursor, setStockCursor] = useState<string | null>(null);
+  const [stockCursorHistory, setStockCursorHistory] = useState<Array<string | null>>([]);
+  const [stockNextCursor, setStockNextCursor] = useState<string | null>(null);
+  const [stockSearch, setStockSearch] = useState("");
+  const [stockOnlyAlerts, setStockOnlyAlerts] = useState(false);
+  const [stockRefreshKey, setStockRefreshKey] = useState(0);
+  const stockRequestSeq = useRef(0);
+
+  const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
   const [isAuditLocked, setIsAuditLocked] = useState<boolean>(true);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingStock, setLoadingStock] = useState(false);
-  const [loadingLedger, setLoadingLedger] = useState(false);
   const [lastSync, setLastSync] = useState<Date>(new Date());
 
   // جلب المستودعات المتاحة للشركة عند الدخول
@@ -62,38 +71,104 @@ export default function MainInventory() {
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
     if (!selectedLocationId) return;
-    setLoadingStock(true);
-    try {
-      const data = await authFetch(`/warehouse/inventory?location_id=${selectedLocationId}`);
-      if (Array.isArray(data)) {
-        setProducts(data);
-        setLastSync(new Date()); 
-      } else {
-        throw new Error("تنسيق بيانات المخزون غير صالح");
-      }
-    } catch (e: any) {
-      toast.error(e.message || "خطأ حرج في جلب المخزون");
-      setProducts([]);
-    } finally {
-      setLoadingStock(false);
-    }
-  }, [authFetch, selectedLocationId]); // +++ سحق Stale Closure (P0-2) +++
 
-  const fetchAlerts = useCallback(async () => {
-    if (!selectedLocationId) return;
+    const requestSeq = ++stockRequestSeq.current;
+    setLoadingStock(true);
+
     try {
-      const data = await authFetch(`/warehouse/alerts?location_id=${selectedLocationId}`);
-      if (Array.isArray(data)) {
-        setAlerts(data);
-        if (data.length > 0) {
-          toast.warning(`تنبيه: يوجد ${data.length} منتجات تجاوزت الحد الأدنى للمخزون!`);
+      const params = new URLSearchParams({
+        location_id: String(selectedLocationId),
+        limit: "50",
+      });
+
+      if (stockCursor) params.set("cursor", stockCursor);
+      if (stockSearch) params.set("search", stockSearch);
+      if (stockOnlyAlerts) params.set("only_alerts", "true");
+
+      const data = await authFetch(
+        `/warehouse/inventory/cursor?${params.toString()}`
+      );
+
+      if (requestSeq !== stockRequestSeq.current) return;
+      if (!data || !Array.isArray(data.items)) {
+        throw new Error("تنسيق صفحة المخزون غير صالح");
+      }
+
+      setStockItems(data.items);
+      setStockNextCursor(data.next_cursor || null);
+
+      if (typeof data.total === "number") {
+        setStockMatchingTotal(data.total);
+
+        if (!stockSearch && !stockOnlyAlerts && stockCursor === null) {
+          setStockTotal(data.total);
         }
       }
+
+      if (!stockSearch && !stockOnlyAlerts && stockCursor === null) {
+        if (typeof data.alert_count === "number") {
+          setStockAlertCount(data.alert_count);
+        }
+        if (Array.isArray(data.alert_samples)) {
+          setStockAlertSamples(data.alert_samples);
+        }
+      }
+
+      setLastSync(new Date());
     } catch (e: any) {
-      console.error("Alerts Fetch Error:", e);
-      toast.warning("تنبيه: فشل الاتصال بخدمة التنبيهات");
+      if (requestSeq !== stockRequestSeq.current) return;
+      toast.error(e?.message || "خطأ حرج في جلب المخزون");
+      setStockItems([]);
+      setStockNextCursor(null);
+      setStockMatchingTotal(null);
+    } finally {
+      if (requestSeq === stockRequestSeq.current) {
+        setLoadingStock(false);
+      }
     }
-  }, [authFetch, selectedLocationId]); 
+  }, [
+    authFetch,
+    selectedLocationId,
+    stockCursor,
+    stockSearch,
+    stockOnlyAlerts,
+    stockRefreshKey,
+  ]);
+
+  const resetStockPagination = useCallback(() => {
+    setStockCursor(null);
+    setStockCursorHistory([]);
+    setStockNextCursor(null);
+    setStockMatchingTotal(null);
+  }, []);
+
+  const refreshStock = useCallback(() => {
+    resetStockPagination();
+    setStockRefreshKey((value) => value + 1);
+  }, [resetStockPagination]);
+
+  const handleStockSearchChange = useCallback((value: string) => {
+    resetStockPagination();
+    setStockSearch(value);
+  }, [resetStockPagination]);
+
+  const handleStockAlertsChange = useCallback((value: boolean) => {
+    resetStockPagination();
+    setStockOnlyAlerts(value);
+  }, [resetStockPagination]);
+
+  const handleStockNext = useCallback(() => {
+    if (!stockNextCursor) return;
+    setStockCursorHistory((prev) => [...prev, stockCursor]);
+    setStockCursor(stockNextCursor);
+  }, [stockCursor, stockNextCursor]);
+
+  const handleStockPrevious = useCallback(() => {
+    if (stockCursorHistory.length === 0) return;
+    const previousCursor = stockCursorHistory[stockCursorHistory.length - 1] ?? null;
+    setStockCursorHistory((prev) => prev.slice(0, -1));
+    setStockCursor(previousCursor);
+  }, [stockCursorHistory]);
 
   // جلب حالة القفل للمستودع المحدد فقط دون التأثير على باقي المستودعات.
   const fetchStatus = useCallback(async () => {
@@ -122,38 +197,28 @@ export default function MainInventory() {
     }
   }, [authFetch, selectedLocationId]);
 
-  const fetchLedger = useCallback(async (force = false) => {
-    if (!selectedLocationId) return;
-    if (!force && ledgerFetchedRef.current) return;
-    setLoadingLedger(true);
-    try {
-      const data = await authFetch(`/warehouse/ledger?location_id=${selectedLocationId}`);
-      if (Array.isArray(data)) {
-        setLedger(data);
-        ledgerFetchedRef.current = true;
-      }
-    } catch (e: any) {
-      toast.error(e.message || "خطأ في جلب السجل");
-      setLedger([]);
-    } finally {
-      setLoadingLedger(false);
-    }
-  }, [authFetch, selectedLocationId]); // +++ سحق Stale Closure (P0-2) +++
-
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
 
-  // جلب المخزون فور توفر المستودع
   useEffect(() => {
-    if (selectedLocationId) {
-      ledgerFetchedRef.current = false; // إعادة طلب السجل للمستودع الجديد
-      fetchStock();
-      fetchAlerts();
-      if (activeTab === "ledger") fetchLedger();
-    }
-  }, [selectedLocationId, fetchStock, fetchAlerts, fetchLedger, activeTab]);
+    stockRequestSeq.current += 1;
+    setStockItems([]);
+    setStockTotal(null);
+    setStockMatchingTotal(null);
+    setStockAlertCount(0);
+    setStockAlertSamples([]);
+    setStockSearch("");
+    setStockOnlyAlerts(false);
+    setStockCursor(null);
+    setStockCursorHistory([]);
+    setStockNextCursor(null);
+  }, [selectedLocationId]);
+
+  useEffect(() => {
+    if (selectedLocationId) fetchStock();
+  }, [selectedLocationId, fetchStock]);
 
   // +++ الدرع المعماري (P2 Fixed): حماية الشاشة البيضاء في حال انعدام المواقع (مع استثناء فشل الشبكة) +++
   if (!loadingStatus && locations.length === 0 && !locationError) {
@@ -220,7 +285,7 @@ export default function MainInventory() {
             <div className="flex items-center gap-2">
               <Package className="w-4 h-4 text-[#1e87bb]" />
               <span className="text-sm font-black text-slate-700">
-                الرصيد الحي — <span className="text-[#1e87bb]">{products.length}</span> صنف
+                الرصيد الحي — <span className="text-[#1e87bb]">{stockTotal ?? "—"}</span> صنف
               </span>
               {isAuditLocked && (
                 <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
@@ -233,7 +298,7 @@ export default function MainInventory() {
             </span>
           </div>
           <button
-            onClick={() => { fetchStock(); fetchStatus(); fetchAlerts(); }}
+            onClick={() => { refreshStock(); fetchStatus(); }}
             disabled={loadingStock}
             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-50 hover:text-[#1e87bb] hover:border-[#1e87bb]/30 transition-all shadow-sm disabled:opacity-50 active:scale-95"
           >
@@ -245,49 +310,51 @@ export default function MainInventory() {
 
       {/* ═══ Tab Content ═══ */}
       <div className="flex-1 min-h-0 flex flex-col">
-        {activeTab === "live" && (
+        {activeTab === "live" && selectedLocationId && (
           <Tab1LiveStock
-            products={products}
-            alerts={alerts}
+            locationId={selectedLocationId}
+            products={stockItems}
             loading={loadingStock}
-            // +++ الكي الجراحي: عند ضغط زر التحديث من داخل الجدول، نحدث النواقص والمخزون معاً +++
-            onRefresh={() => { fetchStock(); fetchAlerts(); }}
+            alertCount={stockAlertCount}
+            alertSamples={stockAlertSamples}
+            matchingTotal={stockMatchingTotal}
+            pageNumber={stockCursorHistory.length + 1}
+            hasMore={!!stockNextCursor}
+            hasPrevious={stockCursorHistory.length > 0}
+            onlyAlerts={stockOnlyAlerts}
+            onSearchChange={handleStockSearchChange}
+            onOnlyAlertsChange={handleStockAlertsChange}
+            onNext={handleStockNext}
+            onPrevious={handleStockPrevious}
+            onRefresh={refreshStock}
           />
         )}
         {activeTab === "inbound" && selectedLocationId && (
           <Tab2Inbound
-            products={products}
             locationId={selectedLocationId} // +++ تمرير الموقع لعملية الإدخال +++
             authenticatedFetch={authFetch}
             onSuccess={async () => {
-              await Promise.all([
-                fetchStock(),
-                fetchAlerts(),
-                fetchLedger(true)
-              ]);
+              refreshStock();
+              setLedgerRefreshKey((value) => value + 1);
             }}
           />
         )}
         {activeTab === "stocktake" && selectedLocationId && (
           <Tab3Stocktake
-            products={products}
             locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
             isAuditLocked={isAuditLocked}
             authenticatedFetch={authFetch}
             onLockChange={async (locked) => {
               setIsAuditLocked(locked);
-              // +++  (I-09): إجبار مسح الكاش وتحديث دفتر الأستاذ (Ledger) بعد الجرد +++
-              ledgerFetchedRef.current = false;
-              await Promise.all([fetchStock(), fetchAlerts(), fetchLedger(true)]);
+              refreshStock();
+              setLedgerRefreshKey((value) => value + 1);
             }}
           />
         )}
-        {activeTab === "ledger" && (
+        {activeTab === "ledger" && selectedLocationId && (
           <Tab4Ledger
-            entries={ledger}
-            loading={loadingLedger}
-            // +++   تمرير دالة التحديث للابن لمنع الريفرش الإجباري +++
-            onRefresh={() => fetchLedger(true)}
+            locationId={selectedLocationId}
+            refreshKey={ledgerRefreshKey}
           />
         )}
       </div>

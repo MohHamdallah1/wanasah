@@ -3,11 +3,10 @@ import { Lock, AlertTriangle, Check, Scan, ShieldCheck, RotateCcw } from "lucide
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { QuantityInput } from "@/components/ui/quantity-input";
-import type { WarehouseProduct, StocktakeRow } from "./inventoryUtils";
+import type { StocktakeRow } from "./inventoryUtils";
 import { toTotalPacks, formatQty } from "./inventoryUtils";
 
 interface Props {
-  products: WarehouseProduct[];
   locationId: number;
   isAuditLocked: boolean;
   authenticatedFetch: (url: string, opts?: RequestInit) => Promise<any>;
@@ -68,15 +67,11 @@ const rowKey = (productVariantId: number, batchId: number | null) =>
   `${productVariantId}:${batchId ?? "NO_BATCH"}`;
 
 export function Tab3Stocktake({
-  products: _products,
   locationId,
   isAuditLocked,
   authenticatedFetch,
   onLockChange,
 }: Props) {
-  // products يبقى في Props للتوافق مع MainInventory، لكن الجرد لا يستخدمه حتى لا يتسرب الرصيد المتوقع للعدّاد.
-  void _products;
-
   const [showLockModal, setShowLockModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showVarianceModal, setShowVarianceModal] = useState(false);

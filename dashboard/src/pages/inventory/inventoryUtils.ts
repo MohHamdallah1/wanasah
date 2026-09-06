@@ -5,15 +5,39 @@
 export interface WarehouseProduct {
   id: number;
   name: string;
-  sku: string;
+  sku: string | null;
   packs_per_carton: number;
   available_packs: number;
   reserved_packs: number;
+  blocked_packs: number;
   total_packs: number;
   damaged_packs: number; // +++ حقل التوالف الرسمي +++
   available_cartons: number;
   available_loose_packs: number;
   min_threshold: number;
+}
+
+export interface WarehouseInventoryCursorPage {
+  items: WarehouseProduct[];
+  next_cursor: string | null;
+  has_more: boolean;
+  total: number | null;
+  alert_count: number | null;
+  alert_samples: string[];
+}
+
+export interface SimpleProductVariant {
+  id: number;
+  name: string;
+  sku: string | null;
+  packs_per_carton: number;
+}
+
+export interface SimpleProductVariantCursorPage {
+  items: SimpleProductVariant[];
+  next_cursor: string | null;
+  has_more: boolean;
+  total: number | null;
 }
 
 export interface WarehouseAlert {
@@ -25,15 +49,16 @@ export interface WarehouseAlert {
 
 export interface LedgerEntry {
   id: number;
+  product_variant_id: number;
   product_name: string;
   packs_per_carton: number;
   type: string;
   quantity_packs: number;
-  balance_before: number; // +++ الحقل الجديد +++
-  balance_after: number;
+  balance_before: number | null; // +++ الحقل الجديد +++
+  balance_after: number | null;
   admin_name: string;
-  reference: string;
-  notes: string;
+  reference: string | null;
+  notes: string | null;
   date: string;
 }
 
