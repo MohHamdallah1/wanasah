@@ -533,11 +533,6 @@ async def update_visit(
                 status_code=403,
                 detail="لا يمكنك تنفيذ العملية. الرجاء بدء يوم العمل أولاً.",
             )
-        if active_session.inventory_reconciled_at is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="مرفوض: عهدة مخزون هذه الجلسة تم ختمها ولا تقبل أي تعديل ميداني جديد.",
-            )
 
         # Tenant-safe probe لمعرفة shop_id فقط؛ لا نكشف زيارة خارج الشركة/المندوب.
         visit_shop_id = (
@@ -602,11 +597,6 @@ async def update_visit(
 
         visit.shop = shop
 
-        if visit.work_session and visit.work_session.inventory_reconciled_at is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="مرفوض: لا يمكن تعديل زيارة بعد ختم التسوية المخزنية لجلسة العمل.",
-            )
         if visit.work_session and visit.work_session.is_settled:
             raise HTTPException(
                 status_code=403,
@@ -636,7 +626,6 @@ async def update_visit(
                 )
                 .order_by(DispatchRoute.id.asc())
                 .limit(1)
-                .with_for_update(read=True)
             )
         ).scalars().first()
 
@@ -1374,28 +1363,18 @@ async def update_visit(
         else:
             visit.shop_balance_after = original_shop_balance
 
-        sold_variant_ids = sorted({
-            item.product_variant_id
-            for item in payload.cart_items
-            if item.quantity > 0 or item.packs_quantity > 0
-        })
-        if payload.outcome == "Sale" and sold_variant_ids:
-            await db.execute(
-                update(ShortageRequest)
-                .where(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop.id,
-                    ShortageRequest.status == "pending",
-                    ShortageRequest.product_variant_id.in_(sold_variant_ids),
-                )
-                .values(
-                    status="fulfilled",
-                    fulfilled_by_visit_id=visit.id,
-                    fulfilled_at=get_utc_now(),
-                )
-            )
-
         if payload.outcome in {"Sale", "NoSale"}:
+            if has_active_shortage:
+                await db.execute(
+                    update(ShortageRequest)
+                    .where(
+                        ShortageRequest.company_id == company_id,
+                        ShortageRequest.shop_id == shop.id,
+                        ShortageRequest.status == "pending",
+                    )
+                    .values(status="fulfilled")
+                )
+
             if shop.zone_id == current_route.zone_id:
                 visit.is_emergency = False
                 # نفس Workflow القديم لمنع ظهور المحل مرتين؛ أضفنا Tenant scope فقط.
@@ -2703,33 +2682,14 @@ async def add_new_shop(
     driver_id = current_driver.id
 
     # 2. جلب الجلسة النشطة (مع درع الـ Limit لتسريع الداتابيز)
-    stmt_session = (
-        select(WorkSession)
-        .filter_by(company_id=current_driver.company_id, driver_id=driver_id, end_time=None)
-        .order_by(WorkSession.id.desc())
-        .limit(1)
-        .with_for_update()
-    )
+    stmt_session = select(WorkSession).filter_by(company_id=current_driver.company_id, driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
     active_session = (await db.execute(stmt_session)).scalars().first()
     
     if not active_session:
         raise HTTPException(status_code=403, detail="مرفوض: الرجاء بدء يوم العمل أولاً.")
-    if active_session.inventory_reconciled_at is not None:
-        raise HTTPException(status_code=409, detail="مرفوض: عهدة مخزون هذه الجلسة مختومة ولا تقبل إضافة محلات.")
 
     # 3. جلب خط السير النشط لمنع كارثة "المحل الشبح"
-    stmt_route = (
-        select(DispatchRoute)
-        .filter_by(
-            company_id=current_driver.company_id,
-            work_session_id=active_session.id,
-            driver_id=driver_id,
-            status='active',
-        )
-        .order_by(DispatchRoute.id.asc())
-        .limit(1)
-        .with_for_update(read=True)
-    )
+    stmt_route = select(DispatchRoute).filter_by(company_id=current_driver.company_id, work_session_id=active_session.id, driver_id=driver_id, status='active')
     active_route = (await db.execute(stmt_route)).scalars().first()
     
     if not active_route:

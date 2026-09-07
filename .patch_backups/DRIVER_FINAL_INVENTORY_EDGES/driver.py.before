@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, update, or_, and_, delete, case
+from sqlalchemy import func, update, or_, and_, delete
 from sqlalchemy.orm import joinedload, contains_eager, selectinload
 from sqlalchemy.exc import IntegrityError
 from database import get_db
 from typing import List
 from api.dependencies import get_current_driver
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from services import (
     reverse_previous_visit_state,
@@ -34,7 +34,7 @@ from models import (
     ShortageRequest, SystemAuditLog,
     InventoryLocation, InventoryBalance, InventoryMovement, ProductBatch,
     InventoryTransferHeader, InventoryTransferLine,
-    SessionInventorySnapshot,
+    SessionInventorySnapshot, InventoryDamageEvent,
 )
 
 from schemas import (SessionStartRequest, BreakToggleRequest, TransferResponseRequest,
@@ -80,9 +80,6 @@ async def start_work_session(
                 detail="حساب المندوب غير موجود أو لا يتبع الشركة الحالية."
             )
 
-        # تاريخ العمل يُحسم بتوقيت الشركة قبل اختيار Route؛ لا نقبل Route قديم بقي active بالخطأ.
-        company_local_date = await get_company_local_date(db, company_id)
-
         # لا يوم جديد قبل تسوية العهدة السابقة.
         unsettled_session = (
             await db.execute(
@@ -112,7 +109,6 @@ async def start_work_session(
                 .filter_by(
                     company_id=company_id,
                     driver_id=driver_id,
-                    dispatch_date=company_local_date,
                     status="active",
                 )
                 .order_by(DispatchRoute.id.asc())
@@ -213,6 +209,11 @@ async def start_work_session(
                 detail="موقع مخزون السيارة تغير أو أصبح غير فعال أثناء بدء الجلسة."
             )
 
+        company_local_date = await get_company_local_date(
+            db,
+            company_id,
+        )
+
         new_session = WorkSession(
             company_id=company_id,
             driver_id=driver_id,
@@ -233,7 +234,6 @@ async def start_work_session(
             await db.execute(
                 select(
                     InventoryBalance.product_variant_id,
-                    InventoryBalance.stock_status,
                     func.sum(InventoryBalance.on_hand_quantity),
                 )
                 .filter(
@@ -241,23 +241,14 @@ async def start_work_session(
                     InventoryBalance.location_id == vehicle_location_id,
                     InventoryBalance.on_hand_quantity > 0,
                 )
-                .group_by(
-                    InventoryBalance.product_variant_id,
-                    InventoryBalance.stock_status,
-                )
-                .order_by(
-                    InventoryBalance.product_variant_id.asc(),
-                    InventoryBalance.stock_status.asc(),
-                )
+                .group_by(InventoryBalance.product_variant_id)
+                .order_by(InventoryBalance.product_variant_id.asc())
             )
         ).all()
 
-        for product_variant_id, stock_status, starting_quantity in opening_rows:
+        for product_variant_id, starting_quantity in opening_rows:
             qty = int(starting_quantity or 0)
-            normalized_status = str(stock_status or "").upper()
 
-            if normalized_status not in {"AVAILABLE", "DAMAGED"}:
-                raise RuntimeError("Vehicle opening inventory has unsupported stock_status.")
             if qty < 0 or qty > 2_147_483_647:
                 raise RuntimeError(
                     "Vehicle opening inventory exceeds SessionInventorySnapshot INTEGER bounds."
@@ -269,7 +260,6 @@ async def start_work_session(
                     work_session_id=new_session.id,
                     location_id=vehicle_location_id,
                     product_variant_id=product_variant_id,
-                    stock_status=normalized_status,
                     starting_quantity=qty,
                 )
             )
@@ -306,7 +296,6 @@ async def start_work_session(
         }
 
     except HTTPException:
-        await db.rollback()
         raise
     except Exception as e:
         await db.rollback()
@@ -477,19 +466,6 @@ async def update_visit(
     driver_id = current_driver.id
 
     canonical_payload = payload.model_dump(mode="json", exclude={"request_id"})
-    # ترتيب أسطر Flutter ليس جزءاً من المعنى التجاري؛ retry مطابق لا يفشل لمجرد إعادة ترتيب القوائم.
-    canonical_payload["cart_items"] = sorted(
-        canonical_payload.get("cart_items", []),
-        key=lambda item: int(item["product_variant_id"]),
-    )
-    canonical_payload["returns"] = sorted(
-        canonical_payload.get("returns", []),
-        key=lambda item: (
-            int(item["product_variant_id"]),
-            int(item["batch_id"]),
-            str(item["return_type"]),
-        ),
-    )
     request_hash = hashlib.sha256(
         json.dumps(
             {"visit_id": visit_id, "payload": canonical_payload},
@@ -532,11 +508,6 @@ async def update_visit(
             raise HTTPException(
                 status_code=403,
                 detail="لا يمكنك تنفيذ العملية. الرجاء بدء يوم العمل أولاً.",
-            )
-        if active_session.inventory_reconciled_at is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="مرفوض: عهدة مخزون هذه الجلسة تم ختمها ولا تقبل أي تعديل ميداني جديد.",
             )
 
         # Tenant-safe probe لمعرفة shop_id فقط؛ لا نكشف زيارة خارج الشركة/المندوب.
@@ -602,11 +573,6 @@ async def update_visit(
 
         visit.shop = shop
 
-        if visit.work_session and visit.work_session.inventory_reconciled_at is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="مرفوض: لا يمكن تعديل زيارة بعد ختم التسوية المخزنية لجلسة العمل.",
-            )
         if visit.work_session and visit.work_session.is_settled:
             raise HTTPException(
                 status_code=403,
@@ -636,7 +602,6 @@ async def update_visit(
                 )
                 .order_by(DispatchRoute.id.asc())
                 .limit(1)
-                .with_for_update(read=True)
             )
         ).scalars().first()
 
@@ -1100,20 +1065,6 @@ async def update_visit(
                 }
             )
 
-        # كل سطر مالي آمن منفرداً في calculate_invoice؛ هنا نحمي مجموع مئات الأسطر قبل PostgreSQL.
-        money_limit = Decimal("999999999.999")
-        for money_label, money_value in (
-            ("amount_before_tax_and_discount", total_base_amount),
-            ("discount_applied", total_discount),
-            ("tax_amount", total_tax),
-            ("final_amount_due", total_final_amount),
-        ):
-            if not money_value.is_finite() or money_value < 0 or money_value > money_limit:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"القيمة المجمعة ({money_label}) تتجاوز السعة المالية المسموحة.",
-                )
-
         fefo_allocations = {}
         if outgoing_requests:
             fefo_allocations = await allocate_fefo_inventory_batch(
@@ -1350,11 +1301,6 @@ async def update_visit(
                         f"الرصيد سيصبح بالسالب ({new_balance})."
                     ),
                 )
-            if not new_balance.is_finite() or new_balance > money_limit:
-                raise HTTPException(
-                    status_code=400,
-                    detail="الرصيد الناتج للمحل يتجاوز السعة المالية Numeric(12,3).",
-                )
             shop.current_balance = new_balance
             visit.shop_balance_after = new_balance
 
@@ -1374,28 +1320,18 @@ async def update_visit(
         else:
             visit.shop_balance_after = original_shop_balance
 
-        sold_variant_ids = sorted({
-            item.product_variant_id
-            for item in payload.cart_items
-            if item.quantity > 0 or item.packs_quantity > 0
-        })
-        if payload.outcome == "Sale" and sold_variant_ids:
-            await db.execute(
-                update(ShortageRequest)
-                .where(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop.id,
-                    ShortageRequest.status == "pending",
-                    ShortageRequest.product_variant_id.in_(sold_variant_ids),
-                )
-                .values(
-                    status="fulfilled",
-                    fulfilled_by_visit_id=visit.id,
-                    fulfilled_at=get_utc_now(),
-                )
-            )
-
         if payload.outcome in {"Sale", "NoSale"}:
+            if has_active_shortage:
+                await db.execute(
+                    update(ShortageRequest)
+                    .where(
+                        ShortageRequest.company_id == company_id,
+                        ShortageRequest.shop_id == shop.id,
+                        ShortageRequest.status == "pending",
+                    )
+                    .values(status="fulfilled")
+                )
+
             if shop.zone_id == current_route.zone_id:
                 visit.is_emergency = False
                 # نفس Workflow القديم لمنع ظهور المحل مرتين؛ أضفنا Tenant scope فقط.
@@ -1458,14 +1394,12 @@ async def _load_vehicle_inventory_projection(
     work_session_id: int | None = None,
 ):
     """
-    عرض Flutter التجميعي من المحرك الموحد فقط.
+    يبني العرض التجميعي الذي يفهمه Flutter من المصدر الموحد فقط.
 
-    - current_quantity: الرصيد الفيزيائي AVAILABLE الحي من InventoryBalance.
-    - starting_quantity: لقطة بداية الجلسة الثابتة من SessionInventorySnapshot.
-    - issued_quantity: صافي صرف الزيارات من AVAILABLE بعد طرح VISIT_REVERSAL الداخل للسيارة.
-
-    لا يجوز اشتقاق رصيد البداية من current + issued لأن حوالات منتصف اليوم
-    والتراجعات تغيّر current دون أن تكون جزءاً من عهدة بداية اليوم.
+    current_quantity = AVAILABLE physical on_hand في موقع السيارة.
+    issued_quantity  = كل VISIT_* outbound من AVAILABLE خلال الجلسة.
+    starting_display = current + issued، وهو يحافظ على سلوك الواجهة القديم
+    بعد مصافحات منتصف اليوم من دون إعادة اختراع رصيد حي موازٍ.
     """
     vehicle_location_id = (
         await db.execute(
@@ -1505,106 +1439,34 @@ async def _load_vehicle_inventory_projection(
         for product_variant_id, quantity in current_rows
     }
 
-    # قبل بدء الجلسة لا توجد Snapshot بعد؛ للعرض التمهيدي فقط تكون البداية هي الرصيد الحالي.
-    # بعد بدء الجلسة تصبح SessionInventorySnapshot المصدر التاريخي الوحيد لبداية اليوم.
-    starting_map = dict(current_map) if work_session_id is None else {}
     issued_map = {}
     if work_session_id is not None:
-        snapshot_rows = (
-            await db.execute(
-                select(
-                    SessionInventorySnapshot.product_variant_id,
-                    SessionInventorySnapshot.starting_quantity,
-                    SessionInventorySnapshot.location_id,
-                )
-                .filter(
-                    SessionInventorySnapshot.company_id == company_id,
-                    SessionInventorySnapshot.work_session_id == work_session_id,
-                    SessionInventorySnapshot.stock_status == "AVAILABLE",
-                )
-                .order_by(SessionInventorySnapshot.product_variant_id.asc())
-            )
-        ).all()
-        if snapshot_rows:
-            snapshot_location_ids = {int(row.location_id) for row in snapshot_rows}
-            if snapshot_location_ids != {int(vehicle_location_id)}:
-                raise HTTPException(
-                    status_code=409,
-                    detail="لقطة بداية الجلسة لا تطابق موقع مخزون السيارة الحالية.",
-                )
-            starting_map = {
-                int(row.product_variant_id): int(row.starting_quantity or 0)
-                for row in snapshot_rows
-            }
-
-        # صافي الصرف: الخروج الأصلي من الزيارة موجب، وعكسه الداخل AVAILABLE سالب.
-        net_issue_expr = case(
-            (
-                and_(
-                    InventoryMovement.source_location_id == vehicle_location_id,
-                    InventoryMovement.source_stock_status == "AVAILABLE",
-                    InventoryMovement.reference_type.in_([
-                        "VISIT_ITEM_OUT",
-                        "VISIT_EXCHANGE_OUT",
-                    ]),
-                ),
-                InventoryMovement.quantity,
-            ),
-            (
-                and_(
-                    InventoryMovement.destination_location_id == vehicle_location_id,
-                    InventoryMovement.destination_stock_status == "AVAILABLE",
-                    InventoryMovement.reference_type == "VISIT_REVERSAL",
-                ),
-                -InventoryMovement.quantity,
-            ),
-            else_=0,
-        )
         issued_rows = (
             await db.execute(
                 select(
                     InventoryMovement.product_variant_id,
-                    func.sum(net_issue_expr),
+                    func.sum(InventoryMovement.quantity),
                 )
                 .filter(
                     InventoryMovement.company_id == company_id,
                     InventoryMovement.work_session_id == work_session_id,
+                    InventoryMovement.source_location_id == vehicle_location_id,
+                    InventoryMovement.source_stock_status == "AVAILABLE",
                     InventoryMovement.movement_kind == "PHYSICAL",
-                    or_(
-                        and_(
-                            InventoryMovement.source_location_id == vehicle_location_id,
-                            InventoryMovement.source_stock_status == "AVAILABLE",
-                            InventoryMovement.reference_type.in_([
-                                "VISIT_ITEM_OUT",
-                                "VISIT_EXCHANGE_OUT",
-                            ]),
-                        ),
-                        and_(
-                            InventoryMovement.destination_location_id == vehicle_location_id,
-                            InventoryMovement.destination_stock_status == "AVAILABLE",
-                            InventoryMovement.reference_type == "VISIT_REVERSAL",
-                        ),
-                    ),
+                    InventoryMovement.reference_type.like("VISIT\\_%", escape="\\"),
                 )
                 .group_by(InventoryMovement.product_variant_id)
                 .order_by(InventoryMovement.product_variant_id.asc())
             )
         ).all()
-        for product_variant_id, quantity in issued_rows:
-            net_quantity = int(quantity or 0)
-            if net_quantity < 0:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "تم اكتشاف صافي صرف زيارة سالب في سجل السيارة؛ "
-                        "أوقف العرض وراجع سجل الحركات بدلاً من إخفاء التناقض."
-                    ),
-                )
-            issued_map[int(product_variant_id)] = net_quantity
+        issued_map = {
+            int(product_variant_id): int(quantity or 0)
+            for product_variant_id, quantity in issued_rows
+        }
 
-    variant_ids = sorted(set(current_map) | set(starting_map) | set(issued_map))
+    variant_ids = sorted(set(current_map) | set(issued_map))
     if not variant_ids:
-        return int(vehicle_location_id), []
+        return vehicle_location_id, []
 
     variants = (
         await db.execute(
@@ -1634,15 +1496,19 @@ async def _load_vehicle_inventory_projection(
                 detail=f"إعداد عدد الحبات في الكرتونة غير صالح للصنف ({variant.variant_name}).",
             )
 
+        current_quantity = current_map.get(product_variant_id, 0)
+        issued_quantity = issued_map.get(product_variant_id, 0)
+        starting_display = current_quantity + issued_quantity
+
         projection.append({
             "variant": variant,
             "packs_per_carton": packs_per_carton,
-            "starting_quantity": starting_map.get(product_variant_id, 0),
-            "issued_quantity": issued_map.get(product_variant_id, 0),
-            "current_quantity": current_map.get(product_variant_id, 0),
+            "starting_quantity": starting_display,
+            "issued_quantity": issued_quantity,
+            "current_quantity": current_quantity,
         })
 
-    return int(vehicle_location_id), projection
+    return vehicle_location_id, projection
 
 
 async def _load_handshake_product_totals(
@@ -1721,55 +1587,43 @@ async def _load_active_driver_route_and_vehicle_location(
     company_id: int,
     driver_id: int,
     work_session_id: int,
-    require_active_route: bool = True,
-    require_active_vehicle_location: bool = True,
 ):
-    stmt_route = select(DispatchRoute).filter_by(
-        company_id=company_id,
-        work_session_id=work_session_id,
-        driver_id=driver_id,
-    )
-    if require_active_route:
-        stmt_route = stmt_route.filter(DispatchRoute.status == "active")
-
     route = (
         await db.execute(
-            stmt_route.order_by(DispatchRoute.id.asc()).limit(1)
+            select(DispatchRoute)
+            .filter_by(
+                company_id=company_id,
+                work_session_id=work_session_id,
+                driver_id=driver_id,
+                status="active",
+            )
+            .order_by(DispatchRoute.id.asc())
+            .limit(1)
         )
     ).scalars().first()
 
     if route is None or route.vehicle_id is None:
-        detail = (
-            "جلسة العمل الحالية لا تملك خط سير فعالاً مربوطاً بسيارة."
-            if require_active_route
-            else "جلسة العمل الحالية لا تملك خط سير مربوطاً بسيارة."
+        raise HTTPException(
+            status_code=409,
+            detail="جلسة العمل الحالية لا تملك خط سير فعالاً مربوطاً بسيارة.",
         )
-        raise HTTPException(status_code=409, detail=detail)
-
-    stmt_location = select(InventoryLocation.id).filter_by(
-        company_id=company_id,
-        vehicle_id=route.vehicle_id,
-        location_type="VEHICLE",
-    )
-    if require_active_vehicle_location:
-        stmt_location = stmt_location.filter(InventoryLocation.is_active.is_(True))
 
     vehicle_location_id = (
         await db.execute(
-            stmt_location.order_by(
-                InventoryLocation.is_active.desc(),
-                InventoryLocation.id.desc(),
-            ).limit(1)
+            select(InventoryLocation.id).filter_by(
+                company_id=company_id,
+                vehicle_id=route.vehicle_id,
+                location_type="VEHICLE",
+                is_active=True,
+            )
         )
     ).scalar_one_or_none()
 
     if vehicle_location_id is None:
-        detail = (
-            "السيارة الحالية لا تملك موقع مخزون VEHICLE فعالاً."
-            if require_active_vehicle_location
-            else "السيارة الحالية لا تملك موقع مخزون VEHICLE مرتبطاً بها."
+        raise HTTPException(
+            status_code=409,
+            detail="السيارة الحالية لا تملك موقع مخزون VEHICLE فعالاً.",
         )
-        raise HTTPException(status_code=409, detail=detail)
 
     return route, int(vehicle_location_id)
 
@@ -1780,7 +1634,6 @@ async def _validate_handshake_locations(
     company_id: int,
     header: InventoryTransferHeader,
     vehicle_location_id: int,
-    require_active_warehouse: bool = True,
 ):
     if vehicle_location_id not in {
         int(header.source_location_id),
@@ -1796,76 +1649,22 @@ async def _validate_handshake_locations(
         if int(header.source_location_id) == vehicle_location_id
         else int(header.source_location_id)
     )
-    stmt_other = select(InventoryLocation).filter_by(
-        company_id=company_id,
-        id=other_location_id,
-        location_type="WAREHOUSE",
-    )
-    if require_active_warehouse:
-        stmt_other = stmt_other.filter(InventoryLocation.is_active.is_(True))
-
-    other_location = (await db.execute(stmt_other)).scalar_one_or_none()
-    if other_location is None:
-        detail = (
-            "المصافحة الميدانية يجب أن تكون بين مستودع فعال وسيارة الجلسة الحالية."
-            if require_active_warehouse
-            else "المصافحة الميدانية لا ترتبط بمستودع صحيح داخل الشركة."
-        )
-        raise HTTPException(status_code=409, detail=detail)
-
-
-
-async def _validate_incoming_handshake_batches(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    header: InventoryTransferHeader,
-    lines,
-    vehicle_location_id: int,
-    as_of_date,
-):
-    """نمنع فقط إدخال AVAILABLE غير صالح إلى السيارة؛ لا علاقة لهذا بمسار المرتجعات DAMAGED."""
-    if int(header.destination_location_id) != int(vehicle_location_id):
-        return
-
-    batch_ids = sorted({int(line.batch_id) for line in lines})
-    rows = (
+    other_location = (
         await db.execute(
-            select(ProductBatch).filter(
-                ProductBatch.company_id == company_id,
-                ProductBatch.id.in_(batch_ids),
-            ).order_by(ProductBatch.id.asc())
+            select(InventoryLocation)
+            .filter_by(
+                company_id=company_id,
+                id=other_location_id,
+                location_type="WAREHOUSE",
+                is_active=True,
+            )
         )
-    ).scalars().all()
-    batch_map = {int(row.id): row for row in rows}
-    if set(batch_map) != set(batch_ids):
+    ).scalar_one_or_none()
+    if other_location is None:
         raise HTTPException(
             status_code=409,
-            detail="إحدى دفعات المصافحة غير موجودة أو لا تتبع الشركة.",
+            detail="المصافحة الميدانية يجب أن تكون بين مستودع فعال وسيارة الجلسة الحالية.",
         )
-
-    for line in lines:
-        batch = batch_map[int(line.batch_id)]
-        if int(batch.product_variant_id) != int(line.product_variant_id):
-            raise HTTPException(
-                status_code=409,
-                detail="إحدى دفعات المصافحة لا تتبع الصنف المسجل في سطر الحوالة.",
-            )
-        if not batch.is_active:
-            raise HTTPException(
-                status_code=409,
-                detail=f"الدفعة ({batch.batch_number}) موقوفة ولا يجوز إدخالها AVAILABLE إلى السيارة.",
-            )
-        if batch.production_date is not None and batch.production_date > as_of_date:
-            raise HTTPException(
-                status_code=409,
-                detail=f"الدفعة ({batch.batch_number}) تاريخ إنتاجها في المستقبل.",
-            )
-        if batch.expiry_date < as_of_date:
-            raise HTTPException(
-                status_code=409,
-                detail=f"الدفعة ({batch.batch_number}) منتهية الصلاحية ولا يجوز إدخالها AVAILABLE إلى السيارة.",
-            )
 
 
 def _handshake_signed_quantity(
@@ -1987,6 +1786,19 @@ async def get_driver_dashboard(
     company_id = current_driver.company_id
     driver_id = current_driver.id
 
+    active_route = (
+        await db.execute(
+            select(DispatchRoute)
+            .filter(
+                DispatchRoute.company_id == company_id,
+                DispatchRoute.driver_id == driver_id,
+                DispatchRoute.status.in_(["active", "waiting", "postponed"]),
+            )
+            .order_by(DispatchRoute.id.asc())
+            .limit(1)
+        )
+    ).scalars().first()
+
     active_session = (
         await db.execute(
             select(WorkSession)
@@ -1999,36 +1811,6 @@ async def get_driver_dashboard(
             .limit(1)
         )
     ).scalars().first()
-
-    if active_session is not None:
-        # أثناء جلسة قائمة نعرض Route المرتبط بها حتى لو أوقفته الإدارة؛ البيع نفسه يبقى محظوراً إلا على active.
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter_by(
-                    company_id=company_id,
-                    work_session_id=active_session.id,
-                    driver_id=driver_id,
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
-    else:
-        company_local_date = await get_company_local_date(db, company_id)
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.driver_id == driver_id,
-                    DispatchRoute.dispatch_date == company_local_date,
-                    DispatchRoute.status.in_(["active", "waiting", "postponed"]),
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
 
     assigned_region = "غير محددة"
     inventory_list = []
@@ -2255,21 +2037,18 @@ async def respond_to_transfer(
         if work_session.end_time is not None or work_session.is_settled:
             raise HTTPException(status_code=400, detail="لا يمكن معالجة حوالة لجلسة عمل تم إنهاؤها أو تسويتها.")
 
-        vehicle_location_id = None
-        if response == "accepted":
-            _, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
-                db,
-                company_id=company_id,
-                driver_id=driver_id,
-                work_session_id=work_session.id,
-            )
-            await _validate_handshake_locations(
-                db,
-                company_id=company_id,
-                header=header,
-                vehicle_location_id=vehicle_location_id,
-            )
-        # الرفض لا يحتاج Route/وجهة فعالة؛ يجب أن يبقى ممكناً لتحرير الحجز وعدم تعليق المندوب.
+        _, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
+            db,
+            company_id=company_id,
+            driver_id=driver_id,
+            work_session_id=work_session.id,
+        )
+        await _validate_handshake_locations(
+            db,
+            company_id=company_id,
+            header=header,
+            vehicle_location_id=vehicle_location_id,
+        )
 
         lines_by_header = await _load_handshake_lines_for_update(
             db,
@@ -2290,22 +2069,15 @@ async def respond_to_transfer(
         if variant is None:
             raise HTTPException(status_code=409, detail="صنف الحوالة غير موجود داخل الشركة.")
 
-        # الاستلام AVAILABLE إلى السيارة يحتاج صنفاً وBatch صالحين لحظة القبول.
-        # هذا لا يغيّر مسار المرتجعات: VisitReturn يدخل DAMAGED فوراً حتى لو منتهي/موقوف.
-        if response == "accepted" and int(header.destination_location_id) == vehicle_location_id:
-            if not variant.is_active:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"لا يمكنك استلام حمولة جديدة من المنتج ({variant.variant_name}) لأنه موقوف حالياً.",
-                )
-            as_of_date = await get_company_local_date(db, company_id)
-            await _validate_incoming_handshake_batches(
-                db,
-                company_id=company_id,
-                header=header,
-                lines=lines,
-                vehicle_location_id=vehicle_location_id,
-                as_of_date=as_of_date,
+        # استلام جديد إلى السيارة لا يقبل صنفاً موقوفاً؛ السحب من السيارة يبقى مسموحاً.
+        if (
+            response == "accepted"
+            and int(header.destination_location_id) == vehicle_location_id
+            and not variant.is_active
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"لا يمكنك استلام حمولة جديدة من المنتج ({variant.variant_name}) لأنه موقوف حالياً.",
             )
 
         movement_specs = _build_handshake_movement_specs(
@@ -2452,27 +2224,20 @@ async def batch_respond_to_transfers(
             if work_session is None or work_session.end_time is not None or work_session.is_settled:
                 raise HTTPException(status_code=400, detail="جلسة العمل المرتبطة بالمصافحات مغلقة أو غير صالحة.")
 
-            accepted_headers = [
-                header
-                for header in pending_headers
-                if request_map[int(header.id)].status == "accepted"
-            ]
-            vehicle_location_id = None
-            if accepted_headers:
-                _, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
+            _, vehicle_location_id = await _load_active_driver_route_and_vehicle_location(
+                db,
+                company_id=company_id,
+                driver_id=driver_id,
+                work_session_id=work_session_id,
+            )
+
+            for header in pending_headers:
+                await _validate_handshake_locations(
                     db,
                     company_id=company_id,
-                    driver_id=driver_id,
-                    work_session_id=work_session_id,
+                    header=header,
+                    vehicle_location_id=vehicle_location_id,
                 )
-                for header in accepted_headers:
-                    await _validate_handshake_locations(
-                        db,
-                        company_id=company_id,
-                        header=header,
-                        vehicle_location_id=vehicle_location_id,
-                    )
-            # المصافحات المرفوضة لا تعتمد على استمرار Route/الوجهة؛ الرفض يحرر الحجز فقط.
 
             pending_ids = [int(header.id) for header in pending_headers]
             lines_by_header = await _load_handshake_lines_for_update(
@@ -2499,30 +2264,20 @@ async def batch_respond_to_transfers(
 
             movement_specs = []
             now_utc = get_utc_now()
-            as_of_date = (
-                await get_company_local_date(db, company_id)
-                if accepted_headers
-                else None
-            )
             for header in pending_headers:
                 request_item = request_map[int(header.id)]
                 accepted = request_item.status == "accepted"
                 lines = lines_by_header[int(header.id)]
                 variant = variant_map[int(lines[0].product_variant_id)]
 
-                if accepted and int(header.destination_location_id) == vehicle_location_id:
-                    if not variant.is_active:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"مرفوض في الحوالة ({header.id}): المنتج ({variant.variant_name}) موقوف حالياً.",
-                        )
-                    await _validate_incoming_handshake_batches(
-                        db,
-                        company_id=company_id,
-                        header=header,
-                        lines=lines,
-                        vehicle_location_id=vehicle_location_id,
-                        as_of_date=as_of_date,
+                if (
+                    accepted
+                    and int(header.destination_location_id) == vehicle_location_id
+                    and not variant.is_active
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"مرفوض في الحوالة ({header.id}): المنتج ({variant.variant_name}) موقوف حالياً.",
                     )
 
                 movement_specs.extend(
@@ -2620,8 +2375,6 @@ async def get_pending_transfers(
         company_id=company_id,
         driver_id=driver_id,
         work_session_id=active_session.id,
-        require_active_route=False,
-        require_active_vehicle_location=False,
     )
 
     headers = (
@@ -2646,7 +2399,6 @@ async def get_pending_transfers(
             company_id=company_id,
             header=header,
             vehicle_location_id=vehicle_location_id,
-            require_active_warehouse=False,
         )
 
     header_ids = [int(header.id) for header in headers]
@@ -2703,33 +2455,14 @@ async def add_new_shop(
     driver_id = current_driver.id
 
     # 2. جلب الجلسة النشطة (مع درع الـ Limit لتسريع الداتابيز)
-    stmt_session = (
-        select(WorkSession)
-        .filter_by(company_id=current_driver.company_id, driver_id=driver_id, end_time=None)
-        .order_by(WorkSession.id.desc())
-        .limit(1)
-        .with_for_update()
-    )
+    stmt_session = select(WorkSession).filter_by(company_id=current_driver.company_id, driver_id=driver_id, end_time=None).order_by(WorkSession.id.desc()).limit(1)
     active_session = (await db.execute(stmt_session)).scalars().first()
     
     if not active_session:
         raise HTTPException(status_code=403, detail="مرفوض: الرجاء بدء يوم العمل أولاً.")
-    if active_session.inventory_reconciled_at is not None:
-        raise HTTPException(status_code=409, detail="مرفوض: عهدة مخزون هذه الجلسة مختومة ولا تقبل إضافة محلات.")
 
     # 3. جلب خط السير النشط لمنع كارثة "المحل الشبح"
-    stmt_route = (
-        select(DispatchRoute)
-        .filter_by(
-            company_id=current_driver.company_id,
-            work_session_id=active_session.id,
-            driver_id=driver_id,
-            status='active',
-        )
-        .order_by(DispatchRoute.id.asc())
-        .limit(1)
-        .with_for_update(read=True)
-    )
+    stmt_route = select(DispatchRoute).filter_by(company_id=current_driver.company_id, work_session_id=active_session.id, driver_id=driver_id, status='active')
     active_route = (await db.execute(stmt_route)).scalars().first()
     
     if not active_route:
@@ -2755,22 +2488,9 @@ async def add_new_shop(
     if not clean_phone:
         raise HTTPException(status_code=400, detail="مرفوض: رقم الهاتف إجباري لضمان التواصل مع المحل وتوثيق الذمم.")
         
-    # نفس الهاتف قرار uniqueness داخل الشركة؛ Advisory Lock يمنع سباق SELECT ثم INSERT.
-    await db.execute(
-        select(
-            func.pg_advisory_xact_lock(
-                current_driver.company_id,
-                func.hashtext(f"shop-phone:{clean_phone}")
-            )
-        )
-    )
-    stmt_dup = select(Shop).filter_by(
-        company_id=current_driver.company_id,
-        phone_number=clean_phone,
-    )
+    stmt_dup = select(Shop).filter_by(company_id=current_driver.company_id, phone_number=clean_phone)
     existing_shop = (await db.execute(stmt_dup)).scalars().first()
     if existing_shop:
-        await db.rollback()
         raise HTTPException(status_code=409, detail=f"فشل الحفظ: رقم الهاتف مسجل مسبقاً للمحل ({existing_shop.name}).")
 
     try:
@@ -2858,34 +2578,18 @@ async def get_driver_visits(
         )
     ).scalars().first()
 
-    if active_session is not None:
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter_by(
-                    company_id=company_id,
-                    work_session_id=active_session.id,
-                    driver_id=driver_id,
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
+    active_route = (
+        await db.execute(
+            select(DispatchRoute)
+            .filter(
+                DispatchRoute.company_id == company_id,
+                DispatchRoute.driver_id == driver_id,
+                DispatchRoute.status.in_(["active", "waiting", "postponed"]),
             )
-        ).scalars().first()
-    else:
-        company_local_date = await get_company_local_date(db, company_id)
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.driver_id == driver_id,
-                    DispatchRoute.dispatch_date == company_local_date,
-                    DispatchRoute.status.in_(["active", "waiting", "postponed"]),
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
+            .order_by(DispatchRoute.id.asc())
+            .limit(1)
+        )
+    ).scalars().first()
 
     if active_route is None:
         return {"visits": [], "inventory": [], "pending_transfers": []}
@@ -2965,8 +2669,6 @@ async def get_driver_visits(
                 company_id=company_id,
                 driver_id=driver_id,
                 work_session_id=active_session.id,
-                require_active_route=False,
-                require_active_vehicle_location=False,
             )
 
         pending_headers = (
@@ -2990,7 +2692,6 @@ async def get_driver_visits(
                     company_id=company_id,
                     header=header,
                     vehicle_location_id=vehicle_location_id,
-                    require_active_warehouse=False,
                 )
 
             totals = await _load_handshake_product_totals(

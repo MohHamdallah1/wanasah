@@ -13,7 +13,6 @@ from models import (
     ProductVariant,
     Driver,
     Shop,
-    ShortageRequest,
     WorkSession,
     SessionInventorySnapshot,
     DispatchRoute,
@@ -484,12 +483,7 @@ async def validate_vehicle_recon_work_session(
 
     if work_session.is_settled:
         raise InventoryMutationError(
-            "جلسة العمل تمت تسويتها مالياً مسبقاً ولا تقبل VEHICLE_RECON جديداً."
-        )
-
-    if work_session.inventory_reconciled_at is not None:
-        raise InventoryMutationError(
-            "عهدة مخزون جلسة العمل تمت مطابقتها مسبقاً ولا تقبل VEHICLE_RECON جديداً."
+            "جلسة العمل تمت تسويتها مسبقاً ولا تقبل VEHICLE_RECON جديداً."
         )
 
     route_id = (
@@ -1668,9 +1662,8 @@ async def open_vehicle_reconciliation_stocktake(
 
 
 # تثبيت عهدة نهاية الجلسة من الرصيد الحي بعد المطابقة/ترحيل VEHICLE_RECON.
-# هذه الدالة لا تخمّن Batch ولا تغيّر InventoryBalance ولا تنفذ التسوية المالية؛
-# فقط تجمّد Ending Snapshot وتختم inventory_reconciled_* على WorkSession.
-async def finalize_vehicle_inventory_reconciliation(
+# هذه الدالة لا تخمّن Batch ولا تغيّر InventoryBalance؛ فقط تجمّد Ending Snapshot وتغلق WorkSession مخزنياً.
+async def finalize_vehicle_reconciliation_settlement(
     db_session: AsyncSession,
     *,
     company_id: int,
@@ -1686,17 +1679,24 @@ async def finalize_vehicle_inventory_reconciliation(
     except ValueError as exc:
         raise InventoryMutationError(str(exc)) from exc
 
-    actor = (
+    actor_id = (
         await db_session.execute(
-            select(Driver.id, Driver.is_admin).filter_by(
+            select(Driver.id).filter_by(
                 company_id=company_id,
                 id=settled_by,
                 is_active=True,
             ).with_for_update(read=True)
         )
-    ).one_or_none()
-    if actor is None:
+    ).scalar_one_or_none()
+    if actor_id is None:
         raise InventoryMutationError("منفذ التسوية غير موجود/غير فعال أو خارج الشركة.")
+
+    await acquire_inventory_location_guard(
+        db_session,
+        company_id,
+        vehicle_location_id,
+        exclusive=True,
+    )
 
     work_session = (
         await db_session.execute(
@@ -1710,16 +1710,6 @@ async def finalize_vehicle_inventory_reconciliation(
         raise InventoryMutationError("جلسة العمل غير موجودة أو لا تتبع الشركة.")
     if work_session.end_time is None:
         raise InventoryMutationError("لا يمكن تسوية عهدة جلسة عمل لم تنتهِ بعد.")
-    if settled_by != work_session.driver_id and not bool(actor.is_admin):
-        raise InventoryMutationError("تثبيت عهدة الجلسة مسموح لصاحب الجلسة أو لمشرف فعال من نفس الشركة فقط.")
-
-    # ترتيب الأقفال الرسمي لـ VEHICLE_RECON: WorkSession -> inventory-location guard.
-    await acquire_inventory_location_guard(
-        db_session,
-        company_id,
-        vehicle_location_id,
-        exclusive=True,
-    )
 
     location = (
         await db_session.execute(
@@ -1764,25 +1754,15 @@ async def finalize_vehicle_inventory_reconciliation(
     if any(int(row.location_id) != vehicle_location_id for row in snapshots):
         raise InventoryMutationError("لقطة جلسة المندوب مرتبطة بموقع سيارة مختلف؛ تم رفض التسوية.")
 
-    if work_session.is_settled and work_session.inventory_reconciled_at is None:
-        raise InventoryMutationError(
-            "جلسة مسواة مالياً بدون ختم تسوية مخزنية؛ البيانات غير متسقة."
-        )
-
-    if work_session.inventory_reconciled_at is not None:
-        if work_session.inventory_reconciled_by is None:
-            raise InventoryMutationError("ختم التسوية المخزنية ناقص هوية المنفذ.")
+    if work_session.is_settled:
         if any(
             row.ending_quantity is None
             or row.settled_by is None
             or row.settled_at is None
             for row in snapshots
         ):
-            raise InventoryMutationError("جلسة مخزون معلّمة كمطابقة لكن Ending Snapshot ناقص.")
+            raise InventoryMutationError("جلسة معلّمة كمسواة لكن Ending Snapshot ناقص.")
         return work_session
-
-    if work_session.inventory_reconciled_by is not None:
-        raise InventoryMutationError("تم اكتشاف ختم تسوية مخزنية جزئي على WorkSession.")
 
     if any(
         row.ending_quantity is not None
@@ -1790,7 +1770,7 @@ async def finalize_vehicle_inventory_reconciliation(
         or row.settled_at is not None
         for row in snapshots
     ):
-        raise InventoryMutationError("تم اكتشاف تسوية مخزنية جزئية في SessionInventorySnapshot.")
+        raise InventoryMutationError("تم اكتشاف تسوية جزئية في SessionInventorySnapshot.")
 
     final_rows = (
         await db_session.execute(
@@ -1799,10 +1779,7 @@ async def finalize_vehicle_inventory_reconciliation(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == vehicle_location_id,
                 InventoryBalance.stock_status.in_(["AVAILABLE", "DAMAGED"]),
-                or_(
-                    InventoryBalance.on_hand_quantity > 0,
-                    InventoryBalance.reserved_quantity > 0,
-                ),
+                InventoryBalance.on_hand_quantity > 0,
             )
             .order_by(
                 InventoryBalance.product_variant_id.asc(),
@@ -1816,10 +1793,6 @@ async def finalize_vehicle_inventory_reconciliation(
     ).scalars().all()
     if len(final_rows) > _MAX_STOCKTAKE_POST_LINES:
         raise InventoryMutationError("رصيد السيارة يتجاوز الحد الآمن لتثبيت Ending Snapshot.")
-    if any(int(row.reserved_quantity or 0) != 0 for row in final_rows):
-        raise InventoryMutationError(
-            "لا يمكن ختم عهدة السيارة بوجود مخزون محجوز؛ يجب تحرير جميع الحجوزات أولاً."
-        )
 
     final_map: Dict[Tuple[int, str], int] = {}
     for balance in final_rows:
@@ -1855,9 +1828,7 @@ async def finalize_vehicle_inventory_reconciliation(
         row.settled_by = settled_by
         row.settled_at = settled_at
 
-    work_session.inventory_reconciled_at = settled_at
-    work_session.inventory_reconciled_by = settled_by
-    # is_settled يبقى False هنا عمداً: هذا حق التسوية المالية لدى المحاسب فقط.
+    work_session.is_settled = True
     await db_session.flush()
     return work_session
 
@@ -1900,40 +1871,20 @@ async def post_approved_stocktake_adjustments(
 
     probe = (
         await db_session.execute(
-            select(
-                StocktakeSession.location_id,
-                StocktakeSession.stocktake_type,
-                StocktakeSession.related_work_session_id,
-            ).filter_by(
+            select(StocktakeSession.location_id).filter_by(
                 company_id=company_id,
                 id=stocktake_session_id,
             )
         )
-    ).one_or_none()
+    ).scalar_one_or_none()
     if probe is None:
         raise InventoryMutationError("جلسة الجرد غير موجودة أو لا تتبع الشركة.")
-
-    probe_location_id, probe_type, probe_work_session_id = probe
-    # VEHICLE_RECON يلتزم ترتيب أقفال موحد: WorkSession -> inventory-location guard.
-    if probe_type == "VEHICLE_RECON":
-        if probe_work_session_id is None:
-            raise InventoryMutationError("VEHICLE_RECON بدون WorkSession مرتبط.")
-        locked_probe_session = (
-            await db_session.execute(
-                select(WorkSession.id).filter_by(
-                    company_id=company_id,
-                    id=probe_work_session_id,
-                ).with_for_update()
-            )
-        ).scalar_one_or_none()
-        if locked_probe_session is None:
-            raise InventoryMutationError("جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.")
 
     # الترحيل عملية حصرية على الموقع؛ يمنع أي حركة متزامنة أثناء تثبيت جميع الفروقات.
     await acquire_inventory_location_guard(
         db_session,
         company_id,
-        int(probe_location_id),
+        int(probe),
         exclusive=True,
     )
 
@@ -1945,12 +1896,7 @@ async def post_approved_stocktake_adjustments(
             ).with_for_update()
         )
     ).scalar_one_or_none()
-    if (
-        session is None
-        or session.location_id != probe_location_id
-        or session.stocktake_type != probe_type
-        or session.related_work_session_id != probe_work_session_id
-    ):
+    if session is None or session.location_id != probe:
         raise InventoryMutationError("جلسة الجرد تغيرت أو لم تعد صالحة للترحيل.")
     if session.status not in {"APPROVED", "POSTED"}:
         raise InventoryMutationError(
@@ -2341,43 +2287,17 @@ async def post_approved_stocktake_adjustments(
             validate_existing(spec, movement)
             ordered_existing.append(movement)
         if session.stocktake_type == "VEHICLE_RECON":
-            recon_state = (
+            settled_state = (
                 await db_session.execute(
-                    select(
-                        WorkSession.inventory_reconciled_at,
-                        WorkSession.inventory_reconciled_by,
-                    ).filter_by(
+                    select(WorkSession.is_settled).filter_by(
                         company_id=company_id,
                         id=session.related_work_session_id,
                     )
                 )
-            ).one_or_none()
-            if (
-                recon_state is None
-                or recon_state.inventory_reconciled_at is None
-                or recon_state.inventory_reconciled_by is None
-            ):
-                raise InventoryMutationError(
-                    "VEHICLE_RECON بحالة POSTED لكن WorkSession بلا ختم تسوية مخزنية مكتمل."
-                )
-            incomplete_snapshot_id = (
-                await db_session.execute(
-                    select(SessionInventorySnapshot.id)
-                    .filter(
-                        SessionInventorySnapshot.company_id == company_id,
-                        SessionInventorySnapshot.work_session_id == session.related_work_session_id,
-                        or_(
-                            SessionInventorySnapshot.ending_quantity.is_(None),
-                            SessionInventorySnapshot.settled_by.is_(None),
-                            SessionInventorySnapshot.settled_at.is_(None),
-                        ),
-                    )
-                    .limit(1)
-                )
             ).scalar_one_or_none()
-            if incomplete_snapshot_id is not None:
+            if settled_state is not True:
                 raise InventoryMutationError(
-                    "VEHICLE_RECON بحالة POSTED لكن Ending Snapshot غير مكتمل."
+                    "VEHICLE_RECON بحالة POSTED لكن WorkSession غير مسواة؛ الحالة غير متسقة."
                 )
         return ordered_existing
 
@@ -2573,10 +2493,9 @@ async def post_approved_stocktake_adjustments(
     session.posted_at = now
     session.updated_at = now
 
-    # VEHICLE_RECON لا يكتمل مخزنياً قبل تثبيت Ending Snapshot وختم inventory_reconciled_*.
-    # التسوية المالية (WorkSession.is_settled) لا تتم هنا.
+    # VEHICLE_RECON لا يكتمل فعلياً قبل تثبيت Ending Snapshot وإغلاق WorkSession مخزنياً.
     if session.stocktake_type == "VEHICLE_RECON":
-        await finalize_vehicle_inventory_reconciliation(
+        await finalize_vehicle_reconciliation_settlement(
             db_session,
             company_id=company_id,
             work_session_id=session.related_work_session_id,
@@ -3267,10 +3186,6 @@ async def reverse_previous_visit_state(
             raise InventoryReversalError(
                 "مرفوض: مندوب الزيارة لا يطابق مندوب جلسة العمل."
             )
-        if locked_session.inventory_reconciled_at is not None:
-            raise InventoryReversalError(
-                "مرفوض: لا يمكن عكس زيارة بعد ختم التسوية المخزنية لجلسة العمل."
-            )
         if locked_session.is_settled:
             raise InventoryReversalError(
                 "مرفوض: لا يمكن عكس زيارة تابعة لجلسة تمت تسويتها واعتمادها."
@@ -3424,20 +3339,6 @@ async def reverse_previous_visit_state(
         item.is_cancelled = True
     for ret in active_returns:
         ret.is_cancelled = True
-
-    await db_session.execute(
-        update(ShortageRequest)
-        .where(
-            ShortageRequest.company_id == company_id,
-            ShortageRequest.fulfilled_by_visit_id == locked_visit.id,
-            ShortageRequest.status == "fulfilled",
-        )
-        .values(
-            status="pending",
-            fulfilled_by_visit_id=None,
-            fulfilled_at=None,
-        )
-    )
 
     locked_shop.current_balance = new_balance
     locked_visit.amount_before_tax_and_discount = Decimal("0.0")

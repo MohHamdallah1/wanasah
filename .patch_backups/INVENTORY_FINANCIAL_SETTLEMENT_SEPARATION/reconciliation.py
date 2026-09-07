@@ -26,7 +26,7 @@ from services import (
     acquire_inventory_location_guard,
     validate_vehicle_recon_work_session,
     open_vehicle_reconciliation_stocktake,
-    finalize_vehicle_inventory_reconciliation,
+    finalize_vehicle_reconciliation_settlement,
 )
 
 router = APIRouter()
@@ -78,13 +78,11 @@ async def reconcile_driver_end_of_day(
     تسوية عهدة نهاية اليوم بدون إجبار المندوب على Batch count عندما تكون الإجماليات مطابقة.
 
     - يقارن العد الفعلي التجميعي مع إجمالي on_hand (AVAILABLE + DAMAGED) للسيارة.
-    - المطابقة التامة: يثبت Ending Snapshot ويختم التسوية المخزنية فقط؛ التسوية المالية تبقى للمحاسب.
+    - المطابقة التامة: يثبت Ending Snapshot ويغلق WorkSession مخزنياً.
     - وجود فرق: يفتح VEHICLE_RECON موجهاً فقط للأصناف المختلفة؛ لا يخمّن Batch الفرق.
     """
     company_id = int(current_driver.company_id)
     driver_id = int(current_driver.id)
-    if session_id <= 0 or session_id > _DB_INT_MAX:
-        raise HTTPException(status_code=422, detail="session_id خارج النطاق الصحيح لقاعدة البيانات.")
 
     try:
         work_session = (
@@ -103,22 +101,13 @@ async def reconcile_driver_end_of_day(
         if work_session.end_time is None:
             raise HTTPException(status_code=409, detail="يجب إنهاء يوم العمل قبل تسوية عهدة السيارة.")
 
-        # التسوية المالية مستقلة عن التسوية المخزنية.
-        if work_session.is_settled and work_session.inventory_reconciled_at is None:
-            raise HTTPException(
-                status_code=409,
-                detail="الجلسة مسواة مالياً دون ختم تسوية مخزنية؛ البيانات غير متسقة.",
-            )
-
-        # State-idempotency: retry بعد نجاح المطابقة المخزنية لا يعيد أي حركة أو يفتح جرداً جديداً.
-        if work_session.inventory_reconciled_at is not None:
-            if work_session.inventory_reconciled_by is None:
-                raise HTTPException(status_code=409, detail="ختم التسوية المخزنية ناقص هوية المنفذ.")
+        # State-idempotency: retry بعد نجاح المطابقة لا يعيد أي حركة أو يفتح جرداً جديداً.
+        if work_session.is_settled:
             await db.rollback()
             return {
-                "message": "تمت مطابقة عهدة المخزون لهذه الجلسة مسبقاً؛ التسوية المالية مستقلة.",
+                "message": "تمت تسوية عهدة هذه الجلسة مسبقاً.",
                 "requires_audit": False,
-                "already_reconciled": True,
+                "already_settled": True,
             }
 
         route = (
@@ -192,7 +181,7 @@ async def reconcile_driver_end_of_day(
             if existing_status == "POSTED":
                 raise HTTPException(
                     status_code=409,
-                    detail="VEHICLE_RECON بحالة POSTED لكن WorkSession بلا ختم تسوية مخزنية؛ البيانات غير متسقة وتحتاج مراجعة.",
+                    detail="VEHICLE_RECON بحالة POSTED لكن WorkSession غير مسواة؛ البيانات غير متسقة وتحتاج مراجعة.",
                 )
             await db.rollback()
             return {
@@ -299,36 +288,30 @@ async def reconcile_driver_end_of_day(
                 })
 
         if not variances:
-            reconciled_session = await finalize_vehicle_inventory_reconciliation(
+            await finalize_vehicle_reconciliation_settlement(
                 db,
                 company_id=company_id,
                 work_session_id=work_session.id,
                 vehicle_location_id=vehicle_location_id,
                 settled_by=driver_id,
             )
-            reconciled_at = reconciled_session.inventory_reconciled_at
-            if reconciled_at is None:
-                raise RuntimeError("Inventory reconciliation finalized without inventory_reconciled_at.")
             db.add(SystemAuditLog(
                 company_id=company_id,
                 admin_id=driver_id,
                 target_id=f"WorkSession_{work_session.id}",
-                action_type="VEHICLE_INVENTORY_RECONCILED",
-                old_value="inventory_reconciled_at=null",
+                action_type="VEHICLE_RECON_MATCHED",
+                old_value="is_settled=false",
                 new_value=json.dumps({
-                    "inventory_reconciled": True,
-                    "inventory_reconciled_at": reconciled_at.isoformat(),
-                    "inventory_reconciled_by": driver_id,
-                    "financial_is_settled": False,
+                    "is_settled": True,
                     "product_count": len(expected_map),
                     "vehicle_location_id": vehicle_location_id,
                 }, ensure_ascii=False),
             ))
             await db.commit()
             return {
-                "message": "التسوية المخزنية مطابقة 100% وتم تثبيت عهدة نهاية الجلسة؛ التسوية المالية ما زالت بانتظار المحاسب.",
+                "message": "التسوية المخزنية مطابقة 100% وتم تثبيت عهدة نهاية الجلسة.",
                 "requires_audit": False,
-                "already_reconciled": False,
+                "already_settled": False,
             }
 
         variance_product_ids = [row["product_variant_id"] for row in variances]

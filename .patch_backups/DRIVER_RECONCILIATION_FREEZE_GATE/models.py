@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Float, Text, JSON, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -531,7 +531,6 @@ class DispatchRoute(Base):
         # يدعم lookup أحدث route لكل سيارة عبر equality prefix ثم backward scan على id.
         Index('ix_dispatch_route_company_vehicle_latest', 'company_id', 'vehicle_id', 'id'),
         UniqueConstraint('company_id', 'id', name='uq_dispatch_routes_company_id'),
-        UniqueConstraint('company_id', 'work_session_id', name='uq_dispatch_routes_work_session'),
         ForeignKeyConstraint(['company_id', 'zone_id'], ['zones.company_id', 'zones.id'],
                              ondelete='RESTRICT', name='fk_dispatch_route_tenant_zone'),
         ForeignKeyConstraint(['company_id', 'driver_id'], ['drivers.company_id', 'drivers.id'],
@@ -550,8 +549,6 @@ class DispatchRoute(Base):
                         name='chk_dispatch_route_status'),
         CheckConstraint('work_session_id IS NULL OR driver_id IS NOT NULL',
                         name='chk_dispatch_route_session_requires_driver'),
-        CheckConstraint('work_session_id IS NULL OR vehicle_id IS NOT NULL',
-                        name='chk_dispatch_route_session_requires_vehicle'),
     )
 
     id                 = Column(Integer, primary_key=True)
@@ -763,13 +760,6 @@ class ShortageRequest(Base):
                              name='fk_shortage_tenant_driver'),
         ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'],
                              ondelete='RESTRICT', name='fk_shortage_tenant_variant'),
-        ForeignKeyConstraint(['company_id', 'fulfilled_by_visit_id'], ['visits.company_id', 'visits.id'],
-                             ondelete='RESTRICT', name='fk_shortage_tenant_fulfilled_visit'),
-        CheckConstraint(
-            "((fulfilled_by_visit_id IS NULL AND fulfilled_at IS NULL) OR "
-            "(fulfilled_by_visit_id IS NOT NULL AND fulfilled_at IS NOT NULL))",
-            name='chk_shortage_fulfillment_pair'
-        ),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -783,8 +773,6 @@ class ShortageRequest(Base):
     status     = Column(String(50), nullable=False, default='pending', index=True)
     wait_time  = Column(String(50), nullable=True,  default='الآن')
     notes      = Column(Text,       nullable=True)   # بدل product_name - لو في ملاحظات إضافية
-    fulfilled_by_visit_id = Column(Integer, nullable=True, index=True)
-    fulfilled_at          = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime,   nullable=False,  default=utc_now)  # FIX ①
 
     zone            = relationship('Zone', foreign_keys=[zone_id], lazy='raise')

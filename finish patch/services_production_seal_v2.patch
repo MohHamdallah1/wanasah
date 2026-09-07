@@ -1,0 +1,383 @@
+diff --git a/wa_backend/services.py b/wa_backend/services.py
+index 2075053..1656eb9 100644
+--- a/wa_backend/services.py
++++ b/wa_backend/services.py
+@@ -20,13 +20,27 @@ from models import (
+     InventoryMovement,
+     InventoryMovementImpact,
+     ProductBatch,
++    StocktakeSession,
+ )
+ 
+ from typing import Any, Type, Optional, List, Dict, Tuple
+ 
+ 
++# حدود الأنواع الفعلية في PostgreSQL المستخدمة في models.py.
++_DB_INT_MAX = 2_147_483_647
++_MONEY_12_3_MAX = Decimal("999999999.999")
++_MONEY_QUANT = Decimal("0.001")
++_PERCENT_MAX = Decimal("100")
++
++
+ # تحويل قيمة مالية إلى Decimal محدود وصالح قبل دخولها أي حساب محاسبي.
+-def _finite_decimal(value: Any, field_name: str, *, nonnegative: bool = True) -> Decimal:
++def _finite_decimal(
++    value: Any,
++    field_name: str,
++    *,
++    nonnegative: bool = True,
++    maximum: Optional[Decimal] = None,
++) -> Decimal:
+     try:
+         dec = Decimal(str(value))
+     except (InvalidOperation, ValueError, TypeError) as exc:
+@@ -36,11 +50,38 @@ def _finite_decimal(value: Any, field_name: str, *, nonnegative: bool = True) ->
+         raise ValueError(f"{field_name} لا يقبل NaN أو Infinity.")
+     if nonnegative and dec < 0:
+         raise ValueError(f"{field_name} لا يمكن أن يكون سالباً.")
++    if maximum is not None and dec > maximum:
++        raise ValueError(f"{field_name} يتجاوز الحد الأقصى المسموح ({maximum}).")
+     return dec
+ 
+ 
+-# تحويل كمية/معرّف إلى عدد صحيح دون السماح بالكسور أو القيم المنطقية.
+-def _strict_int(value: Any, field_name: str, *, minimum: Optional[int] = 0) -> int:
++# تحويل قيمة مالية إلى Numeric(12,3) صالح قبل إرجاعها أو حفظها.
++def _money_12_3(value: Any, field_name: str) -> Decimal:
++    dec = _finite_decimal(
++        value,
++        field_name,
++        nonnegative=True,
++    )
++    try:
++        quantized = dec.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
++    except InvalidOperation as exc:
++        raise ValueError(f"{field_name} لا يمكن تمثيله بدقة مالية صالحة.") from exc
++
++    if quantized > _MONEY_12_3_MAX:
++        raise ValueError(
++            f"{field_name} يتجاوز سعة الحقل المالي Numeric(12,3)."
++        )
++    return quantized
++
++
++# تحويل كمية/معرّف إلى عدد صحيح دون السماح بالكسور أو القيم المنطقية أو تجاوز INTEGER.
++def _strict_int(
++    value: Any,
++    field_name: str,
++    *,
++    minimum: Optional[int] = 0,
++    maximum: Optional[int] = _DB_INT_MAX,
++) -> int:
+     if isinstance(value, bool):
+         raise ValueError(f"{field_name} يجب أن يكون عدداً صحيحاً.")
+ 
+@@ -55,14 +96,44 @@ def _strict_int(value: Any, field_name: str, *, minimum: Optional[int] = 0) -> i
+     result = int(dec)
+     if minimum is not None and result < minimum:
+         raise ValueError(f"{field_name} يجب ألا يقل عن {minimum}.")
++    if maximum is not None and result > maximum:
++        raise ValueError(f"{field_name} يتجاوز الحد الأقصى المسموح ({maximum}).")
+     return result
+ 
+ 
+-# تطبيع معرّف اختياري مع رفض الصفر والقيم السالبة والكسور.
++# تطبيع معرّف اختياري مع رفض الصفر والقيم السالبة والكسور وتجاوز INTEGER.
+ def _optional_positive_int(value: Any, field_name: str) -> Optional[int]:
+     if value is None:
+         return None
+-    return _strict_int(value, field_name, minimum=1)
++    return _strict_int(
++        value,
++        field_name,
++        minimum=1,
++        maximum=_DB_INT_MAX,
++    )
++
++
++# تحويل قيمة إعداد حسب النوع المطلوب مع رفض NaN/Infinity ومعالجة boolean النصي بشكل صحيح.
++def _coerce_setting_value(value: Any, value_type: Type) -> Any:
++    if value_type is bool:
++        normalized = str(value).strip().lower()
++        if normalized in {"1", "true", "yes", "on"}:
++            return True
++        if normalized in {"0", "false", "no", "off"}:
++            return False
++        raise ValueError("قيمة boolean غير صالحة.")
++
++    converted = value_type(value)
++    if isinstance(converted, Decimal) and not converted.is_finite():
++        raise ValueError("قيمة Decimal غير محدودة.")
++    if isinstance(converted, float):
++        try:
++            finite_float = Decimal(str(converted)).is_finite()
++        except InvalidOperation:
++            finite_float = False
++        if not finite_float:
++            raise ValueError("قيمة float غير محدودة.")
++    return converted
+ 
+ 
+ # جلب إعداد خاص بالشركة حصراً ومنع أي قراءة عابرة بين الـTenants.
+@@ -72,6 +143,8 @@ async def get_setting(
+     key: str,
+     default_value: Any,
+     value_type: Type = str,
++    *,
++    strict_conversion: bool = False,
+ ) -> Any:
+     try:
+         company_id = _strict_int(company_id, "company_id", minimum=1)
+@@ -91,8 +164,12 @@ async def get_setting(
+         return default_value
+ 
+     try:
+-        return value_type(value)
+-    except (ValueError, TypeError, InvalidOperation):
++        return _coerce_setting_value(value, value_type)
++    except (ValueError, TypeError, InvalidOperation, OverflowError) as exc:
++        if strict_conversion:
++            raise ValueError(
++                f"الإعداد ({key.strip()}) يحمل قيمة غير صالحة ولا يجوز استخدام Default بصمت."
++            ) from exc
+         return default_value
+ 
+ def calculate_invoice(
+@@ -124,16 +201,31 @@ def calculate_invoice(
+     if c_qty == 0 and p_qty == 0:
+         return zero_result
+ 
+-    c_price = _finite_decimal(price_per_carton or "0.0", "price_per_carton")
+-    p_price = _finite_decimal(price_per_pack or "0.0", "price_per_pack")
+-    tax_pct = _finite_decimal(pre_fetched_tax, "tax_percentage")
++    c_price = _money_12_3(
++        price_per_carton or "0.0",
++        "price_per_carton",
++    )
++    p_price = _money_12_3(
++        price_per_pack or "0.0",
++        "price_per_pack",
++    )
++    tax_pct = _finite_decimal(
++        pre_fetched_tax,
++        "tax_percentage",
++        maximum=_PERCENT_MAX,
++    ).quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
++
++    # الكميات المدفوعة لا يجوز أن تمر بسعر صفري؛ العينات والبونص لهما مسارات مستقلة.
++    if c_qty > 0 and c_price <= Decimal("0"):
++        raise ValueError("price_per_carton يجب أن يكون أكبر من صفر عند بيع كراتين.")
++    if p_qty > 0 and p_price <= Decimal("0"):
++        raise ValueError("price_per_pack يجب أن يكون أكبر من صفر عند بيع حبات منفردة.")
+ 
+     if active_offers is None:
+         raise ValueError(
+             "هندسة مرفوضة: يجب جلب العروض النشطة مسبقاً وتمريرها كقائمة."
+         )
+ 
+-    three_places = Decimal("0.001")
+     base_amount = (Decimal(c_qty) * c_price) + (Decimal(p_qty) * p_price)
+     total_equivalent_cartons = c_qty + (p_qty // safe_ppc)
+ 
+@@ -164,7 +256,7 @@ def calculate_invoice(
+             f"offer[{getattr(offer, 'id', '?')}].bonus_quantity",
+             minimum=0,
+         )
+-        discount_cfg = _finite_decimal(
++        discount_cfg = _money_12_3(
+             offer.discount_value or "0.0",
+             f"offer[{getattr(offer, 'id', '?')}].discount_value",
+         )
+@@ -199,6 +291,10 @@ def calculate_invoice(
+ 
+         if offer.offer_type == "free_items":
+             bonus_cartons = multiplier * bonus_qty
++            if bonus_cartons > _DB_INT_MAX:
++                raise ValueError(
++                    "كمية البونص الناتجة تتجاوز سعة INTEGER في قاعدة البيانات."
++                )
+         elif offer.offer_type == "fixed_discount":
+             discount_value = discount_cfg * Decimal(multiplier)
+         else:
+@@ -210,12 +306,13 @@ def calculate_invoice(
+     final_amount = amount_after_discount + tax_amount
+ 
+     return {
+-        "base_amount": base_amount.quantize(three_places, rounding=ROUND_HALF_UP),
+-        "discount_applied": actual_discount_applied.quantize(
+-            three_places, rounding=ROUND_HALF_UP
++        "base_amount": _money_12_3(base_amount, "base_amount"),
++        "discount_applied": _money_12_3(
++            actual_discount_applied,
++            "discount_applied",
+         ),
+-        "tax_amount": tax_amount.quantize(three_places, rounding=ROUND_HALF_UP),
+-        "final_amount": final_amount.quantize(three_places, rounding=ROUND_HALF_UP),
++        "tax_amount": _money_12_3(tax_amount, "tax_amount"),
++        "final_amount": _money_12_3(final_amount, "final_amount"),
+         "bonus_units": bonus_cartons,
+     }
+ 
+@@ -232,7 +329,10 @@ async def check_debt_limits(
+         company_id = _strict_int(company_id, "company_id", minimum=1)
+         driver_id = _strict_int(driver_id, "driver_id", minimum=1)
+         shop_id = _strict_int(shop_id, "shop_id", minimum=1)
+-        new_debt = _finite_decimal(new_debt_amount, "new_debt_amount")
++        new_debt = _money_12_3(
++            new_debt_amount,
++            "new_debt_amount",
++        )
+     except ValueError as exc:
+         return False, str(exc)
+ 
+@@ -264,15 +364,17 @@ async def check_debt_limits(
+ 
+     if not driver or not shop:
+         return False, "المندوب أو المحل غير موجود."
++    if not getattr(shop, "is_active", False) or getattr(shop, "is_archived", False):
++        return False, "المحل غير فعال أو مؤرشف ولا يمكن فتح ذمة جديدة له."
+     if not getattr(driver, "can_allow_debt", False):
+         return False, "غير مصرح لك بإعطاء ذمم للمحلات."
+ 
+     try:
+-        max_limit = _finite_decimal(
++        max_limit = _money_12_3(
+             shop.max_debt_limit or "0.0",
+             "shop.max_debt_limit",
+         )
+-        current_bal = _finite_decimal(
++        current_bal = _money_12_3(
+             shop.current_balance or "0.0",
+             "shop.current_balance",
+         )
+@@ -437,6 +539,30 @@ async def apply_inventory_movement(
+             "لا يجوز تجاوز قفل الجرد إلا عند ترحيل حركة مرتبطة بنفس جلسة الجرد."
+         )
+ 
++    if ignore_stocktake_session_id is not None:
++        stocktake_location_id = (
++            await db_session.execute(
++                select(StocktakeSession.location_id).filter_by(
++                    company_id=company_id,
++                    id=ignore_stocktake_session_id,
++                )
++            )
++        ).scalar_one_or_none()
++        if stocktake_location_id is None:
++            raise InventoryMutationError(
++                "جلسة الجرد المستخدمة لتجاوز القفل غير موجودة أو لا تتبع الشركة."
++            )
++
++        movement_locations = {
++            location_id
++            for location_id in (source_location_id, destination_location_id)
++            if location_id is not None
++        }
++        if not movement_locations or movement_locations != {stocktake_location_id}:
++            raise InventoryMutationError(
++                "تجاوز قفل الجرد مسموح فقط لحركة تعديل داخل موقع جلسة الجرد نفسها."
++            )
++
+     if (
+         stocktake_count_attempt_id is not None
+         and stocktake_session_id is None
+@@ -664,7 +790,15 @@ async def apply_inventory_movement(
+ 
+         if destination_key is not None:
+             destination_balance = balance_map[destination_key]
+-            destination_balance.on_hand_quantity = int(destination_balance.on_hand_quantity or 0) + quantity
++            destination_on_hand = int(
++                destination_balance.on_hand_quantity or 0
++            )
++            new_destination_on_hand = destination_on_hand + quantity
++            if new_destination_on_hand > _DB_INT_MAX:
++                raise InventoryMutationError(
++                    "الرصيد الناتج في الوجهة يتجاوز سعة INTEGER في قاعدة البيانات."
++                )
++            destination_balance.on_hand_quantity = new_destination_on_hand
+ 
+     movement = InventoryMovement(
+         company_id=company_id,
+@@ -781,6 +915,10 @@ async def allocate_fefo_inventory(
+         InventoryBalance.stock_status == "AVAILABLE",
+         InventoryBalance.on_hand_quantity > InventoryBalance.reserved_quantity,
+         ProductBatch.is_active.is_(True),
++        or_(
++            ProductBatch.production_date.is_(None),
++            ProductBatch.production_date <= as_of_date,
++        ),
+         ProductBatch.expiry_date >= as_of_date,
+         ~InventoryBalance.batch_id.in_(locked_batches),
+     ).order_by(
+@@ -900,7 +1038,12 @@ async def reverse_inventory_movement(
+ 
+ def format_qty(total_packs: int, packs_per_carton: int) -> str:
+     """تحويل الحبات إلى تمثيل كراتين/حبات دون السماح بكميات كسرية."""
+-    total = _strict_int(total_packs, "total_packs", minimum=None)
++    total = _strict_int(
++        total_packs,
++        "total_packs",
++        minimum=None,
++        maximum=None,
++    )
+     ppc = _strict_int(packs_per_carton, "packs_per_carton", minimum=1)
+ 
+     if ppc == 1:
+@@ -989,6 +1132,23 @@ async def reverse_previous_visit_state(
+             raise InventoryReversalError(
+                 "مرفوض: مندوب الزيارة لا يطابق مندوب جلسة العمل."
+             )
++        if locked_session.is_settled:
++            raise InventoryReversalError(
++                "مرفوض: لا يمكن عكس زيارة تابعة لجلسة تمت تسويتها واعتمادها."
++            )
++    elif locked_visit.work_session_id is not None:
++        raise InventoryReversalError(
++            "مرفوض: الزيارة مرتبطة بجلسة عمل ويجب تمرير الجلسة نفسها عند العكس."
++        )
++
++    if locked_visit.status != "Completed":
++        raise InventoryReversalError(
++            "لا يمكن عكس زيارة إلا إذا كانت حالتها Completed."
++        )
++    if locked_visit.outcome not in {"Sale", "NoSale"}:
++        raise InventoryReversalError(
++            "حالة الزيارة المكتملة غير قابلة للعكس بهذا المسار."
++        )
+ 
+     actor_exists = (
+         await db_session.execute(
+@@ -1018,19 +1178,19 @@ async def reverse_previous_visit_state(
+     visit_returns = (await db_session.execute(stmt_returns)).scalars().all()
+ 
+     try:
+-        old_cash = _finite_decimal(
++        old_cash = _money_12_3(
+             locked_visit.cash_collected or "0.0",
+             "visit.cash_collected",
+         )
+-        old_debt_paid = _finite_decimal(
++        old_debt_paid = _money_12_3(
+             locked_visit.debt_paid or "0.0",
+             "visit.debt_paid",
+         )
+-        current_bal = _finite_decimal(
++        current_bal = _money_12_3(
+             locked_shop.current_balance or "0.0",
+             "shop.current_balance",
+         )
+-        final_amount_due = _finite_decimal(
++        final_amount_due = _money_12_3(
+             locked_visit.final_amount_due or "0.0",
+             "visit.final_amount_due",
+         )
+@@ -1170,6 +1330,9 @@ def get_tenant_storage_path(company_id: int, filename: str) -> str:
+     ):
+         raise ValueError("خطأ أمني: اسم الملف يجب أن يكون اسماً مجرداً دون مسار.")
+ 
++    if len(clean_name.encode("utf-8")) > 255:
++        raise ValueError("خطأ أمني: اسم الملف أطول من الحد الآمن لنظام الملفات.")
++
+     base_path = getattr(Config, "STORAGE_BASE_PATH", "local_storage/")
+     tenant_folder = os.path.realpath(
+         os.path.join(base_path, f"company_{comp_id}")

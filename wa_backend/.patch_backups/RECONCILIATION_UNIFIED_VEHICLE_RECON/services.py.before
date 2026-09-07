@@ -3,19 +3,16 @@ from config import Config
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
-from uuid import UUID, uuid4
+from uuid import UUID
 from sqlalchemy import select, func, and_, or_, tuple_, update, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from models import (
     SystemSetting,
     Company,
     OfferRule,
-    ProductVariant,
     Driver,
     Shop,
-    ShortageRequest,
     WorkSession,
-    SessionInventorySnapshot,
     DispatchRoute,
     Visit,
     VisitItem,
@@ -484,12 +481,7 @@ async def validate_vehicle_recon_work_session(
 
     if work_session.is_settled:
         raise InventoryMutationError(
-            "جلسة العمل تمت تسويتها مالياً مسبقاً ولا تقبل VEHICLE_RECON جديداً."
-        )
-
-    if work_session.inventory_reconciled_at is not None:
-        raise InventoryMutationError(
-            "عهدة مخزون جلسة العمل تمت مطابقتها مسبقاً ولا تقبل VEHICLE_RECON جديداً."
+            "جلسة العمل تمت تسويتها مسبقاً ولا تقبل VEHICLE_RECON جديداً."
         )
 
     route_id = (
@@ -1462,406 +1454,6 @@ async def apply_inventory_movement(
     return result[0]
 
 
-# فتح VEHICLE_RECON موجّه فقط للأصناف التي فشل عدّها التجميعي.
-# يبقى InventoryLock على السيارة كاملة لأن الجلسة منتهية، لكن العد التفصيلي لا يرهق المشرف بأصناف مطابقة.
-async def open_vehicle_reconciliation_stocktake(
-    db_session: AsyncSession,
-    *,
-    company_id: int,
-    work_session_id: int,
-    vehicle_location_id: int,
-    started_by: int,
-    product_variant_ids: List[int],
-    notes: Optional[str] = None,
-) -> Tuple[StocktakeSession, bool]:
-    try:
-        company_id = _strict_int(company_id, "company_id", minimum=1)
-        work_session_id = _strict_int(work_session_id, "work_session_id", minimum=1)
-        vehicle_location_id = _strict_int(vehicle_location_id, "vehicle_location_id", minimum=1)
-        started_by = _strict_int(started_by, "started_by", minimum=1)
-        normalized_variant_ids = sorted({
-            _strict_int(value, "product_variant_id", minimum=1)
-            for value in product_variant_ids
-        })
-    except ValueError as exc:
-        raise InventoryMutationError(str(exc)) from exc
-
-    if not normalized_variant_ids:
-        raise InventoryMutationError("VEHICLE_RECON الموجّه يتطلب صنفاً واحداً على الأقل.")
-    if len(normalized_variant_ids) > 5000:
-        raise InventoryMutationError("عدد أصناف VEHICLE_RECON يتجاوز الحد الآمن.")
-
-    if notes is not None:
-        if not isinstance(notes, str):
-            raise InventoryMutationError("notes يجب أن تكون نصاً أو None.")
-        notes = notes.strip() or None
-        if notes is not None and ("\x00" in notes or len(notes) > 4000):
-            raise InventoryMutationError("notes غير صالحة أو تتجاوز 4000 حرف.")
-
-    actor = (
-        await db_session.execute(
-            select(Driver.id, Driver.is_admin).filter_by(
-                company_id=company_id,
-                id=started_by,
-                is_active=True,
-            ).with_for_update(read=True)
-        )
-    ).one_or_none()
-    if actor is None:
-        raise InventoryMutationError("منشئ التسوية غير موجود/غير فعال أو خارج الشركة.")
-
-    location = (
-        await db_session.execute(
-            select(InventoryLocation).filter_by(
-                company_id=company_id,
-                id=vehicle_location_id,
-                location_type="VEHICLE",
-                is_active=True,
-            ).with_for_update(read=True)
-        )
-    ).scalar_one_or_none()
-    if location is None or location.vehicle_id is None:
-        raise InventoryMutationError("موقع السيارة غير موجود أو غير فعال أو لا يحمل vehicle_id صالحاً.")
-
-    work_session = await validate_vehicle_recon_work_session(
-        db_session,
-        company_id=company_id,
-        work_session_id=work_session_id,
-        vehicle_id=int(location.vehicle_id),
-    )
-    if started_by != work_session.driver_id and not bool(actor.is_admin):
-        raise InventoryMutationError("لا يجوز لمندوب آخر فتح تسوية عهدة هذه الجلسة.")
-
-    valid_variant_ids = set((
-        await db_session.execute(
-            select(ProductVariant.id).filter(
-                ProductVariant.company_id == company_id,
-                ProductVariant.id.in_(normalized_variant_ids),
-            )
-        )
-    ).scalars().all())
-    if valid_variant_ids != set(normalized_variant_ids):
-        raise InventoryMutationError("أحد أصناف فرق العهدة غير موجود أو لا يتبع الشركة.")
-
-    await acquire_inventory_location_guard(
-        db_session,
-        company_id,
-        vehicle_location_id,
-        exclusive=True,
-    )
-
-    existing = (
-        await db_session.execute(
-            select(StocktakeSession)
-            .filter(
-                StocktakeSession.company_id == company_id,
-                StocktakeSession.stocktake_type == "VEHICLE_RECON",
-                StocktakeSession.related_work_session_id == work_session_id,
-                StocktakeSession.status != "CANCELLED",
-            )
-            .order_by(StocktakeSession.id.desc())
-            .limit(1)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return existing, False
-
-    conflicting_session_id = (
-        await db_session.execute(
-            select(StocktakeSession.id)
-            .filter(
-                StocktakeSession.company_id == company_id,
-                StocktakeSession.location_id == vehicle_location_id,
-                StocktakeSession.status.in_([
-                    "DRAFT", "COUNTING", "PENDING_REVIEW", "RECOUNT_REQUIRED", "APPROVED"
-                ]),
-            )
-            .order_by(StocktakeSession.id.asc())
-            .limit(1)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if conflicting_session_id is not None:
-        raise InventoryMutationError("يوجد جرد نشط على السيارة؛ لا يمكن فتح تسوية موازية.")
-
-    conflicting_lock_id = (
-        await db_session.execute(
-            select(InventoryLock.id)
-            .filter(
-                InventoryLock.company_id == company_id,
-                InventoryLock.location_id == vehicle_location_id,
-                InventoryLock.released_at.is_(None),
-            )
-            .order_by(InventoryLock.id.asc())
-            .limit(1)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if conflicting_lock_id is not None:
-        raise InventoryMutationError("يوجد قفل جرد فعال على السيارة؛ لا يمكن فتح تسوية جديدة.")
-
-    reference_number = f"VREC-{uuid4().hex[:12].upper()}"
-    session = StocktakeSession(
-        company_id=company_id,
-        location_id=vehicle_location_id,
-        reference_number=reference_number,
-        stocktake_type="VEHICLE_RECON",
-        status="DRAFT",
-        related_work_session_id=work_session_id,
-        started_by=started_by,
-        notes=notes,
-    )
-    db_session.add(session)
-    await db_session.flush()
-
-    db_session.add(InventoryLock(
-        company_id=company_id,
-        stocktake_session_id=session.id,
-        location_id=vehicle_location_id,
-        product_variant_id=None,
-        batch_id=None,
-        created_by=started_by,
-    ))
-    await db_session.flush()
-
-    balances = (
-        await db_session.execute(
-            select(InventoryBalance)
-            .filter(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id == vehicle_location_id,
-                InventoryBalance.product_variant_id.in_(normalized_variant_ids),
-                InventoryBalance.stock_status.in_(["AVAILABLE", "DAMAGED"]),
-                InventoryBalance.on_hand_quantity > 0,
-            )
-            .order_by(
-                InventoryBalance.product_variant_id.asc(),
-                InventoryBalance.batch_id.asc(),
-                InventoryBalance.stock_status.asc(),
-                InventoryBalance.id.asc(),
-            )
-            .limit(_MAX_STOCKTAKE_POST_LINES + 1)
-            .with_for_update()
-        )
-    ).scalars().all()
-    if len(balances) > _MAX_STOCKTAKE_POST_LINES:
-        raise InventoryMutationError("VEHICLE_RECON يتجاوز الحد الآمن لأسطر الجرد.")
-
-    for balance in balances:
-        db_session.add(StocktakeLine(
-            company_id=company_id,
-            stocktake_session_id=session.id,
-            product_variant_id=balance.product_variant_id,
-            batch_id=balance.batch_id,
-            stock_status=balance.stock_status,
-            line_origin="SNAPSHOT",
-            expected_quantity=int(balance.on_hand_quantity),
-        ))
-
-    cutoff = utc_now()
-    session.snapshot_cutoff_at = cutoff
-    session.status = "COUNTING"
-    session.updated_at = cutoff
-    await db_session.flush()
-    return session, True
-
-
-# تثبيت عهدة نهاية الجلسة من الرصيد الحي بعد المطابقة/ترحيل VEHICLE_RECON.
-# هذه الدالة لا تخمّن Batch ولا تغيّر InventoryBalance ولا تنفذ التسوية المالية؛
-# فقط تجمّد Ending Snapshot وتختم inventory_reconciled_* على WorkSession.
-async def finalize_vehicle_inventory_reconciliation(
-    db_session: AsyncSession,
-    *,
-    company_id: int,
-    work_session_id: int,
-    vehicle_location_id: int,
-    settled_by: int,
-) -> WorkSession:
-    try:
-        company_id = _strict_int(company_id, "company_id", minimum=1)
-        work_session_id = _strict_int(work_session_id, "work_session_id", minimum=1)
-        vehicle_location_id = _strict_int(vehicle_location_id, "vehicle_location_id", minimum=1)
-        settled_by = _strict_int(settled_by, "settled_by", minimum=1)
-    except ValueError as exc:
-        raise InventoryMutationError(str(exc)) from exc
-
-    actor = (
-        await db_session.execute(
-            select(Driver.id, Driver.is_admin).filter_by(
-                company_id=company_id,
-                id=settled_by,
-                is_active=True,
-            ).with_for_update(read=True)
-        )
-    ).one_or_none()
-    if actor is None:
-        raise InventoryMutationError("منفذ التسوية غير موجود/غير فعال أو خارج الشركة.")
-
-    work_session = (
-        await db_session.execute(
-            select(WorkSession)
-            .execution_options(populate_existing=True)
-            .filter_by(company_id=company_id, id=work_session_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if work_session is None:
-        raise InventoryMutationError("جلسة العمل غير موجودة أو لا تتبع الشركة.")
-    if work_session.end_time is None:
-        raise InventoryMutationError("لا يمكن تسوية عهدة جلسة عمل لم تنتهِ بعد.")
-    if settled_by != work_session.driver_id and not bool(actor.is_admin):
-        raise InventoryMutationError("تثبيت عهدة الجلسة مسموح لصاحب الجلسة أو لمشرف فعال من نفس الشركة فقط.")
-
-    # ترتيب الأقفال الرسمي لـ VEHICLE_RECON: WorkSession -> inventory-location guard.
-    await acquire_inventory_location_guard(
-        db_session,
-        company_id,
-        vehicle_location_id,
-        exclusive=True,
-    )
-
-    location = (
-        await db_session.execute(
-            select(InventoryLocation).filter_by(
-                company_id=company_id,
-                id=vehicle_location_id,
-                location_type="VEHICLE",
-                is_active=True,
-            ).with_for_update(read=True)
-        )
-    ).scalar_one_or_none()
-    if location is None or location.vehicle_id is None:
-        raise InventoryMutationError("موقع السيارة غير موجود أو غير فعال أو لا يحمل vehicle_id صالحاً.")
-
-    route_id = (
-        await db_session.execute(
-            select(DispatchRoute.id).filter(
-                DispatchRoute.company_id == company_id,
-                DispatchRoute.work_session_id == work_session.id,
-                DispatchRoute.driver_id == work_session.driver_id,
-                DispatchRoute.vehicle_id == location.vehicle_id,
-            ).order_by(DispatchRoute.id.desc()).limit(1)
-        )
-    ).scalar_one_or_none()
-    if route_id is None:
-        raise InventoryMutationError("جلسة العمل لا ترتبط بموقع السيارة المحدد داخل الشركة.")
-
-    snapshots = (
-        await db_session.execute(
-            select(SessionInventorySnapshot)
-            .execution_options(populate_existing=True)
-            .filter_by(company_id=company_id, work_session_id=work_session.id)
-            .order_by(
-                SessionInventorySnapshot.product_variant_id.asc(),
-                SessionInventorySnapshot.stock_status.asc(),
-                SessionInventorySnapshot.id.asc(),
-            )
-            .with_for_update()
-        )
-    ).scalars().all()
-
-    if any(int(row.location_id) != vehicle_location_id for row in snapshots):
-        raise InventoryMutationError("لقطة جلسة المندوب مرتبطة بموقع سيارة مختلف؛ تم رفض التسوية.")
-
-    if work_session.is_settled and work_session.inventory_reconciled_at is None:
-        raise InventoryMutationError(
-            "جلسة مسواة مالياً بدون ختم تسوية مخزنية؛ البيانات غير متسقة."
-        )
-
-    if work_session.inventory_reconciled_at is not None:
-        if work_session.inventory_reconciled_by is None:
-            raise InventoryMutationError("ختم التسوية المخزنية ناقص هوية المنفذ.")
-        if any(
-            row.ending_quantity is None
-            or row.settled_by is None
-            or row.settled_at is None
-            for row in snapshots
-        ):
-            raise InventoryMutationError("جلسة مخزون معلّمة كمطابقة لكن Ending Snapshot ناقص.")
-        return work_session
-
-    if work_session.inventory_reconciled_by is not None:
-        raise InventoryMutationError("تم اكتشاف ختم تسوية مخزنية جزئي على WorkSession.")
-
-    if any(
-        row.ending_quantity is not None
-        or row.settled_by is not None
-        or row.settled_at is not None
-        for row in snapshots
-    ):
-        raise InventoryMutationError("تم اكتشاف تسوية مخزنية جزئية في SessionInventorySnapshot.")
-
-    final_rows = (
-        await db_session.execute(
-            select(InventoryBalance)
-            .filter(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id == vehicle_location_id,
-                InventoryBalance.stock_status.in_(["AVAILABLE", "DAMAGED"]),
-                or_(
-                    InventoryBalance.on_hand_quantity > 0,
-                    InventoryBalance.reserved_quantity > 0,
-                ),
-            )
-            .order_by(
-                InventoryBalance.product_variant_id.asc(),
-                InventoryBalance.batch_id.asc(),
-                InventoryBalance.stock_status.asc(),
-                InventoryBalance.id.asc(),
-            )
-            .limit(_MAX_STOCKTAKE_POST_LINES + 1)
-            .with_for_update()
-        )
-    ).scalars().all()
-    if len(final_rows) > _MAX_STOCKTAKE_POST_LINES:
-        raise InventoryMutationError("رصيد السيارة يتجاوز الحد الآمن لتثبيت Ending Snapshot.")
-    if any(int(row.reserved_quantity or 0) != 0 for row in final_rows):
-        raise InventoryMutationError(
-            "لا يمكن ختم عهدة السيارة بوجود مخزون محجوز؛ يجب تحرير جميع الحجوزات أولاً."
-        )
-
-    final_map: Dict[Tuple[int, str], int] = {}
-    for balance in final_rows:
-        key = (int(balance.product_variant_id), str(balance.stock_status))
-        next_value = final_map.get(key, 0) + int(balance.on_hand_quantity or 0)
-        if next_value < 0 or next_value > _DB_INT_MAX:
-            raise InventoryMutationError("إجمالي عهدة نهاية الجلسة يتجاوز سعة INTEGER.")
-        final_map[key] = next_value
-
-    snapshot_map: Dict[Tuple[int, str], SessionInventorySnapshot] = {}
-    for row in snapshots:
-        key = (int(row.product_variant_id), str(row.stock_status))
-        if key in snapshot_map:
-            raise InventoryMutationError("لقطة الجلسة تحتوي صنف/حالة مكررة.")
-        snapshot_map[key] = row
-
-    settled_at = utc_now()
-    for key in sorted(set(snapshot_map) | set(final_map)):
-        ending_quantity = int(final_map.get(key, 0))
-        row = snapshot_map.get(key)
-        if row is None:
-            product_variant_id, stock_status = key
-            row = SessionInventorySnapshot(
-                company_id=company_id,
-                work_session_id=work_session.id,
-                location_id=vehicle_location_id,
-                product_variant_id=product_variant_id,
-                stock_status=stock_status,
-                starting_quantity=0,
-            )
-            db_session.add(row)
-        row.ending_quantity = ending_quantity
-        row.settled_by = settled_by
-        row.settled_at = settled_at
-
-    work_session.inventory_reconciled_at = settled_at
-    work_session.inventory_reconciled_by = settled_by
-    # is_settled يبقى False هنا عمداً: هذا حق التسوية المالية لدى المحاسب فقط.
-    await db_session.flush()
-    return work_session
-
-
 # ترحيل فروقات جرد معتمد دفعة واحدة دون N+1، مع قفل الموقع والتحقق من آخر محاولة مرة واحدة.
 async def post_approved_stocktake_adjustments(
     db_session: AsyncSession,
@@ -1900,40 +1492,20 @@ async def post_approved_stocktake_adjustments(
 
     probe = (
         await db_session.execute(
-            select(
-                StocktakeSession.location_id,
-                StocktakeSession.stocktake_type,
-                StocktakeSession.related_work_session_id,
-            ).filter_by(
+            select(StocktakeSession.location_id).filter_by(
                 company_id=company_id,
                 id=stocktake_session_id,
             )
         )
-    ).one_or_none()
+    ).scalar_one_or_none()
     if probe is None:
         raise InventoryMutationError("جلسة الجرد غير موجودة أو لا تتبع الشركة.")
-
-    probe_location_id, probe_type, probe_work_session_id = probe
-    # VEHICLE_RECON يلتزم ترتيب أقفال موحد: WorkSession -> inventory-location guard.
-    if probe_type == "VEHICLE_RECON":
-        if probe_work_session_id is None:
-            raise InventoryMutationError("VEHICLE_RECON بدون WorkSession مرتبط.")
-        locked_probe_session = (
-            await db_session.execute(
-                select(WorkSession.id).filter_by(
-                    company_id=company_id,
-                    id=probe_work_session_id,
-                ).with_for_update()
-            )
-        ).scalar_one_or_none()
-        if locked_probe_session is None:
-            raise InventoryMutationError("جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.")
 
     # الترحيل عملية حصرية على الموقع؛ يمنع أي حركة متزامنة أثناء تثبيت جميع الفروقات.
     await acquire_inventory_location_guard(
         db_session,
         company_id,
-        int(probe_location_id),
+        int(probe),
         exclusive=True,
     )
 
@@ -1945,12 +1517,7 @@ async def post_approved_stocktake_adjustments(
             ).with_for_update()
         )
     ).scalar_one_or_none()
-    if (
-        session is None
-        or session.location_id != probe_location_id
-        or session.stocktake_type != probe_type
-        or session.related_work_session_id != probe_work_session_id
-    ):
+    if session is None or session.location_id != probe:
         raise InventoryMutationError("جلسة الجرد تغيرت أو لم تعد صالحة للترحيل.")
     if session.status not in {"APPROVED", "POSTED"}:
         raise InventoryMutationError(
@@ -2340,45 +1907,6 @@ async def post_approved_stocktake_adjustments(
                 raise InventoryMutationError("حركة جرد متوقعة مفقودة من جلسة POSTED.")
             validate_existing(spec, movement)
             ordered_existing.append(movement)
-        if session.stocktake_type == "VEHICLE_RECON":
-            recon_state = (
-                await db_session.execute(
-                    select(
-                        WorkSession.inventory_reconciled_at,
-                        WorkSession.inventory_reconciled_by,
-                    ).filter_by(
-                        company_id=company_id,
-                        id=session.related_work_session_id,
-                    )
-                )
-            ).one_or_none()
-            if (
-                recon_state is None
-                or recon_state.inventory_reconciled_at is None
-                or recon_state.inventory_reconciled_by is None
-            ):
-                raise InventoryMutationError(
-                    "VEHICLE_RECON بحالة POSTED لكن WorkSession بلا ختم تسوية مخزنية مكتمل."
-                )
-            incomplete_snapshot_id = (
-                await db_session.execute(
-                    select(SessionInventorySnapshot.id)
-                    .filter(
-                        SessionInventorySnapshot.company_id == company_id,
-                        SessionInventorySnapshot.work_session_id == session.related_work_session_id,
-                        or_(
-                            SessionInventorySnapshot.ending_quantity.is_(None),
-                            SessionInventorySnapshot.settled_by.is_(None),
-                            SessionInventorySnapshot.settled_at.is_(None),
-                        ),
-                    )
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if incomplete_snapshot_id is not None:
-                raise InventoryMutationError(
-                    "VEHICLE_RECON بحالة POSTED لكن Ending Snapshot غير مكتمل."
-                )
         return ordered_existing
 
     if existing_movements:
@@ -2403,8 +1931,7 @@ async def post_approved_stocktake_adjustments(
             rows=list(positive_rows),
         )
 
-    # اقرأ نطاق الجرد الفعلي مرة واحدة.
-    # VEHICLE_RECON قد يكون كاملاً (من warehouse) أو موجهاً فقط لأصناف ظهر بها فرق تجميعي.
+    # اقرأ نطاق الجرد كله مرة واحدة لكشف أي رصيد موجب أغفلته اللقطة، بما فيه الأسطر بلا فرق.
     stmt_balances = select(InventoryBalance).execution_options(populate_existing=True).filter(
         InventoryBalance.company_id == company_id,
         InventoryBalance.location_id == session.location_id,
@@ -2417,18 +1944,6 @@ async def post_approved_stocktake_adjustments(
             stmt_balances = stmt_balances.filter(
                 InventoryBalance.batch_id == session.scope_batch_id,
             )
-    elif session.stocktake_type == "VEHICLE_RECON":
-        recon_variant_ids = sorted({
-            int(stocktake_line.product_variant_id)
-            for stocktake_line, _ in line_rows
-        })
-        if recon_variant_ids:
-            stmt_balances = stmt_balances.filter(
-                InventoryBalance.product_variant_id.in_(recon_variant_ids)
-            )
-        else:
-            # جلسة موجّهة بلا Snapshot لا تفحص أصنافاً غير مكتشفة؛ أي DISCOVERED يضيف سطره قبل الاعتماد.
-            stmt_balances = stmt_balances.filter(InventoryBalance.id == -1)
     # تجاهل الأرصدة الصفرية التاريخية خارج اللقطة، وحدّ حجم النتيجة قبل تحميلها في الذاكرة.
     stmt_balances = stmt_balances.filter(or_(
         InventoryBalance.on_hand_quantity > 0,
@@ -2572,17 +2087,6 @@ async def post_approved_stocktake_adjustments(
     session.status = "POSTED"
     session.posted_at = now
     session.updated_at = now
-
-    # VEHICLE_RECON لا يكتمل مخزنياً قبل تثبيت Ending Snapshot وختم inventory_reconciled_*.
-    # التسوية المالية (WorkSession.is_settled) لا تتم هنا.
-    if session.stocktake_type == "VEHICLE_RECON":
-        await finalize_vehicle_inventory_reconciliation(
-            db_session,
-            company_id=company_id,
-            work_session_id=session.related_work_session_id,
-            vehicle_location_id=session.location_id,
-            settled_by=performed_by,
-        )
 
     return [movement for _, movement, _ in movements]
 
@@ -3267,10 +2771,6 @@ async def reverse_previous_visit_state(
             raise InventoryReversalError(
                 "مرفوض: مندوب الزيارة لا يطابق مندوب جلسة العمل."
             )
-        if locked_session.inventory_reconciled_at is not None:
-            raise InventoryReversalError(
-                "مرفوض: لا يمكن عكس زيارة بعد ختم التسوية المخزنية لجلسة العمل."
-            )
         if locked_session.is_settled:
             raise InventoryReversalError(
                 "مرفوض: لا يمكن عكس زيارة تابعة لجلسة تمت تسويتها واعتمادها."
@@ -3424,20 +2924,6 @@ async def reverse_previous_visit_state(
         item.is_cancelled = True
     for ret in active_returns:
         ret.is_cancelled = True
-
-    await db_session.execute(
-        update(ShortageRequest)
-        .where(
-            ShortageRequest.company_id == company_id,
-            ShortageRequest.fulfilled_by_visit_id == locked_visit.id,
-            ShortageRequest.status == "fulfilled",
-        )
-        .values(
-            status="pending",
-            fulfilled_by_visit_id=None,
-            fulfilled_at=None,
-        )
-    )
 
     locked_shop.current_balance = new_balance
     locked_visit.amount_before_tax_and_discount = Decimal("0.0")

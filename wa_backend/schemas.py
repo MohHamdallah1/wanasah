@@ -380,6 +380,7 @@ class VisitDetailsItemResponse(BaseModel):
 class VisitDetailsReturnResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     product_variant_id: int
+    batch_id: int
     quantity: int
     packs_quantity: int
     return_type: str
@@ -493,6 +494,7 @@ class VisitItemResponse(BaseModel):
 class VisitReturnResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     product_variant_id: int
+    batch_id: int
     quantity: int
     packs_quantity: int
     return_type: str
@@ -632,6 +634,7 @@ class VisitItemInput(RequestModel):
 
 class VisitReturnInput(RequestModel):
     product_variant_id: PositiveDbInt
+    batch_id: PositiveDbInt
     quantity: NonNegativeDbInt = Field(
         0, validation_alias=AliasChoices("quantity", "cartons")
     )
@@ -661,6 +664,7 @@ class VisitReturnInput(RequestModel):
 
 
 class VisitUpdateRequest(RequestModel):
+    request_id: UUID
     outcome: Literal["Sale", "NoSale", "Postponed"]
     notes: Optional[str] = Field(None, max_length=4000)
     is_emergency: bool = False
@@ -685,7 +689,7 @@ class VisitUpdateRequest(RequestModel):
             )
 
         return_keys = [
-            (item.product_variant_id, item.return_type)
+            (item.product_variant_id, item.batch_id, item.return_type)
             for item in self.returns
         ]
         if len(return_keys) != len(set(return_keys)):

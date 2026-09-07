@@ -83,8 +83,6 @@ async def reconcile_driver_end_of_day(
     """
     company_id = int(current_driver.company_id)
     driver_id = int(current_driver.id)
-    if session_id <= 0 or session_id > _DB_INT_MAX:
-        raise HTTPException(status_code=422, detail="session_id خارج النطاق الصحيح لقاعدة البيانات.")
 
     try:
         work_session = (
@@ -192,7 +190,7 @@ async def reconcile_driver_end_of_day(
             if existing_status == "POSTED":
                 raise HTTPException(
                     status_code=409,
-                    detail="VEHICLE_RECON بحالة POSTED لكن WorkSession بلا ختم تسوية مخزنية؛ البيانات غير متسقة وتحتاج مراجعة.",
+                    detail="VEHICLE_RECON بحالة POSTED لكن WorkSession غير مسواة؛ البيانات غير متسقة وتحتاج مراجعة.",
                 )
             await db.rollback()
             return {
