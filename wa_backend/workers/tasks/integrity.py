@@ -21,7 +21,7 @@ from models import (
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
 from workers.settings import load_integrity_monitor_settings
-from workers.tenant import tenant_session
+from workers.tenant import acquire_tenant_job_lock, tenant_session
 
 MAX_SAMPLE_IDS = 25
 
@@ -245,13 +245,14 @@ async def _collect_integrity_categories(
     return categories
 
 
+@app.periodic(cron="7 * * * *")
 @app.task(
     name="wanasah.scan_all_integrity",
     queue=MAINTENANCE_QUEUE,
     queueing_lock="integrity-global-scan",
     lock="integrity-global-scan",
 )
-async def scan_all_integrity() -> dict[str, int]:
+async def scan_all_integrity(timestamp: int | None = None) -> dict[str, int]:
     async with AsyncSessionLocal() as db:
         company_ids = list(
             (
@@ -284,6 +285,11 @@ async def scan_company_integrity(company_id: int) -> dict[str, int]:
     now = _utc_now()
 
     async with tenant_session(company_id) as db:
+        await acquire_tenant_job_lock(
+            db,
+            namespace="integrity-monitor",
+            company_id=int(company_id),
+        )
         settings = await load_integrity_monitor_settings(
             db,
             company_id=int(company_id),

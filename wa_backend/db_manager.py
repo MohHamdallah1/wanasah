@@ -2,6 +2,7 @@ import asyncio
 import sys
 import os
 import re
+from pathlib import Path
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 # +++ اتصال السوبريوزر: للبناء والزراعة فقط (يتجاوز RLS) +++
 DB_URL = os.getenv("DATABASE_URL_MIGRATION")
@@ -76,6 +77,37 @@ async def rebuild_schema():
         await conn.execute(text(f'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "{app_user}"'))
         await conn.execute(text(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "{app_user}"'))
         await conn.execute(text(f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "{app_user}"'))
+        quoted_app_user = '"' + app_user.replace('"', '""') + '"'
+        await conn.execute(text("""
+            CREATE OR REPLACE FUNCTION public.prevent_system_audit_log_mutation()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                RAISE EXCEPTION 'system_audit_logs is append-only'
+                    USING ERRCODE = '55000';
+            END;
+            $$;
+        """))
+        await conn.execute(text(
+            "DROP TRIGGER IF EXISTS trg_system_audit_logs_append_only "
+            "ON public.system_audit_logs"
+        ))
+        await conn.execute(text("""
+            CREATE TRIGGER trg_system_audit_logs_append_only
+            BEFORE UPDATE OR DELETE OR TRUNCATE
+            ON public.system_audit_logs
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION public.prevent_system_audit_log_mutation()
+        """))
+        await conn.execute(text(
+            f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "
+            f"public.system_audit_logs FROM {quoted_app_user}"
+        ))
+        await conn.execute(text(
+            f"GRANT SELECT, INSERT ON TABLE "
+            f"public.system_audit_logs TO {quoted_app_user}"
+        ))
         print(f"[3/3] Grants applied to app user '{app_user}'.")
 
 # ====================================================================
@@ -113,7 +145,7 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                 loc_transit = InventoryLocation(company_id=cid, name="بضاعة في الطريق", code="TRANSIT-SYS", location_type="IN_TRANSIT", is_active=True)
                 session.add_all([loc_main, loc_sec, loc_transit])
 
-                zone = Zone(company_id=cid, name=f"منطقة {cid}", governorate_id=gov.id, sequence_number=1, schedule_frequency="أسبوعي", visit_day="الأحد")
+                zone = Zone(company_id=cid, name=f"منطقة {cid}", governorate_id=gov.id, sequence_number=1, start_date=datetime.now(timezone.utc).date(), interval_days=7)
                 session.add(zone)
 
                 admin = Driver(company_id=cid, username=f"admin_{i}", full_name=f"مدير {c_name}", password_hash=hashed_pw, is_admin=True, is_active=True, max_debt_limit=Decimal("50000.0"))
@@ -134,10 +166,8 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                 await session.flush()
 
                 session.add(InventoryBalance(company_id=cid, location_id=loc_main.id, product_variant_id=var.id, batch_id=batch.id, stock_status="AVAILABLE", on_hand_quantity=1000, reserved_quantity=0))
-                session.add(MainWarehouse(product_variant_id=var.id, available_quantity_packs=1000, reserved_quantity_packs=0, min_threshold_packs=10))
 
                 # فاتورة قديمة لاختبار Vector 12 (تعديل عكسي عابر للشركات)
-                session.add(WarehouseLedger(product_variant_id=var.id, quantity_packs=1000, balance_before_packs=0, balance_after_packs=1000, transaction_type="INBOUND_SUPPLIER", admin_id=admin.id, reference_id=f"TEST-INV-{cid}", notes="فاتورة تجريبية"))
 
                 # حقن مكثف لاختبارات التحميل
                 if inject_heavy:

@@ -1,16 +1,16 @@
-# SESSION_MONITOR_V1
+# SESSION_MONITOR_V2
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, exists, func, or_, select
 
 from database import AsyncSessionLocal
 from models import Company, Driver, SystemAuditLog, WorkSession
 from workers.app import MAINTENANCE_QUEUE, app
-from workers.events import emit_worker_event
+from workers.events import emit_worker_events
 from workers.settings import load_session_monitor_settings
-from workers.tenant import tenant_session
+from workers.tenant import acquire_tenant_job_lock, tenant_session
 
 WARNING_AUDIT = "STALE_SESSION_WARNING"
 CRITICAL_AUDIT = "STALE_SESSION_CRITICAL"
@@ -20,13 +20,16 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+@app.periodic(cron="*/15 * * * *")
 @app.task(
     name="wanasah.scan_all_stale_sessions",
     queue=MAINTENANCE_QUEUE,
     queueing_lock="stale-session-global-scan",
     lock="stale-session-global-scan",
 )
-async def scan_all_stale_sessions() -> dict[str, int]:
+async def scan_all_stale_sessions(
+    timestamp: int | None = None,
+) -> dict[str, int]:
     async with AsyncSessionLocal() as db:
         company_ids = list(
             (
@@ -61,6 +64,11 @@ async def scan_company_stale_sessions(
     now = _utc_now()
 
     async with tenant_session(company_id) as db:
+        await acquire_tenant_job_lock(
+            db,
+            namespace="stale-session-monitor",
+            company_id=int(company_id),
+        )
         settings = await load_session_monitor_settings(
             db,
             company_id=int(company_id),
@@ -68,14 +76,46 @@ async def scan_company_stale_sessions(
         warning_cutoff = now - timedelta(
             hours=settings.warning_hours
         )
+        critical_cutoff = now - timedelta(
+            hours=settings.critical_hours
+        )
+
+        target_expr = func.concat(
+            "WorkSession_",
+            WorkSession.id,
+        )
+        warning_audit_exists = exists(
+            select(1).where(
+                SystemAuditLog.company_id == int(company_id),
+                SystemAuditLog.target_id == target_expr,
+                SystemAuditLog.action_type == WARNING_AUDIT,
+            )
+        )
+        critical_audit_exists = exists(
+            select(1).where(
+                SystemAuditLog.company_id == int(company_id),
+                SystemAuditLog.target_id == target_expr,
+                SystemAuditLog.action_type == CRITICAL_AUDIT,
+            )
+        )
 
         sessions = (
             await db.execute(
                 select(WorkSession)
-                .filter(
+                .where(
                     WorkSession.company_id == int(company_id),
                     WorkSession.end_time.is_(None),
                     WorkSession.start_time <= warning_cutoff,
+                    or_(
+                        and_(
+                            WorkSession.start_time <= critical_cutoff,
+                            ~critical_audit_exists,
+                        ),
+                        and_(
+                            WorkSession.start_time > critical_cutoff,
+                            ~warning_audit_exists,
+                        ),
+                    ),
                 )
                 .order_by(
                     WorkSession.start_time.asc(),
@@ -99,7 +139,7 @@ async def scan_company_stale_sessions(
         )
         driver_rows = (
             await db.execute(
-                select(Driver.id, Driver.full_name).filter(
+                select(Driver.id, Driver.full_name).where(
                     Driver.company_id == int(company_id),
                     Driver.id.in_(driver_ids),
                 )
@@ -110,31 +150,9 @@ async def scan_company_stale_sessions(
             for driver_id, full_name in driver_rows
         }
 
-        target_ids = [
-            f"WorkSession_{int(session.id)}"
-            for session in sessions
-        ]
-        prior_rows = (
-            await db.execute(
-                select(
-                    SystemAuditLog.target_id,
-                    SystemAuditLog.action_type,
-                ).filter(
-                    SystemAuditLog.company_id == int(company_id),
-                    SystemAuditLog.target_id.in_(target_ids),
-                    SystemAuditLog.action_type.in_(
-                        [WARNING_AUDIT, CRITICAL_AUDIT]
-                    ),
-                )
-            )
-        ).all()
-        prior = {
-            (str(target_id), str(action_type))
-            for target_id, action_type in prior_rows
-        }
-
         warnings_created = 0
         critical_created = 0
+        events_to_emit: list[dict] = []
 
         for session in sessions:
             if session.start_time is None:
@@ -153,8 +171,6 @@ async def scan_company_stale_sessions(
             if age_hours >= settings.critical_hours:
                 action_type = CRITICAL_AUDIT
                 event = "STALE_SESSION_CRITICAL"
-                if (target_id, action_type) in prior:
-                    continue
                 message = (
                     f"🚨 جلسة {driver_name} ما زالت مفتوحة لأكثر من "
                     f"{settings.critical_hours} ساعة."
@@ -163,8 +179,6 @@ async def scan_company_stale_sessions(
             else:
                 action_type = WARNING_AUDIT
                 event = "STALE_SESSION_WARNING"
-                if (target_id, action_type) in prior:
-                    continue
                 message = (
                     f"⚠️ جلسة {driver_name} ما زالت مفتوحة لأكثر من "
                     f"{settings.warning_hours} ساعة."
@@ -187,20 +201,20 @@ async def scan_company_stale_sessions(
                 )
             )
 
-            await emit_worker_event(
-                db,
-                company_id=int(company_id),
-                event=event,
-                message=message,
-                data={
-                    "work_session_id": int(session.id),
-                    "driver_id": int(session.driver_id),
-                    "age_hours": round(age_hours, 2),
-                },
+            events_to_emit.append(
+                {
+                    "company_id": int(company_id),
+                    "event": event,
+                    "message": message,
+                    "data": {
+                        "work_session_id": int(session.id),
+                        "driver_id": int(session.driver_id),
+                        "age_hours": round(age_hours, 2),
+                    },
+                }
             )
 
-            prior.add((target_id, action_type))
-
+        await emit_worker_events(db, events=events_to_emit)
         await db.commit()
 
         return {

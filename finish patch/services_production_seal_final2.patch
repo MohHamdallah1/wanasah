@@ -1,0 +1,361 @@
+diff --git a/wa_backend/services.py b/wa_backend/services.py
+index b44b6f7..ee6c870 100644
+--- a/wa_backend/services.py
++++ b/wa_backend/services.py
+@@ -21,7 +21,9 @@ from models import (
+     InventoryMovementImpact,
+     ProductBatch,
+     StocktakeSession,
++    StocktakeLine,
+     StocktakeCountAttempt,
++    StocktakeCountAttemptLine,
+ )
+ 
+ from typing import Any, Type, Optional, List, Dict, Tuple
+@@ -163,6 +165,15 @@ async def get_setting(
+     if not isinstance(key, str) or not key.strip():
+         raise ValueError("setting key غير صالح.")
+ 
++    # الـDefault جزء من عقد النوع مثل القيمة المخزنة؛ لا نسمح بإرجاع نوع مختلف
++    # فقط لأن السجل غير موجود أو يحمل قيمة تالفة.
++    try:
++        coerced_default = _coerce_setting_value(default_value, value_type)
++    except (ValueError, TypeError, InvalidOperation, OverflowError) as exc:
++        raise ValueError(
++            f"القيمة الافتراضية للإعداد ({key.strip()}) غير صالحة للنوع المطلوب."
++        ) from exc
++
+     stmt = select(SystemSetting.setting_value).filter_by(
+         company_id=company_id,
+         setting_key=key.strip(),
+@@ -170,7 +181,7 @@ async def get_setting(
+     value = (await db_session.execute(stmt)).scalar_one_or_none()
+ 
+     if value is None:
+-        return default_value
++        return coerced_default
+ 
+     try:
+         return _coerce_setting_value(value, value_type)
+@@ -179,7 +190,7 @@ async def get_setting(
+             raise ValueError(
+                 f"الإعداد ({key.strip()}) يحمل قيمة غير صالحة ولا يجوز استخدام Default بصمت."
+             ) from exc
+-        return default_value
++        return coerced_default
+ 
+ def calculate_invoice(
+     cartons_qty: int,
+@@ -235,7 +246,11 @@ def calculate_invoice(
+             "هندسة مرفوضة: يجب جلب العروض النشطة مسبقاً وتمريرها كقائمة."
+         )
+ 
+-    base_amount = (Decimal(c_qty) * c_price) + (Decimal(p_qty) * p_price)
++    # ثبّت المبلغ الأساسي على نفس Precision قاعدة البيانات قبل أي خصم/ضريبة.
++    base_amount = _money_12_3(
++        (Decimal(c_qty) * c_price) + (Decimal(p_qty) * p_price),
++        "base_amount",
++    )
+     total_equivalent_cartons = c_qty + (p_qty // safe_ppc)
+ 
+     relevant_offers = [
+@@ -310,19 +325,28 @@ def calculate_invoice(
+         else:
+             discount_value = base_amount * (discount_cfg / Decimal("100"))
+ 
+-    actual_discount_applied = min(base_amount, discount_value)
++    # المحاسبة تُبنى على القيم التي ستُحفظ فعلياً (3 منازل) حتى يبقى:
++    # final_amount == base_amount - discount_applied + tax_amount
++    # حرفياً، بلا فروق فلس ناتجة عن التقريب المستقل.
++    actual_discount_applied = _money_12_3(
++        min(base_amount, discount_value),
++        "discount_applied",
++    )
+     amount_after_discount = base_amount - actual_discount_applied
+-    tax_amount = amount_after_discount * (tax_pct / Decimal("100"))
+-    final_amount = amount_after_discount + tax_amount
++    tax_amount = _money_12_3(
++        amount_after_discount * (tax_pct / Decimal("100")),
++        "tax_amount",
++    )
++    final_amount = _money_12_3(
++        amount_after_discount + tax_amount,
++        "final_amount",
++    )
+ 
+     return {
+-        "base_amount": _money_12_3(base_amount, "base_amount"),
+-        "discount_applied": _money_12_3(
+-            actual_discount_applied,
+-            "discount_applied",
+-        ),
+-        "tax_amount": _money_12_3(tax_amount, "tax_amount"),
+-        "final_amount": _money_12_3(final_amount, "final_amount"),
++        "base_amount": base_amount,
++        "discount_applied": actual_discount_applied,
++        "tax_amount": tax_amount,
++        "final_amount": final_amount,
+         "bonus_units": bonus_cartons,
+     }
+ 
+@@ -349,36 +373,38 @@ async def check_debt_limits(
+     if new_debt == Decimal("0"):
+         return True, ""
+ 
+-    if pre_fetched_driver is not None:
+-        if (
+-            pre_fetched_driver.id != driver_id
+-            or pre_fetched_driver.company_id != company_id
+-            or not getattr(pre_fetched_driver, "is_active", False)
+-        ):
+-            return False, "المندوب غير صالح أو غير فعال لهذه الشركة."
+-        driver = pre_fetched_driver
+-    else:
+-        stmt_driver = select(Driver).filter_by(
+-            id=driver_id,
+-            company_id=company_id,
+-            is_active=True,
+-        )
+-        driver = (await db_session.execute(stmt_driver)).scalar_one_or_none()
++    # الـORM object الممرر مجرد hint للهوية، وليس مصدراً لصلاحية مالية قديمة.
++    # نعيد قراءة صلاحية المندوب من DB كي لا تمر عملية بعد إلغاء can_allow_debt
++    # أو تعطيل المستخدم في معاملة سبقت هذا الفحص.
++    if pre_fetched_driver is not None and (
++        pre_fetched_driver.id != driver_id
++        or pre_fetched_driver.company_id != company_id
++    ):
++        return False, "المندوب غير صالح لهذه الشركة."
+ 
+-    # لا نعتمد pre_fetched_shop في القرار المالي؛ يجب قفل الصف الحقيقي دائماً.
++    stmt_driver = select(Driver).filter_by(
++        id=driver_id,
++        company_id=company_id,
++        is_active=True,
++        can_allow_debt=True,
++    )
++    driver = (await db_session.execute(stmt_driver)).scalar_one_or_none()
++
++    # لا نعتمد أي Shop pre-fetched في القرار المالي؛ يجب قفل الصف الحقيقي دائماً.
+     stmt_shop = select(Shop).filter_by(
+         id=shop_id,
+         company_id=company_id,
+     ).with_for_update()
+     shop = (await db_session.execute(stmt_shop)).scalar_one_or_none()
+ 
+-    if not driver or not shop:
+-        return False, "المندوب أو المحل غير موجود."
++    if not driver:
++        return False, "المندوب غير موجود/غير فعال أو لم تعد لديه صلاحية إعطاء ذمم."
++    if not shop:
++        return False, "المحل غير موجود."
+     if not getattr(shop, "is_active", False) or getattr(shop, "is_archived", False):
+         return False, "المحل غير فعال أو مؤرشف ولا يمكن فتح ذمة جديدة له."
+-    if not getattr(driver, "can_allow_debt", False):
+-        return False, "غير مصرح لك بإعطاء ذمم للمحلات."
+-
++    # can_allow_debt جزء من استعلام DB أعلاه؛ غياب driver يعني أن الصلاحية
++    # ألغيت أو أن الحساب لم يعد فعالاً.
+     try:
+         max_limit = _money_12_3(
+             shop.max_debt_limit or "0.0",
+@@ -563,6 +589,13 @@ async def apply_inventory_movement(
+         raise InventoryMutationError(
+             "ترحيل فروقات الجرد يتطلب stocktake_count_attempt_id موثقاً."
+         )
++    if (
++        stocktake_session_id is not None
++        and ignore_stocktake_session_id is None
++    ):
++        raise InventoryMutationError(
++            "ربط حركة بجلسة جرد محجوز حصراً لمسار ترحيل فرق العد الموثق."
++        )
+ 
+     movement_kind = str(movement_kind).strip().upper()
+     if movement_kind not in {"PHYSICAL", "RESERVATION", "STATUS_CHANGE"}:
+@@ -713,6 +746,8 @@ async def apply_inventory_movement(
+                 select(
+                     StocktakeSession.location_id,
+                     StocktakeSession.status,
++                    StocktakeSession.stocktake_type,
++                    StocktakeSession.reference_number,
+                 ).filter_by(
+                     company_id=company_id,
+                     id=ignore_stocktake_session_id,
+@@ -724,7 +759,12 @@ async def apply_inventory_movement(
+                 "جلسة الجرد المستخدمة لتجاوز القفل غير موجودة أو لا تتبع الشركة."
+             )
+ 
+-        stocktake_location_id, stocktake_status = stocktake_row
++        (
++            stocktake_location_id,
++            stocktake_status,
++            stocktake_type,
++            stocktake_reference_number,
++        ) = stocktake_row
+         if stocktake_status != "APPROVED":
+             raise InventoryMutationError(
+                 "تجاوز قفل الجرد مسموح فقط أثناء ترحيل جلسة جرد بحالة APPROVED."
+@@ -751,6 +791,102 @@ async def apply_inventory_movement(
+                 "تجاوز قفل الجرد مسموح فقط لحركة تعديل داخل موقع جلسة الجرد نفسها."
+             )
+ 
++        movement_stock_status = source_stock_status or destination_stock_status
++        stmt_attempt_line = (
++            select(
++                StocktakeCountAttemptLine.id,
++                StocktakeCountAttemptLine.variance_quantity,
++                StocktakeLine.stock_status,
++            )
++            .join(
++                StocktakeLine,
++                and_(
++                    StocktakeLine.company_id
++                    == StocktakeCountAttemptLine.company_id,
++                    StocktakeLine.stocktake_session_id
++                    == StocktakeCountAttemptLine.stocktake_session_id,
++                    StocktakeLine.id
++                    == StocktakeCountAttemptLine.stocktake_line_id,
++                ),
++            )
++            .filter(
++                StocktakeCountAttemptLine.company_id == company_id,
++                StocktakeCountAttemptLine.stocktake_session_id
++                == ignore_stocktake_session_id,
++                StocktakeCountAttemptLine.count_attempt_id
++                == stocktake_count_attempt_id,
++                StocktakeLine.product_variant_id == product_variant_id,
++                StocktakeLine.batch_id == batch_id,
++                StocktakeLine.stock_status == movement_stock_status,
++            )
++        )
++        attempt_line_row = (
++            await db_session.execute(stmt_attempt_line)
++        ).one_or_none()
++        if attempt_line_row is None:
++            raise InventoryMutationError(
++                "الحركة لا تطابق أي سطر في محاولة العد المعتمدة."
++            )
++
++        attempt_line_id, variance_quantity, counted_stock_status = attempt_line_row
++        variance_quantity = int(variance_quantity or 0)
++        if variance_quantity == 0:
++            raise InventoryMutationError(
++                "لا يجوز إنشاء حركة مخزون لسطر جرد فرقُه صفر."
++            )
++        if quantity != abs(variance_quantity):
++            raise InventoryMutationError(
++                "كمية حركة الجرد لا تطابق فرق آخر محاولة عد معتمدة."
++            )
++
++        if variance_quantity < 0:
++            expected_source_location_id = stocktake_location_id
++            expected_destination_location_id = None
++            expected_source_status = counted_stock_status
++            expected_destination_status = None
++            expected_reference_type = (
++                "DRIVER_SHORTAGE"
++                if stocktake_type == "VEHICLE_RECON"
++                else "AUDIT_ADJUSTMENT"
++            )
++        else:
++            expected_source_location_id = None
++            expected_destination_location_id = stocktake_location_id
++            expected_source_status = None
++            expected_destination_status = counted_stock_status
++            expected_reference_type = (
++                "DRIVER_SURPLUS"
++                if stocktake_type == "VEHICLE_RECON"
++                else "AUDIT_ADJUSTMENT"
++            )
++
++        if (
++            source_location_id != expected_source_location_id
++            or destination_location_id != expected_destination_location_id
++            or source_stock_status != expected_source_status
++            or destination_stock_status != expected_destination_status
++        ):
++            raise InventoryMutationError(
++                "اتجاه/حالة حركة الجرد لا يطابقان إشارة فرق العد المعتمد."
++            )
++
++        expected_idempotency_key = (
++            f"AUDIT-{ignore_stocktake_session_id}-"
++            f"{stocktake_count_attempt_id}-{attempt_line_id}"
++        )
++        if idempotency_key != expected_idempotency_key:
++            raise InventoryMutationError(
++                "مفتاح idempotency لحركة الجرد لا يطابق السطر المعتمد."
++            )
++        if reference_type != expected_reference_type:
++            raise InventoryMutationError(
++                "نوع مرجع حركة الجرد لا يطابق نوع الجلسة وإشارة الفرق."
++            )
++        if reference_id != stocktake_reference_number:
++            raise InventoryMutationError(
++                "مرجع حركة الجرد يجب أن يطابق رقم جلسة الجرد."
++            )
++
+     batch_exists = (await db_session.execute(select(ProductBatch.id).filter_by(
+         company_id=company_id,
+         product_variant_id=product_variant_id,
+@@ -1088,7 +1224,7 @@ async def allocate_fefo_inventory(
+     return allocation
+ 
+ 
+-# إنشاء الحركة العكسية الدقيقة لحركة موحدة سابقة مع إبقاء السجل الأصلي دون تعديل.
++# عكس حركة زيارة سابقة فقط؛ الحوالات والجرد والاستلامات تستخدم مساراتها الرقابية المخصصة.
+ async def reverse_inventory_movement(
+     db_session: AsyncSession,
+     *,
+@@ -1098,7 +1234,7 @@ async def reverse_inventory_movement(
+     reference_id: str,
+     notes: Optional[str] = None,
+ ) -> InventoryMovement:
+-    """يعكس حركة واحدة مرة واحدة فقط، ويعيد نفس العكس عند إعادة نفس الطلب."""
++    """يعكس حركة VISIT_* مرة واحدة فقط ويمنع تجاوز دورات الحياة المحكومة."""
+     try:
+         original_id = _strict_int(getattr(original, "id", None), "original.id", minimum=1)
+         company_id = _strict_int(
+@@ -1130,6 +1266,19 @@ async def reverse_inventory_movement(
+             "الحركة الأصلية غير موجودة أو لا تتبع الشركة المحددة."
+         )
+ 
++    # هذا المسار مخصص حصراً لإلغاء أثر زيارة قبل إعادة تحريرها.
++    # الحوالات والجرد والاستلامات لها دورة حياة رقابية مستقلة ولا يجوز
++    # تجاوزها عبر Reversal عام.
++    if (
++        persisted.transfer_header_id is not None
++        or persisted.stocktake_session_id is not None
++        or not str(persisted.reference_type or "").startswith("VISIT_")
++        or persisted.reference_type == "VISIT_REVERSAL"
++    ):
++        raise InventoryMutationError(
++            "هذه الحركة ليست حركة زيارة قابلة للعكس عبر هذا المسار."
++        )
++
+     reversal_key = f"REV-MOV-{company_id}-{persisted.id}"
+ 
+     # نفس مفتاح العكس يأخذ Advisory Lock قبل فحص السجل لضمان Reversal واحد تحت التزامن.
+@@ -1445,7 +1594,21 @@ async def reverse_previous_visit_state(
+         for item in visit_returns
+         if not getattr(item, "is_cancelled", False)
+     ]
+-    has_inventory_effect = bool(active_items or active_returns)
++
++    # وجود سطر صفري لا يعني وجود أثر مخزني؛ الأثر الحقيقي هو أي كمية
++    # مبيعات/بونص/عينات/مرتجع موجبة.
++    has_inventory_effect = any(
++        (item.quantity or 0) > 0
++        or (item.packs_quantity or 0) > 0
++        or (item.bonus_quantity or 0) > 0
++        or (item.sample_quantity or 0) > 0
++        or (item.sample_packs_quantity or 0) > 0
++        for item in active_items
++    ) or any(
++        (item.quantity or 0) > 0
++        or (item.packs_quantity or 0) > 0
++        for item in active_returns
++    )
+ 
+     if locked_session is not None:
+         stmt_movements = select(InventoryMovement).filter(

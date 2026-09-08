@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import text
 
-load_dotenv(override=True)
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 

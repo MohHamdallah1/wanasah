@@ -1,0 +1,629 @@
+diff --git a/wa_backend/services.py b/wa_backend/services.py
+index 1656eb9..b44b6f7 100644
+--- a/wa_backend/services.py
++++ b/wa_backend/services.py
+@@ -21,6 +21,7 @@ from models import (
+     InventoryMovementImpact,
+     ProductBatch,
+     StocktakeSession,
++    StocktakeCountAttempt,
+ )
+ 
+ from typing import Any, Type, Optional, List, Dict, Tuple
+@@ -28,6 +29,7 @@ from typing import Any, Type, Optional, List, Dict, Tuple
+ 
+ # حدود الأنواع الفعلية في PostgreSQL المستخدمة في models.py.
+ _DB_INT_MAX = 2_147_483_647
++_DB_BIGINT_MAX = 9_223_372_036_854_775_807
+ _MONEY_12_3_MAX = Decimal("999999999.999")
+ _MONEY_QUANT = Decimal("0.001")
+ _PERCENT_MAX = Decimal("100")
+@@ -93,11 +95,18 @@ def _strict_int(
+     if not dec.is_finite() or dec != dec.to_integral_value():
+         raise ValueError(f"{field_name} يجب أن يكون عدداً صحيحاً.")
+ 
+-    result = int(dec)
+-    if minimum is not None and result < minimum:
++    # افحص الحدود على Decimal قبل التحويل إلى int لمنع استهلاك ذاكرة ضخم
++    # مع قيم مضغوطة مثل 1e100000000.
++    if minimum is not None and dec < Decimal(minimum):
+         raise ValueError(f"{field_name} يجب ألا يقل عن {minimum}.")
+-    if maximum is not None and result > maximum:
++    if maximum is not None and dec > Decimal(maximum):
+         raise ValueError(f"{field_name} يتجاوز الحد الأقصى المسموح ({maximum}).")
++
++    try:
++        result = int(dec)
++    except (OverflowError, ValueError) as exc:
++        raise ValueError(f"{field_name} يجب أن يكون عدداً صحيحاً صالحاً.") from exc
++
+     return result
+ 
+ 
+@@ -288,14 +297,15 @@ def calculate_invoice(
+     if best_offer:
+         offer, threshold, bonus_qty, discount_cfg = best_offer
+         multiplier = total_equivalent_cartons // threshold
++        normalized_offer_type = str(offer.offer_type or "").strip()
+ 
+-        if offer.offer_type == "free_items":
++        if normalized_offer_type == "free_items":
+             bonus_cartons = multiplier * bonus_qty
+             if bonus_cartons > _DB_INT_MAX:
+                 raise ValueError(
+                     "كمية البونص الناتجة تتجاوز سعة INTEGER في قاعدة البيانات."
+                 )
+-        elif offer.offer_type == "fixed_discount":
++        elif normalized_offer_type == "fixed_discount":
+             discount_value = discount_cfg * Decimal(multiplier)
+         else:
+             discount_value = base_amount * (discount_cfg / Decimal("100"))
+@@ -539,30 +549,6 @@ async def apply_inventory_movement(
+             "لا يجوز تجاوز قفل الجرد إلا عند ترحيل حركة مرتبطة بنفس جلسة الجرد."
+         )
+ 
+-    if ignore_stocktake_session_id is not None:
+-        stocktake_location_id = (
+-            await db_session.execute(
+-                select(StocktakeSession.location_id).filter_by(
+-                    company_id=company_id,
+-                    id=ignore_stocktake_session_id,
+-                )
+-            )
+-        ).scalar_one_or_none()
+-        if stocktake_location_id is None:
+-            raise InventoryMutationError(
+-                "جلسة الجرد المستخدمة لتجاوز القفل غير موجودة أو لا تتبع الشركة."
+-            )
+-
+-        movement_locations = {
+-            location_id
+-            for location_id in (source_location_id, destination_location_id)
+-            if location_id is not None
+-        }
+-        if not movement_locations or movement_locations != {stocktake_location_id}:
+-            raise InventoryMutationError(
+-                "تجاوز قفل الجرد مسموح فقط لحركة تعديل داخل موقع جلسة الجرد نفسها."
+-            )
+-
+     if (
+         stocktake_count_attempt_id is not None
+         and stocktake_session_id is None
+@@ -570,14 +556,31 @@ async def apply_inventory_movement(
+         raise InventoryMutationError(
+             "stocktake_count_attempt_id يتطلب stocktake_session_id."
+         )
++    if (
++        ignore_stocktake_session_id is not None
++        and stocktake_count_attempt_id is None
++    ):
++        raise InventoryMutationError(
++            "ترحيل فروقات الجرد يتطلب stocktake_count_attempt_id موثقاً."
++        )
+ 
+     movement_kind = str(movement_kind).strip().upper()
+     if movement_kind not in {"PHYSICAL", "RESERVATION", "STATUS_CHANGE"}:
+         raise InventoryMutationError("نوع حركة المخزون غير صالح.")
+ 
++    if (
++        ignore_stocktake_session_id is not None
++        and movement_kind != "PHYSICAL"
++    ):
++        raise InventoryMutationError(
++            "تجاوز قفل الجرد مخصص فقط لحركة PHYSICAL لترحيل فرق العد."
++        )
++
+     reference_type = str(reference_type or "").strip()
+     reference_id = str(reference_id or "").strip()
+     idempotency_key = str(idempotency_key or "").strip()
++    if notes is not None and not isinstance(notes, str):
++        raise InventoryMutationError("notes يجب أن تكون نصاً أو None.")
+     if not reference_type or not reference_id or not idempotency_key:
+         raise InventoryMutationError("مرجع الحركة ومفتاح عدم التكرار إلزاميان.")
+     if len(reference_type) > 50 or len(reference_id) > 100 or len(idempotency_key) > 100:
+@@ -663,6 +666,7 @@ async def apply_inventory_movement(
+             "stocktake_count_attempt_id": stocktake_count_attempt_id,
+             "reference_type": reference_type,
+             "reference_id": reference_id,
++            "notes": notes,
+         }
+         for field_name, expected_value in expected_existing.items():
+             if getattr(existing, field_name) != expected_value:
+@@ -671,29 +675,14 @@ async def apply_inventory_movement(
+                 )
+         return existing
+ 
+-    batch_exists = (await db_session.execute(select(ProductBatch.id).filter_by(
+-        company_id=company_id,
+-        product_variant_id=product_variant_id,
+-        id=batch_id,
+-    ))).scalar_one_or_none()
+-    if batch_exists is None:
+-        raise InventoryMutationError("الدفعة لا تنتمي للصنف أو الشركة المحددة.")
+-
+     location_ids = {
+         int(location_id)
+         for location_id in (source_location_id, destination_location_id)
+         if location_id is not None
+     }
+-    if location_ids:
+-        existing_location_ids = set((await db_session.execute(select(InventoryLocation.id).filter(
+-            InventoryLocation.company_id == company_id,
+-            InventoryLocation.id.in_(location_ids),
+-            InventoryLocation.is_active.is_(True),
+-        ))).scalars().all())
+-        if existing_location_ids != location_ids:
+-            raise InventoryMutationError("أحد مواقع المخزون غير موجود أو غير فعال.")
+ 
+-    # الحركات تأخذ Shared Guard؛ بدء الجرد سيأخذ Exclusive Guard لنفس الموقع.
++    # ترتيب القفل الموحّد: Advisory للمواقع أولاً، ثم Share Lock على صفوف المواقع،
++    # ثم Session الجرد، ثم أرصدة المخزون. هذا يمنع سباقات التعطيل ويثبت ترتيب الأقفال.
+     for location_id in sorted(location_ids):
+         await acquire_inventory_location_guard(
+             db_session,
+@@ -702,6 +691,74 @@ async def apply_inventory_movement(
+             exclusive=False,
+         )
+ 
++    if location_ids:
++        stmt_locations = select(InventoryLocation.id).filter(
++            InventoryLocation.company_id == company_id,
++            InventoryLocation.id.in_(location_ids),
++            InventoryLocation.is_active.is_(True),
++        ).order_by(
++            InventoryLocation.id.asc()
++        ).with_for_update(read=True)
++        existing_location_ids = set(
++            (await db_session.execute(stmt_locations)).scalars().all()
++        )
++        if existing_location_ids != location_ids:
++            raise InventoryMutationError("أحد مواقع المخزون غير موجود أو غير فعال.")
++
++    # فحوص حالة جلسة الجرد قابلة للتغير بمرور الوقت، لذلك تُطبق فقط على الحركة الجديدة
++    # بعد إعطاء idempotent replay فرصة لإرجاع الحركة الموجودة.
++    if ignore_stocktake_session_id is not None:
++        stocktake_row = (
++            await db_session.execute(
++                select(
++                    StocktakeSession.location_id,
++                    StocktakeSession.status,
++                ).filter_by(
++                    company_id=company_id,
++                    id=ignore_stocktake_session_id,
++                ).with_for_update()
++            )
++        ).one_or_none()
++        if stocktake_row is None:
++            raise InventoryMutationError(
++                "جلسة الجرد المستخدمة لتجاوز القفل غير موجودة أو لا تتبع الشركة."
++            )
++
++        stocktake_location_id, stocktake_status = stocktake_row
++        if stocktake_status != "APPROVED":
++            raise InventoryMutationError(
++                "تجاوز قفل الجرد مسموح فقط أثناء ترحيل جلسة جرد بحالة APPROVED."
++            )
++
++        latest_attempt_id = (
++            await db_session.execute(
++                select(StocktakeCountAttempt.id).filter_by(
++                    company_id=company_id,
++                    stocktake_session_id=ignore_stocktake_session_id,
++                ).order_by(
++                    StocktakeCountAttempt.attempt_number.desc(),
++                    StocktakeCountAttempt.id.desc(),
++                ).limit(1)
++            )
++        ).scalar_one_or_none()
++        if latest_attempt_id is None or latest_attempt_id != stocktake_count_attempt_id:
++            raise InventoryMutationError(
++                "ترحيل فروقات الجرد يجب أن يرتبط بآخر محاولة عد مثبتة للجلسة."
++            )
++
++        if not location_ids or location_ids != {stocktake_location_id}:
++            raise InventoryMutationError(
++                "تجاوز قفل الجرد مسموح فقط لحركة تعديل داخل موقع جلسة الجرد نفسها."
++            )
++
++    batch_exists = (await db_session.execute(select(ProductBatch.id).filter_by(
++        company_id=company_id,
++        product_variant_id=product_variant_id,
++        id=batch_id,
++    ))).scalar_one_or_none()
++    if batch_exists is None:
++        raise InventoryMutationError("الدفعة لا تنتمي للصنف أو الشركة المحددة.")
++
+     for location_id in sorted(location_ids):
+         await check_inventory_lock(
+             db_session,
+@@ -780,13 +837,18 @@ async def apply_inventory_movement(
+                 raise InventoryMutationError("الرصيد المحجوز لا يغطي كمية التحرير.")
+             balance.reserved_quantity = reserved - quantity
+     else:
++        source_balance = None
++        destination_balance = None
++        new_source_on_hand = None
++        new_destination_on_hand = None
++
+         if source_key is not None:
+             source_balance = balance_map[source_key]
+             source_on_hand = int(source_balance.on_hand_quantity or 0)
+             source_reserved = int(source_balance.reserved_quantity or 0)
+             if source_on_hand - source_reserved < quantity:
+                 raise InventoryMutationError("الرصيد الحر في المصدر لا يغطي الحركة.")
+-            source_balance.on_hand_quantity = source_on_hand - quantity
++            new_source_on_hand = source_on_hand - quantity
+ 
+         if destination_key is not None:
+             destination_balance = balance_map[destination_key]
+@@ -798,6 +860,11 @@ async def apply_inventory_movement(
+                 raise InventoryMutationError(
+                     "الرصيد الناتج في الوجهة يتجاوز سعة INTEGER في قاعدة البيانات."
+                 )
++
++        # لا نغيّر أي Balance إلا بعد نجاح جميع validations أعلاه.
++        if source_balance is not None:
++            source_balance.on_hand_quantity = new_source_on_hand
++        if destination_balance is not None:
+             destination_balance.on_hand_quantity = new_destination_on_hand
+ 
+     movement = InventoryMovement(
+@@ -865,25 +932,25 @@ async def allocate_fefo_inventory(
+     if quantity == 0:
+         return []
+ 
++    await acquire_inventory_location_guard(
++        db_session,
++        company_id,
++        location_id,
++        exclusive=False,
++    )
++
+     location_exists = (
+         await db_session.execute(
+             select(InventoryLocation.id).filter_by(
+                 company_id=company_id,
+                 id=location_id,
+                 is_active=True,
+-            )
++            ).with_for_update(read=True)
+         )
+     ).scalar_one_or_none()
+     if location_exists is None:
+         raise InventoryMutationError("موقع المخزون غير موجود أو غير فعال.")
+ 
+-    await acquire_inventory_location_guard(
+-        db_session,
+-        company_id,
+-        location_id,
+-        exclusive=False,
+-    )
+-
+     # يفحص القفل الشامل وقفل الصنف العام فقط؛ أقفال دفعات بعينها لا يجب أن توقف الصنف كله.
+     await check_inventory_lock(
+         db_session,
+@@ -901,8 +968,10 @@ async def allocate_fefo_inventory(
+         InventoryLock.released_at.is_(None),
+     )
+ 
+-    stmt = select(InventoryBalance, ProductBatch).join(
+-        ProductBatch,
++    # نحدد مرشحي FEFO أولاً دون قفل، ثم نأخذ Share Lock على Metadata الدفعات
++    # قبل قفل الأرصدة؛ هكذا لا يمكن Recall/تعديل صلاحية أن يتسابق مع التخصيص.
++    candidate_batch_stmt = select(ProductBatch.id).join(
++        InventoryBalance,
+         and_(
+             ProductBatch.company_id == InventoryBalance.company_id,
+             ProductBatch.product_variant_id == InventoryBalance.product_variant_id,
+@@ -924,9 +993,54 @@ async def allocate_fefo_inventory(
+     ).order_by(
+         ProductBatch.expiry_date.asc(),
+         ProductBatch.id.asc(),
+-    ).with_for_update(of=InventoryBalance)
+-
+-    rows = (await db_session.execute(stmt)).all()
++    )
++    candidate_batch_ids = (
++        await db_session.execute(candidate_batch_stmt)
++    ).scalars().all()
++
++    locked_batch_ids: List[int] = []
++    if candidate_batch_ids:
++        stmt_batch_metadata = select(ProductBatch.id).filter(
++            ProductBatch.company_id == company_id,
++            ProductBatch.product_variant_id == product_variant_id,
++            ProductBatch.id.in_(candidate_batch_ids),
++            ProductBatch.is_active.is_(True),
++            or_(
++                ProductBatch.production_date.is_(None),
++                ProductBatch.production_date <= as_of_date,
++            ),
++            ProductBatch.expiry_date >= as_of_date,
++        ).order_by(
++            ProductBatch.expiry_date.asc(),
++            ProductBatch.id.asc(),
++        ).with_for_update(read=True)
++        locked_batch_ids = (
++            await db_session.execute(stmt_batch_metadata)
++        ).scalars().all()
++
++    if locked_batch_ids:
++        stmt = select(InventoryBalance, ProductBatch).join(
++            ProductBatch,
++            and_(
++                ProductBatch.company_id == InventoryBalance.company_id,
++                ProductBatch.product_variant_id == InventoryBalance.product_variant_id,
++                ProductBatch.id == InventoryBalance.batch_id,
++            ),
++        ).filter(
++            InventoryBalance.company_id == company_id,
++            InventoryBalance.location_id == location_id,
++            InventoryBalance.product_variant_id == product_variant_id,
++            InventoryBalance.stock_status == "AVAILABLE",
++            InventoryBalance.on_hand_quantity > InventoryBalance.reserved_quantity,
++            InventoryBalance.batch_id.in_(locked_batch_ids),
++            ~InventoryBalance.batch_id.in_(locked_batches),
++        ).order_by(
++            ProductBatch.expiry_date.asc(),
++            ProductBatch.id.asc(),
++        ).with_for_update(of=InventoryBalance)
++        rows = (await db_session.execute(stmt)).all()
++    else:
++        rows = []
+ 
+     # بعد امتلاك Row Locks نعيد فحص الأقفال لمنع سباق جرد بدأ أثناء تنفيذ استعلام FEFO.
+     await check_inventory_lock(
+@@ -980,58 +1094,163 @@ async def reverse_inventory_movement(
+     *,
+     original: InventoryMovement,
+     performed_by: int,
+-    idempotency_key: str,
+     reference_type: str,
+     reference_id: str,
+     notes: Optional[str] = None,
+ ) -> InventoryMovement:
++    """يعكس حركة واحدة مرة واحدة فقط، ويعيد نفس العكس عند إعادة نفس الطلب."""
++    try:
++        original_id = _strict_int(getattr(original, "id", None), "original.id", minimum=1)
++        company_id = _strict_int(
++            getattr(original, "company_id", None),
++            "original.company_id",
++            minimum=1,
++        )
++        performed_by = _strict_int(performed_by, "performed_by", minimum=1)
++    except ValueError as exc:
++        raise InventoryMutationError(str(exc)) from exc
++
++    reference_type = str(reference_type or "").strip()
++    reference_id = str(reference_id or "").strip()
++    if not reference_type or not reference_id:
++        raise InventoryMutationError("مرجع الحركة العكسية إلزامي.")
++    if len(reference_type) > 50 or len(reference_id) > 100:
++        raise InventoryMutationError("مرجع الحركة العكسية أطول من الحد المسموح.")
++    if notes is not None and not isinstance(notes, str):
++        raise InventoryMutationError("notes يجب أن تكون نصاً أو None.")
++
++    # لا نثق بكائن ORM الممرر وحده؛ نقرأ الحركة الأصلية المقفلة من قاعدة البيانات.
++    stmt_original = select(InventoryMovement).filter_by(
++        company_id=company_id,
++        id=original_id,
++    ).with_for_update()
++    persisted = (await db_session.execute(stmt_original)).scalar_one_or_none()
++    if persisted is None:
++        raise InventoryMutationError(
++            "الحركة الأصلية غير موجودة أو لا تتبع الشركة المحددة."
++        )
++
++    reversal_key = f"REV-MOV-{company_id}-{persisted.id}"
++
++    # نفس مفتاح العكس يأخذ Advisory Lock قبل فحص السجل لضمان Reversal واحد تحت التزامن.
++    advisory_key = f"inventory:{company_id}:{reversal_key}"
++    await db_session.execute(
++        select(func.pg_advisory_xact_lock(func.hashtext(advisory_key)))
++    )
++
++    existing = (
++        await db_session.execute(
++            select(InventoryMovement).filter_by(
++                company_id=company_id,
++                idempotency_key=reversal_key,
++            )
++        )
++    ).scalar_one_or_none()
++
++    if persisted.movement_kind == "RESERVATION":
++        expected_reservation_action = (
++            "RELEASE"
++            if persisted.reservation_action == "RESERVE"
++            else "RESERVE"
++        )
++    else:
++        expected_reservation_action = None
++
++    expected_inverse = {
++        "source_location_id": (
++            persisted.destination_location_id
++            if persisted.movement_kind == "PHYSICAL"
++            else persisted.source_location_id
++        ),
++        "destination_location_id": (
++            persisted.source_location_id
++            if persisted.movement_kind == "PHYSICAL"
++            else persisted.destination_location_id
++        ),
++        "source_stock_status": (
++            persisted.destination_stock_status
++            if persisted.movement_kind in {"PHYSICAL", "STATUS_CHANGE"}
++            else persisted.source_stock_status
++        ),
++        "destination_stock_status": (
++            persisted.source_stock_status
++            if persisted.movement_kind in {"PHYSICAL", "STATUS_CHANGE"}
++            else persisted.destination_stock_status
++        ),
++        "product_variant_id": persisted.product_variant_id,
++        "batch_id": persisted.batch_id,
++        "movement_kind": persisted.movement_kind,
++        "reservation_action": expected_reservation_action,
++        "quantity": persisted.quantity,
++        "work_session_id": persisted.work_session_id,
++        "transfer_header_id": persisted.transfer_header_id,
++        "stocktake_session_id": persisted.stocktake_session_id,
++        "stocktake_count_attempt_id": persisted.stocktake_count_attempt_id,
++    }
++
++    if existing is not None:
++        # نفس الحركة لا يجوز أن تُعكس مرتين بسياقين تجاريين مختلفين.
++        if (
++            existing.reference_type != reference_type
++            or existing.reference_id != reference_id
++        ):
++            raise InventoryMutationError(
++                "الحركة الأصلية عُكست مسبقاً بواسطة عملية مختلفة."
++            )
++
++        for field_name, expected_value in expected_inverse.items():
++            if getattr(existing, field_name) != expected_value:
++                raise InventoryMutationError(
++                    "تم اكتشاف تعارض أو فساد في سجل الحركة العكسية الموجود."
++                )
++        return existing
++
+     common = dict(
+         db_session=db_session,
+-        company_id=original.company_id,
++        company_id=company_id,
+         performed_by=performed_by,
+-        product_variant_id=original.product_variant_id,
+-        batch_id=original.batch_id,
+-        quantity=original.quantity,
+-        work_session_id=original.work_session_id,
+-        transfer_header_id=original.transfer_header_id,
+-        stocktake_session_id=original.stocktake_session_id,
+-        stocktake_count_attempt_id=original.stocktake_count_attempt_id,
++        product_variant_id=persisted.product_variant_id,
++        batch_id=persisted.batch_id,
++        quantity=persisted.quantity,
++        work_session_id=persisted.work_session_id,
++        transfer_header_id=persisted.transfer_header_id,
++        stocktake_session_id=persisted.stocktake_session_id,
++        stocktake_count_attempt_id=persisted.stocktake_count_attempt_id,
+         reference_type=reference_type,
+         reference_id=reference_id,
+-        idempotency_key=idempotency_key,
++        idempotency_key=reversal_key,
+         notes=notes,
+     )
+ 
+-    if original.movement_kind == "PHYSICAL":
++    if persisted.movement_kind == "PHYSICAL":
+         return await apply_inventory_movement(
+             **common,
+             movement_kind="PHYSICAL",
+-            source_location_id=original.destination_location_id,
+-            destination_location_id=original.source_location_id,
+-            source_stock_status=original.destination_stock_status,
+-            destination_stock_status=original.source_stock_status,
++            source_location_id=persisted.destination_location_id,
++            destination_location_id=persisted.source_location_id,
++            source_stock_status=persisted.destination_stock_status,
++            destination_stock_status=persisted.source_stock_status,
+         )
+ 
+-    if original.movement_kind == "RESERVATION":
+-        reverse_action = "RELEASE" if original.reservation_action == "RESERVE" else "RESERVE"
++    if persisted.movement_kind == "RESERVATION":
+         return await apply_inventory_movement(
+             **common,
+             movement_kind="RESERVATION",
+-            reservation_action=reverse_action,
+-            source_location_id=original.source_location_id,
+-            destination_location_id=original.destination_location_id,
+-            source_stock_status=original.source_stock_status,
+-            destination_stock_status=original.destination_stock_status,
++            reservation_action=expected_reservation_action,
++            source_location_id=persisted.source_location_id,
++            destination_location_id=persisted.destination_location_id,
++            source_stock_status=persisted.source_stock_status,
++            destination_stock_status=persisted.destination_stock_status,
+         )
+ 
+-    if original.movement_kind == "STATUS_CHANGE":
++    if persisted.movement_kind == "STATUS_CHANGE":
+         return await apply_inventory_movement(
+             **common,
+             movement_kind="STATUS_CHANGE",
+-            source_location_id=original.source_location_id,
+-            destination_location_id=original.destination_location_id,
+-            source_stock_status=original.destination_stock_status,
+-            destination_stock_status=original.source_stock_status,
++            source_location_id=persisted.source_location_id,
++            destination_location_id=persisted.destination_location_id,
++            source_stock_status=persisted.destination_stock_status,
++            destination_stock_status=persisted.source_stock_status,
+         )
+ 
+     raise InventoryMutationError("لا يمكن عكس نوع الحركة المحدد.")
+@@ -1041,8 +1260,8 @@ def format_qty(total_packs: int, packs_per_carton: int) -> str:
+     total = _strict_int(
+         total_packs,
+         "total_packs",
+-        minimum=None,
+-        maximum=None,
++        minimum=-_DB_BIGINT_MAX,
++        maximum=_DB_BIGINT_MAX,
+     )
+     ppc = _strict_int(packs_per_carton, "packs_per_carton", minimum=1)
+ 
+@@ -1233,7 +1452,7 @@ async def reverse_previous_visit_state(
+             InventoryMovement.company_id == company_id,
+             InventoryMovement.work_session_id == locked_session.id,
+             InventoryMovement.reference_id == str(locked_visit.id),
+-            InventoryMovement.reference_type.like("VISIT_%"),
++            InventoryMovement.reference_type.like(r"VISIT\_%", escape="\\"),
+             InventoryMovement.reference_type != "VISIT_REVERSAL",
+         ).order_by(
+             InventoryMovement.created_at.desc(),
+@@ -1253,9 +1472,6 @@ async def reverse_previous_visit_state(
+                     db_session,
+                     original=movement,
+                     performed_by=admin_id,
+-                    idempotency_key=(
+-                        f"REV-VISIT-{locked_visit.id}-MOV-{movement.id}"
+-                    ),
+                     reference_type="VISIT_REVERSAL",
+                     reference_id=str(locked_visit.id),
+                     notes=(
+@@ -1382,6 +1598,32 @@ async def check_inventory_lock(
+     if batch_id is not None and variant_id is None:
+         raise ValueError("batch_id لا يمكن استخدامه بدون variant_id.")
+ 
++    if ignore_stocktake_session_id is not None:
++        ignored_stocktake = (
++            await db_session.execute(
++                select(
++                    StocktakeSession.location_id,
++                    StocktakeSession.status,
++                ).filter_by(
++                    company_id=company_id,
++                    id=ignore_stocktake_session_id,
++                ).with_for_update()
++            )
++        ).one_or_none()
++        if ignored_stocktake is None:
++            raise ValueError(
++                "جلسة الجرد المطلوب تجاهل قفلها غير موجودة أو لا تتبع الشركة."
++            )
++        ignored_location_id, ignored_status = ignored_stocktake
++        if ignored_location_id != location_id:
++            raise ValueError(
++                "لا يمكن تجاهل قفل جلسة جرد في موقع مخزني مختلف."
++            )
++        if ignored_status != "APPROVED":
++            raise ValueError(
++                "لا يمكن تجاهل قفل الجرد إلا أثناء ترحيل جلسة بحالة APPROVED."
++            )
++
+     base_filters = [
+         InventoryLock.company_id == company_id,
+         InventoryLock.location_id == location_id,

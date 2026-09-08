@@ -1,36 +1,38 @@
-# STALE_HANDSHAKE_MONITOR_V1
+# STALE_HANDSHAKE_MONITOR_V2
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, exists, func, or_, select
 
 from database import AsyncSessionLocal
 from models import Company, Driver, InventoryTransferHeader, SystemAuditLog
 from workers.app import MAINTENANCE_QUEUE, app
-from workers.events import emit_worker_event
+from workers.events import emit_worker_events
 from workers.settings import load_handshake_monitor_settings
-from workers.tenant import tenant_session
+from workers.tenant import acquire_tenant_job_lock, tenant_session
 
 WARNING_AUDIT = "STALE_HANDSHAKE_WARNING"
 CRITICAL_AUDIT = "STALE_HANDSHAKE_CRITICAL"
 
-# AUTO_CANCEL is part of the settings contract but is deliberately not
-# executed in V1. Flutter/offline transfer-expiry semantics must be frozen
-# first so the server never cancels a transfer already accepted offline.
+# AUTO_CANCEL remains settings-only. Execution is deliberately NOT implemented.
+# Flutter/offline transfer-expiry semantics must be explicitly approved first.
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+@app.periodic(cron="*/5 * * * *")
 @app.task(
     name="wanasah.scan_all_stale_handshakes",
     queue=MAINTENANCE_QUEUE,
     queueing_lock="stale-handshake-global-scan",
     lock="stale-handshake-global-scan",
 )
-async def scan_all_stale_handshakes() -> dict[str, int]:
+async def scan_all_stale_handshakes(
+    timestamp: int | None = None,
+) -> dict[str, int]:
     async with AsyncSessionLocal() as db:
         company_ids = list(
             (
@@ -65,20 +67,60 @@ async def scan_company_stale_handshakes(
     now = _utc_now()
 
     async with tenant_session(company_id) as db:
+        await acquire_tenant_job_lock(
+            db,
+            namespace="stale-handshake-monitor",
+            company_id=int(company_id),
+        )
         settings = await load_handshake_monitor_settings(
             db,
             company_id=int(company_id),
         )
         warning_cutoff = now - timedelta(hours=settings.warning_hours)
+        critical_cutoff = now - timedelta(hours=settings.critical_hours)
 
+        target_expr = func.concat(
+            "Transfer_",
+            InventoryTransferHeader.id,
+        )
+        warning_audit_exists = exists(
+            select(1).where(
+                SystemAuditLog.company_id == int(company_id),
+                SystemAuditLog.target_id == target_expr,
+                SystemAuditLog.action_type == WARNING_AUDIT,
+            )
+        )
+        critical_audit_exists = exists(
+            select(1).where(
+                SystemAuditLog.company_id == int(company_id),
+                SystemAuditLog.target_id == target_expr,
+                SystemAuditLog.action_type == CRITICAL_AUDIT,
+            )
+        )
+
+        # Limit remains a safety bound, but SQL excludes records whose currently
+        # required alert already exists. Previously-alerted oldest rows therefore
+        # cannot starve newer stale rows.
         headers = (
             await db.execute(
                 select(InventoryTransferHeader)
-                .filter(
+                .where(
                     InventoryTransferHeader.company_id == int(company_id),
                     InventoryTransferHeader.workflow_type == "HANDSHAKE",
                     InventoryTransferHeader.status == "PENDING",
                     InventoryTransferHeader.created_at <= warning_cutoff,
+                    or_(
+                        and_(
+                            InventoryTransferHeader.created_at
+                            <= critical_cutoff,
+                            ~critical_audit_exists,
+                        ),
+                        and_(
+                            InventoryTransferHeader.created_at
+                            > critical_cutoff,
+                            ~warning_audit_exists,
+                        ),
+                    ),
                 )
                 .order_by(
                     InventoryTransferHeader.created_at.asc(),
@@ -109,7 +151,7 @@ async def scan_company_stale_handshakes(
         if receiver_ids:
             receiver_rows = (
                 await db.execute(
-                    select(Driver.id, Driver.full_name).filter(
+                    select(Driver.id, Driver.full_name).where(
                         Driver.company_id == int(company_id),
                         Driver.id.in_(receiver_ids),
                     )
@@ -120,28 +162,9 @@ async def scan_company_stale_handshakes(
                 for driver_id, full_name in receiver_rows
             }
 
-        target_ids = [f"Transfer_{int(header.id)}" for header in headers]
-        prior_rows = (
-            await db.execute(
-                select(
-                    SystemAuditLog.target_id,
-                    SystemAuditLog.action_type,
-                ).filter(
-                    SystemAuditLog.company_id == int(company_id),
-                    SystemAuditLog.target_id.in_(target_ids),
-                    SystemAuditLog.action_type.in_(
-                        [WARNING_AUDIT, CRITICAL_AUDIT]
-                    ),
-                )
-            )
-        ).all()
-        prior = {
-            (str(target_id), str(action_type))
-            for target_id, action_type in prior_rows
-        }
-
         warnings_created = 0
         critical_created = 0
+        events_to_emit: list[dict] = []
 
         for header in headers:
             created_at = header.created_at
@@ -163,8 +186,6 @@ async def scan_company_stale_handshakes(
             if age_hours >= settings.critical_hours:
                 action_type = CRITICAL_AUDIT
                 event = "STALE_HANDSHAKE_CRITICAL"
-                if (target_id, action_type) in prior:
-                    continue
                 message = (
                     f"🚨 الحوالة {header.reference_number} معلقة مع "
                     f"{receiver_name} لأكثر من "
@@ -174,8 +195,6 @@ async def scan_company_stale_handshakes(
             else:
                 action_type = WARNING_AUDIT
                 event = "STALE_HANDSHAKE_WARNING"
-                if (target_id, action_type) in prior:
-                    continue
                 message = (
                     f"⚠️ الحوالة {header.reference_number} معلقة مع "
                     f"{receiver_name} لأكثر من "
@@ -200,24 +219,25 @@ async def scan_company_stale_handshakes(
                 )
             )
 
-            await emit_worker_event(
-                db,
-                company_id=int(company_id),
-                event=event,
-                message=message,
-                data={
-                    "transfer_id": int(header.id),
-                    "reference_number": str(header.reference_number),
-                    "expected_receiver_id": (
-                        int(header.expected_receiver_id)
-                        if header.expected_receiver_id is not None
-                        else None
-                    ),
-                    "age_hours": round(age_hours, 2),
-                },
+            events_to_emit.append(
+                {
+                    "company_id": int(company_id),
+                    "event": event,
+                    "message": message,
+                    "data": {
+                        "transfer_id": int(header.id),
+                        "reference_number": str(header.reference_number),
+                        "expected_receiver_id": (
+                            int(header.expected_receiver_id)
+                            if header.expected_receiver_id is not None
+                            else None
+                        ),
+                        "age_hours": round(age_hours, 2),
+                    },
+                }
             )
-            prior.add((target_id, action_type))
 
+        await emit_worker_events(db, events=events_to_emit)
         await db.commit()
 
         return {

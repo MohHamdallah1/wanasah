@@ -22,6 +22,43 @@ def normalize_company_id(company_id: int) -> int:
     return value
 
 
+async def _clear_tenant_or_invalidate(db) -> None:
+    # Defense in depth: clear tenant state before pool return.
+    # If clearing fails, invalidate the physical connection.
+    try:
+        if db.in_transaction():
+            await db.rollback()
+        await db.execute(
+            text("SELECT set_config('app.current_tenant', '', false)")
+        )
+        await db.commit()
+    except BaseException:
+        try:
+            if db.in_transaction():
+                await db.rollback()
+        finally:
+            await db.invalidate()
+        raise
+
+
+async def acquire_tenant_job_lock(
+    db,
+    *,
+    namespace: str,
+    company_id: int,
+) -> None:
+    cid = normalize_company_id(company_id)
+    if not namespace or len(namespace) > 80:
+        raise ValueError("invalid tenant job lock namespace")
+    await db.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtext(:namespace), :company_id)"
+        ),
+        {"namespace": namespace, "company_id": cid},
+    )
+
+
 @asynccontextmanager
 async def tenant_session(company_id: int):
     """Open one tenant-scoped SQLAlchemy session for a worker task.
@@ -48,8 +85,7 @@ async def tenant_session(company_id: int):
                 await db.rollback()
                 raise
             finally:
-                # A task that forgot to commit must never leak an open transaction.
-                if db.in_transaction():
-                    await db.rollback()
+                # Never return a tenant-tainted physical connection to the pool.
+                await _clear_tenant_or_invalidate(db)
     finally:
         tenant_context.reset(token)

@@ -31,7 +31,8 @@ from api import auth, driver, dispatch, warehouse, reconciliation
 from config import Config
 from database import engine, get_db
 from ws_manager import dispatch_manager
-from worker_event_relay import worker_event_relay
+from realtime.worker_event_relay import worker_event_relay
+from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
 
 # ═══ S-01: Hardened IP extraction (trusted proxy CIDRs) ═══
 TRUSTED_PROXY_CIDRS = [
@@ -155,9 +156,6 @@ if ENV == "production" and not ALLOWED_ORIGINS:
 # S-02: Global rate limiter (1000 req/min default per IP)
 # +++ رفع السقف هندسياً لمنع تداخل اختبارات الضغط (180 طلب) مع اختبارات المصادقة اللاحقة +++
 limiter = Limiter(key_func=get_real_ip, default_limits=["1000/minute"])
-# +++ TEMPORARY (Stage 9 Testing): rate limiter disabled for isolation/load testing +++
-#احذف السطر بس تخلص الاختبار
-limiter.enabled = False
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
     status_code=429,
@@ -303,33 +301,30 @@ app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates
 @app.websocket("/ws/dispatch")
 async def websocket_dispatch_endpoint(websocket: WebSocket):
-    # +++ الدرع الفولاذي: إجبار التحقق من التوكن لمنع تجسس الغرباء +++
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=1008)
         return
+
     try:
-        payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"], options={"require": ["exp"]})
-        company_id = payload.get("company_id")
-        if not payload.get("is_admin") or not company_id:
-            await websocket.close(code=1008)
-            return
-    except Exception:
+        identity = await authenticate_websocket_admin(token)
+    except WebSocketAuthError:
         await websocket.close(code=1008)
         return
 
-    # فحص حالة الدرع الأمني وحقن هوية الشركة
+    company_id = identity.company_id
     is_connected = await dispatch_manager.connect(websocket, company_id)
     if not is_connected:
-        return 
+        return
 
     try:
         while True:
             await websocket.receive_text()
-    except Exception as e:
+    except WebSocketDisconnect:
+        pass
+    except Exception:
         pass
     finally:
-        # +++ التنظيف الإجباري مع عزل الشركة +++
         dispatch_manager.disconnect(websocket, company_id)
 
 @app.get("/")

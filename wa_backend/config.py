@@ -1,8 +1,9 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 # تحميل متغيرات البيئة (مثل كلمات المرور) من ملف مخفي
-load_dotenv(override=True)
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
 
 class Config:
     # مفتاح الأمان للتطبيقات والتوكن (يتغير في السيرفر الحقيقي)

@@ -1,0 +1,338 @@
+diff --git a/wa_backend/models.py b/wa_backend/models.py
+index 22975b9..59bcacc 100644
+--- a/wa_backend/models.py
++++ b/wa_backend/models.py
+@@ -1016,7 +1016,7 @@ class InventoryBalance(Base):
+     last_updated       = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+ 
+ class InventoryMovement(Base):
+-    # دفتر حركة موحد: PHYSICAL / RESERVATION / STATUS_CHANGE.
++    # دفتر حركة موحد وصريح: PHYSICAL / RESERVATION / STATUS_CHANGE.
+     __tablename__ = 'inventory_movements'
+     __table_args__ = (
+         UniqueConstraint('company_id', 'idempotency_key', name='uq_inv_movement_idempotency'),
+@@ -1037,19 +1037,41 @@ class InventoryMovement(Base):
+                              ondelete='RESTRICT', name='fk_inv_movement_tenant_transfer'),
+         ForeignKeyConstraint(['company_id', 'stocktake_session_id'], ['stocktake_sessions.company_id', 'stocktake_sessions.id'],
+                              ondelete='RESTRICT', name='fk_inv_movement_tenant_stocktake'),
++        ForeignKeyConstraint(
++            ['company_id', 'stocktake_session_id', 'stocktake_count_attempt_id'],
++            ['stocktake_count_attempts.company_id', 'stocktake_count_attempts.stocktake_session_id', 'stocktake_count_attempts.id'],
++            ondelete='RESTRICT',
++            name='fk_inv_movement_tenant_stocktake_attempt'
++        ),
+         CheckConstraint("movement_kind IN ('PHYSICAL', 'RESERVATION', 'STATUS_CHANGE')", name='chk_inv_movement_kind'),
++        CheckConstraint("reservation_action IS NULL OR reservation_action IN ('RESERVE', 'RELEASE')", name='chk_inv_movement_reservation_action'),
++        CheckConstraint(
++            "((movement_kind = 'RESERVATION' AND reservation_action IS NOT NULL) OR "
++            "(movement_kind <> 'RESERVATION' AND reservation_action IS NULL))",
++            name='chk_inv_movement_reservation_action_pair'
++        ),
+         CheckConstraint("source_stock_status IS NULL OR source_stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inv_movement_source_status'),
+         CheckConstraint("destination_stock_status IS NULL OR destination_stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inv_movement_destination_status'),
+         CheckConstraint("((source_location_id IS NULL AND source_stock_status IS NULL) OR (source_location_id IS NOT NULL AND source_stock_status IS NOT NULL))", name='chk_inv_movement_source_status_pair'),
+         CheckConstraint("((destination_location_id IS NULL AND destination_stock_status IS NULL) OR (destination_location_id IS NOT NULL AND destination_stock_status IS NOT NULL))", name='chk_inv_movement_destination_status_pair'),
+         CheckConstraint('source_location_id IS NOT NULL OR destination_location_id IS NOT NULL', name='chk_inv_movement_has_endpoint'),
+-        CheckConstraint("((movement_kind = 'PHYSICAL' AND (source_location_id IS NULL OR destination_location_id IS NULL OR source_location_id <> destination_location_id)) OR (movement_kind = 'RESERVATION' AND source_location_id IS NOT NULL AND destination_location_id = source_location_id AND destination_stock_status = source_stock_status) OR (movement_kind = 'STATUS_CHANGE' AND source_location_id IS NOT NULL AND destination_location_id = source_location_id AND destination_stock_status <> source_stock_status))", name='chk_inv_movement_shape'),
++        CheckConstraint(
++            "((movement_kind = 'PHYSICAL' AND (source_location_id IS NULL OR destination_location_id IS NULL OR source_location_id <> destination_location_id)) "
++            "OR (movement_kind = 'RESERVATION' AND source_location_id IS NOT NULL AND destination_location_id = source_location_id AND destination_stock_status = source_stock_status) "
++            "OR (movement_kind = 'STATUS_CHANGE' AND source_location_id IS NOT NULL AND destination_location_id = source_location_id AND destination_stock_status <> source_stock_status))",
++            name='chk_inv_movement_shape'
++        ),
++        CheckConstraint(
++            'stocktake_count_attempt_id IS NULL OR stocktake_session_id IS NOT NULL',
++            name='chk_inv_movement_attempt_requires_stocktake'
++        ),
+         CheckConstraint('quantity > 0', name='chk_inv_movement_qty_positive'),
+         CheckConstraint("length(trim(reference_type)) > 0", name='chk_inv_movement_reference_type'),
+         CheckConstraint("length(trim(reference_id)) > 0", name='chk_inv_movement_reference_id'),
+         CheckConstraint("length(trim(idempotency_key)) > 0", name='chk_inv_movement_idempotency_key'),
+         Index('ix_inv_movement_locations', 'company_id', 'source_location_id', 'destination_location_id'),
+         Index('ix_inv_movement_item_created', 'company_id', 'product_variant_id', 'batch_id', 'created_at'),
++        Index('ix_inv_movement_stocktake_attempt', 'company_id', 'stocktake_count_attempt_id'),
+     )
+     id                       = Column(Integer, primary_key=True)
+     company_id               = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+@@ -1060,16 +1082,21 @@ class InventoryMovement(Base):
+     destination_stock_status = Column(String(50), nullable=True)
+     product_variant_id       = Column(Integer, nullable=False, index=True)
+     batch_id                 = Column(Integer, nullable=False, index=True)
++
+     movement_kind            = Column(String(30), nullable=False, default='PHYSICAL', server_default='PHYSICAL', index=True)
+-    quantity                 = Column(Integer, nullable=False)
+-    work_session_id          = Column(Integer, nullable=True, index=True)
+-    transfer_header_id       = Column(Integer, nullable=True, index=True)
+-    stocktake_session_id     = Column(Integer, nullable=True, index=True)
+-    reference_type           = Column(String(50), nullable=False, index=True)
+-    reference_id             = Column(String(100), nullable=False, index=True)
+-    idempotency_key          = Column(String(100), nullable=False)
+-    notes                    = Column(Text, nullable=True)
+-    created_at               = Column(DateTime, nullable=False, default=utc_now, index=True)
++    reservation_action       = Column(String(20), nullable=True, index=True)
++    quantity                  = Column(Integer, nullable=False)
++
++    work_session_id           = Column(Integer, nullable=True, index=True)
++    transfer_header_id        = Column(Integer, nullable=True, index=True)
++    stocktake_session_id      = Column(Integer, nullable=True, index=True)
++    stocktake_count_attempt_id= Column(Integer, nullable=True, index=True)
++
++    reference_type = Column(String(50), nullable=False, index=True)
++    reference_id   = Column(String(100), nullable=False, index=True)
++    idempotency_key= Column(String(100), nullable=False)
++    notes           = Column(Text, nullable=True)
++    created_at      = Column(DateTime, nullable=False, default=utc_now, index=True)
+ 
+ # =================================================================================
+ # [المرحلة الخامسة] هيكلة الحوالات الصارمة (Header & Line Architecture)
+@@ -1088,8 +1115,40 @@ class InventoryTransferHeader(Base):
+         ForeignKeyConstraint(['company_id', 'work_session_id'], ['work_sessions.company_id', 'work_sessions.id'], ondelete='RESTRICT', name='fk_transfer_header_tenant_session'),
+         CheckConstraint("workflow_type IN ('DIRECT', 'HANDSHAKE', 'TRANSIT')", name='chk_transfer_header_workflow'),
+         CheckConstraint("status IN ('DRAFT', 'PENDING', 'IN_TRANSIT', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')", name='chk_transfer_header_status'),
++        CheckConstraint(
++            "((workflow_type = 'DIRECT' AND status IN ('DRAFT', 'POSTED', 'CANCELLED')) OR "
++            "(workflow_type = 'HANDSHAKE' AND status IN ('DRAFT', 'PENDING', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')) OR "
++            "(workflow_type = 'TRANSIT' AND status IN ('DRAFT', 'IN_TRANSIT', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')))",
++            name='chk_transfer_header_workflow_status'
++        ),
+         CheckConstraint('source_location_id <> destination_location_id', name='chk_transfer_header_distinct_locations'),
+         CheckConstraint("workflow_type <> 'HANDSHAKE' OR (work_session_id IS NOT NULL AND expected_receiver_id IS NOT NULL)", name='chk_transfer_header_handshake_context'),
++        CheckConstraint(
++            "status NOT IN ('REJECTED', 'CANCELLED') OR "
++            "(decision_reason IS NOT NULL AND length(trim(decision_reason)) > 0)",
++            name='chk_transfer_header_terminal_reason'
++        ),
++        CheckConstraint(
++            "status <> 'REJECTED' OR (received_by IS NOT NULL AND rejected_at IS NOT NULL)",
++            name='chk_transfer_header_rejected_audit'
++        ),
++        CheckConstraint(
++            "status <> 'CANCELLED' OR cancelled_at IS NOT NULL",
++            name='chk_transfer_header_cancelled_at'
++        ),
++        CheckConstraint(
++            "status <> 'ACCEPTED' OR (received_by IS NOT NULL AND accepted_at IS NOT NULL)",
++            name='chk_transfer_header_accepted_audit'
++        ),
++        CheckConstraint(
++            "status <> 'POSTED' OR posted_at IS NOT NULL",
++            name='chk_transfer_header_posted_at'
++        ),
++        CheckConstraint(
++            "NOT (status = 'POSTED' AND workflow_type IN ('HANDSHAKE', 'TRANSIT')) "
++            "OR (received_by IS NOT NULL AND accepted_at IS NOT NULL)",
++            name='chk_transfer_header_received_before_post'
++        ),
+     )
+     id                      = Column(Integer, primary_key=True)
+     company_id              = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+@@ -1098,17 +1157,20 @@ class InventoryTransferHeader(Base):
+     destination_location_id = Column(Integer, nullable=False, index=True)
+     workflow_type           = Column(String(30), nullable=False, default='TRANSIT', server_default='TRANSIT', index=True)
+     status                  = Column(String(50), nullable=False, default='DRAFT', server_default='DRAFT', index=True)
+-    work_session_id         = Column(Integer, nullable=True, index=True)
+-    expected_receiver_id    = Column(Integer, nullable=True, index=True)
+-    dispatched_by           = Column(Integer, nullable=False, index=True)
+-    received_by             = Column(Integer, nullable=True, index=True)
+-    decision_reason         = Column(Text, nullable=True)
+-    created_at              = Column(DateTime, nullable=False, default=utc_now)
+-    updated_at              = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+-    accepted_at             = Column(DateTime, nullable=True)
+-    rejected_at             = Column(DateTime, nullable=True)
+-    cancelled_at            = Column(DateTime, nullable=True)
+-    posted_at               = Column(DateTime, nullable=True)
++
++    work_session_id      = Column(Integer, nullable=True, index=True)
++    expected_receiver_id = Column(Integer, nullable=True, index=True)
++    dispatched_by        = Column(Integer, nullable=False, index=True)
++    received_by          = Column(Integer, nullable=True, index=True)
++
++    decision_reason = Column(Text, nullable=True)
++    notes           = Column(Text, nullable=True)
++    created_at      = Column(DateTime, nullable=False, default=utc_now)
++    updated_at      = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
++    accepted_at     = Column(DateTime, nullable=True)
++    rejected_at     = Column(DateTime, nullable=True)
++    cancelled_at    = Column(DateTime, nullable=True)
++    posted_at       = Column(DateTime, nullable=True)
+ 
+ class InventoryTransferLine(Base):
+     # سطر حوالة Batch-aware، مع حفظ تجاوز FEFO إن حصل.
+@@ -1152,11 +1214,38 @@ class StocktakeSession(Base):
+         ForeignKeyConstraint(['company_id', 'approved_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_stocktake_session_approved_by'),
+         ForeignKeyConstraint(['company_id', 'cancelled_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_stocktake_session_cancelled_by'),
+         ForeignKeyConstraint(['company_id', 'pending_recount_authorized_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_stocktake_session_pending_recount_authorizer'),
+-        CheckConstraint("status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED', 'POSTED', 'CANCELLED')", name='chk_stocktake_status'),
++        CheckConstraint("status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'POSTED', 'CANCELLED')", name='chk_stocktake_status'),
+         CheckConstraint("stocktake_type IN ('FULL_COUNT', 'CYCLE_COUNT', 'VEHICLE_RECON')", name='chk_stocktake_type'),
+         CheckConstraint('scope_batch_id IS NULL OR scope_product_variant_id IS NOT NULL', name='chk_stocktake_scope_batch_requires_product'),
+         CheckConstraint("((stocktake_type = 'CYCLE_COUNT' AND scope_product_variant_id IS NOT NULL) OR (stocktake_type IN ('FULL_COUNT', 'VEHICLE_RECON') AND scope_product_variant_id IS NULL AND scope_batch_id IS NULL))", name='chk_stocktake_scope_by_type'),
+         CheckConstraint("related_work_session_id IS NULL OR stocktake_type = 'VEHICLE_RECON'", name='chk_stocktake_work_session_scope'),
++        CheckConstraint(
++            "status = 'DRAFT' OR snapshot_cutoff_at IS NOT NULL",
++            name='chk_stocktake_snapshot_cutoff'
++        ),
++        CheckConstraint(
++            "status NOT IN ('PENDING_REVIEW', 'RECOUNT_REQUIRED', 'POSTED') OR counted_by IS NOT NULL",
++            name='chk_stocktake_counted_before_review'
++        ),
++        CheckConstraint(
++            "status <> 'RECOUNT_REQUIRED' OR "
++            "(pending_recount_authorized_by IS NOT NULL "
++            "AND pending_recount_reason IS NOT NULL "
++            "AND length(trim(pending_recount_reason)) > 0)",
++            name='chk_stocktake_recount_authorization'
++        ),
++        CheckConstraint(
++            "status <> 'POSTED' OR "
++            "(approved_by IS NOT NULL AND approved_at IS NOT NULL AND posted_at IS NOT NULL)",
++            name='chk_stocktake_posted_audit'
++        ),
++        CheckConstraint(
++            "status <> 'CANCELLED' OR "
++            "(cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL "
++            "AND cancellation_reason IS NOT NULL "
++            "AND length(trim(cancellation_reason)) > 0)",
++            name='chk_stocktake_cancelled_audit'
++        ),
+         Index('uq_active_full_stocktake_location', 'company_id', 'location_id', unique=True,
+               postgresql_where=text("stocktake_type IN ('FULL_COUNT', 'VEHICLE_RECON') AND status IN ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED')")),
+         Index('uq_active_cycle_stocktake_product', 'company_id', 'location_id', 'scope_product_variant_id', unique=True,
+@@ -1174,20 +1263,24 @@ class StocktakeSession(Base):
+     scope_batch_id           = Column(Integer, nullable=True, index=True)
+     related_work_session_id  = Column(Integer, nullable=True, index=True)
+     snapshot_cutoff_at       = Column(DateTime, nullable=True, index=True)
+-    started_by               = Column(Integer, nullable=False)
+-    counted_by               = Column(Integer, nullable=True)
+-    approved_by              = Column(Integer, nullable=True)
+-    cancelled_by             = Column(Integer, nullable=True)
++
++    started_by  = Column(Integer, nullable=False)
++    counted_by  = Column(Integer, nullable=True)
++    approved_by = Column(Integer, nullable=True)
++    cancelled_by= Column(Integer, nullable=True)
++
+     pending_recount_authorized_by = Column(Integer, nullable=True)
+     pending_recount_reason        = Column(Text, nullable=True)
+     independent_recount_required  = Column(Boolean, nullable=False, default=False, server_default='false')
++
+     cancellation_reason = Column(Text, nullable=True)
+     notes               = Column(Text, nullable=True)
+-    created_at          = Column(DateTime, nullable=False, default=utc_now)
+-    updated_at          = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+-    approved_at         = Column(DateTime, nullable=True)
+-    posted_at           = Column(DateTime, nullable=True)
+-    cancelled_at        = Column(DateTime, nullable=True)
++
++    created_at   = Column(DateTime, nullable=False, default=utc_now)
++    updated_at   = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
++    approved_at  = Column(DateTime, nullable=True)
++    posted_at    = Column(DateTime, nullable=True)
++    cancelled_at = Column(DateTime, nullable=True)
+ 
+ class StocktakeLine(Base):
+     # Snapshot ثابت للرصيد المتوقع؛ لا يخزن العد الفعلي.
+@@ -1212,10 +1305,11 @@ class StocktakeLine(Base):
+     notes                = Column(Text, nullable=True)
+ 
+ class StocktakeCountAttempt(Base):
+-    """محاولة عد مستقلة: كل إنهاء عد ينشئ نسخة جديدة ولا يستبدل أي محاولة سابقة."""
++    # كل إنهاء عد ينشئ محاولة مستقلة؛ أي Recount يجب أن ينتسب لمحاولة من نفس الجلسة.
+     __tablename__ = 'stocktake_count_attempts'
+     __table_args__ = (
+         UniqueConstraint('company_id', 'id', name='uq_stocktake_count_attempts_company_id'),
++        UniqueConstraint('company_id', 'stocktake_session_id', 'id', name='uq_stocktake_attempt_session_id'),
+         UniqueConstraint('company_id', 'stocktake_session_id', 'attempt_number', name='uq_stocktake_attempt_number'),
+         ForeignKeyConstraint(
+             ['company_id', 'stocktake_session_id'],
+@@ -1224,10 +1318,10 @@ class StocktakeCountAttempt(Base):
+             name='fk_stocktake_attempt_tenant_session'
+         ),
+         ForeignKeyConstraint(
+-            ['company_id', 'recount_of_attempt_id'],
+-            ['stocktake_count_attempts.company_id', 'stocktake_count_attempts.id'],
++            ['company_id', 'stocktake_session_id', 'recount_of_attempt_id'],
++            ['stocktake_count_attempts.company_id', 'stocktake_count_attempts.stocktake_session_id', 'stocktake_count_attempts.id'],
+             ondelete='RESTRICT',
+-            name='fk_stocktake_attempt_recount_parent'
++            name='fk_stocktake_attempt_recount_parent_same_session'
+         ),
+         ForeignKeyConstraint(
+             ['company_id', 'counted_by'],
+@@ -1242,20 +1336,32 @@ class StocktakeCountAttempt(Base):
+             name='fk_stocktake_attempt_authorized_by'
+         ),
+         CheckConstraint('attempt_number > 0', name='chk_stocktake_attempt_number_positive'),
++        CheckConstraint(
++            "((attempt_number = 1 "
++            "AND recount_of_attempt_id IS NULL "
++            "AND authorized_by IS NULL "
++            "AND recount_reason IS NULL) "
++            "OR "
++            "(attempt_number > 1 "
++            "AND recount_of_attempt_id IS NOT NULL "
++            "AND authorized_by IS NOT NULL "
++            "AND recount_reason IS NOT NULL "
++            "AND length(trim(recount_reason)) > 0))",
++            name='chk_stocktake_attempt_recount_metadata'
++        ),
+     )
+-    id                   = Column(Integer, primary_key=True)
+-    company_id           = Column(Integer, nullable=False, index=True)
+-    stocktake_session_id = Column(Integer, nullable=False, index=True)
+-    attempt_number       = Column(Integer, nullable=False)
+-    recount_of_attempt_id= Column(Integer, nullable=True, index=True)
+-
+-    counted_by           = Column(Integer, nullable=False, index=True)
+-    authorized_by        = Column(Integer, nullable=True, index=True)
+-    recount_reason       = Column(Text, nullable=True)
++    id                    = Column(Integer, primary_key=True)
++    company_id            = Column(Integer, nullable=False, index=True)
++    stocktake_session_id  = Column(Integer, nullable=False, index=True)
++    attempt_number        = Column(Integer, nullable=False)
++    recount_of_attempt_id = Column(Integer, nullable=True, index=True)
++
++    counted_by    = Column(Integer, nullable=False, index=True)
++    authorized_by = Column(Integer, nullable=True, index=True)
++    recount_reason= Column(Text, nullable=True)
+     requires_independent_recount = Column(Boolean, nullable=False, default=False, server_default='false')
+ 
+-    submitted_at         = Column(DateTime, nullable=False, default=utc_now, index=True)
+-
++    submitted_at = Column(DateTime, nullable=False, default=utc_now, index=True)
+ 
+ class StocktakeCountAttemptLine(Base):
+     # سطر عد Immutable يحتفظ بالمتوقع الفعال والفعلي والفرق وحالة المخزون.
+@@ -1295,7 +1401,16 @@ class InventoryLock(Base):
+         ForeignKeyConstraint(['company_id', 'created_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_creator'),
+         ForeignKeyConstraint(['company_id', 'released_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_inv_lock_tenant_releaser'),
+         CheckConstraint('batch_id IS NULL OR product_variant_id IS NOT NULL', name='chk_inv_lock_batch_requires_product'),
+-        CheckConstraint("((released_at IS NULL AND released_by IS NULL) OR (released_at IS NOT NULL AND released_by IS NOT NULL))", name='chk_inv_lock_release_pair'),
++        CheckConstraint(
++            "((released_at IS NULL AND released_by IS NULL AND release_reason IS NULL) "
++            "OR (released_at IS NOT NULL AND released_by IS NOT NULL "
++            "AND release_reason IS NOT NULL AND length(trim(release_reason)) > 0))",
++            name='chk_inv_lock_release_metadata'
++        ),
++        CheckConstraint(
++            'released_at IS NULL OR released_at >= created_at',
++            name='chk_inv_lock_release_time'
++        ),
+         Index('ix_active_inv_lock', 'company_id', 'location_id', postgresql_where=text("released_at IS NULL")),
+         Index('uq_active_inv_lock_location', 'company_id', 'location_id', unique=True,
+               postgresql_where=text("released_at IS NULL AND product_variant_id IS NULL AND batch_id IS NULL")),
+@@ -1310,8 +1425,9 @@ class InventoryLock(Base):
+     location_id          = Column(Integer, nullable=False, index=True)
+     product_variant_id   = Column(Integer, nullable=True, index=True)
+     batch_id             = Column(Integer, nullable=True, index=True)
+-    created_by           = Column(Integer, nullable=False, index=True)
+-    created_at           = Column(DateTime, nullable=False, default=utc_now)
+-    released_by          = Column(Integer, nullable=True, index=True)
+-    released_at          = Column(DateTime, nullable=True, index=True)
+-    release_reason       = Column(Text, nullable=True)
++
++    created_by     = Column(Integer, nullable=False, index=True)
++    created_at     = Column(DateTime, nullable=False, default=utc_now)
++    released_by    = Column(Integer, nullable=True, index=True)
++    released_at    = Column(DateTime, nullable=True, index=True)
++    release_reason = Column(Text, nullable=True)

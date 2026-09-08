@@ -42,6 +42,7 @@ app = App(
         "workers.tasks.session_monitor",
         "workers.tasks.integrity",
         "workers.tasks.reports",
+        "workers.tasks.maintenance",
     ],
     worker_defaults={
         "concurrency": 4,

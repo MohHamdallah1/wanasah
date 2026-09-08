@@ -69,3 +69,6 @@ wa_backend/venv_wsl/
 wa_backend/scripts/*_report.txt
 wa_backend/scripts/*_summary.json
 ```
+
+# Surgical patch backups are temporary only
+**/.patch_backups/
