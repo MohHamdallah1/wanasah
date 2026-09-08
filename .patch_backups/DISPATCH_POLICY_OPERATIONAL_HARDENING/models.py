@@ -174,33 +174,32 @@ class Governorate(Base):
 
 
 class Zone(Base):
-    """منطقة توزيع بجدولة رقمية صريحة: start_date هي الزيارة القادمة وinterval_days هو التكرار بالأيام."""
+    """
+    المنطقة الجغرافية التي يغطيها المندوب.
+    تحتوي على إعدادات الجدولة (أسبوعي، شهري، مخصص) لتنظيم
+    مواعيد الزيارات الدورية.
+    """
     __tablename__ = 'zones'
     __table_args__ = (
         UniqueConstraint('company_id', 'name', 'governorate_id', name='uq_company_zone_gov'),
         Index('idx_uq_zone_company_name_null_gov', 'company_id', 'name', unique=True, postgresql_where=text("governorate_id IS NULL")),
-        UniqueConstraint('company_id', 'id', name='uq_zones_company_id'),
-        CheckConstraint('interval_days IS NULL OR interval_days > 0', name='chk_zone_interval_days_positive'),
-        CheckConstraint(
-            '((start_date IS NULL AND interval_days IS NULL) OR '
-            '(start_date IS NOT NULL AND interval_days IS NOT NULL))',
-            name='chk_zone_schedule_pair'
-        ),
+        UniqueConstraint('company_id', 'id', name='uq_zones_company_id'), # +++ Parent Guard +++
     )
     id              = Column(Integer, primary_key=True)
     company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     name            = Column(String(100), nullable=False)
     governorate_id  = Column(Integer, ForeignKey('governorates.id', ondelete='SET NULL'), nullable=True)
-    sequence_number = Column(Integer, nullable=True)
+    sequence_number = Column(Integer, nullable=True)   # ترتيب خطوط السير
 
-    # لا parsing نصي: كل N يوم فقط. "شهري" التقويمي ليس 30 يوماً ولا نمثله بهذا الحقل.
-    start_date    = Column(Date, nullable=True)
-    interval_days = Column(Integer, nullable=True)
+    # حقول الجدولة
+    schedule_frequency = Column(String(50),  nullable=True)  # weekly / monthly / custom
+    visit_day          = Column(String(20),  nullable=True)  # Saturday / Sunday …
+    start_date         = Column(Date,        nullable=True)
+    custom_days        = Column(Integer,     nullable=True)  # عدد الأيام للجدولة المخصصة
 
     is_active = Column(Boolean, nullable=False, default=True)
 
-    shops = relationship('Shop', backref='zone', lazy='raise', foreign_keys='Shop.zone_id')
-
+    shops = relationship('Shop', backref='zone', lazy='raise')
 
 
 # =================================================================================
@@ -491,17 +490,6 @@ class Shop(Base):
             ondelete='SET NULL (added_by_driver_id)',
             name='fk_shop_tenant_added_by'
         ),
-        ForeignKeyConstraint(
-            ['company_id', 'archived_due_to_zone_id'],
-            ['zones.company_id', 'zones.id'],
-            ondelete='RESTRICT',
-            name='fk_shop_tenant_archive_source_zone'
-        ),
-        CheckConstraint(
-            'archived_due_to_zone_id IS NULL OR '
-            '(is_archived IS TRUE AND zone_id = archived_due_to_zone_id)',
-            name='chk_shop_zone_archive_provenance'
-        ),
     )
     id             = Column(Integer, primary_key=True)
     company_id     = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -523,8 +511,6 @@ class Shop(Base):
     # +++ إصلاح المنطق الترتيبي (Issue 5): المحل الجديد يأخذ 999 افتراضياً ليظهر بآخر خط السير +++
     sequence         = Column(Integer,  nullable=True, default=999, server_default='999')
     is_archived      = Column(Boolean,  nullable=False, default=False, server_default='false')
-    # يحدد فقط المحلات التي أرشفت تلقائياً بسبب أرشفة منطقتها؛ الأرشفة اليدوية تبقى NULL.
-    archived_due_to_zone_id = Column(Integer, nullable=True, index=True)
 
     visits = relationship('Visit', backref='shop', lazy='raise', foreign_keys='Visit.shop_id')
 
@@ -652,19 +638,13 @@ class Visit(Base):
                         name='chk_visit_session_requires_driver'),
         Index('ix_visit_shop_timestamp', 'shop_id', 'visit_timestamp'),
         Index('ix_visit_session_outcome', 'work_session_id', 'outcome'),
-        Index(
-            'ix_visit_pending_owner_day',
-            'company_id', 'driver_id', 'shop_id', 'operational_date', 'status'
-        ),
     )
     id              = Column(Integer, primary_key=True)
     company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     driver_id       = Column(Integer, nullable=True,  index=True)
     shop_id         = Column(Integer, nullable=False, index=True)
     work_session_id = Column(Integer, nullable=True, index=True)
-    # يوم العمل حسب Timezone الشركة؛ منفصل عمداً عن timestamp الرقابي UTC.
-    operational_date = Column(Date, nullable=False, index=True)
-    visit_timestamp = Column(DateTime, nullable=False, default=utc_now, index=True)
+    visit_timestamp = Column(DateTime, nullable=False, default=utc_now, index=True)  # FIX ①
 
     outcome = Column(String(50), nullable=True, default='Pending', index=True)
 
@@ -1255,15 +1235,6 @@ class InventoryMovement(Base):
             name='chk_inv_movement_attempt_requires_stocktake'
         ),
         CheckConstraint('quantity > 0', name='chk_inv_movement_qty_positive'),
-        CheckConstraint(
-            'financial_unit_price_snapshot IS NULL OR financial_unit_price_snapshot >= 0',
-            name='chk_inv_movement_financial_unit_price_nonnegative'
-        ),
-        CheckConstraint(
-            "((reference_type = 'DRIVER_SHORTAGE' AND financial_unit_price_snapshot IS NOT NULL) OR "
-            "(reference_type <> 'DRIVER_SHORTAGE' AND financial_unit_price_snapshot IS NULL))",
-            name='chk_inv_movement_shortage_price_snapshot_scope'
-        ),
         CheckConstraint("length(trim(reference_type)) > 0", name='chk_inv_movement_reference_type'),
         CheckConstraint("length(trim(reference_id)) > 0", name='chk_inv_movement_reference_id'),
         CheckConstraint("length(trim(idempotency_key)) > 0", name='chk_inv_movement_idempotency_key'),
@@ -1289,8 +1260,6 @@ class InventoryMovement(Base):
     movement_kind             = Column(String(30), nullable=False, default='PHYSICAL', server_default='PHYSICAL', index=True)
     reservation_action        = Column(String(20), nullable=True, index=True)
     quantity                  = Column(Integer, nullable=False)
-    # Immutable financial valuation only for DRIVER_SHORTAGE; other movements must keep it NULL.
-    financial_unit_price_snapshot = Column(Numeric(12, 3), nullable=True)
 
     work_session_id            = Column(Integer, nullable=True, index=True)
     transfer_header_id         = Column(Integer, nullable=True, index=True)

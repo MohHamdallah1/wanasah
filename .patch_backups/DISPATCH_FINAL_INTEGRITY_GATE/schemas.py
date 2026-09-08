@@ -790,7 +790,6 @@ class AdminFinancials(BaseModel):
     expected_cash_in_hand: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
     cash_from_sales: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
     cash_from_debts: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
-    inventory_shortage_cash: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
 
 # +++ الدرع المحاسبي: كلاس بيانات العينات للمحاسب +++
 class AdminSampleItem(BaseModel):
@@ -872,11 +871,9 @@ class SettleSessionResponse(BaseModel):
 class DispatchZoneResponse(BaseModel):
     id: str
     name: str
-    # الحقول النصية تبقى للعرض/توافق الواجهة فقط؛ منطق الجدولة يعتمد intervalDays حصراً.
     visitDay: Optional[str] = ""
     startDate: Optional[str] = ""
     frequency: Optional[str] = ""
-    intervalDays: Optional[int] = None
     scheduleStatus: str
     shopsCount: int
 
@@ -948,7 +945,6 @@ class InventoryAdjustmentDelta(RequestModel):
 
 
 class AdjustRouteInventoryRequest(RequestModel):
-    request_id: UUID
     deltas: List[InventoryAdjustmentDelta] = Field(
         ..., min_length=1, max_length=5000, description="قائمة بالتعديلات المطلوبة"
     )
@@ -959,16 +955,6 @@ class AdjustRouteInventoryRequest(RequestModel):
         if len(ids) != len(set(ids)):
             raise ValueError("لا يجوز تكرار نفس المنتج في تعديلات المسار.")
         return self
-
-
-class ForceCancelHandshakeRequest(RequestModel):
-    request_id: UUID
-    reason: str = Field(..., min_length=3, max_length=500)
-
-    @field_validator("reason", mode="before")
-    @classmethod
-    def normalize_reason(cls, v: Any) -> str:
-        return _required_text(v)
 
 
 class RouteTransferResponse(BaseModel):
@@ -1098,58 +1084,33 @@ class UpdateRouteStatusRequest(RequestModel):
 
 class AddZoneRequest(RequestModel):
     name: str = Field(..., min_length=2, max_length=100)
-    intervalDays: Optional[PositiveDbInt] = None
-    startDate: Optional[date] = None
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, v: Any) -> str:
         return _required_text(v)
 
-    @model_validator(mode="after")
-    def validate_schedule_pair(self) -> "AddZoneRequest":
-        if (self.intervalDays is None) != (self.startDate is None):
-            raise ValueError("لتفعيل الجدولة يجب إرسال intervalDays و startDate معاً.")
-        return self
-
 
 class UpdateZoneRequest(RequestModel):
     name: Optional[str] = Field(None, min_length=2, max_length=100)
-    intervalDays: Optional[PositiveDbInt] = None
+    frequency: Optional[Literal["weekly", "monthly", "custom"]] = None
+    visitDay: Optional[str] = Field(None, max_length=20)
     startDate: Optional[date] = None
-    clearSchedule: bool = False
 
-    @field_validator("name", mode="before")
+    @field_validator("name", "visitDay", mode="before")
     @classmethod
     def normalize_text(cls, v: Any) -> Optional[str]:
         return _optional_text(v)
 
     @model_validator(mode="after")
     def require_update(self) -> "UpdateZoneRequest":
-        if self.clearSchedule and (self.intervalDays is not None or self.startDate is not None):
-            raise ValueError("clearSchedule لا يجتمع مع intervalDays/startDate.")
         if (
             self.name is None
-            and self.intervalDays is None
+            and self.frequency is None
+            and self.visitDay is None
             and self.startDate is None
-            and not self.clearSchedule
         ):
             raise ValueError("يجب إرسال حقل واحد على الأقل لتحديث المنطقة.")
-        return self
-
-
-class RestoreZoneRequest(RequestModel):
-    mode: Literal["zone_only", "all_zone_archived", "selected"] = "all_zone_archived"
-    shop_ids: List[PositiveDbInt] = Field(default_factory=list, max_length=5000)
-
-    @model_validator(mode="after")
-    def validate_restore_mode(self) -> "RestoreZoneRequest":
-        if self.mode == "selected" and not self.shop_ids:
-            raise ValueError("وضع selected يتطلب تحديد محل واحد على الأقل.")
-        if self.mode != "selected" and self.shop_ids:
-            raise ValueError("shop_ids مسموحة فقط مع وضع selected.")
-        if len(self.shop_ids) != len(set(self.shop_ids)):
-            raise ValueError("لا يجوز تكرار نفس المحل في قائمة الاستعادة.")
         return self
 
 

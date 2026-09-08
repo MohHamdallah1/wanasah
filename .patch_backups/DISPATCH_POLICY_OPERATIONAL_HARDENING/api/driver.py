@@ -291,17 +291,11 @@ async def start_work_session(
                 Visit.driver_id == driver_id,
                 Visit.status == "Pending",
                 or_(
-                    and_(
-                        Visit.shop_id.in_(subq_shops),
-                        Visit.operational_date == company_local_date,
-                    ),
+                    Visit.shop_id.in_(subq_shops),
                     Visit.is_emergency.is_(True),
                 ),
             )
-            .values(
-                work_session_id=new_session.id,
-                operational_date=company_local_date,
-            )
+            .values(work_session_id=new_session.id)
         )
 
         await db.commit()
@@ -1393,10 +1387,6 @@ async def update_visit(
                     ShortageRequest.shop_id == shop.id,
                     ShortageRequest.status == "pending",
                     ShortageRequest.product_variant_id.in_(sold_variant_ids),
-                    or_(
-                        ShortageRequest.driver_id.is_(None),
-                        ShortageRequest.driver_id == driver_id,
-                    ),
                 )
                 .values(
                     status="fulfilled",
@@ -2809,7 +2799,6 @@ async def add_new_shop(
             driver_id=driver_id,
             shop_id=new_shop.id,
             work_session_id=active_session.id,
-            operational_date=active_session.session_date,
             status='Pending',
             sequence=new_shop.sequence,
             visit_timestamp=get_utc_now()
@@ -2902,19 +2891,9 @@ async def get_driver_visits(
         return {"visits": [], "inventory": [], "pending_transfers": []}
 
     session_id_val = active_session.id if active_session else -1
-    operational_date = (
-        active_session.session_date
-        if active_session is not None
-        else active_route.dispatch_date
-    )
     condition = or_(
-        and_(
-            Visit.status == "Pending",
-            Visit.operational_date == operational_date,
-            Shop.zone_id == active_route.zone_id,
-        ),
+        and_(Visit.status == "Pending", Shop.zone_id == active_route.zone_id),
         Visit.work_session_id == session_id_val,
-        # الطوارئ المعلقة تبقى ظاهرة حتى تُنجز/تلغى؛ operational_date يحفظ يوم إنشائها ولا يحولها لزيارة يتيمة.
         and_(Visit.is_emergency.is_(True), Visit.status == "Pending"),
     )
 

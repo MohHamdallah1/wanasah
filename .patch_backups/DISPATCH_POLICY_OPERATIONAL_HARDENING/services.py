@@ -2326,27 +2326,6 @@ async def post_approved_stocktake_adjustments(
                     "سجل حركة جرد موجود يحمل نفس idempotency لكنه لا يطابق النتيجة المعتمدة."
                 )
 
-        snap = movement.financial_unit_price_snapshot
-        if spec["reference_type"] == "DRIVER_SHORTAGE":
-            if snap is None:
-                raise InventoryMutationError(
-                    "حركة DRIVER_SHORTAGE تاريخية بلا سعر مالي مثبت؛ البيانات غير مكتملة."
-                )
-            snap_dec = Decimal(str(snap))
-            total_value = snap_dec * Decimal(spec["quantity"])
-            if (
-                not snap_dec.is_finite()
-                or snap_dec < 0
-                or snap_dec > _MONEY_12_3_MAX
-                or not total_value.is_finite()
-                or total_value > _MONEY_12_3_MAX
-            ):
-                raise InventoryMutationError("قيمة DRIVER_SHORTAGE التاريخية خارج النطاق المالي.")
-        elif snap is not None:
-            raise InventoryMutationError(
-                "حركة جرد غير DRIVER_SHORTAGE تحمل سعراً مالياً لا يخصها."
-            )
-
     if session.status == "POSTED":
         if session.posted_at is None:
             raise InventoryMutationError("جلسة POSTED بدون posted_at؛ البيانات غير متسقة.")
@@ -2501,54 +2480,6 @@ async def post_approved_stocktake_adjustments(
                 "ظهر قفل جرد متعارض أثناء الترحيل؛ أعد المحاولة لضمان لقطة متسقة."
             )
 
-    # تثبيت سعر العجز في لحظة اعتماد/ترحيل VEHICLE_RECON؛ لا نقرأ السعر الحي لاحقاً أبداً.
-    shortage_variant_ids = sorted({
-        int(spec["product_variant_id"])
-        for spec in specs
-        if spec["reference_type"] == "DRIVER_SHORTAGE"
-    })
-    shortage_unit_prices = {}
-    if shortage_variant_ids:
-        price_rows = (
-            await db_session.execute(
-                select(
-                    ProductVariant.id,
-                    ProductVariant.price_per_pack,
-                )
-                .filter(
-                    ProductVariant.company_id == company_id,
-                    ProductVariant.id.in_(shortage_variant_ids),
-                )
-                .order_by(ProductVariant.id.asc())
-                .with_for_update(read=True)
-            )
-        ).all()
-        if {int(row.id) for row in price_rows} != set(shortage_variant_ids):
-            raise InventoryMutationError("أحد أصناف عجز المندوب مفقود داخل الشركة.")
-
-        for row in price_rows:
-            # Preserve the existing accounting rule exactly: DRIVER_SHORTAGE is valued by price_per_pack.
-            # We only freeze that value here; we do not invent a new carton-price fallback.
-            unit_price = _money_12_3(row.price_per_pack or "0.000", "price_per_pack")
-            if not unit_price.is_finite() or unit_price < 0 or unit_price > _MONEY_12_3_MAX:
-                raise InventoryMutationError("سعر عجز المندوب غير صالح للتثبيت المالي.")
-            shortage_unit_prices[int(row.id)] = unit_price
-
-        for spec in specs:
-            if spec["reference_type"] != "DRIVER_SHORTAGE":
-                spec["financial_unit_price_snapshot"] = None
-                continue
-            unit_price = shortage_unit_prices[int(spec["product_variant_id"])]
-            total_value = unit_price * Decimal(spec["quantity"])
-            if not total_value.is_finite() or total_value > _MONEY_12_3_MAX:
-                raise InventoryMutationError(
-                    "قيمة عجز المندوب الناتجة تتجاوز السعة المالية Numeric(12,3)."
-                )
-            spec["financial_unit_price_snapshot"] = unit_price
-    else:
-        for spec in specs:
-            spec["financial_unit_price_snapshot"] = None
-
     before_by_key = {}
     prepared = []
     # تحقق من جميع النتائج قبل تغيير أي كائن ORM؛ فشل السطر الأخير لا يترك أسطراً معدلة.
@@ -2595,7 +2526,6 @@ async def post_approved_stocktake_adjustments(
             movement_kind="PHYSICAL",
             reservation_action=None,
             quantity=spec["quantity"],
-            financial_unit_price_snapshot=spec.get("financial_unit_price_snapshot"),
             work_session_id=spec["work_session_id"],
             transfer_header_id=None,
             stocktake_session_id=session.id,

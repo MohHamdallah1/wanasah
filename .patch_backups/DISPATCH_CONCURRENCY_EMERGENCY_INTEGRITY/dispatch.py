@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from ws_manager import dispatch_manager
 from sqlalchemy.future import select
-from sqlalchemy import delete, func, or_, and_, case, nullslast, update, cast, Float, text
+from sqlalchemy import delete, func, or_, and_, case, nullslast, update, cast, Float
 from database import get_db
 from api.dependencies import get_current_admin
 from datetime import timedelta, datetime, timezone
@@ -12,8 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from decimal import Decimal
 from typing import List 
 from fastapi.responses import JSONResponse
-import hashlib
-import json
+import re
 from collections import Counter
 import logging
 logger = logging.getLogger("wanasah_logger")
@@ -52,8 +51,6 @@ from services import (
     get_company_local_date,
     allocate_fefo_inventory_batch,
     apply_inventory_movements_batch,
-    begin_idempotent_operation,
-    complete_idempotent_operation,
 )
 from uuid import uuid4
 
@@ -62,14 +59,12 @@ SessionSettlementReportResponse, SettleSessionRequest, SettleSessionResponse, Di
 DispatchRouteRequest, VehicleInventoryItemResponse, RouteLiveInventoryItemResponse, AdjustRouteInventoryRequest,
 RouteTransferResponse, DispatchShopResponse, BulkUpdateShopItem, AdminAddShopRequest, ActiveRouteResponse,
 UpdateRouteStatusRequest, AddZoneRequest, ArchivedZoneResponse, EditShopDetailsRequest, ShortageResponseItem,
-CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, ForceCancelHandshakeRequest)
+CreateShortageItem, BulkImportRequest, UpdateZoneRequest)
 
 
 
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
 router = APIRouter(tags=["Admin & Dispatch Operations"])
-
-# PATCH: DISPATCH_FINAL_INTEGRITY_GATE
 
 # =========================================
 # 1. إعطاء أو سحب "الضوء الأخضر" (تفعيل صلاحية البيع)
@@ -413,150 +408,41 @@ async def _dispatch_session_inventory_projection(
     return projection_by_session, route_map
 
 
-async def _dispatch_driver_shortage_cash_map(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    work_session_ids,
-):
-    session_ids = sorted({int(session_id) for session_id in work_session_ids})
-    if not session_ids:
-        return {}
-
-    rows = (
-        await db.execute(
-            select(
-                InventoryMovement.work_session_id,
-                InventoryMovement.quantity,
-                InventoryMovement.financial_unit_price_snapshot,
-            )
-            .filter(
-                InventoryMovement.company_id == company_id,
-                InventoryMovement.work_session_id.in_(session_ids),
-                InventoryMovement.reference_type == "DRIVER_SHORTAGE",
-                InventoryMovement.movement_kind == "PHYSICAL",
-            )
-            .order_by(
-                InventoryMovement.work_session_id.asc(),
-                InventoryMovement.id.asc(),
-            )
-        )
-    ).all()
-
-    money_limit = Decimal("999999999.999")
-    totals = {session_id: Decimal("0.000") for session_id in session_ids}
-    for work_session_id, quantity, unit_price_snapshot in rows:
-        sid = int(work_session_id)
-        qty = int(quantity or 0)
-        if unit_price_snapshot is None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"قيد عجز المندوب للجلسة ({sid}) بلا سعر مالي مثبت.",
-            )
-        price = Decimal(str(unit_price_snapshot))
-        line_total = Decimal(qty) * price
-        if (
-            qty < 0
-            or not price.is_finite()
-            or price < 0
-            or not line_total.is_finite()
-            or line_total < 0
-            or line_total > money_limit
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail=f"قيد عجز المندوب للجلسة ({sid}) يحمل قيمة مالية غير صالحة.",
-            )
-        totals[sid] = totals.get(sid, Decimal("0.000")) + line_total
-        if totals[sid] > money_limit:
-            raise HTTPException(
-                status_code=409,
-                detail=f"إجمالي عجز المندوب للجلسة ({sid}) يتجاوز السعة المالية.",
-            )
-
-    return totals
-
-
-
 async def _dispatch_driver_shortage_cash(
     db: AsyncSession,
     *,
     company_id: int,
     work_session_id: int,
 ) -> Decimal:
-    totals = await _dispatch_driver_shortage_cash_map(
-        db,
-        company_id=company_id,
-        work_session_ids=[work_session_id],
-    )
-    return totals.get(int(work_session_id), Decimal("0.000"))
-
-
-async def _dispatch_assert_vehicle_custody_reconciled(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    vehicle_id: int,
-    allowed_work_session_id: int | None = None,
-) -> None:
-    stmt = (
-        select(WorkSession.id, WorkSession.driver_id, WorkSession.end_time)
-        .join(
-            DispatchRoute,
-            and_(
-                DispatchRoute.company_id == WorkSession.company_id,
-                DispatchRoute.work_session_id == WorkSession.id,
-            ),
-        )
-        .filter(
-            WorkSession.company_id == company_id,
-            DispatchRoute.company_id == company_id,
-            DispatchRoute.vehicle_id == vehicle_id,
-            WorkSession.inventory_reconciled_at.is_(None),
-        )
-    )
-    if allowed_work_session_id is not None:
-        stmt = stmt.filter(WorkSession.id != int(allowed_work_session_id))
-
-    unresolved = (
+    rows = (
         await db.execute(
-            stmt.order_by(WorkSession.id.asc()).limit(1)
-        )
-    ).first()
-    if unresolved is not None:
-        state = "نشطة" if unresolved.end_time is None else "بانتظار التسوية المخزنية"
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"السيارة مرتبطة بجلسة عمل ({int(unresolved.id)}) {state}. "
-                "لا يجوز إعادة إسناد عهدة السيارة أو تعديل حمولتها قبل ختم التسوية المخزنية."
-            ),
-        )
-
-
-async def _dispatch_vehicle_location_ids(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    vehicle_id: int,
-) -> list[int]:
-    location_ids = list((
-        await db.execute(
-            select(InventoryLocation.id)
-            .filter_by(
-                company_id=company_id,
-                vehicle_id=vehicle_id,
-                location_type="VEHICLE",
+            select(InventoryMovement.quantity, ProductVariant.price_per_pack)
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == InventoryMovement.company_id,
+                    ProductVariant.id == InventoryMovement.product_variant_id,
+                ),
             )
-            .order_by(InventoryLocation.id.asc())
+            .filter(
+                InventoryMovement.company_id == company_id,
+                InventoryMovement.work_session_id == work_session_id,
+                InventoryMovement.reference_type == "DRIVER_SHORTAGE",
+                InventoryMovement.movement_kind == "PHYSICAL",
+                ProductVariant.company_id == company_id,
+            )
         )
-    ).scalars().all())
-    if not location_ids:
-        raise HTTPException(
-            status_code=409,
-            detail="السيارة لا تملك أي موقع مخزون VEHICLE تاريخي داخل الشركة.",
-        )
-    return [int(location_id) for location_id in location_ids]
+    ).all()
+    total = Decimal("0.000")
+    for quantity, price_per_pack in rows:
+        qty = int(quantity or 0)
+        price = Decimal(str(price_per_pack or "0.000"))
+        if qty < 0 or not price.is_finite() or price < 0:
+            raise HTTPException(status_code=409, detail="قيد عجز المندوب يحمل قيمة مالية غير صالحة.")
+        total += Decimal(qty) * price
+    if not total.is_finite() or total < 0:
+        raise HTTPException(status_code=409, detail="إجمالي قيمة عجز المندوب غير صالح.")
+    return total
 
 
 # =========================================
@@ -569,9 +455,8 @@ async def get_admin_dashboard_data(
 ):
     company_id = current_admin.company_id
     company_local_date = await get_company_local_date(db, company_id)
+    limit_date = company_local_date - timedelta(days=14)
 
-    # لا نخفي أي ذمة غير مسواة مهما كان عمرها أو حالة حساب المندوب.
-    # الجلسات المسواة تظهر فقط إذا كانت من يوم الشركة الحالي.
     sessions = (
         await db.execute(
             select(WorkSession)
@@ -580,7 +465,10 @@ async def get_admin_dashboard_data(
                 WorkSession.company_id == company_id,
                 or_(
                     WorkSession.session_date == company_local_date,
-                    WorkSession.is_settled.is_(False),
+                    and_(
+                        WorkSession.is_settled.is_(False),
+                        WorkSession.session_date >= limit_date,
+                    ),
                 ),
             )
             .order_by(WorkSession.id.desc())
@@ -622,12 +510,6 @@ async def get_admin_dashboard_data(
     ).all()
     pending_map = {int(session_id): int(count or 0) for session_id, count in pending_rows}
 
-    shortage_cash_map = await _dispatch_driver_shortage_cash_map(
-        db,
-        company_id=company_id,
-        work_session_ids=session_ids,
-    )
-
     inventory_map, route_map = await _dispatch_session_inventory_projection(
         db,
         company_id=company_id,
@@ -637,18 +519,14 @@ async def get_admin_dashboard_data(
     result = []
     for session in sessions:
         driver = session.driver
-        if driver is None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"جلسة العمل ({session.id}) لا تملك مندوباً صالحاً داخل الشركة.",
-            )
+        if driver is None or not driver.is_active or driver.is_admin:
+            continue
 
         sid = int(session.id)
         stats = stats_map.get(sid)
         cash_from_sales = Decimal(str(stats.total_cash or "0.000")) if stats else Decimal("0.000")
         cash_from_debts = Decimal(str(stats.total_debt or "0.000")) if stats else Decimal("0.000")
-        shortage_cash = shortage_cash_map.get(sid, Decimal("0.000"))
-        expected_cash = cash_from_sales + cash_from_debts + shortage_cash
+        expected_cash = cash_from_sales + cash_from_debts
         is_on_break = bool(session.break_start_time and not session.break_end_time)
 
         if session.is_settled:
@@ -688,7 +566,6 @@ async def get_admin_dashboard_data(
                     "expected_cash_in_hand": str(expected_cash),
                     "cash_from_sales": str(cash_from_sales),
                     "cash_from_debts": str(cash_from_debts),
-                    "inventory_shortage_cash": str(shortage_cash),
                 },
                 "visits": {
                     "completed_total": int(stats.total_visits or 0) if stats else 0,
@@ -806,12 +683,7 @@ async def get_session_settlement_report(
 
     cash_from_sales = Decimal(str(stats.total_cash or "0.000")) if stats else Decimal("0.000")
     cash_from_debts = Decimal(str(stats.total_debt or "0.000")) if stats else Decimal("0.000")
-    shortage_cash = await _dispatch_driver_shortage_cash(
-        db,
-        company_id=company_id,
-        work_session_id=session.id,
-    )
-    expected_cash = cash_from_sales + cash_from_debts + shortage_cash
+    expected_cash = cash_from_sales + cash_from_debts
 
     if session.is_settled:
         status_str = "تمت التسوية"
@@ -830,7 +702,6 @@ async def get_session_settlement_report(
             "expected_cash_in_hand": str(expected_cash),
             "cash_from_sales": str(cash_from_sales),
             "cash_from_debts": str(cash_from_debts),
-            "inventory_shortage_cash": str(shortage_cash),
         },
         "visits": {
             "completed_total": int(stats.total_visits or 0) if stats else 0,
@@ -916,7 +787,6 @@ async def settle_session(
                         SessionInventorySnapshot.company_id == company_id,
                         SessionInventorySnapshot.work_session_id == session.id,
                         SessionInventorySnapshot.product_variant_id.in_(submitted_ids),
-                        SessionInventorySnapshot.stock_status == "AVAILABLE",
                     )
                     .group_by(SessionInventorySnapshot.product_variant_id)
                 )
@@ -1009,60 +879,78 @@ async def dispatch_init(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
-    zones = (await db.execute(
-        select(Zone).filter_by(company_id=company_id, is_active=True).order_by(Zone.id.asc())
-    )).scalars().all()
-    drivers = (await db.execute(
-        select(Driver).filter_by(company_id=company_id, is_active=True, is_admin=False).order_by(Driver.id.asc())
-    )).scalars().all()
-    vehicles = (await db.execute(
-        select(Vehicle).filter_by(company_id=company_id, is_active=True).order_by(Vehicle.id.asc())
-    )).scalars().all()
-    products = (await db.execute(
-        select(ProductVariant).filter_by(company_id=company_id, is_active=True).order_by(ProductVariant.id.asc())
-    )).scalars().all()
 
-    shop_counts = (await db.execute(
-        select(Shop.zone_id, func.count(Shop.id)).filter(
-            Shop.company_id == company_id,
-            Shop.is_archived.is_(False),
-            Shop.is_active.is_(True),
-        ).group_by(Shop.zone_id)
-    )).all()
-    shop_count_map = {int(row.zone_id): int(row[1]) for row in shop_counts if row.zone_id is not None}
+    # 1. جلب الكيانات الأساسية بضربات متوازية
+    stmt_zones = select(Zone).filter_by(
+    company_id=current_admin.company_id,
+    is_active=True
+)
+    zones = (await db.execute(stmt_zones)).scalars().all()
 
-    today = await get_company_local_date(db, company_id)
+    stmt_drivers = select(Driver).filter_by(
+    company_id=current_admin.company_id,
+    is_active=True,
+    is_admin=False
+)
+    drivers = (await db.execute(stmt_drivers)).scalars().all()
+
+    stmt_vehicles = select(Vehicle).filter_by(
+    company_id=current_admin.company_id,
+    is_active=True
+)
+    vehicles = (await db.execute(stmt_vehicles)).scalars().all()
+
+    stmt_products = select(ProductVariant).filter_by(
+    company_id=current_admin.company_id,
+    is_active=True
+)
+    products = (await db.execute(stmt_products)).scalars().all()
+
+    # 2. +++ الحل السحري لمشكلة N+1 (O(1)): استعلام واحد يجلب عدد المحلات لكل المناطق +++
+    stmt_shop_counts = select(Shop.zone_id, func.count(Shop.id)).filter(
+    Shop.company_id == current_admin.company_id,
+    Shop.is_archived == False,
+    Shop.is_active == True
+).group_by(Shop.zone_id)
+    
+    shop_counts = (await db.execute(stmt_shop_counts)).all()
+    # تحويل النتيجة لقاموس (Dictionary) لسرعة البحث
+    shop_count_map = {row.zone_id: row[1] for row in shop_counts if row.zone_id}
+
+    today = await get_company_local_date(db, current_admin.company_id)
     zones_data = []
-    for zone in zones:
+    
+    for z in zones:
+        # استخدام الذاكرة المسبقة (O(1)) بدلاً من استعلام مهدر داخل الحلقة
+        shops_count = shop_count_map.get(z.id, 0)
+        
+        # تحديد حالة الجدولة للترتيب واللون الأحمر (مطابق لمنطقك)
         schedule_status = "null"
-        if zone.start_date is not None:
-            if zone.start_date < today:
+        if z.start_date:
+            if z.start_date < today: 
                 schedule_status = "overdue"
-            elif zone.start_date == today:
+            elif z.start_date == today: 
                 schedule_status = "today"
-            else:
+            else: 
                 schedule_status = "upcoming"
-        interval = int(zone.interval_days) if zone.interval_days is not None else None
+
         zones_data.append({
-            "id": str(zone.id),
-            "name": zone.name,
-            # compatibility/display only; no backend decision parses these strings.
-            "visitDay": "",
-            "startDate": zone.start_date.isoformat() if zone.start_date else "",
-            "frequency": (f"كل {interval} يوم" if interval else ""),
-            "intervalDays": interval,
+            "id": str(z.id), 
+            "name": z.name,
+            "visitDay": z.visit_day or "غير محدد",
+            "startDate": z.start_date.isoformat() if z.start_date else "",
+            "frequency": z.schedule_frequency or "أسبوعي",
             "scheduleStatus": schedule_status,
-            "shopsCount": shop_count_map.get(int(zone.id), 0),
+            "shopsCount": shops_count
         })
 
+    # تسليم العقد للواجهة كما في الفلاسك تماماً
     return {
         "zones": zones_data,
         "drivers": [{"id": str(d.id), "name": d.full_name} for d in drivers],
         "vehicles": [{"id": str(v.id), "label": f"{v.vehicle_type} - {v.plate_number}"} for v in vehicles],
-        "products": [{"id": str(p.id), "name": p.variant_name} for p in products],
+        "products": [{"id": str(p.id), "name": p.variant_name} for p in products]
     }
-
 
 
 # PATCH: DISPATCH_UNIFIED_INVENTORY_CORE
@@ -1347,11 +1235,6 @@ async def dispatch_route(
             company_id=company_id,
             vehicle_id=payload.vehicle_id,
         )
-        await _dispatch_assert_vehicle_custody_reconciled(
-            db,
-            company_id=company_id,
-            vehicle_id=payload.vehicle_id,
-        )
 
         # إنشاء Route جديد أثناء WorkSession قائمة يفتح باب تبديل عهدة ضمني؛ ممنوع.
         active_session = (
@@ -1560,7 +1443,7 @@ async def dispatch_route(
                 movements=movement_specs,
             )
 
-        # زيارات Route مرتبطة صراحة بيوم الشركة؛ timestamps تبقى UTC للأثر الرقابي فقط.
+        # منطق إنشاء الزيارات نفسه محفوظ.
         shops_in_zone = (
             await db.execute(
                 select(Shop).filter_by(
@@ -1568,20 +1451,14 @@ async def dispatch_route(
                     zone_id=payload.zone_id,
                     is_active=True,
                     is_archived=False,
-                ).order_by(Shop.id.asc())
+                )
             )
         ).scalars().all()
-        shop_ids = [int(shop.id) for shop in shops_in_zone]
+        shop_ids = [shop.id for shop in shops_in_zone]
 
         if shop_ids:
-            await _dispatch_advisory_locks(
-                db,
-                company_id=company_id,
-                keys=[
-                    f"pending-visit:{payload.driver_id}:{shop_id}"
-                    for shop_id in shop_ids
-                ],
-            )
+            today_start = datetime.combine(company_local_date, datetime.min.time())
+            today_end = today_start + timedelta(days=1)
             existing_visits = (
                 await db.execute(
                     select(Visit).filter(
@@ -1590,53 +1467,39 @@ async def dispatch_route(
                         Visit.shop_id.in_(shop_ids),
                         or_(
                             Visit.status == "Pending",
-                            Visit.operational_date == company_local_date,
+                            and_(
+                                Visit.visit_timestamp >= today_start,
+                                Visit.visit_timestamp < today_end,
+                            ),
                         ),
-                    ).order_by(Visit.shop_id.asc(), Visit.id.asc())
+                    )
                 )
             ).scalars().all()
-            existing_by_shop = {}
-            seen_today = set()
-            for visit in existing_visits:
-                if visit.operational_date == company_local_date:
-                    seen_today.add(int(visit.shop_id))
-                if visit.status == "Pending":
-                    shop_id = int(visit.shop_id)
-                    if shop_id in existing_by_shop:
-                        raise HTTPException(
-                            status_code=409,
-                            detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل إطلاق خط السير.",
-                        )
-                    visit.operational_date = company_local_date
-                    visit.work_session_id = None
-                    existing_by_shop[shop_id] = visit
+            existing_by_shop = {visit.shop_id: visit for visit in existing_visits}
 
             shortage_shop_ids = set((
                 await db.execute(
                     select(ShortageRequest.shop_id).filter(
                         ShortageRequest.company_id == company_id,
                         ShortageRequest.shop_id.in_(shop_ids),
-                        ShortageRequest.driver_id == payload.driver_id,
                         ShortageRequest.status == "pending",
                     )
                 )
             ).scalars().all())
 
             for shop in shops_in_zone:
-                shop_id = int(shop.id)
-                is_emergency = shop_id in shortage_shop_ids
-                existing = existing_by_shop.get(shop_id)
-                if existing is None and shop_id not in seen_today:
+                is_emergency = shop.id in shortage_shop_ids
+                existing = existing_by_shop.get(shop.id)
+                if existing is None:
                     db.add(Visit(
                         company_id=company_id,
                         driver_id=payload.driver_id,
-                        shop_id=shop_id,
-                        operational_date=company_local_date,
+                        shop_id=shop.id,
                         status="Pending",
                         sequence=shop.sequence,
                         is_emergency=is_emergency,
                     ))
-                elif existing is not None and is_emergency:
+                elif is_emergency:
                     existing.is_emergency = True
 
         await db.commit()
@@ -1946,13 +1809,6 @@ async def _dispatch_apply_pack_deltas(
     if route.vehicle_id is None or route.source_location_id is None:
         raise HTTPException(status_code=409, detail="المسار لا يملك سيارة ومستودع مصدر صالحين.")
 
-    await _dispatch_assert_vehicle_custody_reconciled(
-        db,
-        company_id=company_id,
-        vehicle_id=int(route.vehicle_id),
-        allowed_work_session_id=(int(session.id) if session is not None else None),
-    )
-
     warehouse = await _dispatch_source_warehouse(
         db, company_id=company_id, location_id=int(route.source_location_id)
     )
@@ -2253,38 +2109,7 @@ async def adjust_route_inventory(
     current_admin: Driver = Depends(get_current_admin),
 ):
     company_id = current_admin.company_id
-    canonical_deltas = sorted(
-        (
-            {
-                "product_id": int(item.product_id),
-                "delta_cartons": int(item.delta_cartons),
-            }
-            for item in payload.deltas
-        ),
-        key=lambda item: item["product_id"],
-    )
-    request_hash = hashlib.sha256(
-        json.dumps(
-            {"route_id": int(route_id), "deltas": canonical_deltas},
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
-
     try:
-        idempotency_record, replay_response = await begin_idempotent_operation(
-            db,
-            company_id=company_id,
-            actor_id=current_admin.id,
-            operation="DISPATCH_ADJUST_ROUTE_INVENTORY",
-            request_id=str(payload.request_id),
-            request_hash=request_hash,
-        )
-        if replay_response is not None:
-            await db.rollback()
-            return replay_response
-
         route = (
             await db.execute(
                 select(DispatchRoute)
@@ -2335,18 +2160,12 @@ async def adjust_route_inventory(
         for pid, cartons in carton_deltas.items():
             ppc = int(variants[pid].packs_per_carton or 0)
             if ppc <= 0:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"إعداد التعبئة غير صالح للصنف ({variants[pid].variant_name}).",
-                )
+                raise HTTPException(status_code=409, detail=f"إعداد التعبئة غير صالح للصنف ({variants[pid].variant_name}).")
             delta = cartons * ppc
             projected = current.get(pid, (0, 0))[0] + pending.get(pid, 0)
             target = projected + delta
             if abs(delta) > _DB_INT_MAX_DISPATCH or not (0 <= target <= _DB_INT_MAX_DISPATCH):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"الحمولة الناتجة للصنف ({variants[pid].variant_name}) خارج النطاق.",
-                )
+                raise HTTPException(status_code=400, detail=f"الحمولة الناتجة للصنف ({variants[pid].variant_name}) خارج النطاق.")
             deltas[pid], plan_targets[pid] = delta, target
 
         mode = await _dispatch_apply_pack_deltas(
@@ -2364,24 +2183,20 @@ async def adjust_route_inventory(
                 else "DIRECT_INVENTORY_ADJUSTMENT"
             ),
         )
-
-        response_payload = {
-            "message": (
-                "تم إرسال الحوالة للمندوب؛ الرصيد الفيزيائي لن يتغير قبل القبول."
-                if mode == "HANDSHAKE"
-                else "تم تحديث حمولة السيارة عبر محرك المخزون الموحد."
-            )
-        }
-        complete_idempotent_operation(idempotency_record, response_payload)
         await db.commit()
-
         asyncio.create_task(
             dispatch_manager.broadcast(
                 {"event": "INVENTORY_ADJUSTED", "message": "تم تعديل حمولة السيارة"},
                 company_id=company_id,
             )
         )
-        return response_payload
+        return {
+            "message": (
+                "تم إرسال الحوالة للمندوب؛ الرصيد الفيزيائي لن يتغير قبل القبول."
+                if mode == "HANDSHAKE"
+                else "تم تحديث حمولة السيارة عبر محرك المخزون الموحد."
+            )
+        }
 
     except HTTPException:
         await db.rollback()
@@ -2401,121 +2216,6 @@ async def adjust_route_inventory(
 # =========================================
 # 10. مراقبة حوالات HANDSHAKE للمسؤول
 # =========================================
-@router.post("/dispatch/transfers/{transfer_id}/force_cancel", status_code=200)
-async def force_cancel_handshake(
-    transfer_id: int,
-    payload: ForceCancelHandshakeRequest,
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
-):
-    company_id = current_admin.company_id
-    request_hash = hashlib.sha256(
-        json.dumps(
-            {"transfer_id": int(transfer_id), "reason": payload.reason.strip()},
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
-    try:
-        idem, replay = await begin_idempotent_operation(
-            db,
-            company_id=company_id,
-            actor_id=current_admin.id,
-            operation="DISPATCH_FORCE_CANCEL_HANDSHAKE",
-            request_id=str(payload.request_id),
-            request_hash=request_hash,
-        )
-        if replay is not None:
-            await db.rollback()
-            return replay
-
-        header = (await db.execute(
-            select(InventoryTransferHeader).filter(
-                InventoryTransferHeader.company_id == company_id,
-                InventoryTransferHeader.id == transfer_id,
-                InventoryTransferHeader.workflow_type == "HANDSHAKE",
-            ).order_by(InventoryTransferHeader.id.asc()).with_for_update()
-        )).scalar_one_or_none()
-        if header is None:
-            raise HTTPException(status_code=404, detail="المصافحة غير موجودة داخل الشركة.")
-        if header.status != "PENDING":
-            raise HTTPException(status_code=409, detail=f"لا يمكن إلغاء حوالة بحالة {header.status}.")
-
-        lines = (await db.execute(
-            select(InventoryTransferLine).filter(
-                InventoryTransferLine.company_id == company_id,
-                InventoryTransferLine.transfer_header_id == header.id,
-            ).order_by(InventoryTransferLine.id.asc()).with_for_update()
-        )).scalars().all()
-        if not lines:
-            raise HTTPException(status_code=409, detail="المصافحة لا تحتوي أسطر مخزون؛ البيانات غير متسقة.")
-
-        specs = [{
-            "product_variant_id": int(line.product_variant_id),
-            "batch_id": int(line.batch_id),
-            "quantity": int(line.quantity),
-            "movement_kind": "RESERVATION",
-            "reservation_action": "RELEASE",
-            "reference_type": "HANDSHAKE_RELEASE",
-            "reference_id": str(header.reference_number),
-            "idempotency_key": f"HS-REL-{header.id}-{line.id}",
-            "source_location_id": int(header.source_location_id),
-            "destination_location_id": int(header.source_location_id),
-            "source_stock_status": "AVAILABLE",
-            "destination_stock_status": "AVAILABLE",
-            "work_session_id": int(header.work_session_id),
-            "transfer_header_id": int(header.id),
-            "notes": "تحرير حجز المصافحة بعد Force Cancel من المشرف؛ لا توجد حركة PHYSICAL.",
-        } for line in lines]
-        await apply_inventory_movements_batch(
-            db,
-            company_id=company_id,
-            performed_by=current_admin.id,
-            movements=specs,
-        )
-
-        now = get_utc_now()
-        header.status = "CANCELLED"
-        header.cancelled_by = current_admin.id
-        header.cancelled_at = now
-        header.updated_at = now
-        header.decision_reason = payload.reason.strip()
-        db.add(SystemAuditLog(
-            company_id=company_id,
-            admin_id=current_admin.id,
-            target_id=f"Transfer_{header.id}",
-            action_type="HANDSHAKE_FORCE_CANCELLED",
-            old_value="PENDING",
-            new_value=payload.reason.strip(),
-        ))
-        response = {
-            "message": "تم إلغاء المصافحة وتحرير الحجز بدون أي حركة مخزون فيزيائية.",
-            "transfer_id": int(header.id),
-            "status": "CANCELLED",
-        }
-        complete_idempotent_operation(idem, response)
-        await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast(
-            {"event": "HANDSHAKE_CANCELLED", "message": "تم إلغاء حوالة معلقة من الإدارة"},
-            company_id=company_id,
-        ))
-        return response
-    except HTTPException:
-        await db.rollback(); raise
-    except InventoryMutationError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except IntegrityError as exc:
-        await db.rollback()
-        logger.error(f"Force cancel handshake conflict: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=409, detail="تعارض متزامن أثناء إلغاء المصافحة.") from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.error(f"Force cancel handshake failed: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي أثناء إلغاء المصافحة.") from exc
-
-
 @router.get("/dispatch/route/{route_id}/transfers", response_model=List[RouteTransferResponse], status_code=200)
 async def get_route_transfers(
     route_id: int,
@@ -2536,12 +2236,11 @@ async def get_route_transfers(
     if route.work_session_id is None:
         return []
 
-    vehicle_location_ids = set(
-        await _dispatch_vehicle_location_ids(
-            db,
-            company_id=company_id,
-            vehicle_id=route.vehicle_id,
-        )
+    vehicle_location_id = await _dispatch_vehicle_location_id(
+        db,
+        company_id=company_id,
+        vehicle_id=route.vehicle_id,
+        require_active=False,
     )
 
     headers = (
@@ -2616,22 +2315,17 @@ async def get_route_transfers(
             )
         _, quantity, variant_name, ppc = products[0]
         if quantity <= 0 or ppc <= 0:
-            raise HTTPException(
-                status_code=409,
-                detail=f"الحوالة ({header.id}) تحمل بيانات كمية غير صالحة.",
-            )
+            raise HTTPException(status_code=409, detail=f"الحوالة ({header.id}) تحمل بيانات كمية غير صالحة.")
 
-        source_is_vehicle = int(header.source_location_id) in vehicle_location_ids
-        destination_is_vehicle = int(header.destination_location_id) in vehicle_location_ids
-        if source_is_vehicle == destination_is_vehicle:
+        if int(header.destination_location_id) == vehicle_location_id:
+            signed_quantity = quantity
+        elif int(header.source_location_id) == vehicle_location_id:
+            signed_quantity = -quantity
+        else:
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    f"الحوالة ({header.id}) لا ترتبط بطرف VEHICLE تاريخي واحد فقط "
-                    "لهذه السيارة."
-                ),
+                detail=f"الحوالة ({header.id}) لا ترتبط بسيارة هذا المسار.",
             )
-        signed_quantity = quantity if destination_is_vehicle else -quantity
 
         sign = -1 if signed_quantity < 0 else 1
         absolute = abs(signed_quantity)
@@ -2690,131 +2384,6 @@ async def get_dispatch_shops(
     return result
 
 
-# PATCH: DISPATCH_CONCURRENCY_EMERGENCY_INTEGRITY
-# ترتيب الأقفال في Dispatch mutations:
-# driver(s) -> vehicle(s) -> zone(s) -> shop advisory -> shop/visit rows.
-# Route مربوط بجلسة: WorkSession -> driver/vehicle -> zone -> DispatchRoute.
-async def _dispatch_advisory_locks(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    keys,
-) -> None:
-    normalized = sorted({str(key).strip() for key in keys if str(key).strip()})
-    if not normalized:
-        return
-    await db.execute(
-        text(
-            """
-            SELECT pg_advisory_xact_lock(
-                CAST(:company_id AS integer),
-                hashtext(lock_key)
-            )
-            FROM unnest(CAST(:keys AS text[])) AS t(lock_key)
-            ORDER BY lock_key
-            """
-        ),
-        {"company_id": int(company_id), "keys": normalized},
-    )
-
-
-async def _dispatch_lock_zone_rows(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    zone_ids,
-):
-    ids = sorted({int(zone_id) for zone_id in zone_ids if zone_id is not None})
-    if not ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(Zone)
-            .filter(
-                Zone.company_id == company_id,
-                Zone.id.in_(ids),
-            )
-            .order_by(Zone.id.asc())
-            .with_for_update()
-        )
-    ).scalars().all()
-    result = {int(zone.id): zone for zone in rows}
-    if set(result) != set(ids):
-        raise HTTPException(
-            status_code=404,
-            detail="إحدى المناطق غير موجودة أو لا تتبع شركتك.",
-        )
-    return result
-
-
-async def _dispatch_lock_shop_rows(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    shop_ids,
-):
-    ids = sorted({int(shop_id) for shop_id in shop_ids})
-    if not ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(Shop)
-            .filter(
-                Shop.company_id == company_id,
-                Shop.id.in_(ids),
-            )
-            .order_by(Shop.id.asc())
-            .with_for_update()
-        )
-    ).scalars().all()
-    result = {int(shop.id): shop for shop in rows}
-    if set(result) != set(ids):
-        raise HTTPException(
-            status_code=404,
-            detail="أحد المحلات غير موجود أو لا يتبع شركتك.",
-        )
-    return result
-
-async def _dispatch_blocking_shop_zone_move_ids(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    shop_ids,
-):
-    ids = sorted({int(shop_id) for shop_id in shop_ids})
-    if not ids:
-        return set()
-    rows = (
-        await db.execute(
-            select(Visit.shop_id)
-            .join(
-                Shop,
-                and_(Shop.company_id == Visit.company_id, Shop.id == Visit.shop_id),
-            )
-            .join(
-                DispatchRoute,
-                and_(
-                    DispatchRoute.company_id == Visit.company_id,
-                    DispatchRoute.driver_id == Visit.driver_id,
-                    DispatchRoute.zone_id == Shop.zone_id,
-                    DispatchRoute.status == "active",
-                    or_(
-                        Visit.work_session_id.is_(None),
-                        DispatchRoute.work_session_id == Visit.work_session_id,
-                    ),
-                ),
-            )
-            .filter(
-                Visit.company_id == company_id,
-                Visit.shop_id.in_(ids),
-                Visit.status == "Pending",
-            )
-            .distinct()
-        )
-    ).scalars().all()
-    return {int(shop_id) for shop_id in rows}
-
-
 # =========================================
 # 12. التحديث الجماعي للمحلات (نقل، ترتيب، أرشفة، استعادة)
 # =========================================
@@ -2824,156 +2393,105 @@ async def bulk_update_shops(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
-    shop_ids = [int(item.id) for item in payload if item.id]
-    if not shop_ids:
-        return {"message": "لا توجد بيانات للتحديث"}
-    if len(shop_ids) != len(set(shop_ids)):
-        raise HTTPException(status_code=400, detail="لا يجوز تكرار نفس المحل في طلب التحديث الجماعي.")
-
+    
+        
     try:
-        # Pre-read فقط لاكتشاف ترتيب أقفال المناطق؛ بعد الأقفال نعيد جلب المحلات FOR UPDATE.
-        pre_rows = (
-            await db.execute(
-                select(Shop.id, Shop.zone_id)
-                .filter(
-                    Shop.company_id == company_id,
-                    Shop.id.in_(sorted(shop_ids)),
-                )
-                .order_by(Shop.id.asc())
+        # 1. تنظيف الـ IDs من حرف s القادم من React (مطابق للفلاسك)
+        shop_ids = [str(item.id).replace('s', '') for item in payload if item.id]
+        if not shop_ids:
+            return {"message": "لا توجد بيانات للتحديث"}
+
+        # 2. جلب المحلات من الداتابيز دفعة واحدة O(1)
+        stmt_shops = select(Shop).filter(
+            Shop.company_id == current_admin.company_id,
+            Shop.id.in_([int(i) for i in shop_ids if i.isdigit()])
+        )
+        bulk_shops = {str(sh.id): sh for sh in (await db.execute(stmt_shops)).scalars().all()}
+        
+        # 3. جلب المناطق للتحقق من سلامة استعادة المحلات المؤرشفة (Restore Shield)
+        zone_ids_to_check = set()
+        for s in payload:
+            clean_id = str(s.id).replace('s', '')
+
+            if s.zoneId is not None and str(s.zoneId).isdigit():
+                zone_ids_to_check.add(int(s.zoneId))
+            elif s.archived is False and clean_id in bulk_shops:
+                z_id = bulk_shops[clean_id].zone_id
+                if z_id:
+                    zone_ids_to_check.add(int(z_id))
+                    
+        bulk_zones = {}
+        if zone_ids_to_check:
+            stmt_zones = select(Zone).filter(
+                Zone.company_id == current_admin.company_id,
+                Zone.id.in_(list(zone_ids_to_check))
             )
-        ).all()
-        pre_zone_by_shop = {int(shop_id): zone_id for shop_id, zone_id in pre_rows}
-        if set(pre_zone_by_shop) != set(shop_ids):
-            raise HTTPException(
-                status_code=404,
-                detail="أحد المحلات غير موجود أو لا يتبع شركتك.",
-            )
-
-        zone_ids_to_lock = {
-            int(zone_id)
-            for zone_id in pre_zone_by_shop.values()
-            if zone_id is not None
-        }
-        for item in payload:
-            if item.zoneId is not None:
-                zone_ids_to_lock.add(int(item.zoneId))
-
-        locked_zones = await _dispatch_lock_zone_rows(
-            db,
-            company_id=company_id,
-            zone_ids=zone_ids_to_lock,
-        )
-
-        # كل عمليات Mutation لنفس المحل تتسلسل على نفس Advisory key.
-        await _dispatch_advisory_locks(
-            db,
-            company_id=company_id,
-            keys=[f"dispatch-shop:{shop_id}" for shop_id in sorted(shop_ids)],
-        )
-        bulk_shops = await _dispatch_lock_shop_rows(
-            db,
-            company_id=company_id,
-            shop_ids=shop_ids,
-        )
-
-        # لو تغيرت منطقة محل بين الـpre-read وامتلاك الأقفال نرفض بدلاً من قفل منطقة جديدة بترتيب عكسي.
-        for shop_id, shop in bulk_shops.items():
-            if shop.zone_id != pre_zone_by_shop[shop_id]:
-                raise HTTPException(
-                    status_code=409,
-                    detail="تغيرت منطقة أحد المحلات بالتزامن. حدّث الشاشة وأعد المحاولة.",
-                )
-
-        moving_shop_ids = [
-            int(item.id)
-            for item in payload
-            if item.zoneId is not None
-            and int(item.zoneId) != int(bulk_shops[int(item.id)].zone_id or 0)
-        ]
-        blocked_moves = await _dispatch_blocking_shop_zone_move_ids(
-            db, company_id=company_id, shop_ids=moving_shop_ids
-        )
-        if blocked_moves:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "مرفوض: لا يمكن نقل محل إلى منطقة أخرى بينما لديه زيارة Pending "
-                    "ضمن خط سير Active. أغلق/أنهِ الزيارة أولاً."
-                ),
-            )
+            bulk_zones = {z.id: z for z in (await db.execute(stmt_zones)).scalars().all()}
 
         archived_shop_ids = []
-        for item in payload:
-            shop = bulk_shops[int(item.id)]
+        
+        # 4. التحديث الجراحي بالذاكرة
+        for s_data in payload:
+            clean_id = str(s_data.id).replace('s', '')
+            shop = bulk_shops.get(clean_id)
+            
+            if shop:
+                # حماية الاستعادة (منع استعادة محل لمنطقة ميتة)
+                if s_data.archived is False:
+                    raw_zone = s_data.zoneId if s_data.zoneId is not None else str(shop.zone_id)
+                    z_id = int(raw_zone) if (raw_zone and raw_zone.isdigit()) else None
+                    zone_exists = bulk_zones.get(z_id)
+                    
+                    if not zone_exists or not getattr(zone_exists, 'is_active', True):
+                        await db.rollback()
+                        raise HTTPException(status_code=400, detail=f"لا يمكن استعادة المحل '{shop.name}' لأن منطقته مؤرشفة. يرجى نقله لمنطقة نشطة أولاً.")
 
-            target_zone_id = int(item.zoneId) if item.zoneId is not None else shop.zone_id
-            if item.zoneId is not None:
-                target_zone = locked_zones.get(target_zone_id)
-                if target_zone is None or not target_zone.is_active:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="لا يمكن نقل المحل إلى منطقة غير موجودة أو مؤرشفة.",
-                    )
+                # تحديث الترتيب مع حماية الفراغات (Empty Strings)
+                if s_data.sequence is not None:
+                    raw_seq = str(s_data.sequence).strip()
+                    shop.sequence = int(raw_seq) if raw_seq.isdigit() else 999
+                    
+                # تحديث حالة الأرشيف
+                if s_data.archived is not None:
+                    shop.is_archived = s_data.archived
+                    if s_data.archived is True:
+                        archived_shop_ids.append(int(shop.id))
+                        
+                # تحديث النقل الجغرافي (Zone)
+                if s_data.zoneId is not None and str(s_data.zoneId).isdigit():
+                    target_zone_id = int(s_data.zoneId)
 
-            if item.archived is False:
-                if target_zone_id is None:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"لا يمكن استعادة المحل '{shop.name}' بدون منطقة نشطة.",
-                    )
-                target_zone = locked_zones.get(int(target_zone_id))
-                if target_zone is None or not target_zone.is_active:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            f"لا يمكن استعادة المحل '{shop.name}' لأن منطقته مؤرشفة. "
-                            "يرجى نقله لمنطقة نشطة أولاً."
-                        ),
-                    )
+                    if target_zone_id not in bulk_zones:
+                        await db.rollback()
+                        raise HTTPException(
+                            status_code=400,
+                            detail="المنطقة المحددة غير موجودة أو لا تتبع شركتك."
+                        )
 
-            if item.sequence is not None:
-                shop.sequence = int(item.sequence)
-
-            if item.zoneId is not None:
-                shop.zone_id = int(item.zoneId)
-                # النقل اليدوي يقطع provenance الأرشفة التلقائية القديمة.
-                shop.archived_due_to_zone_id = None
-
-            if item.archived is not None:
-                shop.is_archived = bool(item.archived)
-                shop.archived_due_to_zone_id = None
-                if item.archived:
-                    archived_shop_ids.append(int(shop.id))
-
+                    shop.zone_id = target_zone_id
+                    
+        # 5.   إلغاء الزيارات المعلقة للمحلات التي تم أرشفتها للتو (Cascade Cancel)
         if archived_shop_ids:
-            await db.execute(
-                update(Visit)
-                .where(
-                    Visit.company_id == company_id,
-                    Visit.shop_id.in_(sorted(archived_shop_ids)),
-                    Visit.status == "Pending",
-                )
-                .values(status="Cancelled")
-            )
-
+            stmt_cancel = update(Visit).where(
+                Visit.company_id == current_admin.company_id,
+                Visit.shop_id.in_(archived_shop_ids),
+                Visit.status == 'Pending'
+            ).values(status='Cancelled')
+            await db.execute(stmt_cancel)
+            
         await db.commit()
         return {"message": "تم تحديث المحلات بنجاح"}
 
     except HTTPException:
-        await db.rollback()
         raise
-    except IntegrityError as exc:
+    except IntegrityError as e:
         await db.rollback()
-        logger.error(f"Bulk shop update integrity conflict: {str(exc)}", exc_info=True)
-        raise HTTPException(
-            status_code=409,
-            detail="تعارض متزامن أثناء تحديث المحلات. حدّث الشاشة وأعد المحاولة.",
-        ) from exc
-    except Exception as exc:
+        logger.error(f"خطأ تعارض (FK): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="فشل الحفظ: تأكد من أن المنطقة المحددة للنقل موجودة وصالحة.")
+    except Exception as e:
         await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء التحديث الجماعي.") from exc
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء التحديث الجماعي.")
 
 
 # =========================================
@@ -2985,143 +2503,154 @@ async def admin_add_shop(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
+    
+
     name = payload.name.strip()
     phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
     map_link = payload.mapLink.strip() if payload.mapLink else ""
-    zone_id = int(payload.zoneId)
-
-    # Pydantic أنهى التحقق من الإحداثيات/الأموال؛ نحافظ على القيم كما وصلت بلا تصحيح صامت.
-    lat = float(payload.latitude) if payload.latitude is not None else None
-    lng = float(payload.longitude) if payload.longitude is not None else None
-
+    zone_id = payload.zoneId
+    
+    # +++ حماية  ـ 500 Crash بمعالجة منفصلة للإحداثيات لمنع ضياع السليم منها +++
+    lat, lng = None, None
     try:
-        zones = await _dispatch_lock_zone_rows(
-            db,
-            company_id=company_id,
-            zone_ids=[zone_id],
+        # +++ سحق لغم الصفر الجغرافي: 0.0 يعتبر Falsy في بايثون، يجب فحصه كـ is not None +++
+        if payload.latitude is not None and str(payload.latitude).strip().lower() not in ['', 'none']:
+            lat = float(str(payload.latitude).strip())
+    except ValueError: pass
+    
+    try:
+        if payload.longitude is not None and str(payload.longitude).strip().lower() not in ['', 'none']:
+            lng = float(str(payload.longitude).strip())
+    except ValueError: pass
+
+    if not name: 
+        raise HTTPException(status_code=400, detail="مرفوض: اسم المحل إجباري")
+    if not zone_id: 
+        raise HTTPException(status_code=400, detail="مرفوض: المنطقة إجبارية لإنشاء المحل")
+
+    stmt_zone = select(Zone.id).filter_by(
+        id=zone_id,
+        company_id=current_admin.company_id,
+        is_active=True
+    )
+    zone_exists = (await db.execute(stmt_zone)).scalar_one_or_none()
+
+    if zone_exists is None:
+        raise HTTPException(
+            status_code=400,
+            detail="المنطقة المحددة غير موجودة أو لا تتبع شركتك."
         )
-        if not zones[zone_id].is_active:
-            raise HTTPException(
-                status_code=400,
-                detail="المنطقة المحددة مؤرشفة ولا يمكن إضافة محل جديد إليها.",
-            )
+    
+    # ========================================================
+    # 1. الفحص الذكي المركب (Duplicate Detection Shield) - مطابق للفلاسك 100%
+    # ========================================================
+    duplicate_shop = None
 
-        if phone:
-            await _dispatch_advisory_locks(
-                db,
-                company_id=company_id,
-                keys=[f"shop-phone:{phone}"],
-            )
+    # الفحص الأول: رقم الهاتف
+    if phone:
+        stmt = select(Shop).options(joinedload(Shop.zone)).filter(
+            Shop.company_id == current_admin.company_id,
+            Shop.phone_number == phone
+        )
+        duplicate_shop = (await db.execute(stmt)).scalars().first()
 
-        duplicate_shop = None
+    # الفحص الثاني: التطابق بالاسم ورابط الموقع
+    if not duplicate_shop and name and map_link:
+        stmt = select(Shop).options(joinedload(Shop.zone)).filter(
+            Shop.company_id == current_admin.company_id,
+            Shop.name == name,
+            Shop.location_link == map_link
+        )
+        duplicate_shop = (await db.execute(stmt)).scalars().first()
 
-        if phone:
-            duplicate_shop = (
-                await db.execute(
-                    select(Shop)
-                    .options(joinedload(Shop.zone))
-                    .filter(
-                        Shop.company_id == company_id,
-                        Shop.phone_number == phone,
-                    )
-                    .order_by(Shop.id.asc())
-                )
-            ).scalars().first()
+    # الفحص الثالث: الرادار الجغرافي (الإحداثيات)
+    if not duplicate_shop and lat is not None and lng is not None:
+        stmt = select(Shop).options(joinedload(Shop.zone)).filter(
+            Shop.company_id == current_admin.company_id,
+            Shop.name == name,
+            Shop.latitude.isnot(None), 
+            Shop.longitude.isnot(None),
+            # +++ رياضيات الـ GPS الآمنة في SQLAlchemy +++
+            func.abs(cast(Shop.latitude, Float) - lat) < 0.0001,
+            func.abs(cast(Shop.longitude, Float) - lng) < 0.0001
+        )
+        duplicate_shop = (await db.execute(stmt)).scalars().first()
 
-        if duplicate_shop is None and name and map_link:
-            duplicate_shop = (
-                await db.execute(
-                    select(Shop)
-                    .options(joinedload(Shop.zone))
-                    .filter(
-                        Shop.company_id == company_id,
-                        Shop.name == name,
-                        Shop.location_link == map_link,
-                    )
-                    .order_by(Shop.id.asc())
-                )
-            ).scalars().first()
-
-        if duplicate_shop is None and lat is not None and lng is not None:
-            duplicate_shop = (
-                await db.execute(
-                    select(Shop)
-                    .options(joinedload(Shop.zone))
-                    .filter(
-                        Shop.company_id == company_id,
-                        Shop.name == name,
-                        Shop.latitude.isnot(None),
-                        Shop.longitude.isnot(None),
-                        func.abs(cast(Shop.latitude, Float) - lat) < 0.0001,
-                        func.abs(cast(Shop.longitude, Float) - lng) < 0.0001,
-                    )
-                    .order_by(Shop.id.asc())
-                )
-            ).scalars().first()
-
-        if duplicate_shop and not payload.force_save:
-            zone_name = duplicate_shop.zone.name if duplicate_shop.zone else "بدون منطقة"
-            is_arch_msg = " (مؤرشف)" if duplicate_shop.is_archived else ""
-            duplicate_payload = {
-                "message": "تنبيه: يوجد محل مسجل مسبقاً بمعلومات مطابقة.",
-                "is_duplicate": True,
-                "existing_shop": {
-                    "id": str(duplicate_shop.id),
-                    "name": duplicate_shop.name,
-                    "owner": duplicate_shop.contact_person or "غير مسجل",
-                    "phone": duplicate_shop.phone_number,
-                    "mapLink": duplicate_shop.location_link,
-                    "zone_name": zone_name + is_arch_msg,
-                },
+    # في حال اكتشاف تكرار ولم يتم طلب الحفظ الإجباري
+    if duplicate_shop and not payload.force_save:
+        zone_name = duplicate_shop.zone.name if duplicate_shop.zone else "بدون منطقة"
+        is_arch_msg = " (مؤرشف)" if getattr(duplicate_shop, 'is_archived', False) else ""
+        
+        # نرجع 409 مع بيانات المحل المكرر ليتمكن الفرونت إند من عرضها للمشرف
+        return JSONResponse(status_code=409, content={
+            "message": "تنبيه: يوجد محل مسجل مسبقاً بمعلومات مطابقة.",
+            "is_duplicate": True,
+            "existing_shop": {
+                "id": str(duplicate_shop.id),
+                "name": duplicate_shop.name,
+                "owner": duplicate_shop.contact_person or "غير مسجل",
+                "phone": duplicate_shop.phone_number,
+                "mapLink": duplicate_shop.location_link,
+                "zone_name": zone_name + is_arch_msg
             }
-            await db.rollback()
-            return JSONResponse(status_code=409, content=duplicate_payload)
+        })
 
-        # force_save لا يستطيع تجاوز قيد الهاتف الصلب داخل Tenant.
-        if duplicate_shop and phone and duplicate_shop.phone_number == phone:
-            raise HTTPException(
-                status_code=409,
-                detail="رقم الهاتف مستخدم لمحل آخر داخل الشركة ولا يمكن تجاوزه بالحفظ الإجباري.",
-            )
+    # ========================================================
+    # 2. التطهير المحاسبي ونسف الفراغات للحفظ النهائي
+    # ========================================================
+    try:
+        try:
+            raw_initial_debt = str(payload.initialDebt).strip()
+            safe_initial_debt = Decimal(raw_initial_debt) if raw_initial_debt not in ['', 'None'] else Decimal('0.0')
+        except Exception:
+            safe_initial_debt = Decimal('0.0')
+            
+        try:
+            raw_max_limit = str(payload.maxDebtLimit).strip()
+            safe_max_limit = Decimal(raw_max_limit) if raw_max_limit not in ['', 'None'] else Decimal('0.0')
+        except Exception:
+            safe_max_limit = Decimal('0.0')
+            
+        # تنظيف الترتيب (Sequence)
+        raw_seq = str(payload.sequence).strip()
+        safe_sequence = int(raw_seq) if raw_seq.isdigit() else 999
 
         new_shop = Shop(
-            company_id=company_id,
+            company_id=current_admin.company_id,
             name=name,
             contact_person=payload.owner.strip() if payload.owner else "",
             phone_number=phone,
             location_link=map_link,
-            latitude=payload.latitude,
-            longitude=payload.longitude,
+            latitude=lat,
+            longitude=lng,
             zone_id=zone_id,
             is_active=True,
             is_archived=False,
-            current_balance=payload.initialDebt,
-            max_debt_limit=payload.maxDebtLimit,
+            # حماية الداتابيز من الأرصدة والسقوف السالبة
+            current_balance=max(Decimal('0.0'), safe_initial_debt),
+            max_debt_limit=max(Decimal('0.0'), safe_max_limit),
             added_by_driver_id=current_admin.id,
-            sequence=int(payload.sequence),
+            sequence=safe_sequence
         )
         db.add(new_shop)
-        await db.flush()
-        shop_id = int(new_shop.id)
-
+        # +++ الدرع الفولاذي (O(1)): سحب الـ ID قبل الـ Commit لمنع MissingGreenlet بدون استعلام إضافي +++
+        await db.flush() 
+        shop_id = new_shop.id 
+        
         await db.commit()
         return {"message": "تم إضافة المحل بنجاح", "shop_id": str(shop_id)}
-
-    except HTTPException:
+        
+    except IntegrityError as e:
         await db.rollback()
-        raise
-    except IntegrityError as exc:
-        await db.rollback()
-        logger.error(f"Admin add shop integrity conflict: {str(exc)}", exc_info=True)
+        logger.error(f"Admin add shop integrity conflict: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=409,
-            detail="تعذر إضافة المحل بسبب تعارض بيانات فريدة داخل الشركة.",
-        ) from exc
-    except Exception as exc:
+            detail="تعذر إضافة المحل بسبب تعارض بيانات فريدة (مثل رقم هاتف مستخدم داخل الشركة).",
+        ) from e
+    except Exception as e:
         await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء إضافة المحل.") from exc
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء إضافة المحل.")
 
 
 # =========================================
@@ -3249,300 +2778,82 @@ async def update_route_status(
     operational_statuses = {"active", "waiting", "postponed"}
 
     try:
-        # Pre-read فقط لاكتشاف ترتيب الأقفال. لا نبني أي قرار نهائي قبل امتلاك الأقفال.
-        snapshot = (
+        route = (
             await db.execute(
-                select(
-                    DispatchRoute.driver_id,
-                    DispatchRoute.vehicle_id,
-                    DispatchRoute.zone_id,
-                    DispatchRoute.work_session_id,
-                    DispatchRoute.status,
-                ).filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.id == route_id,
-                )
+                select(DispatchRoute)
+                .filter_by(company_id=company_id, id=route_id)
+                .order_by(DispatchRoute.id.asc())
+                .with_for_update()
             )
-        ).first()
-        if snapshot is None:
+        ).scalar_one_or_none()
+        if route is None:
             raise HTTPException(status_code=404, detail="خط السير غير موجود.")
-
-        snap_driver_id = int(snapshot.driver_id) if snapshot.driver_id is not None else None
-        snap_vehicle_id = int(snapshot.vehicle_id) if snapshot.vehicle_id is not None else None
-        snap_zone_id = int(snapshot.zone_id)
-        snap_session_id = (
-            int(snapshot.work_session_id)
-            if snapshot.work_session_id is not None
-            else None
-        )
-        snap_status = str(snapshot.status)
-
-        requested_driver_id = (
-            int(payload.driverId) if payload.driverId is not None else snap_driver_id
-        )
-        requested_vehicle_id = (
-            int(payload.vehicleId) if payload.vehicleId is not None else snap_vehicle_id
-        )
-
-        bound_session = None
-        active_session = None
-
-        if snap_session_id is not None:
-            # Route تاريخي/مربوط: نفس ترتيب undo/reconciliation يبدأ بـWorkSession.
-            bound_session = (
-                await db.execute(
-                    select(WorkSession)
-                    .filter_by(
-                        company_id=company_id,
-                        id=snap_session_id,
-                        driver_id=snap_driver_id,
-                    )
-                    .order_by(WorkSession.id.asc())
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
-            if bound_session is None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="خط السير مرتبط بجلسة عمل غير صالحة.",
-                )
-
-            driver = None
-            if snap_driver_id is not None:
-                driver = (
-                    await db.execute(
-                        select(Driver)
-                        .filter_by(
-                            company_id=company_id,
-                            id=snap_driver_id,
-                        )
-                        .order_by(Driver.id.asc())
-                        .with_for_update()
-                    )
-                ).scalar_one_or_none()
-                if driver is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="المندوب المرتبط بالمسار غير موجود داخل الشركة.",
-                    )
-
-            vehicle = None
-            if snap_vehicle_id is not None:
-                vehicle = (
-                    await db.execute(
-                        select(Vehicle)
-                        .filter_by(
-                            company_id=company_id,
-                            id=snap_vehicle_id,
-                        )
-                        .order_by(Vehicle.id.asc())
-                        .with_for_update()
-                    )
-                ).scalar_one_or_none()
-                if vehicle is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="السيارة المرتبطة بالمسار غير موجودة داخل الشركة.",
-                    )
-
-            locked_zones = await _dispatch_lock_zone_rows(
-                db,
-                company_id=company_id,
-                zone_ids=[snap_zone_id],
-            )
-            zone = locked_zones[snap_zone_id]
-
-            route = (
-                await db.execute(
-                    select(DispatchRoute)
-                    .filter_by(company_id=company_id, id=route_id)
-                    .order_by(DispatchRoute.id.asc())
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
-            if route is None:
-                raise HTTPException(status_code=404, detail="خط السير غير موجود.")
-
-            locked_state = (
-                route.driver_id,
-                route.vehicle_id,
-                route.zone_id,
-                route.work_session_id,
-                route.status,
-            )
-            snapshot_state = (
-                snap_driver_id,
-                snap_vehicle_id,
-                snap_zone_id,
-                snap_session_id,
-                snap_status,
-            )
-            if locked_state != snapshot_state:
-                raise HTTPException(
-                    status_code=409,
-                    detail="تغير خط السير بالتزامن. حدّث الشاشة وأعد المحاولة.",
-                )
-
-            target_status = payload.status if payload.status is not None else route.status
-            target_driver_id = (
-                int(payload.driverId) if payload.driverId is not None else route.driver_id
-            )
-            target_vehicle_id = (
-                int(payload.vehicleId) if payload.vehicleId is not None else route.vehicle_id
-            )
-            driver_changed = target_driver_id != route.driver_id
-            vehicle_changed = target_vehicle_id != route.vehicle_id
-
-            # بعد ربط WorkSession تصبح هوية العهدة تاريخية وغير قابلة لإعادة الكتابة.
-            if driver_changed or vehicle_changed:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "مرفوض: لا يمكن تبديل المندوب أو السيارة بعد بدء WorkSession. "
-                        "أنه الجلسة والتسوية المخزنية ثم أنشئ خط سير جديد للحالة البديلة."
-                    ),
-                )
-
-            requires_live_assets = (
-                target_status == "active"
-                or payload.inventory is not None
-            )
-            if requires_live_assets:
-                if driver is None or not driver.is_active or driver.is_admin:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="لا يمكن تشغيل/تعديل حمولة المسار لأن المندوب غير فعال حالياً.",
-                    )
-                if vehicle is None or not vehicle.is_active:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="لا يمكن تشغيل/تعديل حمولة المسار لأن السيارة غير فعالة حالياً.",
-                    )
-                await _dispatch_vehicle_location_id(
-                    db,
-                    company_id=company_id,
-                    vehicle_id=int(vehicle.id),
-                    require_active=True,
-                )
-
-            active_session = (
-                bound_session if bound_session.end_time is None else None
-            )
-
-        else:
-            # Route غير مربوط: نفس ترتيب create/start session
-            # driver(s) -> vehicle(s) -> zone -> route.
-            driver_ids_to_lock = sorted({
-                int(driver_id)
-                for driver_id in (snap_driver_id, requested_driver_id)
-                if driver_id is not None
-            })
-            driver_map = {}
-            if driver_ids_to_lock:
-                driver_rows = (
-                    await db.execute(
-                        select(Driver)
-                        .filter(
-                            Driver.company_id == company_id,
-                            Driver.id.in_(driver_ids_to_lock),
-                        )
-                        .order_by(Driver.id.asc())
-                        .with_for_update()
-                    )
-                ).scalars().all()
-                driver_map = {int(driver.id): driver for driver in driver_rows}
-
-            if requested_driver_id is not None:
-                target_driver = driver_map.get(requested_driver_id)
-                if (
-                    target_driver is None
-                    or not target_driver.is_active
-                    or target_driver.is_admin
-                ):
-                    raise HTTPException(
-                        status_code=404,
-                        detail="المندوب المحدد غير موجود أو غير فعال أو لا يتبع الشركة.",
-                    )
-
-            vehicle_ids_to_lock = sorted({
-                int(vehicle_id)
-                for vehicle_id in (snap_vehicle_id, requested_vehicle_id)
-                if vehicle_id is not None
-            })
-            vehicle_map = {}
-            if vehicle_ids_to_lock:
-                vehicle_rows = (
-                    await db.execute(
-                        select(Vehicle)
-                        .filter(
-                            Vehicle.company_id == company_id,
-                            Vehicle.id.in_(vehicle_ids_to_lock),
-                        )
-                        .order_by(Vehicle.id.asc())
-                        .with_for_update()
-                    )
-                ).scalars().all()
-                vehicle_map = {int(vehicle.id): vehicle for vehicle in vehicle_rows}
-
-            if requested_vehicle_id is not None:
-                target_vehicle = vehicle_map.get(requested_vehicle_id)
-                if target_vehicle is None or not target_vehicle.is_active:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="السيارة المحددة غير موجودة أو غير فعالة أو لا تتبع الشركة.",
-                    )
-
-            locked_zones = await _dispatch_lock_zone_rows(
-                db,
-                company_id=company_id,
-                zone_ids=[snap_zone_id],
-            )
-            zone = locked_zones[snap_zone_id]
-
-            route = (
-                await db.execute(
-                    select(DispatchRoute)
-                    .filter_by(company_id=company_id, id=route_id)
-                    .order_by(DispatchRoute.id.asc())
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
-            if route is None:
-                raise HTTPException(status_code=404, detail="خط السير غير موجود.")
-
-            locked_state = (
-                route.driver_id,
-                route.vehicle_id,
-                route.zone_id,
-                route.work_session_id,
-                route.status,
-            )
-            snapshot_state = (
-                snap_driver_id,
-                snap_vehicle_id,
-                snap_zone_id,
-                snap_session_id,
-                snap_status,
-            )
-            if locked_state != snapshot_state:
-                raise HTTPException(
-                    status_code=409,
-                    detail="تغير خط السير بالتزامن. حدّث الشاشة وأعد المحاولة.",
-                )
-
-            target_status = payload.status if payload.status is not None else route.status
-            target_driver_id = (
-                int(payload.driverId) if payload.driverId is not None else route.driver_id
-            )
-            target_vehicle_id = (
-                int(payload.vehicleId) if payload.vehicleId is not None else route.vehicle_id
-            )
-            driver_changed = target_driver_id != route.driver_id
-            vehicle_changed = target_vehicle_id != route.vehicle_id
 
         old_status = route.status
         old_driver_id = route.driver_id
         old_vehicle_id = route.vehicle_id
+
+        target_status = payload.status if payload.status is not None else route.status
+        target_driver_id = (
+            int(payload.driverId) if payload.driverId is not None else route.driver_id
+        )
+        target_vehicle_id = (
+            int(payload.vehicleId) if payload.vehicleId is not None else route.vehicle_id
+        )
+
+        driver_changed = (
+            target_driver_id is not None
+            and target_driver_id != route.driver_id
+        )
+        vehicle_changed = (
+            target_vehicle_id is not None
+            and target_vehicle_id != route.vehicle_id
+        )
+
+        bound_session = await _dispatch_bound_session(
+            db,
+            company_id=company_id,
+            route=route,
+        )
+        active_session = (
+            bound_session
+            if bound_session is not None and bound_session.end_time is None
+            else None
+        )
+
+        # هوية Route تصبح تاريخية فور ربط WorkSession؛ لا يجوز إعادة كتابة صاحب العهدة/السيارة.
+        if bound_session is not None and (driver_changed or vehicle_changed):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "مرفوض: لا يمكن تبديل المندوب أو السيارة بعد بدء WorkSession. "
+                    "أنه الجلسة والتسوية المخزنية ثم أنشئ خط سير جديد للحالة البديلة."
+                ),
+            )
+
+        # حماية من حالة بيانات قديمة: Session نشطة للمندوب لكن Route غير مربوط بها.
+        if bound_session is None and route.driver_id is not None:
+            stray_active_session = (
+                await db.execute(
+                    select(WorkSession.id)
+                    .filter_by(
+                        company_id=company_id,
+                        driver_id=route.driver_id,
+                        end_time=None,
+                    )
+                    .order_by(WorkSession.id.desc())
+                    .limit(1)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if stray_active_session is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "المندوب يملك WorkSession نشطة غير مربوطة بهذا المسار؛ "
+                        "يجب معالجة عدم الاتساق قبل تغيير التعيين."
+                    ),
+                )
 
         if (
             bound_session is not None
@@ -3555,6 +2866,7 @@ async def update_route_status(
                 detail="لا يمكن إعادة تفعيل خط سير تاريخي لجلسة منتهية؛ أنشئ خط سير جديد.",
             )
 
+        # تعديل الحمولة أثناء Session يحتاج Route فعالاً لأن القبول نفسه يتطلب Route active.
         if (
             payload.inventory is not None
             and active_session is not None
@@ -3568,16 +2880,66 @@ async def update_route_status(
                 ),
             )
 
+        target_driver = None
+        if target_driver_id is not None:
+            target_driver = (
+                await db.execute(
+                    select(Driver)
+                    .filter_by(
+                        company_id=company_id,
+                        id=target_driver_id,
+                        is_active=True,
+                        is_admin=False,
+                    )
+                    .order_by(Driver.id.asc())
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if target_driver is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="المندوب المحدد غير موجود أو غير فعال أو لا يتبع الشركة.",
+                )
+
+        target_vehicle = None
+        if target_vehicle_id is not None:
+            target_vehicle = (
+                await db.execute(
+                    select(Vehicle)
+                    .filter_by(
+                        company_id=company_id,
+                        id=target_vehicle_id,
+                        is_active=True,
+                    )
+                    .order_by(Vehicle.id.asc())
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if target_vehicle is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="السيارة المحددة غير موجودة أو غير فعالة أو لا تتبع الشركة.",
+                )
+
+        zone = (
+            await db.execute(
+                select(Zone)
+                .filter_by(company_id=company_id, id=route.zone_id)
+                .order_by(Zone.id.asc())
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if zone is None:
+            raise HTTPException(
+                status_code=404,
+                detail="منطقة خط السير غير موجودة أو لا تتبع الشركة.",
+            )
+
         if target_status in operational_statuses:
             if target_driver_id is None or target_vehicle_id is None:
                 raise HTTPException(
                     status_code=409,
                     detail="خط السير التشغيلي يجب أن يكون مرتبطاً بمندوب وسيارة.",
-                )
-            if not zone.is_active:
-                raise HTTPException(
-                    status_code=409,
-                    detail="لا يمكن تشغيل خط سير على منطقة مؤرشفة.",
                 )
 
             conflict = (
@@ -3622,21 +2984,6 @@ async def update_route_status(
                     detail="المندوب الجديد لديه جلسة غير مسواة ولا يمكن إسناد خط سير جديد له.",
                 )
 
-        if (
-            bound_session is None
-            and target_vehicle_id is not None
-            and (
-                vehicle_changed
-                or target_status == "active"
-                or payload.inventory is not None
-            )
-        ):
-            await _dispatch_assert_vehicle_custody_reconciled(
-                db,
-                company_id=company_id,
-                vehicle_id=int(target_vehicle_id),
-            )
-
         # قبل WorkSession فقط يسمح بتغيير التعيين.
         if driver_changed:
             route.driver_id = target_driver_id
@@ -3663,17 +3010,27 @@ async def update_route_status(
                 db,
                 company_id=company_id,
                 route=route,
-                admin=current_admin,
-                session=active_session,
+                current_admin=current_admin,
+                active_session=active_session,
                 inventory=payload.inventory,
             )
 
         company_local_date = await get_company_local_date(db, company_id)
 
-        # الجدولة رقمية فقط: الموعد التالي يحسب من يوم الإغلاق المحلي الفعلي.
+        # تقدم الجدولة مرة واحدة فقط عند الانتقال الحقيقي إلى closed.
         if target_status == "closed" and old_status != "closed":
-            if zone.start_date is not None and zone.interval_days is not None:
-                zone.start_date = company_local_date + timedelta(days=int(zone.interval_days))
+            if zone.start_date and zone.schedule_frequency:
+                freq = str(zone.schedule_frequency)
+                days_to_add = 7
+                if freq == "أسبوعي":
+                    days_to_add = 7
+                elif freq == "نصف شهري":
+                    days_to_add = 14
+                else:
+                    numbers = re.findall(r"\d+", freq)
+                    if numbers:
+                        days_to_add = int(numbers[0])
+                zone.start_date = zone.start_date + timedelta(days=days_to_add)
 
         route.status = target_status
 
@@ -3698,8 +3055,6 @@ async def update_route_status(
                     Visit.company_id == company_id,
                     Visit.driver_id == old_driver_id,
                     Visit.status == "Pending",
-                    Visit.is_emergency.is_(False),
-                    Visit.operational_date == route.dispatch_date,
                     Visit.shop_id.in_(zone_shop_ids),
                     Visit.work_session_id.is_(None),
                 )
@@ -3713,13 +3068,12 @@ async def update_route_status(
                     Visit.company_id == company_id,
                     Visit.driver_id == route.driver_id,
                     Visit.status == "Pending",
-                    Visit.is_emergency.is_(False),
-                    Visit.operational_date == route.dispatch_date,
                     Visit.shop_id.in_(zone_shop_ids),
                 )
                 .values(
                     driver_id=None,
                     work_session_id=None,
+                    is_emergency=False,
                 )
             )
 
@@ -3740,24 +3094,14 @@ async def update_route_status(
 
             if shop_ids:
                 work_session_id = int(active_session.id) if active_session is not None else None
-                await _dispatch_advisory_locks(
-                    db,
-                    company_id=company_id,
-                    keys=[
-                        f"pending-visit:{route.driver_id}:{shop_id}"
-                        for shop_id in shop_ids
-                    ],
-                )
 
-                # التبني التلقائي يخص زيارات Route العادية فقط؛ زيارة الطوارئ لا تنتقل بين المندوبين ضمنياً.
+                # تبنّي الزيارات المعلقة غير المسندة عند إعادة التفعيل.
                 await db.execute(
                     update(Visit)
                     .where(
                         Visit.company_id == company_id,
                         Visit.shop_id.in_(shop_ids),
                         Visit.status == "Pending",
-                        Visit.is_emergency.is_(False),
-                        Visit.operational_date == company_local_date,
                         Visit.driver_id.is_(None),
                     )
                     .values(
@@ -3766,62 +3110,53 @@ async def update_route_status(
                     )
                 )
 
+                today_start = datetime.combine(company_local_date, datetime.min.time())
+                today_end = today_start + timedelta(days=1)
                 existing_visits = (
                     await db.execute(
-                        select(Visit).filter(
+                        select(Visit)
+                        .filter(
                             Visit.company_id == company_id,
                             Visit.driver_id == route.driver_id,
                             Visit.shop_id.in_(shop_ids),
                             or_(
                                 Visit.status == "Pending",
-                                Visit.operational_date == company_local_date,
+                                and_(
+                                    Visit.visit_timestamp >= today_start,
+                                    Visit.visit_timestamp < today_end,
+                                ),
                             ),
-                        ).order_by(Visit.shop_id.asc(), Visit.id.asc())
+                        )
                     )
                 ).scalars().all()
-                existing_pending = {}
-                seen_today = set()
-                for visit in existing_visits:
-                    if visit.operational_date == company_local_date:
-                        seen_today.add(int(visit.shop_id))
-                    if visit.status == "Pending":
-                        shop_id = int(visit.shop_id)
-                        if shop_id in existing_pending:
-                            raise HTTPException(
-                                status_code=409,
-                                detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل تفعيل المسار.",
-                            )
-                        visit.operational_date = company_local_date
-                        visit.work_session_id = work_session_id
-                        existing_pending[shop_id] = visit
+                existing_by_shop = {int(visit.shop_id): visit for visit in existing_visits}
 
                 shortage_shop_ids = set((
                     await db.execute(
                         select(ShortageRequest.shop_id).filter(
                             ShortageRequest.company_id == company_id,
                             ShortageRequest.shop_id.in_(shop_ids),
-                            ShortageRequest.driver_id == route.driver_id,
                             ShortageRequest.status == "pending",
                         )
                     )
                 ).scalars().all())
 
                 for shop in shops_in_zone:
-                    shop_id = int(shop.id)
-                    existing = existing_pending.get(shop_id)
-                    is_emergency = shop_id in shortage_shop_ids
-                    if existing is None and shop_id not in seen_today:
-                        db.add(Visit(
-                            company_id=company_id,
-                            driver_id=route.driver_id,
-                            shop_id=shop_id,
-                            operational_date=company_local_date,
-                            status="Pending",
-                            sequence=shop.sequence,
-                            is_emergency=is_emergency,
-                            work_session_id=work_session_id,
-                        ))
-                    elif existing is not None and is_emergency:
+                    existing = existing_by_shop.get(int(shop.id))
+                    is_emergency = shop.id in shortage_shop_ids
+                    if existing is None:
+                        db.add(
+                            Visit(
+                                company_id=company_id,
+                                driver_id=route.driver_id,
+                                shop_id=shop.id,
+                                status="Pending",
+                                sequence=shop.sequence,
+                                is_emergency=is_emergency,
+                                work_session_id=work_session_id,
+                            )
+                        )
+                    elif is_emergency:
                         existing.is_emergency = True
 
         changed = (
@@ -3904,25 +3239,6 @@ async def undo_end_work(
         if session.end_time is None:
             return {"message": "الجلسة مفتوحة أصلاً ولا تحتاج إلى تراجع."}
 
-        driver = (
-            await db.execute(
-                select(Driver)
-                .filter_by(
-                    company_id=company_id,
-                    id=session.driver_id,
-                    is_active=True,
-                    is_admin=False,
-                )
-                .order_by(Driver.id.asc())
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
-        if driver is None:
-            raise HTTPException(
-                status_code=409,
-                detail="لا يمكن إعادة فتح الجلسة لأن حساب المندوب غير فعال حالياً.",
-            )
-
         route = (
             await db.execute(
                 select(DispatchRoute)
@@ -3940,35 +3256,6 @@ async def undo_end_work(
                 status_code=409,
                 detail="لا يمكن إعادة فتح الجلسة لأن خط السير التاريخي/السيارة غير موجودين.",
             )
-        if route.status != "active":
-            raise HTTPException(
-                status_code=409,
-                detail="لا يمكن إعادة فتح الجلسة إلا إذا كان خط السير نفسه ما زال active.",
-            )
-
-        vehicle = (
-            await db.execute(
-                select(Vehicle)
-                .filter_by(
-                    company_id=company_id,
-                    id=route.vehicle_id,
-                    is_active=True,
-                )
-                .order_by(Vehicle.id.asc())
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
-        if vehicle is None:
-            raise HTTPException(
-                status_code=409,
-                detail="لا يمكن إعادة فتح الجلسة لأن السيارة غير فعالة حالياً.",
-            )
-        await _dispatch_vehicle_location_id(
-            db,
-            company_id=company_id,
-            vehicle_id=int(vehicle.id),
-            require_active=True,
-        )
 
         other_active = (
             await db.execute(
@@ -3984,10 +3271,7 @@ async def undo_end_work(
             )
         ).scalar_one_or_none()
         if other_active is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="المندوب لديه جلسة عمل أخرى نشطة؛ لا يمكن إعادة فتح الجلسة القديمة.",
-            )
+            raise HTTPException(status_code=409, detail="المندوب لديه جلسة عمل أخرى نشطة؛ لا يمكن إعادة فتح الجلسة القديمة.")
 
         old_end_time = session.end_time
         session.end_time = None
@@ -4009,7 +3293,7 @@ async def undo_end_work(
     except Exception as exc:
         await db.rollback()
         logger.error(f"خطأ في التراجع عن إنهاء العمل: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي أثناء التراجع عن إنهاء العمل.") from exc
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء التراجع عن إنهاء العمل.") from exc
 
 # =========================================
 # 17. إدارة المناطق (إضافة منطقة جديدة)
@@ -4020,55 +3304,57 @@ async def add_zone(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
-    name = payload.name.strip()
-    try:
-        await _dispatch_advisory_locks(db, company_id=company_id, keys=[f"zone-name:{name}"])
-        existing_zone = (
-            await db.execute(
-                select(Zone).filter_by(name=name, company_id=company_id).order_by(Zone.id.asc())
-            )
-        ).scalars().first()
-        if existing_zone is not None:
-            if not existing_zone.is_active:
-                raise HTTPException(status_code=409, detail="هذه المنطقة موجودة في الأرشيف؛ استعدها بدلاً من إنشائها.")
-            raise HTTPException(status_code=409, detail="المنطقة موجودة ونشطة مسبقاً")
+    
 
-        await db.execute(select(func.pg_advisory_xact_lock(func.hashtext("dispatch-geo-bootstrap"))))
-        gov = (await db.execute(select(Governorate).order_by(Governorate.id.asc()).limit(1))).scalars().first()
-        if gov is None:
-            country = (await db.execute(select(Country).order_by(Country.id.asc()).limit(1))).scalars().first()
-            if country is None:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="اسم المنطقة مطلوب")
+
+    # الفحص الصارم لوجود المنطقة (نشطة أو مؤرشفة)
+    # +++ B-09: قفل التزامن لمنع سباق الإشارات (TOCTOU) عند إنشاء مناطق بنفس اللحظة +++
+    stmt_existing = select(Zone).filter_by(
+    name=name,
+    company_id=current_admin.company_id
+    ).with_for_update()
+    existing_zone = (await db.execute(stmt_existing)).scalars().first()
+    
+    if existing_zone:
+        await db.rollback() # +++ إغلاق تسريب الأقفال +++
+        if not getattr(existing_zone, 'is_active', True):
+            raise HTTPException(status_code=409, detail="هذه المنطقة موجودة مسبقاً في (أرشيف المناطق). يرجى استعادتها بدلاً من إنشائها من جديد.")
+        raise HTTPException(status_code=409, detail="المنطقة موجودة ونشطة مسبقاً")
+
+    try:
+        # +++ المعالجة الذكية لحقل المحافظة الإجباري (Auto-Provisioning) O(1) +++
+        stmt_gov = select(Governorate).limit(1)
+        gov = (await db.execute(stmt_gov)).scalars().first()
+        
+        if not gov:
+            stmt_country = select(Country).limit(1)
+            country = (await db.execute(stmt_country)).scalars().first()
+            if not country:
                 country = Country(name="الأردن")
                 db.add(country)
-                await db.flush()
+                await db.flush() # +++ توليد الـ ID للبلد +++
+                
             gov = Governorate(name="العاصمة", country_id=country.id)
             db.add(gov)
-            await db.flush()
+            await db.flush() # +++ توليد الـ ID للمحافظة +++
 
-        new_zone = Zone(
-            company_id=company_id,
-            name=name,
-            governorate_id=gov.id,
-            interval_days=(int(payload.intervalDays) if payload.intervalDays is not None else None),
-            start_date=payload.startDate,
-        )
+        new_zone = Zone(company_id=current_admin.company_id, name=name, governorate_id=gov.id)
         db.add(new_zone)
-        await db.flush()
-        zone_id = int(new_zone.id)
+        await db.flush() # +++ استخراج الـ ID للمنطقة بأمان قبل الـ Commit +++
+        zone_id = new_zone.id
+        
         await db.commit()
         return {"message": "تم إضافة المنطقة بنجاح", "zone_id": str(zone_id)}
+        
     except HTTPException:
-        await db.rollback(); raise
-    except IntegrityError as exc:
+        raise
+    except Exception as e:
         await db.rollback()
-        logger.error(f"Zone create integrity conflict: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=409, detail="تعارض متزامن أثناء إنشاء المنطقة؛ يوجد سجل مطابق بالفعل.") from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء إضافة المنطقة.") from exc
-
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء إضافة المنطقة.")
 
 
 # =========================================
@@ -4080,59 +3366,58 @@ async def archive_zone(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
+    
+
+    stmt_zone = select(Zone).filter_by(
+    id=zone_id,
+    company_id=current_admin.company_id
+    )
+    zone = (await db.execute(stmt_zone)).scalar_one_or_none()
+    if not zone:
+        raise HTTPException(status_code=404, detail="المنطقة غير موجودة")
+
+    # +++ الدرع المعماري (Rug-Pull Shield): منع سحب منطقة يعمل بها مندوب بالشارع +++
+    stmt_active_routes = select(func.count(DispatchRoute.id)).filter(
+        DispatchRoute.company_id == current_admin.company_id,
+        DispatchRoute.zone_id == zone_id,
+        DispatchRoute.status.in_(['active', 'waiting', 'postponed']) # +++ إضافة postponed +++
+    )
+    active_routes_count = (await db.execute(stmt_active_routes)).scalar() or 0
+
+    if active_routes_count > 0:
+        raise HTTPException(status_code=400, detail=f"مرفوض: يوجد خط سير نشط أو قيد الانتظار يعمل في منطقة ({zone.name}). يجب إغلاق خط السير أولاً.")
+
     try:
-        zone = (await db.execute(
-            select(Zone).filter_by(id=zone_id, company_id=company_id).order_by(Zone.id.asc()).with_for_update()
-        )).scalar_one_or_none()
-        if zone is None:
-            raise HTTPException(status_code=404, detail="المنطقة غير موجودة")
-        if not zone.is_active:
-            return {"message": "المنطقة مؤرشفة بالفعل"}
-
-        active_route = (await db.execute(
-            select(DispatchRoute.id).filter(
-                DispatchRoute.company_id == company_id,
-                DispatchRoute.zone_id == zone_id,
-                DispatchRoute.status.in_(["active", "waiting", "postponed"]),
-            ).order_by(DispatchRoute.id.asc()).limit(1)
-        )).scalar_one_or_none()
-        if active_route is not None:
-            raise HTTPException(status_code=409, detail=f"مرفوض: يوجد خط سير تشغيلي في منطقة ({zone.name}). أغلقه أولاً.")
-
-        # لا نضع provenance فوق محل أرشفه المسؤول يدوياً سابقاً.
-        await db.execute(
-            update(Shop).where(
-                Shop.company_id == company_id,
-                Shop.zone_id == zone_id,
-                Shop.is_archived.is_(False),
-            ).values(
-                is_archived=True,
-                archived_due_to_zone_id=zone_id,
-            )
-        )
-        shop_ids = select(Shop.id).filter(
-            Shop.company_id == company_id,
-            Shop.zone_id == zone_id,
+        # +++  لجريمة الـ N+1 (Cascade Archive O(1)) +++
+        # تحديث آلاف المحلات بضربة واحدة في قاعدة البيانات بدون تحميلها في الذاكرة
+        stmt_archive_shops = update(Shop).where(
+            Shop.company_id == current_admin.company_id,
+            Shop.zone_id == zone_id
+        ).values(is_archived=True)
+        await db.execute(stmt_archive_shops)
+        
+        # +++ الدرع المحاسبي الإضافي (الذي نسيته في الفلاسك): إلغاء أي زيارات معلقة لهذه المحلات المؤرشفة +++
+        stmt_shop_ids = select(Shop.id).filter_by(
+            company_id=current_admin.company_id,
+            zone_id=zone_id
         ).scalar_subquery()
-        await db.execute(
-            update(Visit).where(
-                Visit.company_id == company_id,
-                Visit.shop_id.in_(shop_ids),
-                Visit.status == "Pending",
-            ).values(status="Cancelled")
-        )
-        zone.is_active = False
-        zone_name = zone.name
-        await db.commit()
-        return {"message": f"تم أرشفة المنطقة ({zone_name}) ومحلاتها النشطة بنجاح"}
-    except HTTPException:
-        await db.rollback(); raise
-    except Exception as exc:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء أرشفة المنطقة.") from exc
+        stmt_cancel_visits = update(Visit).where(
+            Visit.company_id == current_admin.company_id,
+            Visit.shop_id.in_(stmt_shop_ids),
+            Visit.status == 'Pending'
+        ).values(status='Cancelled')
+        await db.execute(stmt_cancel_visits)
 
+        # أرشفة المنطقة نفسها
+        zone.is_active = False
+        
+        await db.commit()
+        return {"message": f"تم أرشفة المنطقة ({zone.name}) وجميع المحلات التابعة لها بنجاح"}
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء أرشفة المنطقة.")
 
 
 # =========================================
@@ -4145,56 +3430,50 @@ async def update_zone(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
+    
+
+    # +++ قفل التزامن (Row-Level Lock) لمنع التضارب أثناء التعديل +++
+    stmt_zone = select(Zone).with_for_update().filter_by(
+        id=zone_id,
+        company_id=current_admin.company_id
+    )
+    zone = (await db.execute(stmt_zone)).scalar_one_or_none()
+    
+    if not zone:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="المنطقة غير موجودة")
+
     new_name = payload.name.strip() if payload.name else None
+
     try:
         if new_name:
-            await _dispatch_advisory_locks(db, company_id=company_id, keys=[f"zone-name:{new_name}"])
-        zone = (await db.execute(
-            select(Zone).filter_by(id=zone_id, company_id=company_id).order_by(Zone.id.asc()).with_for_update()
-        )).scalar_one_or_none()
-        if zone is None:
-            raise HTTPException(status_code=404, detail="المنطقة غير موجودة")
-
-        if new_name and new_name != zone.name:
-            duplicate = (await db.execute(
-                select(Zone.id).filter(
-                    Zone.company_id == company_id,
-                    Zone.name == new_name,
-                    Zone.id != zone_id,
-                ).order_by(Zone.id.asc()).limit(1)
-            )).scalar_one_or_none()
-            if duplicate is not None:
+            stmt_exist = select(Zone).filter(
+                Zone.company_id == current_admin.company_id,
+                Zone.name == new_name,
+                Zone.id != zone_id
+            )
+            if (await db.execute(stmt_exist)).first():
+                await db.rollback() # +++ إغلاق تسريب الأقفال +++
                 raise HTTPException(status_code=409, detail="يوجد منطقة أخرى بنفس الاسم")
             zone.name = new_name
-
-        if payload.clearSchedule:
-            zone.interval_days = None
-            zone.start_date = None
-        elif payload.intervalDays is not None or payload.startDate is not None:
-            interval = int(payload.intervalDays) if payload.intervalDays is not None else zone.interval_days
-            next_date = payload.startDate if payload.startDate is not None else zone.start_date
-            if interval is None or next_date is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail="لتفعيل الجدولة يجب تحديد intervalDays و startDate معاً.",
-                )
-            zone.interval_days = int(interval)
-            zone.start_date = next_date
-
+            
+        if payload.frequency:
+            zone.schedule_frequency = payload.frequency
+        if payload.visitDay:
+            zone.visit_day = payload.visitDay
+        if payload.startDate:
+            # +++ Pydantic تكفل بتحويل التاريخ وحمايتنا من قنابل  ـ strptime +++
+            zone.start_date = payload.startDate 
+            
         await db.commit()
         return {"message": "تم التعديل بنجاح"}
+        
     except HTTPException:
-        await db.rollback(); raise
-    except IntegrityError as exc:
+        raise
+    except Exception as e:
         await db.rollback()
-        logger.error(f"Zone update integrity conflict: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=409, detail="تعارض متزامن أثناء تعديل المنطقة.") from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي أثناء تعديل المنطقة.") from exc
-
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي أثناء تعديل المنطقة.")
 
 
 # =========================================
@@ -4223,56 +3502,39 @@ async def get_archived_zones(
 @router.put("/dispatch/zones/{zone_id}/restore", status_code=200)
 async def restore_zone(
     zone_id: int,
-    payload: RestoreZoneRequest = RestoreZoneRequest(),
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
+    
+
+    stmt_zone = select(Zone).filter_by(
+        id=zone_id,
+        company_id=current_admin.company_id
+    )
+    zone = (await db.execute(stmt_zone)).scalar_one_or_none()
+    if not zone:
+        raise HTTPException(status_code=404, detail="المنطقة غير موجودة")
+
+    # +++ درع إضافي: التحقق لكي لا نرهق الداتابيز بعملية Commit وهمية إذا كانت المنطقة نشطة أصلاً +++
+    if getattr(zone, 'is_active', False):
+        return {"message": "المنطقة نشطة بالفعل"}
+
     try:
-        zone = (await db.execute(
-            select(Zone).filter_by(id=zone_id, company_id=company_id).order_by(Zone.id.asc()).with_for_update()
-        )).scalar_one_or_none()
-        if zone is None:
-            raise HTTPException(status_code=404, detail="المنطقة غير موجودة")
         zone.is_active = True
-
-        restored_count = 0
-        if payload.mode != "zone_only":
-            stmt = select(Shop).filter(
-                Shop.company_id == company_id,
-                Shop.zone_id == zone_id,
-                Shop.is_archived.is_(True),
-                Shop.archived_due_to_zone_id == zone_id,
-            )
-            if payload.mode == "selected":
-                selected_ids = sorted({int(shop_id) for shop_id in payload.shop_ids})
-                stmt = stmt.filter(Shop.id.in_(selected_ids))
-            shops = (await db.execute(
-                stmt.order_by(Shop.id.asc()).with_for_update()
-            )).scalars().all()
-            if payload.mode == "selected" and {int(shop.id) for shop in shops} != set(selected_ids):
-                raise HTTPException(
-                    status_code=409,
-                    detail="أحد المحلات المحددة لم يُؤرشف تلقائياً بسبب هذه المنطقة؛ استعده من شاشة المحل.",
-                )
-            for shop in shops:
-                shop.is_archived = False
-                shop.archived_due_to_zone_id = None
-            restored_count = len(shops)
-
+        # +++  (B-03): استعادة جميع محلات المنطقة تلقائياً +++
+        stmt_restore_shops = update(Shop).where(
+            Shop.company_id == current_admin.company_id,
+            Shop.zone_id == zone_id
+)       .values(is_archived=False)
+        await db.execute(stmt_restore_shops)
+        
         await db.commit()
-        return {
-            "message": "تم استعادة المنطقة بنجاح",
-            "restored_shops": restored_count,
-            "mode": payload.mode,
-        }
-    except HTTPException:
-        await db.rollback(); raise
-    except Exception as exc:
+        return {"message": "تم استعادة المنطقة ومحلاتها بنجاح"}
+        
+    except Exception as e:
         await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء استعادة المنطقة.") from exc
-
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء استعادة المنطقة.")
 
 
 # =========================================
@@ -4285,162 +3547,121 @@ async def edit_shop_details(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
-    clean_id_str = str(shop_id).replace("s", "")
+    
+        
+    # 1. تنظيف المعرف القادم من React وحمايته من  ـ 500 Crash
+    clean_id_str = str(shop_id).replace('s', '')
     if not clean_id_str.isdigit():
         raise HTTPException(status_code=400, detail="معرف المحل غير صالح.")
     clean_id = int(clean_id_str)
 
+    # 2. الدرع المحاسبي: قفل المحل لمنع مسح مبيعات المندوب التي تحدث في نفس اللحظة (Row-Level Lock)
+    stmt_shop = select(Shop).with_for_update().filter_by(
+        id=clean_id,
+        company_id=current_admin.company_id
+    )
+    shop = (await db.execute(stmt_shop)).scalar_one_or_none()
+    
+    if not shop:
+        raise HTTPException(status_code=404, detail="المحل غير موجود")
+        
+    new_phone = payload.phone.strip() if payload.phone else ""
+    
+    # 3. فحص تكرار رقم الهاتف لمحل آخر لمنع التضارب
+    if new_phone and new_phone != shop.phone_number:
+        stmt_dup_phone = select(Shop).filter_by(
+            company_id=current_admin.company_id,
+            phone_number=new_phone
+        )
+        if (await db.execute(stmt_dup_phone)).first():
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="رقم الهاتف مستخدم لمحل آخر")
+            
     try:
-        # Pre-read لاكتشاف ترتيب أقفال المناطق/الهاتف؛ بعد الأقفال نعيد جلب المحل FOR UPDATE.
-        pre = (
-            await db.execute(
-                select(
-                    Shop.id,
-                    Shop.zone_id,
-                    Shop.phone_number,
-                ).filter(
-                    Shop.company_id == company_id,
-                    Shop.id == clean_id,
-                )
-            )
-        ).first()
-        if pre is None:
-            raise HTTPException(status_code=404, detail="المحل غير موجود")
-
-        pre_zone_id = int(pre.zone_id) if pre.zone_id is not None else None
-        pre_phone = (pre.phone_number or "").strip() or None
-        target_zone_id = int(payload.zoneId) if payload.zoneId is not None else pre_zone_id
-        new_phone = payload.phone.strip() if payload.phone else None
-
-        zone_ids_to_lock = {
-            zone_id for zone_id in (pre_zone_id, target_zone_id) if zone_id is not None
-        }
-        zones = await _dispatch_lock_zone_rows(
-            db,
-            company_id=company_id,
-            zone_ids=zone_ids_to_lock,
-        )
-        if payload.zoneId is not None:
-            target_zone = zones.get(target_zone_id)
-            if target_zone is None or not target_zone.is_active:
-                raise HTTPException(
-                    status_code=400,
-                    detail="المنطقة المحددة غير موجودة أو مؤرشفة أو لا تتبع شركتك.",
-                )
-
-        phone_keys = [
-            f"shop-phone:{phone}"
-            for phone in sorted({p for p in (pre_phone, new_phone) if p})
-        ]
-        await _dispatch_advisory_locks(
-            db,
-            company_id=company_id,
-            keys=phone_keys,
-        )
-        await _dispatch_advisory_locks(
-            db,
-            company_id=company_id,
-            keys=[f"dispatch-shop:{clean_id}"],
-        )
-
-        shop = (
-            await db.execute(
-                select(Shop)
-                .filter_by(id=clean_id, company_id=company_id)
-                .order_by(Shop.id.asc())
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
-        if shop is None:
-            raise HTTPException(status_code=404, detail="المحل غير موجود")
-
-        locked_phone = (shop.phone_number or "").strip() or None
-        if shop.zone_id != pre_zone_id or locked_phone != pre_phone:
-            raise HTTPException(
-                status_code=409,
-                detail="تغيرت بيانات المحل بالتزامن. حدّث الشاشة وأعد المحاولة.",
-            )
-
-        if new_phone and new_phone != pre_phone:
-            duplicate_phone = (
-                await db.execute(
-                    select(Shop.id)
-                    .filter(
-                        Shop.company_id == company_id,
-                        Shop.phone_number == new_phone,
-                        Shop.id != clean_id,
-                    )
-                    .order_by(Shop.id.asc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if duplicate_phone is not None:
-                raise HTTPException(status_code=409, detail="رقم الهاتف مستخدم لمحل آخر")
-
-        if payload.zoneId is not None and target_zone_id != pre_zone_id:
-            blocked = await _dispatch_blocking_shop_zone_move_ids(
-                db, company_id=company_id, shop_ids=[clean_id]
-            )
-            if clean_id in blocked:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "مرفوض: لا يمكن نقل المحل إلى منطقة أخرى بينما لديه زيارة Pending "
-                        "ضمن خط سير Active."
-                    ),
-                )
-
+        # 4. التحديث الجراحي للبيانات الأساسية (نحتفظ بالقديم إذا لم يتم إرسال جديد)
         if payload.name is not None:
             shop.name = payload.name
         if payload.owner is not None:
             shop.contact_person = payload.owner
-
-        # نحافظ على العقد الحالي: إرسال هاتف فارغ لا يمسح الرقم.
-        if new_phone:
-            shop.phone_number = new_phone
-
+            
+        # حماية الهاتف من المسح العشوائي
+        shop.phone_number = new_phone if new_phone else shop.phone_number
+        
         if payload.mapLink is not None:
             shop.location_link = payload.mapLink
-
+            
         if payload.zoneId is not None:
-            shop.zone_id = target_zone_id
-            shop.archived_due_to_zone_id = None
+            zone_str = str(payload.zoneId).strip()
 
-        if payload.max_debt_limit is not None:
-            shop.max_debt_limit = payload.max_debt_limit
+            if zone_str.isdigit():
+                target_zone_id = int(zone_str)
 
-        if payload.initial_debt is not None:
-            new_balance = payload.initial_debt
-            old_balance = shop.current_balance or Decimal("0.000")
-            if new_balance != old_balance:
-                shop.current_balance = new_balance
-                db.add(SystemAuditLog(
-                    company_id=company_id,
-                    admin_id=current_admin.id,
-                    target_id=f"Shop_{shop.id}",
-                    action_type="SHOP_BALANCE_MANUAL_EDIT",
-                    old_value=str(old_balance),
-                    new_value=f"الرصيد الجديد: {new_balance} (تعديل يدوي من لوحة التحكم)",
-                ))
+                stmt_zone = select(Zone.id).filter_by(
+                    id=target_zone_id,
+                    company_id=current_admin.company_id,
+                    is_active=True
+                )
+                zone_exists = (await db.execute(stmt_zone)).scalar_one_or_none()
 
+                if zone_exists is None:
+                    await db.rollback()
+                    raise HTTPException(
+                        status_code=400,
+                        detail="المنطقة المحددة غير موجودة أو لا تتبع شركتك."
+                    )
+
+                shop.zone_id = target_zone_id
+        
+        # 5.   تحديث الأموال بـ Decimal نقي ومحمي من الفراغات (ونسف لغم الـ Falsy Zero)
+        # +++ إصلاح AttributeError: alias يقبل camelCase في الإدخال فقط؛ الخاصية الفعلية max_debt_limit +++
+        val_limit = payload.max_debt_limit
+        if val_limit is not None:
+            raw_limit = str(val_limit).strip()
+            if raw_limit:  
+                try:
+                    new_limit = Decimal(raw_limit)
+                    if new_limit < 0: raise ValueError()
+                    shop.max_debt_limit = new_limit
+                except Exception:
+                    await db.rollback()
+                    raise HTTPException(status_code=400, detail="سقف الدين يجب أن يكون رقماً موجباً.")
+                
+        val_debt = payload.initial_debt
+        if val_debt is not None:
+            raw_debt = str(val_debt).strip()
+            if raw_debt:
+                try:
+                    new_balance = Decimal(raw_debt)
+                    if new_balance < 0: raise ValueError()
+                    old_balance = shop.current_balance or Decimal('0.0')
+                    if new_balance != old_balance:
+                        shop.current_balance = new_balance
+                        # +++ الدرع الرقابي: توثيق أي تعديل يدوي على رصيد المحل +++
+                        db.add(SystemAuditLog(
+                            company_id=current_admin.company_id,
+                            admin_id=current_admin.id,
+                            target_id=f"Shop_{shop.id}",
+                            action_type="SHOP_BALANCE_MANUAL_EDIT",
+                            old_value=str(old_balance),
+                            new_value=f"الرصيد الجديد: {new_balance} (تعديل يدوي من لوحة التحكم)"
+                        ))
+                except Exception:
+                    await db.rollback()
+                    raise HTTPException(status_code=400, detail="الرصيد يجب أن يكون رقماً موجباً صريحاً.")
+        
         await db.commit()
         return {"message": "تم التعديل بنجاح"}
-
+        
     except HTTPException:
-        await db.rollback()
         raise
-    except IntegrityError as exc:
+    except IntegrityError as e:
         await db.rollback()
-        logger.error(f"Shop edit integrity conflict: {str(exc)}", exc_info=True)
-        raise HTTPException(
-            status_code=409,
-            detail="تعارض متزامن أو بيانات فريدة مستخدمة أثناء تعديل المحل.",
-        ) from exc
-    except Exception as exc:
+        logger.error(f"خطأ تعارض (FK): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="فشل الحفظ: تأكد من أن المنطقة المحددة أو البيانات صالحة.")
+    except Exception as e:
         await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء تعديل المحل.") from exc
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء تعديل المحل.")
 
 
 # =========================================
@@ -4496,97 +3717,139 @@ async def add_shortages(
 ):
     if not payload:
         raise HTTPException(status_code=400, detail="لا توجد بيانات لإضافتها.")
+
     company_id = current_admin.company_id
+
     try:
         shop_ids = sorted({int(item.shopId) for item in payload})
+        shops = (
+            await db.execute(
+                select(Shop)
+                .filter(
+                    Shop.company_id == company_id,
+                    Shop.id.in_(shop_ids),
+                    Shop.is_archived.is_(False),
+                )
+                .order_by(Shop.id.asc())
+            )
+        ).scalars().all()
+        bulk_shops = {int(shop.id): shop for shop in shops}
+        if set(shop_ids) != set(bulk_shops):
+            raise HTTPException(
+                status_code=404,
+                detail="أحد المحلات غير موجود أو مؤرشف أو لا يتبع شركتك.",
+            )
+
         product_ids = sorted({int(item.product_variant_id) for item in payload})
-        zone_ids = sorted({int(item.zoneId) for item in payload})
-        driver_ids = sorted({int(item.driverId) for item in payload if item.driverId is not None})
-
-        if driver_ids:
-            drivers = (await db.execute(
-                select(Driver).filter(
-                    Driver.company_id == company_id,
-                    Driver.id.in_(driver_ids),
-                ).order_by(Driver.id.asc()).with_for_update()
-            )).scalars().all()
-            valid = {int(d.id) for d in drivers if d.is_active and not d.is_admin}
-            if valid != set(driver_ids):
-                raise HTTPException(status_code=400, detail="أحد المندوبين غير موجود/غير فعال أو لا يتبع شركتك.")
-
-        locked_zones = await _dispatch_lock_zone_rows(db, company_id=company_id, zone_ids=zone_ids)
-        if any(not zone.is_active for zone in locked_zones.values()):
-            raise HTTPException(status_code=400, detail="إحدى المناطق مؤرشفة ولا يمكن إنشاء طلب عاجل فيها.")
-        await _dispatch_advisory_locks(
-            db, company_id=company_id, keys=[f"dispatch-shop:{shop_id}" for shop_id in shop_ids]
-        )
-        bulk_shops = await _dispatch_lock_shop_rows(db, company_id=company_id, shop_ids=shop_ids)
-        if any(shop.is_archived or not shop.is_active for shop in bulk_shops.values()):
-            raise HTTPException(status_code=404, detail="أحد المحلات غير فعال/مؤرشف أو لا يتبع شركتك.")
-
-        variants = (await db.execute(
-            select(ProductVariant).filter(
-                ProductVariant.company_id == company_id,
-                ProductVariant.id.in_(product_ids),
-            ).order_by(ProductVariant.id.asc())
-        )).scalars().all()
-        variant_map = {int(v.id): v for v in variants}
+        variants = (
+            await db.execute(
+                select(ProductVariant)
+                .filter(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id.in_(product_ids),
+                )
+                .order_by(ProductVariant.id.asc())
+            )
+        ).scalars().all()
+        variant_map = {int(variant.id): variant for variant in variants}
         if set(product_ids) != set(variant_map):
-            raise HTTPException(status_code=404, detail="أحد المنتجات غير موجود أو لا يتبع شركتك.")
+            raise HTTPException(
+                status_code=404,
+                detail="أحد المنتجات غير موجود أو لا يتبع شركتك.",
+            )
 
-        for item in payload:
-            shop = bulk_shops[int(item.shopId)]
-            if shop.zone_id is None or int(shop.zone_id) != int(item.zoneId):
-                raise HTTPException(status_code=409, detail=f"منطقة الطلب العاجل لا تطابق منطقة المحل ({shop.name}).")
+        zone_ids = sorted({int(item.zoneId) for item in payload})
+        valid_zone_ids = set((
+            await db.execute(
+                select(Zone.id).filter(
+                    Zone.company_id == company_id,
+                    Zone.id.in_(zone_ids),
+                    Zone.is_active.is_(True),
+                )
+            )
+        ).scalars().all())
+        if set(zone_ids) != valid_zone_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="إحدى المناطق غير موجودة أو مؤرشفة أو لا تتبع شركتك.",
+            )
 
-        existing_rows = (await db.execute(
-            select(ShortageRequest).filter(
-                ShortageRequest.company_id == company_id,
-                ShortageRequest.shop_id.in_(shop_ids),
-                ShortageRequest.product_variant_id.in_(product_ids),
-                ShortageRequest.status == "pending",
-            ).order_by(ShortageRequest.id.asc()).with_for_update()
-        )).scalars().all()
-        existing_pairs = {(int(r.shop_id), int(r.product_variant_id)) for r in existing_rows}
-
-        company_local_date = await get_company_local_date(db, company_id)
-        owner_pairs = sorted({
-            (int(item.driverId), int(item.shopId))
+        driver_ids = sorted({
+            int(item.driverId)
             for item in payload
             if item.driverId is not None
         })
-        if owner_pairs:
-            await _dispatch_advisory_locks(
-                db,
-                company_id=company_id,
-                keys=[
-                    f"pending-visit:{driver_id}:{shop_id}"
-                    for driver_id, shop_id in owner_pairs
-                ],
+        if driver_ids:
+            valid_driver_ids = set((
+                await db.execute(
+                    select(Driver.id).filter(
+                        Driver.company_id == company_id,
+                        Driver.id.in_(driver_ids),
+                        Driver.is_active.is_(True),
+                        Driver.is_admin.is_(False),
+                    )
+                )
+            ).scalars().all())
+            if set(driver_ids) != valid_driver_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail="أحد المندوبين غير موجود/غير فعال أو لا يتبع شركتك.",
+                )
+
+        request_pairs = sorted({
+            (int(item.shopId), int(item.product_variant_id))
+            for item in payload
+        })
+        for shop_id, product_id in request_pairs:
+            await db.execute(
+                select(
+                    func.pg_advisory_xact_lock(
+                        company_id,
+                        func.hashtext(f"shortage:{shop_id}:{product_id}"),
+                    )
+                )
             )
 
-        existing_owner_visits = {}
-        if owner_pairs:
-            owner_driver_ids = sorted({driver_id for driver_id, _ in owner_pairs})
-            owner_shop_ids = sorted({shop_id for _, shop_id in owner_pairs})
-            rows = (await db.execute(
-                select(Visit).filter(
+        existing_rows = (
+            await db.execute(
+                select(ShortageRequest)
+                .filter(
+                    ShortageRequest.company_id == company_id,
+                    ShortageRequest.shop_id.in_(shop_ids),
+                    ShortageRequest.product_variant_id.in_(product_ids),
+                    ShortageRequest.status == "pending",
+                )
+                .order_by(ShortageRequest.id.asc())
+            )
+        ).scalars().all()
+        existing_pairs = {
+            (int(req.shop_id), int(req.product_variant_id))
+            for req in existing_rows
+        }
+
+        company_local_date = await get_company_local_date(db, company_id)
+        today_start = datetime.combine(company_local_date, datetime.min.time())
+        today_end = today_start + timedelta(days=1)
+
+        recent_visits = (
+            await db.execute(
+                select(Visit)
+                .filter(
                     Visit.company_id == company_id,
-                    Visit.driver_id.in_(owner_driver_ids),
-                    Visit.shop_id.in_(owner_shop_ids),
-                    Visit.status == "Pending",
-                ).order_by(Visit.driver_id.asc(), Visit.shop_id.asc(), Visit.id.asc()).with_for_update()
-            )).scalars().all()
-            for visit in rows:
-                key = (int(visit.driver_id), int(visit.shop_id))
-                if key in existing_owner_visits:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل إضافة طوارئ جديدة.",
-                    )
-                visit.operational_date = company_local_date
-                visit.work_session_id = None
-                existing_owner_visits[key] = visit
+                    Visit.shop_id.in_(shop_ids),
+                    or_(
+                        Visit.status == "Pending",
+                        and_(
+                            Visit.visit_timestamp >= today_start,
+                            Visit.visit_timestamp < today_end,
+                        ),
+                    ),
+                )
+                .order_by(Visit.id.asc())
+                .with_for_update()
+            )
+        ).scalars().all()
+        bulk_visits = {int(visit.shop_id): visit for visit in recent_visits}
 
         payload_tracker = set()
         for item in payload:
@@ -4596,59 +3859,104 @@ async def add_shortages(
             if pair in payload_tracker:
                 continue
             payload_tracker.add(pair)
+
             shop = bulk_shops[shop_id]
+            zone_id = int(item.zoneId)
+            if shop.zone_id is None or int(shop.zone_id) != zone_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"منطقة الطلب العاجل لا تطابق منطقة المحل ({shop.name}). "
+                        "حدّث بيانات المحل أو أرسل منطقته الفعلية."
+                    ),
+                )
+
             if pair in existing_pairs:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"يوجد طلب عاجل معلق مسبقاً للمحل ({shop.name}) وللصنف ({variant_map[product_id].variant_name}).",
+                    detail=(
+                        f"يوجد طلب عاجل معلق مسبقاً للمحل ({shop.name}) "
+                        f"وللصنف ({variant_map[product_id].variant_name})."
+                    ),
                 )
 
             driver_id = int(item.driverId) if item.driverId is not None else None
-            db.add(ShortageRequest(
-                company_id=company_id,
-                zone_id=int(item.zoneId),
-                shop_id=shop_id,
-                driver_id=driver_id,
-                product_variant_id=product_id,
-                quantity=int(item.quantity),
-            ))
+            db.add(
+                ShortageRequest(
+                    company_id=company_id,
+                    zone_id=zone_id,
+                    shop_id=shop_id,
+                    driver_id=driver_id,
+                    product_variant_id=product_id,
+                    quantity=int(item.quantity),
+                )
+            )
             existing_pairs.add(pair)
+
+            # نفس Workflow الطوارئ الحالي: لا نسرق زيارة مكتملة؛ ننشئ زيارة جديدة عند الحاجة.
             if driver_id is None:
                 continue
 
-            owner_key = (driver_id, shop_id)
-            visit = existing_owner_visits.get(owner_key)
-            if visit is None:
-                visit = Visit(
+            existing_visit = bulk_visits.get(shop_id)
+            if existing_visit is not None:
+                if existing_visit.driver_id == driver_id:
+                    existing_visit.is_emergency = True
+                    if existing_visit.status == "Cancelled":
+                        existing_visit.status = "Pending"
+                elif existing_visit.status == "Completed":
+                    new_visit = Visit(
+                        company_id=company_id,
+                        driver_id=driver_id,
+                        shop_id=shop_id,
+                        status="Pending",
+                        sequence=shop.sequence if shop.sequence is not None else 999,
+                        is_emergency=True,
+                    )
+                    db.add(new_visit)
+                    bulk_visits[shop_id] = new_visit
+                else:
+                    existing_visit.is_emergency = True
+                    existing_visit.driver_id = driver_id
+                    existing_visit.work_session_id = None
+                    existing_visit.status = "Pending"
+            else:
+                new_visit = Visit(
                     company_id=company_id,
                     driver_id=driver_id,
                     shop_id=shop_id,
-                    operational_date=company_local_date,
                     status="Pending",
                     sequence=shop.sequence if shop.sequence is not None else 999,
                     is_emergency=True,
                 )
-                db.add(visit)
-                existing_owner_visits[owner_key] = visit
-            else:
-                visit.is_emergency = True
+                db.add(new_visit)
+                bulk_visits[shop_id] = new_visit
 
         await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast(
-            {"event": "SHORTAGE_ADDED", "message": "تم إضافة نواقص جديدة"}, company_id=company_id
-        ))
+        asyncio.create_task(
+            dispatch_manager.broadcast(
+                {"event": "SHORTAGE_ADDED", "message": "تم إضافة نواقص جديدة"},
+                company_id=company_id,
+            )
+        )
         return {"message": "تم تسجيل الطلبات بنجاح"}
-    except HTTPException:
-        await db.rollback(); raise
-    except IntegrityError as exc:
-        await db.rollback()
-        logger.error(f"Shortage integrity conflict: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=409, detail="تعارض متزامن أثناء تسجيل الطلبات العاجلة.") from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء حفظ الطلبات.") from exc
 
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.error(f"Shortage integrity conflict: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=409,
+            detail="تعارض متزامن أثناء تسجيل الطلبات العاجلة.",
+        ) from e
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="حدث خطأ داخلي في الخادم أثناء حفظ الطلبات.",
+        ) from e
 
 
 # =========================================
@@ -4660,90 +3968,66 @@ async def delete_shortage(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
+    
+
+    stmt_shortage = select(ShortageRequest).filter_by(
+        id=shortage_id,
+        company_id=current_admin.company_id
+    )
+    shortage = (await db.execute(stmt_shortage)).scalar_one_or_none()
+    if not shortage:
+        return {"message": "الطلب غير موجود أصلاً."}
+
     try:
-        pre = (await db.execute(
-            select(ShortageRequest.shop_id, ShortageRequest.zone_id, ShortageRequest.driver_id).filter(
-                ShortageRequest.id == shortage_id,
-                ShortageRequest.company_id == company_id,
-            )
-        )).first()
-        if pre is None:
-            return {"message": "الطلب غير موجود أصلاً."}
-        shop_id, zone_id = int(pre.shop_id), int(pre.zone_id)
-        driver_id = int(pre.driver_id) if pre.driver_id is not None else None
-
-        await _dispatch_lock_zone_rows(db, company_id=company_id, zone_ids=[zone_id])
-        await _dispatch_advisory_locks(db, company_id=company_id, keys=[f"dispatch-shop:{shop_id}"])
-        shortage = (await db.execute(
-            select(ShortageRequest).filter(
-                ShortageRequest.id == shortage_id,
-                ShortageRequest.company_id == company_id,
-                ShortageRequest.shop_id == shop_id,
-            ).order_by(ShortageRequest.id.asc()).with_for_update()
-        )).scalar_one_or_none()
-        if shortage is None:
-            return {"message": "الطلب غير موجود أصلاً."}
-        shop = (await db.execute(
-            select(Shop).filter_by(id=shop_id, company_id=company_id).order_by(Shop.id.asc()).with_for_update()
-        )).scalar_one_or_none()
-        if shop is None:
-            raise HTTPException(status_code=409, detail="الطلب العاجل يشير إلى محل مفقود داخل الشركة.")
-
+        shop_id = shortage.shop_id
         await db.delete(shortage)
-        await db.flush()
-
-        if driver_id is not None:
-            remaining_for_owner = int((await db.execute(
-                select(func.count(ShortageRequest.id)).filter(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop_id,
-                    ShortageRequest.driver_id == driver_id,
-                    ShortageRequest.status == "pending",
-                )
-            )).scalar() or 0)
-            if remaining_for_owner == 0:
-                pending_emergency = (await db.execute(
-                    select(Visit).filter(
-                        Visit.company_id == company_id,
-                        Visit.shop_id == shop_id,
-                        Visit.driver_id == driver_id,
-                        Visit.status == "Pending",
-                        Visit.is_emergency.is_(True),
-                    ).order_by(Visit.id.asc()).with_for_update()
-                )).scalars().all()
-                active_route = (await db.execute(
-                    select(DispatchRoute).filter(
-                        DispatchRoute.company_id == company_id,
-                        DispatchRoute.driver_id == driver_id,
-                        DispatchRoute.status == "active",
-                    ).order_by(DispatchRoute.id.asc()).limit(1)
-                )).scalars().first()
-                for visit in pending_emergency:
-                    if active_route is not None and int(active_route.zone_id) == int(shop.zone_id or 0):
-                        visit.is_emergency = False
-                    else:
-                        # لا نخلق Visit يتيمة ولا ننقلها لمندوب آخر بصمت؛ إلغاء الطلب يلغي مهمته فقط.
-                        visit.status = "Cancelled"
-                        visit.is_emergency = False
-                        visit.work_session_id = None
-
+        await db.flush() # +++ تحديث الذاكرة فوراً قبل فحص المتبقي +++
+        
+        # +++ التزامن المعماري: سحب ختم (عاجل) إذا لم يتبقَ أي طلبات أخرى +++
+        stmt_rem = select(func.count(ShortageRequest.id)).filter_by(
+            company_id=current_admin.company_id,
+            shop_id=shop_id,
+            status='pending'
+        )
+        remaining = (await db.execute(stmt_rem)).scalar() or 0
+        
+        if remaining == 0:
+            stmt_visit = select(Visit).filter_by(
+                company_id=current_admin.company_id,
+                shop_id=shop_id,
+                status='Pending'
+            ).limit(1)
+            target_visit = (await db.execute(stmt_visit)).scalars().first()
+            
+            if target_visit:
+                target_visit.is_emergency = False
+                
+                # +++ نسف الشبح: إذا كان المحل خارج منطقة المندوب (أضيف للطوارئ فقط)، نسحبه منه لكي لا يعلق الشبح في تطبيقه +++
+                if target_visit.driver_id:
+                    stmt_route = select(DispatchRoute).filter_by(
+                        company_id=current_admin.company_id,
+                        driver_id=target_visit.driver_id,
+                        status='active'
+                    ).limit(1)
+                    route = (await db.execute(stmt_route)).scalars().first()
+                    stmt_shop = select(Shop).filter_by(
+                        id=shop_id,
+                        company_id=current_admin.company_id
+                    )
+                    shop = (await db.execute(stmt_shop)).scalar_one_or_none()
+                    
+                    if route and shop and shop.zone_id != route.zone_id:
+                        target_visit.driver_id = None
+                        target_visit.work_session_id = None
+        
         await db.commit()
-        asyncio.create_task(dispatch_manager.broadcast(
-            {"event": "SHORTAGE_DELETED", "message": "تم معالجة نواقص"}, company_id=company_id
-        ))
+        asyncio.create_task(dispatch_manager.broadcast({"event": "SHORTAGE_DELETED", "message": "تم معالجة نواقص"}, company_id=current_admin.company_id))
         return {"message": "تم حذف الطلب وتنظيف الميدان بنجاح"}
-    except HTTPException:
-        await db.rollback(); raise
-    except IntegrityError as exc:
+        
+    except Exception as e:
         await db.rollback()
-        logger.error(f"Shortage delete integrity conflict: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=409, detail="تعارض متزامن أثناء حذف الطلب العاجل.") from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي أثناء حذف الطلب.") from exc
-
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="حدث خطأ داخلي أثناء حذف الطلب.")
 
 
 # =========================================
@@ -4755,258 +4039,184 @@ async def bulk_import_shops(
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_admin)
 ):
-    company_id = current_admin.company_id
-    zone_id = int(payload.zoneId)
+    
+
+    zone_id = payload.zoneId
     shops_list = payload.shops
     file_name = payload.fileName
 
+    if not zone_id or not shops_list:
+        raise HTTPException(status_code=400, detail="المنطقة وقائمة المحلات مطلوبة")
+    stmt_zone = select(Zone.id).filter_by(
+        id=zone_id,
+        company_id=current_admin.company_id,
+        is_active=True
+    )
+    zone_exists = (await db.execute(stmt_zone)).scalar_one_or_none()
+
+    if zone_exists is None:
+        raise HTTPException(
+            status_code=400,
+            detail="المنطقة المحددة غير موجودة أو لا تتبع شركتك."
+        )
     log_id = None
     try:
-        # Log له معاملة مستقلة حتى يبقى أثر الفشل حتى لو rollback للاستيراد نفسه.
-        zone_exists = (
-            await db.execute(
-                select(Zone.id).filter(
-                    Zone.id == zone_id,
-                    Zone.company_id == company_id,
-                    Zone.is_active.is_(True),
-                )
-            )
-        ).scalar_one_or_none()
-        if zone_exists is None:
-            raise HTTPException(
-                status_code=400,
-                detail="المنطقة المحددة غير موجودة أو لا تتبع شركتك.",
-            )
-
+        # ========================================================
+        # 1. توثيق العملية مبدئياً وحجز ID للـ Log
+        # ========================================================
         import_log = ImportLog(
-            company_id=company_id,
-            admin_id=current_admin.id,
-            zone_id=zone_id,
-            file_name=file_name,
-            total_records=len(shops_list),
-            status="Processing",
+            company_id=current_admin.company_id,
+            admin_id=current_admin.id, 
+            zone_id=zone_id, 
+            file_name=file_name, 
+            total_records=len(shops_list), 
+            status='Processing'
         )
         db.add(import_log)
-        await db.flush()
-        log_id = int(import_log.id)
+        await db.flush() # +++ الدرع الفولاذي: سحب الـ ID من الداتابيز قبل إغلاق الجلسة لمنع الانفجار +++
+        log_id = import_log.id
         await db.commit()
 
-        # نعيد قفل المنطقة بعد Commit الخاص بالـLog؛ هكذا لا يمكن أرشفتها أثناء الاستيراد.
-        locked_zones = await _dispatch_lock_zone_rows(
-            db,
-            company_id=company_id,
-            zone_ids=[zone_id],
-        )
-        if not locked_zones[zone_id].is_active:
-            raise HTTPException(
-                status_code=409,
-                detail="تمت أرشفة المنطقة قبل بدء الاستيراد. أعد المحاولة بعد استعادتها.",
-            )
-
-        incoming_names = list({
-            s.name.strip().lower()
-            for s in shops_list
-            if s.name and s.name.strip()
-        })
-        incoming_phones = list({
-            (
-                str(s.phone).strip()[:-2]
-                if str(s.phone).strip().endswith(".0")
-                else str(s.phone).strip()
-            )
-            for s in shops_list
-            if s.phone and str(s.phone).strip()
-        })
-        incoming_links = list({
-            s.mapLink.strip().lower()
-            for s in shops_list
-            if s.mapLink and s.mapLink.strip()
-        })
-
-        # نفس مفتاح phone المستخدم في إضافة المحل؛ استيرادان/إضافة يمران تسلسلياً دون إسقاط الملف كله.
-        await _dispatch_advisory_locks(
-            db,
-            company_id=company_id,
-            keys=[f"shop-phone:{phone}" for phone in incoming_phones],
-        )
+        # ========================================================
+        # 2. تحضير القوائم الفريدة (Sets) للسرعة
+        # ========================================================
+        incoming_names = list({s.name.strip().lower() for s in shops_list if s.name and s.name.strip()})
+        # +++ درع الإكسيل: إزالة الـ .0 من الهواتف قبل بناء فهارس البحث +++
+        incoming_phones = list({(str(s.phone).strip()[:-2] if str(s.phone).strip().endswith('.0') else str(s.phone).strip()) for s in shops_list if s.phone and str(s.phone).strip()})
+        incoming_links = list({s.mapLink.strip().lower() for s in shops_list if s.mapLink and s.mapLink.strip()})
 
         all_existing_shops_raw = []
-        chunk_size = 500
-        max_len = max(len(incoming_names), len(incoming_phones), len(incoming_links))
+        CHUNK_SIZE = 500 # التوازن المثالي لمنع انفجار الـ RAM و Timeout الداتابيز
 
-        for i in range(0, max_len, chunk_size):
-            name_chunk = incoming_names[i:i + chunk_size]
-            phone_chunk = incoming_phones[i:i + chunk_size]
-            link_chunk = incoming_links[i:i + chunk_size]
+        # ========================================================
+        # 3. هندسة الطلب الموحد (Chunked Bulk Fetch O(1))
+        # ========================================================
+        max_len = max(len(incoming_names), len(incoming_phones), len(incoming_links))
+        for i in range(0, max_len, CHUNK_SIZE):
+            name_chunk = incoming_names[i:i + CHUNK_SIZE]
+            phone_chunk = incoming_phones[i:i + CHUNK_SIZE]
+            link_chunk = incoming_links[i:i + CHUNK_SIZE]
 
             filters = []
-            if name_chunk:
-                filters.append(func.lower(Shop.name).in_(name_chunk))
-            if phone_chunk:
-                filters.append(Shop.phone_number.in_(phone_chunk))
-            if link_chunk:
-                filters.append(func.lower(Shop.location_link).in_(link_chunk))
+            if name_chunk: filters.append(func.lower(Shop.name).in_(name_chunk))
+            if phone_chunk: filters.append(Shop.phone_number.in_(phone_chunk))
+            if link_chunk: filters.append(func.lower(Shop.location_link).in_(link_chunk))
 
             if filters:
-                results = (
-                    await db.execute(
-                        select(
-                            Shop.id,
-                            Shop.name,
-                            Shop.phone_number,
-                            Shop.location_link,
-                        ).filter(
-                            Shop.company_id == company_id,
-                            or_(*filters),
-                        )
-                    )
-                ).all()
+                # جلب الحقول المطلوبة فقط (Tuples) لنسف الـ Memory Bloat
+                stmt = select(Shop.id, Shop.name, Shop.phone_number, Shop.location_link).filter(
+                    Shop.company_id == current_admin.company_id,
+                    or_(*filters)
+                )
+                results = (await db.execute(stmt)).all()
                 all_existing_shops_raw.extend(results)
 
-        all_existing_shops = list({
-            row[0]: row for row in all_existing_shops_raw
-        }.values())
+        # إزالة التكرار من النتائج
+        all_existing_shops = list({res[0]: res for res in all_existing_shops_raw}.values())
 
+        # ========================================================
+        # 4. بناء الـ Hash Maps للمقارنة الفورية O(1)
+        # ========================================================
         name_idx, phone_idx, link_idx = {}, {}, {}
         for ext_id, ext_name, ext_phone, ext_link in all_existing_shops:
-            n = (ext_name or "").strip().lower()
-            p = str(ext_phone or "").strip()
-            l = (ext_link or "").strip().lower()
-            if n:
-                name_idx.setdefault(n, []).append(ext_id)
-            if p:
-                phone_idx.setdefault(p, []).append(ext_id)
-            if l:
-                link_idx.setdefault(l, []).append(ext_id)
+            n = (ext_name or '').strip().lower()
+            p = str(ext_phone or '').strip()
+            l = (ext_link or '').strip().lower()
+            if n: name_idx.setdefault(n, []).append(ext_id)
+            if p: phone_idx.setdefault(p, []).append(ext_id)
+            if l: link_idx.setdefault(l, []).append(ext_id)
 
         new_shops = []
         ignored_count = 0
 
+        # ========================================================
+        # 5. المعالجة النهائية والحماية من التكرار الداخلي (Intra-Excel)
+        # ========================================================
         for s in shops_list:
-            s_name = (s.name or "").strip().lower()
-            s_phone = str(s.phone or "").strip()
-            if s_phone.endswith(".0"):
-                s_phone = s_phone[:-2]
-            s_link = (s.mapLink or "").strip().lower()
+            s_name = (s.name or '').strip().lower()
+            s_phone = str(s.phone or '').strip()
+            if s_phone.endswith('.0'): s_phone = s_phone[:-2] # +++ تنظيف الهاتف قبل الإدخال +++
+            s_link = (s.mapLink or '').strip().lower()
 
             candidate_ids = []
-            if s_name in name_idx:
-                candidate_ids.extend(name_idx[s_name])
-            if s_phone in phone_idx:
-                candidate_ids.extend(phone_idx[s_phone])
-            if s_link in link_idx:
-                candidate_ids.extend(link_idx[s_link])
-
+            if s_name in name_idx: candidate_ids.extend(name_idx[s_name])
+            if s_phone in phone_idx: candidate_ids.extend(phone_idx[s_phone])
+            if s_link in link_idx: candidate_ids.extend(link_idx[s_link])
+            
+            # درع منع التكرار القاطع
             is_phone_duplicate = bool(s_phone and s_phone in phone_idx)
-            is_duplicate = (
-                is_phone_duplicate
-                or any(count >= 2 for count in Counter(candidate_ids).values())
-            )
+            is_duplicate = is_phone_duplicate or any(count >= 2 for count in Counter(candidate_ids).values())
+            
             if is_duplicate:
                 ignored_count += 1
                 continue
 
+            # +++ حماية  ـ Decimal من انهيار البيانات (Empty Strings or Chars) +++
+            try:
+                raw_debt = str(s.initialDebt or '0.0').strip()
+                safe_debt = Decimal(raw_debt) if raw_debt else Decimal('0.0')
+            except Exception:
+                safe_debt = Decimal('0.0')
+
+            try:
+                # +++  (B-06): حماية الصفر (0) من اعتباره Falsy Value +++
+                raw_seq = str(s.sequence).strip() if s.sequence is not None else '999'
+                safe_seq = int(float(raw_seq)) 
+            except Exception:
+                safe_seq = 999
+
             new_shop = Shop(
-                company_id=company_id,
-                name=s.name.strip(),
-                contact_person=(s.owner or "").strip(),
+                company_id=current_admin.company_id,
+                name=(s.name or '').strip(),
+                contact_person=(s.owner or '').strip(),
                 phone_number=s_phone or None,
-                location_link=(s.mapLink or "").strip(),
+                location_link=(s.mapLink or '').strip(),
                 zone_id=zone_id,
                 is_active=True,
-                is_archived=False,
-                current_balance=s.initialDebt,
+                is_archived=False, # 👈 إجبار القيمة لتفادي جدار الـ NULL في استعلامات SQL
+                current_balance=max(Decimal('0.0'), safe_debt),
                 added_by_driver_id=current_admin.id,
-                sequence=int(s.sequence),
+                sequence=safe_seq
             )
             new_shops.append(new_shop)
-
+            
+            # +++ تحديث الذاكرة فوراً لمنع التكرار داخل الإكسيل نفسه (Self-Healing) +++
             temp_id = f"temp_{len(new_shops)}"
-            if s_name:
-                name_idx.setdefault(s_name, []).append(temp_id)
-            if s_phone:
-                phone_idx.setdefault(s_phone, []).append(temp_id)
-            if s_link:
-                link_idx.setdefault(s_link, []).append(temp_id)
+            if s_name: name_idx.setdefault(s_name, []).append(temp_id)
+            if s_phone: phone_idx.setdefault(s_phone, []).append(temp_id)
+            if s_link: link_idx.setdefault(s_link, []).append(temp_id)
 
+        # إضافة كل المحلات دفعة واحدة للـ DB
         db.add_all(new_shops)
-
-        current_log = (
-            await db.execute(
-                select(ImportLog)
-                .filter_by(id=log_id, company_id=company_id)
-                .order_by(ImportLog.id.asc())
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
-        if current_log is None:
-            raise HTTPException(
-                status_code=409,
-                detail="سجل الاستيراد اختفى أثناء التنفيذ.",
-            )
-        current_log.success_count = len(new_shops)
-        current_log.status = "Success"
-
+        
+        # جلب الـ Log لتحديثه
+        stmt_log = select(ImportLog).filter_by(
+            id=log_id,
+            company_id=current_admin.company_id
+        )
+        current_log = (await db.execute(stmt_log)).scalar_one_or_none()
+        if current_log:
+            current_log.success_count = len(new_shops)
+            current_log.status = 'Success'
+            
         await db.commit()
-        return {
-            "message": f"تم رفع {len(new_shops)} محل بنجاح، وتجاهل {ignored_count} مكرر."
-        }
+        
+        return {"message": f"تم رفع {len(new_shops)} محل بنجاح، وتجاهل {ignored_count} مكرر."}
 
-    except HTTPException:
+    except Exception as e:
         await db.rollback()
+        logger.error(f"خطأ في العملية: {str(e)}", exc_info=True)
+        
+        # +++ المعالجة الانفصالية للطوارئ: تحديث حالة الـ Log بمعاملة جديدة +++
         if log_id:
             try:
-                await db.execute(
-                    update(ImportLog)
-                    .where(
-                        ImportLog.id == log_id,
-                        ImportLog.company_id == company_id,
-                    )
-                    .values(status="Failed")
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-        raise
-    except IntegrityError as exc:
-        await db.rollback()
-        logger.error(f"Bulk import integrity conflict: {str(exc)}", exc_info=True)
-        if log_id:
-            try:
-                await db.execute(
-                    update(ImportLog)
-                    .where(
-                        ImportLog.id == log_id,
-                        ImportLog.company_id == company_id,
-                    )
-                    .values(status="Failed")
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="تعارض متزامن أثناء استيراد المحلات؛ لم يتم حفظ دفعة جزئية.",
-        ) from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-
-        if log_id:
-            try:
-                await db.execute(
-                    update(ImportLog)
-                    .where(
-                        ImportLog.id == log_id,
-                        ImportLog.company_id == company_id,
-                    )
-                    .values(status="Failed")
-                )
+                stmt_fail = update(ImportLog).where(
+                    ImportLog.id == log_id,
+                    ImportLog.company_id == current_admin.company_id
+                ).values(status='Failed')
+                await db.execute(stmt_fail)
                 await db.commit()
             except Exception:
                 await db.rollback()
 
-        raise HTTPException(
-            status_code=500,
-            detail="فشل في رفع البيانات، تم إلغاء العملية بالكامل لحماية قاعدة البيانات.",
-        ) from exc
+        raise HTTPException(status_code=500, detail="فشل في رفع البيانات، تم إلغاء العملية بالكامل لحماية قاعدة البيانات.")
