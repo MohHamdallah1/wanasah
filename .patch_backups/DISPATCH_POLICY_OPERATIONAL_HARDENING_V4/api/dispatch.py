@@ -1588,7 +1588,10 @@ async def dispatch_route(
                         Visit.company_id == company_id,
                         Visit.driver_id == payload.driver_id,
                         Visit.shop_id.in_(shop_ids),
-                        Visit.status == "Pending",
+                        or_(
+                            Visit.status == "Pending",
+                            Visit.operational_date == company_local_date,
+                        ),
                     ).order_by(Visit.shop_id.asc(), Visit.id.asc())
                 )
             ).scalars().all()
@@ -1604,6 +1607,7 @@ async def dispatch_route(
                             status_code=409,
                             detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل إطلاق خط السير.",
                         )
+                    visit.operational_date = company_local_date
                     visit.work_session_id = None
                     existing_by_shop[shop_id] = visit
 
@@ -1612,10 +1616,7 @@ async def dispatch_route(
                     select(ShortageRequest.shop_id).filter(
                         ShortageRequest.company_id == company_id,
                         ShortageRequest.shop_id.in_(shop_ids),
-                        or_(
-                            ShortageRequest.driver_id == payload.driver_id,
-                            ShortageRequest.driver_id.is_(None),
-                        ),
+                        ShortageRequest.driver_id == payload.driver_id,
                         ShortageRequest.status == "pending",
                     )
                 )
@@ -3548,11 +3549,10 @@ async def update_route_status(
             and bound_session.end_time is not None
             and target_status == "active"
             and old_status != "active"
-            and bound_session.inventory_reconciled_at is not None
         ):
             raise HTTPException(
                 status_code=409,
-                detail="لا يمكن إعادة تفعيل خط السير بعد ختم التسوية المخزنية للجلسة.",
+                detail="لا يمكن إعادة تفعيل خط سير تاريخي لجلسة منتهية؛ أنشئ خط سير جديد.",
             )
 
         if (
@@ -3690,7 +3690,7 @@ async def update_route_status(
             Shop.zone_id == route.zone_id,
         ).scalar_subquery()
 
-        # تغيير المندوب قبل بدء الجلسة ينقل كل Pending لنفس المنطقة، بما فيها الطوارئ.
+        # تغيير المندوب قبل بدء الجلسة ينقل الزيارات المعلقة لنفس المنطقة فقط.
         if driver_changed and old_driver_id is not None:
             await db.execute(
                 update(Visit)
@@ -3698,21 +3698,10 @@ async def update_route_status(
                     Visit.company_id == company_id,
                     Visit.driver_id == old_driver_id,
                     Visit.status == "Pending",
+                    Visit.is_emergency.is_(False),
+                    Visit.operational_date == route.dispatch_date,
                     Visit.shop_id.in_(zone_shop_ids),
                     Visit.work_session_id.is_(None),
-                )
-                .values(driver_id=route.driver_id)
-            )
-            await db.execute(
-                update(ShortageRequest)
-                .where(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id.in_(zone_shop_ids),
-                    ShortageRequest.status == "pending",
-                    or_(
-                        ShortageRequest.driver_id == old_driver_id,
-                        ShortageRequest.driver_id.is_(None),
-                    ),
                 )
                 .values(driver_id=route.driver_id)
             )
@@ -3724,22 +3713,14 @@ async def update_route_status(
                     Visit.company_id == company_id,
                     Visit.driver_id == route.driver_id,
                     Visit.status == "Pending",
+                    Visit.is_emergency.is_(False),
+                    Visit.operational_date == route.dispatch_date,
                     Visit.shop_id.in_(zone_shop_ids),
                 )
                 .values(
                     driver_id=None,
                     work_session_id=None,
                 )
-            )
-            await db.execute(
-                update(ShortageRequest)
-                .where(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id.in_(zone_shop_ids),
-                    ShortageRequest.status == "pending",
-                    ShortageRequest.driver_id == route.driver_id,
-                )
-                .values(driver_id=None)
             )
 
         if target_status == "active" and route.driver_id is not None:
@@ -3758,7 +3739,7 @@ async def update_route_status(
             shop_ids = [int(shop.id) for shop in shops_in_zone]
 
             if shop_ids:
-                work_session_id = int(bound_session.id) if bound_session is not None else None
+                work_session_id = int(active_session.id) if active_session is not None else None
                 await _dispatch_advisory_locks(
                     db,
                     company_id=company_id,
@@ -3768,29 +3749,21 @@ async def update_route_status(
                     ],
                 )
 
-                # عند التفعيل يتبنى Route كل Pending غير المعيّن في منطقته، بما فيه الطوارئ.
+                # التبني التلقائي يخص زيارات Route العادية فقط؛ زيارة الطوارئ لا تنتقل بين المندوبين ضمنياً.
                 await db.execute(
                     update(Visit)
                     .where(
                         Visit.company_id == company_id,
                         Visit.shop_id.in_(shop_ids),
                         Visit.status == "Pending",
+                        Visit.is_emergency.is_(False),
+                        Visit.operational_date == company_local_date,
                         Visit.driver_id.is_(None),
                     )
                     .values(
                         driver_id=route.driver_id,
                         work_session_id=work_session_id,
                     )
-                )
-                await db.execute(
-                    update(ShortageRequest)
-                    .where(
-                        ShortageRequest.company_id == company_id,
-                        ShortageRequest.shop_id.in_(shop_ids),
-                        ShortageRequest.status == "pending",
-                        ShortageRequest.driver_id.is_(None),
-                    )
-                    .values(driver_id=route.driver_id)
                 )
 
                 existing_visits = (
@@ -3799,7 +3772,10 @@ async def update_route_status(
                             Visit.company_id == company_id,
                             Visit.driver_id == route.driver_id,
                             Visit.shop_id.in_(shop_ids),
-                            Visit.status == "Pending",
+                            or_(
+                                Visit.status == "Pending",
+                                Visit.operational_date == company_local_date,
+                            ),
                         ).order_by(Visit.shop_id.asc(), Visit.id.asc())
                     )
                 ).scalars().all()
@@ -3815,6 +3791,7 @@ async def update_route_status(
                                 status_code=409,
                                 detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل تفعيل المسار.",
                             )
+                        visit.operational_date = company_local_date
                         visit.work_session_id = work_session_id
                         existing_pending[shop_id] = visit
 
@@ -3823,10 +3800,7 @@ async def update_route_status(
                         select(ShortageRequest.shop_id).filter(
                             ShortageRequest.company_id == company_id,
                             ShortageRequest.shop_id.in_(shop_ids),
-                            or_(
-                                ShortageRequest.driver_id == route.driver_id,
-                                ShortageRequest.driver_id.is_(None),
-                            ),
+                            ShortageRequest.driver_id == route.driver_id,
                             ShortageRequest.status == "pending",
                         )
                     )
@@ -4270,13 +4244,13 @@ async def restore_zone(
                 Shop.is_archived.is_(True),
                 Shop.archived_due_to_zone_id == zone_id,
             )
-            if payload.mode == "selected_shops":
+            if payload.mode == "selected":
                 selected_ids = sorted({int(shop_id) for shop_id in payload.shop_ids})
                 stmt = stmt.filter(Shop.id.in_(selected_ids))
             shops = (await db.execute(
                 stmt.order_by(Shop.id.asc()).with_for_update()
             )).scalars().all()
-            if payload.mode == "selected_shops" and {int(shop.id) for shop in shops} != set(selected_ids):
+            if payload.mode == "selected" and {int(shop.id) for shop in shops} != set(selected_ids):
                 raise HTTPException(
                     status_code=409,
                     detail="أحد المحلات المحددة لم يُؤرشف تلقائياً بسبب هذه المنطقة؛ استعده من شاشة المحل.",
@@ -4576,70 +4550,10 @@ async def add_shortages(
         existing_pairs = {(int(r.shop_id), int(r.product_variant_id)) for r in existing_rows}
 
         company_local_date = await get_company_local_date(db, company_id)
-
-        unassigned_zone_ids = sorted({
-            int(item.zoneId)
-            for item in payload
-            if item.driverId is None
-        })
-        active_route_driver_by_zone = {}
-        if unassigned_zone_ids:
-            active_routes = (
-                await db.execute(
-                    select(DispatchRoute)
-                    .filter(
-                        DispatchRoute.company_id == company_id,
-                        DispatchRoute.zone_id.in_(unassigned_zone_ids),
-                        DispatchRoute.status == "active",
-                        DispatchRoute.driver_id.is_not(None),
-                    )
-                    .order_by(DispatchRoute.zone_id.asc(), DispatchRoute.id.asc())
-                    .with_for_update()
-                )
-            ).scalars().all()
-            for active_route in active_routes:
-                zone_id = int(active_route.zone_id)
-                route_driver_id = int(active_route.driver_id)
-                prior = active_route_driver_by_zone.get(zone_id)
-                if prior is not None and prior != route_driver_id:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="تم اكتشاف أكثر من Route نشط لنفس المنطقة؛ أصلح التوزيع قبل إضافة النقص.",
-                    )
-                active_route_driver_by_zone[zone_id] = route_driver_id
-
-            auto_driver_ids = sorted(set(active_route_driver_by_zone.values()))
-            if auto_driver_ids:
-                auto_drivers = (
-                    await db.execute(
-                        select(Driver)
-                        .filter(
-                            Driver.company_id == company_id,
-                            Driver.id.in_(auto_driver_ids),
-                            Driver.is_active.is_(True),
-                            Driver.is_admin.is_(False),
-                        )
-                        .order_by(Driver.id.asc())
-                        .with_for_update(read=True)
-                    )
-                ).scalars().all()
-                valid_auto_ids = {int(driver.id) for driver in auto_drivers}
-                active_route_driver_by_zone = {
-                    zone_id: driver_id
-                    for zone_id, driver_id in active_route_driver_by_zone.items()
-                    if driver_id in valid_auto_ids
-                }
-
-        def resolve_shortage_driver_id(item: CreateShortageItem):
-            if item.driverId is not None:
-                return int(item.driverId)
-            return active_route_driver_by_zone.get(int(item.zoneId))
-
         owner_pairs = sorted({
-            (driver_id, int(item.shopId))
+            (int(item.driverId), int(item.shopId))
             for item in payload
-            for driver_id in [resolve_shortage_driver_id(item)]
-            if driver_id is not None
+            if item.driverId is not None
         })
         if owner_pairs:
             await _dispatch_advisory_locks(
@@ -4670,6 +4584,8 @@ async def add_shortages(
                         status_code=409,
                         detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل إضافة طوارئ جديدة.",
                     )
+                visit.operational_date = company_local_date
+                visit.work_session_id = None
                 existing_owner_visits[key] = visit
 
         payload_tracker = set()
@@ -4687,7 +4603,7 @@ async def add_shortages(
                     detail=f"يوجد طلب عاجل معلق مسبقاً للمحل ({shop.name}) وللصنف ({variant_map[product_id].variant_name}).",
                 )
 
-            driver_id = resolve_shortage_driver_id(item)
+            driver_id = int(item.driverId) if item.driverId is not None else None
             db.add(ShortageRequest(
                 company_id=company_id,
                 zone_id=int(item.zoneId),

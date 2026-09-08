@@ -300,6 +300,7 @@ async def start_work_session(
             )
             .values(
                 work_session_id=new_session.id,
+                operational_date=company_local_date,
             )
         )
 
@@ -660,14 +661,10 @@ async def update_visit(
         has_active_shortage = (
             await db.execute(
                 select(ShortageRequest.id)
-                .filter(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop.id,
-                    ShortageRequest.status == "pending",
-                    or_(
-                        ShortageRequest.driver_id.is_(None),
-                        ShortageRequest.driver_id == driver_id,
-                    ),
+                .filter_by(
+                    company_id=company_id,
+                    shop_id=shop.id,
+                    status="pending",
                 )
                 .limit(1)
             )
@@ -1418,7 +1415,6 @@ async def update_visit(
                         Visit.shop_id == shop.id,
                         Visit.driver_id == active_session.driver_id,
                         Visit.status == "Pending",
-                        Visit.operational_date == visit.operational_date,
                         Visit.id != visit.id,
                     )
                 )

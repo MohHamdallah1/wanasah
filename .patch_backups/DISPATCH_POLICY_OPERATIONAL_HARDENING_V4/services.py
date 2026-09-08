@@ -2,8 +2,7 @@ import os
 from config import Config
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import date, datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import date
 from uuid import UUID, uuid4
 from sqlalchemy import select, func, and_, or_, tuple_, update, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -763,51 +762,6 @@ async def get_company_local_date(
         raise InventoryMutationError("تعذر حساب تاريخ العمل المحلي للشركة.")
     return local_date
 
-
-async def get_company_operational_day_utc_bounds(
-    db_session: AsyncSession,
-    company_id: int,
-    operational_date: Optional[date] = None,
-) -> Tuple[datetime, datetime]:
-    """تحويل يوم الشركة المحلي إلى الفترة UTC نصف المفتوحة [start_utc, end_utc)."""
-    try:
-        company_id = _strict_int(company_id, "company_id", minimum=1)
-    except ValueError as exc:
-        raise InventoryMutationError(str(exc)) from exc
-
-    timezone_name = (
-        await db_session.execute(
-            select(Company.timezone).filter(Company.id == company_id)
-        )
-    ).scalar_one_or_none()
-    if not timezone_name:
-        raise InventoryMutationError("الشركة غير موجودة أو لا تحمل منطقة زمنية صالحة.")
-
-    if operational_date is None:
-        operational_date = await get_company_local_date(db_session, company_id)
-    if type(operational_date) is not date:
-        raise InventoryMutationError("operational_date يجب أن يكون date صريحاً.")
-
-    try:
-        company_zone = ZoneInfo(str(timezone_name).strip())
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise InventoryMutationError(
-            f"المنطقة الزمنية للشركة غير صالحة: {timezone_name}"
-        ) from exc
-
-    local_start = datetime.combine(operational_date, time.min, tzinfo=company_zone)
-    next_local_start = datetime.combine(
-        operational_date + timedelta(days=1),
-        time.min,
-        tzinfo=company_zone,
-    )
-    start_utc = local_start.astimezone(timezone.utc).replace(tzinfo=None)
-    end_utc = next_local_start.astimezone(timezone.utc).replace(tzinfo=None)
-    if not start_utc < end_utc:
-        raise InventoryMutationError("حدود يوم العمل UTC غير صالحة.")
-    return start_utc, end_utc
-
-
 def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(spec, dict):
         raise InventoryMutationError("كل حركة في الدفعة يجب أن تكون dict.")
@@ -830,13 +784,6 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             ),
             "transfer_header_id": _optional_positive_int(
                 spec.get("transfer_header_id"), "transfer_header_id"
-            ),
-            "stocktake_session_id": _optional_positive_int(
-                spec.get("stocktake_session_id"), "stocktake_session_id"
-            ),
-            "stocktake_count_attempt_id": _optional_positive_int(
-                spec.get("stocktake_count_attempt_id"),
-                "stocktake_count_attempt_id",
             ),
         }
     except ValueError as exc:
@@ -867,52 +814,10 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         raise InventoryMutationError(
             "مرجع الحركة أو مفتاح عدم التكرار أطول من الحد المسموح."
         )
-    raw_snapshot = spec.get("financial_unit_price_snapshot")
-    if raw_snapshot is None:
-        financial_unit_price_snapshot = None
-    else:
-        try:
-            financial_unit_price_snapshot = _money_12_3(
-                raw_snapshot,
-                "financial_unit_price_snapshot",
-            )
-        except ValueError as exc:
-            raise InventoryMutationError(str(exc)) from exc
-
-    stocktake_session_id = normalized["stocktake_session_id"]
-    stocktake_count_attempt_id = normalized["stocktake_count_attempt_id"]
-    is_stocktake_reference = reference_type in _STOCKTAKE_ONLY_REFERENCE_TYPES
-
-    if is_stocktake_reference:
-        if movement_kind != "PHYSICAL":
-            raise InventoryMutationError("حركة ترحيل الجرد يجب أن تكون PHYSICAL حصراً.")
-        if stocktake_session_id is None or stocktake_count_attempt_id is None:
-            raise InventoryMutationError(
-                "حركة الجرد تتطلب stocktake_session_id وstocktake_count_attempt_id."
-            )
-        if reference_type in {"DRIVER_SHORTAGE", "DRIVER_SURPLUS"} and normalized["work_session_id"] is None:
-            raise InventoryMutationError("حركة عهدة المندوب تتطلب work_session_id.")
-        if reference_type == "DRIVER_SHORTAGE":
-            if financial_unit_price_snapshot is None:
-                raise InventoryMutationError(
-                    "DRIVER_SHORTAGE يتطلب سعراً مالياً مثبتاً لحظة الترحيل."
-                )
-            total_value = financial_unit_price_snapshot * Decimal(normalized["quantity"])
-            if not total_value.is_finite() or total_value > _MONEY_12_3_MAX:
-                raise InventoryMutationError("قيمة DRIVER_SHORTAGE تتجاوز السعة المالية.")
-        elif financial_unit_price_snapshot is not None:
-            raise InventoryMutationError(
-                "السعر المالي المثبت مسموح فقط لـ DRIVER_SHORTAGE."
-            )
-    else:
-        if stocktake_session_id is not None or stocktake_count_attempt_id is not None:
-            raise InventoryMutationError(
-                "هوية جلسة الجرد غير مسموحة لحركة غير جردية."
-            )
-        if financial_unit_price_snapshot is not None:
-            raise InventoryMutationError(
-                "السعر المالي المثبت غير مسموح لحركة غير DRIVER_SHORTAGE."
-            )
+    if reference_type in _STOCKTAKE_ONLY_REFERENCE_TYPES:
+        raise InventoryMutationError(
+            "مرجع حركة الجرد محجوز لخدمة ترحيل الجرد المعتمد ولا يجوز تمريره للمحرك العام."
+        )
 
     source_stock_status = spec.get("source_stock_status")
     destination_stock_status = spec.get("destination_stock_status")
@@ -991,7 +896,6 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         "source_stock_status": source_stock_status,
         "destination_stock_status": destination_stock_status,
         "reservation_action": reservation_action,
-        "financial_unit_price_snapshot": financial_unit_price_snapshot,
         "notes": notes,
     })
     return normalized
@@ -1014,9 +918,8 @@ def _movement_matches_existing(
         "quantity": spec["quantity"],
         "work_session_id": spec["work_session_id"],
         "transfer_header_id": spec["transfer_header_id"],
-        "stocktake_session_id": spec["stocktake_session_id"],
-        "stocktake_count_attempt_id": spec["stocktake_count_attempt_id"],
-        "financial_unit_price_snapshot": spec["financial_unit_price_snapshot"],
+        "stocktake_session_id": None,
+        "stocktake_count_attempt_id": None,
         "reference_type": spec["reference_type"],
         "reference_id": spec["reference_id"],
         "notes": spec["notes"],
@@ -1053,11 +956,6 @@ def _inventory_lock_conflicts_with_spec(
     lock: InventoryLock,
     spec: Dict[str, Any],
 ) -> bool:
-    # جلسة الجرد المالكة للقفل وحدها تستطيع ترحيل فروقاتها عبر المحرك.
-    own_stocktake_id = spec.get("stocktake_session_id")
-    if own_stocktake_id is not None and lock.stocktake_session_id == own_stocktake_id:
-        return False
-
     endpoints = {
         loc_id
         for loc_id in (spec["source_location_id"], spec["destination_location_id"])
@@ -1482,9 +1380,6 @@ async def apply_inventory_movements_batch(
             quantity=spec["quantity"],
             work_session_id=spec["work_session_id"],
             transfer_header_id=spec["transfer_header_id"],
-            stocktake_session_id=spec["stocktake_session_id"],
-            stocktake_count_attempt_id=spec["stocktake_count_attempt_id"],
-            financial_unit_price_snapshot=spec["financial_unit_price_snapshot"],
             reference_type=spec["reference_type"],
             reference_id=spec["reference_id"],
             idempotency_key=spec["idempotency_key"],
@@ -2512,6 +2407,23 @@ async def post_approved_stocktake_adjustments(
             "تم العثور على حركات جرد سابقة بينما الجلسة ما زالت APPROVED؛ تم رفض الحالة الجزئية."
         )
 
+    positive_rows = {
+        (
+            spec["product_variant_id"],
+            spec["batch_id"],
+            spec["stock_status"],
+        )
+        for spec in specs
+        if spec["variance"] > 0
+    }
+    if positive_rows:
+        await _bulk_ensure_inventory_balances(
+            db_session,
+            company_id=company_id,
+            location_id=session.location_id,
+            rows=list(positive_rows),
+        )
+
     # اقرأ نطاق الجرد الفعلي مرة واحدة.
     # VEHICLE_RECON قد يكون كاملاً (من warehouse) أو موجهاً فقط لأصناف ظهر بها فرق تجميعي.
     stmt_balances = select(InventoryBalance).execution_options(populate_existing=True).filter(
@@ -2637,41 +2549,82 @@ async def post_approved_stocktake_adjustments(
         for spec in specs:
             spec["financial_unit_price_snapshot"] = None
 
-    movement_specs = []
+    before_by_key = {}
+    prepared = []
+    # تحقق من جميع النتائج قبل تغيير أي كائن ORM؛ فشل السطر الأخير لا يترك أسطراً معدلة.
     for spec in specs:
-        movement_specs.append({
-            "product_variant_id": spec["product_variant_id"],
-            "batch_id": spec["batch_id"],
-            "quantity": spec["quantity"],
-            "movement_kind": "PHYSICAL",
-            "reference_type": spec["reference_type"],
-            "reference_id": spec["reference_id"],
-            "idempotency_key": spec["idempotency_key"],
-            "source_location_id": spec["source_location_id"],
-            "destination_location_id": spec["destination_location_id"],
-            "source_stock_status": spec["source_stock_status"],
-            "destination_stock_status": spec["destination_stock_status"],
-            "reservation_action": None,
-            "work_session_id": spec["work_session_id"],
-            "transfer_header_id": None,
-            "stocktake_session_id": session.id,
-            "stocktake_count_attempt_id": latest_attempt.id,
-            "financial_unit_price_snapshot": spec.get("financial_unit_price_snapshot"),
-            "notes": "ترحيل فرق آخر محاولة عد معتمدة.",
-        })
+        key = (
+            spec["product_variant_id"],
+            spec["batch_id"],
+            spec["stock_status"],
+        )
+        balance = balance_map.get(key)
+        if balance is None:
+            raise InventoryMutationError("رصيد مطلوب لترحيل فرق الجرد غير موجود.")
+        before_on_hand = int(balance.on_hand_quantity or 0)
+        before_reserved = int(balance.reserved_quantity or 0)
+        after_on_hand = before_on_hand + int(spec["variance"])
+        if after_on_hand < 0:
+            raise InventoryMutationError(
+                "فرق الجرد سيجعل الرصيد الفعلي سالباً؛ تم رفض الترحيل."
+            )
+        if after_on_hand < before_reserved:
+            raise InventoryMutationError(
+                "فرق الجرد سيجعل الرصيد أقل من الكمية المحجوزة؛ حرر الحجوزات أولاً."
+            )
+        if after_on_hand > _DB_INT_MAX:
+            raise InventoryMutationError(
+                "الرصيد الناتج من فرق الجرد يتجاوز سعة INTEGER."
+            )
 
-    applied_movements = []
-    if movement_specs:
-        applied_movements = await apply_inventory_movements_batch(
-            db_session,
+        before_by_key[key] = (before_on_hand, before_reserved)
+        prepared.append((spec, balance, after_on_hand))
+
+    movements = []
+    for spec, balance, after_on_hand in prepared:
+        balance.on_hand_quantity = after_on_hand
+        movement = InventoryMovement(
             company_id=company_id,
             performed_by=performed_by,
-            movements=movement_specs,
+            source_location_id=spec["source_location_id"],
+            destination_location_id=spec["destination_location_id"],
+            source_stock_status=spec["source_stock_status"],
+            destination_stock_status=spec["destination_stock_status"],
+            product_variant_id=spec["product_variant_id"],
+            batch_id=spec["batch_id"],
+            movement_kind="PHYSICAL",
+            reservation_action=None,
+            quantity=spec["quantity"],
+            financial_unit_price_snapshot=spec.get("financial_unit_price_snapshot"),
+            work_session_id=spec["work_session_id"],
+            transfer_header_id=None,
+            stocktake_session_id=session.id,
+            stocktake_count_attempt_id=latest_attempt.id,
+            reference_type=spec["reference_type"],
+            reference_id=spec["reference_id"],
+            idempotency_key=spec["idempotency_key"],
+            notes="ترحيل فرق آخر محاولة عد معتمدة.",
         )
-        if len(applied_movements) != len(movement_specs):
-            raise InventoryMutationError(
-                "المحرك الموحد لم يعد جميع حركات فروقات الجرد المتوقعة."
-            )
+        db_session.add(movement)
+        movements.append((spec, movement, balance))
+
+    await db_session.flush()
+
+    for spec, movement, balance in movements:
+        key = (
+            spec["product_variant_id"],
+            spec["batch_id"],
+            spec["stock_status"],
+        )
+        before_on_hand, before_reserved = before_by_key[key]
+        _add_inventory_movement_impact(
+            db_session,
+            company_id=company_id,
+            movement_id=movement.id,
+            balance=balance,
+            before_on_hand=before_on_hand,
+            before_reserved=before_reserved,
+        )
 
     now = utc_now()
     await db_session.execute(
@@ -2701,7 +2654,7 @@ async def post_approved_stocktake_adjustments(
             settled_by=performed_by,
         )
 
-    return applied_movements
+    return [movement for _, movement, _ in movements]
 
 
 # تخصيص FEFO على الدفعات غير المقفلة؛ يجب استهلاك النتيجة في نفس المعاملة دون commit بين التخصيص والتنفيذ.

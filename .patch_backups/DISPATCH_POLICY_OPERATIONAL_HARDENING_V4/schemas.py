@@ -1139,34 +1139,19 @@ class UpdateZoneRequest(RequestModel):
 
 
 class RestoreZoneRequest(RequestModel):
-    # الأسماء الرسمية للسياسة. الاسمان القديمان يُقبلان فقط كـ aliases
-    # لمنع كسر Dashboard قديم، ثم يُطبّعان إلى العقد الجديد.
-    mode: Literal[
-        "zone_only",
-        "selected_shops",
-        "shops_archived_by_same_zone",
-    ] = "shops_archived_by_same_zone"
+    mode: Literal["zone_only", "all_zone_archived", "selected"] = "all_zone_archived"
     shop_ids: List[PositiveDbInt] = Field(default_factory=list, max_length=5000)
-
-    @field_validator("mode", mode="before")
-    @classmethod
-    def normalize_restore_mode(cls, v: Any) -> str:
-        value = str(v or "").strip()
-        aliases = {
-            "selected": "selected_shops",
-            "all_zone_archived": "shops_archived_by_same_zone",
-        }
-        return aliases.get(value, value)
 
     @model_validator(mode="after")
     def validate_restore_mode(self) -> "RestoreZoneRequest":
-        if self.mode == "selected_shops" and not self.shop_ids:
-            raise ValueError("وضع selected_shops يتطلب تحديد محل واحد على الأقل.")
-        if self.mode != "selected_shops" and self.shop_ids:
-            raise ValueError("shop_ids مسموحة فقط مع وضع selected_shops.")
+        if self.mode == "selected" and not self.shop_ids:
+            raise ValueError("وضع selected يتطلب تحديد محل واحد على الأقل.")
+        if self.mode != "selected" and self.shop_ids:
+            raise ValueError("shop_ids مسموحة فقط مع وضع selected.")
         if len(self.shop_ids) != len(set(self.shop_ids)):
             raise ValueError("لا يجوز تكرار نفس المحل في قائمة الاستعادة.")
         return self
+
 
 class ArchivedZoneResponse(BaseModel):
     id: str

@@ -653,10 +653,8 @@ class Visit(Base):
         Index('ix_visit_shop_timestamp', 'shop_id', 'visit_timestamp'),
         Index('ix_visit_session_outcome', 'work_session_id', 'outcome'),
         Index(
-            'uq_visit_one_pending_owner_day',
-            'company_id', 'driver_id', 'shop_id', 'operational_date',
-            unique=True,
-            postgresql_where=text("status = 'Pending' AND driver_id IS NOT NULL"),
+            'ix_visit_pending_owner_day',
+            'company_id', 'driver_id', 'shop_id', 'operational_date', 'status'
         ),
     )
     id              = Column(Integer, primary_key=True)
