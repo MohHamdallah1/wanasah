@@ -1,4 +1,44 @@
 ├── .gitignore
+├── .patch_backups
+│   ├── DISPATCH_CONCURRENCY_EMERGENCY_INTEGRITY
+│   │   └── dispatch.py
+│   ├── DISPATCH_DASHBOARD_FINANCIAL_SETTLEMENT
+│   │   └── dispatch.py.before_dashboard_financial_settlement
+│   ├── DISPATCH_FINAL_INTEGRITY_GATE
+│   │   ├── dispatch.py
+│   │   └── schemas.py
+│   ├── DISPATCH_POLICY_OPERATIONAL_HARDENING
+│   │   ├── api
+│   │   │   ├── dispatch.py
+│   │   │   └── driver.py
+│   │   ├── models.py
+│   │   ├── schemas.py
+│   │   └── services.py
+│   ├── DISPATCH_POLICY_OPERATIONAL_HARDENING_V4
+│   │   ├── api
+│   │   │   ├── dispatch.py
+│   │   │   └── driver.py
+│   │   ├── models.py
+│   │   ├── schemas.py
+│   │   └── services.py
+│   ├── DISPATCH_ROUTE_STATUS_UNIFIED
+│   │   └── dispatch.py
+│   ├── DISPATCH_RUNTIME_EMERGENCY_HARDENING
+│   │   └── dispatch.py.before_runtime_emergency_hardening
+│   ├── DISPATCH_UNIFIED_INVENTORY_CORE
+│   │   └── dispatch.py.before_unified_inventory_core
+│   ├── DRIVER_FINAL_INVENTORY_EDGES
+│   │   ├── driver.py.before
+│   │   └── models.py.before
+│   ├── DRIVER_RECONCILIATION_FREEZE_GATE
+│   │   ├── driver.py
+│   │   ├── models.py
+│   │   ├── reconciliation.py
+│   │   └── services.py
+│   └── INVENTORY_FINANCIAL_SETTLEMENT_SEPARATION
+│       ├── models.py
+│       ├── reconciliation.py
+│       └── services.py
 ├── .rules
 ├── .vscode
 ├── RUN.txt
@@ -102,6 +142,7 @@
 │   │   │       ├── tooltip.tsx
 │   │   │       └── use-toast.ts
 │   │   ├── data
+│   │   │   └── operations-data.ts
 │   │   ├── hooks
 │   │   │   ├── use-mobile.tsx
 │   │   │   ├── use-toast.ts
@@ -123,10 +164,7 @@
 │   │   │       ├── Tab4Ledger.tsx
 │   │   │       └── inventoryUtils.ts
 │   │   ├── test
-│   │   │   ├── example.test.ts
-│   │   │   └── setup.ts
 │   │   ├── types
-│   │   │   └── dispatch.ts
 │   │   └── vite-env.d.ts
 │   ├── tailwind.config.ts
 │   ├── tsconfig.app.json
@@ -138,6 +176,22 @@
 ├── wa_backend
 │   ├── .concurrency_audit_baseline.json
 │   ├── .env
+│   ├── .patch_backups
+│   │   ├── DispatchBoard.tsx.before_integrity_jobs_20260908_104546.bak
+│   │   ├── DispatchBoard.tsx.before_stale_handshake_20260908_091232.bak
+│   │   ├── README.md.before_reports_foundation_20260908_190806.bak
+│   │   ├── RECONCILIATION_UNIFIED_VEHICLE_RECON
+│   │   │   ├── reconciliation.py.before
+│   │   │   └── services.py.before
+│   │   ├── app.py.before_integrity_jobs_20260908_104546.bak
+│   │   ├── app.py.before_reports_foundation_20260908_190806.bak
+│   │   ├── app.py.before_session_monitor_20260908_102814.bak
+│   │   ├── app.py.before_stale_handshake_20260908_091231.bak
+│   │   ├── main.py.before_stale_handshake_20260908_091232.bak
+│   │   ├── requirements_before_worker_core_20260908_083417.txt
+│   │   ├── settings.py.before_integrity_jobs_20260908_104546.bak
+│   │   ├── settings.py.before_session_monitor_20260908_102814.bak
+│   │   └── worker_event_relay.py.before_integrity_jobs_20260908_104546.bak
 │   ├── .pytest_cache
 │   ├── alembic
 │   ├── alembic.ini
@@ -178,6 +232,22 @@
 │   │   └── test_smoke.py
 │   ├── services.py
 │   ├── venv_wsl
+│   ├── worker_event_relay.py
+│   ├── workers
+│   │   ├── README.md
+│   │   ├── __init__.py
+│   │   ├── app.py
+│   │   ├── bootstrap.py
+│   │   ├── events.py
+│   │   ├── settings.py
+│   │   ├── tasks
+│   │   │   ├── __init__.py
+│   │   │   ├── core.py
+│   │   │   ├── handshake.py
+│   │   │   ├── integrity.py
+│   │   │   ├── reports.py
+│   │   │   └── session_monitor.py
+│   │   └── tenant.py
 │   └── ws_manager.py
 └── wanasah_frontend
     ├── .env

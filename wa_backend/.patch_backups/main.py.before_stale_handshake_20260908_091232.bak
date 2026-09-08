@@ -98,13 +98,10 @@ import os
 # +++ ISSUE-26: الإغلاق النظيف لموارد قاعدة البيانات لمنع تسريب الاتصالات (Connection Leaks) +++
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # STALE_HANDSHAKE_MONITOR_V1: managed PostgreSQL LISTEN -> WebSocket relay.
-    await worker_event_relay.start()
-    try:
-        yield
-    finally:
-        await worker_event_relay.stop()
-        await engine.dispose()
+    # بدء تشغيل السيرفر
+    yield
+    # إغلاق السيرفر
+    await engine.dispose()
 
 # S-05: Default to safe (production), enable docs only via explicit opt-in
 ENV = os.getenv("ENVIRONMENT", "production")

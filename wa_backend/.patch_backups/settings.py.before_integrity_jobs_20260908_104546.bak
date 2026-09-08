@@ -1,0 +1,154 @@
+# STALE_HANDSHAKE_MONITOR_V1
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models import SystemSetting
+
+WARNING_KEY = "handshake_warning_hours"
+CRITICAL_KEY = "handshake_critical_hours"
+AUTO_CANCEL_KEY = "handshake_auto_cancel_hours"
+ACTION_KEY = "handshake_timeout_action"
+
+DEFAULT_WARNING_HOURS = 4
+DEFAULT_CRITICAL_HOURS = 8
+DEFAULT_AUTO_CANCEL_HOURS = 12
+DEFAULT_ACTION = "NOTIFY_ONLY"
+
+VALID_ACTIONS = {"NOTIFY_ONLY", "AUTO_CANCEL"}
+
+
+@dataclass(frozen=True)
+class HandshakeMonitorSettings:
+    warning_hours: int
+    critical_hours: int
+    auto_cancel_hours: int
+    timeout_action: str
+
+
+def _parse_positive_int(raw: str | None, *, key: str, default: int) -> int:
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid integer SystemSetting: {key}") from exc
+    if value <= 0 or value > 720:
+        raise ValueError(
+            f"SystemSetting {key} must be between 1 and 720 hours."
+        )
+    return value
+
+
+async def load_handshake_monitor_settings(
+    db: AsyncSession,
+    *,
+    company_id: int,
+) -> HandshakeMonitorSettings:
+    rows = (
+        await db.execute(
+            select(
+                SystemSetting.setting_key,
+                SystemSetting.setting_value,
+            ).filter(
+                SystemSetting.company_id == company_id,
+                SystemSetting.setting_key.in_(
+                    [WARNING_KEY, CRITICAL_KEY, AUTO_CANCEL_KEY, ACTION_KEY]
+                ),
+            )
+        )
+    ).all()
+    values = {str(key): str(value) for key, value in rows}
+
+    warning = _parse_positive_int(
+        values.get(WARNING_KEY),
+        key=WARNING_KEY,
+        default=DEFAULT_WARNING_HOURS,
+    )
+    critical = _parse_positive_int(
+        values.get(CRITICAL_KEY),
+        key=CRITICAL_KEY,
+        default=DEFAULT_CRITICAL_HOURS,
+    )
+    auto_cancel = _parse_positive_int(
+        values.get(AUTO_CANCEL_KEY),
+        key=AUTO_CANCEL_KEY,
+        default=DEFAULT_AUTO_CANCEL_HOURS,
+    )
+
+    action = values.get(ACTION_KEY, DEFAULT_ACTION).strip().upper()
+    if action not in VALID_ACTIONS:
+        raise ValueError(
+            f"SystemSetting {ACTION_KEY} must be one of {sorted(VALID_ACTIONS)}."
+        )
+    if not (warning < critical < auto_cancel):
+        raise ValueError(
+            "Handshake timeout settings must satisfy: "
+            "warning < critical < auto_cancel."
+        )
+
+    return HandshakeMonitorSettings(
+        warning_hours=warning,
+        critical_hours=critical,
+        auto_cancel_hours=auto_cancel,
+        timeout_action=action,
+    )
+
+
+# SESSION_MONITOR_V1
+SESSION_WARNING_KEY = "session_warning_hours"
+SESSION_CRITICAL_KEY = "session_critical_hours"
+
+DEFAULT_SESSION_WARNING_HOURS = 12
+DEFAULT_SESSION_CRITICAL_HOURS = 16
+
+
+@dataclass(frozen=True)
+class SessionMonitorSettings:
+    warning_hours: int
+    critical_hours: int
+
+
+async def load_session_monitor_settings(
+    db: AsyncSession,
+    *,
+    company_id: int,
+) -> SessionMonitorSettings:
+    rows = (
+        await db.execute(
+            select(
+                SystemSetting.setting_key,
+                SystemSetting.setting_value,
+            ).filter(
+                SystemSetting.company_id == company_id,
+                SystemSetting.setting_key.in_(
+                    [SESSION_WARNING_KEY, SESSION_CRITICAL_KEY]
+                ),
+            )
+        )
+    ).all()
+    values = {str(key): str(value) for key, value in rows}
+
+    warning = _parse_positive_int(
+        values.get(SESSION_WARNING_KEY),
+        key=SESSION_WARNING_KEY,
+        default=DEFAULT_SESSION_WARNING_HOURS,
+    )
+    critical = _parse_positive_int(
+        values.get(SESSION_CRITICAL_KEY),
+        key=SESSION_CRITICAL_KEY,
+        default=DEFAULT_SESSION_CRITICAL_HOURS,
+    )
+
+    if warning >= critical:
+        raise ValueError(
+            "Session monitor settings must satisfy: warning < critical."
+        )
+
+    return SessionMonitorSettings(
+        warning_hours=warning,
+        critical_hours=critical,
+    )
