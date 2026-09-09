@@ -1,6 +1,6 @@
 // +++ الكي الجراحي: إضافة تبويب الإطلاق لتطابق الـ UI +++
 export type TabId = "routes" | "zones" | "launch";
-export type ScheduleStatus = "overdue" | "soon" | "upcoming" | "future" | "today" | "null" | null;
+export type ScheduleStatus = "overdue" | "today" | "upcoming" | "null";
 export type RouteStatus = "waiting" | "active" | "postponed";
 
 export interface PendingRoute {
@@ -12,7 +12,8 @@ export interface PendingRoute {
   vehicleId: string;
   shopsRemaining: number;
   status: RouteStatus;
-  sessionEnded?: boolean; // +++ إضافة حالة الجلسة (للتراجع عن إنهاء العمل) +++
+  sessionEnded: boolean; // +++ إضافة حالة الجلسة (للتراجع عن إنهاء العمل) +++
+  sessionBound: boolean;
 }
 
 export interface Shop {
@@ -30,6 +31,7 @@ export interface Shop {
 
 export interface Shortage {
   id: string;
+  productId: string;
   zoneId: string;
   zoneName: string;
   shopId: string;
@@ -39,8 +41,8 @@ export interface Shortage {
   productName: string;
   quantity: number;
   status: "pending" | "fulfilled";
-  waitTime?: string;
-  createdAt?: string;
+  waitTime?: string | null;
+  createdAt?: string | null;
 }
 
 export interface Zone {
@@ -50,6 +52,7 @@ export interface Zone {
   frequency: string;
   visitDay: string;
   startDate: string;
+  intervalDays: number | null;
   shopsCount?: number;
   calculatedStatus?: string;
   dateColor?: string;
@@ -67,7 +70,7 @@ export interface RouteTransfer {
   product_name: string;
   delta_cartons: number;
   delta_packs: number;
-  status: "pending" | "accepted" | "rejected";
-  created_at: string;
+  status: "pending" | "accepted" | "rejected" | "cancelled";
+  created_at: string | null;
   batch_id: string;
 }

@@ -29,9 +29,10 @@ export function BulkTransferModal({
       onClose={onClose}
       title="نقل المحلات الجماعي"
       footer={
-        <button 
+        <button
           onClick={onConfirm}
-          className="w-full bg-[#1e87bb] text-white py-2.5 rounded-xl font-bold hover:bg-[#166a94] transition-colors shadow-lg"
+          disabled={selectedShopIds.length === 0 || !targetTransferZoneId}
+          className="w-full bg-[#1e87bb] text-white py-2.5 rounded-xl font-bold hover:bg-[#166a94] transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
         >
           تأكيد النقل
         </button>

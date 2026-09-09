@@ -40,19 +40,44 @@ export function PostponedRoutesModal({
                   <tr key={route.id} className="hover:bg-slate-50">
                     <td className="p-4 font-bold text-slate-800">{route.zoneName}</td>
                     <td className="p-4">
-                      <select 
-                        value={route.driverId} 
-                        onChange={e => onUpdateDriver(route.id, e.target.value)} 
+                      {route.sessionBound ? (
+                      <span className="font-medium text-slate-700">
+                        {route.driverName || "بدون مندوب"}
+                        <span className="block text-[10px] text-slate-400 mt-1">
+                          مثبت بجلسة العمل
+                        </span>
+                      </span>
+                    ) : (
+                      <select
+                        value={
+                          drivers.some((driver) => driver.id === route.driverId)
+                            ? route.driverId
+                            : ""
+                        }
+                        onChange={(e) => onUpdateDriver(route.id, e.target.value)}
                         className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
                       >
-                        {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                        <option value="" disabled>
+                          اختر مندوباً نشطاً
+                        </option>
+
+                        {drivers.map((driver) => (
+                          <option key={driver.id} value={driver.id}>
+                            {driver.name}
+                          </option>
+                        ))}
                       </select>
+                    )}
                     </td>
                     <td className="p-4 text-center font-bold text-amber-600">{route.shopsRemaining}</td>
                     <td className="p-4">
                       <button 
-                        onClick={() => onRestore(route.id)} 
-                        className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2"
+                        onClick={() => onRestore(route.id)}
+                        disabled={
+                          !route.sessionBound &&
+                          !drivers.some((driver) => driver.id === route.driverId)
+                        } 
+                        className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <RotateCcw className="w-3.5 h-3.5" /> 
                         استعادة

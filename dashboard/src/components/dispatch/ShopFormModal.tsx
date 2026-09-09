@@ -3,20 +3,22 @@ import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { Zone } from "@/types/dispatch";
 
+interface ShopFormState {
+  name: string;
+  owner: string;
+  phone: string;
+  mapLink: string;
+  zoneId: string;
+  initialDebt: number;
+  maxDebtLimit: number;
+}
+
 interface ShopFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   editingShopId: string | null;
-  shopForm: {
-    name: string;
-    owner: string;
-    phone: string;
-    mapLink: string;
-    zoneId: string;
-    initialDebt: number;
-    maxDebtLimit: number;
-  };
-  onShopFormChange: (form: any) => void;
+  shopForm: ShopFormState;
+  onShopFormChange: (form: ShopFormState) => void;
   zones: Zone[];
   onSave: () => void;
 }
@@ -47,6 +49,9 @@ export function ShopFormModal({
           <span className="text-xs font-bold text-slate-500">اسم المحل</span>
           <input
             type="text"
+            required
+            minLength={2}
+            maxLength={150}
             value={shopForm.name}
             onChange={e => onShopFormChange({ ...shopForm, name: e.target.value })}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
@@ -57,6 +62,7 @@ export function ShopFormModal({
           <span className="text-xs font-bold text-slate-500">اسم المالك</span>
           <input
             type="text"
+            maxLength={100}
             value={shopForm.owner}
             onChange={e => onShopFormChange({ ...shopForm, owner: e.target.value })}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
@@ -67,6 +73,7 @@ export function ShopFormModal({
           <span className="text-xs font-bold text-slate-500">رقم الهاتف</span>
           <input
             type="tel"
+            maxLength={20}
             value={shopForm.phone}
             onChange={e => {
               const onlyNumsAndPlus = e.target.value.replace(/[^\d+]/g, '');
@@ -91,7 +98,8 @@ export function ShopFormModal({
           <div className="relative">
             <MapPin className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
-              type="url"
+              type="text"
+              maxLength={500}
               value={shopForm.mapLink}
               onChange={e => onShopFormChange({ ...shopForm, mapLink: e.target.value })}
               className="w-full rounded-xl border border-slate-200 pr-9 pl-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
@@ -105,6 +113,8 @@ export function ShopFormModal({
             <CircleDollarSign className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="number"
+              min="0"
+              step="0.001"
               value={shopForm.maxDebtLimit}
               // +++ الكي الجراحي: استخدام Math.max لمنع إدخال ذمم سالبة تكسر الحسابات +++
               onChange={e => onShopFormChange({ ...shopForm, maxDebtLimit: Math.max(0, Number(e.target.value)) })}
@@ -118,6 +128,8 @@ export function ShopFormModal({
           <span className="text-xs font-bold text-slate-500">المديونية الحالية</span>
           <input
             type="number"
+            min="0"
+            step="0.001"
             value={shopForm.initialDebt}
             // +++ الكي الجراحي: استخدام Math.max لمنع إدخال ذمم سالبة تكسر الحسابات +++
             onChange={e => onShopFormChange({ ...shopForm, initialDebt: Math.max(0, Number(e.target.value)) })}

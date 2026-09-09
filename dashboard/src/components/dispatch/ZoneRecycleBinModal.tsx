@@ -52,7 +52,7 @@ export function ZoneRecycleBinModal({
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 text-[#1e87bb] text-sm font-bold hover:bg-emerald-100 transition-colors"
                 >
                   <RotateCcw className="w-4 h-4" />
-                  استعادة ♻️
+                  استعادة المنطقة ومحلاتها ♻️
                 </button>
               </div>
             ))}

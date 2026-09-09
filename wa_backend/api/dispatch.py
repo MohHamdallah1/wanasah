@@ -2667,7 +2667,6 @@ async def get_dispatch_shops(
     stmt = select(Shop).filter(
     Shop.company_id == current_admin.company_id,
     Shop.is_active == True,
-    Shop.is_archived == False
 ).order_by(nullslast(Shop.sequence.asc()), Shop.id.asc())
     shops = (await db.execute(stmt)).scalars().all()
     
@@ -4494,6 +4493,7 @@ async def get_shortages(
     
     result = [{
         "id": str(s.id),
+        "productId": str(s.product_variant_id),
         "zoneId": str(s.zone_id) if s.zone_id else "",
         "zoneName": s.zone.name if s.zone else "",
         "shopId": str(s.shop_id) if s.shop_id else "",

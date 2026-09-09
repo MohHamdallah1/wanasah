@@ -29,7 +29,7 @@ interface ShortageModalProps {
   shortages: Shortage[];
   onDeleteShortage: (id: string) => void;
   onDeleteShortageGroup: (ids: string[]) => void;
-  onEditShortageGroup: (shopId: string) => void;
+  onEditShortageGroup: (shopId: string, driverId?: string) => void;
   editingShortageIds: string[];
   onCancelEdit: () => void;
   drivers: { id: string; name: string }[];
@@ -42,23 +42,26 @@ interface ShortageModalProps {
 function groupByShop(shortages: Shortage[]) {
   const map = new Map<string, {
     shopId: string; shopName: string; zoneName: string;
+    driverId: string;
     driverName: string;
     /** Earliest createdAt of items in this group */
     createdAt: string | undefined;
     items: Shortage[];
   }>();
   for (const sh of shortages) {
-    if (!map.has(sh.shopId)) {
-      map.set(sh.shopId, {
+    const groupKey = `${sh.shopId}:${sh.driverId || ""}`;
+    if (!map.has(groupKey)) {
+      map.set(groupKey, {
         shopId: sh.shopId,
         shopName: sh.shopName,
         zoneName: sh.zoneName,
+        driverId: sh.driverId || "",
         driverName: sh.driverName || "",
         createdAt: sh.createdAt,
         items: [],
       });
     }
-    const entry = map.get(sh.shopId)!;
+    const entry = map.get(groupKey)!;
     entry.items.push(sh);
     // keep the earliest timestamp
     if (sh.createdAt && (!entry.createdAt || sh.createdAt < entry.createdAt)) {
@@ -368,19 +371,21 @@ export function ShortageModal({
                 options={zones.map(z => ({ id: z.id, label: z.name }))}
                 value={shortageZoneId}
                 onChange={onZoneChange}
+                disabled={isEditMode}
               />
               <CustomSelect
                 label="المحل"
                 options={activeShops.filter(s => s.zoneId === shortageZoneId).map(s => ({ id: s.id, label: s.name }))}
                 value={shortageShopId}
                 onChange={onShopChange}
-                disabled={!shortageZoneId}
+                disabled={isEditMode || !shortageZoneId}
               />
               <CustomSelect
                 label="توجيه الطلب للمندوب"
                 options={drivers.map(d => ({ id: d.id, label: d.name }))}
                 value={shortageDriverId}
                 onChange={onDriverChange}
+                disabled={isEditMode}
               />
             </div>
 
@@ -389,12 +394,19 @@ export function ShortageModal({
               <div className="col-span-2 flex flex-col gap-1.5">
                 <span className="text-xs font-semibold text-slate-600">المنتج</span>
                 <select
-                  value={newShortage.productName}
-                  onChange={e => onNewShortageChange({ ...newShortage, productName: e.target.value })}
+                  value={newShortage.productId || ""}
+                  onChange={e => {
+                    const product = products.find(item => item.id === e.target.value);
+                    onNewShortageChange({
+                      ...newShortage,
+                      productId: e.target.value,
+                      productName: product?.name || "",
+                    });
+                  }}
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20 transition-all"
                 >
                   {products.map(prod => (
-                    <option key={prod.id} value={prod.name}>{prod.name}</option>
+                    <option key={prod.id} value={prod.id}>{prod.name}</option>
                   ))}
                 </select>
               </div>
@@ -513,7 +525,7 @@ export function ShortageModal({
                   group={group}
                   isBeingEdited={group.items.some(it => editingShortageIds.includes(it.id))}
                   isEditModeActive={isEditMode}
-                  onEdit={() => onEditShortageGroup(group.shopId)}
+                  onEdit={() => onEditShortageGroup(group.shopId, group.driverId)}
                   onDeleteAll={() => onDeleteShortageGroup(group.items.map(it => it.id))}
                   onDeleteOne={id => onDeleteShortage(id)}
                 />

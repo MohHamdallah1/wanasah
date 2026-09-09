@@ -1,4 +1,4 @@
-import { GripVertical, Pencil, Archive, MapPin } from "lucide-react";
+import { GripVertical, Pencil, Archive } from "lucide-react";
 import { Shop, Zone } from "@/types/dispatch";
 import { SequenceInput } from "@/components/ui/sequence-input";
 import { useMemo } from "react";
@@ -67,7 +67,7 @@ export function ShopTable({
         <tbody className="divide-y divide-slate-50">
           {shops.length === 0 ? (
             <tr>
-              <td colSpan={isEditMode ? 6 : 4} className="p-12 text-center text-slate-400">لا توجد محلات في هذه المنطقة حالياً.</td>
+              <td colSpan={isEditMode ? 7 : 5} className="p-12 text-center text-slate-400">لا توجد محلات في هذه المنطقة حالياً.</td>
             </tr>
           ) : (
             shops.map((shop) => (
@@ -110,7 +110,11 @@ export function ShopTable({
                         </span>
                       )}
                     </p>
-                    <a href={shop.mapLink} target="_blank" rel="noreferrer" className="text-[10px] text-emerald-600 font-medium hover:underline w-fit">عرض الموقع</a>
+                    {shop.mapLink ? (
+                      <a href={shop.mapLink} target="_blank" rel="noreferrer" className="text-[10px] text-emerald-600 font-medium hover:underline w-fit">عرض الموقع</a>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">لا يوجد موقع</span>
+                    )}
                   </div>
                 </td>
                 <td className="p-3">

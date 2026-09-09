@@ -8,7 +8,7 @@ if (!API) {
 
 // +++ العقل المدبر لـ (Silent Refresh) بمنع التكرار (Race Condition) +++
 let isRefreshing = false;
-let failedQueue: Array<{ resolve: (token: string) => void, reject: (err: any) => void }> = [];
+let failedQueue: Array<{ resolve: (token: string) => void, reject: (err: unknown) => void }> = [];
 
 const processQueue = (error: Error | null, token: string | null = null) => {
     failedQueue.forEach(prom => {
@@ -16,6 +16,30 @@ const processQueue = (error: Error | null, token: string | null = null) => {
         else prom.resolve(token!);
     });
     failedQueue = [];
+};
+
+type HttpError = Error & {
+    status: number;
+    data: unknown;
+};
+
+const makeHttpError = (
+    message: string,
+    status: number,
+    data: unknown = null
+): HttpError => {
+    const error = new Error(message) as HttpError;
+    error.status = status;
+    error.data = data;
+    return error;
+};
+
+const getErrorStatus = (error: unknown): number | undefined => {
+    if (typeof error !== "object" || error === null || !("status" in error)) {
+        return undefined;
+    }
+    const status = (error as { status?: unknown }).status;
+    return typeof status === "number" ? status : undefined;
 };
 
 export function useAuthFetch() {
@@ -44,7 +68,7 @@ export function useAuthFetch() {
         const token = localStorage.getItem("admin_token");
         if (!token) {
             forceLogout("انتهت الجلسة");
-            throw new Error("انتهت الجلسة");
+            throw makeHttpError("انتهت الجلسة", 401);
         }
 
         const cleanPath = path.startsWith("/") ? path : `/${path}`;
@@ -54,7 +78,9 @@ export function useAuthFetch() {
         try {
             let res = await fetch(`${API}${cleanPath}`, {
                 ...opts,
-                signal: opts.signal ?? timeoutController.signal,
+                signal: opts.signal
+                    ? AbortSignal.any([opts.signal, timeoutController.signal])
+                    : timeoutController.signal,
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
@@ -67,7 +93,7 @@ export function useAuthFetch() {
                 const refreshToken = localStorage.getItem("refresh_token");
                 if (!refreshToken) {
                     forceLogout("جلسة منتهية تماماً");
-                    throw new Error("جلسة منتهية");
+                    throw makeHttpError("جلسة منتهية", 401);
                 }
 
                 // +++   حجز مكان في الطابور *قبل* التجديد لجميع الطلبات +++
@@ -84,7 +110,9 @@ export function useAuthFetch() {
                             body: JSON.stringify({ refresh_token: refreshToken })
                         });
 
-                        if (!refreshRes.ok) throw new Error("فشل تجديد الجلسة");
+                        if (!refreshRes.ok) {
+                            throw makeHttpError("فشل تجديد الجلسة", refreshRes.status);
+                        }
                         const data = await refreshRes.json();
                         
                         localStorage.setItem("admin_token", data.token);
@@ -99,7 +127,10 @@ export function useAuthFetch() {
                         isRefreshing = false;
                         processQueue(refreshErr as Error, null);
                         forceLogout("فشل التجديد");
-                        throw new Error("تم تسجيل خروجك بسبب انتهاء الصلاحية الكلية");
+                        throw makeHttpError(
+                            "تم تسجيل خروجك بسبب انتهاء الصلاحية الكلية",
+                            getErrorStatus(refreshErr) || 401
+                        );
                     }
                 }
 
@@ -114,13 +145,19 @@ export function useAuthFetch() {
                 try {
                     res = await fetch(`${API}${cleanPath}`, {
                         ...opts,
-                        signal: opts.signal ?? retryTimeoutController.signal,
+                        signal: opts.signal
+                            ? AbortSignal.any([opts.signal, retryTimeoutController.signal])
+                            : retryTimeoutController.signal,
                         headers: {
                             "Content-Type": "application/json",
                             Authorization: `Bearer ${newToken}`,
                             ...(opts.headers ?? {})
                         },
                     });
+
+                    if (res.status === 401) {
+                        forceLogout("فشل التحقق بعد تجديد الجلسة");
+                    }
                 } finally {
                     clearTimeout(retryTimeoutId);
                 }
@@ -130,6 +167,8 @@ export function useAuthFetch() {
             }
 
             
+            // Endpoint payload shape varies by route; keep this transport boundary dynamic.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             let data: any = null;
             const text = await res.text();
             if (text) {
@@ -141,20 +180,31 @@ export function useAuthFetch() {
             }
 
             if (!res.ok) {
-                // إذا كان 403 (حساب موقوف إدارياً) نوجهه للخروج فوراً
-                // نص المطابقة حرفي من dependencies.py:52 ("تم إيقاف حسابك") — لا نطرد عند 403 الصلاحيات العادية (مرفوض أمنياً: لا تملك صلاحية...)
-                if (res.status === 403 && data?.detail?.includes("تم إيقاف حسابك")) {
+                const serverMessage =
+                    data?.message || data?.detail || `خطأ سيرفر (${res.status})`;
+
+                if (
+                    res.status === 403 &&
+                    typeof serverMessage === "string" &&
+                    serverMessage.includes("تم إيقاف حسابك")
+                ) {
                     forceLogout("تم إيقاف حسابك من قبل الإدارة");
                 }
-                const errorInstance: any = new Error(data?.detail || data?.message || `خطأ سيرفر (${res.status})`);
-                throw errorInstance;
+
+                throw makeHttpError(serverMessage, res.status, data);
             }
 
             return data;
-        } catch (err: any) {
+        } catch (err: unknown) {
             clearTimeout(timeoutId);
-            if (err.name === 'AbortError') {
-                throw new Error("انتهت مهلة الاتصال بالسيرفر. يرجى المحاولة مرة أخرى.");
+            if (err instanceof Error && err.name === 'AbortError') {
+                if (opts.signal?.aborted) {
+                    throw err;
+                }
+                throw makeHttpError(
+                    "انتهت مهلة الاتصال بالسيرفر. يرجى المحاولة مرة أخرى.",
+                    408
+                );
             }
             throw err;
         }

@@ -1,4 +1,4 @@
-import { Search, Calendar } from "lucide-react";
+import { Search } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Zone } from "@/types/dispatch";
 import { useMemo } from "react";
@@ -16,10 +16,9 @@ interface ScheduleModalProps {
   onToggleAllBulkZones: () => void;
   schedulingForm: {
     frequency: string;
-    visitDay: string;
     startDate: string;
   };
-  onSchedulingFormChange: (form: { frequency: string; visitDay: string; startDate: string }) => void;
+  onSchedulingFormChange: (form: { frequency: string; startDate: string }) => void;
   customDays: number;
   onCustomDaysChange: (days: number) => void;
   onUpdateScheduling: () => void;
@@ -116,9 +115,9 @@ export function ScheduleModal({
               onChange={e => onSchedulingFormChange({ ...schedulingForm, frequency: e.target.value })}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20 transition-all"
             >
-              <option>أسبوعي (مرة في الأسبوع)</option>
-              <option>كل أسبوعين (مرة كل 14 يوم)</option>
-              <option>شهري (مرة في الشهر)</option>
+              <option>كل 7 أيام</option>
+              <option>كل 14 يوم</option>
+              <option>كل 30 يوم</option>
               <option>مخصص</option>
             </select>
           </div>
@@ -136,32 +135,14 @@ export function ScheduleModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <span className="text-xs font-bold text-slate-500">يوم الزيارة</span>
-              <select
-                value={schedulingForm.visitDay}
-                onChange={e => onSchedulingFormChange({ ...schedulingForm, visitDay: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
-              >
-                <option>السبت</option>
-                <option>الأحد</option>
-                <option>الاثنين</option>
-                <option>الثلاثاء</option>
-                <option>الأربعاء</option>
-                <option>الخميس</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <span className="text-xs font-bold text-slate-500">تاريخ البدء</span>
-              <input
-                type="date"
-                min={new Date().toISOString().split('T')[0]}
-                value={schedulingForm.startDate}
-                onChange={e => onSchedulingFormChange({ ...schedulingForm, startDate: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
-              />
-            </div>
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold text-slate-500">تاريخ البدء</span>
+            <input
+              type="date"
+              value={schedulingForm.startDate}
+              onChange={e => onSchedulingFormChange({ ...schedulingForm, startDate: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
+            />
           </div>
         </div>
       </div>

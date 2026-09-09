@@ -1,17 +1,14 @@
-import { Truck, UserMinus, Clock, AlertTriangle, CircleStop, Package, Radar } from "lucide-react";
+import { Truck, UserMinus, Clock, AlertTriangle, CircleStop, Package, Radar, Lock } from "lucide-react";
 import { PendingRoute } from "@/types/dispatch";
 
+// DASHBOARD_DISPATCH_ROUTE_CONTRACT_V3
 interface PendingRoutesTableProps {
   routes: PendingRoute[];
   onOpenRouteModal: (route: PendingRoute, type: "follow_up" | "transfer") => void;
   onPostponeRoute: (id: string) => void;
   onCloseZone: (route: PendingRoute) => void;
   onForceWithdraw: (route: PendingRoute) => void;
-  // +++  1: إزالة onUndoEndWork لأنه كود ميت ومكانه بالصفحة الرئيسية +++
-
-  // +++  2: استخدام Map بدل استدعاء دالة داخل الـ Loop لضمان أداء طلقة O(1) +++
   driverShortagesMap: Record<string, number>;
-
   onAdjustInventory: (route: PendingRoute) => void;
   onOpenRadar: (route: PendingRoute) => void;
 }
@@ -26,88 +23,111 @@ export function PendingRoutesTable({
   onAdjustInventory,
   onOpenRadar,
 }: PendingRoutesTableProps) {
-
   if (routes.length === 0) {
-    return <p className="text-sm text-slate-500 p-6 text-center">لا توجد مناطق معلقة حالياً.</p>;
+    return <p className="text-sm text-slate-500 p-6 text-center">لا توجد خطوط سير تشغيلية حالياً.</p>;
   }
 
-  // +++  3: فصل غابة الشروط (Nested Ternaries) بدالة نظيفة ومقروءة +++
   const renderActionButtons = (route: PendingRoute) => {
-    // +++  4: زر الرادار أصبح "مستقلاً" ويظهر في جميع الحالات لمنع العمى المحاسبي +++
     const radarButton = (
       <button
         key="radar-btn"
         onClick={() => onOpenRadar(route)}
         className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-600 text-xs font-bold hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
-        title="رادار الحوالات"
+        title="رادار المصافحات"
       >
         <Radar className="w-4 h-4" />
       </button>
     );
 
-    // الحالة 1: المنطقة مصفرة وجاهزة للإغلاق
     if (route.shopsRemaining === 0) {
       return (
         <>
           {radarButton}
           <button
             onClick={() => onCloseZone(route)}
-            className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 shadow-lg animate-pulse"
+            className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 shadow-lg"
           >
-            إغلاق وتصفير المنطقة ✅
+            إغلاق خط السير ✅
           </button>
         </>
       );
     }
 
-    // الحالة 2: بانتظار المندوب (قيد الانتظار)
-    if (route.status === "waiting") {
-      return (
-        <>
-          {radarButton}
-          <button onClick={() => onOpenRouteModal(route, "follow_up")} className="px-4 py-2 rounded-xl bg-[#1e87bb] text-white text-xs font-bold hover:bg-[#0f766e] transition-colors shadow-sm">
-            متابعة الحمولة
-          </button>
-          <button onClick={() => onOpenRouteModal(route, "transfer")} className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2">
-            <UserMinus className="w-3.5 h-3.5" /> تحويل لمندوب آخر
-          </button>
-          <button onClick={() => onPostponeRoute(route.id)} className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5" /> تأجيل المنطقة ⏸️
-          </button>
-          <button onClick={() => onCloseZone(route)} className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5" /> إغلاق وتصفير
-          </button>
-        </>
-      );
-    }
-
-    // الحالة 3: المندوب أنهى العمل (جلسة منتهية) وبانتظار إجراء إداري
     if (route.sessionEnded) {
       return (
         <>
           {radarButton}
-          <button onClick={() => onOpenRouteModal(route, "transfer")} className="px-4 py-2 rounded-xl border border-emerald-200 text-emerald-600 text-xs font-bold hover:bg-emerald-50 transition-colors flex items-center gap-2 shadow-sm">
-            <UserMinus className="w-3.5 h-3.5" /> تحويل لمندوب آخر 🔄
-          </button>
-          <button onClick={() => onPostponeRoute(route.id)} className="px-4 py-2 rounded-xl border border-amber-200 text-amber-600 text-xs font-bold hover:bg-amber-50 transition-colors flex items-center gap-2 shadow-sm">
+          <span
+            className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 text-[10px] font-bold flex items-center gap-1.5"
+            title="هوية العهدة لا تتغير بعد ربط WorkSession"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            WorkSession منتهية
+          </span>
+          <button
+            onClick={() => onPostponeRoute(route.id)}
+            className="px-4 py-2 rounded-xl border border-amber-200 text-amber-600 text-xs font-bold hover:bg-amber-50 transition-colors flex items-center gap-2 shadow-sm"
+          >
             <Clock className="w-3.5 h-3.5" /> تأجيل المنطقة ⏸️
           </button>
-          <button onClick={() => onCloseZone(route)} className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2 shadow-sm">
-            <AlertTriangle className="w-3.5 h-3.5" /> إغلاق وتصفير 🛑
+          <button
+            onClick={() => onCloseZone(route)}
+            className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2 shadow-sm"
+          >
+            <AlertTriangle className="w-3.5 h-3.5" /> إغلاق خط السير
           </button>
         </>
       );
     }
 
-    // الحالة 4: المنطقة قيد العمل (Active)
+    if (route.status === "waiting") {
+      return (
+        <>
+          {radarButton}
+          <button
+            onClick={() => onOpenRouteModal(route, "follow_up")}
+            className="px-4 py-2 rounded-xl bg-[#1e87bb] text-white text-xs font-bold hover:bg-[#0f766e] transition-colors shadow-sm"
+          >
+            {route.sessionBound ? "استئناف نفس الخط" : "متابعة الحمولة"}
+          </button>
+          {!route.sessionBound && (
+            <button
+              onClick={() => onOpenRouteModal(route, "transfer")}
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
+            >
+              <UserMinus className="w-3.5 h-3.5" /> تحويل لمندوب آخر
+            </button>
+          )}
+          <button
+            onClick={() => onPostponeRoute(route.id)}
+            className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
+          >
+            <Clock className="w-3.5 h-3.5" /> تأجيل المنطقة ⏸️
+          </button>
+          <button
+            onClick={() => onCloseZone(route)}
+            className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2"
+          >
+            <AlertTriangle className="w-3.5 h-3.5" /> إغلاق خط السير
+          </button>
+        </>
+      );
+    }
+
     return (
       <>
         {radarButton}
-        <button onClick={() => onAdjustInventory(route)} className="px-4 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 shadow-sm">
+        <button
+          onClick={() => onAdjustInventory(route)}
+          className="px-4 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
+        >
           <Package className="w-4 h-4" /> تعديل الحمولة
         </button>
-        <button onClick={() => onForceWithdraw(route)} className="px-6 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 text-xs font-bold hover:bg-red-600 hover:text-white transition-all flex items-center gap-2 shadow-sm">
-          <CircleStop className="w-4 h-4" /> 🛑 إيقاف وسحب
+        <button
+          onClick={() => onForceWithdraw(route)}
+          className="px-6 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 text-xs font-bold hover:bg-red-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
+        >
+          <CircleStop className="w-4 h-4" /> إيقاف مؤقت
         </button>
       </>
     );
@@ -116,7 +136,6 @@ export function PendingRoutesTable({
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-y-auto max-h-[45vh] divide-y divide-slate-100 shadow-sm custom-scrollbar">
       {routes.map((route) => {
-        // قراءة النواقص من الـ Map بسرعة الصاروخ O(1)
         const driverShortageCount = driverShortagesMap[route.driverId] || 0;
 
         return (
@@ -151,7 +170,6 @@ export function PendingRoutesTable({
               </div>
             </div>
 
-            {/* استدعاء دالة الأزرار النظيفة */}
             <div className="flex items-center gap-2">
               {renderActionButtons(route)}
             </div>

@@ -3,9 +3,10 @@
 export interface Session {
   session_id: number;
   driver_name: string;
-  start_time: string;
+  start_time: string | null;
   is_authorized_to_sell: boolean;
   is_on_break: boolean;
+  vehicle_label: string | null;
 }
 
 export interface InventoryItem {
@@ -32,6 +33,7 @@ export interface SettlementReport {
     expected_cash_in_hand: string; // تم التعديل إلى نص لتطابق الخادم
     cash_from_sales: string;       // تم التعديل إلى نص لتطابق الخادم
     cash_from_debts: string;       // تم التعديل إلى نص لتطابق الخادم
+    inventory_shortage_cash: string;
   };
   visits: {
     completed_total: number;

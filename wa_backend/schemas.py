@@ -1220,6 +1220,7 @@ class EditShopDetailsRequest(RequestModel):
 
 class ShortageResponseItem(BaseModel):
     id: str
+    productId: str
     zoneId: str
     zoneName: str
     shopId: str

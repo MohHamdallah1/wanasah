@@ -1,6 +1,25 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+const TENANT_SCOPED_STORAGE_KEYS = [
+  'activeTab',
+  'wanasah_selected_zone',
+  'wanasah_route_zone',
+  'wanasah_route_driver',
+  'wanasah_route_vehicle',
+  'shop_import_draft',
+] as const;
+
+interface LoginResponsePayload {
+  token: string;
+  refresh_token: string;
+  driver_name: string;
+  is_admin: boolean;
+  company_id: number;
+  company_code: string;
+  message?: string;
+}
+
 export default function Login() {
   const navigate = useNavigate();
   // +++ حقن رمز الشركة الافتراضي في بيئة التطوير فقط (Dev Environment) +++
@@ -58,32 +77,50 @@ export default function Login() {
         body: JSON.stringify({ company_code: companyCode.trim(), username: username.trim(), password }),
       });
 
-      const data = await response.json();
+      const data = await response.json() as Partial<LoginResponsePayload>;
 
       // 2. التحقق من الرد
       if (!response.ok) {
-        throw new Error(data.detail || data.message || 'فشل تسجيل الدخول، تأكد من البيانات');
+        throw new Error(data.message || 'فشل تسجيل الدخول، تأكد من البيانات');
       }
 
-      // 3. حماية اللوحة
+      // 3. حماية اللوحة + التحقق من عقد الاستجابة
       if (!data.is_admin) {
         throw new Error('عذراً، هذا الحساب غير مصرح له بالدخول للوحة التحكم');
       }
-
-      // 4. حفظ بيانات الجلسة (شاملة هوية الشركة)
-      localStorage.setItem('admin_token', data.token);
-      localStorage.setItem('refresh_token', data.refresh_token);
-      if (data.company_id) localStorage.setItem('company_id', data.company_id.toString());
-      if (data.company_code) localStorage.setItem('company_code', data.company_code);
-      if (data.driver_name) {
-        localStorage.setItem('admin_name', data.driver_name);
+      if (
+        !data.token ||
+        !data.refresh_token ||
+        !data.company_id ||
+        !data.company_code ||
+        !data.driver_name
+      ) {
+        throw new Error('استجابة تسجيل الدخول غير مكتملة من السيرفر');
       }
 
-      // 5. التوجيه
+      // 4. عزل حالة الواجهة بين الشركات على نفس المتصفح
+      const previousCompanyId = localStorage.getItem('company_id');
+      const nextCompanyId = String(data.company_id);
+      if (previousCompanyId && previousCompanyId !== nextCompanyId) {
+        TENANT_SCOPED_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+      }
+
+      // 5. حفظ بيانات الجلسة
+      localStorage.setItem('admin_token', data.token);
+      localStorage.setItem('refresh_token', data.refresh_token);
+      localStorage.setItem('company_id', nextCompanyId);
+      localStorage.setItem('company_code', data.company_code);
+      localStorage.setItem('admin_name', data.driver_name);
+
+      // 6. التوجيه
       navigate('/'); 
 
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'حدث خطأ غير متوقع أثناء تسجيل الدخول'
+      );
     } finally {
       setIsSubmitting(false);
     }

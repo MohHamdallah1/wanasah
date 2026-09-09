@@ -22,8 +22,12 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
     },
     mutations: {
-      onError: (error: any) => {
-        toast.error(error?.message || 'حدث خطأ غير متوقع بالاتصال');
+      onError: (error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : 'حدث خطأ غير متوقع بالاتصال'
+        );
       }
     }
   },
@@ -36,12 +40,41 @@ const isTokenValid = (): boolean => {
   try {
     const parts = refresh.split('.');
     if (parts.length !== 3) return false;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    // فحص انتهاء مفتاح التجديد (30 يوم)
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
-      localStorage.clear();
+    const base64Url = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64Url.padEnd(
+      base64Url.length + ((4 - (base64Url.length % 4)) % 4),
+      '='
+    );
+    const payload: unknown = JSON.parse(atob(padded));
+
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      !('type' in payload) ||
+      !('exp' in payload) ||
+      !('sub' in payload) ||
+      !('company_id' in payload)
+    ) {
       return false;
     }
+
+    const tokenPayload = payload as {
+      type: unknown;
+      exp: unknown;
+      sub: unknown;
+      company_id: unknown;
+    };
+
+    if (
+      tokenPayload.type !== 'refresh' ||
+      typeof tokenPayload.exp !== 'number' ||
+      tokenPayload.exp * 1000 < Date.now() ||
+      !tokenPayload.sub ||
+      !tokenPayload.company_id
+    ) {
+      return false;
+    }
+
     return true;
   } catch {
     return false;

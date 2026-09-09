@@ -23,40 +23,183 @@ import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-// Utils
-const sortZones = (zones: Zone[]) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
-  return [...zones].map(z => {
-    let status = "null";
-    let color = "text-slate-400";
-    if (z.startDate) {
-      const sDate = new Date(z.startDate);
-      sDate.setHours(0, 0, 0, 0);
-      const diffTime = sDate.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+interface WarehouseOption {
+  id: string;
+  label: string;
+}
 
-      if (diffDays < 0) { status = "overdue"; color = "text-red-600 font-bold"; }
-      else if (diffDays === 0 || diffDays === 1) { status = "soon"; color = "text-emerald-600 font-bold"; } // اليوم وبكرا
-      else if (diffDays > 1 && diffDays <= 5) { status = "upcoming"; color = "text-amber-500 font-bold"; } // من يومين لـ 5 أيام
-      else { status = "future"; color = "text-slate-700 font-bold"; } // أبعد من هيك
-    }
-    return { ...z, scheduleStatus: status as import("@/types/dispatch").ScheduleStatus, dateColor: color };
-  }).sort((a, b) => {
-    const weights: Record<string, number> = { overdue: 4, soon: 3, upcoming: 2, future: 1, null: 0 };
-    const wDiff = (weights[b.scheduleStatus] || 0) - (weights[a.scheduleStatus] || 0);
-    if (wDiff !== 0) return wDiff;
-    if (a.startDate && b.startDate) return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
-    return 0;
+interface DispatchInitPayload {
+  zones?: Zone[];
+  drivers?: { id: string; name: string }[];
+  vehicles?: { id: string; label: string }[];
+  products?: { id: string; name: string }[];
+}
+
+interface WarehouseLocationPayload {
+  id: number;
+  name: string;
+  code: string;
+}
+
+interface VehicleInventoryPayload {
+  product_id: string;
+  current_quantity: number;
+}
+
+interface ArchivedZonePayload {
+  id: string;
+  name: string;
+}
+
+interface WorkerRealtimeEvent {
+  event?: string;
+  message?: string;
+}
+
+interface DuplicateShopPayload {
+  name: string;
+  owner?: string | null;
+  phone?: string | null;
+  zone_name?: string | null;
+}
+
+interface ShopMutationPayload {
+  name: string;
+  owner: string;
+  phone: string;
+  initialDebt: number;
+  maxDebtLimit: number;
+  mapLink: string;
+  zoneId: number;
+  force_save?: boolean;
+}
+
+interface LocalShopState {
+  name: string;
+  owner: string;
+  phone: string;
+  initialDebt: number;
+  maxDebtLimit: number;
+  mapLink: string;
+  zoneId: string;
+}
+
+interface DuplicateWarningState {
+  show: boolean;
+  shopData: DuplicateShopPayload;
+  apiPayload: ShopMutationPayload;
+  localState: LocalShopState;
+}
+
+type ShopWire = Omit<Shop, "initialDebt" | "maxDebtLimit"> & {
+  initialDebt: number | string;
+  maxDebtLimit: number | string;
+};
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "حدث خطأ غير متوقع";
+
+const getHttpErrorStatus = (error: unknown): number | undefined => {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return undefined;
+  }
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : undefined;
+};
+
+const getHttpErrorData = (error: unknown): unknown => {
+  if (typeof error !== "object" || error === null || !("data" in error)) {
+    return undefined;
+  }
+  return (error as { data?: unknown }).data;
+};
+
+const isDuplicateShopResponse = (
+  data: unknown
+): data is { is_duplicate: true; existing_shop: DuplicateShopPayload } => {
+  if (typeof data !== "object" || data === null) return false;
+  const record = data as Record<string, unknown>;
+  return (
+    record.is_duplicate === true &&
+    typeof record.existing_shop === "object" &&
+    record.existing_shop !== null
+  );
+};
+
+const normalizeShops = (data: unknown): Shop[] => {
+  if (!Array.isArray(data)) return [];
+  return data.map((raw) => {
+    const shop = raw as ShopWire;
+    return {
+      ...shop,
+      initialDebt: Number(shop.initialDebt) || 0,
+      maxDebtLimit: Number(shop.maxDebtLimit) || 0,
+    };
   });
 };
 
+const isTabId = (value: string | null): value is TabId =>
+  value === "routes" || value === "zones" || value === "launch";
+
+const frequencyFromIntervalDays = (days: number | null): string => {
+  if (days === 7) return "كل 7 أيام";
+  if (days === 14) return "كل 14 يوم";
+  if (days === 30) return "كل 30 يوم";
+  return "مخصص";
+};
+
+const intervalDaysFromFrequency = (
+  frequency: string,
+  customDays: number
+): number | null => {
+  if (frequency === "كل 7 أيام") return 7;
+  if (frequency === "كل 14 يوم") return 14;
+  if (frequency === "كل 30 يوم") return 30;
+  if (frequency === "مخصص" && Number.isInteger(customDays) && customDays > 0) {
+    return customDays;
+  }
+  return null;
+};
+
+// Utils
+const sortZones = (zones: Zone[]) => {
+  const colorByStatus: Record<string, string> = {
+    overdue: "text-red-600 font-bold",
+    today: "text-emerald-600 font-bold",
+    upcoming: "text-amber-500 font-bold",
+    null: "text-slate-400",
+  };
+  const weights: Record<string, number> = {
+    overdue: 4,
+    today: 3,
+    upcoming: 2,
+    null: 0,
+  };
+
+  return [...zones]
+    .map((zone) => ({
+      ...zone,
+      dateColor:
+        colorByStatus[String(zone.scheduleStatus ?? "null")] ||
+        "text-slate-500",
+    }))
+    .sort((a, b) => {
+      const aStatus = String(a.scheduleStatus ?? "null");
+      const bStatus = String(b.scheduleStatus ?? "null");
+      const weightDiff = (weights[bStatus] || 0) - (weights[aStatus] || 0);
+      if (weightDiff !== 0) return weightDiff;
+      return String(a.startDate || "").localeCompare(String(b.startDate || ""));
+    });
+};
+
 export default function DispatchBoard() {
-  // +++  (تجاوز TypeScript): توسيع نوع TabId محلياً ليقبل "launch" +++
-  const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem("activeTab") || "routes");
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const stored = localStorage.getItem("activeTab");
+    return isTabId(stored) ? stored : "routes";
+  });
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void }>({ isOpen: false, title: "", message: "", onConfirm: () => { } });
-  const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<string | null>(null);
+  const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<TabId | null>(null);
 
   // +++ حالات نافذة تعديل الحمولة +++
   const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
@@ -74,6 +217,8 @@ export default function DispatchBoard() {
   const [drivers, setDrivers] = useState<{ id: string; name: string }[]>([]);
   const [vehicles, setVehicles] = useState<{ id: string; label: string }[]>([]);
   const [products, setProducts] = useState<{ id: string; name: string }[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [selectedSourceWarehouseId, setSelectedSourceWarehouseId] = useState("");
   const [pendingRoutes, setPendingRoutes] = useState<PendingRoute[]>([]);
   const [shortages, setShortages] = useState<Shortage[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
@@ -84,6 +229,8 @@ export default function DispatchBoard() {
   useEffect(() => {
     if (selectedZoneIdForZones) {
       localStorage.setItem("wanasah_selected_zone", selectedZoneIdForZones);
+    } else {
+      localStorage.removeItem("wanasah_selected_zone");
     }
   }, [selectedZoneIdForZones]);
 
@@ -117,7 +264,7 @@ export default function DispatchBoard() {
   const [selectedBulkZoneIds, setSelectedBulkZoneIds] = useState<string[]>([]);
   const [bulkZoneSearch, setBulkZoneSearch] = useState("");
   const [customDays, setCustomDays] = useState(14);
-  const [schedulingForm, setSchedulingForm] = useState({ frequency: "أسبوعي (مرة في الأسبوع)", visitDay: "السبت", startDate: new Date().toISOString().split('T')[0] });
+  const [schedulingForm, setSchedulingForm] = useState({ frequency: "كل 7 أيام", startDate: "" });
 
   const [isZoneModalOpen, setIsZoneModalOpen] = useState(false);
   const [zoneFormName, setZoneFormName] = useState("");
@@ -144,13 +291,13 @@ export default function DispatchBoard() {
   const [targetTransferZoneId, setTargetTransferZoneId] = useState("");
   const [isShowPostponedModalOpen, setIsShowPostponedModalOpen] = useState(false);
   // +++ الدرع المعماري: فصل حالة السيرفر عن حالة الواجهة لمنع التلوث +++
-  const [duplicateWarning, setDuplicateWarning] = useState<{ show: boolean, shopData: any, apiPayload: any, localState: any } | null>(null);
+  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningState | null>(null);
   const [restorePromptShop, setRestorePromptShop] = useState<Shop | null>(null);
 
   // Snapshot of shops taken when entering edit mode — used for Cancel/revert
   const savedShopsRef = useRef<Shop[]>([]);
+  const shortageMutationInFlightRef = useRef(false);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSuicideModalOpen, setIsSuicideModalOpen] = useState(false);
   const [zoneToKill, setZoneToKill] = useState<Zone | null>(null);
   const [confirmName, setConfirmName] = useState("");
@@ -160,28 +307,66 @@ export default function DispatchBoard() {
 
   // CS-WH-03: Warehouse audit lock status for dispatch warning banner
   const [isWarehouseLocked, setIsWarehouseLocked] = useState(false);
+  const [isWarehouseStatusLoading, setIsWarehouseStatusLoading] = useState(false);
+  const [vehicleInventoryLoadedForId, setVehicleInventoryLoadedForId] = useState<string | null>(null);
+  const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
 
   const fetchInitialData = useCallback(() => {
     const controller = new AbortController();
     authenticatedFetch("/dispatch/init", { signal: controller.signal })
-      .then(data => {
-        const sorted = sortZones(data.zones || []); setZones(sorted); setDrivers(data.drivers || []); setVehicles(data.vehicles || []); setProducts(data.products || []);
+      .then((raw) => {
+        const data = raw as DispatchInitPayload;
+        const sorted = sortZones(Array.isArray(data.zones) ? data.zones : []);
+        const nextDrivers = Array.isArray(data.drivers) ? data.drivers : [];
+        const nextVehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+        const nextProducts = Array.isArray(data.products) ? data.products : [];
 
-        // +++  (UX): الحفاظ على المنطقة المحددة حالياً، وعدم إجبار المستخدم على العودة لأول القائمة بعد الـ Refresh +++
-        if (sorted.length > 0) {
-          setSelectedZoneIdForZones(prev => prev ? prev : sorted[0].id);
+        setZones(sorted);
+        setDrivers(nextDrivers);
+        setVehicles(nextVehicles);
+        setProducts(nextProducts);
+
+        setSelectedZoneIdForZones((prev) =>
+          sorted.some((zone) => zone.id === prev)
+            ? prev
+            : (sorted[0]?.id || "")
+        );
+        setSelectedZoneId((prev) =>
+          sorted.some((zone) => zone.id === prev) ? prev : ""
+        );
+        setSelectedDriverId((prev) =>
+          nextDrivers.some((driver) => driver.id === prev) ? prev : ""
+        );
+        setSelectedVehicleId((prev) =>
+          nextVehicles.some((vehicle) => vehicle.id === prev) ? prev : ""
+        );
+
+        if (nextProducts.length > 0) {
+          setNewShortage((prev) =>
+            prev.productId
+              ? prev
+              : {
+                  productId: nextProducts[0].id,
+                  productName: nextProducts[0].name,
+                  quantity: 1,
+                }
+          );
         }
-
-        if (data.products?.length > 0) setNewShortage({ productName: data.products[0].name, quantity: 1 });
       })
-      .catch(err => { if (err.name !== 'AbortError') console.warn("تأخير بسيط في جلب البيانات:", err.message); });
+      .catch((err: unknown) => {
+        if (!(err instanceof Error && err.name === "AbortError")) {
+          console.warn("تأخير بسيط في جلب البيانات:", getErrorMessage(err));
+        }
+      });
 
     // H-02: Pass abort signal to all parallel fetches for clean unmount cleanup
     // H-03: Add Array.isArray guards to prevent .map is not a function crashes
     const signal = controller.signal;
     authenticatedFetch("/dispatch/shops", { signal })
-      .then(data => setShops(Array.isArray(data) ? data : []))
-      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
+      .then((data) => setShops(normalizeShops(data)))
+      .catch((err: unknown) => {
+        if (!(err instanceof Error && err.name === "AbortError")) console.error(err);
+      });
     authenticatedFetch("/dispatch/active_routes", { signal })
       .then(data => setPendingRoutes(Array.isArray(data) ? data : []))
       .catch(err => { if (err.name !== 'AbortError') console.error(err); });
@@ -189,62 +374,139 @@ export default function DispatchBoard() {
       .then(data => setShortages(Array.isArray(data) ? data : []))
       .catch(err => { if (err.name !== 'AbortError') console.error(err); });
 
-    // CS-WH-03: Check warehouse lock status on mount
-    authenticatedFetch("/warehouse/status", { signal })
-      .then((data: any) => setIsWarehouseLocked(data?.status === 'AUDIT_LOCK'))
-      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
+    authenticatedFetch("/warehouse/locations", { signal })
+      .then((data) => {
+        const locations = Array.isArray(data)
+          ? data.map((raw) => raw as WarehouseLocationPayload)
+          : [];
+        const options = locations.map((location) => ({
+          id: String(location.id),
+          label: `${location.name} (${location.code})`,
+        }));
+        setWarehouses(options);
+        setSelectedSourceWarehouseId((prev) =>
+          options.some((warehouse) => warehouse.id === prev) ? prev : ""
+        );
+      })
+      .catch((err: unknown) => {
+        if (!(err instanceof Error && err.name === "AbortError")) console.error(err);
+      });
 
     return controller;
   }, [authenticatedFetch]); // +++ E-04: إضافة authenticatedFetch كـ Dependency لتجنب تحذيرات وتسريبات الذاكرة +++
 
-  // Step 5.7c: Replace polling with WebSocket for real-time dispatch updates
+  // Warehouse lock is scoped to the explicitly selected source warehouse.
+  useEffect(() => {
+    if (!selectedSourceWarehouseId) {
+      setIsWarehouseLocked(false);
+      setIsWarehouseStatusLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsWarehouseStatusLoading(true);
+    authenticatedFetch(
+      `/warehouse/status?location_id=${encodeURIComponent(selectedSourceWarehouseId)}`,
+      { signal: controller.signal }
+    )
+      .then((data) => {
+        const status =
+          typeof data === "object" && data !== null && "status" in data
+            ? String((data as { status: unknown }).status)
+            : "";
+        setIsWarehouseLocked(status === "AUDIT_LOCK");
+      })
+      .catch((err: unknown) => {
+        if (!(err instanceof Error && err.name === "AbortError")) {
+          console.error(err);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsWarehouseStatusLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [selectedSourceWarehouseId, authenticatedFetch]);
+
+  // Realtime dispatch updates: authenticate each reconnect with the latest token
+  // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
     const controller = fetchInitialData();
+    const apiUrl = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
-    // Build WebSocket URL from VITE_API_URL
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const token = localStorage.getItem('admin_token');
-    // +++ الكي الجراحي: حقن التوكن في الرابط لمنع اختراق الـ WebSocket +++
-    const wsUrl = apiUrl.replace(/\/+$/, '').replace(/^http/, 'ws') + '/ws/dispatch' + (token ? `?token=${token}` : '');
-
-    let ws: WebSocket;
-    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let ws: WebSocket | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let realtimeRefreshController: AbortController | null = null;
     let retryCount = 0;
+    let workerAlertTimer: ReturnType<typeof setTimeout> | undefined;
+    const workerAlerts = new Map<
+      string,
+      { count: number; message: string; severity: "warning" | "error" }
+    >();
+
+    const flushWorkerAlerts = () => {
+      workerAlerts.forEach(({ count, message, severity }) => {
+        const rendered =
+          count > 1 ? `${message} (+${count - 1} تنبيهات أخرى)` : message;
+        if (severity === "warning") toast.warning(rendered);
+        else toast.error(rendered);
+      });
+      workerAlerts.clear();
+      workerAlertTimer = undefined;
+    };
+
+    const queueWorkerAlert = (eventName: string, message: string) => {
+      const severity: "warning" | "error" =
+        eventName === "STALE_HANDSHAKE_WARNING" ||
+        eventName === "STALE_SESSION_WARNING"
+          ? "warning"
+          : "error";
+      const previous = workerAlerts.get(eventName);
+      workerAlerts.set(eventName, {
+        count: (previous?.count || 0) + 1,
+        message,
+        severity,
+      });
+      if (workerAlertTimer) clearTimeout(workerAlertTimer);
+      workerAlertTimer = setTimeout(flushWorkerAlerts, 500);
+    };
+
+    const scheduleRealtimeRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        realtimeRefreshController?.abort();
+        realtimeRefreshController = fetchInitialData();
+      }, 300);
+    };
 
     const connectWS = () => {
+      const token = localStorage.getItem("admin_token");
+      if (!apiUrl || !token) return;
+
+      const wsUrl =
+        apiUrl.replace(/^http/, "ws") +
+        `/ws/dispatch?token=${encodeURIComponent(token)}`;
       ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          if (data.event) {
-            if (data.event === "STALE_HANDSHAKE_WARNING" && data.message) {
-              toast.warning(data.message);
-            } else if (data.event === "STALE_HANDSHAKE_CRITICAL" && data.message) {
-              toast.error(data.message);
-            } else if (data.event === "STALE_SESSION_WARNING" && data.message) {
-              toast.warning(data.message);
-            } else if (data.event === "STALE_SESSION_CRITICAL" && data.message) {
-              toast.error(data.message);
-            } else if (data.event === "INTEGRITY_ALERT" && data.message) {
-              toast.error(data.message);
-            }
-            authenticatedFetch("/dispatch/active_routes")
-              .then(res => setPendingRoutes(Array.isArray(res) ? res : []))
-              .catch(() => {});
-            authenticatedFetch("/dispatch/shortages")
-              .then(res => setShortages(Array.isArray(res) ? res : []))
-              .catch(() => {});
-            // +++ E-07: تحديث جميع النطاقات والمحلات والمناديب لمنع الـ Split-Brain بين المشرفين +++
-            authenticatedFetch("/dispatch/init")
-              .then((res: any) => {
-                if(res.zones) setZones(sortZones(res.zones));
-                if(res.drivers) setDrivers(res.drivers);
-                if(res.vehicles) setVehicles(res.vehicles);
-              }).catch(() => {});
-            authenticatedFetch("/dispatch/shops")
-              .then(res => setShops(Array.isArray(res) ? res : []))
-              .catch(() => {});
+          const parsed: unknown = JSON.parse(event.data);
+          if (typeof parsed !== "object" || parsed === null) return;
+          const data = parsed as WorkerRealtimeEvent;
+          if (!data.event) return;
+
+          const isWorkerAlert =
+            data.event === "STALE_HANDSHAKE_WARNING" ||
+            data.event === "STALE_HANDSHAKE_CRITICAL" ||
+            data.event === "STALE_SESSION_WARNING" ||
+            data.event === "STALE_SESSION_CRITICAL" ||
+            data.event === "INTEGRITY_ALERT";
+
+          if (isWorkerAlert && data.message) {
+            queueWorkerAlert(data.event, data.message);
+          } else {
+            scheduleRealtimeRefresh();
           }
         } catch (err) {
           console.error("WS Parse error", err);
@@ -252,45 +514,79 @@ export default function DispatchBoard() {
       };
 
       ws.onclose = () => {
-        // +++ الكي الجراحي: إيقاف محاولات الاتصال إذا كان التبويب مخفياً لتوفير موارد متصفح المشرف +++
-        if (document.visibilityState === 'hidden') return;
+        if (document.visibilityState === "hidden") return;
         const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
-        retryCount++;
+        retryCount += 1;
         reconnectTimer = setTimeout(connectWS, backoff);
       };
-      ws.onopen = () => { retryCount = 0; };
-      ws.onerror = () => {}; // التقاط أخطاء الاتصال بصمت لمنع امتلاء الكونسول باللون الأحمر
+      ws.onopen = () => {
+        retryCount = 0;
+      };
+      ws.onerror = () => {};
     };
 
     connectWS();
 
-    // +++ إعادة تشغيل الـ WebSocket فور عودة المشرف للتبويب إذا كان الاتصال مفصولاً +++
     const handleVisChange = () => {
-      if (document.visibilityState === 'visible' && (!ws || ws.readyState === WebSocket.CLOSED)) {
+      if (
+        document.visibilityState === "visible" &&
+        (!ws || ws.readyState === WebSocket.CLOSED)
+      ) {
         retryCount = 0;
         connectWS();
       }
     };
-    document.addEventListener('visibilitychange', handleVisChange);
+    document.addEventListener("visibilitychange", handleVisChange);
 
     return () => {
       controller.abort();
-      clearTimeout(reconnectTimer);
-      document.removeEventListener('visibilitychange', handleVisChange);
+      realtimeRefreshController?.abort();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (refreshTimer) clearTimeout(refreshTimer);
+      if (workerAlertTimer) clearTimeout(workerAlertTimer);
+      workerAlerts.clear();
+      document.removeEventListener("visibilitychange", handleVisChange);
       if (ws) {
-        ws.onclose = null; // Prevent reconnect loop on unmount
+        ws.onclose = null;
         ws.close();
       }
     };
-  }, [fetchInitialData, authenticatedFetch]);
+  }, [fetchInitialData]);
 
   useEffect(() => {
-    if (selectedVehicleId) {
-      authenticatedFetch(`/dispatch/inventory/${selectedVehicleId}`)
-        .then(data => { const inv: Record<string, number> = {}; data.forEach((item: any) => { inv[item.product_id] = item.current_quantity; }); setPreloadQuantities(inv); })
-        .catch(err => toast.error("خطأ في جلب مخزون المركبة: " + err.message));
-    } else setPreloadQuantities({});
-  }, [selectedVehicleId]);
+    if (!selectedVehicleId) {
+      setPreloadQuantities({});
+      setVehicleInventoryLoadedForId(null);
+      return;
+    }
+
+    const requestedVehicleId = selectedVehicleId;
+    const controller = new AbortController();
+    setVehicleInventoryLoadedForId(null);
+
+    authenticatedFetch(`/dispatch/inventory/${requestedVehicleId}`, {
+      signal: controller.signal,
+    })
+      .then((data) => {
+        if (!Array.isArray(data)) {
+          throw new Error("استجابة مخزون المركبة غير صالحة.");
+        }
+        const inventory: Record<string, number> = {};
+        data.forEach((raw) => {
+          const item = raw as VehicleInventoryPayload;
+          inventory[String(item.product_id)] = Number(item.current_quantity) || 0;
+        });
+        setPreloadQuantities(inventory);
+        setVehicleInventoryLoadedForId(requestedVehicleId);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setVehicleInventoryLoadedForId(null);
+        toast.error("خطأ في جلب مخزون المركبة: " + getErrorMessage(err));
+      });
+
+    return () => controller.abort();
+  }, [selectedVehicleId, vehicleInventoryReloadKey, authenticatedFetch]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
 
@@ -339,19 +635,19 @@ export default function DispatchBoard() {
       fetchInitialData();
       toast.success("تم حفظ التعديلات بنجاح ✓");
       return true;
-    } catch (err: any) {
-      toast.error("خطأ في حفظ التعديلات: " + err.message);
+    } catch (err: unknown) {
+      toast.error("خطأ في حفظ التعديلات: " + getErrorMessage(err));
       return false;
     } finally {
       setIsSaving(false);
     }
-  }, [shops, selectedZoneIdForZones]);
+  }, [authenticatedFetch, fetchInitialData, selectedZoneIdForZones, shops]);
 
   // Helper: cancel edits and revert by re-fetching from server
   const handleCancelReorder = useCallback(async () => {
     try {
       const freshShops = await authenticatedFetch("/dispatch/shops");
-      setShops(freshShops);
+      setShops(normalizeShops(freshShops));
     } catch (e) {
       // fallback to snapshot if fetch fails
       setShops(savedShopsRef.current);
@@ -359,38 +655,59 @@ export default function DispatchBoard() {
     setHasUnsavedChanges(false);
     setIsEditMode(false);
     setSelectedShopIds([]);
-  }, []);
+  }, [authenticatedFetch]);
 
   const fetchArchivedZones = async () => {
     try {
       const data = await authenticatedFetch("/dispatch/zones/archived");
-      setArchivedZones(data.map((z: any) => ({ id: z.id, name: z.name, frequency: "", visitDay: "", startDate: "" })));
-    } catch (err: any) {
-      toast.error("خطأ في جلب أرشيف المناطق: " + err.message);
+      if (!Array.isArray(data)) {
+        throw new Error("استجابة أرشيف المناطق غير صالحة.");
+      }
+      setArchivedZones(
+        data.map((raw) => {
+          const zone = raw as ArchivedZonePayload;
+          return {
+            id: String(zone.id),
+            name: zone.name,
+            scheduleStatus: "null",
+            startDate: "",
+            intervalDays: null,
+            shopsCount: 0,
+          } as Zone;
+        })
+      );
+    } catch (err: unknown) {
+      toast.error("خطأ في جلب أرشيف المناطق: " + getErrorMessage(err));
     }
   };
 
   const handleRestoreZone = async (zoneId: string) => {
     try {
-      await authenticatedFetch(`/dispatch/zones/${zoneId}/restore`, { method: "PUT" });
-      const restored = archivedZones.find(z => z.id === zoneId);
-      if (restored) {
-        setZones(prev => [...prev, { ...restored, frequency: "أسبوعي", visitDay: "غير محدد", startDate: "", shopsCount: 0 }]); // Using defaults, backend handles the real logic on init
-        setArchivedZones(prev => prev.filter(z => z.id !== zoneId));
-      }
+      await authenticatedFetch(`/dispatch/zones/${zoneId}/restore`, {
+      method: "PUT",
+      body: JSON.stringify({
+        mode: "shops_archived_by_same_zone",
+      }),
+    });
+
+      const [initRaw, shopsRaw] = await Promise.all([
+        authenticatedFetch("/dispatch/init"),
+        authenticatedFetch("/dispatch/shops"),
+      ]);
+      const initData = initRaw as DispatchInitPayload;
+      setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
+      setShops(normalizeShops(shopsRaw));
+      setArchivedZones((prev) => prev.filter((zone) => zone.id !== zoneId));
+
       toast.success("تم استعادة المنطقة بنجاح");
       if (archivedZones.length <= 1) setIsZoneRecycleBinOpen(false);
-
-      // re-fetch init data to get correct shopsCount and full zone details
-      const initData = await authenticatedFetch("/dispatch/init");
-      setZones(sortZones(initData.zones));
-    } catch (err: any) {
-      toast.error("خطأ في الاستعادة: " + err.message);
+    } catch (err: unknown) {
+      toast.error("خطأ في الاستعادة: " + getErrorMessage(err));
     }
   };
 
   // Helper: handle tab switch with dirty-state guard
-  const handleTabChange = useCallback((tabId: string) => {
+  const handleTabChange = useCallback((tabId: TabId) => {
     if (tabId === activeTab) return;
     if (hasUnsavedChanges) {
       setUnsavedTabPrompt(tabId); // تفعيل النافذة الذكية بدل العادية
@@ -400,7 +717,24 @@ export default function DispatchBoard() {
   }, [activeTab, hasUnsavedChanges]);
 
   const handleDispatchRoute = () => {
-    if (!selectedZoneId || !selectedDriverId || !selectedVehicleId) return toast.error("⚠️ يرجى تحديد المنطقة والمندوب والسيارة");
+    if (
+      !selectedZoneId ||
+      !selectedDriverId ||
+      !selectedVehicleId ||
+      !selectedSourceWarehouseId
+    ) {
+      return toast.error("⚠️ يرجى تحديد المنطقة والمندوب والسيارة ومستودع المصدر");
+    }
+    if (isWarehouseStatusLoading) {
+      return toast.info("جاري التحقق من حالة مستودع المصدر...");
+    }
+    if (isWarehouseLocked) {
+      return toast.error("🔒 مستودع المصدر تحت الجرد حالياً ولا يمكن إطلاق حمولة منه.");
+    }
+    if (vehicleInventoryLoadedForId !== selectedVehicleId) {
+      return toast.info("جاري تحميل مخزون السيارة. حاول بعد اكتمال القراءة.");
+    }
+
     const targetShops = shops.filter(s => s.zoneId === selectedZoneId && !s.archived);
     if (targetShops.length === 0) {
       return toast.error("⚠️ المنطقة المختارة لا تحتوي على محلات نشطة.");
@@ -413,7 +747,8 @@ export default function DispatchBoard() {
         zone_id: selectedZoneId,
         driver_id: selectedDriverId,
         vehicle_id: selectedVehicleId,
-        inventory: preloadQuantities // +++ إرسال جرد الحمولة للسيرفر +++
+        source_location_id: Number(selectedSourceWarehouseId),
+        inventory: preloadQuantities
       })
     })
       .then(() => {
@@ -422,20 +757,42 @@ export default function DispatchBoard() {
         // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
         authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(Array.isArray(data) ? data : [])).catch(err => console.error(err));
       })
-      .catch(err => toast.error("خطأ في إطلاق خط السير: " + err.message));
+      .catch(err => toast.error("خطأ في إطلاق خط السير: " + getErrorMessage(err)));
   };
 
   const handleConfirmRouteAction = async () => {
     if (!activeRoute) return;
-    const totalInventory = Object.values(preloadQuantities).reduce((acc, q) => acc + (typeof q === 'number' ? q : 0), 0);
-    
-    // +++ الكي الجراحي: السماح بحمولة صفر فقط في حال كان الإجراء "تحويل مندوب" أو "متابعة" لمنع الشلل المنطقي +++
-    if (totalInventory === 0 && routeModalType !== "transfer" && routeModalType !== "follow_up") {
-      toast.error("⚠️ لا يمكن إطلاق خط السير بحمولة صفر.");
+    if (activeRoute.sessionEnded) {
+      toast.error("لا يمكن إعادة تشغيل هذا المسار من هنا بعد انتهاء WorkSession.");
+      return;
+    }
+    if (!selectedVehicleId) {
+      toast.error("⚠️ اختر السيارة.");
+      return;
+    }
+    if (vehicleInventoryLoadedForId !== selectedVehicleId) {
+      toast.info("جاري تحميل مخزون السيارة. انتظر اكتمال القراءة قبل الاعتماد.");
       return;
     }
 
-    const newDriverId = routeModalType === "transfer" ? transferDriverId : activeRoute.driverId;
+    const newDriverId =
+      routeModalType === "transfer" ? transferDriverId : activeRoute.driverId;
+
+    if (
+      routeModalType === "transfer" &&
+      (!newDriverId || newDriverId === activeRoute.driverId)
+    ) {
+      toast.error("⚠️ اختر مندوباً آخر للتحويل.");
+      return;
+    }
+    if (
+      activeRoute.sessionBound &&
+      (newDriverId !== activeRoute.driverId ||
+        selectedVehicleId !== activeRoute.vehicleId)
+    ) {
+      toast.error("لا يمكن تغيير المندوب أو السيارة بعد ربط WorkSession.");
+      return;
+    }
 
     try {
       await authenticatedFetch(`/dispatch/route/${activeRoute.id}/status`, {
@@ -448,92 +805,161 @@ export default function DispatchBoard() {
         })
       });
 
-      // +++ التحديث الفوري للقائمة بدون ريفرش من السيرفر مباشرة لضمان الدقة +++
       const freshRoutes = await authenticatedFetch("/dispatch/active_routes");
       setPendingRoutes(Array.isArray(freshRoutes) ? freshRoutes : []);
 
       toast.success("تم تفعيل خط السير بنجاح");
       setIsRouteModalOpen(false);
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err));
     }
   };
 
   const handleUpdateScheduling = async () => {
-    const targetIds = schedulingType === "bulk" ? selectedBulkZoneIds : [selectedZoneIdForZones];
-    setIsSchedulingModalOpen(false); // +++ UX: إغلاق النافذة فوراً +++
-    
-    // +++ E-05: استخدام allSettled لتحديث الواجهة بناءً على النجاح الفعلي فقط لمنع تخريب الجدولة +++
-    const results = await Promise.allSettled(targetIds.map(id =>
-      authenticatedFetch(`/dispatch/zones/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          frequency: schedulingForm.frequency,
-          visitDay: schedulingForm.visitDay,
-          startDate: schedulingForm.startDate,
-          // +++ الكي الجراحي: إرسال الأيام المخصصة للباك-إند إذا اختار المدير جدولة مخصصة +++
-          customDays: schedulingForm.frequency.includes("مخصص") ? customDays : null
-        })
-      })
-    ));
+    const targetIds =
+      schedulingType === "bulk"
+        ? selectedBulkZoneIds
+        : [selectedZoneIdForZones].filter(Boolean);
 
-    const successIds = targetIds.filter((_, index) => results[index].status === 'fulfilled');
+    if (targetIds.length === 0) {
+      toast.error("⚠️ اختر منطقة واحدة على الأقل للجدولة.");
+      return;
+    }
+    if (!schedulingForm.startDate) {
+      toast.error("⚠️ تاريخ البدء مطلوب.");
+      return;
+    }
+
+    const intervalDays = intervalDaysFromFrequency(
+      schedulingForm.frequency,
+      customDays
+    );
+    if (intervalDays === null) {
+      toast.error("⚠️ عدد أيام التكرار يجب أن يكون عدداً صحيحاً أكبر من صفر.");
+      return;
+    }
+
+    setIsSchedulingModalOpen(false);
+
+    const results = await Promise.allSettled(
+      targetIds.map((id) =>
+        authenticatedFetch(`/dispatch/zones/${id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            intervalDays,
+            startDate: schedulingForm.startDate,
+          }),
+        })
+      )
+    );
+
+    const successIds = targetIds.filter(
+      (_, index) => results[index].status === "fulfilled"
+    );
     const failedCount = targetIds.length - successIds.length;
 
     if (successIds.length > 0) {
-      setZones(prev => sortZones(prev.map(z => successIds.includes(z.id) ? { ...z, ...schedulingForm } : z)));
-      toast.success(`تم تحديث إعدادات الجدولة بنجاح لـ ${successIds.length} منطقة`);
+      const initRaw = await authenticatedFetch("/dispatch/init");
+      const initData = initRaw as DispatchInitPayload;
+      setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
+      toast.success(
+        `تم تحديث إعدادات الجدولة بنجاح لـ ${successIds.length} منطقة`
+      );
     }
     if (failedCount > 0) {
-      toast.error(`فشل تحديث ${failedCount} منطقة. يرجى إدخال تاريخ البدء بشكل صحيح.`);
+      toast.error(`فشل تحديث ${failedCount} منطقة.`);
     }
   };
 
   const handleSaveZone = async () => {
-    if (!zoneFormName.trim()) return toast.error("⚠️ يرجى إدخال اسم المنطقة");
+  const cleanZoneName = zoneFormName.trim();
 
-    try {
-      if (editingZoneId) {
-        await authenticatedFetch(`/dispatch/zones/${editingZoneId}`, { method: "PUT", body: JSON.stringify({ name: zoneFormName }) });
-        setZones(prev => prev.map(z => z.id === editingZoneId ? { ...z, name: zoneFormName } : z));
-        setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null);
-        toast.success("تم الحفظ بنجاح");
-      } else {
-        const res = await authenticatedFetch("/dispatch/zones", { method: "POST", body: JSON.stringify({ name: zoneFormName }) });
-        const newZone = {
-          id: String(res.zone_id),
-          name: zoneFormName,
-          scheduleStatus: null,
-          frequency: "أسبوعي",
-          visitDay: "السبت",
-          startDate: new Date().toISOString().split('T')[0],
-          shopsCount: 0
-        };
-        setZones(prev => [...prev, newZone]);
-        setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null);
-        toast.success("تم إضافة المنطقة ✅. يرجى تحديد جدولتها الآن.");
+  if (cleanZoneName.length < 2) {
+    toast.error("⚠️ اسم المنطقة يجب أن يحتوي حرفين على الأقل");
+    return;
+  }
 
-        // +++ فتح نافذة الجدولة تلقائياً للمنطقة الجديدة +++
-        setSelectedZoneIdForZones(newZone.id);
-        setSchedulingType("local");
-        setSchedulingForm({ frequency: newZone.frequency, visitDay: newZone.visitDay, startDate: newZone.startDate });
-        setIsSchedulingModalOpen(true);
+  if (cleanZoneName.length > 100) {
+    toast.error("⚠️ اسم المنطقة لا يجوز أن يتجاوز 100 حرف");
+    return;
+  }
+
+  try {
+    if (editingZoneId) {
+      await authenticatedFetch(`/dispatch/zones/${editingZoneId}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: cleanZoneName }),
+      });
+
+      const initRaw = await authenticatedFetch("/dispatch/init");
+      const initData = initRaw as DispatchInitPayload;
+
+      setZones(
+        sortZones(Array.isArray(initData.zones) ? initData.zones : [])
+      );
+
+      setIsZoneModalOpen(false);
+      setZoneFormName("");
+      setEditingZoneId(null);
+
+      toast.success("تم الحفظ بنجاح");
+    } else {
+      const raw = await authenticatedFetch("/dispatch/zones", {
+        method: "POST",
+        body: JSON.stringify({ name: cleanZoneName }),
+      });
+
+      const response =
+        typeof raw === "object" && raw !== null
+          ? (raw as { zone_id?: unknown })
+          : {};
+
+      if (
+        typeof response.zone_id !== "string" &&
+        typeof response.zone_id !== "number"
+      ) {
+        throw new Error("استجابة إنشاء المنطقة غير مكتملة.");
       }
-    } catch (err: any) {
-      toast.error("خطأ في حفظ المنطقة: " + err.message);
+
+      const newZoneId = String(response.zone_id);
+
+      const initRaw = await authenticatedFetch("/dispatch/init");
+      const initData = initRaw as DispatchInitPayload;
+
+      setZones(
+        sortZones(Array.isArray(initData.zones) ? initData.zones : [])
+      );
+
+      setIsZoneModalOpen(false);
+      setZoneFormName("");
+      setEditingZoneId(null);
+
+      toast.success("تم إضافة المنطقة ✅. يرجى تحديد جدولتها الآن.");
+
+      setSelectedZoneIdForZones(newZoneId);
+      setSchedulingType("local");
+      setSchedulingForm({
+        frequency: "كل 7 أيام",
+        startDate: "",
+      });
+      setCustomDays(14);
+      setIsSchedulingModalOpen(true);
     }
-  };
+  } catch (err: unknown) {
+    toast.error("خطأ في حفظ المنطقة: " + getErrorMessage(err));
+  }
+};
 
   const handleSaveShop = async () => {
     if (isSaving) return; // +++ درع الحماية: منع النقر المزدوج وازدواجية البيانات +++
-    if (!shopForm.name.trim() || !shopForm.phone.trim() || !shopForm.mapLink.trim() || !shopForm.zoneId) {
-      toast.error("⚠️ يرجى إكمال جميع البيانات");
+    if (!shopForm.name.trim() || !shopForm.zoneId) {
+      toast.error("⚠️ اسم المحل والمنطقة مطلوبان");
       return;
     }
     setIsSaving(true);
 
     // +++ الكي الجراحي: مطابقة أسماء المتغيرات بدقة مع Pydantic Schemas لنسف خطأ 422 +++
-    const apiPayload = {
+    const apiPayload: ShopMutationPayload = {
       name: shopForm.name,
       owner: shopForm.owner,
       phone: shopForm.phone,
@@ -543,7 +969,7 @@ export default function DispatchBoard() {
       zoneId: Number(shopForm.zoneId) // تحويل المنطقة لرقم صريح
     };
 
-    const localShopState = {
+    const localShopState: LocalShopState = {
       name: shopForm.name,
       owner: shopForm.owner,
       phone: shopForm.phone,
@@ -559,8 +985,13 @@ export default function DispatchBoard() {
           method: "PUT",
           body: JSON.stringify(apiPayload)
         });
-        setShops(prev => prev.map(s => s.id === editingShopId ? { ...s, ...localShopState } : s));
-        if (isEditMode) setHasUnsavedChanges(true);
+        const [shopsRaw, initRaw] = await Promise.all([
+          authenticatedFetch("/dispatch/shops"),
+          authenticatedFetch("/dispatch/init"),
+        ]);
+        setShops(normalizeShops(shopsRaw));
+        const initData = initRaw as DispatchInitPayload;
+        setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
         setIsShopModalOpen(false);
         toast.success("تم تحديث بيانات المحل ✅");
       } else {
@@ -575,17 +1006,18 @@ export default function DispatchBoard() {
         setIsShopModalOpen(false);
         toast.success("تم الإضافة بنجاح");
       }
-    } catch (error: any) {
-      // +++ اصطياد بيانات التطابق من "الدرع المطور" +++
-      if (error.status === 409 && error.data?.is_duplicate) {
+    } catch (error: unknown) {
+      const status = getHttpErrorStatus(error);
+      const data = getHttpErrorData(error);
+      if (status === 409 && isDuplicateShopResponse(data)) {
         setDuplicateWarning({
           show: true,
-          shopData: error.data.existing_shop,
+          shopData: data.existing_shop,
           apiPayload: { ...apiPayload, force_save: true },
-          localState: localShopState
+          localState: localShopState,
         });
       } else {
-        toast.error(`❌ خطأ: ${error.message}`);
+        toast.error(`❌ خطأ: ${getErrorMessage(error)}`);
       }
     } finally {
       setIsSaving(false); // +++ تحرير الدرع بعد انتهاء العملية +++
@@ -618,8 +1050,8 @@ export default function DispatchBoard() {
       toast.success("تم فرض الحفظ بنجاح");
       setIsShopModalOpen(false);
       setDuplicateWarning(null);
-    } catch (error: any) {
-      toast.error(error.message || "حدث خطأ أثناء فرض الحفظ");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -641,84 +1073,223 @@ export default function DispatchBoard() {
     return archivedZones.filter(z => z.name.toLowerCase().includes(q));
   }, [archivedZones, zoneRecycleSearchQuery]);
 
-  const handleAddShortage = async () => {
-    if (!shortageZoneId || !shortageShopId || shortageDraft.length === 0) return toast.error("⚠️ يرجى إكمال بيانات الطلب");
-    const zone = zones.find(z => z.id === shortageZoneId);
-    const shop = shops.find(s => s.id === shortageShopId);
+  const refreshShortages = useCallback(async () => {
+    const data = await authenticatedFetch("/dispatch/shortages");
+    setShortages(Array.isArray(data) ? data : []);
+  }, [authenticatedFetch]);
 
-    const newShortages = shortageDraft.map(item => ({
-      zoneId: shortageZoneId,
-      zoneName: zone?.name || "",
-      shopId: shortageShopId,
-      shopName: shop?.name || "",
-      driverId: shortageDriverId || null,
-      driverName: drivers.find(d => d.id === shortageDriverId)?.name || "بدون مندوب (معلقة)",
-      productId: item.productId, // +++ الدرع المعماري: إرسال الـ ID إجبارياً للباك-إند لمنع البحث النصي البطيء +++
-      productName: item.productName,
-      quantity: Number(item.quantity),
-      status: "pending",
-      waitTime: "الآن"
-    }));
-    try {
-      // إذا كنا في وضع التعديل: احذف الطلبات القديمة أولاً ثم أنشئ الجديدة (Delete-then-Insert)
-      if (editingShortageIds.length > 0) {
-        await Promise.all(
-          editingShortageIds.map(id =>
-            authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" })
-          )
-        );
-        setEditingShortageIds([]);
+  const replaceShortageGroupAtomic = useCallback(
+    async (
+      shortageIds: string[],
+      items: Array<{
+        zoneId: number;
+        shopId: number;
+        driverId: number | null;
+        productId: number;
+        quantity: number;
+      }>
+    ) => {
+      if (shortageMutationInFlightRef.current) {
+        toast.info("هناك عملية نواقص قيد التنفيذ.");
+        return false;
       }
-      await authenticatedFetch("/dispatch/shortages", {
-        method: "POST",
-        body: JSON.stringify(newShortages)
-      });
-      const data = await authenticatedFetch("/dispatch/shortages");
-      setShortages(data);
+
+      const parsedIds = shortageIds.map(Number);
+      if (
+        parsedIds.length === 0 ||
+        parsedIds.some((id) => !Number.isInteger(id) || id <= 0)
+      ) {
+        toast.error("معرفات طلبات النواقص غير صالحة.");
+        return false;
+      }
+
+      shortageMutationInFlightRef.current = true;
+      try {
+        await authenticatedFetch("/dispatch/shortages/group", {
+          method: "PUT",
+          body: JSON.stringify({
+            request_id: crypto.randomUUID(),
+            shortage_ids: parsedIds,
+            items,
+          }),
+        });
+        await refreshShortages();
+        return true;
+      } catch (err: unknown) {
+        toast.error(getErrorMessage(err));
+        return false;
+      } finally {
+        shortageMutationInFlightRef.current = false;
+      }
+    },
+    [authenticatedFetch, refreshShortages]
+  );
+
+  const handleAddShortage = async () => {
+    if (!shortageZoneId || !shortageShopId || shortageDraft.length === 0) {
+      return toast.error("⚠️ يرجى إكمال بيانات الطلب");
+    }
+    if (
+      shortageDraft.some(
+        (item) =>
+          !item.productId ||
+          !Number.isInteger(Number(item.productId)) ||
+          Number(item.productId) <= 0 ||
+          !Number.isInteger(Number(item.quantity)) ||
+          Number(item.quantity) <= 0
+      )
+    ) {
+      return toast.error("⚠️ يوجد منتج أو كمية غير صالحة في الطلب.");
+    }
+
+    const newShortages = shortageDraft.map((item) => ({
+      zoneId: Number(shortageZoneId),
+      shopId: Number(shortageShopId),
+      driverId: shortageDriverId ? Number(shortageDriverId) : null,
+      productId: Number(item.productId),
+      quantity: Number(item.quantity),
+    }));
+
+    if (shortageMutationInFlightRef.current) {
+      toast.info("هناك عملية نواقص قيد التنفيذ.");
+      return;
+    }
+
+    try {
+      let saved = false;
+      if (editingShortageIds.length > 0) {
+        saved = await replaceShortageGroupAtomic(
+          editingShortageIds,
+          newShortages
+        );
+      } else {
+        shortageMutationInFlightRef.current = true;
+        try {
+          await authenticatedFetch("/dispatch/shortages", {
+            method: "POST",
+            body: JSON.stringify(newShortages),
+          });
+          await refreshShortages();
+          saved = true;
+        } finally {
+          shortageMutationInFlightRef.current = false;
+        }
+      }
+
+      if (!saved) return;
+
+      const wasEditing = editingShortageIds.length > 0;
+      setEditingShortageIds([]);
       setShortageDraft([]);
-      if (products.length > 0) setNewShortage({ productName: products[0].name, quantity: 1 });
-      toast.success("تم تسجيل الطلبات بنجاح");
-    } catch (err: any) {
-      toast.error(err.message);
+      if (products.length > 0) {
+        setNewShortage({
+          productId: products[0].id,
+          productName: products[0].name,
+          quantity: 1,
+        });
+      }
+      toast.success(
+        wasEditing
+          ? "تم حفظ تعديلات الطلبات ذرياً"
+          : "تم تسجيل الطلبات بنجاح"
+      );
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err));
+      shortageMutationInFlightRef.current = false;
     }
   };
 
   const handleAddProductToDraft = () => {
-    if (!newShortage.productName || !newShortage.quantity) return toast.error("⚠️ اختر منتج وكمية");
-    const product = products.find(pr => pr.name === newShortage.productName);
-    setShortageDraft(prev => {
-      const existing = prev.findIndex(d => d.productName === newShortage.productName);
+    if (!newShortage.productId || !newShortage.quantity) {
+      return toast.error("⚠️ اختر منتج وكمية");
+    }
+
+    const product = products.find((item) => item.id === newShortage.productId);
+    if (!product) {
+      return toast.error("المنتج المحدد لم يعد متاحاً.");
+    }
+
+    setShortageDraft((prev) => {
+      const existing = prev.findIndex(
+        (item) => item.productId === product.id
+      );
       if (existing !== -1) {
-        // دمج الكمية بدل إضافة سطر جديد
-        return prev.map((d, i) => i === existing ? { ...d, quantity: d.quantity + newShortage.quantity! } : d);
+        return prev.map((item, index) =>
+          index === existing
+            ? {
+                ...item,
+                quantity: item.quantity + Number(newShortage.quantity),
+              }
+            : item
+        );
       }
-      return [...prev, { productId: product?.id || "", productName: newShortage.productName!, quantity: newShortage.quantity! }];
+      return [
+        ...prev,
+        {
+          productId: product.id,
+          productName: product.name,
+          quantity: Number(newShortage.quantity),
+        },
+      ];
     });
-    setNewShortage(p => ({ ...p, quantity: 1 }));
+    setNewShortage((prev) => ({ ...prev, quantity: 1 }));
   };
 
-  const handleEditShortageGroup = (shopId: string) => {
-    const shopShortages = shortages.filter(s => s.shopId === shopId);
+  const handleEditShortageGroup = (
+    shopId: string,
+    driverId?: string
+  ) => {
+    const shopShortages = shortages.filter(
+      (item) =>
+        item.shopId === shopId &&
+        (item.driverId || "") === (driverId || "")
+    );
     if (shopShortages.length === 0) return;
 
     const first = shopShortages[0];
+    const identityKeys = new Set(
+      shopShortages.map(
+        (item) =>
+          `${item.zoneId}:${item.shopId}:${item.driverId || ""}`
+      )
+    );
+    if (identityKeys.size !== 1) {
+      toast.error("مجموعة النواقص غير متسقة ولا يمكن تعديلها بأمان.");
+      return;
+    }
 
-    // 1. تحديد المنطقة والمحل في قوائم الاختيار
     setShortageZoneId(first.zoneId);
     setShortageShopId(first.shopId);
+    setShortageDriverId(first.driverId || "");
 
-    // 2. نقل المنتجات للـ Draft
-    const draft = shopShortages.map(s => ({
-      productId: products.find(p => p.name === s.productName)?.id || "",
-      productName: s.productName,
-      quantity: s.quantity,
-    }));
-    setShortageDraft(draft);
+    setShortageDraft(
+      shopShortages.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        quantity: item.quantity,
+      }))
+    );
 
-    // 3. حفظ IDs القديمة للحذف لاحقاً عند تأكيد الطلب فقط (لا حذف الآن)
-    setEditingShortageIds(shopShortages.map(s => s.id));
+    setEditingShortageIds(shopShortages.map((item) => item.id));
+    toast.info("تم تحميل الطلب للتعديل — الهوية ثابتة ويمكن تعديل المنتجات والكميات.");
+  };
 
-    toast.info("تم تحميل الطلب للتعديل — عدّل الكميات ثم اضغط تأكيد الطلب");
+  const handleDeleteShortageGroup = (ids: string[]) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "حذف طلبات المحل",
+      message: `هل أنت متأكد من حذف المجموعة كاملة (${ids.length} منتجات)؟`,
+      onConfirm: async () => {
+        try {
+          const deleted = await replaceShortageGroupAtomic(ids, []);
+          if (deleted) {
+            toast.success("تم حذف المجموعة كاملة ذرياً");
+          }
+        } finally {
+          setConfirmDialog((dialog) => ({ ...dialog, isOpen: false }));
+        }
+      },
+    });
   };
 
   const handleCloseShortageModal = () => {
@@ -726,6 +1297,7 @@ export default function DispatchBoard() {
     setShortageDraft([]);
     setShortageZoneId("");
     setShortageShopId("");
+    setShortageDriverId("");
     setEditingShortageIds([]);
   };
 
@@ -736,11 +1308,11 @@ export default function DispatchBoard() {
         <div className="flex items-center gap-6">
           <div className="flex bg-slate-100 p-1 rounded-xl">
             {/* +++  فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
-            {[
+            {([
               { id: "routes", label: "الخطوط النشطة", icon: Truck },
               { id: "launch", label: "إطلاق خط جديد", icon: Plus },
               { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }
-            ].map(tab => (
+            ] as const).map(tab => (
               <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 <tab.icon className="w-4 h-4" /> {tab.label}
               </button>
@@ -814,7 +1386,16 @@ export default function DispatchBoard() {
                       setRadarRoute(route);
                       setIsRadarModalOpen(true);
                     }}
-                    onOpenRouteModal={(r, t) => { setActiveRoute(r); setRouteModalType(t); setTransferDriverId(r.driverId); setSelectedVehicleId(r.vehicleId); setPreloadQuantities({}); setIsRouteModalOpen(true); }}
+                    onOpenRouteModal={(r, t) => {
+                      setActiveRoute(r);
+                      setRouteModalType(t);
+                      setTransferDriverId(r.driverId);
+                      setPreloadQuantities({});
+                      setVehicleInventoryLoadedForId(null);
+                      setSelectedVehicleId(r.vehicleId);
+                      setVehicleInventoryReloadKey((key) => key + 1);
+                      setIsRouteModalOpen(true);
+                    }}
                     onPostponeRoute={async (id) => {
                       try {
                         await authenticatedFetch(`/dispatch/route/${id}/status`, {
@@ -823,19 +1404,19 @@ export default function DispatchBoard() {
                         });
                         setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
                         toast.info("تم تأجيل المنطقة");
-                      } catch (e: any) {
-                        toast.error(e.message);
+                      } catch (e: unknown) {
+                        toast.error(getErrorMessage(e));
                       }
                     }}
                     onCloseZone={route => {
                       const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
                       const message = isAlmostDone
-                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط لإنهاء المنطقة! هل أنت متأكد من الإغلاق والتصفير؟`
-                        : "هل أنت متأكد من إغلاق وتصفير هذه المنطقة؟";
+                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط لإنهاء المنطقة! هل أنت متأكد من إغلاق خط السير؟`
+                        : "هل أنت متأكد من إغلاق خط السير؟ ستبقى عهدة السيارة كما هي حتى التسوية المخزنية.";
 
                       setConfirmDialog({
                         isOpen: true,
-                        title: "تأكيد الإغلاق والتصفير",
+                        title: "تأكيد إغلاق خط السير",
                         message: message,
                         onConfirm: async () => {
                           try {
@@ -845,9 +1426,9 @@ export default function DispatchBoard() {
                             });
                             setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
                             fetchInitialData();
-                            toast.success("تم إغلاق المنطقة وتصفير السيارة");
-                          } catch (e: any) {
-                            toast.error(e.message);
+                            toast.success("تم إغلاق خط السير. عهدة السيارة لم تُصفّر.");
+                          } catch (e: unknown) {
+                            toast.error(getErrorMessage(e));
                           } finally {
                             setConfirmDialog(d => ({ ...d, isOpen: false }));
                           }
@@ -857,7 +1438,7 @@ export default function DispatchBoard() {
                     onForceWithdraw={route => {
                       const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
                       const message = isAlmostDone
-                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط! هل أنت متأكد من إيقاف وسحب المنطقة؟`
+                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط! هل أنت متأكد من إيقاف خط السير مؤقتاً وإعادته للانتظار؟`
                         : "هل أنت متأكد من إيقاف المنطقة وإعادتها للانتظار؟";
 
                       setConfirmDialog({
@@ -870,11 +1451,10 @@ export default function DispatchBoard() {
                               method: "PUT",
                               body: JSON.stringify({ status: "waiting" })
                             });
-                            setPendingRoutes(prev => prev.map(r => r.id === route.id ? { ...r, status: "waiting", driverId: "", vehicleId: "" } : r));
-                            fetchInitialData();
-                            toast.success("تم إيقاف المنطقة وسحبها بنجاح");
-                          } catch (e: any) {
-                            toast.error(e.message);
+                                                        fetchInitialData();
+                            toast.success("تم تحويل خط السير إلى حالة الانتظار مع بقاء تعيين المندوب والسيارة.");
+                          } catch (e: unknown) {
+                            toast.error(getErrorMessage(e));
                           } finally {
                             setConfirmDialog(d => ({ ...d, isOpen: false }));
                           }
@@ -890,7 +1470,7 @@ export default function DispatchBoard() {
             <div key="launch" className="flex flex-col w-full gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
               
               {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
-              <div className="relative grid grid-cols-1 md:grid-cols-3 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
+              <div className="relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
                 <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
                   <Rocket className="w-4 h-4" /> إطلاق خط سير جديد
                 </div>
@@ -899,6 +1479,14 @@ export default function DispatchBoard() {
                 <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus }))} value={selectedZoneId} onChange={setSelectedZoneId} placeholder="اختر المنطقة" />
                 <CustomSelect labelBg="bg-slate-50" label="المندوب" options={drivers.map(d => ({ id: d.id, label: d.name }))} value={selectedDriverId} onChange={setSelectedDriverId} placeholder="اختر المندوب" />
                 <CustomSelect labelBg="bg-slate-50" label="السيارة" options={vehicles.map(v => ({ id: v.id, label: v.label }))} value={selectedVehicleId} onChange={setSelectedVehicleId} placeholder="اختر السيارة" />
+                <CustomSelect
+                  labelBg="bg-slate-50"
+                  label="مستودع المصدر"
+                  options={warehouses}
+                  value={selectedSourceWarehouseId}
+                  onChange={setSelectedSourceWarehouseId}
+                  placeholder="اختر مستودع المصدر"
+                />
               </div>
 
               {/* +++ الحاوية الثانية: جدول الحمولة (محدود الارتفاع بـ 400px لحل مشكلة المليون منتج) +++ */}
@@ -993,16 +1581,19 @@ export default function DispatchBoard() {
                       <div key={zone.id} onClick={() => setSelectedZoneIdForZones(zone.id)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition-all group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
                         <span className="flex items-center gap-2">
                           {zone.name}
-                          {(!zone.startDate || zone.visitDay === "غير محدد") && (
+                          {(!zone.startDate || !zone.intervalDays) && (
                             <span title="تنبيه: لم يتم ضبط إعدادات الجدولة لهذه المنطقة" className="text-amber-500 bg-amber-50 rounded-full p-0.5 animate-pulse cursor-help"><AlertCircle className="w-3.5 h-3.5" /></span>
                           )}
                         </span>
                         <p className="text-[10px] mt-1 flex items-center gap-1">
-                          <span className={zone.dateColor || "text-slate-400"}>{zone.visitDay} ({zone.startDate})</span>
+                          <span className={zone.dateColor || "text-slate-400"}>
+                            {zone.intervalDays ? `كل ${zone.intervalDays} يوم` : "غير مجدول"}
+                            {zone.startDate ? ` (${zone.startDate})` : ""}
+                          </span>
                           <span className="text-slate-300">•</span>
                           <span className="text-[#1e87bb] font-bold">{zone.shopsCount || 0} محلات</span>
                         </p>
-                      </div><div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: zone.frequency, visitDay: zone.visitDay, startDate: zone.startDate }); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
+                      </div><div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: frequencyFromIntervalDays(zone.intervalDays), startDate: zone.startDate }); setCustomDays(zone.intervalDays && ![7, 14, 30].includes(zone.intervalDays) ? zone.intervalDays : 14); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
                         onClick={e => {
                           e.stopPropagation();
                           setZoneToKill(zone);
@@ -1052,14 +1643,15 @@ export default function DispatchBoard() {
                           try {
                             await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify([{ id, archived: true }]) });
                             setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
+                            fetchInitialData();
                             toast.success("تم أرشفة المحل بنجاح");
-                          } catch (err: any) { toast.error("خطأ في الأرشفة: " + err.message); }
+                          } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); }
                           finally { setConfirmDialog(d => ({ ...d, isOpen: false })); }
                         }
                       });
                     }
                   }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { const draggedId = e.dataTransfer.getData("shopId"); if (draggedId === targetId) return; const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === draggedId); const to = list.findIndex(s => s.id === targetId); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} />
-                  <AnimatePresence>{isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: any) { toast.error("خطأ في الأرشفة: " + err.message); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
+                  <AnimatePresence>{isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
                   <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
                     <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
@@ -1099,9 +1691,9 @@ export default function DispatchBoard() {
         shortageDriverId={shortageDriverId}
         onDriverChange={setShortageDriverId}
         editingShortageIds={editingShortageIds}
-        onCancelEdit={() => { setShortageDraft([]); setEditingShortageIds([]); setShortageZoneId(""); setShortageShopId(""); }}
-        onDeleteShortage={id => setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try { await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: any) { toast.error("خطأ في الحذف: " + e.message); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })}
-        onDeleteShortageGroup={ids => setConfirmDialog({ isOpen: true, title: "حذف طلبات المحل", message: `هل أنت متأكد من حذف جميع طلبات هذا المحل (${ids.length} منتجات) نهائياً؟`, onConfirm: async () => { try { await Promise.all(ids.map(id => authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }))); setShortages(prev => prev.filter(s => !ids.includes(s.id))); toast.success("تم حذف جميع طلبات المحل بنجاح"); } catch (e: any) { toast.error("خطأ في الحذف: " + e.message); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })}
+        onCancelEdit={() => { setShortageDraft([]); setEditingShortageIds([]); setShortageZoneId(""); setShortageShopId(""); setShortageDriverId(""); }}
+        onDeleteShortage={id => setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try { await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })}
+        onDeleteShortageGroup={handleDeleteShortageGroup}
         onEditShortageGroup={handleEditShortageGroup}
       />
       <ScheduleModal isOpen={isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
@@ -1119,7 +1711,17 @@ export default function DispatchBoard() {
         products={products}
         preloadQuantities={preloadQuantities}
         onPreloadQuantitiesChange={setPreloadQuantities}
-        onClearInventory={() => setConfirmDialog({ isOpen: true, title: "تأكيد التصفير", message: "تصفير؟", onConfirm: () => { setPreloadQuantities({}); setConfirmDialog(d => ({ ...d, isOpen: false })); } })}
+        onClearInventory={() => setConfirmDialog({
+          isOpen: true,
+          title: "تأكيد تصفير هدف الحمولة",
+          message: "هل تريد جعل الكمية المستهدفة صفراً لكل أصناف الحمولة الحالية؟",
+          onConfirm: () => {
+            setPreloadQuantities((current) =>
+              Object.fromEntries(Object.keys(current).map((id) => [id, 0]))
+            );
+            setConfirmDialog(d => ({ ...d, isOpen: false }));
+          }
+        })}
         onConfirmAction={handleConfirmRouteAction}
       />
       <ShopFormModal isOpen={isShopModalOpen} onClose={() => setIsShopModalOpen(false)} editingShopId={editingShopId} shopForm={shopForm} onShopFormChange={setShopForm} zones={zones} onSave={handleSaveShop} />
@@ -1129,7 +1731,7 @@ export default function DispatchBoard() {
         recycleSearchQuery={recycleSearchQuery}
         onRecycleSearchQueryChange={setRecycleSearchQuery}
         filteredRecycleBin={filteredRecycleBin}
-        zones={zones}
+        zones={[...zones, ...archivedZones]}
         onRestoreShop={async (id) => {
           const shopToRestore = shops.find(s => s.id === id);
           const isZoneActive = zones.some(z => z.id === shopToRestore?.zoneId);
@@ -1146,11 +1748,12 @@ export default function DispatchBoard() {
             });
             setShops(prev => prev.map(s => s.id === id ? { ...s, archived: false } : s));
             setZones(prev => sortZones(prev.map(z => z.id === archivedShops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
+            fetchInitialData();
             toast.success("تم استعادة المحل بنجاح");
-          } catch (err: any) { toast.error(err.message); }
+          } catch (err: unknown) { toast.error(getErrorMessage(err)); }
         }}
       />
-      <BulkTransferModal isOpen={isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999 })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); toast.success("تم نقل المحلات بنجاح"); } catch (err: any) { toast.error("خطأ في النقل: " + err.message); } }} />
+      <BulkTransferModal isOpen={isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
       {/* +++ نافذة تعديل الحمولة +++ */}
       <AdjustInventoryModal
         isOpen={isInventoryModalOpen}
@@ -1167,13 +1770,17 @@ export default function DispatchBoard() {
       />
 
       <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
-      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed")} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify({ status: "waiting", driverId: route?.driverId }) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: any) { toast.error(e.message); } }} />
+      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed")} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
+          route?.sessionBound
+            ? { status: "waiting" }
+            : { status: "waiting", driverId: route?.driverId }
+        ) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: unknown) { toast.error(getErrorMessage(e)); } }} />
       <ZoneRecycleBinModal isOpen={isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
         isOpen={isBulkImportModalOpen}
         onClose={() => setIsBulkImportModalOpen(false)}
         zones={zones}
-        activeShops={activeShops}
+        existingShops={shops}
         onSuccess={fetchInitialData}
       />
       {confirmDialog.isOpen && (
@@ -1289,12 +1896,29 @@ export default function DispatchBoard() {
               <button
                 onClick={async () => {
                   try {
-                    await handleRestoreZone(restorePromptShop.zoneId); // استعادة المنطقة
-                    await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify([{ id: restorePromptShop.id, archived: false }]) }); // استعادة المحل
+                    await authenticatedFetch(
+                      `/dispatch/zones/${restorePromptShop.zoneId}/restore`,
+                      {
+                        method: "PUT",
+                        body: JSON.stringify({
+                          mode: "zone_only",
+                        }),
+                      }
+                    );
+
+                    await authenticatedFetch("/dispatch/shops/bulk_update", {
+                      method: "PUT",
+                      body: JSON.stringify([
+                        {
+                          id: restorePromptShop.id,
+                          archived: false,
+                        },
+                      ]),
+                    });
                     setShops(prev => prev.map(s => s.id === restorePromptShop.id ? { ...s, archived: false } : s));
                     setRestorePromptShop(null);
                     toast.success("تم استعادة المنطقة والمحل بنجاح ✅");
-                  } catch (e: any) { toast.error("خطأ: " + e.message); }
+                  } catch (e: unknown) { toast.error("خطأ: " + getErrorMessage(e)); }
                 }}
                 className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold hover:bg-emerald-600 transition-colors"
               >
@@ -1326,9 +1950,10 @@ export default function DispatchBoard() {
                 try {
                   await authenticatedFetch(`/dispatch/zones/${zoneToKill?.id}`, { method: "DELETE" });
                   setZones(prev => prev.filter(z => z.id !== zoneToKill?.id));
+                  fetchInitialData();
                   setIsSuicideModalOpen(false);
                   toast.success(`تم أرشفة المنطقة (${zoneToKill?.name}) وكل محلاتها بنجاح ✅`);
-                } catch (err: any) { toast.error(err.message); }
+                } catch (err: unknown) { toast.error(getErrorMessage(err)); }
               }}
               className="flex-1 bg-red-600 text-white py-2 rounded-xl font-bold hover:bg-red-700 disabled:opacity-30 transition-all shadow-lg"
             >
