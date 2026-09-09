@@ -507,12 +507,13 @@ export default function MainInventory() {
         {activeTab === "stocktake" && selectedLocationId !== null && (
           <Tab3Stocktake
             locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
+            companyId={companyId}
             isAuditLocked={isAuditLocked}
             authenticatedFetch={authFetch}
-            onLockChange={async (locked) => {
-              setIsAuditLocked(locked);
+            onStocktakeChanged={async () => {
               refreshStock();
               setLedgerRefreshKey((value) => value + 1);
+              await fetchStatus();
             }}
           />
         )}

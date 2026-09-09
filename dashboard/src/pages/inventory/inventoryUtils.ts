@@ -68,10 +68,13 @@ export interface InboundRow {
   loose_packs: number;
 }
 
+export type StocktakeStockStatus = "AVAILABLE" | "DAMAGED";
+
 export interface StocktakeRow {
   row_key: string;
   product_variant_id: number;
   batch_id: number | null;
+  stock_status: StocktakeStockStatus;
   product_name: string;
   batch_number: string | null;
   expiry_date: string | null;

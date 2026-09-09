@@ -1742,6 +1742,48 @@ class WarehouseTransferDetail(BaseModel):
     lines: List[WarehouseTransferLineItem]
 
 
+class StocktakeActiveSessionItem(BaseModel):
+    id: int
+    reference_number: str
+    stocktake_type: Literal["FULL_COUNT", "CYCLE_COUNT", "VEHICLE_RECON"]
+    status: Literal["DRAFT", "COUNTING", "PENDING_REVIEW", "RECOUNT_REQUIRED", "APPROVED"]
+    location_id: int
+    scope_product_variant_id: Optional[int] = None
+    scope_product_name: Optional[str] = None
+    scope_batch_id: Optional[int] = None
+    scope_batch_number: Optional[str] = None
+    related_work_session_id: Optional[int] = None
+    started_by: int
+    started_by_name: str
+    pending_independent_recount_required: bool
+    snapshot_cutoff_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StocktakeActiveSessionCursorPage(BaseModel):
+    items: List[StocktakeActiveSessionItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
+class StocktakeCycleBatchItem(BaseModel):
+    id: int
+    product_variant_id: int
+    batch_number: str
+    production_date: Optional[date] = None
+    expiry_date: date
+    is_active: bool
+
+
+class StocktakeCycleBatchCursorPage(BaseModel):
+    items: List[StocktakeCycleBatchItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
 class UnifiedStocktakeStartRequest(RequestModel):
     location_id: PositiveDbInt
     stocktake_type: Literal["FULL_COUNT", "CYCLE_COUNT", "VEHICLE_RECON"]
