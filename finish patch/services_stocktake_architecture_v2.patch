@@ -1,0 +1,1102 @@
+diff --git a/wa_backend/services.py b/wa_backend/services.py
+index 4c69581..d3604eb 100644
+--- a/wa_backend/services.py
++++ b/wa_backend/services.py
+@@ -3,7 +3,7 @@ from config import Config
+ from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from datetime import date
+-from sqlalchemy import select, func, and_, or_
++from sqlalchemy import select, func, and_, or_, tuple_
+ from sqlalchemy.dialects.postgresql import insert as pg_insert
+ from models import (
+     SystemSetting,
+@@ -24,6 +24,7 @@ from models import (
+     StocktakeLine,
+     StocktakeCountAttempt,
+     StocktakeCountAttemptLine,
++    utc_now,
+ )
+ 
+ from typing import Any, Type, Optional, List, Dict, Tuple
+@@ -387,7 +388,7 @@ async def check_debt_limits(
+         company_id=company_id,
+         is_active=True,
+         can_allow_debt=True,
+-    )
++    ).with_for_update(read=True)
+     driver = (await db_session.execute(stmt_driver)).scalar_one_or_none()
+ 
+     # لا نعتمد أي Shop pre-fetched في القرار المالي؛ يجب قفل الصف الحقيقي دائماً.
+@@ -509,7 +510,7 @@ async def acquire_inventory_location_guard(
+     await db_session.execute(select(lock_fn(company_id, location_id)))
+ 
+ 
+-# تطبيق حركة مخزون واحدة بشكل ذري، Batch-aware، Idempotent، ومحمي من الأقفال والتزامن.
++# تطبيق حركة مخزون عامة واحدة؛ قواعد Workflow الخاصة بالجرد تبقى خارج المحرك منخفض المستوى.
+ async def apply_inventory_movement(
+     db_session: AsyncSession,
+     *,
+@@ -529,10 +530,7 @@ async def apply_inventory_movement(
+     reservation_action: Optional[str] = None,
+     work_session_id: Optional[int] = None,
+     transfer_header_id: Optional[int] = None,
+-    stocktake_session_id: Optional[int] = None,
+-    stocktake_count_attempt_id: Optional[int] = None,
+     notes: Optional[str] = None,
+-    ignore_stocktake_session_id: Optional[int] = None,
+ ) -> InventoryMovement:
+     try:
+         company_id = _strict_int(company_id, "company_id", minimum=1)
+@@ -554,61 +552,13 @@ async def apply_inventory_movement(
+         transfer_header_id = _optional_positive_int(
+             transfer_header_id, "transfer_header_id"
+         )
+-        stocktake_session_id = _optional_positive_int(
+-            stocktake_session_id, "stocktake_session_id"
+-        )
+-        stocktake_count_attempt_id = _optional_positive_int(
+-            stocktake_count_attempt_id, "stocktake_count_attempt_id"
+-        )
+-        ignore_stocktake_session_id = _optional_positive_int(
+-            ignore_stocktake_session_id, "ignore_stocktake_session_id"
+-        )
+     except ValueError as exc:
+         raise InventoryMutationError(str(exc)) from exc
+ 
+-    # منع إساءة استخدام استثناء القفل: لا يجوز تجاهل قفل جرد إلا لحركة مرتبطة بنفس جلسة الجرد.
+-    if (
+-        ignore_stocktake_session_id is not None
+-        and stocktake_session_id != ignore_stocktake_session_id
+-    ):
+-        raise InventoryMutationError(
+-            "لا يجوز تجاوز قفل الجرد إلا عند ترحيل حركة مرتبطة بنفس جلسة الجرد."
+-        )
+-
+-    if (
+-        stocktake_count_attempt_id is not None
+-        and stocktake_session_id is None
+-    ):
+-        raise InventoryMutationError(
+-            "stocktake_count_attempt_id يتطلب stocktake_session_id."
+-        )
+-    if (
+-        ignore_stocktake_session_id is not None
+-        and stocktake_count_attempt_id is None
+-    ):
+-        raise InventoryMutationError(
+-            "ترحيل فروقات الجرد يتطلب stocktake_count_attempt_id موثقاً."
+-        )
+-    if (
+-        stocktake_session_id is not None
+-        and ignore_stocktake_session_id is None
+-    ):
+-        raise InventoryMutationError(
+-            "ربط حركة بجلسة جرد محجوز حصراً لمسار ترحيل فرق العد الموثق."
+-        )
+-
+     movement_kind = str(movement_kind).strip().upper()
+     if movement_kind not in {"PHYSICAL", "RESERVATION", "STATUS_CHANGE"}:
+         raise InventoryMutationError("نوع حركة المخزون غير صالح.")
+ 
+-    if (
+-        ignore_stocktake_session_id is not None
+-        and movement_kind != "PHYSICAL"
+-    ):
+-        raise InventoryMutationError(
+-            "تجاوز قفل الجرد مخصص فقط لحركة PHYSICAL لترحيل فرق العد."
+-        )
+-
+     reference_type = str(reference_type or "").strip()
+     reference_id = str(reference_id or "").strip()
+     idempotency_key = str(idempotency_key or "").strip()
+@@ -635,7 +585,7 @@ async def apply_inventory_movement(
+     if (source_location_id is None) != (source_stock_status is None):
+         raise InventoryMutationError("المصدر وحالته يجب أن يوجدا معاً أو يكونا فارغين معاً.")
+     if (destination_location_id is None) != (destination_stock_status is None):
+-        raise InventoryMutationError("الوجهة وحالتها يجب أن توجدا معاً أو تكونا فارغتين معاً.")
++        raise InventoryMutationError("الوجهة وحالتها يجب أن يوجدا معاً أو يكونا فارغين معاً.")
+ 
+     if movement_kind == "RESERVATION":
+         if reservation_action not in {"RESERVE", "RELEASE"}:
+@@ -660,11 +610,12 @@ async def apply_inventory_movement(
+     if movement_kind == "PHYSICAL":
+         if source_location_id is None and destination_location_id is None:
+             raise InventoryMutationError("الحركة الفيزيائية تحتاج مصدراً أو وجهة.")
+-        if source_location_id is not None and destination_location_id is not None and source_location_id == destination_location_id:
++        if (
++            source_location_id is not None
++            and destination_location_id is not None
++            and source_location_id == destination_location_id
++        ):
+             raise InventoryMutationError("الحركة الفيزيائية بين نفس الموقع غير صالحة.")
+-        if (source_location_id is not None and source_stock_status is None) or (destination_location_id is not None and destination_stock_status is None):
+-            raise InventoryMutationError("حالة مخزون المصدر/الوجهة إلزامية.")
+-        # النقل الفيزيائي يغيّر الموقع فقط؛ تغيير AVAILABLE/DAMAGED يجب أن يمر حصراً عبر STATUS_CHANGE.
+         if (
+             source_location_id is not None
+             and destination_location_id is not None
+@@ -675,12 +626,18 @@ async def apply_inventory_movement(
+             )
+ 
+     advisory_key = f"inventory:{company_id}:{idempotency_key}"
+-    await db_session.execute(select(func.pg_advisory_xact_lock(func.hashtext(advisory_key))))
++    await db_session.execute(
++        select(func.pg_advisory_xact_lock(func.hashtext(advisory_key)))
++    )
+ 
+-    existing = (await db_session.execute(select(InventoryMovement).filter_by(
+-        company_id=company_id,
+-        idempotency_key=idempotency_key,
+-    ))).scalar_one_or_none()
++    existing = (
++        await db_session.execute(
++            select(InventoryMovement).filter_by(
++                company_id=company_id,
++                idempotency_key=idempotency_key,
++            )
++        )
++    ).scalar_one_or_none()
+     if existing is not None:
+         expected_existing = {
+             "performed_by": performed_by,
+@@ -695,8 +652,8 @@ async def apply_inventory_movement(
+             "quantity": quantity,
+             "work_session_id": work_session_id,
+             "transfer_header_id": transfer_header_id,
+-            "stocktake_session_id": stocktake_session_id,
+-            "stocktake_count_attempt_id": stocktake_count_attempt_id,
++            "stocktake_session_id": None,
++            "stocktake_count_attempt_id": None,
+             "reference_type": reference_type,
+             "reference_id": reference_id,
+             "notes": notes,
+@@ -714,8 +671,7 @@ async def apply_inventory_movement(
+         if location_id is not None
+     }
+ 
+-    # ترتيب القفل الموحّد: Advisory للمواقع أولاً، ثم Share Lock على صفوف المواقع،
+-    # ثم Session الجرد، ثم أرصدة المخزون. هذا يمنع سباقات التعطيل ويثبت ترتيب الأقفال.
++    # ترتيب القفل: Advisory للمواقع ثم صفوف المواقع ثم الأقفال الجراحية ثم الأرصدة.
+     for location_id in sorted(location_ids):
+         await acquire_inventory_location_guard(
+             db_session,
+@@ -738,175 +694,40 @@ async def apply_inventory_movement(
+         if existing_location_ids != location_ids:
+             raise InventoryMutationError("أحد مواقع المخزون غير موجود أو غير فعال.")
+ 
+-    # فحوص حالة جلسة الجرد قابلة للتغير بمرور الوقت، لذلك تُطبق فقط على الحركة الجديدة
+-    # بعد إعطاء idempotent replay فرصة لإرجاع الحركة الموجودة.
+-    if ignore_stocktake_session_id is not None:
+-        stocktake_row = (
+-            await db_session.execute(
+-                select(
+-                    StocktakeSession.location_id,
+-                    StocktakeSession.status,
+-                    StocktakeSession.stocktake_type,
+-                    StocktakeSession.reference_number,
+-                ).filter_by(
+-                    company_id=company_id,
+-                    id=ignore_stocktake_session_id,
+-                ).with_for_update()
+-            )
+-        ).one_or_none()
+-        if stocktake_row is None:
+-            raise InventoryMutationError(
+-                "جلسة الجرد المستخدمة لتجاوز القفل غير موجودة أو لا تتبع الشركة."
+-            )
+-
+-        (
+-            stocktake_location_id,
+-            stocktake_status,
+-            stocktake_type,
+-            stocktake_reference_number,
+-        ) = stocktake_row
+-        if stocktake_status != "APPROVED":
+-            raise InventoryMutationError(
+-                "تجاوز قفل الجرد مسموح فقط أثناء ترحيل جلسة جرد بحالة APPROVED."
+-            )
+-
+-        latest_attempt_id = (
+-            await db_session.execute(
+-                select(StocktakeCountAttempt.id).filter_by(
+-                    company_id=company_id,
+-                    stocktake_session_id=ignore_stocktake_session_id,
+-                ).order_by(
+-                    StocktakeCountAttempt.attempt_number.desc(),
+-                    StocktakeCountAttempt.id.desc(),
+-                ).limit(1)
+-            )
+-        ).scalar_one_or_none()
+-        if latest_attempt_id is None or latest_attempt_id != stocktake_count_attempt_id:
+-            raise InventoryMutationError(
+-                "ترحيل فروقات الجرد يجب أن يرتبط بآخر محاولة عد مثبتة للجلسة."
+-            )
+-
+-        if not location_ids or location_ids != {stocktake_location_id}:
+-            raise InventoryMutationError(
+-                "تجاوز قفل الجرد مسموح فقط لحركة تعديل داخل موقع جلسة الجرد نفسها."
+-            )
+-
+-        movement_stock_status = source_stock_status or destination_stock_status
+-        stmt_attempt_line = (
+-            select(
+-                StocktakeCountAttemptLine.id,
+-                StocktakeCountAttemptLine.variance_quantity,
+-                StocktakeLine.stock_status,
+-            )
+-            .join(
+-                StocktakeLine,
+-                and_(
+-                    StocktakeLine.company_id
+-                    == StocktakeCountAttemptLine.company_id,
+-                    StocktakeLine.stocktake_session_id
+-                    == StocktakeCountAttemptLine.stocktake_session_id,
+-                    StocktakeLine.id
+-                    == StocktakeCountAttemptLine.stocktake_line_id,
+-                ),
+-            )
+-            .filter(
+-                StocktakeCountAttemptLine.company_id == company_id,
+-                StocktakeCountAttemptLine.stocktake_session_id
+-                == ignore_stocktake_session_id,
+-                StocktakeCountAttemptLine.count_attempt_id
+-                == stocktake_count_attempt_id,
+-                StocktakeLine.product_variant_id == product_variant_id,
+-                StocktakeLine.batch_id == batch_id,
+-                StocktakeLine.stock_status == movement_stock_status,
+-            )
+-        )
+-        attempt_line_row = (
+-            await db_session.execute(stmt_attempt_line)
+-        ).one_or_none()
+-        if attempt_line_row is None:
+-            raise InventoryMutationError(
+-                "الحركة لا تطابق أي سطر في محاولة العد المعتمدة."
+-            )
+-
+-        attempt_line_id, variance_quantity, counted_stock_status = attempt_line_row
+-        variance_quantity = int(variance_quantity or 0)
+-        if variance_quantity == 0:
+-            raise InventoryMutationError(
+-                "لا يجوز إنشاء حركة مخزون لسطر جرد فرقُه صفر."
+-            )
+-        if quantity != abs(variance_quantity):
+-            raise InventoryMutationError(
+-                "كمية حركة الجرد لا تطابق فرق آخر محاولة عد معتمدة."
+-            )
+-
+-        if variance_quantity < 0:
+-            expected_source_location_id = stocktake_location_id
+-            expected_destination_location_id = None
+-            expected_source_status = counted_stock_status
+-            expected_destination_status = None
+-            expected_reference_type = (
+-                "DRIVER_SHORTAGE"
+-                if stocktake_type == "VEHICLE_RECON"
+-                else "AUDIT_ADJUSTMENT"
+-            )
+-        else:
+-            expected_source_location_id = None
+-            expected_destination_location_id = stocktake_location_id
+-            expected_source_status = None
+-            expected_destination_status = counted_stock_status
+-            expected_reference_type = (
+-                "DRIVER_SURPLUS"
+-                if stocktake_type == "VEHICLE_RECON"
+-                else "AUDIT_ADJUSTMENT"
+-            )
+-
+-        if (
+-            source_location_id != expected_source_location_id
+-            or destination_location_id != expected_destination_location_id
+-            or source_stock_status != expected_source_status
+-            or destination_stock_status != expected_destination_status
+-        ):
+-            raise InventoryMutationError(
+-                "اتجاه/حالة حركة الجرد لا يطابقان إشارة فرق العد المعتمد."
++    batch_exists = (
++        await db_session.execute(
++            select(ProductBatch.id).filter_by(
++                company_id=company_id,
++                product_variant_id=product_variant_id,
++                id=batch_id,
+             )
+-
+-        expected_idempotency_key = (
+-            f"AUDIT-{ignore_stocktake_session_id}-"
+-            f"{stocktake_count_attempt_id}-{attempt_line_id}"
+         )
+-        if idempotency_key != expected_idempotency_key:
+-            raise InventoryMutationError(
+-                "مفتاح idempotency لحركة الجرد لا يطابق السطر المعتمد."
+-            )
+-        if reference_type != expected_reference_type:
+-            raise InventoryMutationError(
+-                "نوع مرجع حركة الجرد لا يطابق نوع الجلسة وإشارة الفرق."
+-            )
+-        if reference_id != stocktake_reference_number:
+-            raise InventoryMutationError(
+-                "مرجع حركة الجرد يجب أن يطابق رقم جلسة الجرد."
+-            )
+-
+-    batch_exists = (await db_session.execute(select(ProductBatch.id).filter_by(
+-        company_id=company_id,
+-        product_variant_id=product_variant_id,
+-        id=batch_id,
+-    ))).scalar_one_or_none()
++    ).scalar_one_or_none()
+     if batch_exists is None:
+         raise InventoryMutationError("الدفعة لا تنتمي للصنف أو الشركة المحددة.")
+ 
+-    for location_id in sorted(location_ids):
+-        await check_inventory_lock(
+-            db_session,
+-            company_id,
+-            location_id,
+-            product_variant_id,
+-            batch_id,
+-            ignore_stocktake_session_id=ignore_stocktake_session_id,
+-        )
++    try:
++        for location_id in sorted(location_ids):
++            await check_inventory_lock(
++                db_session,
++                company_id,
++                location_id,
++                product_variant_id,
++                batch_id,
++            )
++    except ValueError as exc:
++        raise InventoryMutationError(str(exc)) from exc
+ 
+-    source_key = None if source_location_id is None else (int(source_location_id), source_stock_status)
+-    destination_key = None if destination_location_id is None else (int(destination_location_id), destination_stock_status)
++    source_key = (
++        None
++        if source_location_id is None
++        else (int(source_location_id), source_stock_status)
++    )
++    destination_key = (
++        None
++        if destination_location_id is None
++        else (int(destination_location_id), destination_stock_status)
++    )
+ 
+     if destination_key is not None and destination_key != source_key:
+         await _ensure_inventory_balance(
+@@ -918,12 +739,18 @@ async def apply_inventory_movement(
+             stock_status=destination_key[1],
+         )
+ 
+-    keys = sorted({key for key in (source_key, destination_key) if key is not None}, key=lambda x: (x[0], x[1]))
++    keys = sorted(
++        {key for key in (source_key, destination_key) if key is not None},
++        key=lambda x: (x[0], x[1]),
++    )
+     if not keys:
+         raise InventoryMutationError("لا يوجد رصيد متأثر بالحركة.")
+ 
+     predicates = [
+-        and_(InventoryBalance.location_id == location_id, InventoryBalance.stock_status == stock_status)
++        and_(
++            InventoryBalance.location_id == location_id,
++            InventoryBalance.stock_status == stock_status,
++        )
+         for location_id, stock_status in keys
+     ]
+     stmt_balances = select(InventoryBalance).filter(
+@@ -944,16 +771,18 @@ async def apply_inventory_movement(
+     if destination_key is not None and destination_key not in balance_map:
+         raise InventoryMutationError("تعذر إنشاء رصيد الوجهة.")
+ 
+-    # إعادة فحص أقفال الجرد بعد امتلاك Row Locks لسد سباق فتح الجرد بين الفحص الأول والتعديل.
+-    for location_id in sorted(location_ids):
+-        await check_inventory_lock(
+-            db_session,
+-            company_id,
+-            location_id,
+-            product_variant_id,
+-            batch_id,
+-            ignore_stocktake_session_id=ignore_stocktake_session_id,
+-        )
++    # فحص دفاعي ثانٍ رخيص بعد Row Locks. يصبح غير لازم فقط بعد ترحيل كل منشئي الجرد إلى Exclusive Guard.
++    try:
++        for location_id in sorted(location_ids):
++            await check_inventory_lock(
++                db_session,
++                company_id,
++                location_id,
++                product_variant_id,
++                batch_id,
++            )
++    except ValueError as exc:
++        raise InventoryMutationError(str(exc)) from exc
+ 
+     before = {
+         row.id: (int(row.on_hand_quantity or 0), int(row.reserved_quantity or 0))
+@@ -988,16 +817,13 @@ async def apply_inventory_movement(
+ 
+         if destination_key is not None:
+             destination_balance = balance_map[destination_key]
+-            destination_on_hand = int(
+-                destination_balance.on_hand_quantity or 0
+-            )
++            destination_on_hand = int(destination_balance.on_hand_quantity or 0)
+             new_destination_on_hand = destination_on_hand + quantity
+             if new_destination_on_hand > _DB_INT_MAX:
+                 raise InventoryMutationError(
+                     "الرصيد الناتج في الوجهة يتجاوز سعة INTEGER في قاعدة البيانات."
+                 )
+ 
+-        # لا نغيّر أي Balance إلا بعد نجاح جميع validations أعلاه.
+         if source_balance is not None:
+             source_balance.on_hand_quantity = new_source_on_hand
+         if destination_balance is not None:
+@@ -1017,8 +843,6 @@ async def apply_inventory_movement(
+         quantity=quantity,
+         work_session_id=work_session_id,
+         transfer_header_id=transfer_header_id,
+-        stocktake_session_id=stocktake_session_id,
+-        stocktake_count_attempt_id=stocktake_count_attempt_id,
+         reference_type=reference_type,
+         reference_id=reference_id,
+         idempotency_key=idempotency_key,
+@@ -1041,6 +865,502 @@ async def apply_inventory_movement(
+     return movement
+ 
+ 
++# ترحيل فروقات جرد معتمد دفعة واحدة دون N+1، مع قفل الموقع والتحقق من آخر محاولة مرة واحدة.
++async def post_approved_stocktake_adjustments(
++    db_session: AsyncSession,
++    *,
++    company_id: int,
++    stocktake_session_id: int,
++    stocktake_count_attempt_id: int,
++    performed_by: int,
++) -> List[InventoryMovement]:
++    try:
++        company_id = _strict_int(company_id, "company_id", minimum=1)
++        stocktake_session_id = _strict_int(
++            stocktake_session_id, "stocktake_session_id", minimum=1
++        )
++        stocktake_count_attempt_id = _strict_int(
++            stocktake_count_attempt_id, "stocktake_count_attempt_id", minimum=1
++        )
++        performed_by = _strict_int(performed_by, "performed_by", minimum=1)
++    except ValueError as exc:
++        raise InventoryMutationError(str(exc)) from exc
++
++    actor_id = (
++        await db_session.execute(
++            select(Driver.id).filter_by(
++                company_id=company_id,
++                id=performed_by,
++                is_active=True,
++                is_admin=True,
++            ).with_for_update(read=True)
++        )
++    ).scalar_one_or_none()
++    if actor_id is None:
++        raise InventoryMutationError(
++            "ترحيل الجرد يتطلب مشرفاً فعالاً من نفس الشركة."
++        )
++
++    probe = (
++        await db_session.execute(
++            select(StocktakeSession.location_id).filter_by(
++                company_id=company_id,
++                id=stocktake_session_id,
++            )
++        )
++    ).scalar_one_or_none()
++    if probe is None:
++        raise InventoryMutationError("جلسة الجرد غير موجودة أو لا تتبع الشركة.")
++
++    # الترحيل عملية حصرية على الموقع؛ يمنع أي حركة متزامنة أثناء تثبيت جميع الفروقات.
++    await acquire_inventory_location_guard(
++        db_session,
++        company_id,
++        int(probe),
++        exclusive=True,
++    )
++
++    session = (
++        await db_session.execute(
++            select(StocktakeSession).filter_by(
++                company_id=company_id,
++                id=stocktake_session_id,
++            ).with_for_update()
++        )
++    ).scalar_one_or_none()
++    if session is None or session.location_id != probe:
++        raise InventoryMutationError("جلسة الجرد تغيرت أو لم تعد صالحة للترحيل.")
++    if session.status not in {"APPROVED", "POSTED"}:
++        raise InventoryMutationError(
++            f"ترحيل الجرد يتطلب حالة APPROVED؛ الحالة الحالية ({session.status})."
++        )
++    if session.approved_by is None or session.approved_at is None:
++        raise InventoryMutationError("جلسة الجرد لا تحمل اعتماداً موثقاً صالحاً.")
++    if session.stocktake_type == "VEHICLE_RECON":
++        if session.related_work_session_id is None:
++            raise InventoryMutationError(
++                "VEHICLE_RECON يجب أن يرتبط بجلسة العمل التي تتم تسويتها."
++            )
++    elif session.related_work_session_id is not None:
++        raise InventoryMutationError(
++            "related_work_session_id غير مسموح لغير VEHICLE_RECON."
++        )
++
++    latest_attempt = (
++        await db_session.execute(
++            select(StocktakeCountAttempt).filter_by(
++                company_id=company_id,
++                stocktake_session_id=session.id,
++            ).order_by(
++                StocktakeCountAttempt.attempt_number.desc(),
++                StocktakeCountAttempt.id.desc(),
++            ).limit(1)
++        )
++    ).scalar_one_or_none()
++    if latest_attempt is None:
++        raise InventoryMutationError("لا توجد محاولة عد مثبتة لجلسة الجرد.")
++    if latest_attempt.id != stocktake_count_attempt_id:
++        raise InventoryMutationError(
++            "المحاولة المطلوب ترحيلها ليست آخر محاولة عد مثبتة؛ أعد فتح المراجعة."
++        )
++
++    if latest_attempt.requires_independent_recount:
++        if latest_attempt.recount_of_attempt_id is None:
++            raise InventoryMutationError(
++                "العجز المادي يتطلب إعادة عد مستقلة قبل الترحيل."
++            )
++        parent_attempt = (
++            await db_session.execute(
++                select(StocktakeCountAttempt).filter_by(
++                    company_id=company_id,
++                    stocktake_session_id=session.id,
++                    id=latest_attempt.recount_of_attempt_id,
++                )
++            )
++        ).scalar_one_or_none()
++        if (
++            parent_attempt is None
++            or not parent_attempt.requires_independent_recount
++            or parent_attempt.counted_by == latest_attempt.counted_by
++        ):
++            raise InventoryMutationError(
++                "آخر محاولة لا تحقق شرط إعادة العد المستقلة للعجز المادي."
++            )
++
++    # تحميل Snapshot ومحاولة العد معاً يكشف أي سطر مفقود دون Query لكل صنف.
++    stmt_lines = (
++        select(StocktakeLine, StocktakeCountAttemptLine)
++        .outerjoin(
++            StocktakeCountAttemptLine,
++            and_(
++                StocktakeCountAttemptLine.company_id == StocktakeLine.company_id,
++                StocktakeCountAttemptLine.stocktake_session_id
++                == StocktakeLine.stocktake_session_id,
++                StocktakeCountAttemptLine.stocktake_line_id == StocktakeLine.id,
++                StocktakeCountAttemptLine.count_attempt_id == latest_attempt.id,
++            ),
++        )
++        .filter(
++            StocktakeLine.company_id == company_id,
++            StocktakeLine.stocktake_session_id == session.id,
++        )
++        .order_by(
++            StocktakeLine.product_variant_id.asc(),
++            StocktakeLine.batch_id.asc(),
++            StocktakeLine.stock_status.asc(),
++            StocktakeLine.id.asc(),
++        )
++    )
++    line_rows = (await db_session.execute(stmt_lines)).all()
++    if not line_rows:
++        raise InventoryMutationError("جلسة الجرد لا تحتوي على أسطر قابلة للترحيل.")
++    if any(attempt_line is None for _, attempt_line in line_rows):
++        raise InventoryMutationError(
++            "آخر محاولة عد ناقصة ولا تغطي جميع أسطر Snapshot؛ تم رفض الترحيل."
++        )
++
++    active_locks = (
++        await db_session.execute(
++            select(InventoryLock).filter(
++                InventoryLock.company_id == company_id,
++                InventoryLock.location_id == session.location_id,
++                InventoryLock.released_at.is_(None),
++            ).order_by(InventoryLock.id.asc()).with_for_update()
++        )
++    ).scalars().all()
++
++    own_locks = [
++        lock for lock in active_locks
++        if lock.stocktake_session_id == session.id
++    ]
++    if session.status == "APPROVED":
++        if session.stocktake_type in {"FULL_COUNT", "VEHICLE_RECON"}:
++            own_scope_ok = any(
++                lock.product_variant_id is None and lock.batch_id is None
++                for lock in own_locks
++            )
++        elif session.scope_batch_id is None:
++            own_scope_ok = any(
++                lock.product_variant_id == session.scope_product_variant_id
++                and lock.batch_id is None
++                for lock in own_locks
++            )
++        else:
++            own_scope_ok = any(
++                lock.product_variant_id == session.scope_product_variant_id
++                and lock.batch_id == session.scope_batch_id
++                for lock in own_locks
++            )
++        if not own_scope_ok:
++            raise InventoryMutationError(
++                "قفل الجرد الفعال لا يطابق نطاق الجلسة المعتمدة."
++            )
++
++        for lock in active_locks:
++            if lock.stocktake_session_id == session.id:
++                continue
++            if lock.product_variant_id is None:
++                raise InventoryMutationError(
++                    "يوجد قفل جرد شامل آخر متعارض على نفس الموقع."
++                )
++            if session.stocktake_type in {"FULL_COUNT", "VEHICLE_RECON"}:
++                raise InventoryMutationError(
++                    "يوجد قفل جرد آخر متعارض على نفس الموقع."
++                )
++            if lock.product_variant_id != session.scope_product_variant_id:
++                continue
++            if session.scope_batch_id is None or lock.batch_id in {
++                None,
++                session.scope_batch_id,
++            }:
++                raise InventoryMutationError(
++                    "يوجد قفل جرد دوري متداخل مع نطاق الجلسة الحالية."
++                )
++
++    specs = []
++    for stocktake_line, attempt_line in line_rows:
++        if attempt_line.count_attempt_id != latest_attempt.id:
++            raise InventoryMutationError("تم اكتشاف سطر عد مرتبط بمحاولة مختلفة.")
++        variance = int(attempt_line.variance_quantity or 0)
++        if variance != int(attempt_line.actual_quantity) - int(attempt_line.expected_quantity):
++            raise InventoryMutationError("تم اكتشاف فرق جرد غير متسق حسابياً.")
++        if variance == 0:
++            continue
++
++        stock_status = str(stocktake_line.stock_status or "").strip().upper()
++        if stock_status not in {"AVAILABLE", "DAMAGED"}:
++            raise InventoryMutationError("حالة مخزون غير صالحة في سطر الجرد.")
++
++        if variance < 0:
++            source_location_id = session.location_id
++            destination_location_id = None
++            source_stock_status = stock_status
++            destination_stock_status = None
++            reference_type = (
++                "DRIVER_SHORTAGE"
++                if session.stocktake_type == "VEHICLE_RECON"
++                else "AUDIT_ADJUSTMENT"
++            )
++        else:
++            source_location_id = None
++            destination_location_id = session.location_id
++            source_stock_status = None
++            destination_stock_status = stock_status
++            reference_type = (
++                "DRIVER_SURPLUS"
++                if session.stocktake_type == "VEHICLE_RECON"
++                else "AUDIT_ADJUSTMENT"
++            )
++
++        specs.append({
++            "attempt_line": attempt_line,
++            "product_variant_id": stocktake_line.product_variant_id,
++            "batch_id": stocktake_line.batch_id,
++            "stock_status": stock_status,
++            "variance": variance,
++            "quantity": abs(variance),
++            "source_location_id": source_location_id,
++            "destination_location_id": destination_location_id,
++            "source_stock_status": source_stock_status,
++            "destination_stock_status": destination_stock_status,
++            "reference_type": reference_type,
++            "reference_id": session.reference_number,
++            "idempotency_key": (
++                f"AUDIT-{session.id}-{latest_attempt.id}-{attempt_line.id}"
++            ),
++            "work_session_id": (
++                session.related_work_session_id
++                if session.stocktake_type == "VEHICLE_RECON"
++                else None
++            ),
++        })
++
++    idempotency_keys = [spec["idempotency_key"] for spec in specs]
++    existing_movements = []
++    if idempotency_keys:
++        existing_movements = (
++            await db_session.execute(
++                select(InventoryMovement).filter(
++                    InventoryMovement.company_id == company_id,
++                    InventoryMovement.idempotency_key.in_(idempotency_keys),
++                )
++            )
++        ).scalars().all()
++    existing_map = {
++        movement.idempotency_key: movement
++        for movement in existing_movements
++    }
++
++    def validate_existing(spec: Dict[str, Any], movement: InventoryMovement) -> None:
++        expected = {
++            "performed_by": performed_by,
++            "source_location_id": spec["source_location_id"],
++            "destination_location_id": spec["destination_location_id"],
++            "source_stock_status": spec["source_stock_status"],
++            "destination_stock_status": spec["destination_stock_status"],
++            "product_variant_id": spec["product_variant_id"],
++            "batch_id": spec["batch_id"],
++            "movement_kind": "PHYSICAL",
++            "reservation_action": None,
++            "quantity": spec["quantity"],
++            "work_session_id": spec["work_session_id"],
++            "transfer_header_id": None,
++            "stocktake_session_id": session.id,
++            "stocktake_count_attempt_id": latest_attempt.id,
++            "reference_type": spec["reference_type"],
++            "reference_id": spec["reference_id"],
++        }
++        for field_name, expected_value in expected.items():
++            if getattr(movement, field_name) != expected_value:
++                raise InventoryMutationError(
++                    "سجل حركة جرد موجود يحمل نفس idempotency لكنه لا يطابق النتيجة المعتمدة."
++                )
++
++    if session.status == "POSTED":
++        if session.posted_at is None:
++            raise InventoryMutationError("جلسة POSTED بدون posted_at؛ البيانات غير متسقة.")
++        if len(existing_map) != len(specs):
++            raise InventoryMutationError(
++                "جلسة POSTED لا تحتوي على مجموعة حركات الجرد المتوقعة بالكامل."
++            )
++        ordered_existing = []
++        for spec in specs:
++            movement = existing_map.get(spec["idempotency_key"])
++            if movement is None:
++                raise InventoryMutationError("حركة جرد متوقعة مفقودة من جلسة POSTED.")
++            validate_existing(spec, movement)
++            ordered_existing.append(movement)
++        return ordered_existing
++
++    if existing_movements:
++        raise InventoryMutationError(
++            "تم العثور على حركات جرد سابقة بينما الجلسة ما زالت APPROVED؛ تم رفض الحالة الجزئية."
++        )
++
++    positive_rows = {
++        (
++            spec["product_variant_id"],
++            spec["batch_id"],
++            spec["stock_status"],
++        )
++        for spec in specs
++        if spec["variance"] > 0
++    }
++    if positive_rows:
++        await db_session.execute(
++            pg_insert(InventoryBalance).values([
++                {
++                    "company_id": company_id,
++                    "location_id": session.location_id,
++                    "product_variant_id": product_variant_id,
++                    "batch_id": batch_id,
++                    "stock_status": stock_status,
++                    "on_hand_quantity": 0,
++                    "reserved_quantity": 0,
++                }
++                for product_variant_id, batch_id, stock_status in sorted(positive_rows)
++            ]).on_conflict_do_nothing(
++                index_elements=[
++                    "company_id",
++                    "location_id",
++                    "product_variant_id",
++                    "batch_id",
++                    "stock_status",
++                ]
++            )
++        )
++
++    balance_keys = {
++        (
++            spec["product_variant_id"],
++            spec["batch_id"],
++            spec["stock_status"],
++        )
++        for spec in specs
++    }
++    balances = []
++    if balance_keys:
++        balances = (
++            await db_session.execute(
++                select(InventoryBalance).filter(
++                    InventoryBalance.company_id == company_id,
++                    InventoryBalance.location_id == session.location_id,
++                    tuple_(
++                        InventoryBalance.product_variant_id,
++                        InventoryBalance.batch_id,
++                        InventoryBalance.stock_status,
++                    ).in_(sorted(balance_keys)),
++                ).order_by(
++                    InventoryBalance.product_variant_id.asc(),
++                    InventoryBalance.batch_id.asc(),
++                    InventoryBalance.stock_status.asc(),
++                ).with_for_update()
++            )
++        ).scalars().all()
++    balance_map = {
++        (row.product_variant_id, row.batch_id, row.stock_status): row
++        for row in balances
++    }
++    if set(balance_map) != balance_keys:
++        raise InventoryMutationError("تعذر امتلاك جميع أرصدة الجرد المطلوبة للترحيل.")
++
++    # إعادة تحقق واحدة بعد Row Locks؛ ثابتة التكلفة ولا تتكرر لكل سطر.
++    refreshed_locks = (
++        await db_session.execute(
++            select(InventoryLock).filter(
++                InventoryLock.company_id == company_id,
++                InventoryLock.location_id == session.location_id,
++                InventoryLock.released_at.is_(None),
++            ).order_by(InventoryLock.id.asc()).with_for_update()
++        )
++    ).scalars().all()
++    if {lock.id for lock in refreshed_locks} != {lock.id for lock in active_locks}:
++        raise InventoryMutationError(
++            "تغيرت أقفال الجرد أثناء الترحيل؛ أعد المحاولة لضمان لقطة متسقة."
++        )
++
++    before_by_key = {}
++    movements = []
++    for spec in specs:
++        key = (
++            spec["product_variant_id"],
++            spec["batch_id"],
++            spec["stock_status"],
++        )
++        balance = balance_map[key]
++        before_on_hand = int(balance.on_hand_quantity or 0)
++        before_reserved = int(balance.reserved_quantity or 0)
++        after_on_hand = before_on_hand + int(spec["variance"])
++        if after_on_hand < 0:
++            raise InventoryMutationError(
++                "فرق الجرد سيجعل الرصيد الفعلي سالباً؛ تم رفض الترحيل."
++            )
++        if after_on_hand < before_reserved:
++            raise InventoryMutationError(
++                "فرق الجرد سيجعل الرصيد أقل من الكمية المحجوزة؛ حرر الحجوزات أولاً."
++            )
++        if after_on_hand > _DB_INT_MAX:
++            raise InventoryMutationError(
++                "الرصيد الناتج من فرق الجرد يتجاوز سعة INTEGER."
++            )
++
++        before_by_key[key] = (before_on_hand, before_reserved)
++        balance.on_hand_quantity = after_on_hand
++        movement = InventoryMovement(
++            company_id=company_id,
++            performed_by=performed_by,
++            source_location_id=spec["source_location_id"],
++            destination_location_id=spec["destination_location_id"],
++            source_stock_status=spec["source_stock_status"],
++            destination_stock_status=spec["destination_stock_status"],
++            product_variant_id=spec["product_variant_id"],
++            batch_id=spec["batch_id"],
++            movement_kind="PHYSICAL",
++            reservation_action=None,
++            quantity=spec["quantity"],
++            work_session_id=spec["work_session_id"],
++            transfer_header_id=None,
++            stocktake_session_id=session.id,
++            stocktake_count_attempt_id=latest_attempt.id,
++            reference_type=spec["reference_type"],
++            reference_id=spec["reference_id"],
++            idempotency_key=spec["idempotency_key"],
++            notes="ترحيل فرق آخر محاولة عد معتمدة.",
++        )
++        db_session.add(movement)
++        movements.append((spec, movement, balance))
++
++    await db_session.flush()
++
++    for spec, movement, balance in movements:
++        key = (
++            spec["product_variant_id"],
++            spec["batch_id"],
++            spec["stock_status"],
++        )
++        before_on_hand, before_reserved = before_by_key[key]
++        _add_inventory_movement_impact(
++            db_session,
++            company_id=company_id,
++            movement_id=movement.id,
++            balance=balance,
++            before_on_hand=before_on_hand,
++            before_reserved=before_reserved,
++        )
++
++    now = utc_now()
++    for lock in own_locks:
++        lock.released_by = performed_by
++        lock.released_at = now
++        lock.release_reason = "STOCKTAKE_POSTED"
++
++    session.status = "POSTED"
++    session.posted_at = now
++    session.updated_at = now
++
++    return [movement for _, movement, _ in movements]
++
++
+ # تخصيص FEFO على الدفعات غير المقفلة؛ يجب استهلاك النتيجة في نفس المعاملة دون commit بين التخصيص والتنفيذ.
+ async def allocate_fefo_inventory(
+     db_session: AsyncSession,
+@@ -1363,8 +1683,6 @@ async def reverse_inventory_movement(
+         quantity=persisted.quantity,
+         work_session_id=persisted.work_session_id,
+         transfer_header_id=persisted.transfer_header_id,
+-        stocktake_session_id=persisted.stocktake_session_id,
+-        stocktake_count_attempt_id=persisted.stocktake_count_attempt_id,
+         reference_type=reference_type,
+         reference_id=reference_id,
+         idempotency_key=reversal_key,
+@@ -1740,95 +2058,54 @@ def enforce_tenant_background_job(company_id: int, **kwargs) -> dict:
+     kwargs["company_id"] = comp_id
+     return kwargs
+ 
+-# حارس الجرد المركزي مع إمكانية تجاهل قفل الجلسة نفسها عند ترحيل نتيجة الجرد.
++# فحص قفل مخزون فعال باستعلام واحد؛ تجاوز قفل الجرد متاح فقط داخل خدمة ترحيل الجرد المتخصصة.
+ async def check_inventory_lock(
+     db_session: AsyncSession,
+     company_id: int,
+     location_id: int,
+     variant_id: Optional[int] = None,
+     batch_id: Optional[int] = None,
+-    ignore_stocktake_session_id: Optional[int] = None,
+ ) -> None:
+     company_id = _strict_int(company_id, "company_id", minimum=1)
+     location_id = _strict_int(location_id, "location_id", minimum=1)
+     variant_id = _optional_positive_int(variant_id, "variant_id")
+     batch_id = _optional_positive_int(batch_id, "batch_id")
+-    ignore_stocktake_session_id = _optional_positive_int(
+-        ignore_stocktake_session_id,
+-        "ignore_stocktake_session_id",
+-    )
+ 
+     if batch_id is not None and variant_id is None:
+         raise ValueError("batch_id لا يمكن استخدامه بدون variant_id.")
+ 
+-    if ignore_stocktake_session_id is not None:
+-        ignored_stocktake = (
+-            await db_session.execute(
+-                select(
+-                    StocktakeSession.location_id,
+-                    StocktakeSession.status,
+-                ).filter_by(
+-                    company_id=company_id,
+-                    id=ignore_stocktake_session_id,
+-                ).with_for_update()
+-            )
+-        ).one_or_none()
+-        if ignored_stocktake is None:
+-            raise ValueError(
+-                "جلسة الجرد المطلوب تجاهل قفلها غير موجودة أو لا تتبع الشركة."
+-            )
+-        ignored_location_id, ignored_status = ignored_stocktake
+-        if ignored_location_id != location_id:
+-            raise ValueError(
+-                "لا يمكن تجاهل قفل جلسة جرد في موقع مخزني مختلف."
++    scope_filters = [
++        and_(
++            InventoryLock.product_variant_id.is_(None),
++            InventoryLock.batch_id.is_(None),
++        )
++    ]
++    if variant_id is not None:
++        if batch_id is None:
++            scope_filters.append(
++                and_(
++                    InventoryLock.product_variant_id == variant_id,
++                    InventoryLock.batch_id.is_(None),
++                )
+             )
+-        if ignored_status != "APPROVED":
+-            raise ValueError(
+-                "لا يمكن تجاهل قفل الجرد إلا أثناء ترحيل جلسة بحالة APPROVED."
++        else:
++            scope_filters.append(
++                and_(
++                    InventoryLock.product_variant_id == variant_id,
++                    or_(
++                        InventoryLock.batch_id.is_(None),
++                        InventoryLock.batch_id == batch_id,
++                    ),
++                )
+             )
+ 
+-    base_filters = [
++    stmt = select(InventoryLock.id).filter(
+         InventoryLock.company_id == company_id,
+         InventoryLock.location_id == location_id,
+         InventoryLock.released_at.is_(None),
+-    ]
+-    if ignore_stocktake_session_id is not None:
+-        ignored_session_id = ignore_stocktake_session_id
+-        # SQL: NULL != X ليست True؛ لذلك يجب إبقاء الأقفال اليدوية/غير المرتبطة بجلسة ضمن الحظر.
+-        base_filters.append(
+-            or_(
+-                InventoryLock.stocktake_session_id.is_(None),
+-                InventoryLock.stocktake_session_id != ignored_session_id,
+-            )
+-        )
+-
+-    stmt_full = select(InventoryLock.id).filter(
+-        *base_filters,
+-        InventoryLock.product_variant_id.is_(None),
+-        InventoryLock.batch_id.is_(None),
+-    )
+-    if (await db_session.execute(stmt_full)).first():
+-        raise ValueError(f"الموقع ({location_id}) تحت الجرد الشامل ومقفل بالكامل.")
+-
+-    if variant_id is None:
+-        return
+-
+-    partial_filters = [
+-        *base_filters,
+-        InventoryLock.product_variant_id == variant_id,
+-    ]
+-    if batch_id is None:
+-        # طلب عام على الصنف: قفل دفعة واحدة لا يجب أن يتحول إلى قفل للصنف كله.
+-        partial_filters.append(InventoryLock.batch_id.is_(None))
+-    else:
+-        # طلب على دفعة محددة: يحترم قفل الدفعة نفسها أو قفل الصنف العام.
+-        partial_filters.append(
+-            or_(
+-                InventoryLock.batch_id == batch_id,
+-                InventoryLock.batch_id.is_(None),
+-            )
+-        )
+-
+-    stmt_partial = select(InventoryLock.id).filter(*partial_filters)
+-    if (await db_session.execute(stmt_partial)).first():
+-        raise ValueError("الصنف/الدفعة مقفل جراحياً بسبب جرد دوري نشط.")
++        or_(*scope_filters),
++    ).limit(1)
++    if (await db_session.execute(stmt)).first():
++        if variant_id is None:
++            raise ValueError(f"الموقع ({location_id}) تحت الجرد ومقفل بالكامل.")
++        raise ValueError("الصنف/الدفعة مقفل جراحياً بسبب جرد نشط.")

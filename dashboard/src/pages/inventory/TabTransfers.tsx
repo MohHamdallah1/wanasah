@@ -1,541 +1,44 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  Ban,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
   Plus,
   RefreshCcw,
   Search,
   Trash2,
   Truck,
-  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 
-type TransferStatus =
-  | "DRAFT"
-  | "PENDING"
-  | "IN_TRANSIT"
-  | "ACCEPTED"
-  | "REJECTED"
-  | "POSTED"
-  | "CANCELLED";
-
-type TransferDirection = "all" | "source" | "destination";
-type TransferAction = "receive" | "reject" | "cancel";
-
-interface WarehouseTransferListItem {
-  id: number;
-  reference_number: string;
-  source_location_id: number;
-  source_location_name: string;
-  destination_location_id: number;
-  destination_location_name: string;
-  status: TransferStatus;
-  dispatched_by: number;
-  dispatched_by_name: string;
-  received_by: number | null;
-  received_by_name: string | null;
-  cancelled_by: number | null;
-  cancelled_by_name: string | null;
-  line_count: number;
-  total_quantity: number;
-  notes: string | null;
-  decision_reason: string | null;
-  created_at: string;
-  updated_at: string;
-  accepted_at: string | null;
-  rejected_at: string | null;
-  cancelled_at: string | null;
-  posted_at: string | null;
-}
-
-interface WarehouseTransferCursorPage {
-  items: WarehouseTransferListItem[];
-  next_cursor: string | null;
-  has_more: boolean;
-  total: number | null;
-}
-
-interface WarehouseTransferLine {
-  id: number;
-  product_variant_id: number;
-  product_name: string;
-  batch_id: number;
-  batch_number: string;
-  expiry_date: string;
-  quantity: number;
-  fefo_override_reason_id: number | null;
-  fefo_overridden_by: number | null;
-  fefo_override_note: string | null;
-}
-
-interface WarehouseTransferDetail {
-  transfer: WarehouseTransferListItem;
-  lines: WarehouseTransferLine[];
-}
-
-interface Props {
-  locationId: number;
-  onInventoryChanged: () => void | Promise<void>;
-}
-
-
-type TransferCreateDirection = "outgoing" | "incoming";
-
-interface TransferLocationOption {
-  id: number;
-  name: string;
-  code: string;
-  location_type: "WAREHOUSE" | "VEHICLE";
-  vehicle_id: number | null;
-}
-
-interface TransferSourceInventoryItem {
-  id: number;
-  name: string;
-  sku: string | null;
-  packs_per_carton: number;
-  available_packs: number;
-}
-
-interface TransferSourceInventoryPage {
-  items: TransferSourceInventoryItem[];
-  next_cursor: string | null;
-  has_more: boolean;
-  total: number | null;
-}
-
-type FefoMode = "auto" | "override";
-
-interface TransferOverrideReason {
-  id: number;
-  code: string;
-  description: string;
-}
-
-interface TransferOverrideBatch {
-  id: number;
-  batch_number: string;
-  production_date: string | null;
-  expiry_date: string;
-  available_packs: number;
-  is_fefo_head: boolean;
-}
-
-interface TransferOverrideOptions {
-  location_id: number;
-  product_variant_id: number;
-  fefo_batch_id: number | null;
-  batches: TransferOverrideBatch[];
-  reasons: TransferOverrideReason[];
-}
-
-interface TransferDraftItem extends TransferSourceInventoryItem {
-  draft_key: string;
-  product_variant_id: number;
-  cartons: number;
-  loose_packs: number;
-  fefo_mode: FefoMode;
-  override_batch_id: number | null;
-  override_reason_id: number | null;
-  override_batch_available: number | null;
-}
-
-const TRANSFER_STATUSES: TransferStatus[] = [
-  "DRAFT",
-  "PENDING",
-  "IN_TRANSIT",
-  "ACCEPTED",
-  "REJECTED",
-  "POSTED",
-  "CANCELLED",
-];
-
-const STATUS_META: Record<
-  TransferStatus,
-  { label: string; className: string }
-> = {
-  DRAFT: { label: "مسودة", className: "bg-slate-100 text-slate-600" },
-  PENDING: { label: "معلقة", className: "bg-amber-50 text-amber-700" },
-  IN_TRANSIT: { label: "في الطريق", className: "bg-blue-50 text-blue-700" },
-  ACCEPTED: { label: "مقبولة", className: "bg-cyan-50 text-cyan-700" },
-  REJECTED: { label: "مرفوضة", className: "bg-red-50 text-red-700" },
-  POSTED: { label: "مستلمة", className: "bg-emerald-50 text-emerald-700" },
-  CANCELLED: { label: "ملغاة", className: "bg-slate-100 text-slate-500" },
-};
-
-const isTransferStatus = (value: unknown): value is TransferStatus =>
-  typeof value === "string" &&
-  TRANSFER_STATUSES.includes(value as TransferStatus);
-
-const positiveInt = (value: unknown, field: string): number => {
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value <= 0
-  ) {
-    throw new Error(`حقل ${field} غير صالح.`);
-  }
-  return value;
-};
-
-const nonNegativeInt = (value: unknown, field: string): number => {
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 0
-  ) {
-    throw new Error(`حقل ${field} غير صالح.`);
-  }
-  return value;
-};
-
-const requiredString = (value: unknown, field: string): string => {
-  if (typeof value !== "string" || !value) {
-    throw new Error(`حقل ${field} غير صالح.`);
-  }
-  return value;
-};
-
-const optionalString = (value: unknown): string | null =>
-  typeof value === "string" ? value : null;
-
-const optionalPositiveInt = (value: unknown): number | null =>
-  typeof value === "number" &&
-  Number.isInteger(value) &&
-  value > 0
-    ? value
-    : null;
-
-const parseTransfer = (raw: unknown): WarehouseTransferListItem => {
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("بيانات الحوالة غير صالحة.");
-  }
-
-  const row = raw as Record<string, unknown>;
-  if (!isTransferStatus(row.status)) {
-    throw new Error("حالة الحوالة غير معروفة.");
-  }
-
-  return {
-    id: positiveInt(row.id, "id"),
-    reference_number: requiredString(
-      row.reference_number,
-      "reference_number"
-    ),
-    source_location_id: positiveInt(
-      row.source_location_id,
-      "source_location_id"
-    ),
-    source_location_name: requiredString(
-      row.source_location_name,
-      "source_location_name"
-    ),
-    destination_location_id: positiveInt(
-      row.destination_location_id,
-      "destination_location_id"
-    ),
-    destination_location_name: requiredString(
-      row.destination_location_name,
-      "destination_location_name"
-    ),
-    status: row.status,
-    dispatched_by: positiveInt(row.dispatched_by, "dispatched_by"),
-    dispatched_by_name: requiredString(
-      row.dispatched_by_name,
-      "dispatched_by_name"
-    ),
-    received_by: optionalPositiveInt(row.received_by),
-    received_by_name: optionalString(row.received_by_name),
-    cancelled_by: optionalPositiveInt(row.cancelled_by),
-    cancelled_by_name: optionalString(row.cancelled_by_name),
-    line_count: nonNegativeInt(row.line_count, "line_count"),
-    total_quantity: nonNegativeInt(
-      row.total_quantity,
-      "total_quantity"
-    ),
-    notes: optionalString(row.notes),
-    decision_reason: optionalString(row.decision_reason),
-    created_at: requiredString(row.created_at, "created_at"),
-    updated_at: requiredString(row.updated_at, "updated_at"),
-    accepted_at: optionalString(row.accepted_at),
-    rejected_at: optionalString(row.rejected_at),
-    cancelled_at: optionalString(row.cancelled_at),
-    posted_at: optionalString(row.posted_at),
-  };
-};
-
-const parseTransferPage = (raw: unknown): WarehouseTransferCursorPage => {
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    !Array.isArray((raw as { items?: unknown }).items)
-  ) {
-    throw new Error("تنسيق صفحة الحوالات غير صالح.");
-  }
-
-  const page = raw as Record<string, unknown>;
-
-  return {
-    items: (page.items as unknown[]).map(parseTransfer),
-    next_cursor:
-      typeof page.next_cursor === "string" ? page.next_cursor : null,
-    has_more: page.has_more === true,
-    total: typeof page.total === "number" ? page.total : null,
-  };
-};
-
-const parseTransferLine = (raw: unknown): WarehouseTransferLine => {
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("سطر حوالة غير صالح.");
-  }
-
-  const row = raw as Record<string, unknown>;
-
-  return {
-    id: positiveInt(row.id, "line.id"),
-    product_variant_id: positiveInt(
-      row.product_variant_id,
-      "product_variant_id"
-    ),
-    product_name: requiredString(row.product_name, "product_name"),
-    batch_id: positiveInt(row.batch_id, "batch_id"),
-    batch_number: requiredString(row.batch_number, "batch_number"),
-    expiry_date: requiredString(row.expiry_date, "expiry_date"),
-    quantity: positiveInt(row.quantity, "quantity"),
-    fefo_override_reason_id: optionalPositiveInt(
-      row.fefo_override_reason_id
-    ),
-    fefo_overridden_by: optionalPositiveInt(row.fefo_overridden_by),
-    fefo_override_note: optionalString(row.fefo_override_note),
-  };
-};
-
-const parseTransferDetail = (
-  raw: unknown,
-  expectedLocationId: number
-): WarehouseTransferDetail => {
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    !("transfer" in raw) ||
-    !("lines" in raw) ||
-    !Array.isArray((raw as { lines?: unknown }).lines)
-  ) {
-    throw new Error("تنسيق تفاصيل الحوالة غير صالح.");
-  }
-
-  const record = raw as Record<string, unknown>;
-  const transfer = parseTransfer(record.transfer);
-
-  if (
-    transfer.source_location_id !== expectedLocationId &&
-    transfer.destination_location_id !== expectedLocationId
-  ) {
-    throw new Error(
-      "مرفوض: تفاصيل الحوالة لا تطابق المستودع المحدد حالياً."
-    );
-  }
-
-  const lines = (record.lines as unknown[]).map(parseTransferLine);
-  if (lines.length === 0) {
-    throw new Error("الحوالة لا تحتوي على أسطر مخزون.");
-  }
-
-  return { transfer, lines };
-};
-
-
-const parseTransferLocation = (raw: unknown): TransferLocationOption => {
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("موقع حوالة غير صالح.");
-  }
-
-  const row = raw as Record<string, unknown>;
-  const locationType = row.location_type;
-  if (locationType !== "WAREHOUSE" && locationType !== "VEHICLE") {
-    throw new Error("نوع موقع الحوالة غير صالح.");
-  }
-
-  return {
-    id: positiveInt(row.id, "location.id"),
-    name: requiredString(row.name, "location.name"),
-    code: requiredString(row.code, "location.code"),
-    location_type: locationType,
-    vehicle_id: optionalPositiveInt(row.vehicle_id),
-  };
-};
-
-const parseTransferLocations = (raw: unknown): TransferLocationOption[] => {
-  if (!Array.isArray(raw)) {
-    throw new Error("تنسيق مواقع الحوالة غير صالح.");
-  }
-
-  return raw.map(parseTransferLocation);
-};
-
-const parseSourceInventoryItem = (
-  raw: unknown
-): TransferSourceInventoryItem => {
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("صنف مصدر الحوالة غير صالح.");
-  }
-
-  const row = raw as Record<string, unknown>;
-
-  return {
-    id: positiveInt(row.id, "product.id"),
-    name: requiredString(row.name, "product.name"),
-    sku: optionalString(row.sku),
-    packs_per_carton: positiveInt(
-      row.packs_per_carton,
-      "packs_per_carton"
-    ),
-    available_packs: nonNegativeInt(
-      row.available_packs,
-      "available_packs"
-    ),
-  };
-};
-
-const parseSourceInventoryPage = (
-  raw: unknown
-): TransferSourceInventoryPage => {
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    !Array.isArray((raw as { items?: unknown }).items)
-  ) {
-    throw new Error("تنسيق مخزون مصدر الحوالة غير صالح.");
-  }
-
-  const page = raw as Record<string, unknown>;
-
-  return {
-    items: (page.items as unknown[]).map(parseSourceInventoryItem),
-    next_cursor:
-      typeof page.next_cursor === "string" ? page.next_cursor : null,
-    has_more: page.has_more === true,
-    total: typeof page.total === "number" ? page.total : null,
-  };
-};
-
-const parseOverrideReason = (raw: unknown): TransferOverrideReason => {
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("سبب تجاوز FEFO غير صالح.");
-  }
-
-  const row = raw as Record<string, unknown>;
-  return {
-    id: positiveInt(row.id, "override_reason.id"),
-    code: requiredString(row.code, "override_reason.code"),
-    description: requiredString(
-      row.description,
-      "override_reason.description"
-    ),
-  };
-};
-
-const parseOverrideBatch = (raw: unknown): TransferOverrideBatch => {
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("دفعة تجاوز FEFO غير صالحة.");
-  }
-
-  const row = raw as Record<string, unknown>;
-  if (typeof row.is_fefo_head !== "boolean") {
-    throw new Error("حالة FEFO للدفعة غير صالحة.");
-  }
-
-  return {
-    id: positiveInt(row.id, "batch.id"),
-    batch_number: requiredString(row.batch_number, "batch.batch_number"),
-    production_date: optionalString(row.production_date),
-    expiry_date: requiredString(row.expiry_date, "batch.expiry_date"),
-    available_packs: nonNegativeInt(
-      row.available_packs,
-      "batch.available_packs"
-    ),
-    is_fefo_head: row.is_fefo_head,
-  };
-};
-
-const parseOverrideOptions = (
-  raw: unknown,
-  expectedLocationId: number,
-  expectedProductId: number
-): TransferOverrideOptions => {
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    !Array.isArray((raw as { batches?: unknown }).batches) ||
-    !Array.isArray((raw as { reasons?: unknown }).reasons)
-  ) {
-    throw new Error("تنسيق خيارات تجاوز FEFO غير صالح.");
-  }
-
-  const row = raw as Record<string, unknown>;
-  const locationId = positiveInt(row.location_id, "location_id");
-  const productId = positiveInt(
-    row.product_variant_id,
-    "product_variant_id"
-  );
-
-  if (
-    locationId !== expectedLocationId ||
-    productId !== expectedProductId
-  ) {
-    throw new Error(
-      "مرفوض: خيارات FEFO لا تطابق مصدر الحوالة أو الصنف المحدد."
-    );
-  }
-
-  const batches = (row.batches as unknown[]).map(parseOverrideBatch);
-  const reasons = (row.reasons as unknown[]).map(parseOverrideReason);
-  const fefoBatchId = optionalPositiveInt(row.fefo_batch_id);
-
-  if (
-    fefoBatchId !== null &&
-    !batches.some((batch) => batch.id === fefoBatchId)
-  ) {
-    throw new Error("دفعة FEFO المرجعية غير موجودة ضمن الخيارات.");
-  }
-
-  return {
-    location_id: locationId,
-    product_variant_id: productId,
-    fefo_batch_id: fefoBatchId,
-    batches,
-    reasons,
-  };
-};
-
-const totalDraftPacks = (item: TransferDraftItem): number =>
-  item.cartons * item.packs_per_carton + item.loose_packs;
-
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "حدث خطأ غير متوقع";
-
-const getMutationMessage = (raw: unknown): string => {
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    typeof (raw as { message?: unknown }).message !== "string"
-  ) {
-    throw new Error("استجابة عملية الحوالة غير صالحة.");
-  }
-
-  return (raw as { message: string }).message;
-};
-
-const formatDate = (value: string | null): string =>
-  value ? new Date(value).toLocaleString("ar-EG") : "—";
+import {
+  TRANSFER_STATUSES,
+  isTransferStatus,
+  STATUS_META,
+} from "./transfers/constants";
+import {
+  parseOverrideOptions,
+  parseSourceInventoryPage,
+  parseTransferLocations,
+} from "./transfers/parsers";
+import type {
+  FefoMode,
+  Props,
+  TransferCreateDirection,
+  TransferDraftItem,
+  TransferLocationOption,
+  TransferOverrideOptions,
+  TransferSourceInventoryItem,
+} from "./transfers/types";
+import {
+  getErrorMessage,
+  getMutationMessage,
+  totalDraftPacks,
+} from "./transfers/utils";
+import { TransferTable } from "./transfers/TransferTable";
+import { TransferDetailModal } from "./transfers/TransferDetailModal";
+import { TransferDecisionModal } from "./transfers/TransferDecisionModal";
+import { useTransferList } from "./transfers/hooks/useTransferList";
+import { useTransferActions } from "./transfers/hooks/useTransferActions";
 
 export function TabTransfers({
   locationId,
@@ -543,36 +46,50 @@ export function TabTransfers({
 }: Props) {
   const authenticatedFetch = useAuthFetch();
 
-  const [items, setItems] = useState<WarehouseTransferListItem[]>([]);
-  const [status, setStatus] = useState<TransferStatus | "">("");
-  const [direction, setDirection] =
-    useState<TransferDirection>("all");
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>(
-    []
-  );
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const requestSeq = useRef(0);
+  const transferList = useTransferList(locationId);
+  const {
+    items,
+    status,
+    setStatus,
+    direction,
+    setDirection,
+    searchInput,
+    setSearchInput,
+    total,
+    loading,
+    cursorHistory,
+    nextCursor,
+    detail,
+    detailLoading,
+    inTransitCount,
+    openDetail,
+    closeDetail,
+    resetDetail,
+    refreshTransfers,
+    handleNext,
+    handlePrevious,
+  } = transferList;
 
-  const [detail, setDetail] = useState<WarehouseTransferDetail | null>(
-    null
-  );
-  const [detailLoading, setDetailLoading] = useState(false);
-  const detailRequestSeq = useRef(0);
+  const handleTransferActionCompleted = useCallback(() => {
+    resetDetail();
+    refreshTransfers();
+  }, [refreshTransfers, resetDetail]);
 
-  const [action, setAction] = useState<TransferAction | null>(null);
-  const [actionTransfer, setActionTransfer] =
-    useState<WarehouseTransferListItem | null>(null);
-  const [decisionReason, setDecisionReason] = useState("");
-  const [actionRequestId, setActionRequestId] = useState(() =>
-    crypto.randomUUID()
-  );
-  const [actionSubmitting, setActionSubmitting] = useState(false);
+  const transferActions = useTransferActions({
+    locationId,
+    onInventoryChanged,
+    onCompleted: handleTransferActionCompleted,
+  });
+  const {
+    action,
+    actionTransfer,
+    decisionReason,
+    actionSubmitting,
+    openAction,
+    closeAction,
+    updateDecisionReason,
+    handleAction,
+  } = transferActions;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createDirection, setCreateDirection] =
@@ -616,19 +133,6 @@ export function TabTransfers({
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const clean = searchInput.trim();
-      setSearch(clean.length >= 2 ? clean : "");
-      setCursor(null);
-      setCursorHistory([]);
-      setNextCursor(null);
-      setTotal(null);
-    }, 300);
-
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
       const clean = productSearchInput.trim();
       setProductSearch(clean.length >= 2 ? clean : "");
     }, 300);
@@ -644,14 +148,6 @@ export function TabTransfers({
 
     return () => window.clearTimeout(timer);
   }, [transferLocationSearchInput]);
-
-  useEffect(() => {
-    setCursor(null);
-    setCursorHistory([]);
-    setNextCursor(null);
-    setTotal(null);
-    setDetail(null);
-  }, [locationId, status, direction]);
 
   const sourceLocationId =
     createDirection === "outgoing"
@@ -1345,7 +841,7 @@ export function TabTransfers({
       toast.success(getMutationMessage(raw));
       setCreateOpen(false);
       resetCreateForm();
-      setRefreshKey((value) => value + 1);
+      refreshTransfers();
       await onInventoryChanged();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error));
@@ -1354,201 +850,6 @@ export function TabTransfers({
     }
   };
 
-
-  const fetchTransfers = useCallback(async () => {
-    const seq = ++requestSeq.current;
-    setLoading(true);
-
-    try {
-      const params = new URLSearchParams({
-        location_id: String(locationId),
-        direction,
-        limit: "50",
-      });
-      if (status) params.set("status", status);
-      if (search) params.set("search", search);
-      if (cursor) params.set("cursor", cursor);
-
-      const raw = await authenticatedFetch(
-        `/warehouse/unified/transfers?${params.toString()}`
-      );
-
-      if (seq !== requestSeq.current) return;
-
-      const page = parseTransferPage(raw);
-      const invalid = page.items.find(
-        (transfer) =>
-          transfer.source_location_id !== locationId &&
-          transfer.destination_location_id !== locationId
-      );
-
-      if (invalid) {
-        throw new Error(
-          "مرفوض: السيرفر أعاد حوالة خارج نطاق المستودع المحدد."
-        );
-      }
-
-      setItems(page.items);
-      setNextCursor(page.next_cursor);
-      if (page.total !== null) setTotal(page.total);
-    } catch (error: unknown) {
-      if (seq !== requestSeq.current) return;
-      setItems([]);
-      setNextCursor(null);
-      toast.error("فشل جلب الحوالات: " + getErrorMessage(error));
-    } finally {
-      if (seq === requestSeq.current) setLoading(false);
-    }
-  }, [
-    authenticatedFetch,
-    cursor,
-    direction,
-    locationId,
-    search,
-    status,
-  ]);
-
-  useEffect(() => {
-    void fetchTransfers();
-  }, [fetchTransfers, refreshKey]);
-
-  const openDetail = async (transfer: WarehouseTransferListItem) => {
-    const seq = ++detailRequestSeq.current;
-    setDetailLoading(true);
-    setDetail(null);
-
-    try {
-      const raw = await authenticatedFetch(
-        `/warehouse/unified/transfers/${transfer.id}`
-      );
-
-      if (seq !== detailRequestSeq.current) return;
-
-      setDetail(parseTransferDetail(raw, locationId));
-    } catch (error: unknown) {
-      if (seq !== detailRequestSeq.current) return;
-      toast.error(
-        "فشل جلب تفاصيل الحوالة: " + getErrorMessage(error)
-      );
-    } finally {
-      if (seq === detailRequestSeq.current) setDetailLoading(false);
-    }
-  };
-
-  const openAction = (
-    transfer: WarehouseTransferListItem,
-    nextAction: TransferAction
-  ) => {
-    if (transfer.status !== "IN_TRANSIT") {
-      toast.error("هذه العملية متاحة فقط للحوالات الموجودة في الطريق.");
-      return;
-    }
-
-    const isSource = transfer.source_location_id === locationId;
-    const isDestination =
-      transfer.destination_location_id === locationId;
-
-    if (nextAction === "cancel" && !isSource) {
-      toast.error("الإلغاء متاح من جهة مصدر الحوالة فقط.");
-      return;
-    }
-    if (
-      (nextAction === "receive" || nextAction === "reject") &&
-      !isDestination
-    ) {
-      toast.error("الاستلام/الرفض متاحان من جهة وجهة الحوالة فقط.");
-      return;
-    }
-
-    setActionTransfer(transfer);
-    setAction(nextAction);
-    setDecisionReason("");
-    setActionRequestId(crypto.randomUUID());
-  };
-
-  const closeAction = () => {
-    if (actionSubmitting) return;
-    setAction(null);
-    setActionTransfer(null);
-    setDecisionReason("");
-  };
-
-  const handleAction = async () => {
-    if (!action || !actionTransfer) return;
-
-    const reason = decisionReason.trim();
-    if ((action === "reject" || action === "cancel") && !reason) {
-      toast.error("سبب القرار مطلوب.");
-      return;
-    }
-    if (reason.length > 2000) {
-      toast.error("سبب القرار لا يجوز أن يتجاوز 2000 حرف.");
-      return;
-    }
-
-    setActionSubmitting(true);
-
-    try {
-      let raw: unknown;
-
-      if (action === "receive") {
-        raw = await authenticatedFetch(
-          "/warehouse/unified/transfer/receive",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              request_id: actionRequestId,
-              transfer_header_id: actionTransfer.id,
-              destination_location_id:
-                actionTransfer.destination_location_id,
-            }),
-          }
-        );
-      } else {
-        raw = await authenticatedFetch(
-          `/warehouse/unified/transfer/${actionTransfer.id}/${action}`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              request_id: actionRequestId,
-              decision_reason: reason,
-            }),
-          }
-        );
-      }
-
-      toast.success(getMutationMessage(raw));
-      setAction(null);
-      setActionTransfer(null);
-      setDecisionReason("");
-      setDetail(null);
-      setRefreshKey((value) => value + 1);
-      await onInventoryChanged();
-    } catch (error: unknown) {
-      // Keep the same request_id for an unchanged safe retry.
-      toast.error(getErrorMessage(error));
-    } finally {
-      setActionSubmitting(false);
-    }
-  };
-
-  const handleNext = () => {
-    if (!nextCursor) return;
-    setCursorHistory((prev) => [...prev, cursor]);
-    setCursor(nextCursor);
-  };
-
-  const handlePrevious = () => {
-    if (cursorHistory.length === 0) return;
-    const previous = cursorHistory[cursorHistory.length - 1] ?? null;
-    setCursorHistory((prev) => prev.slice(0, -1));
-    setCursor(previous);
-  };
-
-  const inTransitCount = useMemo(
-    () => items.filter((item) => item.status === "IN_TRANSIT").length,
-    [items]
-  );
 
   return (
     <div className="flex flex-col gap-4 min-h-0 flex-1">
@@ -1575,7 +876,7 @@ export function TabTransfers({
           </button>
 
           <button
-            onClick={() => setRefreshKey((value) => value + 1)}
+            onClick={refreshTransfers}
             disabled={loading}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 font-bold text-xs disabled:opacity-50"
             title="تحديث"
@@ -1635,152 +936,17 @@ export function TabTransfers({
         </select>
       </div>
 
-      <div className="glass-card rounded-2xl overflow-hidden min-h-0 flex-1">
-        <div className="overflow-auto h-full">
-          <table className="w-full text-sm text-right">
-            <thead className="bg-slate-50 sticky top-0 z-10">
-              <tr>
-                <th className="p-3">الحوالة</th>
-                <th className="p-3">المصدر</th>
-                <th className="p-3">الوجهة</th>
-                <th className="p-3">الحالة</th>
-                <th className="p-3">الأصناف</th>
-                <th className="p-3">إجمالي العبوات</th>
-                <th className="p-3">أنشأها</th>
-                <th className="p-3">التاريخ</th>
-                <th className="p-3 text-center">إجراءات</th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-100">
-              {items.map((transfer) => {
-                const isSource =
-                  transfer.source_location_id === locationId;
-                const isDestination =
-                  transfer.destination_location_id === locationId;
-                const inTransit = transfer.status === "IN_TRANSIT";
-
-                return (
-                  <tr key={transfer.id} className="hover:bg-slate-50/70">
-                    <td className="p-3">
-                      <div className="font-bold text-slate-800">
-                        {transfer.reference_number}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        ID: {transfer.id}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-1.5">
-                        <ArrowUpFromLine className="w-3.5 h-3.5 text-slate-400" />
-                        <span className={isSource ? "font-bold text-blue-700" : "text-slate-600"}>
-                          {transfer.source_location_name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-1.5">
-                        <ArrowDownToLine className="w-3.5 h-3.5 text-slate-400" />
-                        <span className={isDestination ? "font-bold text-emerald-700" : "text-slate-600"}>
-                          {transfer.destination_location_name}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded-lg text-xs font-bold ${STATUS_META[transfer.status].className}`}>
-                        {STATUS_META[transfer.status].label}
-                      </span>
-                    </td>
-                    <td className="p-3 text-slate-600">
-                      {transfer.line_count}
-                    </td>
-                    <td className="p-3 font-bold text-slate-700">
-                      {transfer.total_quantity}
-                    </td>
-                    <td className="p-3 text-slate-600">
-                      {transfer.dispatched_by_name}
-                    </td>
-                    <td className="p-3 text-xs text-slate-500">
-                      {formatDate(transfer.created_at)}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex justify-center gap-1.5">
-                        <button
-                          onClick={() => void openDetail(transfer)}
-                          className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600"
-                          title="التفاصيل"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-
-                        {inTransit && isDestination && (
-                          <>
-                            <button
-                              onClick={() => openAction(transfer, "receive")}
-                              className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
-                              title="استلام"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => openAction(transfer, "reject")}
-                              className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
-                              title="رفض"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-
-                        {inTransit && isSource && (
-                          <button
-                            onClick={() => openAction(transfer, "cancel")}
-                            className="p-2 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50"
-                            title="إلغاء"
-                          >
-                            <Ban className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {!loading && items.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="p-12 text-center text-slate-400">
-                    لا توجد حوالات ضمن النطاق المحدد.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-500">
-          الصفحة {cursorHistory.length + 1}
-        </span>
-
-        <div className="flex gap-2">
-          <button
-            onClick={handlePrevious}
-            disabled={cursorHistory.length === 0 || loading}
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleNext}
-            disabled={!nextCursor || loading}
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      <TransferTable
+        items={items}
+        locationId={locationId}
+        loading={loading}
+        cursorHistoryLength={cursorHistory.length}
+        nextCursor={nextCursor}
+        onOpenDetail={openDetail}
+        onOpenAction={openAction}
+        onPrevious={handlePrevious}
+        onNext={handleNext}
+      />
 
       <Modal
         isOpen={createOpen}
@@ -2297,198 +1463,21 @@ export function TabTransfers({
         </div>
       </Modal>
 
-      <Modal
-        isOpen={detail !== null || detailLoading}
-        onClose={() => {
-          if (!detailLoading) setDetail(null);
-        }}
-        title="تفاصيل الحوالة"
-        maxWidth="max-w-5xl"
-      >
-        {detailLoading && (
-          <div className="p-12 text-center text-slate-500 font-bold">
-            جاري جلب التفاصيل...
-          </div>
-        )}
+      <TransferDetailModal
+        detail={detail}
+        loading={detailLoading}
+        onClose={closeDetail}
+      />
 
-        {!detailLoading && detail && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="rounded-xl bg-slate-50 p-3">
-                <div className="text-[10px] text-slate-400">المرجع</div>
-                <div className="font-bold text-slate-800">
-                  {detail.transfer.reference_number}
-                </div>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-3">
-                <div className="text-[10px] text-slate-400">المصدر</div>
-                <div className="font-bold text-slate-800">
-                  {detail.transfer.source_location_name}
-                </div>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-3">
-                <div className="text-[10px] text-slate-400">الوجهة</div>
-                <div className="font-bold text-slate-800">
-                  {detail.transfer.destination_location_name}
-                </div>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-3">
-                <div className="text-[10px] text-slate-400">الحالة</div>
-                <div className="font-bold text-slate-800">
-                  {STATUS_META[detail.transfer.status].label}
-                </div>
-              </div>
-            </div>
-
-            {(detail.transfer.notes || detail.transfer.decision_reason) && (
-              <div className="rounded-xl border border-slate-200 p-4 text-sm">
-                {detail.transfer.notes && (
-                  <p>
-                    <span className="font-bold">ملاحظات:</span>{" "}
-                    {detail.transfer.notes}
-                  </p>
-                )}
-                {detail.transfer.decision_reason && (
-                  <p className="mt-2">
-                    <span className="font-bold">سبب القرار:</span>{" "}
-                    {detail.transfer.decision_reason}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="border border-slate-200 rounded-xl overflow-auto max-h-[45vh]">
-              <table className="w-full text-sm text-right">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr>
-                    <th className="p-3">المنتج</th>
-                    <th className="p-3">الدفعة</th>
-                    <th className="p-3">الصلاحية</th>
-                    <th className="p-3">الكمية</th>
-                    <th className="p-3">FEFO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {detail.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="p-3 font-bold text-slate-800">
-                        {line.product_name}
-                      </td>
-                      <td className="p-3 font-mono text-xs">
-                        {line.batch_number}
-                      </td>
-                      <td className="p-3 text-xs text-slate-600">
-                        {line.expiry_date}
-                      </td>
-                      <td className="p-3 font-bold">{line.quantity}</td>
-                      <td className="p-3 text-xs">
-                        {line.fefo_override_reason_id
-                          ? `تجاوز موثّق: ${line.fefo_override_note || "بدون وصف"}`
-                          : "FEFO تلقائي"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-slate-500">
-              <div>
-                المرسل:{" "}
-                <span className="font-bold text-slate-700">
-                  {detail.transfer.dispatched_by_name}
-                </span>
-              </div>
-              <div>
-                المستلم:{" "}
-                <span className="font-bold text-slate-700">
-                  {detail.transfer.received_by_name || "—"}
-                </span>
-              </div>
-              <div>
-                الإنشاء:{" "}
-                <span className="font-bold text-slate-700">
-                  {formatDate(detail.transfer.created_at)}
-                </span>
-              </div>
-              <div>
-                الترحيل:{" "}
-                <span className="font-bold text-slate-700">
-                  {formatDate(detail.transfer.posted_at)}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
-        isOpen={action !== null && actionTransfer !== null}
+      <TransferDecisionModal
+        action={action}
+        transfer={actionTransfer}
+        decisionReason={decisionReason}
+        submitting={actionSubmitting}
         onClose={closeAction}
-        title={
-          action === "receive"
-            ? "تأكيد استلام الحوالة"
-            : action === "reject"
-              ? "رفض الحوالة"
-              : "إلغاء الحوالة"
-        }
-      >
-        <div className="space-y-4">
-          <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm">
-            <div className="font-bold text-slate-800">
-              {actionTransfer?.reference_number}
-            </div>
-            <div className="text-xs text-slate-500 mt-1">
-              {actionTransfer?.source_location_name} ←{" "}
-              {actionTransfer?.destination_location_name}
-            </div>
-          </div>
-
-          {action !== "receive" && (
-            <div>
-              <label className="text-xs font-bold text-slate-600">
-                سبب {action === "reject" ? "الرفض" : "الإلغاء"}
-              </label>
-              <textarea
-                value={decisionReason}
-                onChange={(event) => {
-                  setDecisionReason(event.target.value);
-                  setActionRequestId(crypto.randomUUID());
-                }}
-                maxLength={2000}
-                className="mt-1 w-full min-h-28 rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/20"
-              />
-            </div>
-          )}
-
-          {action === "receive" && (
-            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 font-bold">
-              سيتم نقل كامل أسطر الحوالة من IN_TRANSIT إلى وجهتها الأصلية.
-              السيرفر يمنع المُرسل من تأكيد استلام حوالته بنفسه.
-            </div>
-          )}
-
-          <button
-            onClick={handleAction}
-            disabled={actionSubmitting}
-            className={`w-full py-3 rounded-xl text-white font-bold disabled:opacity-50 ${
-              action === "receive"
-                ? "bg-emerald-600"
-                : action === "reject"
-                  ? "bg-red-600"
-                  : "bg-amber-600"
-            }`}
-          >
-            {actionSubmitting
-              ? "جاري التنفيذ..."
-              : action === "receive"
-                ? "تأكيد الاستلام"
-                : action === "reject"
-                  ? "تأكيد الرفض"
-                  : "تأكيد الإلغاء"}
-          </button>
-        </div>
-      </Modal>
+        onDecisionReasonChange={updateDecisionReason}
+        onSubmit={handleAction}
+      />
     </div>
   );
 }
