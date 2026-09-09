@@ -1,46 +1,7 @@
 ├── .gitignore
-├── .patch_backups
-│   ├── DISPATCH_CONCURRENCY_EMERGENCY_INTEGRITY
-│   │   └── dispatch.py
-│   ├── DISPATCH_DASHBOARD_FINANCIAL_SETTLEMENT
-│   │   └── dispatch.py.before_dashboard_financial_settlement
-│   ├── DISPATCH_FINAL_INTEGRITY_GATE
-│   │   ├── dispatch.py
-│   │   └── schemas.py
-│   ├── DISPATCH_POLICY_OPERATIONAL_HARDENING
-│   │   ├── api
-│   │   │   ├── dispatch.py
-│   │   │   └── driver.py
-│   │   ├── models.py
-│   │   ├── schemas.py
-│   │   └── services.py
-│   ├── DISPATCH_POLICY_OPERATIONAL_HARDENING_V4
-│   │   ├── api
-│   │   │   ├── dispatch.py
-│   │   │   └── driver.py
-│   │   ├── models.py
-│   │   ├── schemas.py
-│   │   └── services.py
-│   ├── DISPATCH_ROUTE_STATUS_UNIFIED
-│   │   └── dispatch.py
-│   ├── DISPATCH_RUNTIME_EMERGENCY_HARDENING
-│   │   └── dispatch.py.before_runtime_emergency_hardening
-│   ├── DISPATCH_UNIFIED_INVENTORY_CORE
-│   │   └── dispatch.py.before_unified_inventory_core
-│   ├── DRIVER_FINAL_INVENTORY_EDGES
-│   │   ├── driver.py.before
-│   │   └── models.py.before
-│   ├── DRIVER_RECONCILIATION_FREEZE_GATE
-│   │   ├── driver.py
-│   │   ├── models.py
-│   │   ├── reconciliation.py
-│   │   └── services.py
-│   └── INVENTORY_FINANCIAL_SETTLEMENT_SEPARATION
-│       ├── models.py
-│       ├── reconciliation.py
-│       └── services.py
 ├── .rules
 ├── .vscode
+│   └── settings.json
 ├── RUN.txt
 ├── dashboard
 │   ├── .env
@@ -51,12 +12,19 @@
 │   ├── components.json
 │   ├── dashboard_structure.txt
 │   ├── dist
+│   │   ├── favicon.ico
+│   │   ├── index.html
+│   │   ├── placeholder.svg
+│   │   └── robots.txt
 │   ├── eslint.config.js
 │   ├── index.html
 │   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
 │   ├── public
+│   │   ├── favicon.ico
+│   │   ├── placeholder.svg
+│   │   └── robots.txt
 │   ├── src
 │   │   ├── App.css
 │   │   ├── App.tsx
@@ -162,9 +130,14 @@
 │   │   │       ├── Tab2Inbound.tsx
 │   │   │       ├── Tab3Stocktake.tsx
 │   │   │       ├── Tab4Ledger.tsx
+│   │   │       ├── TabTransfers.tsx
+│   │   │       ├── TabWarehouseLocations.tsx
 │   │   │       └── inventoryUtils.ts
 │   │   ├── test
+│   │   │   ├── example.test.ts
+│   │   │   └── setup.ts
 │   │   ├── types
+│   │   │   └── dispatch.ts
 │   │   └── vite-env.d.ts
 │   ├── tailwind.config.ts
 │   ├── tsconfig.app.json
@@ -176,24 +149,19 @@
 ├── wa_backend
 │   ├── .concurrency_audit_baseline.json
 │   ├── .env
-│   ├── .patch_backups
-│   │   ├── DispatchBoard.tsx.before_integrity_jobs_20260908_104546.bak
-│   │   ├── DispatchBoard.tsx.before_stale_handshake_20260908_091232.bak
-│   │   ├── README.md.before_reports_foundation_20260908_190806.bak
-│   │   ├── RECONCILIATION_UNIFIED_VEHICLE_RECON
-│   │   │   ├── reconciliation.py.before
-│   │   │   └── services.py.before
-│   │   ├── app.py.before_integrity_jobs_20260908_104546.bak
-│   │   ├── app.py.before_reports_foundation_20260908_190806.bak
-│   │   ├── app.py.before_session_monitor_20260908_102814.bak
-│   │   ├── app.py.before_stale_handshake_20260908_091231.bak
-│   │   ├── main.py.before_stale_handshake_20260908_091232.bak
-│   │   ├── requirements_before_worker_core_20260908_083417.txt
-│   │   ├── settings.py.before_integrity_jobs_20260908_104546.bak
-│   │   ├── settings.py.before_session_monitor_20260908_102814.bak
-│   │   └── worker_event_relay.py.before_integrity_jobs_20260908_104546.bak
 │   ├── .pytest_cache
+│   │   ├── .gitignore
+│   │   ├── CACHEDIR.TAG
+│   │   ├── README.md
+│   │   └── v
+│   │       └── cache
+│   │           ├── lastfailed
+│   │           └── nodeids
 │   ├── alembic
+│   │   ├── README
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions
 │   ├── alembic.ini
 │   ├── api
 │   │   ├── auth.py
@@ -214,6 +182,10 @@
 │   ├── models.py
 │   ├── pytest.ini
 │   ├── pytest_report.txt
+│   ├── realtime
+│   │   ├── __init__.py
+│   │   ├── auth.py
+│   │   └── worker_event_relay.py
 │   ├── requirements.txt
 │   ├── schemas.py
 │   ├── scripts
@@ -230,9 +202,41 @@
 │   │   ├── test_e2e_stress_simulation.py
 │   │   ├── test_rls_security.py
 │   │   └── test_smoke.py
+│   ├── seed_dashboard_dev_login.py
 │   ├── services.py
 │   ├── venv_wsl
-│   ├── worker_event_relay.py
+│   │   ├── bin
+│   │   │   ├── Activate.ps1
+│   │   │   ├── activate
+│   │   │   ├── activate.csh
+│   │   │   ├── activate.fish
+│   │   │   ├── dotenv
+│   │   │   ├── email_validator
+│   │   │   ├── httpx
+│   │   │   ├── idna
+│   │   │   ├── markdown-it
+│   │   │   ├── pip
+│   │   │   ├── pip3
+│   │   │   ├── pip3.12
+│   │   │   ├── pygmentize
+│   │   │   ├── python
+│   │   │   ├── python3
+│   │   │   ├── python3.12
+│   │   │   ├── typer
+│   │   │   ├── uvicorn
+│   │   │   ├── watchfiles
+│   │   │   └── websockets
+│   │   ├── include
+│   │   │   ├── python3.12
+│   │   │   └── site
+│   │   │       └── python3.12
+│   │   ├── lib
+│   │   │   └── python3.12
+│   │   │       └── site-packages
+│   │   ├── lib64
+│   │   │   └── python3.12
+│   │   │       └── site-packages
+│   │   └── pyvenv.cfg
 │   ├── workers
 │   │   ├── README.md
 │   │   ├── __init__.py
@@ -245,6 +249,7 @@
 │   │   │   ├── core.py
 │   │   │   ├── handshake.py
 │   │   │   ├── integrity.py
+│   │   │   ├── maintenance.py
 │   │   │   ├── reports.py
 │   │   │   └── session_monitor.py
 │   │   └── tenant.py

@@ -1635,6 +1635,52 @@ class UnifiedReceiveRequest(RequestModel):
     destination_location_id: PositiveDbInt
 
 
+class UnifiedTransferLocationItem(BaseModel):
+    id: int
+    name: str
+    code: str
+    location_type: Literal["WAREHOUSE", "VEHICLE"]
+    vehicle_id: Optional[int] = None
+
+
+class UnifiedTransferSourceInventoryItem(BaseModel):
+    id: int
+    name: str
+    sku: Optional[str] = None
+    packs_per_carton: int
+    available_packs: int
+
+
+class UnifiedTransferSourceInventoryCursorPage(BaseModel):
+    items: List[UnifiedTransferSourceInventoryItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
+class UnifiedTransferOverrideReasonItem(BaseModel):
+    id: int
+    code: str
+    description: str
+
+
+class UnifiedTransferSourceBatchItem(BaseModel):
+    id: int
+    batch_number: str
+    production_date: Optional[date] = None
+    expiry_date: date
+    available_packs: int
+    is_fefo_head: bool
+
+
+class UnifiedTransferOverrideOptionsResponse(BaseModel):
+    location_id: int
+    product_variant_id: int
+    fefo_batch_id: Optional[int] = None
+    batches: List[UnifiedTransferSourceBatchItem]
+    reasons: List[UnifiedTransferOverrideReasonItem]
+
+
 class UnifiedTransferDecisionRequest(RequestModel):
     request_id: UUID
     decision_reason: str = Field(..., min_length=1, max_length=2000)

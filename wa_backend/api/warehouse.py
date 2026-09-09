@@ -41,6 +41,8 @@ WarehouseLocationStateRequest, WarehouseLocationCursorPage, WarehouseLocationMut
 SimpleProductVariantItem, SimpleProductVariantCursorPage, ProductVariantResolveRequest,
 AddProductVariantRequest, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest,
 UnifiedTransferDecisionRequest, WarehouseTransferCursorPage, WarehouseTransferDetail,
+UnifiedTransferLocationItem, UnifiedTransferSourceInventoryCursorPage,
+UnifiedTransferOverrideOptionsResponse,
 UnifiedStocktakeCountRequest, StocktakeRecountRequest, StocktakeApprovalRequest, StocktakeCancelRequest )
 
 router = APIRouter()
@@ -3221,6 +3223,482 @@ async def _acquire_shared_inventory_guards(
             location_id,
             exclusive=False
         )
+
+
+@router.get(
+    "/warehouse/unified/transfer/locations",
+    response_model=List[UnifiedTransferLocationItem],
+    status_code=200,
+)
+async def list_unified_transfer_locations(
+    search: Optional[str] = Query(
+        default=None,
+        min_length=2,
+        max_length=100,
+    ),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_admin),
+):
+    company_id = current_admin.company_id
+    clean_search = (search or "").strip().lower()
+
+    stmt = (
+        select(
+            InventoryLocation.id,
+            InventoryLocation.name,
+            InventoryLocation.code,
+            InventoryLocation.location_type,
+            InventoryLocation.vehicle_id,
+        )
+        .filter(
+            InventoryLocation.company_id == company_id,
+            InventoryLocation.is_active.is_(True),
+            InventoryLocation.location_type.in_(
+                ['WAREHOUSE', 'VEHICLE']
+            ),
+        )
+    )
+
+    if clean_search:
+        pattern = f"%{_escape_like(clean_search)}%"
+        stmt = stmt.filter(
+            or_(
+                func.lower(InventoryLocation.name).like(
+                    pattern,
+                    escape="\\",
+                ),
+                func.lower(InventoryLocation.code).like(
+                    pattern,
+                    escape="\\",
+                ),
+            )
+        )
+
+    rows = (
+        await db.execute(
+            stmt.order_by(
+                case(
+                    (InventoryLocation.location_type == 'WAREHOUSE', 0),
+                    else_=1,
+                ),
+                InventoryLocation.name.asc(),
+                InventoryLocation.id.asc(),
+            ).limit(limit)
+        )
+    ).all()
+
+    return [
+        {
+            "id": int(row.id),
+            "name": str(row.name),
+            "code": str(row.code),
+            "location_type": str(row.location_type),
+            "vehicle_id": (
+                int(row.vehicle_id)
+                if row.vehicle_id is not None
+                else None
+            ),
+        }
+        for row in rows
+    ]
+
+
+@router.get(
+    "/warehouse/unified/transfer/source-inventory",
+    response_model=UnifiedTransferSourceInventoryCursorPage,
+    status_code=200,
+)
+async def get_unified_transfer_source_inventory(
+    location_id: int = Query(..., ge=1),
+    cursor: Optional[str] = Query(default=None, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=200),
+    search: Optional[str] = Query(default=None, min_length=2, max_length=100),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_admin),
+):
+    company_id = current_admin.company_id
+    clean_search = (search or "").strip().lower()
+
+    location = (
+        await db.execute(
+            select(
+                InventoryLocation.id,
+                InventoryLocation.location_type,
+            ).filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id == location_id,
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.location_type.in_(
+                    ['WAREHOUSE', 'VEHICLE']
+                ),
+            )
+        )
+    ).one_or_none()
+
+    if location is None:
+        raise HTTPException(
+            status_code=404,
+            detail="مصدر الحوالة غير موجود أو غير فعال أو لا يتبع شركتك.",
+        )
+
+    as_of_date = await get_company_local_date(db, company_id)
+
+    sellable_batch = and_(
+        ProductBatch.company_id == InventoryBalance.company_id,
+        ProductBatch.product_variant_id
+        == InventoryBalance.product_variant_id,
+        ProductBatch.id == InventoryBalance.batch_id,
+        ProductBatch.is_active.is_(True),
+        or_(
+            ProductBatch.production_date.is_(None),
+            ProductBatch.production_date <= as_of_date,
+        ),
+        ProductBatch.expiry_date >= as_of_date,
+    )
+
+    active_lock_exists = (
+        select(InventoryLock.id)
+        .filter(
+            InventoryLock.company_id == company_id,
+            InventoryLock.location_id == location_id,
+            InventoryLock.released_at.is_(None),
+            or_(
+                and_(
+                    InventoryLock.product_variant_id.is_(None),
+                    InventoryLock.batch_id.is_(None),
+                ),
+                and_(
+                    InventoryLock.product_variant_id
+                    == InventoryBalance.product_variant_id,
+                    or_(
+                        InventoryLock.batch_id.is_(None),
+                        InventoryLock.batch_id
+                        == InventoryBalance.batch_id,
+                    ),
+                ),
+            ),
+        )
+        .correlate(InventoryBalance)
+        .exists()
+    )
+
+    available_expression = func.sum(
+        InventoryBalance.on_hand_quantity
+        - InventoryBalance.reserved_quantity
+    )
+
+    stmt = (
+        select(
+            ProductVariant.id,
+            ProductVariant.variant_name,
+            ProductVariant.sku,
+            ProductVariant.packs_per_carton,
+            available_expression.label("available_packs"),
+        )
+        .join(
+            InventoryBalance,
+            and_(
+                InventoryBalance.company_id
+                == ProductVariant.company_id,
+                InventoryBalance.product_variant_id
+                == ProductVariant.id,
+            ),
+        )
+        .join(
+            ProductBatch,
+            sellable_batch,
+        )
+        .filter(
+            ProductVariant.company_id == company_id,
+            ProductVariant.is_active.is_(True),
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.location_id == location_id,
+            InventoryBalance.stock_status == 'AVAILABLE',
+            ~active_lock_exists,
+        )
+        .group_by(
+            ProductVariant.id,
+            ProductVariant.variant_name,
+            ProductVariant.sku,
+            ProductVariant.packs_per_carton,
+        )
+        .having(available_expression > 0)
+    )
+
+    if clean_search:
+        pattern = f"%{_escape_like(clean_search)}%"
+        stmt = stmt.filter(
+            or_(
+                func.lower(ProductVariant.variant_name).like(
+                    pattern,
+                    escape="\\",
+                ),
+                func.lower(
+                    func.coalesce(ProductVariant.sku, "")
+                ).like(
+                    pattern,
+                    escape="\\",
+                ),
+            )
+        )
+
+    scope = (
+        f"transfer-source|{company_id}|{location_id}|{clean_search}"
+    )
+
+    total = None
+    if cursor is None:
+        total = int(
+            (
+                await db.execute(
+                    select(func.count()).select_from(
+                        stmt.order_by(None).subquery()
+                    )
+                )
+            ).scalar_one()
+        )
+
+    if cursor is not None:
+        cursor_name, cursor_id = _decode_variant_cursor(
+            cursor,
+            expected_kind="transfer-source-inventory",
+            expected_scope=scope,
+        )
+        stmt = stmt.filter(
+            or_(
+                ProductVariant.variant_name > cursor_name,
+                and_(
+                    ProductVariant.variant_name == cursor_name,
+                    ProductVariant.id > cursor_id,
+                ),
+            )
+        )
+
+    rows = (
+        await db.execute(
+            stmt.order_by(
+                ProductVariant.variant_name.asc(),
+                ProductVariant.id.asc(),
+            ).limit(limit + 1)
+        )
+    ).all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+
+    next_cursor = None
+    if has_more and page_rows:
+        last_row = page_rows[-1]
+        next_cursor = _encode_variant_cursor(
+            kind="transfer-source-inventory",
+            variant_name=str(last_row.variant_name),
+            variant_id=int(last_row.id),
+            scope=scope,
+        )
+
+    return {
+        "items": [
+            {
+                "id": int(row.id),
+                "name": str(row.variant_name),
+                "sku": row.sku,
+                "packs_per_carton": int(
+                    row.packs_per_carton or 1
+                ),
+                "available_packs": int(
+                    row.available_packs or 0
+                ),
+            }
+            for row in page_rows
+        ],
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+    }
+
+
+@router.get(
+    "/warehouse/unified/transfer/override-options",
+    response_model=UnifiedTransferOverrideOptionsResponse,
+    status_code=200,
+)
+async def get_unified_transfer_override_options(
+    location_id: int = Query(..., ge=1),
+    product_variant_id: int = Query(..., ge=1),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_admin),
+):
+    company_id = current_admin.company_id
+
+    location_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id == location_id,
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.location_type.in_(
+                    ['WAREHOUSE', 'VEHICLE']
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if location_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "مصدر الحوالة غير موجود أو غير فعال "
+                "أو لا يتبع شركتك."
+            ),
+        )
+
+    product_exists = (
+        await db.execute(
+            select(ProductVariant.id).filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id == product_variant_id,
+                ProductVariant.is_active.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if product_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail="الصنف غير موجود أو غير فعال أو لا يتبع شركتك.",
+        )
+
+    as_of_date = await get_company_local_date(db, company_id)
+
+    active_lock_exists = (
+        select(InventoryLock.id)
+        .filter(
+            InventoryLock.company_id == company_id,
+            InventoryLock.location_id == location_id,
+            InventoryLock.released_at.is_(None),
+            or_(
+                and_(
+                    InventoryLock.product_variant_id.is_(None),
+                    InventoryLock.batch_id.is_(None),
+                ),
+                and_(
+                    InventoryLock.product_variant_id
+                    == InventoryBalance.product_variant_id,
+                    or_(
+                        InventoryLock.batch_id.is_(None),
+                        InventoryLock.batch_id
+                        == InventoryBalance.batch_id,
+                    ),
+                ),
+            ),
+        )
+        .correlate(InventoryBalance)
+        .exists()
+    )
+
+    available_expression = func.sum(
+        InventoryBalance.on_hand_quantity
+        - InventoryBalance.reserved_quantity
+    )
+
+    batch_rows = (
+        await db.execute(
+            select(
+                ProductBatch.id,
+                ProductBatch.batch_number,
+                ProductBatch.production_date,
+                ProductBatch.expiry_date,
+                available_expression.label("available_packs"),
+            )
+            .join(
+                InventoryBalance,
+                and_(
+                    InventoryBalance.company_id
+                    == ProductBatch.company_id,
+                    InventoryBalance.product_variant_id
+                    == ProductBatch.product_variant_id,
+                    InventoryBalance.batch_id == ProductBatch.id,
+                ),
+            )
+            .filter(
+                ProductBatch.company_id == company_id,
+                ProductBatch.product_variant_id
+                == product_variant_id,
+                ProductBatch.is_active.is_(True),
+                or_(
+                    ProductBatch.production_date.is_(None),
+                    ProductBatch.production_date <= as_of_date,
+                ),
+                ProductBatch.expiry_date >= as_of_date,
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.product_variant_id
+                == product_variant_id,
+                InventoryBalance.stock_status == 'AVAILABLE',
+                ~active_lock_exists,
+            )
+            .group_by(
+                ProductBatch.id,
+                ProductBatch.batch_number,
+                ProductBatch.production_date,
+                ProductBatch.expiry_date,
+            )
+            .having(available_expression > 0)
+            .order_by(
+                ProductBatch.expiry_date.asc(),
+                ProductBatch.id.asc(),
+            )
+        )
+    ).all()
+
+    reason_rows = (
+        await db.execute(
+            select(
+                OverrideReason.id,
+                OverrideReason.code,
+                OverrideReason.description,
+            )
+            .filter(
+                OverrideReason.company_id == company_id,
+                OverrideReason.is_active.is_(True),
+            )
+            .order_by(
+                OverrideReason.code.asc(),
+                OverrideReason.id.asc(),
+            )
+        )
+    ).all()
+
+    fefo_batch_id = int(batch_rows[0].id) if batch_rows else None
+
+    return {
+        "location_id": int(location_id),
+        "product_variant_id": int(product_variant_id),
+        "fefo_batch_id": fefo_batch_id,
+        "batches": [
+            {
+                "id": int(row.id),
+                "batch_number": str(row.batch_number),
+                "production_date": row.production_date,
+                "expiry_date": row.expiry_date,
+                "available_packs": int(row.available_packs or 0),
+                "is_fefo_head": (
+                    fefo_batch_id is not None
+                    and int(row.id) == fefo_batch_id
+                ),
+            }
+            for row in batch_rows
+        ],
+        "reasons": [
+            {
+                "id": int(row.id),
+                "code": str(row.code),
+                "description": str(row.description),
+            }
+            for row in reason_rows
+        ],
+    }
 
 
 _TRANSFER_QUERY_STATUSES = frozenset({
