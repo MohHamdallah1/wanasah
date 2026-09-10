@@ -8,11 +8,14 @@ import {
   Package,
   RefreshCcw,
   Ban,
+  Loader2,
+  ShieldAlert,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PendingRoute, RouteTransfer } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
 
 // DASHBOARD_DISPATCH_ROUTE_CONTRACT_V3
 type TransferStatus = RouteTransfer["status"];
@@ -80,6 +83,60 @@ const parseTransferTime = (
 const formatSigned = (value: number): string =>
   value > 0 ? `+${value}` : String(value);
 
+const TRANSFER_STATUSES = new Set<TransferStatus>([
+  "pending",
+  "accepted",
+  "rejected",
+  "cancelled",
+]);
+
+const parseRouteTransfers = (raw: unknown): RouteTransfer[] => {
+  if (!Array.isArray(raw)) {
+    throw new Error("استجابة رادار المصافحات غير صالحة.");
+  }
+
+  return raw.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error("استجابة رادار المصافحات غير صالحة.");
+    }
+    const value = item as Record<string, unknown>;
+    if (
+      !Number.isSafeInteger(value.transfer_id) ||
+      Number(value.transfer_id) <= 0 ||
+      typeof value.product_name !== "string" ||
+      !Number.isInteger(value.delta_cartons) ||
+      !Number.isInteger(value.delta_packs) ||
+      typeof value.status !== "string" ||
+      !TRANSFER_STATUSES.has(value.status as TransferStatus) ||
+      (value.created_at !== null && typeof value.created_at !== "string") ||
+      typeof value.batch_id !== "string" ||
+      typeof value.can_force_cancel !== "boolean"
+    ) {
+      throw new Error("استجابة رادار المصافحات غير صالحة.");
+    }
+    return value as unknown as RouteTransfer;
+  });
+};
+
+const parseForceCancelResponse = (
+  raw: unknown,
+  expectedTransferId: number
+): string => {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("استجابة إلغاء الحوالة غير صالحة.");
+  }
+  const value = raw as Record<string, unknown>;
+  if (
+    value.transfer_id !== expectedTransferId ||
+    value.status !== "CANCELLED" ||
+    typeof value.message !== "string" ||
+    !value.message
+  ) {
+    throw new Error("استجابة إلغاء الحوالة غير صالحة.");
+  }
+  return value.message;
+};
+
 export function TransfersRadarModal({
   isOpen,
   onClose,
@@ -89,6 +146,12 @@ export function TransfersRadarModal({
   const [transfers, setTransfers] = useState<RouteTransfer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<RouteTransfer | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelRequestId, setCancelRequestId] = useState(() =>
+    crypto.randomUUID()
+  );
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const fetchTransfers = useCallback(async () => {
     if (!route?.id) return;
@@ -103,10 +166,7 @@ export function TransfersRadarModal({
         `/dispatch/route/${route.id}/transfers`,
         { signal: controller.signal }
       );
-      if (!Array.isArray(data)) {
-        throw new Error("استجابة رادار المصافحات غير صالحة.");
-      }
-      setTransfers(data as RouteTransfer[]);
+      setTransfers(parseRouteTransfers(data));
     } catch (error: unknown) {
       if (error instanceof Error && error.name === "AbortError") return;
       toast.error(error instanceof Error ? error.message : "فشل تحديث الرادار");
@@ -118,6 +178,87 @@ export function TransfersRadarModal({
       }
     }
   }, [route?.id, authenticatedFetch]);
+
+  const openForceCancel = useCallback((transfer: RouteTransfer) => {
+    if (transfer.status !== "pending" || !transfer.can_force_cancel) return;
+    setCancelTarget(transfer);
+    setCancelReason("");
+    setCancelRequestId(crypto.randomUUID());
+  }, []);
+
+  const closeForceCancel = useCallback(() => {
+    if (isCancelling) return;
+    setCancelTarget(null);
+    setCancelReason("");
+  }, [isCancelling]);
+
+  const updateCancelReason = useCallback((value: string) => {
+    setCancelReason(value);
+    setCancelRequestId(crypto.randomUUID());
+  }, []);
+
+  const submitForceCancel = useCallback(async () => {
+    if (!cancelTarget || isCancelling) return;
+    const reason = cancelReason.trim();
+    if (reason.length < 3) {
+      toast.error("سبب الإلغاء يجب أن يتكون من 3 أحرف على الأقل.");
+      return;
+    }
+    if (reason.length > 500) {
+      toast.error("سبب الإلغاء لا يجوز أن يتجاوز 500 حرف.");
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      const raw = await authenticatedFetch(
+        `/dispatch/transfers/${cancelTarget.transfer_id}/force_cancel`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            request_id: cancelRequestId,
+            reason,
+          }),
+        }
+      );
+      const message = parseForceCancelResponse(raw, cancelTarget.transfer_id);
+      setTransfers((current) =>
+        current.map((transfer) =>
+          transfer.transfer_id === cancelTarget.transfer_id
+            ? { ...transfer, status: "cancelled", can_force_cancel: false }
+            : transfer
+        )
+      );
+      setCancelTarget(null);
+      setCancelReason("");
+      toast.success(message);
+      void fetchTransfers();
+    } catch (error: unknown) {
+      toast.error(apiErrorMessage(error, "تعذر إلغاء الحوالة المعلقة."));
+      const status = apiErrorStatus(error);
+      if (status === 403 || status === 404 || status === 409) {
+        setCancelTarget(null);
+        setCancelReason("");
+        void fetchTransfers();
+      }
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [
+    authenticatedFetch,
+    cancelReason,
+    cancelRequestId,
+    cancelTarget,
+    fetchTransfers,
+    isCancelling,
+  ]);
+
+  const closeRadar = useCallback(() => {
+    if (isCancelling || cancelTarget) return;
+    setCancelTarget(null);
+    setCancelReason("");
+    onClose();
+  }, [cancelTarget, isCancelling, onClose]);
 
   useEffect(() => {
     if (!isOpen || !route?.id) {
@@ -178,9 +319,10 @@ export function TransfersRadarModal({
   }, [transfers]);
 
   return (
+    <>
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={closeRadar}
       title={`📡 رادار المصافحات: ${route?.driverName || "..."}`}
     >
       <div className="space-y-4">
@@ -270,20 +412,34 @@ export function TransfersRadarModal({
                               {transfer.product_name}
                             </p>
                           </div>
-                          <div
-                            className={`font-black text-sm tabular-nums ${
-                              positive ? "text-emerald-600" : "text-red-600"
-                            }`}
-                            dir="ltr"
-                          >
-                            <span>
-                              {formatSigned(transfer.delta_cartons)} ك
-                            </span>
-                            {transfer.delta_packs !== 0 && (
-                              <span className="ms-2">
-                                {formatSigned(transfer.delta_packs)} ح
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`font-black text-sm tabular-nums ${
+                                positive ? "text-emerald-600" : "text-red-600"
+                              }`}
+                              dir="ltr"
+                            >
+                              <span>
+                                {formatSigned(transfer.delta_cartons)} ك
                               </span>
-                            )}
+                              {transfer.delta_packs !== 0 && (
+                                <span className="ms-2">
+                                  {formatSigned(transfer.delta_packs)} ح
+                                </span>
+                              )}
+                            </div>
+                            {transfer.status === "pending" &&
+                              transfer.can_force_cancel && (
+                                <button
+                                  type="button"
+                                  onClick={() => openForceCancel(transfer)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-black text-red-700 hover:bg-red-100 transition-colors"
+                                  title="إلغاء الحوالة المعلقة وتحرير الحجز"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  إلغاء
+                                </button>
+                              )}
                           </div>
                         </div>
                       );
@@ -312,5 +468,81 @@ export function TransfersRadarModal({
         </div>
       </div>
     </Modal>
+
+    <Modal
+      isOpen={cancelTarget !== null}
+      onClose={closeForceCancel}
+      title="إلغاء حوالة معلقة"
+      maxWidth="max-w-lg"
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={closeForceCancel}
+            disabled={isCancelling}
+            className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-600 disabled:opacity-50"
+          >
+            تراجع
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitForceCancel()}
+            disabled={isCancelling || cancelReason.trim().length < 3}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-black hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed"
+          >
+            {isCancelling ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Ban className="w-4 h-4" />
+            )}
+            {isCancelling ? "جارٍ الإلغاء..." : "تأكيد الإلغاء"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4" dir="rtl">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 flex items-start gap-3">
+          <ShieldAlert className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-black text-red-800">
+              هذا الإجراء مخصص للحوالة المعلقة فقط.
+            </p>
+            <p className="text-xs font-bold text-red-700/80 mt-1 leading-relaxed">
+              سيحرر الخادم حجز الكمية ويحوّل الحوالة إلى ملغاة دون إنشاء حركة مخزون فيزيائية.
+            </p>
+          </div>
+        </div>
+
+        {cancelTarget && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-black text-slate-800">
+              {cancelTarget.product_name}
+            </p>
+            <p className="text-xs font-bold text-slate-500 mt-1" dir="ltr">
+              #{cancelTarget.transfer_id} · {formatSigned(cancelTarget.delta_cartons)} ك · {formatSigned(cancelTarget.delta_packs)} ح
+            </p>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-xs font-black text-slate-700 mb-2">
+            سبب الإلغاء <span className="text-red-600">*</span>
+          </label>
+          <textarea
+            value={cancelReason}
+            onChange={(event) => updateCancelReason(event.target.value)}
+            disabled={isCancelling}
+            rows={4}
+            maxLength={500}
+            placeholder="اكتب سبباً واضحاً وقابلاً للتدقيق..."
+            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm font-medium text-slate-800 outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:opacity-60"
+          />
+          <p className="text-[10px] font-bold text-slate-400 mt-1 text-left" dir="ltr">
+            {cancelReason.length}/500
+          </p>
+        </div>
+      </div>
+    </Modal>
+    </>
   );
 }

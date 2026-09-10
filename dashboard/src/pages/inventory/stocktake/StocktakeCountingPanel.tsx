@@ -15,6 +15,7 @@ interface StocktakeCountingPanelProps {
     value: number
   ) => void;
   onConfirmZero: (key: string) => void;
+  canCancel: boolean;
   onCancel: () => void;
   onSubmit: () => void;
 }
@@ -24,11 +25,12 @@ export function StocktakeCountingPanel({
   progress,
   onUpdateRow,
   onConfirmZero,
+  canCancel,
   onCancel,
   onSubmit,
 }: StocktakeCountingPanelProps) {
   return (
-    <div className="glass-card flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
+    <div className="glass-card inventory-data-panel flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
       <div className="px-5 py-3 bg-slate-900 text-white flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <Scan className="w-4 h-4 text-amber-400" />
@@ -177,6 +179,7 @@ export function StocktakeCountingPanel({
 
           <div className="flex items-center gap-2 min-w-[300px]">
             <button
+              disabled={!canCancel}
               onClick={onCancel}
               className="flex-1 px-4 h-9 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-transparent hover:border-red-500/30 text-xs font-bold rounded-xl transition-all"
             >

@@ -14,6 +14,7 @@ export function TransferCreateModal({
   controller,
 }: TransferCreateModalProps) {
   const {
+    canOutgoing, canIncoming, canSubmit, canOverride,
     createOpen,
     createDirection,
     transferLocations,
@@ -68,10 +69,10 @@ export function TransferCreateModal({
               }
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none"
             >
-              <option value="outgoing">
+              <option value="outgoing" disabled={!canOutgoing}>
                 صادرة من المستودع المحدد
               </option>
-              <option value="incoming">
+              <option value="incoming" disabled={!canIncoming}>
                 واردة إلى المستودع المحدد
               </option>
             </select>
@@ -272,6 +273,7 @@ export function TransferCreateModal({
                     </div>
 
                     <FefoOverrideEditor
+                      canOverride={canOverride}
                       item={item}
                       draftItems={draftItems}
                       options={options}
@@ -369,7 +371,7 @@ export function TransferCreateModal({
         <button
           onClick={() => void handleDispatchTransfer()}
           disabled={
-            createSubmitting ||
+            !canSubmit || createSubmitting ||
             transferLocationsLoading ||
             counterpartLocationId === null ||
             draftItems.length === 0

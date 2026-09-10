@@ -5,7 +5,9 @@ from ws_manager import dispatch_manager
 from sqlalchemy.future import select
 from sqlalchemy import delete, func, or_, and_, case, nullslast, update, cast, Float, text
 from database import get_db
-from api.dependencies import get_current_admin
+from api.dependencies import get_current_admin, get_current_driver
+from inventory_access import InventoryAccess, require_transfer
+from dispatch_access import require_vehicle, require_route, route_filter, vehicle_filter
 from datetime import timedelta, datetime, timezone
 from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError
@@ -1007,8 +1009,11 @@ async def settle_session(
 @router.get("/dispatch/init", response_model=DispatchInitResponse, status_code=200)
 async def dispatch_init(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('dispatch.read', any_location=True)
+
     company_id = current_admin.company_id
     zones = (await db.execute(
         select(Zone).filter_by(company_id=company_id, is_active=True).order_by(Zone.id.asc())
@@ -1017,8 +1022,22 @@ async def dispatch_init(
         select(Driver).filter_by(company_id=company_id, is_active=True, is_admin=False).order_by(Driver.id.asc())
     )).scalars().all()
     vehicles = (await db.execute(
-        select(Vehicle).filter_by(company_id=company_id, is_active=True).order_by(Vehicle.id.asc())
+        select(Vehicle).filter_by(company_id=company_id, is_active=True).filter(vehicle_filter(access, 'dispatch.read', Vehicle.id)).order_by(Vehicle.id.asc())
     )).scalars().all()
+    executable_vehicles = set((await db.scalars(select(Vehicle.id).where(
+        Vehicle.company_id == company_id, vehicle_filter(access, 'dispatch.execute', Vehicle.id)))).all())
+    warehouses = (await db.execute(select(InventoryLocation).where(
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.location_type == 'WAREHOUSE',
+        InventoryLocation.is_active.is_(True),
+        access.location_filter('dispatch.read'),
+    ).order_by(InventoryLocation.name.asc(), InventoryLocation.id.asc()))).scalars().all()
+    executable_warehouses = set((await db.scalars(select(InventoryLocation.id).where(
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.location_type == 'WAREHOUSE',
+        InventoryLocation.is_active.is_(True),
+        access.location_filter('dispatch.execute'),
+    ))).all())
     products = (await db.execute(
         select(ProductVariant).filter_by(company_id=company_id, is_active=True).order_by(ProductVariant.id.asc())
     )).scalars().all()
@@ -1059,7 +1078,10 @@ async def dispatch_init(
     return {
         "zones": zones_data,
         "drivers": [{"id": str(d.id), "name": d.full_name} for d in drivers],
-        "vehicles": [{"id": str(v.id), "label": f"{v.vehicle_type} - {v.plate_number}"} for v in vehicles],
+        "vehicles": [{"id": str(v.id), "label": f"{v.vehicle_type} - {v.plate_number}",
+                      "can_execute": v.id in executable_vehicles} for v in vehicles],
+        "warehouses": [{"id": str(w.id), "label": f"{w.name} ({w.code})",
+                        "can_execute": w.id in executable_warehouses} for w in warehouses],
         "products": [{"id": str(p.id), "name": p.variant_name} for p in products],
     }
 
@@ -1283,8 +1305,12 @@ async def _dispatch_set_load_plan_target(
 async def dispatch_route(
     payload: DispatchRouteRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('dispatch.execute', payload.source_location_id)
+    await require_vehicle(access, 'dispatch.execute', payload.vehicle_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -1669,8 +1695,11 @@ async def dispatch_route(
 async def get_vehicle_inventory(
     vehicle_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_vehicle(access, 'dispatch.read', vehicle_id)
+
     company_id = current_admin.company_id
     vehicle_exists = (
         await db.execute(
@@ -1746,8 +1775,11 @@ async def get_vehicle_inventory(
 async def get_route_live_inventory(
     route_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_route(access, 'dispatch.read', route_id)
+
     company_id = current_admin.company_id
     route = (
         await db.execute(
@@ -2249,8 +2281,11 @@ async def adjust_route_inventory(
     route_id: int,
     payload: AdjustRouteInventoryRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_route(access, 'dispatch.execute', route_id)
+
     company_id = current_admin.company_id
     canonical_deltas = sorted(
         (
@@ -2405,8 +2440,11 @@ async def force_cancel_handshake(
     transfer_id: int,
     payload: ForceCancelHandshakeRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.cancel', transfer_id, 'source')
+
     company_id = current_admin.company_id
     request_hash = hashlib.sha256(
         json.dumps(
@@ -2519,8 +2557,11 @@ async def force_cancel_handshake(
 async def get_route_transfers(
     route_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_route(access, 'dispatch.read', route_id)
+
     company_id = current_admin.company_id
     route = (
         await db.execute(
@@ -2543,23 +2584,35 @@ async def get_route_transfers(
         )
     )
 
-    headers = (
+    header_rows = (
         await db.execute(
-            select(InventoryTransferHeader)
-            .filter_by(
-                company_id=company_id,
-                work_session_id=route.work_session_id,
-                workflow_type="HANDSHAKE",
-                expected_receiver_id=route.driver_id,
+            select(
+                InventoryTransferHeader,
+                access.allows(
+                    'transfer.cancel',
+                    InventoryTransferHeader.source_location_id,
+                ).label("can_force_cancel"),
+            )
+            .filter(
+                InventoryTransferHeader.company_id == company_id,
+                InventoryTransferHeader.work_session_id == route.work_session_id,
+                InventoryTransferHeader.workflow_type == "HANDSHAKE",
+                InventoryTransferHeader.expected_receiver_id == route.driver_id,
             )
             .order_by(
                 InventoryTransferHeader.created_at.desc(),
                 InventoryTransferHeader.id.desc(),
             )
         )
-    ).scalars().all()
+    ).all()
+    headers = [row[0] for row in header_rows]
     if not headers:
         return []
+
+    can_force_cancel_by_header = {
+        int(header.id): bool(can_force_cancel)
+        for header, can_force_cancel in header_rows
+    }
 
     header_ids = [int(header.id) for header in headers]
     rows = (
@@ -2649,6 +2702,7 @@ async def get_route_transfers(
                 if header.notes and "BATCH_" in header.notes
                 else str(header.reference_number)
             ),
+            "can_force_cancel": can_force_cancel_by_header.get(int(header.id), False),
         })
 
     return result
@@ -2659,11 +2713,14 @@ async def get_route_transfers(
 @router.get("/dispatch/shops", response_model=List[DispatchShopResponse], status_code=200)
 async def get_dispatch_shops(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
     
     # تحذير هندسي: تم إزالة  ـ limit(2000) الكارثي لأن يسبب اختلاف المحلات (Data Truncation)
     # ملاحظة: يجب تطبيق Pagination 진ية لاحقاً، ولكن حالياً نجلب المحلات النشطة لoids كوارث التوزيع
+    access = InventoryAccess(db, current_admin)
+    await access.require('dispatch.read', any_location=True)
+
     stmt = select(Shop).filter(
     Shop.company_id == current_admin.company_id,
     Shop.is_active == True,
@@ -3128,15 +3185,21 @@ async def admin_add_shop(
 @router.get("/dispatch/active_routes", response_model=List[ActiveRouteResponse], status_code=200)
 async def get_active_routes(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
     
         
-    stmt_routes = select(DispatchRoute).filter(
+    access = InventoryAccess(db, current_admin)
+    await access.require('dispatch.read', any_location=True)
+
+    stmt_routes = select(DispatchRoute, route_filter(access, 'dispatch.execute').label('can_execute')).filter(
     DispatchRoute.company_id == current_admin.company_id,
+    route_filter(access, 'dispatch.read'),
     DispatchRoute.status.in_(['active', 'waiting', 'postponed'])
 )
-    routes = (await db.execute(stmt_routes)).scalars().all()
+    route_rows = (await db.execute(stmt_routes)).all()
+    routes = [row[0] for row in route_rows]
+    executable_routes = {row[0].id: bool(row[1]) for row in route_rows}
     
     # +++ تدمير N+1 باستخدام القواميس (Dictionaries) مع تنظيف التكرار عبر Set لحماية السيرفر +++
     zone_ids = list({r.zone_id for r in routes if r.zone_id})
@@ -3227,7 +3290,9 @@ async def get_active_routes(
             "vehicleId": str(r.vehicle_id) if r.vehicle_id else "",
             "shopsRemaining": shops_remaining,
             "status": r.status,
-            "sessionEnded": session_ended 
+            "sessionEnded": session_ended,
+            "sessionBound": r.work_session_id is not None,
+            "can_execute": executable_routes[r.id]
         })
         
     return res
@@ -3241,8 +3306,11 @@ async def update_route_status(
     route_id: int,
     payload: UpdateRouteStatusRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_route(access, 'dispatch.execute', route_id)
+
     company_id = current_admin.company_id
     operational_statuses = {"active", "waiting", "postponed"}
 
@@ -3281,6 +3349,8 @@ async def update_route_status(
         requested_vehicle_id = (
             int(payload.vehicleId) if payload.vehicleId is not None else snap_vehicle_id
         )
+        # Switching a pre-session vehicle also requires authority on the new car.
+        await require_vehicle(access, 'dispatch.execute', requested_vehicle_id)
 
         bound_session = None
         active_session = None

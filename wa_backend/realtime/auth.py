@@ -7,7 +7,8 @@ from sqlalchemy import select
 
 from config import Config
 from models import Driver, TokenBlacklist
-from workers.tenant import normalize_company_id, tenant_session
+from workers.tenant import tenant_session
+from token_identity import access_token_identity
 
 
 class WebSocketAuthError(Exception):
@@ -28,10 +29,7 @@ async def authenticate_websocket_admin(token: str) -> WebSocketAdminIdentity:
             algorithms=["HS256"],
             options={"require": ["exp"]},
         )
-        company_id = normalize_company_id(payload.get("company_id"))
-        driver_id = int(payload.get("sub"))
-        if driver_id <= 0:
-            raise ValueError
+        driver_id, company_id = access_token_identity(payload)
     except (jwt.PyJWTError, TypeError, ValueError) as exc:
         raise WebSocketAuthError("invalid websocket token") from exc
 

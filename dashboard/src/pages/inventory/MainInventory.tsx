@@ -1,5 +1,7 @@
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { TabInventoryAccess } from "./TabInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Package, History, Lock, RefreshCcw, FilePlus, Menu, Building2, ArrowRightLeft } from "lucide-react";
+import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft, Boxes } from "lucide-react";
 import { toast } from "sonner";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { Tab2Inbound } from "./Tab2Inbound";
@@ -7,24 +9,32 @@ import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
 import { TabWarehouseLocations } from "./TabWarehouseLocations";
 import { TabTransfers } from "./TabTransfers";
-import type {
-  WarehouseInventoryCursorPage,
-  WarehouseProduct,
-} from "./inventoryUtils";
+import { TabProductCatalog } from "./TabProductCatalog";
+import "./inventory.css";
+import {
+  parseLiveStockPage,
+  type WarehouseProduct,
+} from "./liveStock/contracts";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء الدستور الموحد +++
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
   { id: "live", label: "الرصيد الحي", icon: Package },
+  { id: "catalog", label: "كتالوج المنتجات", icon: Boxes },
   { id: "inbound", label: "توريد بضاعة", icon: FilePlus },
   { id: "transfers", label: "الحوالات", icon: ArrowRightLeft },
   { id: "ledger", label: "سجل الحركات", icon: History },
   { id: "stocktake", label: "جرد وتسوية", icon: Lock },
   { id: "warehouses", label: "إدارة المستودعات", icon: Building2 },
+  { id: "permissions", label: "الصلاحيات", icon: Lock },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
+const TAB_PERMISSION: Record<TabId, string> = {
+  live: 'inventory.read', catalog: 'catalog.read', inbound: 'inbound.create', transfers: 'transfer.read',
+  ledger: 'ledger.read', stocktake: 'stocktake.read', warehouses: 'location.read', permissions: '',
+};
 
 interface WarehouseLocationOption {
   id: number;
@@ -68,6 +78,25 @@ export default function MainInventory() {
   // +++ حالة اختيار المستودع +++
   const [locations, setLocations] = useState<WarehouseLocationOption[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
+  const access = useInventoryAccess();
+  const locationAccess = useInventoryAccess(selectedLocationId);
+  const canReadStock = locationAccess.can('inventory.read');
+  const canReadStatus = locationAccess.can('location.read');
+  const { isCompanyAdmin, canAny } = access;
+  const { can: canAtLocation } = locationAccess;
+  const tabAllowed = useCallback((id: TabId) => {
+    if (id === 'permissions') return isCompanyAdmin;
+    if (id === 'catalog') return canAny('catalog.read');
+    if (id === 'warehouses' || selectedLocationId === null) return canAny(TAB_PERMISSION[id]);
+    if (id === 'inbound') return canAtLocation('inbound.create') && canAtLocation('catalog.read');
+    return canAtLocation(TAB_PERMISSION[id]);
+  }, [isCompanyAdmin, canAny, canAtLocation, selectedLocationId]);
+  useEffect(() => {
+    if (!access.isPending && !locationAccess.isPending && !tabAllowed(activeTab)) {
+      const first = TABS.find(tab => tabAllowed(tab.id));
+      if (first) setActiveTab(first.id);
+    }
+  }, [access.isPending, locationAccess.isPending, activeTab, tabAllowed]);
   const [locationError, setLocationError] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(true);
   
@@ -83,6 +112,7 @@ export default function MainInventory() {
   const [stockOnlyAlerts, setStockOnlyAlerts] = useState(false);
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
   const stockRequestSeq = useRef(0);
+  const stockAbortRef = useRef<AbortController | null>(null);
   const locationRequestSeq = useRef(0);
   const statusRequestSeq = useRef(0);
 
@@ -158,8 +188,17 @@ export default function MainInventory() {
   }, [authFetch, selectedLocationStorageKey]);
 
   useEffect(() => {
+    if (access.isPending) return;
+    if (!canAny('location.read')) {
+      locationRequestSeq.current += 1;
+      setLocations([]);
+      setSelectedLocationId(null);
+      setLocationError(false);
+      setLoadingLocations(false);
+      return;
+    }
     void fetchLocations();
-  }, [fetchLocations]);
+  }, [access.isPending, canAny, fetchLocations]);
 
   const handleLocationChange = useCallback(
     (value: string) => {
@@ -182,9 +221,12 @@ export default function MainInventory() {
 
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
-    if (selectedLocationId === null) return;
+    if (selectedLocationId === null || !canReadStock) return;
 
     const requestSeq = ++stockRequestSeq.current;
+    stockAbortRef.current?.abort();
+    const requestController = new AbortController();
+    stockAbortRef.current = requestController;
     setLoadingStock(true);
 
     try {
@@ -198,22 +240,14 @@ export default function MainInventory() {
       if (stockOnlyAlerts) params.set("only_alerts", "true");
 
       const raw = await authFetch(
-        `/warehouse/inventory/cursor?${params.toString()}`
+        `/warehouse/inventory/cursor?${params.toString()}`,
+        { signal: requestController.signal }
       );
 
       if (requestSeq !== stockRequestSeq.current) return;
-      if (
-        typeof raw !== "object" ||
-        raw === null ||
-        !("items" in raw) ||
-        !Array.isArray((raw as { items?: unknown }).items)
-      ) {
-        throw new Error("تنسيق صفحة المخزون غير صالح");
-      }
-
-      const data = raw as WarehouseInventoryCursorPage;
+      const data = parseLiveStockPage(raw);
       setStockItems(data.items);
-      setStockNextCursor(data.next_cursor || null);
+      setStockNextCursor(data.next_cursor);
 
       if (typeof data.total === "number") {
         setStockMatchingTotal(data.total);
@@ -235,11 +269,15 @@ export default function MainInventory() {
       setLastSync(new Date());
     } catch (error: unknown) {
       if (requestSeq !== stockRequestSeq.current) return;
+      if (error instanceof Error && error.name === "AbortError") return;
       toast.error(getErrorMessage(error));
       setStockItems([]);
       setStockNextCursor(null);
       setStockMatchingTotal(null);
     } finally {
+      if (stockAbortRef.current === requestController) {
+        stockAbortRef.current = null;
+      }
       if (requestSeq === stockRequestSeq.current) {
         setLoadingStock(false);
       }
@@ -250,6 +288,7 @@ export default function MainInventory() {
     stockCursor,
     stockSearch,
     stockOnlyAlerts,
+    canReadStock,
   ]);
 
   const resetStockPagination = useCallback(() => {
@@ -291,7 +330,7 @@ export default function MainInventory() {
   const fetchStatus = useCallback(async () => {
     const requestSeq = ++statusRequestSeq.current;
 
-    if (selectedLocationId === null) {
+    if (selectedLocationId === null || !canReadStatus) {
       setIsAuditLocked(false);
       setLoadingStatus(false);
       return;
@@ -326,7 +365,7 @@ export default function MainInventory() {
         setLoadingStatus(false);
       }
     }
-  }, [authFetch, selectedLocationId]);
+  }, [authFetch, selectedLocationId, canReadStatus]);
 
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -335,6 +374,8 @@ export default function MainInventory() {
 
   useEffect(() => {
     stockRequestSeq.current += 1;
+    stockAbortRef.current?.abort();
+    stockAbortRef.current = null;
     setStockItems([]);
     setStockTotal(null);
     setStockMatchingTotal(null);
@@ -346,7 +387,13 @@ export default function MainInventory() {
     setStockCursorHistory([]);
     setStockNextCursor(null);
     setLastSync(null);
-  }, [selectedLocationId]);
+
+    return () => {
+      stockRequestSeq.current += 1;
+      stockAbortRef.current?.abort();
+      stockAbortRef.current = null;
+    };
+  }, [selectedLocationId, canReadStock]);
 
   useEffect(() => {
     if (selectedLocationId !== null) {
@@ -359,7 +406,8 @@ export default function MainInventory() {
       !loadingLocations &&
       !locationError &&
       locations.length === 0 &&
-      activeTab !== "warehouses"
+      activeTab !== "warehouses" &&
+      activeTab !== "catalog"
     ) {
       setActiveTab("warehouses");
     }
@@ -396,86 +444,106 @@ export default function MainInventory() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-4 w-full h-full flex-1 min-h-0 animate-in fade-in duration-200">
+    <div className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0 animate-in fade-in duration-200">
 
-      {/* ═══ Tab Bar ═══ */}
-      {/* +++ الكي الجراحي: إضافة الارتفاع h-16 md:h-20 وتدوير الزوايا rounded-2xl ليطابق البار الرئيسي +++ */}
-      <nav className="glass-card h-16 md:h-20 rounded-2xl px-3 md:px-6 py-2 flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1">
-          {TABS.map(({ id, label, icon: Icon }) => {
+      <nav className="inventory-command-bar px-4 py-4 md:px-5 md:py-5" aria-label="أقسام إدارة المخزون">
+        <div className="inventory-command-row flex flex-wrap items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="inventory-command-title-mark" aria-hidden="true">
+              <Package className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-base font-black text-white md:text-lg">إدارة المخزون</h1>
+              <p className="mt-0.5 text-xs font-bold text-slate-300">الأرصدة والحركات والعمليات المخزنية</p>
+            </div>
+          </div>
+
+          <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
+            {locations.length > 0 && (
+              <select
+                aria-label="المستودع المحدد"
+                className="inventory-location-select px-3 py-2 text-sm font-bold"
+                value={selectedLocationId ?? ""}
+                onChange={(e) => handleLocationChange(e.target.value)}
+              >
+                <option value="" disabled>
+                  اختر المستودع
+                </option>
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <div className="flex min-w-fit flex-col items-start justify-center border-r border-white/15 pr-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black text-white">
+                  الرصيد الحي <span className="text-amber-300">{stockTotal ?? "—"}</span>
+                </span>
+                {isAuditLocked && (
+                  <span className="rounded-md border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-bold text-amber-200">
+                    مقفل
+                  </span>
+                )}
+              </div>
+              <span className="mt-0.5 text-xs font-bold text-slate-400">
+                آخر تحديث: {lastSync ? lastSync.toLocaleTimeString("ar-EG") : "—"}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { refreshStock(); fetchStatus(); }}
+              disabled={loadingStock}
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 text-sm font-bold text-white transition-colors hover:bg-white/15 disabled:opacity-50"
+            >
+              <RefreshCcw className={`h-4 w-4 ${loadingStock ? "animate-spin" : ""}`} />
+              تحديث
+            </button>
+          </div>
+        </div>
+
+        <div className="inventory-tab-strip mt-4" role="tablist" aria-label="شاشات المخزون">
+          {TABS.filter(tab => tabAllowed(tab.id)).map(({ id, label, icon: Icon }) => {
             const active = activeTab === id;
             return (
               <button
+                type="button"
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${active
-                  ? "bg-blue-500 text-white shadow-md shadow-blue-500/20"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-white/60"
-                  }`}
+                className="inventory-tab"
+                data-active={active}
+                role="tab"
+                aria-selected={active}
               >
                 <Icon className="w-4 h-4" />
-                <span className="hidden sm:inline">{label}</span>
+                <span>{label}</span>
               </button>
             );
           })}
         </div>
-
-        {/* +++ الحقن المعماري: نقل معلومات الرصيد الحي، وقت التحديث، وزر التحديث الكامل للبار العلوي +++ */}
-        <div className="flex items-center gap-4 px-2">
-          {/* +++ محدد المستودعات +++ */}
-          {locations.length > 0 && (
-            <select
-              className="bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              value={selectedLocationId ?? ""}
-              onChange={(e) => handleLocationChange(e.target.value)}
-            >
-              <option value="" disabled>
-                اختر المستودع
-              </option>
-              {locations.map(loc => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
-                </option>
-              ))}
-            </select>
-          )}
-
-          <div className="flex flex-col items-end border-l border-slate-200 pl-4 justify-center">
-            <div className="flex items-center gap-2">
-              <Package className="w-4 h-4 text-[#1e87bb]" />
-              <span className="text-sm font-black text-slate-700">
-                الرصيد الحي — <span className="text-[#1e87bb]">{stockTotal ?? "—"}</span> صنف
-              </span>
-              {isAuditLocked && (
-                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                  مقفل 🔒
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] font-bold text-slate-400 mt-0.5">
-              آخر تحديث: {lastSync ? lastSync.toLocaleTimeString("ar-EG") : "—"}
-            </span>
-          </div>
-          <button
-            onClick={() => { refreshStock(); fetchStatus(); }}
-            disabled={loadingStock}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-xs font-bold text-slate-600 rounded-xl hover:bg-slate-50 hover:text-[#1e87bb] hover:border-[#1e87bb]/30 transition-all shadow-sm disabled:opacity-50 active:scale-95"
-          >
-            <RefreshCcw className={`w-3.5 h-3.5 ${loadingStock ? "animate-spin" : ""}`} />
-            تحديث
-          </button>
-        </div>
       </nav>
 
+      {locationAccess.isError && selectedLocationId !== null && <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">الموقع غير متاح أو تغيرت صلاحياتك. <button type="button" className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800" onClick={() => { void fetchLocations(); void locationAccess.refetch(); }}>تحديث المواقع والصلاحيات</button></p>}
       {/* ═══ Tab Content ═══ */}
-      <div className="flex-1 min-h-0 flex flex-col">
-        {selectedLocationId === null && activeTab !== "warehouses" && (
-          <div className="flex-1 flex items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/50 text-slate-500 font-bold">
+      <div className="inventory-content flex-1 min-h-0 flex flex-col">
+        {selectedLocationId === null && activeTab !== "catalog" && activeTab !== "warehouses" && activeTab !== "permissions" && (
+          <div className="inventory-empty-state flex flex-1 items-center justify-center px-6 text-center font-bold">
             لا يوجد مستودع محدد لهذه العملية. اختر مستودعاً فعالاً أو افتح إدارة المستودعات.
           </div>
         )}
 
-        {activeTab === "live" && selectedLocationId !== null && (
+        {activeTab === "catalog" && tabAllowed("catalog") && (
+          <TabProductCatalog
+            onCatalogChanged={async () => {
+              if (canAny('location.read')) await fetchLocations();
+              refreshStock();
+            }}
+          />
+        )}
+        {activeTab === "live" && tabAllowed("live") && selectedLocationId !== null && (
           <Tab1LiveStock
             locationId={selectedLocationId}
             products={stockItems}
@@ -487,6 +555,7 @@ export default function MainInventory() {
             hasMore={!!stockNextCursor}
             hasPrevious={stockCursorHistory.length > 0}
             onlyAlerts={stockOnlyAlerts}
+            lastSync={lastSync}
             onSearchChange={handleStockSearchChange}
             onOnlyAlertsChange={handleStockAlertsChange}
             onNext={handleStockNext}
@@ -494,9 +563,13 @@ export default function MainInventory() {
             onRefresh={refreshStock}
           />
         )}
-        {activeTab === "inbound" && selectedLocationId !== null && (
+        {activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
           <Tab2Inbound
+            key={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}:${selectedLocationId}`}
+            companyId={locationAccess.data.company_id}
+            actorId={locationAccess.data.driver_id}
             locationId={selectedLocationId} // +++ تمرير الموقع لعملية الإدخال +++
+            isAuditLocked={isAuditLocked}
             authenticatedFetch={authFetch}
             onSuccess={async () => {
               refreshStock();
@@ -504,10 +577,11 @@ export default function MainInventory() {
             }}
           />
         )}
-        {activeTab === "stocktake" && selectedLocationId !== null && (
+        {activeTab === "stocktake" && tabAllowed("stocktake") && selectedLocationId !== null && locationAccess.data && (
           <Tab3Stocktake
+            key={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}:${selectedLocationId}`}
             locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
-            companyId={companyId}
+            companyId={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}`}
             isAuditLocked={isAuditLocked}
             authenticatedFetch={authFetch}
             onStocktakeChanged={async () => {
@@ -517,14 +591,19 @@ export default function MainInventory() {
             }}
           />
         )}
-        {activeTab === "ledger" && selectedLocationId !== null && (
+        {activeTab === "ledger" && tabAllowed("ledger") && selectedLocationId !== null && (
           <Tab4Ledger
+            key={selectedLocationId}
             locationId={selectedLocationId}
             refreshKey={ledgerRefreshKey}
+            onInventoryChanged={() => {
+              refreshStock();
+              setLedgerRefreshKey((value) => value + 1);
+            }}
           />
         )}
 
-        {activeTab === "transfers" && selectedLocationId !== null && (
+        {activeTab === "transfers" && tabAllowed("transfers") && selectedLocationId !== null && (
           <TabTransfers
             locationId={selectedLocationId}
             onInventoryChanged={async () => {
@@ -535,7 +614,8 @@ export default function MainInventory() {
           />
         )}
 
-        {activeTab === "warehouses" && (
+        {activeTab === "permissions" && access.isCompanyAdmin && <TabInventoryAccess />}
+        {activeTab === "warehouses" && tabAllowed("warehouses") && (
           <TabWarehouseLocations
             onLocationsChanged={fetchLocations}
           />

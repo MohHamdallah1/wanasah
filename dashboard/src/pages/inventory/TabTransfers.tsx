@@ -1,3 +1,4 @@
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useCallback } from "react";
 import {
   Plus,
@@ -23,6 +24,7 @@ export function TabTransfers({
   locationId,
   onInventoryChanged,
 }: Props) {
+  const access = useInventoryAccess(locationId);
   const transferList = useTransferList(locationId);
   const {
     items,
@@ -75,8 +77,8 @@ export function TabTransfers({
   });
 
   return (
-    <div className="flex flex-col gap-4 min-h-0 flex-1">
-      <div className="glass-card rounded-2xl p-4 flex items-center justify-between gap-4">
+    <div className="inventory-view inventory-transfers flex flex-col gap-4 min-h-0 flex-1">
+      <div className="glass-card inventory-section-header rounded-2xl p-4 flex items-center justify-between gap-4">
         <div>
           <h2 className="font-black text-slate-800 flex items-center gap-2">
             <Truck className="w-5 h-5 text-blue-600" />
@@ -91,6 +93,7 @@ export function TabTransfers({
 
         <div className="flex items-center gap-2">
           <button
+            disabled={!(access.can('transfer.send') || (access.can('transfer.destination') && access.canAny('transfer.send')))}
             onClick={transferCreate.openCreate}
             className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2"
           >
@@ -111,7 +114,7 @@ export function TabTransfers({
         </div>
       </div>
 
-      <div className="glass-card rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="glass-card inventory-toolbar rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="relative">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input

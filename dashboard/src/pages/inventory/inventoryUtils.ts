@@ -2,64 +2,11 @@
 // Utility Types & Helpers for MainInventory
 // ============================================================
 
-export interface WarehouseProduct {
-  id: number;
-  name: string;
-  sku: string | null;
-  packs_per_carton: number;
-  available_packs: number;
-  reserved_packs: number;
-  blocked_packs: number;
-  total_packs: number;
-  damaged_packs: number; // +++ حقل التوالف الرسمي +++
-  available_cartons: number;
-  available_loose_packs: number;
-  min_threshold: number;
-}
-
-export interface WarehouseInventoryCursorPage {
-  items: WarehouseProduct[];
-  next_cursor: string | null;
-  has_more: boolean;
-  total: number | null;
-  alert_count: number | null;
-  alert_samples: string[];
-}
-
-export interface SimpleProductVariant {
-  id: number;
-  name: string;
-  sku: string | null;
-  packs_per_carton: number;
-}
-
-export interface SimpleProductVariantCursorPage {
-  items: SimpleProductVariant[];
-  next_cursor: string | null;
-  has_more: boolean;
-  total: number | null;
-}
-
 export interface WarehouseAlert {
   product_variant_id: number;
   product_name: string;
   current_total_packs: number;
   min_threshold_packs: number;
-}
-
-export interface LedgerEntry {
-  id: number;
-  product_variant_id: number;
-  product_name: string;
-  packs_per_carton: number;
-  type: string;
-  quantity_packs: number;
-  balance_before: number | null; // +++ الحقل الجديد +++
-  balance_after: number | null;
-  admin_name: string;
-  reference: string | null;
-  notes: string | null;
-  date: string;
 }
 
 export interface InboundRow {
@@ -122,6 +69,17 @@ export const LEDGER_BADGE: Record<string, { bg: string; text: string; label: str
   'Warehouse Return': { bg: "bg-emerald-50 border border-emerald-200", text: "text-emerald-700", label: "إرجاع فراطة صالحة" },
   AUDIT_DISCREPANCY: { bg: "bg-red-600 animate-pulse", text: "text-white", label: "⚠️ تلاعب / عجز" },
   INBOUND_CORRECTION: { bg: "bg-purple-100", text: "text-purple-700", label: "تعديل توريد" },
+  DRIVER_SHORTAGE: { bg: "bg-red-100", text: "text-red-700", label: "عجز عهدة مندوب" },
+  DRIVER_SURPLUS: { bg: "bg-emerald-100", text: "text-emerald-700", label: "زيادة عهدة مندوب" },
+  HANDSHAKE_POST: { bg: "bg-blue-100", text: "text-blue-700", label: "ترحيل مصافحة" },
+  VISIT_ITEM_OUT: { bg: "bg-sky-100", text: "text-sky-700", label: "صرف بيع من زيارة" },
+  VISIT_EXCHANGE_OUT: { bg: "bg-orange-100", text: "text-orange-700", label: "صرف استبدال من زيارة" },
+  VISIT_RETURN_IN: { bg: "bg-rose-100", text: "text-rose-700", label: "مرتجع زيارة" },
+  VISIT_REVERSAL: { bg: "bg-slate-200", text: "text-slate-700", label: "عكس حركة زيارة" },
+  TRANSFER_DISPATCH: { bg: "bg-indigo-100", text: "text-indigo-700", label: "إرسال حوالة" },
+  TRANSFER_RECEIPT: { bg: "bg-emerald-100", text: "text-emerald-700", label: "استلام حوالة" },
+  TRANSFER_CANCELLED: { bg: "bg-amber-100", text: "text-amber-700", label: "إلغاء حوالة" },
+  TRANSFER_REJECTED: { bg: "bg-red-100", text: "text-red-700", label: "رفض حوالة" },
 };
 
 // +++ الدرع الفولاذي لمنع انهيار الواجهة (UI Crash) بسبب أنواع غير معروفة +++

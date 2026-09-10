@@ -1,3 +1,4 @@
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import {
   useCallback,
   useState,
@@ -10,8 +11,10 @@ import { useStocktakeReview } from "./stocktake/hooks/useStocktakeReview";
 import { useStocktakeActions } from "./stocktake/hooks/useStocktakeActions";
 import { useStocktakeLifecycle } from "./stocktake/hooks/useStocktakeLifecycle";
 import { useCycleCountStart } from "./stocktake/hooks/useCycleCountStart";
+import { useVehicleReconStart } from "./stocktake/hooks/useVehicleReconStart";
 import { StocktakeSessionCenter } from "./stocktake/StocktakeSessionCenter";
 import { StocktakeCycleStartModal } from "./stocktake/StocktakeCycleStartModal";
+import { StocktakeVehicleReconModal } from "./stocktake/StocktakeVehicleReconModal";
 import { StocktakeIdlePanel } from "./stocktake/StocktakeIdlePanel";
 import { StocktakeIndependentWait } from "./stocktake/StocktakeIndependentWait";
 import { StocktakeCountingPanel } from "./stocktake/StocktakeCountingPanel";
@@ -57,12 +60,19 @@ export function Tab3Stocktake({
     useState(false);
   const [showCycleModal, setShowCycleModal] =
     useState(false);
+  const [
+    showVehicleReconModal,
+    setShowVehicleReconModal,
+  ] = useState(false);
 
   const stocktakeState =
     useStocktakeState({
       companyId,
       locationId,
     });
+
+  const warehouseAccess = useInventoryAccess(locationId);
+  const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);
 
   const {
     setRows,
@@ -104,7 +114,8 @@ export function Tab3Stocktake({
 
   const reviewWorkflow =
     useStocktakeReview({
-      locationId,
+      sessionLocationId:
+        stocktakeState.sessionLocationId,
       phaseKey:
         stocktakeState.phaseKey,
       authenticatedFetch,
@@ -115,13 +126,14 @@ export function Tab3Stocktake({
         stocktakeState.setRows,
       setSessionId:
         stocktakeState.setSessionId,
+      setSessionLocationId:
+        stocktakeState.setSessionLocationId,
       setPhase:
         stocktakeState.setPhase,
     });
 
   const countingWorkflow =
     useStocktakeCounting({
-      locationId,
       companyScope:
         stocktakeState.companyScope,
       phaseKey:
@@ -129,6 +141,8 @@ export function Tab3Stocktake({
       phase: stocktakeState.phase,
       sessionId:
         stocktakeState.sessionId,
+      sessionLocationId:
+        stocktakeState.sessionLocationId,
       draftKey:
         stocktakeState.draftKey,
       authenticatedFetch,
@@ -139,6 +153,8 @@ export function Tab3Stocktake({
         stocktakeState.setReview,
       setSessionId:
         stocktakeState.setSessionId,
+      setSessionLocationId:
+        stocktakeState.setSessionLocationId,
       setPhase:
         stocktakeState.setPhase,
       onSubmitted:
@@ -153,6 +169,8 @@ export function Tab3Stocktake({
       sessionKey: stocktakeState.sessionKey,
       phaseKey: stocktakeState.phaseKey,
       setSessionId: stocktakeState.setSessionId,
+      setSessionLocationId:
+        stocktakeState.setSessionLocationId,
       loadCountSheet: countingWorkflow.loadCountSheet,
       notifyStocktakeChanged,
     });
@@ -162,6 +180,8 @@ export function Tab3Stocktake({
       authenticatedFetch,
       sessionId:
         stocktakeState.sessionId,
+      sessionLocationId:
+        stocktakeState.sessionLocationId,
       review: stocktakeState.review,
       draftKey:
         stocktakeState.draftKey,
@@ -175,6 +195,8 @@ export function Tab3Stocktake({
         stocktakeState.setReview,
       setSessionId:
         stocktakeState.setSessionId,
+      setSessionLocationId:
+        stocktakeState.setSessionLocationId,
       setPhase:
         stocktakeState.setPhase,
       loadCountSheet:
@@ -191,6 +213,8 @@ export function Tab3Stocktake({
         stocktakeState.phaseKey,
       sessionId:
         stocktakeState.sessionId,
+      sessionLocationId:
+        stocktakeState.sessionLocationId,
       activeSessions,
       activeSessionsTotal,
       sessionsLoading,
@@ -202,10 +226,22 @@ export function Tab3Stocktake({
         reviewWorkflow.loadReview,
       setSessionId:
         stocktakeState.setSessionId,
+      setSessionLocationId:
+        stocktakeState.setSessionLocationId,
       setPhase:
         stocktakeState.setPhase,
       clearRows,
       clearReview,
+      notifyStocktakeChanged,
+    });
+
+  const vehicleReconWorkflow =
+    useVehicleReconStart({
+      sourceLocationId: locationId,
+      enabled: showVehicleReconModal,
+      authenticatedFetch,
+      openSessionById:
+        lifecycle.openSessionById,
       notifyStocktakeChanged,
     });
 
@@ -261,8 +297,24 @@ export function Tab3Stocktake({
     }
   };
 
+  const closeVehicleReconModal = () => {
+    if (
+      vehicleReconWorkflow.busyWorkSessionId !==
+      null
+    ) {
+      return;
+    }
+    setShowVehicleReconModal(false);
+    vehicleReconWorkflow.resetForm();
+  };
+
+  const vehicleReconOpened = () => {
+    setShowVehicleReconModal(false);
+    vehicleReconWorkflow.resetForm();
+  };
+
   return (
-    <div className="flex flex-col gap-4 h-full flex-1 min-h-0 pt-1">
+    <div className="inventory-view inventory-stocktake flex flex-col gap-4 h-full flex-1 min-h-0 pt-1">
       <StocktakeSessionCenter
         sessions={activeSessions}
         total={activeSessionsTotal}
@@ -277,8 +329,16 @@ export function Tab3Stocktake({
           lifecycle.selectedSessionId
         }
         onRefresh={refreshSessions}
-        onStartCycle={() => setShowCycleModal(true)}
-        cycleStartDisabled={isAuditLocked || sessionsLoading}
+        onStartCycle={() =>
+          setShowCycleModal(true)
+        }
+        cycleStartDisabled={
+          isAuditLocked || sessionsLoading || !warehouseAccess.can('stocktake.start')
+        }
+        vehicleStartDisabled={!warehouseAccess.canAny('stocktake.start')}
+        onStartVehicleRecon={() =>
+          setShowVehicleReconModal(true)
+        }
         onLoadMore={loadMoreSessions}
         onOpenSession={
           lifecycle.openServerSession
@@ -286,7 +346,7 @@ export function Tab3Stocktake({
       />
 
       {stocktakeState.sessionId === null &&
-        !isAuditLocked && (
+        !isAuditLocked && warehouseAccess.can('stocktake.start') && (
           <StocktakeIdlePanel
             onStart={() =>
               setShowLockModal(true)
@@ -298,6 +358,7 @@ export function Tab3Stocktake({
         stocktakeState.phase ===
           "WAITING_INDEPENDENT" && (
           <StocktakeIndependentWait
+            canCancel={sessionAccess.can('stocktake.cancel')}
             onCancel={() =>
               setShowCancelModal(true)
             }
@@ -306,8 +367,9 @@ export function Tab3Stocktake({
 
       {stocktakeState.sessionId !== null &&
         stocktakeState.phase ===
-          "COUNTING" && (
+          "COUNTING" && sessionAccess.can('stocktake.count') && (
           <StocktakeCountingPanel
+            canCancel={sessionAccess.can('stocktake.cancel')}
             rows={stocktakeState.rows}
             progress={
               countingWorkflow.countProgress
@@ -329,8 +391,11 @@ export function Tab3Stocktake({
 
       {stocktakeState.sessionId !== null &&
         stocktakeState.phase === "REVIEW" &&
-        stocktakeState.review && (
+        stocktakeState.review && sessionAccess.can('stocktake.review') && (
           <StocktakeReviewPanel
+            canCancel={sessionAccess.can('stocktake.cancel')}
+            canRecount={sessionAccess.can('stocktake.recount')}
+            canApprove={sessionAccess.can('stocktake.approve')}
             review={stocktakeState.review}
             totals={
               reviewWorkflow.reviewTotals
@@ -352,6 +417,17 @@ export function Tab3Stocktake({
             }
           />
         )}
+
+      {stocktakeState.sessionId !== null && (
+        (stocktakeState.phase === 'REVIEW' && !sessionAccess.can('stocktake.review')) ||
+        (stocktakeState.phase === 'COUNTING' && !sessionAccess.can('stocktake.count'))
+      ) && <p role="status" className="p-4 text-slate-600">الجلسة محفوظة على السيرفر. المرحلة الحالية تحتاج مستخدماً مخولاً؛ يمكنك متابعة حالتها من مركز الجلسات.</p>}
+      <StocktakeVehicleReconModal
+        open={showVehicleReconModal}
+        controller={vehicleReconWorkflow}
+        onClose={closeVehicleReconModal}
+        onOpened={vehicleReconOpened}
+      />
 
       <StocktakeCycleStartModal
         open={showCycleModal}

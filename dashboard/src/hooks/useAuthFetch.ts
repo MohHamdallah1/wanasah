@@ -180,6 +180,9 @@ export function useAuthFetch() {
             }
 
             if (!res.ok) {
+                if (res.status === 403 && !cleanPath.startsWith('/inventory/access/me')) {
+                    window.dispatchEvent(new Event('inventory-permission-denied'));
+                }
                 const serverMessage =
                     data?.message || data?.detail || `خطأ سيرفر (${res.status})`;
 

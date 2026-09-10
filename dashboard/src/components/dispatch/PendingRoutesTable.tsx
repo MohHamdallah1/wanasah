@@ -39,6 +39,8 @@ export function PendingRoutesTable({
       </button>
     );
 
+    if (route.can_execute !== true) return radarButton;
+
     if (route.shopsRemaining === 0) {
       return (
         <>
@@ -134,14 +136,21 @@ export function PendingRoutesTable({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-y-auto max-h-[45vh] divide-y divide-slate-100 shadow-sm custom-scrollbar">
+    <div className="dispatch-route-list bg-white rounded-2xl border border-slate-200 overflow-y-auto max-h-[45vh] divide-y divide-slate-100 shadow-sm custom-scrollbar">
+      {routes.length === 0 && (
+        <div className="dispatch-empty-state">
+          <Truck className="w-7 h-7" />
+          <strong>لا توجد خطوط نشطة حالياً</strong>
+          <span>ستظهر خطوط السير هنا فور إطلاقها.</span>
+        </div>
+      )}
       {routes.map((route) => {
         const driverShortageCount = driverShortagesMap[route.driverId] || 0;
 
         return (
           <div
             key={route.id}
-            className="flex flex-row justify-between items-center p-4 hover:bg-slate-50 transition-all group"
+            className="dispatch-route-row flex flex-col xl:flex-row xl:justify-between xl:items-center gap-3 p-4 hover:bg-slate-50 transition-all group"
           >
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -170,7 +179,7 @@ export function PendingRoutesTable({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {renderActionButtons(route)}
             </div>
           </div>

@@ -12,19 +12,27 @@ interface PulseBarProps {
   activeDrivers: number;
   onBreakDrivers: number;
   onOpenSalesDetails?: () => void;
+  onRefresh?: () => void | Promise<void>;
 }
 
 export function PulseBar({
   totalCash, cashFromSales, cashFromDebts,
   totalSoldCartons, completedVisits, totalVisits,
-  activeDrivers, onBreakDrivers, onOpenSalesDetails,
+  activeDrivers, onBreakDrivers, onOpenSalesDetails, onRefresh,
 }: PulseBarProps) {
   const [refreshSpin, setRefreshSpin] = useState(false);
   const completionPct = totalVisits > 0 ? Math.round((completedVisits / totalVisits) * 100) : 0;
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
+    if (refreshSpin) return;
     setRefreshSpin(true);
-    setTimeout(() => setRefreshSpin(false), 600);
+    try {
+      await onRefresh?.();
+    } catch {
+      // OperationsDashboard reports the request failure to the user.
+    } finally {
+      setRefreshSpin(false);
+    }
   };
 
   // +++ المحركات اللغوية والرياضية الذكية +++
@@ -110,12 +118,12 @@ export function PulseBar({
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+    <section className="operations-pulse-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" aria-label="مؤشرات العمليات اليومية">
       {cards.map((card, i) => (
         <div
           key={card.label}
           // تغيير حجم البطاقات من اخر جملة 
-          className="group relative overflow-hidden bg-white rounded-[24px] p-6 ring-1 ring-slate-900/5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-500 cursor-default flex flex-col justify-between h-[150px]"
+          className="operations-metric-card group relative overflow-hidden bg-white rounded-[24px] p-5 ring-1 ring-slate-900/5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-500 cursor-default flex flex-col justify-between h-[150px]"
         >
           {/* +++ توهج خلفي ناعم (Mesh Gradient Glow) يعكس لون الأيقونة +++ */}
           <div className={`absolute -top-20 -end-20 w-40 h-40 rounded-full blur-[50px] opacity-40 group-hover:opacity-70 transition-opacity duration-700 pointer-events-none ${card.iconBg}`} />
@@ -127,7 +135,8 @@ export function PulseBar({
               {/* +++ أزرار شبحية (تظهر فقط عند مرور الماوس وتنزلق للداخل) +++ */}
               {i === 0 && (
                 <button
-                  onClick={handleRefresh}
+                  onClick={() => void handleRefresh()}
+                  disabled={refreshSpin}
                   className="w-8 h-8 rounded-full bg-slate-50/80 backdrop-blur-sm border border-slate-200/50 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-slate-100 transition-all duration-300 shadow-sm translate-x-3 group-hover:translate-x-0"
                   title="تحديث البيانات"
                 >
@@ -189,6 +198,6 @@ export function PulseBar({
           </div>
         </div>
       ))}
-    </div>
+    </section>
   );
 }

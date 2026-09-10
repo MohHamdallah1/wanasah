@@ -5,6 +5,7 @@ import type {
 } from "./types";
 
 interface FefoOverrideEditorProps {
+  canOverride: boolean;
   item: TransferDraftItem;
   draftItems: TransferDraftItem[];
   options: TransferOverrideOptions | undefined;
@@ -16,6 +17,7 @@ interface FefoOverrideEditorProps {
 }
 
 export function FefoOverrideEditor({
+  canOverride,
   item,
   draftItems,
   options,
@@ -56,7 +58,7 @@ export function FefoOverrideEditor({
           <option value="auto">
             FEFO تلقائي — الموصى به
           </option>
-          <option value="override">
+          <option value="override" disabled={!canOverride}>
             تجاوز FEFO موثّق
           </option>
         </select>

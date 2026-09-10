@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Building2, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
+import './login.css';
 
 const TENANT_SCOPED_STORAGE_KEYS = [
   'activeTab',
@@ -15,6 +17,8 @@ interface LoginResponsePayload {
   refresh_token: string;
   driver_name: string;
   is_admin: boolean;
+  dashboard_access: boolean;
+  driver_id: number;
   company_id: number;
   company_code: string;
   message?: string;
@@ -85,7 +89,7 @@ export default function Login() {
       }
 
       // 3. حماية اللوحة + التحقق من عقد الاستجابة
-      if (!data.is_admin) {
+      if (!data.is_admin && data.dashboard_access !== true) {
         throw new Error('عذراً، هذا الحساب غير مصرح له بالدخول للوحة التحكم');
       }
       if (
@@ -93,7 +97,8 @@ export default function Login() {
         !data.refresh_token ||
         !data.company_id ||
         !data.company_code ||
-        !data.driver_name
+        !data.driver_name ||
+        !Number.isSafeInteger(data.driver_id) || Number(data.driver_id) <= 0
       ) {
         throw new Error('استجابة تسجيل الدخول غير مكتملة من السيرفر');
       }
@@ -109,11 +114,12 @@ export default function Login() {
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('refresh_token', data.refresh_token);
       localStorage.setItem('company_id', nextCompanyId);
+      localStorage.setItem('driver_id', String(data.driver_id));
       localStorage.setItem('company_code', data.company_code);
       localStorage.setItem('admin_name', data.driver_name);
 
       // 6. التوجيه
-      navigate('/'); 
+      navigate(data.is_admin ? '/' : '/inventory');
 
     } catch (err: unknown) {
       setError(
@@ -127,80 +133,70 @@ export default function Login() {
   };
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden w-full h-full text-white" dir="rtl">
-      <div className="cosmic-background"></div>
-      <div ref={spotlightRef} id="mouse-spotlight-login" className="fixed inset-0 pointer-events-none z-0 transition-all duration-300"></div>
+    <section className="login-shell relative min-h-screen flex items-center justify-center overflow-hidden w-full text-white" dir="rtl">
+      <div className="login-background cosmic-background" />
+      <div ref={spotlightRef} id="mouse-spotlight-login" className="fixed inset-0 pointer-events-none z-0 transition-all duration-300" />
 
       {currentTime && (
-        <div className="absolute top-6 left-6 text-cyan-400 font-mono text-sm animate-pulse z-30 font-bold tracking-widest">
-          {currentTime}
+        <div className="login-clock absolute top-5 left-5 z-30">
+          <span>توقيت النظام</span><strong>{currentTime}</strong>
         </div>
       )}
 
-      <div className="container mx-auto text-center relative z-20 flex flex-col items-center justify-center px-4">
-        <h1 className="text-5xl sm:text-7xl font-extrabold mb-6 leading-tight relative text-shadow-glow tracking-tighter">
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400">
-            WANASAH
-          </span>
-        </h1>
-        <p className="text-lg text-gray-300 mb-10 drop-shadow-md">
-          بوابة التحكم الذكية لإدارة الأسطول والمبيعات
-        </p>
+      <div className="login-frame relative z-20">
+        <aside className="login-context-panel">
+          <div className="login-brand">
+            <span>W</span>
+            <div><strong>WANASAH</strong><small>Distribution Operations</small></div>
+          </div>
+          <div className="login-context-copy">
+            <p>منصة العمليات الموحدة</p>
+            <h1>تحكم واضح في التوزيع والمخزون من نقطة واحدة.</h1>
+            <span>وصول مؤسسي مع عزل كامل بين الشركات ونطاقات تشغيل محددة لكل مستخدم.</span>
+          </div>
+          <div className="login-trust-points">
+            <div><ShieldCheck /><span><strong>صلاحيات دقيقة</strong><small>الوصول حسب الشركة والموقع</small></span></div>
+            <div><Building2 /><span><strong>تشغيل متعدد الشركات</strong><small>بيانات كل شركة معزولة</small></span></div>
+          </div>
+        </aside>
 
-        <div className="w-full max-w-md bg-slate-900/60 backdrop-blur-xl p-8 border border-cyan-400/30 rounded-2xl shadow-[0_0_40px_rgba(0,255,255,0.1)] relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-cyan-400/70 to-transparent animate-[slideRight_10s_linear_infinite]"></div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-l from-transparent via-purple-400/70 to-transparent animate-[slideRight_10s_linear_infinite_reverse]"></div>
+        <div className="login-form-column">
+          <div className="login-card">
+            <div className="login-form-heading">
+              <p>بوابة الإدارة</p>
+              <h2>تسجيل الدخول</h2>
+              <span>أدخل بيانات حسابك المعتمدة للمتابعة.</span>
+            </div>
 
-          <h2 className="text-2xl font-bold text-white mb-6 text-center">تسجيل الدخول</h2>
-          
-          <form onSubmit={handleSubmit} className="space-y-5 text-start">
+          <form onSubmit={handleSubmit} className="login-form text-start">
             {/* +++ حقل إدخال رمز الشركة +++ */}
-            <div className="space-y-2">
-              <label className="text-gray-300 text-sm font-medium">رمز الشركة</label>
-              <input
-                type="text"
-                value={companyCode}
-                onChange={(e) => setCompanyCode(e.target.value)}
-                className="w-full bg-slate-800/70 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all uppercase"
-                placeholder="أدخل رمز الشركة (مثال: WNS-01)"
-                disabled={isSubmitting}
-              />
-            </div>
+            <label className="login-field" htmlFor="company-code">
+              <span>رمز الشركة</span>
+              <div><Building2 /><input id="company-code" type="text" value={companyCode} onChange={(e) => setCompanyCode(e.target.value)} placeholder="مثال: WNS-01" disabled={isSubmitting} autoComplete="organization" /></div>
+            </label>
 
-            <div className="space-y-2">
-              <label className="text-gray-300 text-sm font-medium">اسم المستخدم</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-slate-800/70 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all"
-                placeholder="أدخل اسم المستخدم"
-                disabled={isSubmitting}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-gray-300 text-sm font-medium">كلمة المرور</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-800/70 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all"
-                placeholder="أدخل كلمة المرور"
-                disabled={isSubmitting}
-              />
-            </div>
+            <label className="login-field" htmlFor="username">
+              <span>اسم المستخدم</span>
+              <div><UserRound /><input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="أدخل اسم المستخدم" disabled={isSubmitting} autoComplete="username" /></div>
+            </label>
 
-            {error && <p className="text-red-400 text-sm text-center bg-red-900/40 py-2 rounded border border-red-700/50">{error}</p>}
+            <label className="login-field" htmlFor="password">
+              <span>كلمة المرور</span>
+              <div><LockKeyhole /><input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="أدخل كلمة المرور" disabled={isSubmitting} autoComplete="current-password" /></div>
+            </label>
+
+            {error && <p role="alert" className="login-error">{error}</p>}
 
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full mt-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white py-3 rounded-lg font-bold shadow-lg shadow-cyan-500/20 transition-all duration-300"
+              className="login-submit"
             >
-              {isSubmitting ? 'جارٍ التحقق...' : 'دخول للغرفة'}
+              <span>{isSubmitting ? 'جارٍ التحقق...' : 'دخول إلى لوحة التحكم'}</span>
+              {!isSubmitting && <ArrowLeft />}
             </button>
           </form>
+          </div>
         </div>
       </div>
     </section>

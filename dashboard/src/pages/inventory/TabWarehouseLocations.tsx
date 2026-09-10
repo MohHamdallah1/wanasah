@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 
+import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
+
 interface WarehouseLocationItem {
   id: number;
   name: string;
@@ -111,6 +113,8 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
+  const access = useInventoryAccess();
+  const canAt = useLocationCapabilities(items.map(item => item.id));
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
@@ -208,6 +212,8 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   };
 
   const handleSave = async () => {
+    if (formMode === 'create' ? !access.can('location.create') :
+        !editingLocation || !canAt(editingLocation.id, 'location.update')) return;
     const name = form.name.trim();
     const code = form.code.trim().toUpperCase();
 
@@ -266,7 +272,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   };
 
   const handleStateChange = async () => {
-    if (!stateLocation || !stateAction) return;
+    if (!stateLocation || !stateAction || !canAt(stateLocation.id, 'location.state')) return;
 
     const reason = stateReason.trim();
     if (stateAction === "deactivate" && !reason) {
@@ -318,8 +324,8 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   };
 
   return (
-    <div className="flex flex-col gap-4 min-h-0 flex-1">
-      <div className="glass-card rounded-2xl p-4 flex items-center justify-between gap-4">
+    <div className="inventory-view inventory-locations flex flex-col gap-4 min-h-0 flex-1">
+      <div className="glass-card inventory-section-header rounded-2xl p-4 flex items-center justify-between gap-4">
         <div>
           <h2 className="font-black text-slate-800 flex items-center gap-2">
             <Building2 className="w-5 h-5 text-blue-600" />
@@ -340,6 +346,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
             <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
           <button
+            disabled={!access.can("location.create")}
             onClick={openCreate}
             className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center gap-2"
           >
@@ -349,7 +356,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
         </div>
       </div>
 
-      <div className="glass-card rounded-2xl p-4">
+      <div className="glass-card inventory-toolbar rounded-2xl p-4">
         <div className="relative">
           <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -362,7 +369,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
         </div>
       </div>
 
-      <div className="glass-card rounded-2xl overflow-hidden min-h-0 flex-1">
+      <div className="glass-card inventory-data-panel rounded-2xl overflow-hidden min-h-0 flex-1">
         <div className="overflow-auto h-full">
           <table className="w-full text-sm text-right">
             <thead className="bg-slate-50 sticky top-0 z-10">
@@ -396,6 +403,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
                   <td className="p-3">
                     <div className="flex justify-center gap-2">
                       <button
+                        disabled={!canAt(location.id, "location.update")}
                         onClick={() => openEdit(location)}
                         className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-blue-600"
                         title="تعديل"
@@ -405,6 +413,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
 
                       {location.is_active ? (
                         <button
+                          disabled={!canAt(location.id, "location.state")}
                           onClick={() => openStateAction(location, "deactivate")}
                           className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
                           title="تعطيل"
@@ -413,6 +422,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
                         </button>
                       ) : (
                         <button
+                          disabled={!canAt(location.id, "location.state")}
                           onClick={() => openStateAction(location, "activate")}
                           className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
                           title="تفعيل"

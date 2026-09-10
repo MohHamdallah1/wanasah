@@ -2,6 +2,7 @@ import { Radar, CheckCircle2, RotateCcw, Eye, Package, Banknote, Search } from "
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
+import { FINANCIAL_SETTLEMENT_READY_STATUS, SESSION_STATUS } from "@/data/operations-data";
 
 // --- الدروع الصارمة (Strict Interfaces) ---
 interface DriverVisits {
@@ -35,7 +36,7 @@ export interface ActiveDriver {
   session: {
     session_id: number;
     driver_name: string;
-    vehicle_label: string;
+    vehicle_label: string | null;
   };
   settlement: Settlement;
   visits?: DriverVisits;
@@ -53,7 +54,10 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [inventorySearch, setInventorySearch] = useState(""); 
   
-  const canApprove = driver?.settlement?.status === "مغلقة بانتظار التسوية";
+  const canApproveSettlement =
+    driver?.settlement?.status === FINANCIAL_SETTLEMENT_READY_STATUS;
+  const canUndoEndWork =
+    driver?.settlement?.status === SESSION_STATUS.AWAITING_INVENTORY_RECONCILIATION;
   const GLOBAL_CURRENCY = "د.أ";
   // +++ الكي الجراحي: السماح للدالة باستقبال النصوص وتحويلها بأمان تام +++
   const formatMoney = (val: string | number) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
@@ -69,7 +73,7 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
 
   return (
     //الكود المسؤول عن لون البطاقة العام bg-white
-    <div className="relative bg-[#FBB117] rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200 overflow-hidden flex flex-col gap-5 h-[calc(100vh-205px)]">
+    <section className="operations-command-center relative rounded-3xl p-6 md:p-7 shadow-sm border border-slate-200 overflow-hidden flex flex-col gap-5 h-[calc(100vh-320px)] min-h-[24rem]">
       <AnimatePresence mode="wait">
         {!driver ? (
           <motion.div
@@ -108,7 +112,9 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
                     </span>
                   )}
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                    canApprove ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-emerald-50 text-emerald-600 border-emerald-200"
+                    canApproveSettlement || canUndoEndWork
+                      ? "bg-amber-50 text-amber-600 border-amber-200"
+                      : "bg-emerald-50 text-emerald-600 border-emerald-200"
                   }`}>
                     {driver.settlement.status}
                   </span>
@@ -171,7 +177,7 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
 
             {/* 5. Action Buttons (أزرار بحجم مناسب وألوان متناسقة) */}
             <div className="mt-auto flex flex-col gap-2 pt-2">
-              {canApprove && onUndoEndWork && (
+              {canUndoEndWork && onUndoEndWork && (
                 <button
                   onClick={onUndoEndWork}
                   className="w-full flex items-center justify-center gap-2 bg-white text-slate-600 rounded-xl px-4 py-3 text-sm font-bold hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
@@ -182,9 +188,9 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
 
               <button
                 onClick={onApproveSettlement}
-                disabled={!canApprove}
+                disabled={!canApproveSettlement}
                 className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-bold transition-all shadow-sm ${
-                  canApprove
+                  canApproveSettlement
                     ? "bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.99] border border-slate-800"
                     : "bg-slate-50 text-slate-400 cursor-not-allowed border border-slate-200"
                 }`}
@@ -268,6 +274,6 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
           </div>
         </Modal>
       )}
-    </div>
+    </section>
   );
 }

@@ -24,7 +24,11 @@ interface UseCycleCountStartArgs {
   sessionKey: string;
   phaseKey: string;
   setSessionId: (value: string | null) => void;
-  loadCountSheet: (sessionId: string) => Promise<void>;
+  setSessionLocationId: (value: number | null) => void;
+  loadCountSheet: (
+    sessionId: string,
+    sessionLocationId?: number
+  ) => Promise<void>;
   notifyStocktakeChanged: () => Promise<void>;
 }
 
@@ -35,6 +39,7 @@ export function useCycleCountStart({
   sessionKey,
   phaseKey,
   setSessionId,
+  setSessionLocationId,
   loadCountSheet,
   notifyStocktakeChanged,
 }: UseCycleCountStartArgs) {
@@ -137,7 +142,7 @@ export function useCycleCountStart({
         } else {
           setProductsLoading(false);
         }
-        }
+      }
     }
   }, [authenticatedFetch, enabled, locationId, productSearch]);
 
@@ -257,8 +262,9 @@ export function useCycleCountStart({
       const sid = String(parseStartSessionId(raw));
       localStorage.setItem(sessionKey, sid);
       localStorage.setItem(phaseKey, "COUNTING");
+      setSessionLocationId(locationId);
       setSessionId(sid);
-      await loadCountSheet(sid);
+      await loadCountSheet(sid, locationId);
       await notifyStocktakeChanged();
 
       toast.success(
@@ -286,6 +292,7 @@ export function useCycleCountStart({
     selectedProduct,
     sessionKey,
     setSessionId,
+    setSessionLocationId,
   ]);
 
   return {

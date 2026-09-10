@@ -1,0 +1,34 @@
+---
+description: Preserve Wanasah business workflows and require explicit owner approval before changing them
+alwaysApply: true
+---
+
+# Business workflow protection
+
+- Never delete any project file or directory. The owner deleted `finish patch`;
+  preserve that deletion and do not restore or remove other files. Retain test
+  artifacts instead of running filesystem cleanup.
+
+- The owner selected the existing workflows deliberately. Never change business
+  rules, operation ordering, state transitions, accounting calculations, stock
+  allocation, custody, reconciliation, or approval/recount rules without first
+  discussing the concrete change and obtaining the owner's explicit approval.
+- A general request to improve, refactor, harden, or align the Dashboard is not
+  approval to change business workflows. Preserve previously approved decisions.
+- Fix confirmed security, tenant-isolation, and data-integrity defects within the
+  authorized scope. If a fix requires a workflow change, explain that dependency
+  and obtain approval before applying the workflow change.
+- Immediately disclose any accidental workflow change or deletion of important
+  files. Do not silently restore or overwrite concurrent user changes.
+- Read the actual current files before edits. Use literal verified replacements
+  for small edits; multi-file Python patches must validate all baselines and
+  anchors before writing any application file. Preserve newer local work.
+- InventoryBalance remains the stock source of truth. Every stock mutation goes
+  through the Unified Inventory Movement Engine. Preserve FEFO/batches and the
+  explicitly chosen DispatchRoute.source_location_id.
+- The backend is the final authority. Enforce company_id and PostgreSQL RLS;
+  names, client data, localStorage, zones, and branch membership never implicitly
+  confer inventory access. Location grants must be explicit.
+- Close checkpoints with ESLint, TypeScript, build, meaningful tests, and an
+  independent gate. Report actual coverage and remaining limitations; never claim
+  complete tenant isolation based only on static checks.

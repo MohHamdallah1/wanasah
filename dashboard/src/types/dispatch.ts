@@ -14,6 +14,7 @@ export interface PendingRoute {
   status: RouteStatus;
   sessionEnded: boolean; // +++ إضافة حالة الجلسة (للتراجع عن إنهاء العمل) +++
   sessionBound: boolean;
+  can_execute: boolean;
 }
 
 export interface Shop {
@@ -73,4 +74,5 @@ export interface RouteTransfer {
   status: "pending" | "accepted" | "rejected" | "cancelled";
   created_at: string | null;
   batch_id: string;
+  can_force_cancel: boolean;
 }

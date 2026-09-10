@@ -1,7 +1,16 @@
+import { apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
+import type { SettlementCountInput } from "@/components/operations/SettlementModal";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-import { getFleetStats } from "@/data/operations-data";
-import type { DriverData } from "@/data/operations-data";
+import {
+  FINANCIAL_SETTLEMENT_READY_STATUS,
+  getFleetStats,
+  parseSessionSettlementReport,
+} from "@/data/operations-data";
+import type {
+  DriverData,
+  SessionSettlementReport,
+} from "@/data/operations-data";
 import { PulseBar } from "@/components/operations/PulseBar";
 import { toast } from "sonner";
 import { FleetRadar } from "@/components/operations/FleetRadar";
@@ -12,7 +21,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, RotateCcw, X, PackageOpen, BarChart3, TrendingUp } from "lucide-react";
 
 // +++ المكون المعماري الجديد: نافذة تفاصيل المبيعات (Modern Light Glassmorphism) +++
-const SalesDetailsModal = ({ isOpen, onClose, productSales, totalLogisticsCartons }: { isOpen: boolean, onClose: () => void, productSales: any[], totalLogisticsCartons: number }) => {
+interface ProductSalesTotal { id: number; name: string; totalPacks: number; packsPerCarton: number }
+interface ProductSales extends ProductSalesTotal { soldCartons: number; soldLoose: number }
+
+const SalesDetailsModal = ({ isOpen, onClose, productSales, totalLogisticsCartons }: { isOpen: boolean, onClose: () => void, productSales: ProductSales[], totalLogisticsCartons: number }) => {
   const getCartonWord = (n: number) => n === 1 ? "كرتونة" : n === 2 ? "كرتونتان" : (n >= 3 && n <= 10) ? "كراتين" : "كرتونة";
 
   return (
@@ -23,7 +35,7 @@ const SalesDetailsModal = ({ isOpen, onClose, productSales, totalLogisticsCarton
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
         
         {/* هيكل النافذة الزجاجي الفاتح */}
-        <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative w-full max-w-5xl max-h-[90vh] flex flex-col bg-white/95 backdrop-blur-xl border border-white shadow-2xl rounded-[2rem] overflow-hidden">
+        <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="operations-analysis-modal relative w-full max-w-5xl max-h-[90vh] flex flex-col bg-white/95 backdrop-blur-xl border border-white shadow-2xl rounded-[2rem] overflow-hidden" role="dialog" aria-modal="true" aria-label="التحليل اللوجستي للمبيعات">
           
           {/* رأس النافذة الأنيق */}
           <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-50/50">
@@ -102,6 +114,12 @@ const Index = () => {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
+  const [settlementDriver, setSettlementDriver] = useState<DriverData | null>(null);
+  const [settlementReport, setSettlementReport] = useState<SessionSettlementReport | null>(null);
+  const [settlementReportLoading, setSettlementReportLoading] = useState(false);
+  const [settlementReportError, setSettlementReportError] = useState<string | null>(null);
+  const [isSettling, setIsSettling] = useState(false);
+  const settlementReportAbortRef = useRef<AbortController | null>(null);
   const [undoSessionId, setUndoSessionId] = useState<number | null>(null);
   
   // +++ تحكم نافذة المبيعات التفصيلية +++
@@ -115,11 +133,41 @@ const Index = () => {
         // +++ الكي الجراحي: تمرير الـ ISO الزمني الخام لمنع كراش مكونات الـ UI التي تحلله بنفسها +++
         setDrivers(data);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("فشل الاتصال بالسيرفر:", error);
       // +++ E-03: إظهار إشعار للمستخدم عند فشل التحديث الصامت (مع تجاهل 401 لأنه يعالج بالتوجيه) +++
-      if (error?.status !== 401) toast.error("حدث خطأ أثناء تحديث بيانات غرفة العمليات");
+      if (apiErrorStatus(error) !== 401) toast.error("حدث خطأ أثناء تحديث بيانات غرفة العمليات");
       throw error; // H-04: Re-throw so the polling loop increments backoff on failure
+    }
+  }, [authFetch]);
+
+  const loadSettlementReport = useCallback(async (sessionId: number) => {
+    settlementReportAbortRef.current?.abort();
+    const controller = new AbortController();
+    settlementReportAbortRef.current = controller;
+    setSettlementReport(null);
+    setSettlementReportError(null);
+    setSettlementReportLoading(true);
+
+    try {
+      const rawReport = await authFetch(
+        `/admin/sessions/${sessionId}/settlement_report`,
+        { signal: controller.signal }
+      );
+      if (!controller.signal.aborted) {
+        setSettlementReport(parseSessionSettlementReport(rawReport));
+      }
+    } catch (error: unknown) {
+      if (!controller.signal.aborted) {
+        setSettlementReportError(
+          apiErrorMessage(error, "تعذر تحميل تقرير التسوية التفصيلي.")
+        );
+      }
+    } finally {
+      if (settlementReportAbortRef.current === controller) {
+        settlementReportAbortRef.current = null;
+        setSettlementReportLoading(false);
+      }
     }
   }, [authFetch]);
 
@@ -181,15 +229,42 @@ const Index = () => {
   const stats = getFleetStats(drivers);
   const selectedDriver = drivers.find((d) => d.session.session_id === selectedId) ?? null;
 
+  const openSettlementModal = useCallback(() => {
+    if (!selectedDriver) return;
+    setSettlementDriver(selectedDriver);
+    setIsSettlementModalOpen(true);
+    void loadSettlementReport(selectedDriver.session.session_id);
+  }, [loadSettlementReport, selectedDriver]);
+
+  const closeSettlementModal = useCallback(() => {
+    settlementReportAbortRef.current?.abort();
+    settlementReportAbortRef.current = null;
+    setIsSettlementModalOpen(false);
+    setSettlementReport(null);
+    setSettlementReportError(null);
+    setSettlementReportLoading(false);
+    setIsSettling(false);
+  }, []);
+
+  const retrySettlementReport = useCallback(() => {
+    if (settlementDriver) {
+      void loadSettlementReport(settlementDriver.session.session_id);
+    }
+  }, [loadSettlementReport, settlementDriver]);
+
+  useEffect(() => {
+    return () => settlementReportAbortRef.current?.abort();
+  }, []);
+
   // +++ المحرك المحاسبي الصاروخي (O(N)): حساب المبيعات لكل منتج بشكل مستقل لحل مشكلة اختلاف أحجام الكراتين +++
   const aggregatedSales = useMemo(() => {
-    const productMap: Record<number, any> = {};
+    const productMap: Record<number, ProductSalesTotal> = {};
     let totalLogisticsCartons = 0;
 
     drivers.forEach(driver => {
       // نتحقق من وجود بيانات المستودع في الجلسة أو التسوية
       const inventory = driver.settlement?.inventory || [];
-      inventory.forEach((item: any) => {
+      inventory.forEach((item) => {
         // نأخذ الكمية المباعة سواء من sold_quantity أو من الحقول المفصلة
         const soldPacks = item.sold_quantity || ((item.sold_cartons || 0) * (item.packs_per_carton || 1) + (item.sold_loose_packs || 0));
         
@@ -249,21 +324,29 @@ const Index = () => {
   };
 
   // دالة تأكيد التسوية (مُحصنة)
-  const handleConfirmSettlement = async (actualCash: number, inventoryJard: any[], notes: string) => {
-    if (!selectedDriver) return;
+  const handleConfirmSettlement = async (actualCash: number, inventoryJard: SettlementCountInput[], notes: string) => {
+    if (!settlementDriver || !settlementReport || isSettling) return;
+    if (settlementReport.status !== FINANCIAL_SETTLEMENT_READY_STATUS) {
+      toast.error("لا يمكن اعتماد التسوية المالية قبل اكتمال التسوية المخزنية.");
+      return;
+    }
+
+    setIsSettling(true);
     try {
-      const response = await authFetch(`/admin/sessions/${selectedDriver.session.session_id}/settle`, {
+      const response = await authFetch(`/admin/sessions/${settlementDriver.session.session_id}/settle`, {
         method: 'PUT',
         body: JSON.stringify({ actual_cash: actualCash, inventory_jard: inventoryJard, notes: notes })
       });
       if (!response) throw new Error('فشل الاعتماد من الخادم');
 
-      toast.success(`تم اعتماد تسوية ${selectedDriver.session.driver_name} وإغلاق العهدة بنجاح!`);
-      setIsSettlementModalOpen(false);
+      toast.success(`تم اعتماد تسوية ${settlementDriver.session.driver_name} وإغلاق العهدة بنجاح!`);
+      closeSettlementModal();
       fetchLiveOperations().catch(() => {});
-    } catch (error: any) {
+    } catch (error: unknown) {
       // +++ E-08: منع ظهور رسالة فارغة (Undefined) عند رمي أخطاء غير قياسية +++
-      toast.error(error?.message || (typeof error === 'string' ? error : "حدث خطأ غير معروف أثناء التسوية"));
+      toast.error(apiErrorMessage(error, "حدث خطأ غير معروف أثناء التسوية"));
+    } finally {
+      setIsSettling(false);
     }
   };
 
@@ -280,8 +363,8 @@ const Index = () => {
       } else {
         throw new Error("حدث خطأ أثناء التراجع.");
       }
-    } catch (error: any) {
-      toast.error(error.message || "خطأ في الاتصال بالسيرفر");
+    } catch (error: unknown) {
+      toast.error(apiErrorMessage(error, "خطأ في الاتصال بالسيرفر"));
     } finally {
       setUndoSessionId(null);
     }
@@ -289,7 +372,16 @@ const Index = () => {
 
   return (
     // +++ الكي الجراحي: تقليل التأخير المصطنع لـ 200ms لكي تشعر باستجابة لحظية +++
-    <div className="w-full flex flex-col gap-4 animate-in fade-in duration-200">
+    <div className="operations-dashboard w-full flex flex-col gap-4 animate-in fade-in duration-200">
+
+      <header className="operations-overview-header">
+        <div>
+          <p className="operations-eyebrow">غرفة العمليات المباشرة</p>
+          <h1>لوحة المتابعة اليومية</h1>
+          <p>مؤشرات التحصيل والتنفيذ وحالة المناديب في مساحة تشغيل واحدة.</p>
+        </div>
+        <span className="operations-live-indicator"><i aria-hidden="true" /> متابعة مباشرة</span>
+      </header>
 
       <PulseBar
         totalCash={stats.totalCash}
@@ -301,6 +393,7 @@ const Index = () => {
         totalVisits={stats.totalVisits}
         activeDrivers={stats.activeDrivers}
         onBreakDrivers={stats.onBreakDrivers}
+        onRefresh={() => fetchLiveOperations()}
         // +++ تفعيل زر العين السري +++
         onOpenSalesDetails={() => setIsSalesModalOpen(true)}
       />
@@ -313,7 +406,7 @@ const Index = () => {
         totalLogisticsCartons={aggregatedSales.totalLogisticsCartons}
       />
 
-      <div className="flex flex-col lg:flex-row gap-4 flex-1">
+      <div className="operations-workbench flex flex-col lg:flex-row gap-4 flex-1">
         <div className="lg:flex-[65] min-w-0">
           <FleetRadar
             drivers={drivers}
@@ -327,8 +420,8 @@ const Index = () => {
         <div className="lg:flex-[35] min-w-0">
         <CommandCenter
             // +++   إجبار المترجم على قبول هيكل السيرفر الحقيقي بدل الهيكل الوهمي القديم +++
-            driver={selectedDriver as any}
-            onApproveSettlement={() => setIsSettlementModalOpen(true)}
+            driver={selectedDriver}
+            onApproveSettlement={openSettlementModal}
             onUndoEndWork={() => {
               if (!selectedDriver) return;
               setUndoSessionId(selectedDriver.session.session_id);
@@ -339,8 +432,13 @@ const Index = () => {
 
       <SettlementModal
         isOpen={isSettlementModalOpen}
-        onClose={() => setIsSettlementModalOpen(false)}
-        driver={selectedDriver}
+        onClose={closeSettlementModal}
+        driver={settlementDriver}
+        report={settlementReport}
+        isReportLoading={settlementReportLoading}
+        reportError={settlementReportError}
+        onRetryReport={retrySettlementReport}
+        isSubmitting={isSettling}
         onConfirmSettlement={handleConfirmSettlement}
       />
 

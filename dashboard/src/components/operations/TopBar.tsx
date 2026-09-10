@@ -56,7 +56,7 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
   };
 
   return (
-    <div className="glass-card rounded-2xl h-16 md:h-20 px-4 md:px-6 flex items-center justify-between gap-3 relative z-50">
+    <div className="operations-topbar glass-card rounded-2xl h-16 md:h-20 px-4 md:px-6 flex items-center justify-between gap-3 relative z-50">
       {/* اليمين: التاريخ والمكان */}
       <div className="flex items-center gap-3">
         <button onClick={onMenuToggle} className="lg:hidden w-10 h-10 rounded-xl bg-muted/60 flex items-center justify-center">

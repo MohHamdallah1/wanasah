@@ -21,7 +21,7 @@ export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, search
   );
 
   return (
-    <div className="glass-card rounded-2xl p-5 md:p-6 flex flex-col gap-4 h-[calc(100vh-205px)]">
+    <section className="operations-fleet-panel glass-card rounded-2xl p-5 md:p-6 flex flex-col gap-4 h-[calc(100vh-320px)] min-h-[24rem]">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -108,6 +108,6 @@ export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, search
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }

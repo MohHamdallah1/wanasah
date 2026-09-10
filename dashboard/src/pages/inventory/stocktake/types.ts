@@ -127,6 +127,37 @@ export interface CycleBatchCursorPage {
   total: number | null;
 }
 
+export interface StocktakeSessionContext {
+  session_id: number;
+  stocktake_type: StocktakeType;
+  status: StocktakeStatus;
+  location_id: number;
+  related_work_session_id: number | null;
+  source_location_id: number;
+}
+
+export interface VehicleReconCandidate {
+  work_session_id: number;
+  driver_id: number;
+  driver_name: string;
+  session_date: string;
+  end_time: string;
+  vehicle_id: number;
+  vehicle_location_id: number;
+  vehicle_location_name: string;
+  vehicle_location_code: string;
+  existing_stocktake_session_id: number | null;
+  existing_stocktake_reference: string | null;
+  existing_stocktake_status: StocktakeStatus | null;
+}
+
+export interface VehicleReconCandidateCursorPage {
+  items: VehicleReconCandidate[];
+  next_cursor: string | null;
+  has_more: boolean;
+  total: number | null;
+}
+
 export interface StocktakeSessionCursorPage {
   items: StocktakeSessionSummary[];
   next_cursor: string | null;

@@ -1,3 +1,4 @@
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
@@ -32,14 +33,9 @@ interface WarehouseOption {
 interface DispatchInitPayload {
   zones?: Zone[];
   drivers?: { id: string; name: string }[];
-  vehicles?: { id: string; label: string }[];
+  vehicles?: { id: string; label: string; can_execute: boolean }[];
+  warehouses?: { id: string; label: string; can_execute: boolean }[];
   products?: { id: string; name: string }[];
-}
-
-interface WarehouseLocationPayload {
-  id: number;
-  name: string;
-  code: string;
 }
 
 interface VehicleInventoryPayload {
@@ -212,12 +208,16 @@ export default function DispatchBoard() {
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
   const authenticatedFetch = useAuthFetch();
+  const { isCompanyAdmin } = useInventoryAccess();
+  useEffect(() => {
+    if (!isCompanyAdmin && activeTab === 'zones') setActiveTab('routes');
+  }, [isCompanyAdmin, activeTab]);
 
   const [zones, setZones] = useState<Zone[]>([]);
   const [drivers, setDrivers] = useState<{ id: string; name: string }[]>([]);
-  const [vehicles, setVehicles] = useState<{ id: string; label: string }[]>([]);
+  const [vehicles, setVehicles] = useState<{ id: string; label: string; can_execute: boolean }[]>([]);
   const [products, setProducts] = useState<{ id: string; name: string }[]>([]);
-  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [warehouses, setWarehouses] = useState<Array<WarehouseOption & { can_execute: boolean }>>([]);
   const [selectedSourceWarehouseId, setSelectedSourceWarehouseId] = useState("");
   const [pendingRoutes, setPendingRoutes] = useState<PendingRoute[]>([]);
   const [shortages, setShortages] = useState<Shortage[]>([]);
@@ -248,6 +248,10 @@ export default function DispatchBoard() {
 
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [routeModalType, setRouteModalType] = useState<"follow_up" | "transfer">("follow_up");
+  const sourceAccess = useInventoryAccess(selectedSourceWarehouseId ? Number(selectedSourceWarehouseId) : null);
+  const canLaunch = Boolean(selectedSourceWarehouseId && sourceAccess.can('dispatch.execute') &&
+    warehouses.some(w => w.id === selectedSourceWarehouseId && w.can_execute === true) &&
+    vehicles.some(v => v.id === selectedVehicleId && v.can_execute === true));
   const [activeRoute, setActiveRoute] = useState<PendingRoute | null>(null);
   const [transferDriverId, setTransferDriverId] = useState("");
 
@@ -319,11 +323,13 @@ export default function DispatchBoard() {
         const sorted = sortZones(Array.isArray(data.zones) ? data.zones : []);
         const nextDrivers = Array.isArray(data.drivers) ? data.drivers : [];
         const nextVehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+        const nextWarehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
         const nextProducts = Array.isArray(data.products) ? data.products : [];
 
         setZones(sorted);
         setDrivers(nextDrivers);
         setVehicles(nextVehicles);
+        setWarehouses(nextWarehouses);
         setProducts(nextProducts);
 
         setSelectedZoneIdForZones((prev) =>
@@ -339,6 +345,9 @@ export default function DispatchBoard() {
         );
         setSelectedVehicleId((prev) =>
           nextVehicles.some((vehicle) => vehicle.id === prev) ? prev : ""
+        );
+        setSelectedSourceWarehouseId((prev) =>
+          nextWarehouses.some((warehouse) => warehouse.id === prev) ? prev : ""
         );
 
         if (nextProducts.length > 0) {
@@ -370,30 +379,12 @@ export default function DispatchBoard() {
     authenticatedFetch("/dispatch/active_routes", { signal })
       .then(data => setPendingRoutes(Array.isArray(data) ? data : []))
       .catch(err => { if (err.name !== 'AbortError') console.error(err); });
-    authenticatedFetch("/dispatch/shortages", { signal })
+    if (isCompanyAdmin) authenticatedFetch("/dispatch/shortages", { signal })
       .then(data => setShortages(Array.isArray(data) ? data : []))
       .catch(err => { if (err.name !== 'AbortError') console.error(err); });
 
-    authenticatedFetch("/warehouse/locations", { signal })
-      .then((data) => {
-        const locations = Array.isArray(data)
-          ? data.map((raw) => raw as WarehouseLocationPayload)
-          : [];
-        const options = locations.map((location) => ({
-          id: String(location.id),
-          label: `${location.name} (${location.code})`,
-        }));
-        setWarehouses(options);
-        setSelectedSourceWarehouseId((prev) =>
-          options.some((warehouse) => warehouse.id === prev) ? prev : ""
-        );
-      })
-      .catch((err: unknown) => {
-        if (!(err instanceof Error && err.name === "AbortError")) console.error(err);
-      });
-
     return controller;
-  }, [authenticatedFetch]); // +++ E-04: إضافة authenticatedFetch كـ Dependency لتجنب تحذيرات وتسريبات الذاكرة +++
+  }, [authenticatedFetch, isCompanyAdmin]); // +++ E-04: إضافة authenticatedFetch كـ Dependency لتجنب تحذيرات وتسريبات الذاكرة +++
 
   // Warehouse lock is scoped to the explicitly selected source warehouse.
   useEffect(() => {
@@ -432,6 +423,17 @@ export default function DispatchBoard() {
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
     const controller = fetchInitialData();
+    if (!isCompanyAdmin) {
+      // Company-wide websocket events remain admin-only. Scoped readers refresh
+      // through authorized HTTP queries without joining the company event stream.
+      let pending: AbortController | undefined;
+      const timer = window.setInterval(() => {
+        if (document.visibilityState !== 'visible') return;
+        pending?.abort();
+        pending = fetchInitialData();
+      }, 30000);
+      return () => { controller.abort(); pending?.abort(); window.clearInterval(timer); };
+    }
     const apiUrl = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
     let ws: WebSocket | undefined;
@@ -551,7 +553,7 @@ export default function DispatchBoard() {
         ws.close();
       }
     };
-  }, [fetchInitialData]);
+  }, [fetchInitialData, isCompanyAdmin]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
@@ -717,6 +719,10 @@ export default function DispatchBoard() {
   }, [activeTab, hasUnsavedChanges]);
 
   const handleDispatchRoute = () => {
+    if (!canLaunch) {
+      toast.error('لا تملك صلاحية إطلاق خطوط السير.');
+      return;
+    }
     if (
       !selectedZoneId ||
       !selectedDriverId ||
@@ -761,7 +767,8 @@ export default function DispatchBoard() {
   };
 
   const handleConfirmRouteAction = async () => {
-    if (!activeRoute) return;
+    if (!activeRoute || activeRoute.can_execute !== true ||
+        !vehicles.some(v => v.id === selectedVehicleId && v.can_execute === true)) return;
     if (activeRoute.sessionEnded) {
       toast.error("لا يمكن إعادة تشغيل هذا المسار من هنا بعد انتهاء WorkSession.");
       return;
@@ -1302,25 +1309,25 @@ export default function DispatchBoard() {
   };
 
   return (
-    <div className="w-full h-full flex flex-col flex-1 min-h-0 animate-in fade-in duration-200">
+    <div className="dispatch-board w-full h-full flex flex-col flex-1 min-h-0 animate-in fade-in duration-200">
       {/* +++ الكي الجراحي: إزالة التثبيت (sticky) لكي يصعد البار مع السكرول ولا يتداخل مع المحتوى +++ */}
-      <div className="glass-card rounded-2xl h-16 md:h-20 px-4 md:px-6 flex items-center justify-between gap-3 relative z-20">
+      <div className="dispatch-command-bar glass-card rounded-2xl min-h-16 md:min-h-20 px-4 md:px-6 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 relative z-20">
         <div className="flex items-center gap-6">
-          <div className="flex bg-slate-100 p-1 rounded-xl">
+          <div className="dispatch-tab-list flex bg-slate-100 p-1 rounded-xl" role="tablist" aria-label="أقسام إدارة التوزيع">
             {/* +++  فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
             {([
               { id: "routes", label: "الخطوط النشطة", icon: Truck },
               { id: "launch", label: "إطلاق خط جديد", icon: Plus },
               { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }
-            ] as const).map(tab => (
-              <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            ] as const).filter(tab => isCompanyAdmin || tab.id !== 'zones').map(tab => (
+              <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} onClick={() => handleTabChange(tab.id)} className={`dispatch-tab flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 <tab.icon className="w-4 h-4" /> {tab.label}
               </button>
             ))}
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {activeTab === "routes" && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
+          {isCompanyAdmin && activeTab === "routes" && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
           {activeTab === "zones" && <button onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"><Calendar className="w-4 h-4" /> 🗓️ الجدولة الشاملة</button>}
         </div>
       </div>
@@ -1340,14 +1347,14 @@ export default function DispatchBoard() {
 
       {/* +++  تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
       {/* +++ الكي الجراحي: تحويل الحاوية لـ flex-1 لتمتص المساحة وإزالة الـ padding السفلي الزائد الذي يضرب القائمة الجانبية +++ */}
-      <div className="pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
+      <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
         <>
           {activeTab === "routes" ? (
             <div key="routes" className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
-              <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
+              <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
                 
                 {/* الشريطة العائمة */}
-                <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+                <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
                   <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
                 </div>
 
@@ -1470,8 +1477,8 @@ export default function DispatchBoard() {
             <div key="launch" className="flex flex-col w-full gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
               
               {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
-              <div className="relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
-                <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+              <div className="dispatch-surface dispatch-launch-config relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
+                <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
                   <Rocket className="w-4 h-4" /> إطلاق خط سير جديد
                 </div>
                 
@@ -1490,8 +1497,8 @@ export default function DispatchBoard() {
               </div>
 
               {/* +++ الحاوية الثانية: جدول الحمولة (محدود الارتفاع بـ 400px لحل مشكلة المليون منتج) +++ */}
-              <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm mb-4 mt-0">
-                <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+              <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm mb-4 mt-0">
+                <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
                   📦 إدخال الحمولة (كرتونة)
                 </div>
                 
@@ -1551,6 +1558,7 @@ export default function DispatchBoard() {
               {/* +++ الزر: تصغيره وتنسيقه بالأسفل +++ */}
               <div className="flex justify-end mb-8">
                 <button
+                  disabled={!canLaunch}
                   onClick={handleDispatchRoute}
                   className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
                 >
@@ -1560,9 +1568,9 @@ export default function DispatchBoard() {
 
             </div>
           ) : (
-            <div key="zones" className="flex gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
-              <div className="w-[29%] flex flex-col gap-4 min-h-0">
-                <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
+            <div key="zones" className="dispatch-zones-workbench flex flex-col xl:flex-row gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
+              <div className="w-full xl:w-[29%] flex flex-col gap-4 min-h-0">
+                <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
                   <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <h2 className="font-bold text-slate-800">المناطق ({zones.length})</h2>
@@ -1609,8 +1617,8 @@ export default function DispatchBoard() {
               </div>
 
               {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
-              <div className="w-[75%] flex flex-col gap-4 min-h-0">
-                <div className="bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
+              <div className="w-full xl:w-[75%] flex flex-col gap-4 min-h-0">
+                <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
                   <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> إلغاء</button><button onClick={handleSaveReorder} disabled={isSaving || !hasUnsavedChanges} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : <><Save className="w-4 h-4" /> حفظ</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />تعديل</button>)}<button
                     onClick={() => setShowRecycleBin(true)}
                     className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm transition-all hover:text-blue-600"

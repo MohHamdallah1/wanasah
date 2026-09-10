@@ -262,6 +262,7 @@ class LoginResponse(BaseModel):
     driver_id: int
     driver_name: str
     is_admin: bool
+    dashboard_access: bool = False
     company_id: int # +++ زرع الهوية لحقنها في الموبايل والداشبورد +++
     company_code: str # +++ إجبارية لبناء ملف الـ SQLite الفيزيائي +++
 
@@ -887,6 +888,12 @@ class DispatchDriverResponse(BaseModel):
 class DispatchVehicleResponse(BaseModel):
     id: str
     label: str
+    can_execute: bool = False
+
+class DispatchWarehouseResponse(BaseModel):
+    id: str
+    label: str
+    can_execute: bool = False
 
 class DispatchProductResponse(BaseModel):
     id: str
@@ -896,6 +903,7 @@ class DispatchInitResponse(BaseModel):
     zones: List[DispatchZoneResponse]
     drivers: List[DispatchDriverResponse]
     vehicles: List[DispatchVehicleResponse]
+    warehouses: List[DispatchWarehouseResponse]
     products: List[DispatchProductResponse]
 
 class DispatchRouteRequest(RequestModel):
@@ -979,6 +987,7 @@ class RouteTransferResponse(BaseModel):
     status: str
     created_at: Optional[str] = None
     batch_id: str
+    can_force_cancel: bool = False
 
 class DispatchShopResponse(BaseModel):
     id: str
@@ -1060,6 +1069,8 @@ class ActiveRouteResponse(BaseModel):
     shopsRemaining: int
     status: str
     sessionEnded: bool
+    sessionBound: bool
+    can_execute: bool = False
 
 class UpdateRouteStatusRequest(RequestModel):
     status: Optional[Literal["active", "closed", "waiting", "postponed"]] = None
@@ -1311,48 +1322,48 @@ class WarehouseAlertItem(BaseModel):
     min_threshold_packs: int
 
 class WarehouseInventoryItem(BaseModel):
-    id: int
-    name: str
-    sku: Optional[str] = None
-    packs_per_carton: int
-    available_packs: int
-    reserved_packs: int
-    blocked_packs: int
-    total_packs: int
-    damaged_packs: int
-    available_cartons: int
-    available_loose_packs: int
-    min_threshold: int
+    id: PositiveDbInt
+    name: str = Field(..., min_length=1, max_length=200)
+    sku: Optional[str] = Field(None, max_length=100)
+    packs_per_carton: PositiveDbInt
+    available_packs: int = Field(..., ge=0)
+    reserved_packs: int = Field(..., ge=0)
+    blocked_packs: int = Field(..., ge=0)
+    total_packs: int = Field(..., ge=0)
+    damaged_packs: int = Field(..., ge=0)
+    available_cartons: int = Field(..., ge=0)
+    available_loose_packs: int = Field(..., ge=0)
+    min_threshold: NonNegativeDbInt
 
 class WarehouseInventoryCursorPage(BaseModel):
-    items: List[WarehouseInventoryItem]
-    next_cursor: Optional[str] = None
+    items: List[WarehouseInventoryItem] = Field(..., max_length=200)
+    next_cursor: Optional[str] = Field(None, max_length=1024)
     has_more: bool
-    total: Optional[int] = None
-    alert_count: Optional[int] = None
-    alert_samples: List[str] = Field(default_factory=list)
+    total: Optional[int] = Field(None, ge=0)
+    alert_count: Optional[int] = Field(None, ge=0)
+    alert_samples: List[str] = Field(default_factory=list, max_length=3)
 
 
 class WarehouseLedgerItem(BaseModel):
-    id: int
-    product_variant_id: int
-    product_name: str
-    packs_per_carton: int
-    type: str
-    quantity_packs: int
-    balance_before: Optional[int] = None
-    balance_after: Optional[int] = None
-    admin_name: str
-    reference: Optional[str] = None
+    id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    product_name: str = Field(..., min_length=1, max_length=200)
+    packs_per_carton: PositiveDbInt
+    type: str = Field(..., min_length=1, max_length=50)
+    quantity_packs: SignedDbInt
+    balance_before: Optional[NonNegativeDbInt] = None
+    balance_after: Optional[NonNegativeDbInt] = None
+    admin_name: str = Field(..., min_length=1, max_length=120)
+    reference: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
-    date: str
+    date: datetime
 
 class WarehouseLedgerCursorPage(BaseModel):
-    items: List[WarehouseLedgerItem]
-    next_cursor: Optional[str] = None
+    items: List[WarehouseLedgerItem] = Field(..., max_length=200)
+    next_cursor: Optional[str] = Field(None, max_length=512)
     has_more: bool
-    total: Optional[int] = None
-    available_types: List[str] = Field(default_factory=list)
+    total: Optional[int] = Field(None, ge=0)
+    available_types: List[str] = Field(default_factory=list, max_length=200)
 
 
 class WarehouseStatusResponse(BaseModel):
@@ -1449,17 +1460,22 @@ class WarehouseLocationMutationResponse(BaseModel):
 
 
 class SimpleProductVariantItem(BaseModel):
-    id: int
-    name: str
-    sku: Optional[str] = None
-    packs_per_carton: int
+    id: PositiveDbInt
+    name: str = Field(..., min_length=1, max_length=200)
+    sku: Optional[str] = Field(None, max_length=100)
+    packs_per_carton: PositiveDbInt
 
 
 class SimpleProductVariantCursorPage(BaseModel):
-    items: List[SimpleProductVariantItem]
-    next_cursor: Optional[str] = None
+    items: List[SimpleProductVariantItem] = Field(..., max_length=200)
+    next_cursor: Optional[str] = Field(None, max_length=1024)
     has_more: bool
-    total: Optional[int] = None
+    total: Optional[int] = Field(None, ge=0)
+
+
+class ProductVariantMutationResponse(BaseModel):
+    message: str = Field(..., min_length=1, max_length=1000)
+    product_id: PositiveDbInt
 
 
 class ProductVariantResolveRequest(RequestModel):
@@ -1779,6 +1795,58 @@ class StocktakeCycleBatchItem(BaseModel):
 
 class StocktakeCycleBatchCursorPage(BaseModel):
     items: List[StocktakeCycleBatchItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
+class StocktakeSessionContextResponse(BaseModel):
+    session_id: int
+    stocktake_type: Literal[
+        "FULL_COUNT",
+        "CYCLE_COUNT",
+        "VEHICLE_RECON",
+    ]
+    status: Literal[
+        "DRAFT",
+        "COUNTING",
+        "PENDING_REVIEW",
+        "RECOUNT_REQUIRED",
+        "APPROVED",
+        "POSTED",
+        "CANCELLED",
+    ]
+    location_id: int
+    related_work_session_id: Optional[int] = None
+    source_location_id: int
+
+
+class VehicleReconCandidateItem(BaseModel):
+    work_session_id: int
+    driver_id: int
+    driver_name: str
+    session_date: date
+    end_time: datetime
+    vehicle_id: int
+    vehicle_location_id: int
+    vehicle_location_name: str
+    vehicle_location_code: str
+    existing_stocktake_session_id: Optional[int] = None
+    existing_stocktake_reference: Optional[str] = None
+    existing_stocktake_status: Optional[
+        Literal[
+            "DRAFT",
+            "COUNTING",
+            "PENDING_REVIEW",
+            "RECOUNT_REQUIRED",
+            "APPROVED",
+            "POSTED",
+        ]
+    ] = None
+
+
+class VehicleReconCandidateCursorPage(BaseModel):
+    items: List[VehicleReconCandidateItem]
     next_cursor: Optional[str] = None
     has_more: bool
     total: Optional[int] = None

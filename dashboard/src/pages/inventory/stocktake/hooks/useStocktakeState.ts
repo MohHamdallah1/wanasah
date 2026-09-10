@@ -22,10 +22,16 @@ export function useStocktakeState({
     useState<StocktakeReview | null>(null);
   const [sessionId, setSessionId] =
     useState<string | null>(null);
+  const [
+    sessionLocationId,
+    setSessionLocationId,
+  ] = useState<number | null>(null);
 
   const companyScope =
     companyId || "anonymous";
 
+  // Anchor keys represent the warehouse page from which the session was opened.
+  // The actual session location is tracked independently for VEHICLE_RECON.
   const sessionKey = useMemo(
     () =>
       `unified_stocktake_session:${companyScope}:${locationId}`,
@@ -40,10 +46,14 @@ export function useStocktakeState({
 
   const draftKey = useMemo(
     () =>
-      sessionId
-        ? `wanasah_audit_draft:${companyScope}:${locationId}:${sessionId}`
+      sessionId && sessionLocationId
+        ? `wanasah_audit_draft:${companyScope}:${sessionLocationId}:${sessionId}`
         : null,
-    [companyScope, locationId, sessionId]
+    [
+      companyScope,
+      sessionId,
+      sessionLocationId,
+    ]
   );
 
   return {
@@ -59,5 +69,7 @@ export function useStocktakeState({
     setReview,
     sessionId,
     setSessionId,
+    sessionLocationId,
+    setSessionLocationId,
   };
 }

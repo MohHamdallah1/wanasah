@@ -17,8 +17,11 @@ interface StocktakeReviewPanelProps {
   };
   approvalBlocked: boolean;
   onVariance: () => void;
+  canCancel: boolean;
   onCancel: () => void;
+  canRecount: boolean;
   onRecount: () => void;
+  canApprove: boolean;
   onApprove: () => void;
 }
 
@@ -27,12 +30,15 @@ export function StocktakeReviewPanel({
   totals,
   approvalBlocked,
   onVariance,
+  canCancel,
   onCancel,
+  canRecount,
   onRecount,
+  canApprove,
   onApprove,
 }: StocktakeReviewPanelProps) {
   return (
-    <div className="glass-card flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
+    <div className="glass-card inventory-data-panel flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
       <div className="px-5 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
@@ -172,12 +178,14 @@ export function StocktakeReviewPanel({
 
           <div className="flex items-center gap-2 min-w-[430px]">
             <button
+              disabled={!canCancel}
               onClick={onCancel}
               className="flex-1 px-4 h-9 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 text-xs font-bold rounded-xl transition-all"
             >
               إلغاء
             </button>
             <button
+              disabled={!canRecount}
               onClick={onRecount}
               className="flex-1 px-4 h-9 bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/20 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1.5"
             >
@@ -186,7 +194,7 @@ export function StocktakeReviewPanel({
             </button>
             <button
               onClick={onApprove}
-              disabled={approvalBlocked}
+              disabled={approvalBlocked || !canApprove}
               className="flex-[1.5] px-4 h-9 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-white text-sm font-black rounded-xl transition-all flex items-center justify-center gap-2"
             >
               <ShieldCheck className="w-4 h-4" />

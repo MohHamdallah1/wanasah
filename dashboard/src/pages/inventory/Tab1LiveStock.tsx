@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { AlertTriangle, RefreshCcw, Search, Info, FilterX, ChevronRight, ChevronLeft } from "lucide-react";
-import type { WarehouseProduct } from "./inventoryUtils";
+import type { WarehouseProduct } from "./liveStock/contracts";
 import { formatQty } from "./inventoryUtils";
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
   hasMore: boolean;
   hasPrevious: boolean;
   onlyAlerts: boolean;
+  lastSync: Date | null;
   onSearchChange: (search: string) => void;
   onOnlyAlertsChange: (onlyAlerts: boolean) => void;
   onNext: () => void;
@@ -32,6 +33,7 @@ export function Tab1LiveStock({
   hasMore,
   hasPrevious,
   onlyAlerts,
+  lastSync,
   onSearchChange,
   onOnlyAlertsChange,
   onNext,
@@ -39,7 +41,6 @@ export function Tab1LiveStock({
   onRefresh,
 }: Props) {
   const [searchInput, setSearchInput] = useState("");
-  const [lastSync, setLastSync] = useState<Date>(new Date());
 
   useEffect(() => {
     setSearchInput("");
@@ -54,17 +55,13 @@ export function Tab1LiveStock({
   }, [searchInput, onSearchChange]);
 
   useEffect(() => {
-    if (!loading) setLastSync(new Date());
-  }, [products, loading]);
-
-  useEffect(() => {
     if (alertCount === 0 && onlyAlerts) {
       onOnlyAlertsChange(false);
     }
   }, [alertCount, onlyAlerts, onOnlyAlertsChange]);
 
   return (
-    <div className="flex flex-col gap-3 h-full flex-1 min-h-0">
+    <div className="inventory-view inventory-live-stock flex flex-col gap-3 h-full flex-1 min-h-0">
       {alertCount > 0 && (
         <div
           onClick={() => onOnlyAlertsChange(!onlyAlerts)}
@@ -92,12 +89,12 @@ export function Tab1LiveStock({
         </div>
       )}
 
-      <div className="glass-card overflow-hidden pt-0 flex flex-col flex-1 min-h-0">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-white/70">
+      <div className="glass-card inventory-data-panel overflow-hidden pt-0 flex flex-col flex-1 min-h-0">
+        <div className="inventory-panel-toolbar flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-white/70">
           <div className="text-[11px] font-bold text-slate-400">
             {matchingTotal !== null ? `النتائج: ${matchingTotal}` : `صفحة ${pageNumber}`}
             <span className="mx-2">•</span>
-            آخر تحديث: {lastSync.toLocaleTimeString("ar-EG")}
+            آخر تحديث: {lastSync ? lastSync.toLocaleTimeString("ar-EG") : "—"}
           </div>
           <button
             type="button"
@@ -126,6 +123,7 @@ export function Tab1LiveStock({
                         placeholder="ابحث عن صنف أو SKU..."
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
+                        maxLength={100}
                         className="w-full pl-4 pr-9 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-[#1e87bb] bg-white transition-all shadow-sm"
                       />
                     </div>

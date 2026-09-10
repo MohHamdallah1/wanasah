@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_, update, tuple_, case
 from typing import Optional, List
 from database import get_db
-from api.dependencies import get_current_admin
+from api.dependencies import get_current_driver
+from inventory_access import (InventoryAccess, require_stocktake, require_transfer,
+                              transfer_filter, require_inbound_adjustment)
 from sqlalchemy.exc import IntegrityError
 import bcrypt 
 import logging
@@ -32,19 +34,21 @@ from models import (Driver, Product, ProductVariant, Branch,
 DispatchRoute, SystemAuditLog,
 InventoryLocation, InventoryStockPolicy, InventoryBalance, InventoryMovement, InventoryMovementImpact, ProductBatch,
 InventoryTransferHeader, InventoryTransferLine, OverrideReason, SystemSetting,
-StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock)
+WorkSession, StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock)
 
 from schemas import (UnifiedStocktakeStartRequest,
 WarehouseInventoryItem, WarehouseInventoryCursorPage, WarehouseLedgerItem, WarehouseLedgerCursorPage,
 WarehouseStatusResponse, WarehouseLocationCreateRequest, WarehouseLocationUpdateRequest,
 WarehouseLocationStateRequest, WarehouseLocationCursorPage, WarehouseLocationMutationResponse,
-SimpleProductVariantItem, SimpleProductVariantCursorPage, ProductVariantResolveRequest,
-AddProductVariantRequest, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest,
+MessageResponse, SimpleProductVariantItem, SimpleProductVariantCursorPage, ProductVariantResolveRequest,
+AddProductVariantRequest, ProductVariantMutationResponse, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest,
 UnifiedTransferDecisionRequest, WarehouseTransferCursorPage, WarehouseTransferDetail,
 UnifiedTransferLocationItem, UnifiedTransferSourceInventoryCursorPage,
 UnifiedTransferOverrideOptionsResponse,
 StocktakeActiveSessionCursorPage,
 StocktakeCycleBatchCursorPage,
+StocktakeSessionContextResponse,
+VehicleReconCandidateCursorPage,
 UnifiedStocktakeCountRequest, StocktakeRecountRequest, StocktakeApprovalRequest, StocktakeCancelRequest )
 
 router = APIRouter()
@@ -393,13 +397,13 @@ async def _verify_stocktake_admin_credentials(
     db: AsyncSession,
     company_id: int,
     username: str,
-    password: str
+    password: str,
+    location_id: int,
 ) -> Optional[Driver]:
     stmt = select(Driver).filter_by(
         company_id=company_id,
         username=username.strip(),
         is_active=True,
-        is_admin=True
     )
     admin = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -411,7 +415,13 @@ async def _verify_stocktake_admin_credentials(
         password.encode('utf-8'),
         admin.password_hash.encode('utf-8')
     )
-    return admin if password_ok else None
+    if not password_ok:
+        return None
+    try:
+        await InventoryAccess(db, admin).require('stocktake.recount', location_id)
+    except HTTPException:
+        return None
+    return admin
 
 
 # تحديد ما إذا كان العجز يتطلب إعادة عد مستقلة؛ الوضع الافتراضي الآمن يعتبر أي عجز مادياً حتى تضبط الشركة حدودها.
@@ -497,9 +507,12 @@ async def _requires_independent_stocktake_recount(
 @router.get("/warehouse/locations", status_code=200)
 async def get_warehouse_locations(
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
     """جلب المستودعات الفعالة مع Auto-Provision آمن للشركات الجديدة فقط."""
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.read', any_location=True)
+
     company_id = current_admin.company_id
 
     stmt_active = select(
@@ -514,6 +527,7 @@ async def get_warehouse_locations(
         InventoryLocation.id.asc()
     )
 
+    stmt_active = stmt_active.filter(access.location_filter('location.read'))
     locations = (await db.execute(stmt_active)).all()
     if locations:
         return [
@@ -529,6 +543,8 @@ async def get_warehouse_locations(
     ).limit(1)
     if (await db.execute(stmt_any)).scalar_one_or_none() is not None:
         return []
+
+    await access.require('location.create')
 
     try:
         # ON CONFLICT يحمي أول دخول متزامن لشركة جديدة بدون IntegrityError/500.
@@ -664,8 +680,11 @@ async def manage_warehouse_locations(
     cursor: Optional[str] = Query(default=None, max_length=512),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.read', any_location=True)
+
     company_id = current_admin.company_id
     clean_search = (search or "").strip().lower()
 
@@ -688,6 +707,7 @@ async def manage_warehouse_locations(
         )
         .filter(
             InventoryLocation.company_id == company_id,
+            access.location_filter('location.read'),
             InventoryLocation.location_type == 'WAREHOUSE',
         )
     )
@@ -761,8 +781,11 @@ async def manage_warehouse_locations(
 async def create_warehouse_location(
     payload: WarehouseLocationCreateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.create')
+
     company_id = current_admin.company_id
 
     try:
@@ -868,8 +891,11 @@ async def update_warehouse_location(
     location_id: int,
     payload: WarehouseLocationUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.update', location_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -984,8 +1010,11 @@ async def activate_warehouse_location(
     location_id: int,
     payload: WarehouseLocationStateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.state', location_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -1062,8 +1091,11 @@ async def deactivate_warehouse_location(
     location_id: int,
     payload: WarehouseLocationStateRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.state', location_id)
+
     company_id = current_admin.company_id
     reason = (payload.reason or "").strip()
     if not reason:
@@ -1209,12 +1241,15 @@ async def deactivate_warehouse_location(
 # =================================================================================
 # 1. استلام بضاعة من المورد (Inbound) - المحرك الموحد
 # =================================================================================
-@router.post("/warehouse/inbound", status_code=201)
+@router.post("/warehouse/inbound", response_model=MessageResponse, status_code=201)
 async def warehouse_inbound(
     payload: UpgradedInboundRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('inbound.create', payload.location_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -1496,8 +1531,11 @@ async def get_warehouse_inventory(
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
     only_alerts: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('inventory.read', location_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -1582,6 +1620,7 @@ async def get_warehouse_inventory(
                 InventoryBalance.on_hand_quantity > 0,
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.location_type == 'VEHICLE',
+                access.location_filter('inventory.read'),
                 InventoryLocation.is_active.is_(True),
                 InventoryLocation.vehicle_id.isnot(None),
                 latest_source_for_candidate_vehicle == location_id,
@@ -1886,6 +1925,7 @@ async def get_warehouse_inventory(
                 ),
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.location_type == 'VEHICLE',
+                access.location_filter('inventory.read'),
                 InventoryLocation.is_active.is_(True),
                 InventoryLocation.vehicle_id.isnot(None),
                 latest_source_for_vehicle == location_id,
@@ -2069,8 +2109,11 @@ async def get_warehouse_ledger_cursor(
     reference_type: Optional[str] = Query(default=None, max_length=50),
     reference_id: Optional[str] = Query(default=None, max_length=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('ledger.read', location_id, any_location=location_id is None)
+
     company_id = current_admin.company_id
 
     clean_search = (search or "").strip().lower()
@@ -2120,6 +2163,8 @@ async def get_warehouse_ledger_cursor(
             ),
         ).filter(
             InventoryMovement.company_id == company_id,
+            or_(access.allows('ledger.read', InventoryMovement.source_location_id),
+                access.allows('ledger.read', InventoryMovement.destination_location_id)),
         )
 
         if location_id is not None:
@@ -2201,6 +2246,8 @@ async def get_warehouse_ledger_cursor(
                 InventoryMovement.reference_type
             ).filter(
                 InventoryMovement.company_id == company_id,
+            or_(access.allows('ledger.read', InventoryMovement.source_location_id),
+                access.allows('ledger.read', InventoryMovement.destination_location_id)),
             )
 
             if location_id is not None:
@@ -2247,6 +2294,7 @@ async def get_warehouse_ledger_cursor(
             InventoryMovementImpact.company_id == company_id,
             InventoryMovementImpact.movement_id.in_(movement_ids),
             InventoryBalance.company_id == company_id,
+            access.allows('ledger.read', InventoryBalance.location_id),
         )
 
         if location_id is not None:
@@ -2436,8 +2484,11 @@ async def get_warehouse_ledger_cursor(
 async def get_warehouse_status(
     location_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require(('location.read', 'dispatch.read'), location_id)
+
     stmt_location = select(InventoryLocation.id).filter_by(
         id=location_id,
         company_id=current_admin.company_id,
@@ -2480,8 +2531,11 @@ async def get_simple_product_variants(
     limit: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('catalog.read', any_location=True)
+
     company_id = current_admin.company_id
     clean_search = (search or "").strip().lower()
 
@@ -2598,8 +2652,11 @@ async def get_simple_product_variants(
 async def resolve_simple_product_variants(
     payload: ProductVariantResolveRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('catalog.read', any_location=True)
+
     company_id = current_admin.company_id
     requested_ids = sorted(set(int(value) for value in payload.ids))
 
@@ -2637,12 +2694,19 @@ async def resolve_simple_product_variants(
 # =================================================================================
 # 7. إضافة منتج جديد لكتالوج الشركة - Tenant/Concurrency Safe
 # =================================================================================
-@router.post("/warehouse/product_variants", status_code=201)
+@router.post(
+    "/warehouse/product_variants",
+    response_model=ProductVariantMutationResponse,
+    status_code=201,
+)
 async def add_product_variant(
     payload: AddProductVariantRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('catalog.manage')
+
     company_id = current_admin.company_id
     clean_name = payload.variant_name.strip()
     normalized_name = clean_name.lower()
@@ -2879,13 +2943,20 @@ async def add_product_variant(
 # =================================================================================
 # 8. تعديل فاتورة توريد - Correction append-only على المحرك الموحد
 # =================================================================================
-@router.post("/warehouse/ledger/{entry_id}/adjust", status_code=200)
+@router.post(
+    "/warehouse/ledger/{entry_id}/adjust",
+    response_model=MessageResponse,
+    status_code=200,
+)
 async def adjust_warehouse_entry(
     entry_id: int,
     payload: AdjustWarehouseEntryRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_inbound_adjustment(access, entry_id)
+
     company_id = current_admin.company_id
 
     password_ok = await asyncio.to_thread(
@@ -3291,6 +3362,7 @@ async def _acquire_shared_inventory_guards(
     status_code=200,
 )
 async def list_unified_transfer_locations(
+    purpose: Optional[str] = Query(default=None, pattern='^(source|destination)$'),
     search: Optional[str] = Query(
         default=None,
         min_length=2,
@@ -3298,8 +3370,11 @@ async def list_unified_transfer_locations(
     ),
     limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require(('transfer.read', 'transfer.send', 'transfer.destination'), any_location=True)
+
     company_id = current_admin.company_id
     clean_search = (search or "").strip().lower()
 
@@ -3313,6 +3388,9 @@ async def list_unified_transfer_locations(
         )
         .filter(
             InventoryLocation.company_id == company_id,
+            access.location_filter('transfer.send' if purpose == 'source' else
+                'transfer.destination' if purpose == 'destination' else
+                ('transfer.read', 'transfer.send', 'transfer.destination')),
             InventoryLocation.is_active.is_(True),
             InventoryLocation.location_type.in_(
                 ['WAREHOUSE', 'VEHICLE']
@@ -3375,8 +3453,11 @@ async def get_unified_transfer_source_inventory(
     limit: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('transfer.send', location_id)
+
     company_id = current_admin.company_id
     clean_search = (search or "").strip().lower()
 
@@ -3587,8 +3668,11 @@ async def get_unified_transfer_override_options(
     location_id: int = Query(..., ge=1),
     product_variant_id: int = Query(..., ge=1),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('inventory.fefo_override', location_id)
+
     company_id = current_admin.company_id
 
     location_exists = (
@@ -3923,8 +4007,11 @@ async def list_unified_transfers(
     cursor: Optional[str] = Query(default=None, max_length=512),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('transfer.read', location_id, any_location=location_id is None)
+
     company_id = current_admin.company_id
 
     normalized_status = (status or "").strip().upper()
@@ -3965,6 +4052,7 @@ async def list_unified_transfers(
 
     stmt = select(InventoryTransferHeader).filter(
         InventoryTransferHeader.company_id == company_id,
+        transfer_filter(access),
         InventoryTransferHeader.workflow_type == 'TRANSIT',
     )
 
@@ -4066,8 +4154,11 @@ async def list_unified_transfers(
 async def get_unified_transfer_detail(
     header_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.read', header_id)
+
     company_id = current_admin.company_id
 
     header = (
@@ -4163,8 +4254,14 @@ async def get_unified_transfer_detail(
 async def unified_transfer_dispatch(
     payload: UnifiedDispatchRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('transfer.send', payload.source_location_id)
+    await access.require('transfer.destination', payload.destination_location_id)
+    if any(item.is_fefo_override for item in payload.items):
+        await access.require('inventory.fefo_override', payload.source_location_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -4560,8 +4657,11 @@ async def _move_transfer_lines_from_transit(
 async def unified_transfer_receive(
     payload: UnifiedReceiveRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.receive', payload.transfer_header_id, 'destination')
+
     company_id = current_admin.company_id
 
     try:
@@ -4673,8 +4773,11 @@ async def unified_transfer_cancel(
     header_id: int,
     payload: UnifiedTransferDecisionRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.cancel', header_id, 'source')
+
     company_id = current_admin.company_id
     reason = _validate_transfer_decision_reason(
         payload.decision_reason,
@@ -4777,8 +4880,11 @@ async def unified_transfer_reject(
     header_id: int,
     payload: UnifiedTransferDecisionRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin)
+    current_admin: Driver = Depends(get_current_driver)
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.reject', header_id, 'destination')
+
     company_id = current_admin.company_id
     reason = _validate_transfer_decision_reason(
         payload.decision_reason,
@@ -5059,8 +5165,11 @@ async def list_stocktake_cycle_batches(
     cursor: Optional[str] = Query(default=None, max_length=1024),
     limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('stocktake.start', location_id)
+
     company_id = current_admin.company_id
 
     location_exists = (
@@ -5173,6 +5282,425 @@ async def list_stocktake_cycle_batches(
     }
 
 
+def _vehicle_recon_candidate_cursor_scope_hash(
+    scope: str,
+) -> str:
+    return hashlib.sha256(
+        scope.encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _encode_vehicle_recon_candidate_cursor(
+    work_session_id: int,
+    *,
+    scope: str,
+) -> str:
+    raw = json.dumps(
+        {
+            "v": 1,
+            "kind":
+                "stocktake-vehicle-recon-candidate",
+            "scope":
+                _vehicle_recon_candidate_cursor_scope_hash(
+                    scope
+                ),
+            "id": int(work_session_id),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(
+        raw
+    ).decode("ascii").rstrip("=")
+
+
+def _decode_vehicle_recon_candidate_cursor(
+    cursor: str,
+    *,
+    expected_scope: str,
+) -> int:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(
+            (cursor + padding).encode("ascii")
+        )
+        payload = json.loads(
+            raw.decode("utf-8")
+        )
+
+        if (
+            not isinstance(payload, dict)
+            or payload.get("v") != 1
+            or payload.get("kind")
+            != "stocktake-vehicle-recon-candidate"
+            or payload.get("scope")
+            != _vehicle_recon_candidate_cursor_scope_hash(
+                expected_scope
+            )
+        ):
+            raise ValueError
+
+        work_session_id = payload.get("id")
+        if (
+            type(work_session_id) is not int
+            or work_session_id <= 0
+        ):
+            raise ValueError
+
+        return work_session_id
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cursor جلسات تسوية السيارات "
+                "غير صالح أو لا يطابق المستودع الحالي."
+            ),
+        ) from exc
+
+
+@router.get(
+    "/warehouse/unified/stocktake/vehicle-recon-candidates",
+    response_model=VehicleReconCandidateCursorPage,
+    status_code=200,
+)
+async def list_vehicle_recon_candidates(
+    source_location_id: int = Query(
+        ...,
+        ge=1,
+    ),
+    search: Optional[str] = Query(
+        default=None,
+        min_length=2,
+        max_length=100,
+    ),
+    cursor: Optional[str] = Query(
+        default=None,
+        max_length=1024,
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=100,
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(
+        get_current_driver
+    ),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.read', source_location_id)
+    await access.require('stocktake.start', any_location=True)
+
+    company_id = current_admin.company_id
+
+    source_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id
+                == company_id,
+                InventoryLocation.id
+                == source_location_id,
+                InventoryLocation.location_type
+                == "WAREHOUSE",
+                InventoryLocation.is_active.is_(
+                    True
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if source_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "المستودع المصدر غير موجود "
+                "أو غير فعال أو لا يتبع شركتك."
+            ),
+        )
+
+    clean_search = (
+        search.strip()
+        if search
+        else ""
+    )
+    scope = (
+        f"{company_id}|"
+        f"{source_location_id}|"
+        f"{clean_search}"
+    )
+
+    base_filters = [
+        access.location_filter('stocktake.start'),
+        WorkSession.company_id == company_id,
+        WorkSession.end_time.is_not(None),
+        WorkSession.is_settled.is_(False),
+        WorkSession.inventory_reconciled_at
+        .is_(None),
+    ]
+
+    if clean_search:
+        escaped = _escape_like(clean_search)
+        pattern = f"%{escaped}%"
+        base_filters.append(
+            or_(
+                Driver.full_name.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+                InventoryLocation.name.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+                InventoryLocation.code.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+            )
+        )
+
+    def _candidate_query_columns():
+        return (
+            WorkSession.id.label(
+                "work_session_id"
+            ),
+            WorkSession.driver_id,
+            Driver.full_name.label(
+                "driver_name"
+            ),
+            WorkSession.session_date,
+            WorkSession.end_time,
+            DispatchRoute.vehicle_id,
+            InventoryLocation.id.label(
+                "vehicle_location_id"
+            ),
+            InventoryLocation.name.label(
+                "vehicle_location_name"
+            ),
+            InventoryLocation.code.label(
+                "vehicle_location_code"
+            ),
+        )
+
+    def _candidate_joins(stmt):
+        return (
+            stmt
+            .join(
+                DispatchRoute,
+                and_(
+                    DispatchRoute.company_id
+                    == WorkSession.company_id,
+                    DispatchRoute.work_session_id
+                    == WorkSession.id,
+                    DispatchRoute.driver_id
+                    == WorkSession.driver_id,
+                    DispatchRoute.source_location_id
+                    == source_location_id,
+                    DispatchRoute.vehicle_id
+                    .is_not(None),
+                ),
+            )
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id
+                    == WorkSession.company_id,
+                    InventoryLocation.vehicle_id
+                    == DispatchRoute.vehicle_id,
+                    InventoryLocation.location_type
+                    == "VEHICLE",
+                    InventoryLocation.is_active
+                    .is_(True),
+                ),
+            )
+            .join(
+                Driver,
+                and_(
+                    Driver.company_id
+                    == WorkSession.company_id,
+                    Driver.id
+                    == WorkSession.driver_id,
+                ),
+            )
+        )
+
+    total = None
+    if cursor is None:
+        count_stmt = _candidate_joins(
+            select(
+                func.count(
+                    WorkSession.id
+                )
+            ).select_from(WorkSession)
+        ).filter(*base_filters)
+
+        total = int(
+            (
+                await db.execute(
+                    count_stmt
+                )
+            ).scalar_one()
+        )
+
+    stmt = _candidate_joins(
+        select(
+            *_candidate_query_columns()
+        ).select_from(WorkSession)
+    ).filter(*base_filters)
+
+    if cursor is not None:
+        cursor_id = (
+            _decode_vehicle_recon_candidate_cursor(
+                cursor,
+                expected_scope=scope,
+            )
+        )
+        stmt = stmt.filter(
+            WorkSession.id < cursor_id
+        )
+
+    rows = (
+        await db.execute(
+            stmt.order_by(
+                WorkSession.id.desc()
+            ).limit(limit + 1)
+        )
+    ).all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+
+    next_cursor = None
+    if has_more and page_rows:
+        next_cursor = (
+            _encode_vehicle_recon_candidate_cursor(
+                int(
+                    page_rows[-1]
+                    .work_session_id
+                ),
+                scope=scope,
+            )
+        )
+
+    work_session_ids = [
+        int(row.work_session_id)
+        for row in page_rows
+    ]
+    existing_by_work_session = {}
+
+    if work_session_ids:
+        existing_rows = (
+            await db.execute(
+                select(
+                    StocktakeSession
+                    .related_work_session_id,
+                    StocktakeSession.id,
+                    StocktakeSession
+                    .reference_number,
+                    StocktakeSession.status,
+                )
+                .filter(
+                    StocktakeSession.company_id
+                    == company_id,
+                    StocktakeSession.stocktake_type
+                    == "VEHICLE_RECON",
+                    StocktakeSession
+                    .related_work_session_id
+                    .in_(work_session_ids),
+                    StocktakeSession.status
+                    != "CANCELLED",
+                )
+                .order_by(
+                    StocktakeSession
+                    .related_work_session_id
+                    .asc(),
+                    StocktakeSession.id.desc(),
+                )
+            )
+        ).all()
+
+        for existing in existing_rows:
+            work_session_id = int(
+                existing.related_work_session_id
+            )
+            if (
+                work_session_id
+                not in existing_by_work_session
+            ):
+                existing_by_work_session[
+                    work_session_id
+                ] = existing
+
+    items = []
+    for row in page_rows:
+        work_session_id = int(
+            row.work_session_id
+        )
+        existing = (
+            existing_by_work_session.get(
+                work_session_id
+            )
+        )
+
+        items.append(
+            {
+                "work_session_id":
+                    work_session_id,
+                "driver_id":
+                    int(row.driver_id),
+                "driver_name":
+                    str(row.driver_name),
+                "session_date":
+                    row.session_date,
+                "end_time":
+                    row.end_time,
+                "vehicle_id":
+                    int(row.vehicle_id),
+                "vehicle_location_id":
+                    int(
+                        row.vehicle_location_id
+                    ),
+                "vehicle_location_name":
+                    str(
+                        row
+                        .vehicle_location_name
+                    ),
+                "vehicle_location_code":
+                    str(
+                        row
+                        .vehicle_location_code
+                    ),
+                "existing_stocktake_session_id":
+                    (
+                        int(existing.id)
+                        if existing is not None
+                        else None
+                    ),
+                "existing_stocktake_reference":
+                    (
+                        str(
+                            existing
+                            .reference_number
+                        )
+                        if existing is not None
+                        else None
+                    ),
+                "existing_stocktake_status":
+                    (
+                        str(existing.status)
+                        if existing is not None
+                        else None
+                    ),
+            }
+        )
+
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+    }
+
+
 _ACTIVE_STOCKTAKE_STATUSES = frozenset({
     "DRAFT",
     "COUNTING",
@@ -5192,8 +5720,11 @@ async def list_active_stocktake_sessions(
     cursor: Optional[str] = Query(default=None, max_length=1024),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await access.require('stocktake.read', location_id)
+
     company_id = current_admin.company_id
 
     location_exists = (
@@ -5346,13 +5877,210 @@ async def list_active_stocktake_sessions(
     }
 
 
+@router.get(
+    "/warehouse/unified/stocktake/{session_id}/context",
+    response_model=StocktakeSessionContextResponse,
+    status_code=200,
+)
+async def get_stocktake_session_context(
+    session_id: int,
+    anchor_location_id: int = Query(
+        ...,
+        ge=1,
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(
+        get_current_driver
+    ),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.read', anchor_location_id)
+    await require_stocktake(access, 'stocktake.read', session_id)
+
+    company_id = current_admin.company_id
+
+    anchor_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id
+                == company_id,
+                InventoryLocation.id
+                == anchor_location_id,
+                InventoryLocation.location_type
+                == "WAREHOUSE",
+                InventoryLocation.is_active.is_(
+                    True
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if anchor_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "مستودع سياق الجرد غير موجود "
+                "أو غير فعال أو لا يتبع شركتك."
+            ),
+        )
+
+    session = (
+        await db.execute(
+            select(
+                StocktakeSession.id,
+                StocktakeSession.stocktake_type,
+                StocktakeSession.status,
+                StocktakeSession.location_id,
+                StocktakeSession.related_work_session_id,
+            ).filter(
+                StocktakeSession.company_id
+                == company_id,
+                StocktakeSession.id
+                == session_id,
+            )
+        )
+    ).one_or_none()
+
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "جلسة الجرد غير موجودة "
+                "أو لا تتبع شركتك."
+            ),
+        )
+
+    stocktake_type = str(
+        session.stocktake_type
+    )
+    actual_location_id = int(
+        session.location_id
+    )
+    related_work_session_id = (
+        int(
+            session
+            .related_work_session_id
+        )
+        if session
+        .related_work_session_id
+        is not None
+        else None
+    )
+
+    if stocktake_type in {
+        "FULL_COUNT",
+        "CYCLE_COUNT",
+    }:
+        if (
+            actual_location_id
+            != anchor_location_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "جلسة الجرد لا تتبع "
+                    "المستودع المحدد."
+                ),
+            )
+    elif stocktake_type == "VEHICLE_RECON":
+        if related_work_session_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "VEHICLE_RECON بلا "
+                    "related_work_session_id صالح."
+                ),
+            )
+
+        vehicle_id = (
+            await db.execute(
+                select(
+                    InventoryLocation.vehicle_id
+                ).filter(
+                    InventoryLocation.company_id
+                    == company_id,
+                    InventoryLocation.id
+                    == actual_location_id,
+                    InventoryLocation.location_type
+                    == "VEHICLE",
+                    InventoryLocation.is_active
+                    .is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if vehicle_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "موقع VEHICLE_RECON "
+                    "ليس موقع سيارة فعالاً."
+                ),
+            )
+
+        route_source = (
+            await db.execute(
+                select(
+                    DispatchRoute
+                    .source_location_id
+                )
+                .filter(
+                    DispatchRoute.company_id
+                    == company_id,
+                    DispatchRoute.work_session_id
+                    == related_work_session_id,
+                    DispatchRoute.vehicle_id
+                    == vehicle_id,
+                    DispatchRoute
+                    .source_location_id
+                    == anchor_location_id,
+                )
+                .order_by(
+                    DispatchRoute.id.desc()
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if route_source is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "جلسة السيارة لا ترتبط "
+                    "بالمستودع المحدد."
+                ),
+            )
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail="نوع جلسة الجرد غير مدعوم.",
+        )
+
+    return {
+        "session_id": int(session.id),
+        "stocktake_type":
+            stocktake_type,
+        "status":
+            str(session.status),
+        "location_id":
+            actual_location_id,
+        "related_work_session_id":
+            related_work_session_id,
+        "source_location_id":
+            int(anchor_location_id),
+    }
+
+
 @router.post("/warehouse/unified/stocktake/start", status_code=201)
 async def start_unified_stocktake(
     payload: UnifiedStocktakeStartRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
     """فتح الجلسة وأخذ Snapshot ثابت وإنشاء Lock مطابق للنطاق."""
+    access = InventoryAccess(db, current_admin)
+    await access.require('stocktake.start', payload.location_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -5591,8 +6319,11 @@ async def start_unified_stocktake(
 async def get_stocktake_count_sheet(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.count', session_id)
+
     company_id = current_admin.company_id
     session = await _load_stocktake_session(db, company_id, session_id)
 
@@ -5659,9 +6390,12 @@ async def submit_stocktake_count(
     session_id: int,
     payload: UnifiedStocktakeCountRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
     """Attempt immutable + DISCOVERED lines معروفة في ProductBatch."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.count', session_id)
+
     company_id = current_admin.company_id
 
     try:
@@ -5941,8 +6675,11 @@ async def submit_stocktake_count(
 async def get_stocktake_review(
     session_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.review', session_id)
+
     company_id = current_admin.company_id
     if not current_admin.is_admin:
         raise HTTPException(status_code=403, detail="مراجعة الجرد تتطلب صلاحية مشرف.")
@@ -6100,12 +6837,13 @@ async def approve_stocktake_session(
     session_id: int,
     payload: StocktakeApprovalRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
     """Optimistic approval ثم posting حصراً عبر post_approved_stocktake_adjustments."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.approve', session_id)
+
     company_id = current_admin.company_id
-    if not current_admin.is_admin:
-        raise HTTPException(status_code=403, detail="اعتماد الجرد يتطلب صلاحية مشرف.")
 
     password_ok = await asyncio.to_thread(
         bcrypt.checkpw,
@@ -6205,12 +6943,13 @@ async def recount_stocktake_session(
     session_id: int,
     payload: StocktakeRecountRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
     """تفويض Recount مرتبط بمحاولة العد التي شاهدها المشرف."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.recount', session_id)
+
     company_id = current_admin.company_id
-    if not current_admin.is_admin:
-        raise HTTPException(status_code=403, detail="تفويض إعادة العد يتطلب صلاحية مشرف.")
 
     try:
         session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
@@ -6228,6 +6967,7 @@ async def recount_stocktake_session(
             company_id,
             payload.authorizer_username,
             payload.authorizer_password,
+            session.location_id,
         )
         if authorizer is None:
             db.add(SystemAuditLog(
@@ -6300,9 +7040,12 @@ async def cancel_stocktake_session(
     session_id: int,
     payload: StocktakeCancelRequest,
     db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_admin),
+    current_admin: Driver = Depends(get_current_driver),
 ):
     """إلغاء موثق مع تحرير كامل Metadata للقفل."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.cancel', session_id)
+
     company_id = current_admin.company_id
     if not current_admin.is_admin:
         raise HTTPException(status_code=403, detail="إلغاء الجرد يتطلب صلاحية مشرف.")

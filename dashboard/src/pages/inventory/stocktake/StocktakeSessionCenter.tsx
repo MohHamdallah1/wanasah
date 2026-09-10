@@ -20,6 +20,8 @@ interface StocktakeSessionCenterProps {
   onRefresh: () => void;
   onStartCycle: () => void;
   cycleStartDisabled: boolean;
+  vehicleStartDisabled: boolean;
+  onStartVehicleRecon: () => void;
   onLoadMore: () => void;
   onOpenSession: (
     session: StocktakeSessionSummary
@@ -91,12 +93,14 @@ export function StocktakeSessionCenter({
   onRefresh,
   onStartCycle,
   cycleStartDisabled,
+  vehicleStartDisabled,
+  onStartVehicleRecon,
   onLoadMore,
   onOpenSession,
 }: StocktakeSessionCenterProps) {
   return (
-    <section className="glass-card rounded-2xl border border-slate-200 overflow-hidden shrink-0">
-      <div className="px-4 py-3 flex items-center justify-between gap-3 bg-white/70">
+    <section className="glass-card inventory-data-panel rounded-2xl border border-slate-200 overflow-hidden shrink-0">
+      <div className="inventory-panel-toolbar px-4 py-3 flex items-center justify-between gap-3 bg-white/70">
         <div className="flex items-center gap-2">
           <ClipboardCheck className="w-4 h-4 text-[#1e87bb]" />
           <div>
@@ -112,6 +116,16 @@ export function StocktakeSessionCenter({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={vehicleStartDisabled}
+            onClick={onStartVehicleRecon}
+            className="px-3 py-2 rounded-lg bg-violet-600 text-white text-xs font-black"
+            title="تسوية عهدة سيارة مرتبطة بجلسة عمل منتهية"
+          >
+            + تسوية سيارة
+          </button>
+
           <button
             type="button"
             onClick={onStartCycle}

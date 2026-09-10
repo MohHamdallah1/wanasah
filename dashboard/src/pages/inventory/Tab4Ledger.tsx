@@ -1,7 +1,15 @@
+import { apiErrorMessage } from "@/lib/apiErrors";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { History, Search, ChevronRight, ChevronLeft, Eye, FileText, Package, RefreshCcw } from "lucide-react";
-import type { LedgerEntry } from "./inventoryUtils";
 import { getLedgerBadge, formatQty } from "./inventoryUtils";
+import {
+  buildLedgerAdjustmentPayload,
+  formatLedgerDate,
+  parseLedgerMutationResponse,
+  parseLedgerPage,
+  type LedgerEntry,
+} from "./ledger/contracts";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "sonner";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -9,18 +17,14 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 interface Props {
   locationId: number;
   refreshKey: number;
+  onInventoryChanged: () => void;
 }
 
-interface LedgerCursorPage {
-  items: LedgerEntry[];
-  next_cursor: string | null;
-  has_more: boolean;
-  total: number | null;
-  available_types: string[];
-}
+const PAGE_SIZE = 20;
 
-export function Tab4Ledger({ locationId, refreshKey }: Props) {
+export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
+  const access = useInventoryAccess(locationId);
 
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [search, setSearch] = useState("");
@@ -46,7 +50,9 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
   const requestSequence = useRef(0);
-  const PAGE_SIZE = 20;
+  const pageAbortRef = useRef<AbortController | null>(null);
+  const referenceRequestSequence = useRef(0);
+  const referenceAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -76,29 +82,39 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
 
   const loadPage = useCallback(async (cursor: string | null, targetPage: number) => {
     const sequence = ++requestSequence.current;
+    pageAbortRef.current?.abort();
+    const requestController = new AbortController();
+    pageAbortRef.current = requestController;
     setLoading(true);
 
     try {
-      const data = await authenticatedFetch(buildUrl(cursor)) as LedgerCursorPage;
+      const data = parseLedgerPage(await authenticatedFetch(
+        buildUrl(cursor),
+        { signal: requestController.signal },
+      ));
       if (sequence !== requestSequence.current) return;
-      if (!data || !Array.isArray(data.items)) throw new Error("استجابة سجل الحركات غير صالحة.");
 
       setEntries(data.items);
-      setNextCursor(data.next_cursor || null);
-      setHasMore(data.has_more === true);
+      setNextCursor(data.next_cursor);
+      setHasMore(data.has_more);
       setPageIndex(targetPage);
 
       if (typeof data.total === "number") setTotal(data.total);
-      if (Array.isArray(data.available_types) && data.available_types.length > 0) {
+      if (targetPage === 0) {
         setAvailableTypes(data.available_types);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (sequence !== requestSequence.current) return;
+      if (e instanceof Error && e.name === "AbortError") return;
       setEntries([]);
       setNextCursor(null);
       setHasMore(false);
-      toast.error(e?.message || "تعذر جلب سجل الحركات.");
+      setTotal(null);
+      toast.error(apiErrorMessage(e, "تعذر جلب سجل الحركات."));
     } finally {
+      if (pageAbortRef.current === requestController) {
+        pageAbortRef.current = null;
+      }
       if (sequence === requestSequence.current) setLoading(false);
     }
   }, [authenticatedFetch, buildUrl]);
@@ -117,6 +133,13 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
     resetAndLoad();
   }, [resetAndLoad, refreshKey]);
 
+  useEffect(() => () => {
+    requestSequence.current += 1;
+    referenceRequestSequence.current += 1;
+    pageAbortRef.current?.abort();
+    referenceAbortRef.current?.abort();
+  }, []);
+
   const goNext = () => {
     if (!hasMore || !nextCursor || loading) return;
     const target = pageIndex + 1;
@@ -134,16 +157,23 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
     void loadPage(cursorHistory[target] ?? null, target);
   };
 
-  const fetchAllByReference = useCallback(async (reference: string) => {
+  const fetchAllByReference = useCallback(async (reference: string, signal: AbortSignal) => {
     const all: LedgerEntry[] = [];
+    const movementIds = new Set<number>();
     let cursor: string | null = null;
 
     for (let page = 0; page < 50; page += 1) {
-      const data = await authenticatedFetch(
-        buildUrl(cursor, { exactReference: reference, pageSize: 200 })
-      ) as LedgerCursorPage;
+      const data = parseLedgerPage(await authenticatedFetch(
+        buildUrl(cursor, { exactReference: reference, pageSize: 200 }),
+        { signal },
+      ));
 
-      if (!data || !Array.isArray(data.items)) throw new Error("استجابة تفاصيل المرجع غير صالحة.");
+      for (const item of data.items) {
+        if (movementIds.has(item.id)) {
+          throw new Error("تفاصيل المرجع تحتوي حركة مكررة بين الصفحات.");
+        }
+        movementIds.add(item.id);
+      }
       all.push(...data.items);
 
       if (!data.has_more) return all;
@@ -155,24 +185,44 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
   }, [authenticatedFetch, buildUrl]);
 
   const openReference = async (reference: string) => {
+    const sequence = ++referenceRequestSequence.current;
+    referenceAbortRef.current?.abort();
+    const requestController = new AbortController();
+    referenceAbortRef.current = requestController;
     setSelectedReference(reference);
     setDeliveryNoteItems([]);
     setReferenceLoading(true);
     try {
-      setDeliveryNoteItems(await fetchAllByReference(reference));
-    } catch (e: any) {
-      toast.error(e?.message || "تعذر جلب تفاصيل المرجع.");
+      const items = await fetchAllByReference(reference, requestController.signal);
+      if (sequence !== referenceRequestSequence.current) return;
+      setDeliveryNoteItems(items);
+    } catch (e: unknown) {
+      if (sequence !== referenceRequestSequence.current) return;
+      if (e instanceof Error && e.name === "AbortError") return;
+      toast.error(apiErrorMessage(e, "تعذر جلب تفاصيل المرجع."));
       setSelectedReference(null);
     } finally {
-      setReferenceLoading(false);
+      if (referenceAbortRef.current === requestController) {
+        referenceAbortRef.current = null;
+      }
+      if (sequence === referenceRequestSequence.current) setReferenceLoading(false);
     }
   };
 
   const openAdjustment = async (entry: LedgerEntry) => {
+    if (!access.can('ledger.adjust')) {
+      toast.error('لا تملك صلاحية تصحيح التوريد في هذا المستودع.');
+      return;
+    }
     if (!entry.reference) return;
+    const sequence = ++referenceRequestSequence.current;
+    referenceAbortRef.current?.abort();
+    const requestController = new AbortController();
+    referenceAbortRef.current = requestController;
     setReferenceLoading(true);
     try {
-      const all = await fetchAllByReference(entry.reference);
+      const all = await fetchAllByReference(entry.reference, requestController.signal);
+      if (sequence !== referenceRequestSequence.current) return;
       const relevant = all.filter((movement) => (
         movement.product_variant_id === entry.product_variant_id
         && (movement.type === "INBOUND_SUPPLIER" || movement.type === "INBOUND_CORRECTION")
@@ -182,21 +232,35 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
       const safeNet = Math.max(0, net);
       setAdjustingEntry(entry);
       setNewQty({ cartons: Math.floor(safeNet / ppc), loose: safeNet % ppc });
-    } catch (e: any) {
-      toast.error(e?.message || "تعذر حساب صافي فاتورة التوريد.");
+    } catch (e: unknown) {
+      if (sequence !== referenceRequestSequence.current) return;
+      if (e instanceof Error && e.name === "AbortError") return;
+      toast.error(apiErrorMessage(e, "تعذر حساب صافي فاتورة التوريد."));
     } finally {
-      setReferenceLoading(false);
+      if (referenceAbortRef.current === requestController) {
+        referenceAbortRef.current = null;
+      }
+      if (sequence === referenceRequestSequence.current) setReferenceLoading(false);
     }
   };
 
+  const closeReference = () => {
+    referenceRequestSequence.current += 1;
+    referenceAbortRef.current?.abort();
+    referenceAbortRef.current = null;
+    setReferenceLoading(false);
+    setSelectedReference(null);
+    setDeliveryNoteItems([]);
+  };
+
   return (
-    <div className="flex flex-col h-full flex-1 min-h-0 pt-1">
-      <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm flex-1 min-h-0">
-        <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+    <div className="inventory-view inventory-ledger flex flex-col h-full flex-1 min-h-0 pt-1">
+      <div className="inventory-surface inventory-data-panel relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm flex-1 min-h-0">
+        <div className="inventory-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
           <History className="w-4 h-4" /> سجل الحركات {total !== null ? `(${total})` : ""}
         </div>
 
-        <div className="p-3 pt-5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-3 bg-slate-50 rounded-t-2xl">
+        <div className="inventory-panel-toolbar p-3 pt-5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-3 bg-slate-50 rounded-t-2xl">
           <button
             onClick={resetAndLoad}
             disabled={loading}
@@ -222,6 +286,7 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              maxLength={100}
               placeholder="ابحث (حرفان فأكثر)..."
               className="w-full rounded-xl border border-slate-200 bg-white pr-9 pl-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300 shadow-sm"
             />
@@ -260,9 +325,9 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
                   <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-lg text-[11px] font-black ${badge.bg} ${badge.text}`}>{badge.label}</span></td>
                     <td className="px-4 py-3 font-bold text-slate-800">{entry.product_name}</td>
-                    <td className="px-4 py-3 text-slate-500 font-semibold text-xs">{formatQty(entry.balance_before ?? 0, ppc)}</td>
+                    <td className="px-4 py-3 text-slate-500 font-semibold text-xs">{entry.balance_before === null ? "—" : formatQty(entry.balance_before, ppc)}</td>
                     <td className={`px-4 py-3 font-bold text-xs ${isNeg ? "text-red-600" : "text-emerald-600"}`}>{isNeg ? "-" : "+"}{formatQty(Math.abs(entry.quantity_packs), ppc)}</td>
-                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50">{formatQty(entry.balance_after ?? 0, ppc)}</td>
+                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50">{entry.balance_after === null ? "—" : formatQty(entry.balance_after, ppc)}</td>
                     <td className="px-4 py-3 text-slate-600 text-xs font-bold">{entry.admin_name || "—"}</td>
                     <td className="px-4 py-3">
                       {reference ? (
@@ -282,7 +347,7 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
                         ) : <span className="text-slate-300">—</span>}
                         {entry.type === "INBOUND_SUPPLIER" && reference && (
                           <button
-                            disabled={referenceLoading}
+                            disabled={referenceLoading || !access.can('ledger.adjust')}
                             onClick={() => { void openAdjustment(entry); }}
                             className="text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded-lg border border-purple-100 disabled:opacity-40"
                           >
@@ -292,7 +357,7 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-500 text-[11px] font-semibold whitespace-nowrap" dir="ltr">
-                      {entry.date ? new Date(entry.date.endsWith("Z") || entry.date.includes("+") ? entry.date : `${entry.date}Z`).toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                      {formatLedgerDate(entry.date)}
                     </td>
                   </tr>
                 );
@@ -318,7 +383,7 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
 
       <Modal
         isOpen={!!selectedReference}
-        onClose={() => { setSelectedReference(null); setDeliveryNoteItems([]); }}
+        onClose={closeReference}
         title={`وصل تسليم مجمع: ${selectedReference || ""}`}
         maxWidth="max-w-2xl"
       >
@@ -358,23 +423,24 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
               onClick={async () => {
                 if (!adjustingEntry) return;
                 const ppc = adjustingEntry.packs_per_carton || 1;
-                if (newQty.loose >= ppc) {
-                  toast.error(`عدد الحبات يجب أن يكون أقل من ${ppc}.`);
-                  return;
-                }
                 setAdjSubmitting(true);
                 try {
-                  const totalPacks = (newQty.cartons * ppc) + newQty.loose;
-                  await authenticatedFetch(`/warehouse/ledger/${adjustingEntry.id}/adjust`, {
+                  const payload = buildLedgerAdjustmentPayload(
+                    newQty.cartons,
+                    newQty.loose,
+                    ppc,
+                    adjPassword,
+                  );
+                  const response = parseLedgerMutationResponse(await authenticatedFetch(`/warehouse/ledger/${adjustingEntry.id}/adjust`, {
                     method: "POST",
-                    body: JSON.stringify({ password: adjPassword, new_total_packs: totalPacks }),
-                  });
-                  toast.success("تم تسجيل حركة التصحيح وتحديث المخزون بنجاح ✅");
+                    body: JSON.stringify(payload),
+                  }));
+                  toast.success(response.message);
                   setAdjustingEntry(null);
                   setAdjPassword("");
-                  resetAndLoad();
-                } catch (e: any) {
-                  toast.error(e?.message || "حدث خطأ أثناء التصحيح.");
+                  onInventoryChanged();
+                } catch (e: unknown) {
+                  toast.error(apiErrorMessage(e, "حدث خطأ أثناء التصحيح."));
                 } finally {
                   setAdjSubmitting(false);
                 }
@@ -394,11 +460,11 @@ export function Tab4Ledger({ locationId, refreshKey }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-black text-slate-600">الإجمالي الصحيح (كراتين)</label>
-              <input type="number" min={0} value={newQty.cartons} onChange={(e) => setNewQty((prev) => ({ ...prev, cartons: Math.max(0, parseInt(e.target.value) || 0) }))} className="w-full rounded-xl border-2 border-slate-100 p-2 text-center font-black outline-none" />
+              <input type="number" min={0} max={2147483647} step={1} value={newQty.cartons} onChange={(e) => setNewQty((prev) => ({ ...prev, cartons: Math.max(0, Number(e.target.value) || 0) }))} className="w-full rounded-xl border-2 border-slate-100 p-2 text-center font-black outline-none" />
             </div>
             <div>
               <label className="text-xs font-black text-slate-600">الإجمالي الصحيح (حبات)</label>
-              <input type="number" min={0} value={newQty.loose} onChange={(e) => setNewQty((prev) => ({ ...prev, loose: Math.max(0, parseInt(e.target.value) || 0) }))} className="w-full rounded-xl border-2 border-slate-100 p-2 text-center font-black outline-none" />
+              <input type="number" min={0} max={Math.max(0, (adjustingEntry?.packs_per_carton || 1) - 1)} step={1} value={newQty.loose} onChange={(e) => setNewQty((prev) => ({ ...prev, loose: Math.max(0, Number(e.target.value) || 0) }))} className="w-full rounded-xl border-2 border-slate-100 p-2 text-center font-black outline-none" />
             </div>
           </div>
           <div>

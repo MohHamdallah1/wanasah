@@ -54,6 +54,7 @@ export function PostponedRoutesModal({
                             ? route.driverId
                             : ""
                         }
+                        disabled={route.can_execute !== true}
                         onChange={(e) => onUpdateDriver(route.id, e.target.value)}
                         className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
                       >
@@ -74,8 +75,8 @@ export function PostponedRoutesModal({
                       <button 
                         onClick={() => onRestore(route.id)}
                         disabled={
-                          !route.sessionBound &&
-                          !drivers.some((driver) => driver.id === route.driverId)
+                          route.can_execute !== true || (!route.sessionBound &&
+                          !drivers.some((driver) => driver.id === route.driverId))
                         } 
                         className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       >

@@ -1,3 +1,4 @@
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -41,9 +42,10 @@ export function TransferTable({
   onPrevious,
   onNext,
 }: TransferTableProps) {
+  const access = useInventoryAccess(locationId);
   return (
     <>
-      <div className="glass-card rounded-2xl overflow-hidden min-h-0 flex-1">
+      <div className="glass-card inventory-data-panel rounded-2xl overflow-hidden min-h-0 flex-1">
         <div className="overflow-auto h-full">
           <table className="w-full text-sm text-right">
             <thead className="bg-slate-50 sticky top-0 z-10">
@@ -142,6 +144,7 @@ export function TransferTable({
                                 onOpenAction(transfer, "receive")
                               }
                               className="p-2 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+                              disabled={!access.can('transfer.receive')}
                               title="استلام"
                             >
                               <CheckCircle2 className="w-4 h-4" />
@@ -151,6 +154,7 @@ export function TransferTable({
                                 onOpenAction(transfer, "reject")
                               }
                               className="p-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                              disabled={!access.can('transfer.reject')}
                               title="رفض"
                             >
                               <XCircle className="w-4 h-4" />
@@ -164,7 +168,8 @@ export function TransferTable({
                               onOpenAction(transfer, "cancel")
                             }
                             className="p-2 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50"
-                            title="إلغاء"
+                            disabled={!access.can('transfer.cancel')}
+                              title="إلغاء"
                           >
                             <Ban className="w-4 h-4" />
                           </button>

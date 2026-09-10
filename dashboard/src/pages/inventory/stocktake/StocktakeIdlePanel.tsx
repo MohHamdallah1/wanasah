@@ -20,10 +20,12 @@ export function StocktakeIdlePanel({
         </p>
       </div>
 
-      <div
+      <button
+        type="button"
         className="relative w-80 h-48 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(245,158,11,0.2)] group cursor-pointer p-[3px] bg-slate-800"
         dir="ltr"
         onClick={onStart}
+        aria-label="إغلاق المستودع وبدء الجرد الشامل"
       >
         <div
           className="absolute inset-[-150%] opacity-80 animate-spin pointer-events-none"
@@ -70,7 +72,7 @@ export function StocktakeIdlePanel({
             <div className="absolute top-1/2 -translate-y-1/2 left-3 w-2 h-14 bg-slate-400 rounded-full shadow-inner border border-slate-300" />
           </div>
         </div>
-      </div>
+      </button>
 
       <p className="mt-8 text-xs text-slate-400 font-bold flex items-center gap-1.5">
         <ShieldCheck className="w-3.5 h-3.5" />

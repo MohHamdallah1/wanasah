@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 // Data structures matching FastAPI backend exactly
 
 export interface Session {
@@ -43,6 +45,79 @@ export interface SettlementReport {
   inventory: InventoryItem[];
 }
 
+export const SESSION_STATUS = {
+  ACTIVE: "في الطريق",
+  ON_BREAK: "استراحة",
+  AWAITING_INVENTORY_RECONCILIATION: "مغلقة بانتظار التسوية المخزنية",
+  AWAITING_FINANCIAL_SETTLEMENT: "تمت التسوية المخزنية بانتظار المالية",
+  SETTLED: "تمت التسوية",
+  OFFLINE: "غير متصل",
+} as const;
+
+export const FINANCIAL_SETTLEMENT_READY_STATUS =
+  SESSION_STATUS.AWAITING_FINANCIAL_SETTLEMENT;
+
+export interface SettlementSampleItem {
+  shop_name: string;
+  product_name: string;
+  sample_quantity_cartons: number;
+  sample_quantity_packs: number;
+  reason: string | null;
+}
+
+export interface SessionSettlementReport extends SettlementReport {
+  session_date: string | null;
+  samples_given: SettlementSampleItem[];
+}
+
+const inventoryItemSchema = z.object({
+  product_id: z.number().int().positive(),
+  product_name: z.string(),
+  starting_quantity: z.number().int(),
+  sold_quantity: z.number().int(),
+  remaining_quantity: z.number().int(),
+  packs_per_carton: z.number().int().positive(),
+  starting_cartons: z.number().int(),
+  starting_loose_packs: z.number().int(),
+  sold_cartons: z.number().int(),
+  sold_loose_packs: z.number().int(),
+  remaining_cartons: z.number().int(),
+  remaining_loose_packs: z.number().int(),
+});
+
+const sessionSettlementReportSchema = z.object({
+  driver_name: z.string(),
+  session_date: z.string().nullable(),
+  status: z.string(),
+  financials: z.object({
+    expected_cash_in_hand: z.string(),
+    cash_from_sales: z.string(),
+    cash_from_debts: z.string(),
+    inventory_shortage_cash: z.string(),
+  }),
+  visits: z.object({
+    completed_total: z.number().int().nonnegative(),
+    successful_sales: z.number().int().nonnegative(),
+    pending_remaining: z.number().int().nonnegative(),
+  }),
+  inventory: z.array(inventoryItemSchema),
+  samples_given: z.array(z.object({
+    shop_name: z.string(),
+    product_name: z.string(),
+    sample_quantity_cartons: z.number().int().nonnegative(),
+    sample_quantity_packs: z.number().int().nonnegative(),
+    reason: z.string().nullable(),
+  })),
+});
+
+export function parseSessionSettlementReport(raw: unknown): SessionSettlementReport {
+  const result = sessionSettlementReportSchema.safeParse(raw);
+  if (!result.success) {
+    throw new Error("استجابة تقرير التسوية لا تطابق عقد الخادم.");
+  }
+  return result.data as SessionSettlementReport;
+}
+
 export interface DriverData {
   session: Session;
   settlement: SettlementReport;
@@ -69,8 +144,12 @@ export function getFleetStats(drivers: DriverData[]) {
   
   const completedVisits = drivers.reduce((s, d) => s + d.settlement.visits.completed_total, 0);
   const pendingVisits = drivers.reduce((s, d) => s + d.settlement.visits.pending_remaining, 0);
-  const activeDrivers = drivers.filter((d) => d.settlement.status !== "غير متصل" && d.settlement.status !== "مغلقة بانتظار التسوية" && !d.session.is_on_break).length;
-  const onBreakDrivers = drivers.filter((d) => d.settlement.status !== "غير متصل" && d.session.is_on_break).length;
+  const activeDrivers = drivers.filter(
+    (d) => d.settlement.status === SESSION_STATUS.ACTIVE && !d.session.is_on_break
+  ).length;
+  const onBreakDrivers = drivers.filter(
+    (d) => d.settlement.status === SESSION_STATUS.ON_BREAK || d.session.is_on_break
+  ).length;
 
   return {
     totalCash,

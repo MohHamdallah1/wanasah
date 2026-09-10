@@ -1,14 +1,21 @@
+import type { Session, SettlementReport, InventoryItem } from "@/data/operations-data";
 import { CheckCircle } from "lucide-react";
 
 interface HeroSettlementProps {
-  driver: any | null; 
+  driver: {
+    session?: Partial<Session>;
+    settlement?: Omit<Partial<SettlementReport>, 'financials' | 'inventory'> & {
+      financials?: Partial<SettlementReport['financials']>;
+      inventory?: Array<Partial<InventoryItem> & {current_remaining_quantity?: number}>;
+    };
+  } | null;
 }
 
 export function HeroSettlement({ driver }: HeroSettlementProps) {
   if (!driver) return null;
 
   const GLOBAL_CURRENCY = "د.أ";
-  const formatMoney = (val: number | string) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
+  const formatMoney = (val: number | string | undefined) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
 
   // الاستخراج الآمن للبيانات لتجنب أخطاء Undefined
   const s = driver.session || {};
@@ -19,7 +26,7 @@ export function HeroSettlement({ driver }: HeroSettlementProps) {
   const driverName = s.driver_name || st.driver_name || "غير معروف";
 
   return (
-    <div className="bg-white rounded-3xl shadow-xl border border-slate-100 p-6 md:p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-300">
+    <div className="operations-settlement-hero bg-white rounded-3xl shadow-xl border border-slate-100 p-6 md:p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-300">
       
       {/* Driver info */}
       <div className="flex items-center gap-4">
@@ -64,7 +71,7 @@ export function HeroSettlement({ driver }: HeroSettlementProps) {
           <p className="text-sm text-slate-500 text-center py-4 bg-slate-50 rounded-xl border border-slate-100 font-medium">لا يوجد بضاعة محملة</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto custom-scrollbar pr-2">
-            {inventory.map((item: any, idx: number) => {
+            {inventory.map((item, idx) => {
               const ppc = item.packs_per_carton || 1;
               const soldCartons = Math.floor((item.sold_quantity || 0) / ppc);
               const soldLoose = (item.sold_quantity || 0) % ppc;

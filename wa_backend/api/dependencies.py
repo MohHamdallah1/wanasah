@@ -7,6 +7,7 @@ from database import get_db, tenant_context
 from models import Driver, TokenBlacklist
 from sqlalchemy.future import select
 from sqlalchemy import text
+from token_identity import access_token_identity
 
 security = HTTPBearer()
 
@@ -21,14 +22,10 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
             algorithms=["HS256"], 
             options={"require": ["exp"]} 
         )
-        driver_id = payload.get("sub")
-        company_id = payload.get("company_id") # +++ استخراج الهوية +++
-        
-        if driver_id is None or company_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token structure")
-            
-        # +++ زرع هوية الشركة في السياق (Context) لفتح بوابة الـ RLS قبل أي استعلام +++
-        tenant_context.set(int(company_id))
+        driver_id_int, comp_id_int = access_token_identity(payload)
+        tenant_context.set(comp_id_int)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Token payload is invalid")
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token is invalid or expired")
     except jwt.PyJWTError:
@@ -41,13 +38,6 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
         if is_blacklisted:
             raise HTTPException(status_code=401, detail="مرفوض أمنياً: تم تسجيل الخروج مسبقاً (التوكن محروق).")
 
-        # الدرع الفولاذي: استعلام واحد فقط (O(1)) لمنع إرهاق قاعدة البيانات
-        try:
-            driver_id_int = int(driver_id)
-            comp_id_int = int(company_id)
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=401, detail="Token payload is invalid")
-            
         # +++ زرع هوية المستأجر مباشرة على الاتصال الحي المسحوب من الـ Pool قبل أي استعلام +++
         await db.execute(text("SELECT set_config('app.current_tenant', :c, false)"), {"c": str(comp_id_int)})
 

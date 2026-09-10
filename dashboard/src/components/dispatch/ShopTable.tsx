@@ -42,7 +42,7 @@ export function ShopTable({
   }, [zones]);
   
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="dispatch-shop-table flex-1 overflow-y-auto">
       <table className="w-full text-sm">
         <thead className="sticky top-0 bg-white shadow-sm z-10">
           <tr className="text-slate-400 text-[10px] uppercase border-b border-slate-100">

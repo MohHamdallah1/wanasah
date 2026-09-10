@@ -102,8 +102,12 @@ class Permission(Base):
     code = Column(String(100), unique=True, nullable=False)
 
 role_permissions = Table('role_permissions', Base.metadata,
-    Column('role_id', Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
-    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True)
+    Column('company_id', Integer, nullable=False),
+    Column('role_id', Integer, primary_key=True),
+    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True),
+    ForeignKeyConstraint(['company_id', 'role_id'], ['roles.company_id', 'roles.id'],
+                         ondelete='CASCADE', name='fk_role_permissions_tenant_role'),
+    Index('ix_role_permissions_company_role', 'company_id', 'role_id'),
 )
 
 

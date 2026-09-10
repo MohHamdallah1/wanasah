@@ -7,10 +7,13 @@ import type {
   ReviewAttempt,
   ReviewLine,
   StocktakeReview,
+  StocktakeSessionContext,
   StocktakeSessionCursorPage,
   StocktakeSessionSummary,
   StocktakeStatus,
   StocktakeType,
+  VehicleReconCandidate,
+  VehicleReconCandidateCursorPage,
 } from "./types";
 import type { StocktakeStockStatus } from "../inventoryUtils";
 
@@ -173,6 +176,153 @@ export const parseCycleBatchPage = (
     next_cursor: typeof raw.next_cursor === "string" ? raw.next_cursor : null,
     has_more: raw.has_more,
     total: raw.total === null || raw.total === undefined ? null : nonNegativeInt(raw.total, "batch.total"),
+  };
+};
+
+export const parseStocktakeSessionContext = (
+  raw: unknown,
+  expectedAnchorLocationId: number
+): StocktakeSessionContext => {
+  if (!isRecord(raw)) {
+    throw new Error("استجابة سياق جلسة الجرد غير صالحة.");
+  }
+
+  const sourceLocationId = positiveInt(
+    raw.source_location_id,
+    "context.source_location_id"
+  );
+  if (sourceLocationId !== expectedAnchorLocationId) {
+    throw new Error(
+      "مرفوض: جلسة الجرد لا تتبع المستودع المحدد."
+    );
+  }
+
+  return {
+    session_id: positiveInt(
+      raw.session_id,
+      "context.session_id"
+    ),
+    stocktake_type: parseStocktakeType(
+      raw.stocktake_type
+    ),
+    status: parseStocktakeStatus(raw.status),
+    location_id: positiveInt(
+      raw.location_id,
+      "context.location_id"
+    ),
+    related_work_session_id: optionalPositiveInt(
+      raw.related_work_session_id
+    ),
+    source_location_id: sourceLocationId,
+  };
+};
+
+export const parseVehicleReconCandidatePage = (
+  raw: unknown
+): VehicleReconCandidateCursorPage => {
+  if (
+    !isRecord(raw) ||
+    !Array.isArray(raw.items) ||
+    typeof raw.has_more !== "boolean"
+  ) {
+    throw new Error(
+      "استجابة جلسات تسوية السيارات غير صالحة."
+    );
+  }
+
+  const items: VehicleReconCandidate[] =
+    raw.items.map((item, index) => {
+      if (!isRecord(item)) {
+        throw new Error(
+          `جلسة تسوية السيارة #${index + 1} غير صالحة.`
+        );
+      }
+
+      const existingStatus =
+        item.existing_stocktake_status === null ||
+        item.existing_stocktake_status === undefined
+          ? null
+          : parseStocktakeStatus(
+              item.existing_stocktake_status
+            );
+
+      return {
+        work_session_id: positiveInt(
+          item.work_session_id,
+          "vehicle_recon.work_session_id"
+        ),
+        driver_id: positiveInt(
+          item.driver_id,
+          "vehicle_recon.driver_id"
+        ),
+        driver_name: requiredString(
+          item.driver_name,
+          "vehicle_recon.driver_name"
+        ),
+        session_date: requiredString(
+          item.session_date,
+          "vehicle_recon.session_date"
+        ),
+        end_time: requiredString(
+          item.end_time,
+          "vehicle_recon.end_time"
+        ),
+        vehicle_id: positiveInt(
+          item.vehicle_id,
+          "vehicle_recon.vehicle_id"
+        ),
+        vehicle_location_id: positiveInt(
+          item.vehicle_location_id,
+          "vehicle_recon.vehicle_location_id"
+        ),
+        vehicle_location_name: requiredString(
+          item.vehicle_location_name,
+          "vehicle_recon.vehicle_location_name"
+        ),
+        vehicle_location_code: requiredString(
+          item.vehicle_location_code,
+          "vehicle_recon.vehicle_location_code"
+        ),
+        existing_stocktake_session_id:
+          optionalPositiveInt(
+            item.existing_stocktake_session_id
+          ),
+        existing_stocktake_reference:
+          optionalString(
+            item.existing_stocktake_reference
+          ),
+        existing_stocktake_status:
+          existingStatus,
+      };
+    });
+
+  for (const item of items) {
+    const hasId =
+      item.existing_stocktake_session_id !== null;
+    const hasStatus =
+      item.existing_stocktake_status !== null;
+
+    if (hasId !== hasStatus) {
+      throw new Error(
+        "استجابة VEHICLE_RECON غير متسقة: معرّف الجرد وحالته يجب أن يظهرا معاً."
+      );
+    }
+  }
+
+  return {
+    items,
+    next_cursor:
+      typeof raw.next_cursor === "string"
+        ? raw.next_cursor
+        : null,
+    has_more: raw.has_more,
+    total:
+      raw.total === null || raw.total === undefined
+        ? null
+        : nonNegativeInt(
+            raw.total,
+            "vehicle_recon.total"
+          ),
   };
 };
 

@@ -16,6 +16,7 @@ import {
 interface UseStocktakeActionsArgs {
   authenticatedFetch: StocktakeAuthFetch;
   sessionId: string | null;
+  sessionLocationId: number | null;
   review: StocktakeReview | null;
   draftKey: string | null;
   sessionKey: string;
@@ -23,14 +24,19 @@ interface UseStocktakeActionsArgs {
   setRows: Dispatch<SetStateAction<StocktakeRow[]>>;
   setReview: Dispatch<SetStateAction<StocktakeReview | null>>;
   setSessionId: Dispatch<SetStateAction<string | null>>;
+  setSessionLocationId: Dispatch<SetStateAction<number | null>>;
   setPhase: Dispatch<SetStateAction<StocktakePhase>>;
-  loadCountSheet: (sessionId: string) => Promise<void>;
+  loadCountSheet: (
+    sessionId: string,
+    sessionLocationId?: number
+  ) => Promise<void>;
   notifyStocktakeChanged: () => Promise<void>;
 }
 
 export function useStocktakeActions({
   authenticatedFetch,
   sessionId,
+  sessionLocationId,
   review,
   draftKey,
   sessionKey,
@@ -38,6 +44,7 @@ export function useStocktakeActions({
   setRows,
   setReview,
   setSessionId,
+  setSessionLocationId,
   setPhase,
   loadCountSheet,
   notifyStocktakeChanged,
@@ -58,6 +65,18 @@ export function useStocktakeActions({
     useState("");
   const [actionBusy, setActionBusy] =
     useState(false);
+
+  const clearSelectedSession = useCallback(() => {
+    setReview(null);
+    setRows([]);
+    setSessionId(null);
+    setSessionLocationId(null);
+  }, [
+    setReview,
+    setRows,
+    setSessionId,
+    setSessionLocationId,
+  ]);
 
   const handleApprove = useCallback(async () => {
     if (!sessionId) return false;
@@ -100,9 +119,7 @@ export function useStocktakeActions({
 
       setApprovePassword("");
       setApproveNotes("");
-      setReview(null);
-      setRows([]);
-      setSessionId(null);
+      clearSelectedSession();
 
       await notifyStocktakeChanged();
 
@@ -126,15 +143,13 @@ export function useStocktakeActions({
     approveNotes,
     approvePassword,
     authenticatedFetch,
+    clearSelectedSession,
     draftKey,
     notifyStocktakeChanged,
     phaseKey,
     review,
     sessionId,
     sessionKey,
-    setReview,
-    setRows,
-    setSessionId,
   ]);
 
   const handleRecount = useCallback(async () => {
@@ -143,6 +158,13 @@ export function useStocktakeActions({
     if (!review) {
       toast.error(
         "مراجعة الجرد الحالية غير موجودة."
+      );
+      return null;
+    }
+
+    if (!sessionLocationId) {
+      toast.error(
+        "موقع جلسة الجرد الحالية غير معروف."
       );
       return null;
     }
@@ -207,7 +229,10 @@ export function useStocktakeActions({
         return "WAITING_INDEPENDENT" as const;
       }
 
-      await loadCountSheet(sessionId);
+      await loadCountSheet(
+        sessionId,
+        sessionLocationId
+      );
       toast.success(
         "تم تفويض Recount جديد. المحاولة السابقة محفوظة بالكامل."
       );
@@ -233,6 +258,7 @@ export function useStocktakeActions({
     recountReason,
     review,
     sessionId,
+    sessionLocationId,
     setPhase,
     setReview,
     setRows,
@@ -277,9 +303,7 @@ export function useStocktakeActions({
 
       setCancelReason("");
       setCancelPassword("");
-      setReview(null);
-      setRows([]);
-      setSessionId(null);
+      clearSelectedSession();
 
       await notifyStocktakeChanged();
 
@@ -303,14 +327,12 @@ export function useStocktakeActions({
     authenticatedFetch,
     cancelPassword,
     cancelReason,
+    clearSelectedSession,
     draftKey,
     notifyStocktakeChanged,
     phaseKey,
     sessionId,
     sessionKey,
-    setReview,
-    setRows,
-    setSessionId,
   ]);
 
   return {

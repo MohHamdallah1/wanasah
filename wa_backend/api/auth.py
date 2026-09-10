@@ -8,6 +8,8 @@ from models import Driver, SystemAuditLog, TokenBlacklist, RefreshToken, utc_now
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 security = HTTPBearer()
 from schemas import LoginRequest, LoginResponse
+from inventory_access import InventoryAccess, PERMISSIONS
+from api.inventory_permissions import router as inventory_permissions_router
 import jwt
 from datetime import datetime, timedelta, timezone
 from config import Config
@@ -19,6 +21,7 @@ import uuid
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter(tags=["Authentication"])
+router.include_router(inventory_permissions_router)
 
 # +++  (A-02): هاش ثابت مسبق الحساب لمنع إرهاق الـ CPU وبطء السيرفر عند كل إعادة تشغيل +++
 DUMMY_PASSWORD_HASH = "$2b$12$C.O1Tz2R8o7Vq78UoA61ueh3b7Qz7t0V1H1t.zU0TzO1Q0xO7Qz.O"
@@ -155,7 +158,7 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
     stmt = select(Driver).filter_by(username=payload.username, company_id=comp_id, is_active=True)
     admin = (await db.execute(stmt)).scalar_one_or_none()
 
-    is_valid_admin = admin is not None and admin.is_admin
+    is_valid_admin = admin is not None
     hash_to_check = admin.password_hash if is_valid_admin else DUMMY_PASSWORD_HASH
     
     pwd_bytes = payload.password.encode('utf-8')
@@ -168,8 +171,14 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
         await db.commit()
         raise HTTPException(status_code=401, detail="البيانات غير صحيحة، أو الحساب غير مصرح له")
 
+    access = InventoryAccess(db, admin)
+    if not await db.scalar(select(access.allows(PERMISSIONS, any_location=True))):
+        queue_login_attempt(ip, payload, False, db)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="البيانات غير صحيحة، أو الحساب غير مصرح له")
+
     queue_login_attempt(ip, payload, True, db)
-    access_token = create_access_token({"sub": str(admin.id), "is_admin": admin.is_admin, "username": admin.username}, company_id=comp_id, role_name="Admin")
+    access_token = create_access_token({"sub": str(admin.id), "is_admin": admin.is_admin, "username": admin.username}, company_id=comp_id, role_name="Admin" if admin.is_admin else "Inventory")
     refresh_token = create_refresh_token({"sub": str(admin.id)}, company_id=comp_id)
     
     db.add(RefreshToken(token=refresh_token, driver_id=admin.id, expires_at=utc_now() + timedelta(days=30)))
@@ -182,6 +191,7 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
         "driver_id": admin.id,
         "driver_name": admin.full_name,
         "is_admin": admin.is_admin,
+        "dashboard_access": True,
         "company_id": comp_id, # +++ تسليم الهوية للداشبورد +++
         "company_code": payload.company_code
     }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { toast } from "sonner";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import {
@@ -100,6 +101,15 @@ export function useTransferCreate({
       ? counterpartLocationId
       : locationId;
 
+  const selectedAccess = useInventoryAccess(locationId);
+  const sourceAccess = useInventoryAccess(sourceLocationId);
+  const destinationAccess = useInventoryAccess(destinationLocationId);
+  const canOutgoing = selectedAccess.can('transfer.send');
+  const canIncoming = selectedAccess.can('transfer.destination') && selectedAccess.canAny('transfer.send');
+  const canSubmit = sourceLocationId !== null && destinationLocationId !== null &&
+    sourceAccess.can('transfer.send') && destinationAccess.can('transfer.destination');
+  const canOverride = sourceLocationId !== null && sourceAccess.can('inventory.fefo_override');
+
   const resetCreateRequestId = () => {
     setCreateRequestId(crypto.randomUUID());
   };
@@ -126,7 +136,9 @@ export function useTransferCreate({
   }, []);
 
   const openCreate = () => {
+    if (!canOutgoing && !canIncoming) return;
     resetCreateForm();
+    setCreateDirection(canOutgoing ? "outgoing" : "incoming");
     setCreateOpen(true);
   };
 
@@ -137,7 +149,7 @@ export function useTransferCreate({
     setTransferLocationsLoading(true);
 
     try {
-      const params = new URLSearchParams({ limit: "50" });
+      const params = new URLSearchParams({ limit: "50", purpose: createDirection === "outgoing" ? "destination" : "source" });
       if (transferLocationSearch) {
         params.set("search", transferLocationSearch);
       }
@@ -171,6 +183,7 @@ export function useTransferCreate({
   }, [
     authenticatedFetch,
     createOpen,
+    createDirection,
     locationId,
     transferLocationSearch,
   ]);
@@ -427,6 +440,7 @@ export function useTransferCreate({
     }
 
     if (mode === "override") {
+      if (!canOverride) return;
       const options = await loadOverrideOptions(
         current.product_variant_id
       );
@@ -603,7 +617,9 @@ export function useTransferCreate({
   };
 
   const updateCreateDirection = (value: string) => {
-    if (value === "outgoing" || value === "incoming") {
+    if ((value === "outgoing" && canOutgoing) || (value === "incoming" && canIncoming)) {
+      setTransferLocations([]);
+      transferLocationsRequestSeq.current += 1;
       setCreateDirection(value);
       setCounterpartLocationId(null);
       resetCreateRequestId();
@@ -636,6 +652,10 @@ export function useTransferCreate({
   };
 
   const handleDispatchTransfer = async () => {
+    if (!canSubmit || (draftItems.some(item => item.fefo_mode === 'override') && !canOverride)) {
+      toast.error('لا تملك صلاحيات الحوالة على المصدر والوجهة.');
+      return;
+    }
     if (
       sourceLocationId === null ||
       destinationLocationId === null
@@ -825,6 +845,7 @@ export function useTransferCreate({
   };
 
   return {
+    canOutgoing, canIncoming, canSubmit, canOverride,
     createOpen,
     createDirection,
     transferLocations,

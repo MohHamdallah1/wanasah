@@ -1,92 +1,37 @@
+import { parseCatalogPage, parseCatalogItems } from "./catalogParsers";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { useState, useEffect, useRef } from "react";
 import { FilePlus, Search, Eraser, Plus, Trash2, ChevronRight, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { QuantityInput } from "@/components/ui/quantity-input";
-import type { SimpleProductVariant } from "./inventoryUtils";
-import { toTotalPacks } from "./inventoryUtils";
+import type { SimpleProductVariant } from "./catalog/contracts";
 import { Modal } from "@/components/ui/modal";
+import {
+  buildInboundItems,
+  emptyInboundBatch,
+  inboundProductIds,
+  inboundStorageKeys,
+  parseInboundDraftProducts,
+  parseInboundDrafts,
+  parseInboundResponse,
+} from "./inbound/contracts";
+import type { DraftProductMap, InboundBatchDraft, InboundDraftMap } from "./inbound/contracts";
 
 interface Props {
+  companyId: number;
+  actorId: number;
   locationId: number;
-  authenticatedFetch: (url: string, opts?: RequestInit) => Promise<any>;
+  isAuditLocked: boolean;
+  authenticatedFetch: (url: string, opts?: RequestInit) => Promise<unknown>;
   onSuccess: () => void | Promise<void>;
 }
 
-interface InboundBatchDraft {
-  row_id: string;
-  cartons: number;
-  loose_packs: number;
-  batch_number: string;
-  production_date: string;
-  expiry_date: string;
-}
-
-type InboundDraftMap = Record<string, InboundBatchDraft[]>;
-
-type DraftProductMap = Record<string, SimpleProductVariant>;
-
-function loadDraftProducts(): DraftProductMap {
-  const saved = localStorage.getItem("inbound_draft_products_v3");
-  if (!saved) return {};
-  try {
-    const parsed = JSON.parse(saved);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as DraftProductMap;
-    }
-  } catch {
-    localStorage.removeItem("inbound_draft_products_v3");
-  }
-  return {};
-}
-
-const emptyBatch = (rowId: string): InboundBatchDraft => ({
-  row_id: rowId,
-  cartons: 0,
-  loose_packs: 0,
-  batch_number: "",
-  production_date: "",
-  expiry_date: "",
-});
-
 const freshRowId = () => crypto.randomUUID();
 
-function loadDrafts(): InboundDraftMap {
-  const saved = localStorage.getItem("inbound_batch_drafts_v2");
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as InboundDraftMap;
-      }
-    } catch {
-      localStorage.removeItem("inbound_batch_drafts_v2");
-    }
-  }
-
-  // One-time migration of the old quantity-only draft. Batch metadata remains blank
-  // and must be completed explicitly before submission.
-  const legacy = localStorage.getItem("inbound_draft_quantities");
-  if (!legacy) return {};
-
-  try {
-    const parsed = JSON.parse(legacy) as Record<string, { cartons?: number; loose_packs?: number }>;
-    const migrated: InboundDraftMap = {};
-    for (const [productId, qty] of Object.entries(parsed || {})) {
-      migrated[productId] = [{
-        ...emptyBatch(`base-${productId}`),
-        cartons: Math.max(0, Number(qty?.cartons) || 0),
-        loose_packs: Math.max(0, Number(qty?.loose_packs) || 0),
-      }];
-    }
-    return migrated;
-  } catch {
-    return {};
-  }
-}
-
-export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props) {
-  const [drafts, setDrafts] = useState<InboundDraftMap>(() => loadDrafts());
-  const [draftProducts, setDraftProducts] = useState<DraftProductMap>(() => loadDraftProducts());
+export function Tab2Inbound({ companyId, actorId, locationId, isAuditLocked, authenticatedFetch, onSuccess }: Props) {
+  const storageKeys = inboundStorageKeys(companyId, actorId, locationId);
+  const [drafts, setDrafts] = useState<InboundDraftMap>(() => parseInboundDrafts(localStorage.getItem(storageKeys.drafts)));
+  const [draftProducts, setDraftProducts] = useState<DraftProductMap>(() => parseInboundDraftProducts(localStorage.getItem(storageKeys.products)));
   const [catalogItems, setCatalogItems] = useState<SimpleProductVariant[]>([]);
   const [catalogSearchInput, setCatalogSearchInput] = useState("");
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -96,22 +41,24 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
   const [catalogTotal, setCatalogTotal] = useState<number | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const catalogRequestSeq = useRef(0);
+  const catalogAbortRef = useRef<AbortController | null>(null);
+  const draftResolveAbortRef = useRef<AbortController | null>(null);
 
-  const [referenceId, setReferenceId] = useState(() => localStorage.getItem("inbound_draft_ref") || "");
-  const [notes, setNotes] = useState(() => localStorage.getItem("inbound_draft_notes") || "");
+  const [referenceId, setReferenceId] = useState(() => localStorage.getItem(storageKeys.reference) || "");
+  const [notes, setNotes] = useState(() => localStorage.getItem(storageKeys.notes) || "");
   const [submitting, setSubmitting] = useState(false);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem("inbound_batch_drafts_v2", JSON.stringify(drafts));
-  }, [drafts]);
+    localStorage.setItem(storageKeys.drafts, JSON.stringify(drafts));
+  }, [drafts, storageKeys.drafts]);
 
   useEffect(() => {
-    localStorage.setItem("inbound_draft_products_v3", JSON.stringify(draftProducts));
-  }, [draftProducts]);
+    localStorage.setItem(storageKeys.products, JSON.stringify(draftProducts));
+  }, [draftProducts, storageKeys.products]);
 
-  useEffect(() => { localStorage.setItem("inbound_draft_ref", referenceId); }, [referenceId]);
-  useEffect(() => { localStorage.setItem("inbound_draft_notes", notes); }, [notes]);
+  useEffect(() => { localStorage.setItem(storageKeys.reference, referenceId); }, [referenceId, storageKeys.reference]);
+  useEffect(() => { localStorage.setItem(storageKeys.notes, notes); }, [notes, storageKeys.notes]);
 
   useEffect(() => {
     const handler = window.setTimeout(() => {
@@ -124,8 +71,10 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
   }, [catalogSearchInput]);
 
   useEffect(() => {
-    let alive = true;
     const requestId = ++catalogRequestSeq.current;
+    catalogAbortRef.current?.abort();
+    const requestController = new AbortController();
+    catalogAbortRef.current = requestController;
 
     const fetchCatalog = async () => {
       setCatalogLoading(true);
@@ -136,27 +85,29 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
         if (catalogCursor) params.set("cursor", catalogCursor);
         if (catalogSearch) params.set("search", catalogSearch);
 
-        const data = await authenticatedFetch(
-          `/product_variants/simple/cursor?${params.toString()}`
-        );
+        const data = parseCatalogPage(await authenticatedFetch(
+          `/product_variants/simple/cursor?${params.toString()}`,
+          { signal: requestController.signal },
+        ));
 
-        if (!alive || requestId !== catalogRequestSeq.current) return;
-        if (!data || !Array.isArray(data.items)) {
-          throw new Error("تنسيق كتالوج المنتجات غير صالح.");
-        }
+        if (requestId !== catalogRequestSeq.current) return;
 
         setCatalogItems(data.items);
-        setCatalogNextCursor(data.next_cursor || null);
+        setCatalogNextCursor(data.next_cursor);
         if (typeof data.total === "number") {
           setCatalogTotal(data.total);
         }
-      } catch (e: any) {
-        if (!alive || requestId !== catalogRequestSeq.current) return;
+      } catch (e: unknown) {
+        if (requestId !== catalogRequestSeq.current) return;
+        if (e instanceof Error && e.name === "AbortError") return;
         setCatalogItems([]);
         setCatalogNextCursor(null);
-        toast.error(e?.message || "فشل جلب كتالوج المنتجات.");
+        toast.error(apiErrorMessage(e, "فشل جلب كتالوج المنتجات."));
       } finally {
-        if (alive && requestId === catalogRequestSeq.current) {
+        if (catalogAbortRef.current === requestController) {
+          catalogAbortRef.current = null;
+        }
+        if (requestId === catalogRequestSeq.current) {
           setCatalogLoading(false);
         }
       }
@@ -164,7 +115,8 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
 
     fetchCatalog();
     return () => {
-      alive = false;
+      catalogRequestSeq.current += 1;
+      requestController.abort();
     };
   }, [authenticatedFetch, catalogCursor, catalogSearch]);
 
@@ -178,16 +130,20 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
 
     if (missingIds.length === 0) return;
 
-    let cancelled = false;
+    draftResolveAbortRef.current?.abort();
+    const requestController = new AbortController();
+    draftResolveAbortRef.current = requestController;
     authenticatedFetch("/product_variants/simple/resolve", {
       method: "POST",
+      signal: requestController.signal,
       body: JSON.stringify({ ids: missingIds }),
     })
-      .then((items) => {
-        if (cancelled || !Array.isArray(items)) return;
+      .then((rawItems) => {
+        const items = parseCatalogItems(rawItems);
+        if (requestController.signal.aborted) return;
         setDraftProducts((prev) => {
           const next = { ...prev };
-          for (const item of items as SimpleProductVariant[]) {
+          for (const item of items) {
             next[String(item.id)] = item;
           }
           return next;
@@ -199,14 +155,14 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
           );
         }
       })
-      .catch((e: any) => {
-        if (!cancelled) {
-          toast.error(e?.message || "تعذر استعادة بيانات مسودة التوريد القديمة.");
+      .catch((e: unknown) => {
+        if (!(e instanceof Error && e.name === "AbortError") && !requestController.signal.aborted) {
+          toast.error(apiErrorMessage(e, "تعذر استعادة بيانات مسودة التوريد القديمة."));
         }
       });
 
     return () => {
-      cancelled = true;
+      requestController.abort();
     };
   }, [authenticatedFetch, drafts, draftProducts]);
 
@@ -237,11 +193,11 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
     setDrafts((prev) => {
       const rows = prev[productId]?.length
         ? [...prev[productId]]
-        : [emptyBatch(rowId)];
+        : [emptyInboundBatch(rowId)];
       const index = rows.findIndex((row) => row.row_id === rowId);
 
       if (index === -1) {
-        rows.push({ ...emptyBatch(rowId), ...patch });
+        rows.push({ ...emptyInboundBatch(rowId), ...patch });
       } else {
         rows[index] = { ...rows[index], ...patch };
       }
@@ -257,8 +213,8 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
     setDrafts((prev) => {
       const rows = prev[productId]?.length
         ? [...prev[productId]]
-        : [emptyBatch(`base-${productId}`)];
-      rows.push(emptyBatch(freshRowId()));
+        : [emptyInboundBatch(`base-${productId}`)];
+      rows.push(emptyInboundBatch(freshRowId()));
       return { ...prev, [productId]: rows };
     });
   };
@@ -281,8 +237,8 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
   };
 
   const clearStoredRequestIdentity = () => {
-    localStorage.removeItem(`wanasah_inbound_request_id_${locationId}`);
-    localStorage.removeItem(`wanasah_inbound_request_fp_${locationId}`);
+    localStorage.removeItem(storageKeys.requestId);
+    localStorage.removeItem(storageKeys.fingerprint);
   };
 
   const confirmClear = () => {
@@ -290,27 +246,34 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
     setDraftProducts({});
     setReferenceId("");
     setNotes("");
-    localStorage.removeItem("inbound_batch_drafts_v2");
-    localStorage.removeItem("inbound_draft_products_v3");
-    localStorage.removeItem("inbound_draft_quantities");
-    localStorage.removeItem("inbound_draft_ref");
-    localStorage.removeItem("inbound_draft_notes");
+    localStorage.removeItem(storageKeys.drafts);
+    localStorage.removeItem(storageKeys.products);
+    localStorage.removeItem(storageKeys.reference);
+    localStorage.removeItem(storageKeys.notes);
     clearStoredRequestIdentity();
     setIsConfirmClearOpen(false);
     toast.success("تم تصفير التوريدة والمسودة بالكامل بنجاح");
   };
 
   const handleSubmit = async () => {
-    const meaningfulEntries = Object.entries(drafts).filter(([, rows]) =>
-      rows.some((row) => row.cartons > 0 || row.loose_packs > 0)
-    );
+    if (isAuditLocked) {
+      toast.error("المستودع مقفل بجرد شامل ولا يمكن توثيق التوريد حالياً.");
+      return;
+    }
+    const requestedProductIds = inboundProductIds(drafts);
 
-    if (meaningfulEntries.length === 0) {
+    if (requestedProductIds.length === 0) {
       toast.error("أضف كمية لصنف واحد على الأقل لتوريده.");
       return;
     }
-    if (!referenceId.trim()) {
+    const normalizedReference = referenceId.trim();
+    const normalizedNotes = notes.trim();
+    if (!normalizedReference) {
       toast.error("رقم الفاتورة أو المرجع إجباري لتوثيق التوريد.");
+      return;
+    }
+    if (normalizedReference.length > 100 || normalizedNotes.length > 4000) {
+      toast.error("رقم المرجع أو الملاحظات يتجاوز الحد المسموح.");
       return;
     }
 
@@ -318,21 +281,16 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
     try {
       // Resolve fresh metadata immediately before converting cartons -> packs.
       // This prevents a long-lived draft from using an old packs_per_carton.
-      const requestedProductIds = meaningfulEntries.map(([productId]) => Number(productId));
-      const resolvedProducts = await authenticatedFetch(
+      const resolvedProducts = parseCatalogItems(await authenticatedFetch(
         "/product_variants/simple/resolve",
         {
           method: "POST",
           body: JSON.stringify({ ids: requestedProductIds }),
         }
-      );
-
-      if (!Array.isArray(resolvedProducts)) {
-        throw new Error("تعذر التحقق من بيانات أصناف التوريد.");
-      }
+      ));
 
       const freshProducts = new Map<string, SimpleProductVariant>(
-        (resolvedProducts as SimpleProductVariant[]).map((product) => [
+        resolvedProducts.map((product) => [
           String(product.id),
           product,
         ])
@@ -346,96 +304,31 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
 
       setDraftProducts((prev) => {
         const next = { ...prev };
-        for (const product of resolvedProducts as SimpleProductVariant[]) {
+        for (const product of resolvedProducts) {
           next[String(product.id)] = product;
         }
         return next;
       });
 
-      const itemsToSubmit: Array<{
-        product_variant_id: number;
-        quantity_packs: number;
-        batch_number: string;
-        production_date: string | null;
-        expiry_date: string;
-      }> = [];
-
-      const seenBatchKeys = new Set<string>();
-
-      for (const [productId, rows] of meaningfulEntries) {
-        const product = freshProducts.get(productId);
-        if (!product) {
-          throw new Error(`تعذر التحقق من الصنف رقم ${productId}.`);
-        }
-
-        const ppc = product.packs_per_carton || 1;
-
-        for (const row of rows) {
-          if (row.cartons === 0 && row.loose_packs === 0) continue;
-
-          if (row.loose_packs >= ppc) {
-            throw new Error(
-              `خطأ في (${product.name}): الحبات يجب أن تكون أقل من ${ppc}.`
-            );
-          }
-
-          const batchNumber = row.batch_number.trim();
-          if (!batchNumber) {
-            throw new Error(`أدخل رقم الدفعة للصنف (${product.name}).`);
-          }
-          if (!row.expiry_date) {
-            throw new Error(
-              `أدخل تاريخ الصلاحية للصنف (${product.name}) — الدفعة ${batchNumber}.`
-            );
-          }
-          if (row.production_date && row.production_date > row.expiry_date) {
-            throw new Error(
-              `تاريخ الإنتاج بعد الصلاحية للصنف (${product.name}) — الدفعة ${batchNumber}.`
-            );
-          }
-
-          const duplicateKey = `${product.id}|${batchNumber}`;
-          if (seenBatchKeys.has(duplicateKey)) {
-            throw new Error(
-              `الدفعة (${batchNumber}) مكررة للصنف (${product.name}). اجمع الكمية في سطر واحد.`
-            );
-          }
-          seenBatchKeys.add(duplicateKey);
-
-          itemsToSubmit.push({
-            product_variant_id: product.id,
-            quantity_packs: toTotalPacks(row.cartons, row.loose_packs, ppc),
-            batch_number: batchNumber,
-            production_date: row.production_date || null,
-            expiry_date: row.expiry_date,
-          });
-        }
-      }
-
-      itemsToSubmit.sort((a, b) => (
-        a.product_variant_id - b.product_variant_id
-        || a.batch_number.localeCompare(b.batch_number)
-      ));
+      const itemsToSubmit = buildInboundItems(drafts, freshProducts);
 
       const businessPayload = {
         location_id: locationId,
-        reference_id: referenceId.trim(),
-        notes,
+        reference_id: normalizedReference,
+        notes: normalizedNotes || null,
         items: itemsToSubmit,
       };
 
       // Same business payload after timeout => same UUID. Any material edit => new UUID.
-      const requestIdKey = `wanasah_inbound_request_id_${locationId}`;
-      const fingerprintKey = `wanasah_inbound_request_fp_${locationId}`;
       const fingerprint = JSON.stringify(businessPayload);
 
-      let requestId = localStorage.getItem(requestIdKey);
-      const previousFingerprint = localStorage.getItem(fingerprintKey);
+      let requestId = localStorage.getItem(storageKeys.requestId);
+      const previousFingerprint = localStorage.getItem(storageKeys.fingerprint);
 
       if (!requestId || previousFingerprint !== fingerprint) {
         requestId = crypto.randomUUID();
-        localStorage.setItem(requestIdKey, requestId);
-        localStorage.setItem(fingerprintKey, fingerprint);
+        localStorage.setItem(storageKeys.requestId, requestId);
+        localStorage.setItem(storageKeys.fingerprint, fingerprint);
       }
 
       const data = await authenticatedFetch("/warehouse/inbound", {
@@ -443,29 +336,28 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
         body: JSON.stringify({ request_id: requestId, ...businessPayload }),
       });
 
-      toast.success(data?.message || "تم استلام البضاعة وتوثيقها بنجاح ✅");
+      toast.success(parseInboundResponse(data).message);
       setDrafts({});
       setDraftProducts({});
       setReferenceId("");
       setNotes("");
-      localStorage.removeItem("inbound_batch_drafts_v2");
-      localStorage.removeItem("inbound_draft_products_v3");
-      localStorage.removeItem("inbound_draft_quantities");
-      localStorage.removeItem("inbound_draft_ref");
-      localStorage.removeItem("inbound_draft_notes");
+      localStorage.removeItem(storageKeys.drafts);
+      localStorage.removeItem(storageKeys.products);
+      localStorage.removeItem(storageKeys.reference);
+      localStorage.removeItem(storageKeys.notes);
       clearStoredRequestIdentity();
       await onSuccess();
-    } catch (e: any) {
-      toast.error(e?.message || "فشل توثيق التوريد.");
+    } catch (e: unknown) {
+      toast.error(apiErrorMessage(e, "فشل توثيق التوريد."));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-full flex-1 min-h-0 pt-1 animate-in fade-in duration-300">
-      <div className="relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
-        <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+    <div className="inventory-view inventory-inbound flex flex-col h-full flex-1 min-h-0 pt-1 animate-in fade-in duration-300">
+      <div className="inventory-surface inventory-data-panel relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
+        <div className="inventory-panel-label inventory-panel-label--success absolute -top-3.5 right-6 bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
           <FilePlus className="w-4 h-4" /> توريد بضاعة (الاستلام المخزني)
         </div>
 
@@ -482,6 +374,7 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
                         type="search"
                         placeholder="ابحث عن صنف أو SKU..."
                         value={catalogSearchInput}
+                        maxLength={100}
                         onChange={(e) => setCatalogSearchInput(e.target.value)}
                         className="w-full pl-3 pr-9 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-emerald-400 bg-white shadow-sm"
                       />
@@ -504,7 +397,7 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
                 const productId = String(product.id);
                 const rows = drafts[productId]?.length
                   ? drafts[productId]
-                  : [emptyBatch(`base-${productId}`)];
+                  : [emptyInboundBatch(`base-${productId}`)];
                 const ppc = product.packs_per_carton || 1;
 
                 return rows.map((row, index) => {
@@ -527,6 +420,7 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
                         <div className="grid grid-cols-3 gap-2">
                           <input
                             value={row.batch_number}
+                            maxLength={100}
                             onChange={(e) => updateBatch(product, row.row_id, { batch_number: e.target.value })}
                             placeholder="رقم الدفعة *"
                             className="rounded-lg border border-slate-200 px-2 py-2 text-xs font-bold outline-none focus:border-emerald-400"
@@ -649,6 +543,7 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
                 <span className="absolute -top-2 right-3 px-1.5 text-[10px] font-black text-slate-500 bg-slate-50 z-10 leading-none">رقم الفاتورة / المرجع <span className="text-red-500">*</span></span>
                 <input
                   value={referenceId}
+                  maxLength={100}
                   onChange={(e) => setReferenceId(e.target.value)}
                   placeholder="مثال: INV-2026-001"
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-emerald-300 outline-none"
@@ -658,6 +553,7 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
                 <span className="absolute -top-2 right-3 px-1.5 text-[10px] font-black text-slate-500 bg-slate-50 z-10 leading-none">ملاحظات (اختياري)</span>
                 <input
                   value={notes}
+                  maxLength={4000}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="أي ملاحظات إضافية..."
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:ring-2 focus:ring-emerald-300 outline-none"
@@ -667,10 +563,10 @@ export function Tab2Inbound({ locationId, authenticatedFetch, onSuccess }: Props
             <div className="w-full md:w-auto mt-2 md:mt-0">
               <button
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || isAuditLocked}
                 className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-90 text-white px-6 py-2.5 rounded-xl text-sm font-black shadow-md active:scale-[0.98] w-full disabled:opacity-50"
               >
-                {submitting ? "جارٍ التوثيق..." : "✓ توثيق الاستلام"}
+                {submitting ? "جارٍ التوثيق..." : isAuditLocked ? "المستودع مقفل بالجرد" : "✓ توثيق الاستلام"}
               </button>
             </div>
           </div>

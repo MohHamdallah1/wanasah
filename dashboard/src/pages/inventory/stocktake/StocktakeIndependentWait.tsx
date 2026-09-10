@@ -1,14 +1,16 @@
 import { ShieldCheck } from "lucide-react";
 
 interface StocktakeIndependentWaitProps {
+  canCancel: boolean;
   onCancel: () => void;
 }
 
 export function StocktakeIndependentWait({
+  canCancel,
   onCancel,
 }: StocktakeIndependentWaitProps) {
   return (
-    <div className="glass-card flex-1 flex items-center justify-center border border-slate-200 shadow-sm p-8">
+    <div className="glass-card inventory-data-panel flex-1 flex items-center justify-center border border-slate-200 shadow-sm p-8">
       <div className="max-w-xl text-center space-y-4">
         <div className="mx-auto w-16 h-16 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center">
           <ShieldCheck className="w-8 h-8 text-red-500" />
@@ -21,6 +23,7 @@ export function StocktakeIndependentWait({
           سجّل الدخول بحساب مستخدم مخول آخر، وستظهر له ورقة عد عمياء جديدة تلقائياً.
         </p>
         <button
+          disabled={!canCancel}
           onClick={onCancel}
           className="px-5 h-10 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 font-bold rounded-xl transition-colors"
         >
