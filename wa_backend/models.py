@@ -296,6 +296,7 @@ class ProductVariant(Base):
         CheckConstraint('price_per_carton >= 0', name='chk_product_variant_carton_price'),
         CheckConstraint('price_per_pack IS NULL OR price_per_pack >= 0', name='chk_product_variant_pack_price'),
         CheckConstraint('default_max_samples_per_day >= 0', name='chk_product_variant_samples_limit'),
+        CheckConstraint('min_shelf_life_days IS NULL OR min_shelf_life_days >= 0', name='chk_product_variant_min_shelf_life'),
     )
     id          = Column(Integer, primary_key=True)
     company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -309,6 +310,7 @@ class ProductVariant(Base):
     quantity_step    = Column(Numeric(20, 6), nullable=False, default=Decimal('1'), server_default='1')
     lot_control_mode = Column(String(20), nullable=False, default='REQUIRED', server_default='REQUIRED')
     expiry_control_mode = Column(String(20), nullable=False, default='REQUIRED', server_default='REQUIRED')
+    min_shelf_life_days = Column(Integer, nullable=True)
     lifecycle_status = Column(String(20), nullable=False, default='DRAFT', server_default='DRAFT', index=True)
     operational_hold = Column(String(20), nullable=False, default='NONE', server_default='NONE', index=True)
     lifecycle_revision = Column(Integer, nullable=False, default=1, server_default='1')
@@ -580,7 +582,7 @@ class SessionInventorySnapshot(Base):
             ondelete='RESTRICT',
             name='fk_session_snapshot_tenant_settler'
         ),
-        CheckConstraint("stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_session_snapshot_stock_status'),
+        CheckConstraint("stock_status IN ('AVAILABLE', 'QUARANTINED', 'BLOCKED', 'RECALLED', 'DAMAGED', 'DISPOSAL_PENDING')", name='chk_session_snapshot_stock_status'),
         CheckConstraint('starting_quantity >= 0', name='chk_session_snapshot_starting'),
         CheckConstraint('ending_quantity IS NULL OR ending_quantity >= 0', name='chk_session_snapshot_ending'),
         CheckConstraint(
@@ -1285,6 +1287,7 @@ class ProductBatch(Base):
         ),
         CheckConstraint("length(trim(batch_number)) > 0", name='chk_product_batch_number_not_blank'),
         CheckConstraint('production_date IS NULL OR production_date <= expiry_date', name='chk_product_batch_date_order'),
+        CheckConstraint("disposition IN ('RELEASED', 'QUARANTINED', 'BLOCKED', 'RECALLED')", name='chk_product_batch_disposition'),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -1292,6 +1295,7 @@ class ProductBatch(Base):
     batch_number       = Column(String(100), nullable=False, index=True)
     production_date    = Column(Date, nullable=True)
     expiry_date        = Column(Date, nullable=False, index=True)
+    disposition        = Column(String(50), nullable=False, default='RELEASED', server_default='RELEASED', index=True)
     is_active          = Column(Boolean, nullable=False, default=True, server_default='true', index=True)
     created_at         = Column(DateTime, nullable=False, default=utc_now)
 
@@ -1391,7 +1395,7 @@ class InventoryBalance(Base):
             ondelete='RESTRICT',
             name='fk_inv_balance_variant_batch'
         ),
-        CheckConstraint("stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inv_bal_status'),
+        CheckConstraint("stock_status IN ('AVAILABLE', 'QUARANTINED', 'BLOCKED', 'RECALLED', 'DAMAGED', 'DISPOSAL_PENDING')", name='chk_inv_bal_status'),
         CheckConstraint('on_hand_quantity >= 0', name='chk_inv_bal_onhand_qty'),
         CheckConstraint('reserved_quantity >= 0', name='chk_inv_bal_res_qty'),
         CheckConstraint('reserved_quantity <= on_hand_quantity', name='chk_inv_bal_reserved_within_onhand'),
@@ -1450,8 +1454,8 @@ class InventoryMovement(Base):
             "movement_kind <> 'RESERVATION' OR source_stock_status = 'AVAILABLE'",
             name='chk_inv_movement_reservation_available_only'
         ),
-        CheckConstraint("source_stock_status IS NULL OR source_stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inv_movement_source_status'),
-        CheckConstraint("destination_stock_status IS NULL OR destination_stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inv_movement_destination_status'),
+        CheckConstraint("source_stock_status IS NULL OR source_stock_status IN ('AVAILABLE', 'QUARANTINED', 'BLOCKED', 'RECALLED', 'DAMAGED', 'DISPOSAL_PENDING')", name='chk_inv_movement_source_status'),
+        CheckConstraint("destination_stock_status IS NULL OR destination_stock_status IN ('AVAILABLE', 'QUARANTINED', 'BLOCKED', 'RECALLED', 'DAMAGED', 'DISPOSAL_PENDING')", name='chk_inv_movement_destination_status'),
         CheckConstraint("((source_location_id IS NULL AND source_stock_status IS NULL) OR (source_location_id IS NOT NULL AND source_stock_status IS NOT NULL))", name='chk_inv_movement_source_status_pair'),
         CheckConstraint("((destination_location_id IS NULL AND destination_stock_status IS NULL) OR (destination_location_id IS NOT NULL AND destination_stock_status IS NOT NULL))", name='chk_inv_movement_destination_status_pair'),
         CheckConstraint('source_location_id IS NOT NULL OR destination_location_id IS NOT NULL', name='chk_inv_movement_has_endpoint'),
@@ -1603,6 +1607,11 @@ class InventoryTransferHeader(Base):
         CheckConstraint("workflow_type IN ('DIRECT', 'HANDSHAKE', 'TRANSIT')", name='chk_transfer_header_workflow'),
         CheckConstraint("status IN ('DRAFT', 'PENDING', 'IN_TRANSIT', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')", name='chk_transfer_header_status'),
         CheckConstraint(
+            "transfer_purpose IN ('REPLENISHMENT', 'ROUTE_LOAD', 'ROUTE_RETURN', 'WAREHOUSE_BALANCING', "
+            "'RETURN_TO_VENDOR', 'QUARANTINE', 'DISPOSAL', 'CONSUMPTION')",
+            name='chk_transfer_header_purpose'
+        ),
+        CheckConstraint(
             "((workflow_type = 'DIRECT' AND status IN ('DRAFT', 'POSTED', 'CANCELLED')) OR "
             "(workflow_type = 'HANDSHAKE' AND status IN ('DRAFT', 'PENDING', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')) OR "
             "(workflow_type = 'TRANSIT' AND status IN ('DRAFT', 'IN_TRANSIT', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')))",
@@ -1721,6 +1730,7 @@ class InventoryTransferHeader(Base):
 
     workflow_type           = Column(String(30), nullable=False, default='TRANSIT', server_default='TRANSIT', index=True)
     status                  = Column(String(50), nullable=False, default='DRAFT', server_default='DRAFT', index=True)
+    transfer_purpose        = Column(String(50), nullable=False, default='WAREHOUSE_BALANCING', server_default='WAREHOUSE_BALANCING', index=True)
 
     work_session_id      = Column(Integer, nullable=True, index=True)
     expected_receiver_id = Column(Integer, nullable=True, index=True)
@@ -1913,7 +1923,7 @@ class StocktakeLine(Base):
         ),
         ForeignKeyConstraint(['company_id', 'discovered_by'], ['drivers.company_id', 'drivers.id'],
                              ondelete='RESTRICT', name='fk_stocktake_line_tenant_discoverer'),
-        CheckConstraint("stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_stocktake_line_status'),
+        CheckConstraint("stock_status IN ('AVAILABLE', 'QUARANTINED', 'BLOCKED', 'RECALLED', 'DAMAGED', 'DISPOSAL_PENDING')", name='chk_stocktake_line_status'),
         CheckConstraint("line_origin IN ('SNAPSHOT', 'DISCOVERED')", name='chk_stocktake_line_origin'),
         CheckConstraint('expected_quantity >= 0', name='chk_st_line_exp_qty'),
         CheckConstraint(

@@ -1666,18 +1666,19 @@ Gate:
 
 **Stage status:** COMPLETE — 2026-09-12.
 
-### Stage 4 — Batch Disposition, Expiry and Transfer Purposes
-
-- Batch disposition.
-- Portion stock statuses.
-- Synchronous expiry/shelf-life validation.
-- Jobs للتنبيه فقط.
-- Transfer purposes/directional constraints.
-- In-flight completion rules.
+### Stage 4 — Batch Disposition, Expiry and Transfer Purposes ✅
+- [x] Batch disposition.
+- [x] Portion stock statuses.
+- [x] Synchronous expiry/shelf-life validation.
+- [x] Jobs للتنبيه فقط.
+- [x] Transfer purposes/directional constraints.
+- [x] In-flight completion rules.
 
 Gate:
 
-- BATCH_DISPOSITION_GATE=PASS
+- [x] `BATCH_DISPOSITION_GATE=PASS` (Automated)
+
+**Stage status:** COMPLETE — 2026-09-12.
 
 ### Stage 5 — Temporal Pricing and Route Commercial Context
 
@@ -2057,5 +2058,6 @@ Final gate:
 | 2026-09-11 | جميع الأقسام | لا يوجد مرجع جامع | اعتماد هذا الملف كخطة المرحلة | تثبيت القرارات ومنع النسيان | Approved |
 | 2026-09-11 | Stage 0 | Baseline غير مثبت وقاعدة التطوير تحمل بيانات اختبار | تثبيت Schema/API/Enum contracts ومسح بيانات Tenant التجريبية المصرح بها | إغلاق Contract Freeze على قاعدة Tenant فارغة | Approved in conversation |
 | 2026-09-12 | Stage 3 | PRODUCT_LIFECYCLE_GATE غير مغلق | اكتمال Stage 3: ProductLocation + FSM + Capability + Archive + Audit/Outbox + Dashboard lifecycle + PRODUCT_LIFECYCLE_GATE=PASS (13/13) | إغلاق gate_stage3_lifecycle.py مع مزامنة advisory lock عبر pg_locks | Approved — gate passed |
+| 2026-09-12 | Stage 4 | Batch Disposition | Completed Stage 4 (Transfer Purposes, Batch Disposition, FEFO min shelf life) | Passed gate_stage4_batch_expiry.py (7/7) | Approved - gate passed |
 
 لا يعد تنفيذ الكود موافقة ضمنية على تغيير الخطة. عند اكتشاف تعارض حقيقي بين الخطة والكود الحالي، يتوقف الجزء المتعارض ويعرض CURRENT / GAP / OPTIONS / RECOMMENDATION على مالك المشروع قبل تغيير Workflow.

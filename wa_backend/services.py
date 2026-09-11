@@ -2949,13 +2949,25 @@ async def allocate_fefo_inventory_batch(
 
     quantity_rule_rows = (
         await db_session.execute(
-            select(ProductVariant.id, ProductVariant.quantity_scale, ProductVariant.quantity_step).filter(
+            select(
+                ProductVariant.id,
+                ProductVariant.quantity_scale,
+                ProductVariant.quantity_step,
+                ProductVariant.min_shelf_life_days,
+            ).filter(
                 ProductVariant.company_id == company_id,
                 ProductVariant.id.in_(requested_variant_ids),
             )
         )
     ).all()
-    quantity_rules = {int(row.id): (int(row.quantity_scale), row.quantity_step) for row in quantity_rule_rows}
+    quantity_rules = {
+        int(row.id): (
+            int(row.quantity_scale),
+            row.quantity_step,
+            int(row.min_shelf_life_days or 0),
+        )
+        for row in quantity_rule_rows
+    }
     if set(quantity_rules) != set(requested_variant_ids):
         raise InventoryMutationError("أحد أصناف طلب FEFO غير موجود داخل الشركة.")
     try:
@@ -3042,6 +3054,7 @@ async def allocate_fefo_inventory_batch(
                 InventoryBalance.on_hand_quantity
                 > InventoryBalance.reserved_quantity,
                 ProductBatch.is_active.is_(True),
+                ProductBatch.disposition == "RELEASED",
                 or_(
                     ProductBatch.production_date.is_(None),
                     ProductBatch.production_date <= as_of_date,
@@ -3099,6 +3112,7 @@ async def allocate_fefo_inventory_batch(
                         ProductBatch.id,
                     ).in_(chunk),
                     ProductBatch.is_active.is_(True),
+                    ProductBatch.disposition == "RELEASED",
                     or_(
                         ProductBatch.production_date.is_(None),
                         ProductBatch.production_date <= as_of_date,
@@ -3117,11 +3131,16 @@ async def allocate_fefo_inventory_batch(
             metadata_pairs.add(key)
             metadata_expiry[key] = expiry_date
 
-    candidate_pairs = [
-        pair
-        for pair in candidate_pairs
-        if pair in metadata_pairs
-    ]
+    from datetime import timedelta
+    valid_candidate_pairs = []
+    for pair in candidate_pairs:
+        if pair in metadata_pairs:
+            variant_id = pair[0]
+            expiry_date = metadata_expiry[pair]
+            min_days = quantity_rules[variant_id][2]
+            if expiry_date >= as_of_date + timedelta(days=min_days):
+                valid_candidate_pairs.append(pair)
+    candidate_pairs = valid_candidate_pairs
 
     balance_rows = []
     for offset in range(
