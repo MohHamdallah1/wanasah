@@ -46,6 +46,79 @@ interface WarehouseStatusPayload {
   status: string;
 }
 
+interface WarehouseSetupStatus {
+  warehouse_ready: boolean;
+  active_warehouse_count: number;
+  accessible_warehouse_count: number;
+  can_create: boolean;
+}
+
+interface WarehouseLocationPage {
+  items: WarehouseLocationOption[];
+  next_cursor: string | null;
+  has_more: boolean;
+  total: number | null;
+}
+
+const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("تنسيق صفحة المستودعات غير صالح.");
+  }
+  const page = value as Record<string, unknown>;
+  if (!Array.isArray(page.items) || page.items.length > 200) {
+    throw new Error("قائمة المستودعات غير صالحة.");
+  }
+  const items = page.items.map((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error("عنصر مستودع غير صالح.");
+    }
+    const row = item as Record<string, unknown>;
+    if (
+      typeof row.id !== "number" || !Number.isSafeInteger(row.id) || row.id <= 0 ||
+      typeof row.name !== "string" || !row.name.trim() ||
+      typeof row.code !== "string" || !row.code.trim()
+    ) {
+      throw new Error("بيانات مستودع غير مكتملة.");
+    }
+    return { id: row.id, name: row.name, code: row.code };
+  });
+  const nextCursor = typeof page.next_cursor === "string" ? page.next_cursor : null;
+  if (typeof page.has_more !== "boolean" || page.has_more !== (nextCursor !== null)) {
+    throw new Error("ترقيم صفحة المستودعات غير متسق.");
+  }
+  const total = page.total === null
+    ? null
+    : typeof page.total === "number" && Number.isSafeInteger(page.total) && page.total >= 0
+      ? page.total
+      : (() => { throw new Error("إجمالي المستودعات غير صالح."); })();
+  return { items, next_cursor: nextCursor, has_more: page.has_more, total };
+};
+
+const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("حالة إعداد المستودعات غير صالحة.");
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.warehouse_ready !== "boolean" ||
+    typeof row.can_create !== "boolean" ||
+    typeof row.active_warehouse_count !== "number" ||
+    !Number.isSafeInteger(row.active_warehouse_count) || row.active_warehouse_count < 0 ||
+    typeof row.accessible_warehouse_count !== "number" ||
+    !Number.isSafeInteger(row.accessible_warehouse_count) || row.accessible_warehouse_count < 0 ||
+    row.accessible_warehouse_count > row.active_warehouse_count ||
+    row.warehouse_ready !== (row.active_warehouse_count > 0)
+  ) {
+    throw new Error("حالة إعداد المستودعات غير متسقة.");
+  }
+  return {
+    warehouse_ready: row.warehouse_ready,
+    active_warehouse_count: row.active_warehouse_count,
+    accessible_warehouse_count: row.accessible_warehouse_count,
+    can_create: row.can_create,
+  };
+};
+
 const isTabId = (value: string | null): value is TabId =>
   TABS.some((tab) => tab.id === value);
 
@@ -99,6 +172,8 @@ export default function MainInventory() {
   }, [access.isPending, locationAccess.isPending, activeTab, tabAllowed]);
   const [locationError, setLocationError] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(true);
+  const [warehouseSetup, setWarehouseSetup] = useState<WarehouseSetupStatus | null>(null);
+  const [locationsTruncated, setLocationsTruncated] = useState(false);
   
   const [stockItems, setStockItems] = useState<WarehouseProduct[]>([]);
   const [stockTotal, setStockTotal] = useState<number | null>(null);
@@ -128,44 +203,28 @@ export default function MainInventory() {
     setLocationError(false);
 
     try {
-      const raw = await authFetch("/warehouse/locations");
+      const [locationsRaw, setupRaw] = await Promise.all([
+        authFetch("/warehouse/locations?include_inactive=false&limit=200"),
+        authFetch("/warehouse/setup-status"),
+      ]);
       if (requestSeq !== locationRequestSeq.current) return;
 
-      if (!Array.isArray(raw)) {
-        throw new Error("تنسيق قائمة المستودعات غير صالح.");
+      const page = parseWarehouseLocationPage(locationsRaw);
+      const setup = parseWarehouseSetupStatus(setupRaw);
+      if (page.items.length !== setup.accessible_warehouse_count && !page.has_more) {
+        throw new Error("عدد المستودعات المتاحة لا يطابق حالة الإعداد.");
       }
 
-      const parsed: WarehouseLocationOption[] = raw.map((item: unknown) => {
-        if (typeof item !== "object" || item === null) {
-          throw new Error("عنصر مستودع غير صالح.");
-        }
-
-        const row = item as Record<string, unknown>;
-        if (
-          typeof row.id !== "number" ||
-          !Number.isInteger(row.id) ||
-          row.id <= 0 ||
-          typeof row.name !== "string" ||
-          typeof row.code !== "string"
-        ) {
-          throw new Error("بيانات مستودع غير مكتملة.");
-        }
-
-        return {
-          id: row.id,
-          name: row.name,
-          code: row.code,
-        };
-      });
-
-      setLocations(parsed);
+      setLocations(page.items);
+      setWarehouseSetup(setup);
+      setLocationsTruncated(page.has_more);
 
       const savedRaw = localStorage.getItem(selectedLocationStorageKey);
       const savedId = savedRaw ? Number(savedRaw) : null;
       const savedIsValid =
         savedId !== null &&
         Number.isInteger(savedId) &&
-        parsed.some((location) => location.id === savedId);
+        page.items.some((location) => location.id === savedId);
 
       if (savedIsValid) {
         setSelectedLocationId(savedId);
@@ -177,6 +236,8 @@ export default function MainInventory() {
       if (requestSeq !== locationRequestSeq.current) return;
 
       setLocations([]);
+      setWarehouseSetup(null);
+      setLocationsTruncated(false);
       setSelectedLocationId(null);
       setLocationError(true);
       toast.error("فشل جلب مستودعات الشركة: " + getErrorMessage(error));
@@ -192,6 +253,8 @@ export default function MainInventory() {
     if (!canAny('location.read')) {
       locationRequestSeq.current += 1;
       setLocations([]);
+      setWarehouseSetup(null);
+      setLocationsTruncated(false);
       setSelectedLocationId(null);
       setLocationError(false);
       setLoadingLocations(false);
@@ -406,12 +469,14 @@ export default function MainInventory() {
       !loadingLocations &&
       !locationError &&
       locations.length === 0 &&
+      warehouseSetup?.warehouse_ready === false &&
+      warehouseSetup.can_create &&
       activeTab !== "warehouses" &&
       activeTab !== "catalog"
     ) {
       setActiveTab("warehouses");
     }
-  }, [activeTab, loadingLocations, locationError, locations.length]);
+  }, [activeTab, loadingLocations, locationError, locations.length, warehouseSetup]);
 
   if (loadingLocations) {
     return (
@@ -526,12 +591,24 @@ export default function MainInventory() {
         </div>
       </nav>
 
+      {locationsTruncated && <p role="status" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">يعرض محدد التشغيل أول 200 مستودع متاح. استخدم إدارة المستودعات للبحث عن موقع آخر.</p>}
       {locationAccess.isError && selectedLocationId !== null && <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">الموقع غير متاح أو تغيرت صلاحياتك. <button type="button" className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800" onClick={() => { void fetchLocations(); void locationAccess.refetch(); }}>تحديث المواقع والصلاحيات</button></p>}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
         {selectedLocationId === null && activeTab !== "catalog" && activeTab !== "warehouses" && activeTab !== "permissions" && (
-          <div className="inventory-empty-state flex flex-1 items-center justify-center px-6 text-center font-bold">
-            لا يوجد مستودع محدد لهذه العملية. اختر مستودعاً فعالاً أو افتح إدارة المستودعات.
+          <div className="inventory-empty-state flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center font-bold">
+            <p>
+              {warehouseSetup?.warehouse_ready === false
+                ? "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً."
+                : warehouseSetup?.accessible_warehouse_count === 0
+                  ? "توجد مستودعات فعالة للشركة، لكن حسابك لا يملك وصولاً إلى أي منها."
+                  : "لا يوجد مستودع محدد لهذه العملية. اختر مستودعاً فعالاً."}
+            </p>
+            {warehouseSetup?.warehouse_ready === false && warehouseSetup.can_create && tabAllowed("warehouses") && (
+              <button type="button" onClick={() => setActiveTab("warehouses")} className="rounded-xl bg-blue-600 px-4 py-2 text-white">
+                فتح إدارة المستودعات
+              </button>
+            )}
           </div>
         )}
 

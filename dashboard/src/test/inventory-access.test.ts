@@ -60,15 +60,15 @@ describe('catalog contract used before carton conversion', () => {
   it('builds the exact product-create contract and validates the mutation response', () => {
     expect(buildProductVariantCreatePayload({
       variant_name: '  منتج جديد  ', sku: ' ', price_per_carton: '12.5',
-      packs_per_carton: '12', price_per_pack: '1.250', min_threshold_packs: '5', max_samples: '2',
+      packs_per_carton: '12', price_per_pack: '1.250', max_samples: '2',
     })).toEqual({
       variant_name: 'منتج جديد', sku: null, price_per_carton: '12.500',
-      packs_per_carton: 12, price_per_pack: '1.250', min_threshold_packs: 5, max_samples: 2,
+      packs_per_carton: 12, price_per_pack: '1.250', max_samples: 2,
     });
     expect(parseProductVariantMutationResponse({message: 'تم', product_id: 9})).toEqual({message: 'تم', product_id: 9});
     expect(() => buildProductVariantCreatePayload({
       variant_name: 'منتج', sku: '', price_per_carton: '1.2345', packs_per_carton: '1',
-      price_per_pack: '', min_threshold_packs: '0', max_samples: '0',
+      price_per_pack: '', max_samples: '0',
     })).toThrow();
   });
 });

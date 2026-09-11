@@ -1382,6 +1382,89 @@ def _warehouse_code_input(v: Any) -> str:
     return value
 
 
+def _branch_code_input(v: Any) -> str:
+    value = _required_text(v).upper()
+    if len(value) > 50:
+        raise ValueError("كود الفرع يجب ألا يتجاوز 50 حرفاً.")
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]*", value):
+        raise ValueError(
+            "كود الفرع يقبل أحرف A-Z وأرقاماً والرمزين - و _ فقط، "
+            "ويجب أن يبدأ بحرف أو رقم."
+        )
+    return value
+
+
+class BranchCreateRequest(RequestModel):
+    request_id: UUID
+    name: str = Field(..., min_length=1, max_length=150)
+    code: str = Field(..., min_length=1, max_length=50)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: Any) -> str:
+        return _required_text(v)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, v: Any) -> str:
+        return _branch_code_input(v)
+
+
+class BranchUpdateRequest(RequestModel):
+    request_id: UUID
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    code: Optional[str] = Field(None, min_length=1, max_length=50)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: Any) -> Optional[str]:
+        return None if v is None else _required_text(v)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, v: Any) -> Optional[str]:
+        return None if v is None else _branch_code_input(v)
+
+    @model_validator(mode="after")
+    def require_mutation(self) -> "BranchUpdateRequest":
+        changed_fields = {"name", "code"} & self.model_fields_set
+        if not changed_fields:
+            raise ValueError("يجب إرسال حقل واحد على الأقل لتعديل الفرع.")
+        if any(getattr(self, field_name) is None for field_name in changed_fields):
+            raise ValueError("حقول تعديل الفرع المرسلة لا تقبل null.")
+        return self
+
+
+class BranchStateRequest(RequestModel):
+    request_id: UUID
+    reason: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, v: Any) -> Optional[str]:
+        return _optional_text(v)
+
+
+class BranchItem(BaseModel):
+    id: PositiveDbInt
+    name: str
+    code: str
+    is_active: bool
+    created_at: datetime
+
+
+class BranchCursorPage(BaseModel):
+    items: List[BranchItem] = Field(..., max_length=200)
+    next_cursor: Optional[str] = Field(None, max_length=512)
+    has_more: bool
+    total: Optional[int] = Field(None, ge=0)
+
+
+class BranchMutationResponse(BaseModel):
+    message: str
+    branch: BranchItem
+
+
 class WarehouseLocationCreateRequest(RequestModel):
     request_id: UUID
     name: str = Field(..., min_length=1, max_length=150)
@@ -1401,6 +1484,7 @@ class WarehouseLocationCreateRequest(RequestModel):
 
 class WarehouseLocationUpdateRequest(RequestModel):
     request_id: UUID
+    expected_version: PositiveDbInt
     name: Optional[str] = Field(None, min_length=1, max_length=150)
     code: Optional[str] = Field(None, min_length=1, max_length=50)
     branch_id: OptionalPositiveDbInt = None
@@ -1428,6 +1512,7 @@ class WarehouseLocationUpdateRequest(RequestModel):
 
 class WarehouseLocationStateRequest(RequestModel):
     request_id: UUID
+    expected_version: PositiveDbInt
     reason: Optional[str] = Field(None, max_length=1000)
 
     @field_validator("reason", mode="before")
@@ -1443,6 +1528,7 @@ class WarehouseLocationItem(BaseModel):
     branch_id: Optional[int] = None
     branch_name: Optional[str] = None
     is_active: bool
+    version: PositiveDbInt
     created_at: datetime
     updated_at: datetime
 
@@ -1457,6 +1543,13 @@ class WarehouseLocationCursorPage(BaseModel):
 class WarehouseLocationMutationResponse(BaseModel):
     message: str
     location: WarehouseLocationItem
+
+
+class WarehouseSetupStatusResponse(BaseModel):
+    warehouse_ready: bool
+    active_warehouse_count: int = Field(..., ge=0)
+    accessible_warehouse_count: int = Field(..., ge=0)
+    can_create: bool
 
 
 class SimpleProductVariantItem(BaseModel):
@@ -1497,9 +1590,6 @@ class AddProductVariantRequest(RequestModel):
     price_per_carton: RequiredMoneyInput
     packs_per_carton: PositiveDbInt = Field(..., description="عدد الحبات في الكرتونة")
     price_per_pack: OptionalMoneyInput = None
-    min_threshold_packs: Optional[NonNegativeDbInt] = Field(
-        0, description="الحد الأدنى لإنذار النواقص (بالحبات)"
-    )
     default_max_samples_per_day: Optional[NonNegativeDbInt] = Field(
         0,
         alias="max_samples",

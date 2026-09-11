@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { toast } from "sonner"; // +++  (E-11): استدعاء الـ Toast لعرض الأخطاء +++
+import { readPlatformSession } from "@/features/platform/session";
 
 // +++ الكي الجراحي: تحميل ديناميكي للصفحات لتفكيك الكتلة الضخمة في ملف index +++
 const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayout"));
@@ -12,6 +13,8 @@ const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
 const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
 const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
 const Login = lazy(() => import("./pages/Login"));
+const PlatformLogin = lazy(() => import("./pages/PlatformLogin"));
+const PlatformDashboard = lazy(() => import("./pages/PlatformDashboard"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // +++  (E-11): إضافة Error Handling شامل للـ QueryClient +++
@@ -93,6 +96,16 @@ const PublicRoute = ({ children }: { children: JSX.Element }) => {
   return children;
 };
 
+const PlatformProtectedRoute = ({ children }: { children: JSX.Element }) => {
+  if (!readPlatformSession()) return <Navigate to="/platform/login" replace />;
+  return children;
+};
+
+const PlatformPublicRoute = ({ children }: { children: JSX.Element }) => {
+  if (readPlatformSession()) return <Navigate to="/platform" replace />;
+  return children;
+};
+
 // Step 4.5a: React Error Boundary to catch unhandled component crashes
 interface ErrorBoundaryState { hasError: boolean; error: Error | null; }
 class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBoundaryState> {
@@ -124,6 +137,7 @@ class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, Er
                   }).catch(() => {}); // Fire and forget
                 }
                 localStorage.clear(); 
+                sessionStorage.clear();
                 window.location.href = '/login'; 
               }}
               className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3 rounded-xl font-bold transition-all"
@@ -159,6 +173,10 @@ const App = () => (
             <Routes>
               {/* مسار الدخول محمي بـ PublicRoute */}
               <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+
+              {/* جلسة إدارة المنصة مستقلة عن جلسة أي شركة. */}
+              <Route path="/platform/login" element={<PlatformPublicRoute><PlatformLogin /></PlatformPublicRoute>} />
+              <Route path="/platform" element={<PlatformProtectedRoute><PlatformDashboard /></PlatformProtectedRoute>} />
 
               {/* لوحة التحكم الموحدة محمية بـ ProtectedRoute */}
               <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>

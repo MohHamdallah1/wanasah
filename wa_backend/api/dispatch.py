@@ -54,6 +54,9 @@ from services import (
     get_company_local_date,
     allocate_fefo_inventory_batch,
     apply_inventory_movements_batch,
+    acquire_inventory_location_guards,
+    inventory_business_error,
+    warehouse_setup_required_detail,
     begin_idempotent_operation,
     complete_idempotent_operation,
 )
@@ -1134,13 +1137,26 @@ async def _dispatch_source_warehouse(
                 location_type="WAREHOUSE",
                 is_active=True,
             )
-            .with_for_update(read=True)
         )
     ).scalar_one_or_none()
     if location is None:
+        has_active_warehouse = (
+            await db.execute(
+                select(InventoryLocation.id).filter(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                    InventoryLocation.is_active.is_(True),
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if has_active_warehouse is None:
+            raise HTTPException(status_code=409, detail=warehouse_setup_required_detail())
         raise HTTPException(
-            status_code=400,
-            detail="مستودع المصدر غير موجود أو غير فعال أو لا يتبع شركتك.",
+            status_code=409,
+            detail=inventory_business_error(
+                "SOURCE_WAREHOUSE_INVALID",
+                "مستودع المصدر غير موجود أو غير فعال أو لا يتبع شركتك.",
+            ),
         )
     return location
 
@@ -1308,7 +1324,7 @@ async def dispatch_route(
     current_admin: Driver = Depends(get_current_driver),
 ):
     access = InventoryAccess(db, current_admin)
-    await access.require('dispatch.execute', payload.source_location_id)
+    await access.require('dispatch.execute', any_location=True)
     await require_vehicle(access, 'dispatch.execute', payload.vehicle_id)
 
     company_id = current_admin.company_id
@@ -1373,6 +1389,22 @@ async def dispatch_route(
             company_id=company_id,
             vehicle_id=payload.vehicle_id,
         )
+        await acquire_inventory_location_guards(
+            db,
+            company_id,
+            [int(source_location.id), vehicle_location_id],
+        )
+        source_location = await _dispatch_source_warehouse(
+            db,
+            company_id=company_id,
+            location_id=payload.source_location_id,
+        )
+        vehicle_location_id = await _dispatch_vehicle_location_id(
+            db,
+            company_id=company_id,
+            vehicle_id=payload.vehicle_id,
+        )
+        await access.require('dispatch.execute', int(source_location.id))
         await _dispatch_assert_vehicle_custody_reconciled(
             db,
             company_id=company_id,
@@ -1984,6 +2016,17 @@ async def _dispatch_apply_pack_deltas(
         allowed_work_session_id=(int(session.id) if session is not None else None),
     )
 
+    warehouse = await _dispatch_source_warehouse(
+        db, company_id=company_id, location_id=int(route.source_location_id)
+    )
+    vehicle_location_id = await _dispatch_vehicle_location_id(
+        db, company_id=company_id, vehicle_id=int(route.vehicle_id)
+    )
+    await acquire_inventory_location_guards(
+        db,
+        company_id,
+        [int(warehouse.id), vehicle_location_id],
+    )
     warehouse = await _dispatch_source_warehouse(
         db, company_id=company_id, location_id=int(route.source_location_id)
     )

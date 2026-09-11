@@ -444,6 +444,26 @@ class InventoryMutationError(Exception):
     pass
 
 
+def inventory_business_error(
+    code: str,
+    message: str,
+    *,
+    context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "context": dict(context or {}),
+    }
+
+
+def warehouse_setup_required_detail() -> Dict[str, Any]:
+    return inventory_business_error(
+        "WAREHOUSE_SETUP_REQUIRED",
+        "يجب إنشاء مستودع فعال قبل تنفيذ هذه العملية.",
+    )
+
+
 # تثبيت أن VEHICLE_RECON مرتبط بجلسة عمل منتهية وغير مسواة وبنفس السيارة داخل Tenant واحد.
 async def validate_vehicle_recon_work_session(
     db_session: AsyncSession,
@@ -1071,13 +1091,25 @@ def _inventory_lock_conflicts_with_spec(
         return False
     return lock.batch_id is None or lock.batch_id == spec["batch_id"]
 
-async def _acquire_inventory_guards_batch(
+async def acquire_inventory_location_guards(
     db_session: AsyncSession,
     company_id: int,
     location_ids: List[int],
 ) -> None:
-    if not location_ids:
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+        normalized_ids = sorted({
+            _strict_int(location_id, "location_id", minimum=1)
+            for location_id in location_ids
+        })
+    except (TypeError, ValueError) as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    if not normalized_ids:
         return
+    if len(normalized_ids) > 10_000:
+        raise InventoryMutationError("عدد حراس المواقع يتجاوز الحد الآمن البالغ 10000 موقع.")
+
     await db_session.execute(
         text(
             """
@@ -1086,8 +1118,77 @@ async def _acquire_inventory_guards_batch(
             ORDER BY location_id
             """
         ),
-        {"company_id": company_id, "location_ids": sorted(location_ids)},
+        {"company_id": company_id, "location_ids": normalized_ids},
     )
+
+
+_SYSTEM_TRANSIT_PROVISION_GUARD = -2147483648
+
+
+async def ensure_system_transit_location(
+    db_session: AsyncSession,
+    company_id: int,
+) -> InventoryLocation:
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    await db_session.execute(
+        select(func.pg_advisory_xact_lock(company_id, _SYSTEM_TRANSIT_PROVISION_GUARD))
+    )
+    location = (
+        await db_session.execute(
+            select(InventoryLocation)
+            .filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.system_role == "TRANSIT",
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if location is not None:
+        if not (
+            location.is_system_managed
+            and location.location_type == "IN_TRANSIT"
+            and location.is_active
+            and location.branch_id is None
+            and location.vehicle_id is None
+        ):
+            raise InventoryMutationError(
+                "موقع العبور النظامي للشركة موجود بحالة غير صالحة ويجب إصلاحه إدارياً."
+            )
+        return location
+
+    reserved_code_owner = (
+        await db_session.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.code == "TRANSIT-SYS",
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if reserved_code_owner is not None:
+        raise InventoryMutationError(
+            "الكود TRANSIT-SYS مستخدم في موقع لا يحمل هوية العبور النظامية."
+        )
+
+    location = InventoryLocation(
+        company_id=company_id,
+        branch_id=None,
+        name="بضاعة في الطريق",
+        code="TRANSIT-SYS",
+        location_type="IN_TRANSIT",
+        vehicle_id=None,
+        system_role="TRANSIT",
+        is_system_managed=True,
+        version=1,
+        is_active=True,
+    )
+    db_session.add(location)
+    await db_session.flush()
+    return location
 
 async def apply_inventory_movements_batch(
     db_session: AsyncSession,
@@ -1175,7 +1276,7 @@ async def apply_inventory_movements_batch(
     })
 
     # ترتيب القفل ثابت: idempotency -> locations -> location rows -> locks -> balances.
-    await _acquire_inventory_guards_batch(
+    await acquire_inventory_location_guards(
         db_session,
         company_id,
         location_ids,

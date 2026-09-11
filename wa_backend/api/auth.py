@@ -59,6 +59,7 @@ async def check_brute_force(ip: str, db: AsyncSession):
     limit_time = utc_now() - timedelta(minutes=15)
     stmt_count = select(func.count()).select_from(LoginAttempt).where(
         LoginAttempt.ip_address == ip,
+        LoginAttempt.company_code_attempted != "__platform__",
         LoginAttempt.is_successful == False,
         LoginAttempt.created_at >= limit_time 
     )

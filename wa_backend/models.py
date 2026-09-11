@@ -1126,12 +1126,22 @@ class InventoryLocation(Base):
         CheckConstraint("length(trim(code)) > 0", name='chk_inv_loc_code_not_blank'),
         CheckConstraint("vehicle_id IS NULL OR location_type = 'VEHICLE'", name='chk_inv_loc_vehicle_type'),
         CheckConstraint("location_type <> 'VEHICLE' OR vehicle_id IS NOT NULL", name='chk_inv_loc_vehicle_required'),
+        CheckConstraint("version > 0", name='chk_inv_loc_version_positive'),
+        CheckConstraint(
+            "(system_role IS NULL AND is_system_managed IS FALSE) OR "
+            "(system_role = 'TRANSIT' AND is_system_managed IS TRUE "
+            "AND location_type = 'IN_TRANSIT' AND branch_id IS NULL "
+            "AND vehicle_id IS NULL AND is_active IS TRUE)",
+            name='chk_inv_loc_system_identity'
+        ),
         Index(
             'ix_inventory_location_company_type_active_id',
             'company_id', 'location_type', 'is_active', 'id'
         ),
         Index('uq_active_inventory_location_vehicle', 'company_id', 'vehicle_id', unique=True,
               postgresql_where=text("vehicle_id IS NOT NULL AND is_active IS TRUE")),
+        Index('uq_inventory_location_system_role', 'company_id', 'system_role', unique=True,
+              postgresql_where=text("system_role IS NOT NULL")),
     )
     id            = Column(Integer, primary_key=True)
     company_id    = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -1140,6 +1150,9 @@ class InventoryLocation(Base):
     code          = Column(String(50), nullable=False)
     location_type = Column(String(50), nullable=False, index=True)
     vehicle_id    = Column(Integer, nullable=True, index=True)
+    system_role   = Column(String(30), nullable=True, index=True)
+    is_system_managed = Column(Boolean, nullable=False, default=False, server_default='false')
+    version       = Column(Integer, nullable=False, default=1, server_default='1')
     is_active     = Column(Boolean, nullable=False, default=True, server_default='true')
     created_at    = Column(DateTime, nullable=False, default=utc_now)
     updated_at    = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)

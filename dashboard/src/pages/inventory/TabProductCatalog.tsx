@@ -23,7 +23,6 @@ const EMPTY_DRAFT: ProductVariantCreateDraft = {
   price_per_carton: "",
   packs_per_carton: "",
   price_per_pack: "",
-  min_threshold_packs: "0",
   max_samples: "0",
 };
 
@@ -221,14 +220,11 @@ export function TabProductCatalog({ onCatalogChanged }: Props) {
           <label className="text-xs font-bold text-slate-600">سعر الحبة اختياري
             <input inputMode="decimal" value={draft.price_per_pack} onChange={(event) => field("price_per_pack", event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 p-2.5 outline-none" />
           </label>
-          <label className="text-xs font-bold text-slate-600">حد النقص بالحبات
-            <input type="number" min={0} max={2147483647} step={1} value={draft.min_threshold_packs} onChange={(event) => field("min_threshold_packs", event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 p-2.5 outline-none" />
-          </label>
           <label className="text-xs font-bold text-slate-600">حد العينات اليومي
             <input type="number" min={0} max={2147483647} step={1} value={draft.max_samples} onChange={(event) => field("max_samples", event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 p-2.5 outline-none" />
           </label>
         </div>
-        <p className="mt-4 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">حد النقص المدخل يُنشئه الـBackend لجميع مستودعات الشركة الفعالة وفق العقد الحالي.</p>
+        <p className="mt-4 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-xl p-3">إنشاء المنتج مستقل عن المستودعات. تُضبط سياسة الحد الأدنى لاحقاً لكل موقع مخزني.</p>
       </Modal>
     </div>
   );

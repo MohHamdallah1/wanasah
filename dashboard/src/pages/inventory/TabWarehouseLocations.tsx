@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, ChevronLeft, ChevronRight, Pencil, Plus, Power, PowerOff, RefreshCcw, Search } from "lucide-react";
+import { Building2, ChevronLeft, ChevronRight, GitBranch, Pencil, Plus, Power, PowerOff, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
+import { BranchManagementModal } from "./warehouse-locations/BranchManagementModal";
+import { BranchSelector } from "./warehouse-locations/BranchSelector";
 
 interface WarehouseLocationItem {
   id: number;
@@ -13,6 +15,7 @@ interface WarehouseLocationItem {
   branch_id: number | null;
   branch_name: string | null;
   is_active: boolean;
+  version: number;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +35,7 @@ interface WarehouseLocationMutationResponse {
 interface WarehouseFormState {
   name: string;
   code: string;
+  branch_id: number | null;
 }
 
 interface Props {
@@ -70,6 +74,9 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       typeof row.name !== "string" ||
       typeof row.code !== "string" ||
       typeof row.is_active !== "boolean" ||
+      typeof row.version !== "number" ||
+      !Number.isSafeInteger(row.version) ||
+      row.version <= 0 ||
       typeof row.created_at !== "string" ||
       typeof row.updated_at !== "string"
     ) {
@@ -83,6 +90,7 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       branch_id: typeof row.branch_id === "number" ? row.branch_id : null,
       branch_name: typeof row.branch_name === "string" ? row.branch_name : null,
       is_active: row.is_active,
+      version: row.version,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -128,9 +136,11 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [editingLocation, setEditingLocation] = useState<WarehouseLocationItem | null>(null);
-  const [form, setForm] = useState<WarehouseFormState>({ name: "", code: "" });
+  const [form, setForm] = useState<WarehouseFormState>({ name: "", code: "", branch_id: null });
   const [formRequestId, setFormRequestId] = useState(() => crypto.randomUUID());
   const [formSubmitting, setFormSubmitting] = useState(false);
+  const [branchManagerOpen, setBranchManagerOpen] = useState(false);
+  const [branchRefreshKey, setBranchRefreshKey] = useState(0);
 
   const [stateAction, setStateAction] = useState<StateAction | null>(null);
   const [stateLocation, setStateLocation] = useState<WarehouseLocationItem | null>(null);
@@ -193,7 +203,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   const openCreate = () => {
     setFormMode("create");
     setEditingLocation(null);
-    setForm({ name: "", code: "" });
+    setForm({ name: "", code: "", branch_id: null });
     setFormRequestId(crypto.randomUUID());
     setFormOpen(true);
   };
@@ -201,7 +211,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   const openEdit = (location: WarehouseLocationItem) => {
     setFormMode("edit");
     setEditingLocation(location);
-    setForm({ name: location.name, code: location.code });
+    setForm({ name: location.name, code: location.code, branch_id: location.branch_id });
     setFormRequestId(crypto.randomUUID());
     setFormOpen(true);
   };
@@ -233,7 +243,8 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
       formMode === "edit" &&
       editingLocation &&
       editingLocation.name === name &&
-      editingLocation.code === code
+      editingLocation.code === code &&
+      editingLocation.branch_id === form.branch_id
     ) {
       toast.info("لا توجد تغييرات لحفظها.");
       return;
@@ -241,13 +252,25 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
 
     setFormSubmitting(true);
     try {
+      const mutationBody: Record<string, unknown> = {
+        request_id: formRequestId,
+        name,
+        code,
+      };
+      if (formMode === "edit" && editingLocation) {
+        mutationBody.expected_version = editingLocation.version;
+      }
+      if (formMode === "create" || editingLocation?.branch_id !== form.branch_id) {
+        mutationBody.branch_id = form.branch_id;
+      }
+
       const raw = await authenticatedFetch(
         formMode === "create"
           ? "/warehouse/locations"
           : `/warehouse/locations/${editingLocation?.id}`,
         {
           method: formMode === "create" ? "POST" : "PATCH",
-          body: JSON.stringify({ request_id: formRequestId, name, code }),
+          body: JSON.stringify(mutationBody),
         }
       );
 
@@ -292,6 +315,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
           method: "POST",
           body: JSON.stringify({
             request_id: stateRequestId,
+            expected_version: stateLocation.version,
             reason: reason || null,
           }),
         }
@@ -336,7 +360,17 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {access.isCompanyAdmin && (
+            <button
+              type="button"
+              onClick={() => setBranchManagerOpen(true)}
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold text-sm flex items-center gap-2"
+            >
+              <GitBranch className="w-4 h-4" />
+              إدارة الفروع
+            </button>
+          )}
           <button
             onClick={() => setRefreshKey((value) => value + 1)}
             disabled={loading}
@@ -438,7 +472,11 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
               {!loading && items.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-12 text-center text-slate-400">
-                    لا توجد مستودعات مطابقة.
+                    {search
+                      ? "لا توجد مستودعات مطابقة للبحث."
+                      : access.can("location.create")
+                        ? "لم تُنشئ الشركة أي مستودع بعد. ابدأ بإنشاء مستودع من زر الإضافة."
+                        : "لا توجد مستودعات متاحة لحسابك."}
                   </td>
                 </tr>
               )}
@@ -475,12 +513,6 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
         title={formMode === "create" ? "إضافة مستودع" : "تعديل المستودع"}
       >
         <div className="space-y-4">
-          {formMode === "edit" && editingLocation?.branch_name && (
-            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
-              الفرع الحالي: <span className="font-bold">{editingLocation.branch_name}</span>
-            </div>
-          )}
-
           <div>
             <label className="text-xs font-bold text-slate-600">اسم المستودع</label>
             <input
@@ -499,9 +531,17 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
               maxLength={50}
               dir="ltr"
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono outline-none focus:ring-2 focus:ring-blue-500/20"
-              placeholder="WH-MAIN"
+              placeholder="AMMAN-01"
             />
           </div>
+
+          <BranchSelector
+            value={form.branch_id}
+            currentLabel={editingLocation?.branch_name ?? null}
+            disabled={formSubmitting}
+            refreshKey={branchRefreshKey}
+            onChange={(branchId) => updateForm({ branch_id: branchId })}
+          />
 
           <button
             onClick={handleSave}
@@ -512,6 +552,18 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
           </button>
         </div>
       </Modal>
+
+      {access.isCompanyAdmin && (
+        <BranchManagementModal
+          isOpen={branchManagerOpen}
+          onClose={() => setBranchManagerOpen(false)}
+          onBranchesChanged={async () => {
+            setBranchRefreshKey((value) => value + 1);
+            setRefreshKey((value) => value + 1);
+            await onLocationsChanged();
+          }}
+        />
+      )}
 
       <Modal
         isOpen={stateAction !== null && stateLocation !== null}

@@ -142,7 +142,15 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
 
                 loc_main = InventoryLocation(company_id=cid, name="المستودع الرئيسي", code=f"WH-MAIN-{cid}", location_type="WAREHOUSE", is_active=True)
                 loc_sec = InventoryLocation(company_id=cid, name="المستودع الفرعي", code=f"WH-SEC-{cid}", location_type="WAREHOUSE", is_active=True)
-                loc_transit = InventoryLocation(company_id=cid, name="بضاعة في الطريق", code="TRANSIT-SYS", location_type="IN_TRANSIT", is_active=True)
+                loc_transit = InventoryLocation(
+                    company_id=cid,
+                    name="بضاعة في الطريق",
+                    code="TRANSIT-SYS",
+                    location_type="IN_TRANSIT",
+                    system_role="TRANSIT",
+                    is_system_managed=True,
+                    is_active=True,
+                )
                 session.add_all([loc_main, loc_sec, loc_transit])
 
                 zone = Zone(company_id=cid, name=f"منطقة {cid}", governorate_id=gov.id, sequence_number=1, start_date=datetime.now(timezone.utc).date(), interval_days=7)

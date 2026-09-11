@@ -20,6 +20,10 @@ import base64
 from services import (
     check_inventory_lock as _check_inventory_lock,
     acquire_inventory_location_guard,
+    acquire_inventory_location_guards,
+    ensure_system_transit_location,
+    inventory_business_error,
+    warehouse_setup_required_detail,
     apply_inventory_movement,
     apply_inventory_movements_batch,
     post_approved_stocktake_adjustments,
@@ -40,6 +44,7 @@ from schemas import (UnifiedStocktakeStartRequest,
 WarehouseInventoryItem, WarehouseInventoryCursorPage, WarehouseLedgerItem, WarehouseLedgerCursorPage,
 WarehouseStatusResponse, WarehouseLocationCreateRequest, WarehouseLocationUpdateRequest,
 WarehouseLocationStateRequest, WarehouseLocationCursorPage, WarehouseLocationMutationResponse,
+WarehouseSetupStatusResponse,
 MessageResponse, SimpleProductVariantItem, SimpleProductVariantCursorPage, ProductVariantResolveRequest,
 AddProductVariantRequest, ProductVariantMutationResponse, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest,
 UnifiedTransferDecisionRequest, WarehouseTransferCursorPage, WarehouseTransferDetail,
@@ -504,81 +509,6 @@ async def _requires_independent_stocktake_recount(
 # =================================================================================
 # دوال مساعدة للمستودع (Helper Functions)
 # =================================================================================
-@router.get("/warehouse/locations", status_code=200)
-async def get_warehouse_locations(
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
-):
-    """جلب المستودعات الفعالة مع Auto-Provision آمن للشركات الجديدة فقط."""
-    access = InventoryAccess(db, current_admin)
-    await access.require('location.read', any_location=True)
-
-    company_id = current_admin.company_id
-
-    stmt_active = select(
-        InventoryLocation.id,
-        InventoryLocation.name,
-        InventoryLocation.code
-    ).filter_by(
-        company_id=company_id,
-        location_type='WAREHOUSE',
-        is_active=True
-    ).order_by(
-        InventoryLocation.id.asc()
-    )
-
-    stmt_active = stmt_active.filter(access.location_filter('location.read'))
-    locations = (await db.execute(stmt_active)).all()
-    if locations:
-        return [
-            {"id": loc.id, "name": loc.name, "code": loc.code}
-            for loc in locations
-        ]
-
-    # لا نعيد تفعيل مستودع متوقف بصمت. Auto-Provision مخصص فقط لشركة
-    # لا تملك أي WAREHOUSE أصلاً.
-    stmt_any = select(InventoryLocation.id).filter_by(
-        company_id=company_id,
-        location_type='WAREHOUSE'
-    ).limit(1)
-    if (await db.execute(stmt_any)).scalar_one_or_none() is not None:
-        return []
-
-    await access.require('location.create')
-
-    try:
-        # ON CONFLICT يحمي أول دخول متزامن لشركة جديدة بدون IntegrityError/500.
-        stmt_insert = pg_insert(InventoryLocation).values(
-            company_id=company_id,
-            name="المستودع الرئيسي",
-            code="WH-MAIN",
-            location_type='WAREHOUSE',
-            is_active=True
-        ).on_conflict_do_nothing(
-            index_elements=['company_id', 'code']
-        )
-        await db.execute(stmt_insert)
-
-        locations = (await db.execute(stmt_active)).all()
-        await db.commit()
-
-        return [
-            {"id": loc.id, "name": loc.name, "code": loc.code}
-            for loc in locations
-        ]
-
-    except Exception as e:
-        await db.rollback()
-        logger.error(
-            f"خطأ في Auto-Provision للمستودع: {str(e)}",
-            exc_info=True
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="حدث خطأ داخلي أثناء تجهيز مستودعات الشركة."
-        )
-
-
 def _warehouse_location_to_payload(
     location: InventoryLocation,
     *,
@@ -602,6 +532,7 @@ def _warehouse_location_to_payload(
         ),
         "branch_name": branch_name,
         "is_active": bool(location.is_active),
+        "version": int(location.version),
         "created_at": _as_iso(location.created_at),
         "updated_at": _as_iso(location.updated_at),
     }
@@ -670,13 +601,54 @@ async def _load_locked_warehouse_location(
 
 
 @router.get(
+    "/warehouse/setup-status",
+    response_model=WarehouseSetupStatusResponse,
+    status_code=200,
+)
+async def get_warehouse_setup_status(
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.read', any_location=True)
+    company_id = current_admin.company_id
+
+    active_scope = (
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.location_type == 'WAREHOUSE',
+        InventoryLocation.is_active.is_(True),
+    )
+    active_count = int((await db.execute(
+        select(func.count(InventoryLocation.id)).filter(*active_scope)
+    )).scalar_one())
+    accessible_count = int((await db.execute(
+        select(func.count(InventoryLocation.id)).filter(
+            *active_scope,
+            access.location_filter('location.read'),
+        )
+    )).scalar_one())
+    can_create = bool(await db.scalar(select(access.allows('location.create'))))
+    return {
+        "warehouse_ready": active_count > 0,
+        "active_warehouse_count": active_count,
+        "accessible_warehouse_count": accessible_count,
+        "can_create": can_create,
+    }
+
+
+@router.get(
+    "/warehouse/locations",
+    response_model=WarehouseLocationCursorPage,
+    status_code=200,
+)
+@router.get(
     "/warehouse/locations/manage",
     response_model=WarehouseLocationCursorPage,
     status_code=200,
 )
 async def manage_warehouse_locations(
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
-    include_inactive: bool = Query(default=True),
+    include_inactive: bool = Query(default=False),
     cursor: Optional[str] = Query(default=None, max_length=512),
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -805,7 +777,10 @@ async def create_warehouse_location(
         if payload.code == "TRANSIT-SYS":
             raise HTTPException(
                 status_code=409,
-                detail="الكود TRANSIT-SYS محجوز لموقع العبور الداخلي للنظام.",
+                detail=inventory_business_error(
+                    "SYSTEM_LOCATION_CODE_RESERVED",
+                    "الكود TRANSIT-SYS محجوز لموقع العبور الداخلي للنظام.",
+                ),
             )
 
         branch_row = await _get_warehouse_branch(
@@ -826,7 +801,10 @@ async def create_warehouse_location(
         if duplicate_id is not None:
             raise HTTPException(
                 status_code=409,
-                detail="كود الموقع مستخدم مسبقاً داخل شركتك.",
+                detail=inventory_business_error(
+                    "LOCATION_CODE_CONFLICT",
+                    "كود الموقع مستخدم مسبقاً داخل شركتك.",
+                ),
             )
 
         location = InventoryLocation(
@@ -836,6 +814,9 @@ async def create_warehouse_location(
             code=payload.code,
             location_type='WAREHOUSE',
             vehicle_id=None,
+            system_role=None,
+            is_system_managed=False,
+            version=1,
             is_active=True,
         )
         db.add(location)
@@ -917,6 +898,23 @@ async def update_warehouse_location(
             company_id=company_id,
             location_id=location_id,
         )
+        if location.is_system_managed:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "SYSTEM_LOCATION_PROTECTED",
+                    "لا يمكن تعديل موقع يديره النظام.",
+                ),
+            )
+        if int(location.version) != int(payload.expected_version):
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "LOCATION_VERSION_CONFLICT",
+                    "تغير المستودع منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
+                    context={"current_version": int(location.version)},
+                ),
+            )
 
         current_branch_row = await _get_warehouse_branch(
             db,
@@ -946,7 +944,10 @@ async def update_warehouse_location(
             if payload.code == "TRANSIT-SYS":
                 raise HTTPException(
                     status_code=409,
-                    detail="الكود TRANSIT-SYS محجوز لموقع العبور الداخلي للنظام.",
+                    detail=inventory_business_error(
+                        "SYSTEM_LOCATION_CODE_RESERVED",
+                        "الكود TRANSIT-SYS محجوز لموقع العبور الداخلي للنظام.",
+                    ),
                 )
             duplicate_id = (
                 await db.execute(
@@ -958,9 +959,16 @@ async def update_warehouse_location(
                 )
             ).scalar_one_or_none()
             if duplicate_id is not None:
-                raise HTTPException(status_code=409, detail="كود الموقع مستخدم مسبقاً داخل شركتك.")
+                raise HTTPException(
+                    status_code=409,
+                    detail=inventory_business_error(
+                        "LOCATION_CODE_CONFLICT",
+                        "كود الموقع مستخدم مسبقاً داخل شركتك.",
+                    ),
+                )
             location.code = payload.code
 
+        location.version = int(location.version) + 1
         location.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await db.flush()
 
@@ -1037,6 +1045,23 @@ async def activate_warehouse_location(
             company_id=company_id,
             location_id=location_id,
         )
+        if location.is_system_managed:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "SYSTEM_LOCATION_PROTECTED",
+                    "لا يمكن تغيير حالة موقع يديره النظام.",
+                ),
+            )
+        if int(location.version) != int(payload.expected_version):
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "LOCATION_VERSION_CONFLICT",
+                    "تغير المستودع منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
+                    context={"current_version": int(location.version)},
+                ),
+            )
 
         branch_row = await _get_warehouse_branch(
             db,
@@ -1047,6 +1072,7 @@ async def activate_warehouse_location(
 
         if not location.is_active:
             location.is_active = True
+            location.version = int(location.version) + 1
             location.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             db.add(SystemAuditLog(
                 company_id=company_id,
@@ -1122,6 +1148,23 @@ async def deactivate_warehouse_location(
             company_id=company_id,
             location_id=location_id,
         )
+        if location.is_system_managed:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "SYSTEM_LOCATION_PROTECTED",
+                    "لا يمكن تغيير حالة موقع يديره النظام.",
+                ),
+            )
+        if int(location.version) != int(payload.expected_version):
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "LOCATION_VERSION_CONFLICT",
+                    "تغير المستودع منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
+                    context={"current_version": int(location.version)},
+                ),
+            )
 
         branch_row = await _get_warehouse_branch(
             db,
@@ -1147,18 +1190,24 @@ async def deactivate_warehouse_location(
             if on_hand_total > 0 or reserved_total > 0:
                 raise HTTPException(
                     status_code=409,
-                    detail=(
-                        "لا يمكن تعطيل المستودع لأنه يحتوي مخزوناً فعلياً "
-                        f"(on_hand={on_hand_total}, reserved={reserved_total})."
+                    detail=inventory_business_error(
+                        "LOCATION_DEACTIVATION_BLOCKED",
+                        "لا يمكن تعطيل المستودع لأنه يحتوي رصيداً مخزنياً.",
+                        context={
+                            "blocker_type": "INVENTORY_BALANCE",
+                            "on_hand_quantity": on_hand_total,
+                            "reserved_quantity": reserved_total,
+                        },
                     ),
                 )
 
-            transit_ref = (
+            transfer_ref = (
                 await db.execute(
                     select(InventoryTransferHeader.reference_number).filter(
                         InventoryTransferHeader.company_id == company_id,
-                        InventoryTransferHeader.workflow_type == 'TRANSIT',
-                        InventoryTransferHeader.status == 'IN_TRANSIT',
+                        InventoryTransferHeader.status.not_in(
+                            ['POSTED', 'REJECTED', 'CANCELLED']
+                        ),
                         or_(
                             InventoryTransferHeader.source_location_id == location.id,
                             InventoryTransferHeader.destination_location_id == location.id,
@@ -1166,10 +1215,14 @@ async def deactivate_warehouse_location(
                     ).order_by(InventoryTransferHeader.id.asc()).limit(1)
                 )
             ).scalar_one_or_none()
-            if transit_ref is not None:
+            if transfer_ref is not None:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"لا يمكن تعطيل المستودع لوجود حوالة IN_TRANSIT مرتبطة به ({transit_ref}).",
+                    detail=inventory_business_error(
+                        "LOCATION_DEACTIVATION_BLOCKED",
+                        "لا يمكن تعطيل المستودع لوجود حوالة غير نهائية مرتبطة به.",
+                        context={"blocker_type": "OPEN_TRANSFER", "reference_number": str(transfer_ref)},
+                    ),
                 )
 
             active_lock_id = (
@@ -1184,7 +1237,32 @@ async def deactivate_warehouse_location(
             if active_lock_id is not None:
                 raise HTTPException(
                     status_code=409,
-                    detail="لا يمكن تعطيل المستودع أثناء وجود جرد/قفل مخزني نشط عليه.",
+                    detail=inventory_business_error(
+                        "LOCATION_DEACTIVATION_BLOCKED",
+                        "لا يمكن تعطيل المستودع أثناء وجود قفل مخزني نشط عليه.",
+                        context={"blocker_type": "INVENTORY_LOCK", "reference_id": int(active_lock_id)},
+                    ),
+                )
+
+            active_stocktake = (
+                await db.execute(
+                    select(StocktakeSession.reference_number).filter(
+                        StocktakeSession.company_id == company_id,
+                        StocktakeSession.location_id == location.id,
+                        StocktakeSession.status.in_(
+                            ['DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED']
+                        ),
+                    ).order_by(StocktakeSession.id.asc()).limit(1)
+                )
+            ).scalar_one_or_none()
+            if active_stocktake is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=inventory_business_error(
+                        "LOCATION_DEACTIVATION_BLOCKED",
+                        "لا يمكن تعطيل المستودع أثناء وجود جلسة جرد غير نهائية عليه.",
+                        context={"blocker_type": "OPEN_STOCKTAKE", "reference_number": str(active_stocktake)},
+                    ),
                 )
 
             active_route_id = (
@@ -1199,10 +1277,15 @@ async def deactivate_warehouse_location(
             if active_route_id is not None:
                 raise HTTPException(
                     status_code=409,
-                    detail="لا يمكن تعطيل المستودع لأنه مصدر لخط سير تشغيلي غير مغلق.",
+                    detail=inventory_business_error(
+                        "LOCATION_DEACTIVATION_BLOCKED",
+                        "لا يمكن تعطيل المستودع لأنه مصدر لخط سير غير نهائي.",
+                        context={"blocker_type": "OPEN_DISPATCH_ROUTE", "reference_id": int(active_route_id)},
+                    ),
                 )
 
             location.is_active = False
+            location.version = int(location.version) + 1
             location.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             db.add(SystemAuditLog(
                 company_id=company_id,
@@ -1241,6 +1324,23 @@ async def deactivate_warehouse_location(
 # =================================================================================
 # 1. استلام بضاعة من المورد (Inbound) - المحرك الموحد
 # =================================================================================
+async def _require_active_warehouse_setup(
+    db: AsyncSession,
+    company_id: int,
+) -> None:
+    active_id = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.location_type == 'WAREHOUSE',
+                InventoryLocation.is_active.is_(True),
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if active_id is None:
+        raise HTTPException(status_code=409, detail=warehouse_setup_required_detail())
+
+
 @router.post("/warehouse/inbound", response_model=MessageResponse, status_code=201)
 async def warehouse_inbound(
     payload: UpgradedInboundRequest,
@@ -1248,9 +1348,11 @@ async def warehouse_inbound(
     current_admin: Driver = Depends(get_current_driver)
 ):
     access = InventoryAccess(db, current_admin)
-    await access.require('inbound.create', payload.location_id)
+    await access.require('inbound.create', any_location=True)
 
     company_id = current_admin.company_id
+    await _require_active_warehouse_setup(db, company_id)
+    await access.require('inbound.create', payload.location_id)
 
     try:
         request_hash = _stable_request_hash(payload)
@@ -2837,74 +2939,6 @@ async def add_product_variant(
         db.add(new_variant)
         await db.flush()
 
-        stmt_warehouses = select(
-            InventoryLocation.id
-        ).filter_by(
-            company_id=company_id,
-            location_type='WAREHOUSE',
-            is_active=True
-        ).order_by(
-            InventoryLocation.id.asc()
-        )
-        warehouse_ids = (
-            await db.execute(stmt_warehouses)
-        ).scalars().all()
-
-        minimum_quantity = int(
-            payload.min_threshold_packs or 0
-        )
-
-        if not warehouse_ids:
-            # Auto-Provision آمن للشركة الجديدة فقط. إذا WH-MAIN موجود
-            # لكنه متوقف فلن نعيد تفعيله بصمت.
-            stmt_any_warehouse = select(
-                InventoryLocation.id
-            ).filter_by(
-                company_id=company_id,
-                location_type='WAREHOUSE'
-            ).limit(1)
-
-            any_warehouse = (
-                await db.execute(stmt_any_warehouse)
-            ).scalar_one_or_none()
-
-            if any_warehouse is None:
-                stmt_provision = pg_insert(
-                    InventoryLocation
-                ).values(
-                    company_id=company_id,
-                    name="المستودع الرئيسي",
-                    code="WH-MAIN",
-                    location_type='WAREHOUSE',
-                    is_active=True
-                ).on_conflict_do_nothing(
-                    index_elements=['company_id', 'code']
-                )
-                await db.execute(stmt_provision)
-
-                warehouse_ids = (
-                    await db.execute(stmt_warehouses)
-                ).scalars().all()
-
-        if not warehouse_ids:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "لا يوجد مستودع فعال يمكن ربط سياسة حد النقص به. "
-                    "فعّل مستودعاً أولاً ثم أعد إضافة المنتج."
-                )
-            )
-
-        for warehouse_id in warehouse_ids:
-            db.add(InventoryStockPolicy(
-                company_id=company_id,
-                location_id=warehouse_id,
-                product_variant_id=new_variant.id,
-                minimum_quantity=minimum_quantity,
-                target_quantity=None,
-                is_active=True
-            ))
-
         await db.commit()
 
         return {
@@ -3339,21 +3373,6 @@ async def _verify_location_ownership(
             raise ValueError(
                 f"مرفوض أمنياً: نوع الموقع ({location_type}) غير مسموح لهذه العملية."
             )
-
-
-async def _acquire_shared_inventory_guards(
-    db: AsyncSession,
-    company_id: int,
-    *location_ids: int
-) -> None:
-    """ترتيب حراس المواقع قبل أي Row Lock لمنع دورات Deadlock."""
-    for location_id in sorted({int(x) for x in location_ids}):
-        await acquire_inventory_location_guard(
-            db,
-            company_id,
-            location_id,
-            exclusive=False
-        )
 
 
 @router.get(
@@ -4304,33 +4323,20 @@ async def unified_transfer_dispatch(
                 detail="يوجد صنف غير صالح أو غير فعال أو لا يتبع شركتك ضمن الحوالة."
             )
 
-        await db.execute(
-            pg_insert(InventoryLocation).values(
-                company_id=company_id,
-                name="بضاعة في الطريق",
-                code="TRANSIT-SYS",
-                location_type='IN_TRANSIT',
-                is_active=True
-            ).on_conflict_do_nothing(index_elements=['company_id', 'code'])
-        )
-        transit_location_id = (
-            await db.execute(
-                select(InventoryLocation.id).filter_by(
-                    company_id=company_id,
-                    code='TRANSIT-SYS',
-                    location_type='IN_TRANSIT',
-                    is_active=True
-                )
-            )
-        ).scalar_one_or_none()
-        if transit_location_id is None:
-            raise HTTPException(status_code=409, detail="تعذر تجهيز موقع IN_TRANSIT الخاص بالشركة.")
+        transit_location = await ensure_system_transit_location(db, company_id)
+        transit_location_id = int(transit_location.id)
 
-        await _acquire_shared_inventory_guards(
+        await acquire_inventory_location_guards(
+            db,
+            company_id,
+            [payload.source_location_id, payload.destination_location_id, transit_location_id],
+        )
+        await _verify_location_ownership(
             db,
             company_id,
             payload.source_location_id,
-            transit_location_id
+            payload.destination_location_id,
+            allowed_types=['WAREHOUSE', 'VEHICLE'],
         )
 
         ordered_items = sorted(
@@ -4601,11 +4607,22 @@ async def _move_transfer_lines_from_transit(
         allowed_types=['WAREHOUSE', 'VEHICLE']
     )
 
-    await _acquire_shared_inventory_guards(
+    await acquire_inventory_location_guards(
+        db,
+        company_id,
+        [transit_location_id, destination_location_id],
+    )
+    await _verify_location_ownership(
         db,
         company_id,
         transit_location_id,
-        destination_location_id
+        allowed_types=['IN_TRANSIT'],
+    )
+    await _verify_location_ownership(
+        db,
+        company_id,
+        destination_location_id,
+        allowed_types=['WAREHOUSE', 'VEHICLE'],
     )
 
     lines = (

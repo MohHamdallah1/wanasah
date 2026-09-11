@@ -3,6 +3,8 @@ import { useState, useRef, useEffect } from "react";
 import { Radar, Truck, Package, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, useLocation } from "react-router-dom";
+import { formatTenantDate } from "@/features/tenantIdentity/contracts";
+import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
 
 interface OperationsSidebarProps {
   open: boolean;
@@ -20,7 +22,13 @@ const navItems = [
 export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
   const navigate = useNavigate();
   const access = useInventoryAccess();
+  const tenantIdentity = useTenantIdentity();
   const location = useLocation();
+  const companyName = tenantIdentity.data?.company_name || "لوحة الشركة";
+  const companyCode = tenantIdentity.data?.company_code || "مركز إدارة العمليات";
+  const companyMark = companyName.trim().charAt(0).toUpperCase() || "W";
+  const displayLocation = tenantIdentity.data?.display_location || "الموقع غير محدد";
+  const currentDate = formatTenantDate(tenantIdentity.data?.timezone);
   
   // +++ حالات نظام الملف الشخصي +++
   const adminName = localStorage.getItem('admin_name') || 'المدير';
@@ -86,11 +94,11 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
           ${open ? "translate-x-0" : "translate-x-full lg:translate-x-0"}
         `}
       >
-        <div className="operations-brand" aria-label="نظام وناسة للتوزيع">
-          <span className="operations-brand-mark">W</span>
+        <div className="operations-brand" aria-label={companyName}>
+          <span className="operations-brand-mark">{companyMark}</span>
           <span>
-            <strong>وناسة للتوزيع</strong>
-            <small>مركز إدارة العمليات</small>
+            <strong>{companyName}</strong>
+            <small>{companyCode}</small>
           </span>
           <i aria-hidden="true" />
         </div>
@@ -155,14 +163,14 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
                 <Calendar className="w-4 h-4 text-primary" strokeWidth={2} />
               </div>
               <span className="tracking-tight">
-                {new Date().toLocaleDateString("ar-JO", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+                {currentDate}
               </span>
             </div>
             <div className="flex items-center gap-2.5 text-xs font-bold text-slate-500">
               <div className="p-1.5 bg-warning/10 rounded-lg">
                 <MapPin className="w-4 h-4 text-warning" strokeWidth={2} />
               </div>
-              الأردن - عمان
+              {displayLocation}
             </div>
           </div>
         </div>

@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Menu, LogOut, User, MapPin, Calendar, ChevronDown, Settings } from "lucide-react";
+import { formatTenantDate } from "@/features/tenantIdentity/contracts";
+import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
 
 interface TopBarProps {
   onMenuToggle: () => void;
@@ -8,6 +10,9 @@ interface TopBarProps {
 
 export function TopBar({ onMenuToggle }: TopBarProps) {
   const adminName = localStorage.getItem('admin_name') || 'المدير';
+  const tenantIdentity = useTenantIdentity();
+  const displayLocation = tenantIdentity.data?.display_location || "الموقع غير محدد";
+  const currentDate = formatTenantDate(tenantIdentity.data?.timezone);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -64,11 +69,11 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
         </button>
         <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground">
           <Calendar className="w-4 h-4" strokeWidth={1.5} />
-          <span className="font-medium">{new Date().toLocaleDateString("ar-JO", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</span>
+          <span className="font-medium">{currentDate}</span>
         </div>
         <div className="hidden lg:flex items-center gap-1.5 bg-muted/60 rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <MapPin className="w-3.5 h-3.5" strokeWidth={1.5} />
-          الأردن - عمان
+          {displayLocation}
         </div>
       </div>
 

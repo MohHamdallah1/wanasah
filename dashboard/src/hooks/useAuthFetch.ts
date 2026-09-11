@@ -21,6 +21,7 @@ const processQueue = (error: Error | null, token: string | null = null) => {
 type HttpError = Error & {
     status: number;
     data: unknown;
+    code?: string;
 };
 
 const makeHttpError = (
@@ -183,8 +184,12 @@ export function useAuthFetch() {
                 if (res.status === 403 && !cleanPath.startsWith('/inventory/access/me')) {
                     window.dispatchEvent(new Event('inventory-permission-denied'));
                 }
+                const detail = data?.detail;
                 const serverMessage =
-                    data?.message || data?.detail || `خطأ سيرفر (${res.status})`;
+                    (typeof data?.message === "string" && data.message) ||
+                    (typeof detail === "string" && detail) ||
+                    (typeof detail?.message === "string" && detail.message) ||
+                    `خطأ سيرفر (${res.status})`;
 
                 if (
                     res.status === 403 &&
@@ -194,7 +199,9 @@ export function useAuthFetch() {
                     forceLogout("تم إيقاف حسابك من قبل الإدارة");
                 }
 
-                throw makeHttpError(serverMessage, res.status, data);
+                const httpError = makeHttpError(serverMessage, res.status, data);
+                if (typeof detail?.code === "string") httpError.code = detail.code;
+                throw httpError;
             }
 
             return data;

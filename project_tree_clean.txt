@@ -1,7 +1,11 @@
+├── .cursor
+│   └── rules
+│       └── business-workflow-protection.mdc
 ├── .gitignore
 ├── .rules
 ├── .vscode
 │   └── settings.json
+├── AGENTS.md
 ├── RUN.txt
 ├── dashboard
 │   ├── .env
@@ -12,19 +16,12 @@
 │   ├── components.json
 │   ├── dashboard_structure.txt
 │   ├── dist
-│   │   ├── favicon.ico
-│   │   ├── index.html
-│   │   ├── placeholder.svg
-│   │   └── robots.txt
 │   ├── eslint.config.js
 │   ├── index.html
 │   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
 │   ├── public
-│   │   ├── favicon.ico
-│   │   ├── placeholder.svg
-│   │   └── robots.txt
 │   ├── src
 │   │   ├── App.css
 │   │   ├── App.tsx
@@ -54,7 +51,8 @@
 │   │   │   │   ├── OperationsSidebar.tsx
 │   │   │   │   ├── PulseBar.tsx
 │   │   │   │   ├── SettlementModal.tsx
-│   │   │   │   └── TopBar.tsx
+│   │   │   │   ├── TopBar.tsx
+│   │   │   │   └── dashboard.css
 │   │   │   └── ui
 │   │   │       ├── accordion.tsx
 │   │   │       ├── alert-dialog.tsx
@@ -111,12 +109,22 @@
 │   │   │       └── use-toast.ts
 │   │   ├── data
 │   │   │   └── operations-data.ts
+│   │   ├── features
+│   │   │   ├── platform
+│   │   │   │   ├── api.ts
+│   │   │   │   ├── contracts.ts
+│   │   │   │   └── session.ts
+│   │   │   └── tenantIdentity
+│   │   │       ├── contracts.ts
+│   │   │       └── useTenantIdentity.ts
 │   │   ├── hooks
 │   │   │   ├── use-mobile.tsx
 │   │   │   ├── use-toast.ts
-│   │   │   └── useAuthFetch.ts
+│   │   │   ├── useAuthFetch.ts
+│   │   │   └── useInventoryAccess.ts
 │   │   ├── index.css
 │   │   ├── lib
+│   │   │   ├── apiErrors.ts
 │   │   │   └── utils.ts
 │   │   ├── main.tsx
 │   │   ├── pages
@@ -124,17 +132,32 @@
 │   │   │   ├── Login.tsx
 │   │   │   ├── NotFound.tsx
 │   │   │   ├── OperationsDashboard.tsx
-│   │   │   └── inventory
-│   │   │       ├── MainInventory.tsx
-│   │   │       ├── Tab1LiveStock.tsx
-│   │   │       ├── Tab2Inbound.tsx
-│   │   │       ├── Tab3Stocktake.tsx
-│   │   │       ├── Tab4Ledger.tsx
-│   │   │       ├── TabTransfers.tsx
-│   │   │       ├── TabWarehouseLocations.tsx
-│   │   │       └── inventoryUtils.ts
+│   │   │   ├── PlatformDashboard.tsx
+│   │   │   ├── PlatformLogin.tsx
+│   │   │   ├── inventory
+│   │   │   │   ├── MainInventory.tsx
+│   │   │   │   ├── Tab1LiveStock.tsx
+│   │   │   │   ├── Tab2Inbound.tsx
+│   │   │   │   ├── Tab3Stocktake.tsx
+│   │   │   │   ├── Tab4Ledger.tsx
+│   │   │   │   ├── TabInventoryAccess.tsx
+│   │   │   │   ├── TabProductCatalog.tsx
+│   │   │   │   ├── TabTransfers.tsx
+│   │   │   │   ├── TabWarehouseLocations.tsx
+│   │   │   │   ├── catalog
+│   │   │   │   ├── catalogParsers.ts
+│   │   │   │   ├── inbound
+│   │   │   │   ├── inventory.css
+│   │   │   │   ├── inventoryUtils.ts
+│   │   │   │   ├── ledger
+│   │   │   │   ├── liveStock
+│   │   │   │   ├── stocktake
+│   │   │   │   ├── transfers
+│   │   │   │   └── warehouse-locations
+│   │   │   └── login.css
 │   │   ├── test
 │   │   │   ├── example.test.ts
+│   │   │   ├── inventory-access.test.ts
 │   │   │   └── setup.ts
 │   │   ├── types
 │   │   │   └── dispatch.ts
@@ -146,6 +169,7 @@
 │   ├── vite.config.ts
 │   └── vitest.config.ts
 ├── db_manager.py
+├── error.log
 ├── wa_backend
 │   ├── .concurrency_audit_baseline.json
 │   ├── .env
@@ -165,18 +189,23 @@
 │   ├── alembic.ini
 │   ├── api
 │   │   ├── auth.py
+│   │   ├── branches.py
 │   │   ├── dependencies.py
 │   │   ├── dispatch.py
 │   │   ├── driver.py
+│   │   ├── inventory_permissions.py
 │   │   ├── platform.py
 │   │   ├── reconciliation.py
+│   │   ├── tenant.py
 │   │   └── warehouse.py
 │   ├── audit_concurrency.py
 │   ├── config.py
 │   ├── context.py
 │   ├── database.py
 │   ├── db_manager.py
+│   ├── dispatch_access.py
 │   ├── error.log
+│   ├── inventory_access.py
 │   ├── locustfile.py
 │   ├── main.py
 │   ├── models.py
@@ -189,53 +218,10 @@
 │   ├── requirements.txt
 │   ├── schemas.py
 │   ├── scripts
-│   │   ├── backup_db.sh
-│   │   ├── error.log
-│   │   ├── error.log.1
-│   │   ├── generate_migration.sh
-│   │   ├── nuclear_stress_test.js
-│   │   ├── nuclear_summary.json
-│   │   ├── rls_stage3.sql
-│   │   ├── run_migration.sh
-│   │   ├── smoke_report.txt
-│   │   ├── test_e2e_report.txt
-│   │   ├── test_e2e_stress_simulation.py
-│   │   ├── test_rls_security.py
-│   │   └── test_smoke.py
 │   ├── seed_dashboard_dev_login.py
 │   ├── services.py
+│   ├── token_identity.py
 │   ├── venv_wsl
-│   │   ├── bin
-│   │   │   ├── Activate.ps1
-│   │   │   ├── activate
-│   │   │   ├── activate.csh
-│   │   │   ├── activate.fish
-│   │   │   ├── dotenv
-│   │   │   ├── email_validator
-│   │   │   ├── httpx
-│   │   │   ├── idna
-│   │   │   ├── markdown-it
-│   │   │   ├── pip
-│   │   │   ├── pip3
-│   │   │   ├── pip3.12
-│   │   │   ├── pygmentize
-│   │   │   ├── python
-│   │   │   ├── python3
-│   │   │   ├── python3.12
-│   │   │   ├── typer
-│   │   │   ├── uvicorn
-│   │   │   ├── watchfiles
-│   │   │   └── websockets
-│   │   ├── include
-│   │   │   ├── python3.12
-│   │   │   └── site
-│   │   │       └── python3.12
-│   │   ├── lib
-│   │   │   └── python3.12
-│   │   │       └── site-packages
-│   │   ├── lib64
-│   │   │   └── python3.12
-│   │   │       └── site-packages
 │   │   └── pyvenv.cfg
 │   ├── workers
 │   │   ├── README.md

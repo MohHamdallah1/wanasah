@@ -22,7 +22,6 @@ export interface ProductVariantCreateDraft {
   price_per_carton: string;
   packs_per_carton: string;
   price_per_pack: string;
-  min_threshold_packs: string;
   max_samples: string;
 }
 
@@ -32,7 +31,6 @@ export interface ProductVariantCreatePayload {
   price_per_carton: string;
   packs_per_carton: number;
   price_per_pack: string | null;
-  min_threshold_packs: number;
   max_samples: number;
 }
 
@@ -154,7 +152,6 @@ export function buildProductVariantCreatePayload(draft: ProductVariantCreateDraf
     price_per_carton: pricePerCarton,
     packs_per_carton: parseNonNegativeDbInt(draft.packs_per_carton, "عدد الحبات في الكرتونة", 1),
     price_per_pack: parseMoney(draft.price_per_pack, "سعر الحبة", true),
-    min_threshold_packs: parseNonNegativeDbInt(draft.min_threshold_packs || "0", "حد النقص"),
     max_samples: parseNonNegativeDbInt(draft.max_samples || "0", "حد العينات"),
   };
 }

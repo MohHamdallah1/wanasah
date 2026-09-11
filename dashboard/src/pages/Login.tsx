@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
 import './login.css';
 
@@ -195,6 +195,11 @@ export default function Login() {
               <span>{isSubmitting ? 'جارٍ التحقق...' : 'دخول إلى لوحة التحكم'}</span>
               {!isSubmitting && <ArrowLeft />}
             </button>
+
+            <Link to="/platform/login" className="mt-2 flex items-center justify-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-800">
+              <ShieldCheck className="h-4 w-4" />
+              بوابة إدارة المنصة
+            </Link>
           </form>
           </div>
         </div>
