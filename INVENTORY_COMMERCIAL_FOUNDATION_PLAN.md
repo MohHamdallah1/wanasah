@@ -1,6 +1,6 @@
 # Inventory & Commercial Foundation Plan
 
-**الحالة:** OWNER-APPROVED ARCHITECTURAL BASELINE — IMPLEMENTATION IN PROGRESS (STAGES 0–2 COMPLETE)
+**الحالة:** OWNER-APPROVED ARCHITECTURAL BASELINE — IMPLEMENTATION IN PROGRESS (STAGES 0–3 COMPLETE)
 
 **تاريخ الاعتماد:** 2026-09-11
 
@@ -1651,18 +1651,20 @@ Gate:
 
 - [x] PRODUCT_FOUNDATION_GATE=PASS
 
-### Stage 3 — ProductLocation, Lifecycle, Holds and Archive
+### Stage 3 — ProductLocation, Lifecycle, Holds and Archive ✅
 
-- ProductLocation sparse.
-- FSM commands.
-- Capability evaluator.
-- Archive preflight/final locking.
-- Permissions/Audit/Outbox.
-- Dashboard lifecycle surfaces.
+- [x] ProductLocation sparse.
+- [x] FSM commands.
+- [x] Capability evaluator.
+- [x] Archive preflight/final locking.
+- [x] Permissions/Audit/Outbox.
+- [x] Dashboard lifecycle surfaces.
 
 Gate:
 
-- PRODUCT_LIFECYCLE_GATE=PASS
+- [x] PRODUCT_LIFECYCLE_GATE=PASS
+
+**Stage status:** COMPLETE — 2026-09-12.
 
 ### Stage 4 — Batch Disposition, Expiry and Transfer Purposes
 
@@ -1847,12 +1849,12 @@ Final gate:
 
 ### Lifecycle/Holds
 
-- [ ] لا direct status patch.
-- [ ] FSM مركزي.
-- [ ] Capability Matrix مركزي ومستخدم من الأوامر.
-- [ ] Archive preflight يعرض Blockers.
-- [ ] Final archive يعيد الفحص تحت Lock.
-- [ ] الرصيد لا يختفي بسبب Lifecycle/Hold.
+- [x] لا direct status patch.
+- [x] FSM مركزي.
+- [x] Capability Matrix مركزي ومستخدم من الأوامر.
+- [x] Archive preflight يعرض Blockers.
+- [x] Final archive يعيد الفحص تحت Lock.
+- [x] الرصيد لا يختفي بسبب Lifecycle/Hold.
 
 ### Batch/Expiry
 
@@ -2054,5 +2056,6 @@ Final gate:
 |---|---|---|---|---|---|
 | 2026-09-11 | جميع الأقسام | لا يوجد مرجع جامع | اعتماد هذا الملف كخطة المرحلة | تثبيت القرارات ومنع النسيان | Approved |
 | 2026-09-11 | Stage 0 | Baseline غير مثبت وقاعدة التطوير تحمل بيانات اختبار | تثبيت Schema/API/Enum contracts ومسح بيانات Tenant التجريبية المصرح بها | إغلاق Contract Freeze على قاعدة Tenant فارغة | Approved in conversation |
+| 2026-09-12 | Stage 3 | PRODUCT_LIFECYCLE_GATE غير مغلق | اكتمال Stage 3: ProductLocation + FSM + Capability + Archive + Audit/Outbox + Dashboard lifecycle + PRODUCT_LIFECYCLE_GATE=PASS (13/13) | إغلاق gate_stage3_lifecycle.py مع مزامنة advisory lock عبر pg_locks | Approved — gate passed |
 
 لا يعد تنفيذ الكود موافقة ضمنية على تغيير الخطة. عند اكتشاف تعارض حقيقي بين الخطة والكود الحالي، يتوقف الجزء المتعارض ويعرض CURRENT / GAP / OPTIONS / RECOMMENDATION على مالك المشروع قبل تغيير Workflow.
