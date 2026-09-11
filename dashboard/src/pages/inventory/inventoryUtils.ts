@@ -25,9 +25,12 @@ export interface StocktakeRow {
   product_name: string;
   batch_number: string | null;
   expiry_date: string | null;
-  packs_per_carton: number;
-  actual_cartons: number;
-  actual_loose_packs: number;
+  base_uom_id: number;
+  base_uom_code: string;
+  base_uom_name: string;
+  quantity_scale: number;
+  quantity_step: string;
+  actual_quantity: string;
   counted: boolean;
 }
 

@@ -8,6 +8,7 @@ import type {
   StocktakeReview,
 } from "../types";
 import { parseStocktakeReview } from "../parsers";
+import { compareQuantity } from "../../quantity";
 
 interface UseStocktakeReviewArgs {
   sessionLocationId: number | null;
@@ -117,25 +118,22 @@ export function useStocktakeReview({
       (acc, line) => {
         acc.total += 1;
         if (
-          line.variance_quantity === 0
+          compareQuantity(line.variance_quantity, "0") === 0
         ) {
           acc.matched += 1;
         }
         if (
-          line.variance_quantity < 0
+          compareQuantity(line.variance_quantity, "0") < 0
         ) {
-          acc.shortage += Math.abs(
-            line.variance_quantity
-          );
+          acc.shortage += 1;
         }
         if (
-          line.variance_quantity > 0
+          compareQuantity(line.variance_quantity, "0") > 0
         ) {
-          acc.overage +=
-            line.variance_quantity;
+          acc.overage += 1;
         }
         if (
-          line.variance_quantity !== 0
+          compareQuantity(line.variance_quantity, "0") !== 0
         ) {
           acc.varianceItems += 1;
         }

@@ -16,6 +16,7 @@ import type {
   VehicleReconCandidateCursorPage,
 } from "./types";
 import type { StocktakeStockStatus } from "../inventoryUtils";
+import { parseQuantity } from "../quantity";
 
 const STOCKTAKE_TYPES: readonly StocktakeType[] = [
   "FULL_COUNT",
@@ -136,7 +137,11 @@ export const parseCycleProductPage = (
       id: positiveInt(item.id, "product.id"),
       name: requiredString(item.name, "product.name"),
       sku: optionalString(item.sku),
-      packs_per_carton: positiveInt(item.packs_per_carton, "product.packs_per_carton"),
+      base_uom_id: positiveInt(item.base_uom_id, "product.base_uom_id"),
+      base_uom_code: requiredString(item.base_uom_code, "product.base_uom_code"),
+      base_uom_name: requiredString(item.base_uom_name, "product.base_uom_name"),
+      quantity_scale: nonNegativeInt(item.quantity_scale, "product.quantity_scale"),
+      quantity_step: parseQuantity(item.quantity_step, "product.quantity_step"),
     };
   });
   return {
@@ -356,10 +361,11 @@ export const parseCountSheet = (
         item.product_name,
         "product_name"
       ),
-      packs_per_carton: positiveInt(
-        item.packs_per_carton,
-        "packs_per_carton"
-      ),
+      base_uom_id: positiveInt(item.base_uom_id, "base_uom_id"),
+      base_uom_code: requiredString(item.base_uom_code, "base_uom_code"),
+      base_uom_name: requiredString(item.base_uom_name, "base_uom_name"),
+      quantity_scale: nonNegativeInt(item.quantity_scale, "quantity_scale"),
+      quantity_step: parseQuantity(item.quantity_step, "quantity_step"),
       batch_number: optionalString(item.batch_number),
       expiry_date: optionalString(item.expiry_date),
     };
@@ -425,13 +431,7 @@ const parseReviewLine = (raw: unknown): ReviewLine => {
     throw new Error("مصدر سطر الجرد غير صالح.");
   }
 
-  const variance = raw.variance_quantity;
-  if (
-    typeof variance !== "number" ||
-    !Number.isInteger(variance)
-  ) {
-    throw new Error("حقل variance_quantity غير صالح.");
-  }
+  const variance = parseQuantity(raw.variance_quantity, "variance_quantity", { allowZero: true, allowNegative: true });
 
   return {
     attempt_line_id: positiveInt(
@@ -452,20 +452,15 @@ const parseReviewLine = (raw: unknown): ReviewLine => {
       raw.product_name,
       "product_name"
     ),
-    packs_per_carton: positiveInt(
-      raw.packs_per_carton,
-      "packs_per_carton"
-    ),
+    base_uom_id: positiveInt(raw.base_uom_id, "base_uom_id"),
+    base_uom_code: requiredString(raw.base_uom_code, "base_uom_code"),
+    base_uom_name: requiredString(raw.base_uom_name, "base_uom_name"),
+    quantity_scale: nonNegativeInt(raw.quantity_scale, "quantity_scale"),
+    quantity_step: parseQuantity(raw.quantity_step, "quantity_step"),
     batch_number: optionalString(raw.batch_number),
     expiry_date: optionalString(raw.expiry_date),
-    expected_quantity: nonNegativeInt(
-      raw.expected_quantity,
-      "expected_quantity"
-    ),
-    actual_quantity: nonNegativeInt(
-      raw.actual_quantity,
-      "actual_quantity"
-    ),
+    expected_quantity: parseQuantity(raw.expected_quantity, "expected_quantity", { allowZero: true }),
+    actual_quantity: parseQuantity(raw.actual_quantity, "actual_quantity", { allowZero: true }),
     variance_quantity: variance,
     notes: optionalString(raw.notes),
   };

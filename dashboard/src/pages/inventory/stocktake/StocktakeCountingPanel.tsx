@@ -1,5 +1,4 @@
 import { Check, Scan } from "lucide-react";
-import { QuantityInput } from "@/components/ui/quantity-input";
 import type { StocktakeRow } from "../inventoryUtils";
 
 interface StocktakeCountingPanelProps {
@@ -11,8 +10,7 @@ interface StocktakeCountingPanelProps {
   };
   onUpdateRow: (
     key: string,
-    field: "actual_cartons" | "actual_loose_packs",
-    value: number
+    value: string
   ) => void;
   onConfirmZero: (key: string) => void;
   canCancel: boolean;
@@ -54,7 +52,7 @@ export function StocktakeCountingPanel({
                 الدفعة / الصلاحية
               </th>
               <th className="px-4 py-3.5 text-xs font-bold text-[#1e87bb] text-center">
-                الجرد الفعلي (كرتونة / حبة)
+                الجرد الفعلي بوحدة الأساس
               </th>
               <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">
                 حالة العد
@@ -82,39 +80,10 @@ export function StocktakeCountingPanel({
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center justify-center gap-4">
-                    <div className="flex items-center gap-1.5">
-                      <QuantityInput
-                        value={row.actual_cartons}
-                        onChange={(value) =>
-                          onUpdateRow(
-                            row.row_key,
-                            "actual_cartons",
-                            value
-                          )
-                        }
-                        min={0}
-                      />
-                      <span className="text-xs font-bold text-slate-500">
-                        ك
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <QuantityInput
-                        value={row.actual_loose_packs}
-                        onChange={(value) =>
-                          onUpdateRow(
-                            row.row_key,
-                            "actual_loose_packs",
-                            value
-                          )
-                        }
-                        min={-1}
-                      />
-                      <span className="text-xs font-bold text-slate-500">
-                        ح
-                      </span>
-                    </div>
+                  <div className="flex items-center justify-center gap-2">
+                    <input inputMode="decimal" value={row.actual_quantity} onChange={(event) => onUpdateRow(row.row_key, event.target.value)} className="w-28 rounded-lg border border-slate-300 p-2 text-center font-bold" />
+                    <span className="text-xs font-bold text-slate-500">{row.base_uom_name}</span>
+                    <span className="text-[10px] text-slate-400">خطوة {row.quantity_step}</span>
                   </div>
                 </td>
                 <td className="px-4 py-3 text-center">

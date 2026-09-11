@@ -45,6 +45,7 @@ from models import (
     InventoryTransferLine,
     DispatchLoadPlanLine,
     ProductBatch,
+    ProductLocation,
     InventoryMovement,
     SessionInventorySnapshot,
 )
@@ -61,6 +62,14 @@ from services import (
     complete_idempotent_operation,
 )
 from uuid import uuid4
+from product_lifecycle import (
+    REPLENISHMENT_NEW,
+    ROUTE_LOAD_NEW,
+    acquire_product_lifecycle_guards,
+    evaluate_product_capability,
+    product_capability_predicate,
+    product_location_allows,
+)
 
 from schemas import ( MessageResponse, AuthorizeSessionRequest, AdminDashboardDriverResponse,
 SessionSettlementReportResponse, SettleSessionRequest, SettleSessionResponse, DispatchInitResponse,
@@ -768,7 +777,7 @@ async def get_session_settlement_report(
 
     sample_rows = (
         await db.execute(
-            select(VisitItem, Shop.name, ProductVariant.variant_name)
+            select(VisitItem, Shop.name, ProductVariant.name)
             .join(
                 Visit,
                 and_(
@@ -1042,7 +1051,10 @@ async def dispatch_init(
         access.location_filter('dispatch.execute'),
     ))).all())
     products = (await db.execute(
-        select(ProductVariant).filter_by(company_id=company_id, is_active=True).order_by(ProductVariant.id.asc())
+        select(ProductVariant).where(
+            ProductVariant.company_id == company_id,
+            product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW),
+        ).order_by(ProductVariant.id.asc())
     )).scalars().all()
 
     shop_counts = (await db.execute(
@@ -1488,6 +1500,9 @@ async def dispatch_route(
             )
 
         all_product_ids = sorted(set(target_product_ids) | set(current_vehicle))
+        await acquire_product_lifecycle_guards(
+            db, company_id, all_product_ids, exclusive=False,
+        )
         variants_map = {}
         if all_product_ids:
             variants = (
@@ -1503,6 +1518,15 @@ async def dispatch_route(
             variants_map = {int(v.id): v for v in variants}
             if set(variants_map) != set(all_product_ids):
                 raise HTTPException(status_code=404, detail="أحد أصناف خطة التحميل غير موجود داخل الشركة.")
+
+        source_assignments = {
+            int(item.product_variant_id): item
+            for item in (await db.scalars(select(ProductLocation).where(
+                ProductLocation.company_id == company_id,
+                ProductLocation.location_id == int(source_location.id),
+                ProductLocation.product_variant_id.in_(all_product_ids),
+            ))).all()
+        } if all_product_ids else {}
 
         route = DispatchRoute(
             company_id=company_id,
@@ -1547,10 +1571,21 @@ async def dispatch_route(
                 continue
 
             if delta_packs > 0:
-                if not variant.is_active:
+                load_capability = evaluate_product_capability(
+                    variant.lifecycle_status,
+                    variant.operational_hold,
+                    ROUTE_LOAD_NEW,
+                )
+                if not load_capability.allowed:
                     raise HTTPException(
-                        status_code=400,
-                        detail=f"لا يمكن تحميل المنتج الموقوف ({variant.variant_name}) إلى السيارة.",
+                        status_code=409,
+                        detail={"code": load_capability.code, "message": f"لا يمكن تحميل المنتج ({variant.variant_name}) إلى السيارة في حالته الحالية."},
+                    )
+                assignment = source_assignments.get(product_variant_id)
+                if assignment is None or not product_location_allows(assignment.operational_flags, ROUTE_LOAD_NEW):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"code": "PRODUCT_LOCATION_REQUIRED", "message": f"الصنف ({variant.variant_name}) غير مهيأ للصرف من مستودع المصدر."},
                     )
                 await check_inventory_lock(
                     db, company_id, int(source_location.id), variant_id=product_variant_id
@@ -1770,9 +1805,9 @@ async def get_vehicle_inventory(
 
     loaded_ids = sorted(inventory_map)
     variant_filter = (
-        or_(ProductVariant.is_active.is_(True), ProductVariant.id.in_(loaded_ids))
+        or_(product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW), ProductVariant.id.in_(loaded_ids))
         if loaded_ids
-        else ProductVariant.is_active.is_(True)
+        else product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW)
     )
     variants = (
         await db.execute(
@@ -1852,9 +1887,9 @@ async def get_route_live_inventory(
 
     loaded_ids = sorted(free_map)
     variant_filter = (
-        or_(ProductVariant.is_active.is_(True), ProductVariant.id.in_(loaded_ids))
+        or_(product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW), ProductVariant.id.in_(loaded_ids))
         if loaded_ids
-        else ProductVariant.is_active.is_(True)
+        else product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW)
     )
     variants = (
         await db.execute(
@@ -2036,6 +2071,19 @@ async def _dispatch_apply_pack_deltas(
     as_of_date = await get_company_local_date(db, company_id)
     mode = "NO_CHANGE"
 
+    positive_variant_ids = sorted(pid for pid, delta in deltas.items() if delta > 0)
+    await acquire_product_lifecycle_guards(
+        db, company_id, positive_variant_ids, exclusive=False,
+    )
+    source_assignments = {
+        int(item.product_variant_id): item
+        for item in (await db.scalars(select(ProductLocation).where(
+            ProductLocation.company_id == company_id,
+            ProductLocation.location_id == int(warehouse.id),
+            ProductLocation.product_variant_id.in_(positive_variant_ids),
+        ))).all()
+    } if positive_variant_ids else {}
+
     # قفل أرصدة المصدر/السيارة بترتيب عالمي ثابت قبل FEFO لمنع Deadlock عكسي
     # عندما يجري تحميل وسحب متزامنان لنفس الصنف بين نفس الموقعين.
     if deltas:
@@ -2065,8 +2113,14 @@ async def _dispatch_apply_pack_deltas(
             delta = deltas[pid]
             variant = variants[pid]
             if delta > 0:
-                if not variant.is_active:
-                    raise HTTPException(status_code=400, detail=f"المنتج ({variant.variant_name}) موقوف.")
+                load_capability = evaluate_product_capability(
+                    variant.lifecycle_status, variant.operational_hold, ROUTE_LOAD_NEW,
+                )
+                if not load_capability.allowed:
+                    raise HTTPException(status_code=409, detail={"code": load_capability.code, "message": f"لا يمكن تحميل المنتج ({variant.variant_name}) في حالته الحالية."})
+                assignment = source_assignments.get(pid)
+                if assignment is None or not product_location_allows(assignment.operational_flags, ROUTE_LOAD_NEW):
+                    raise HTTPException(status_code=409, detail={"code": "PRODUCT_LOCATION_REQUIRED", "message": f"الصنف ({variant.variant_name}) غير مهيأ للصرف من مستودع المصدر."})
                 src, dst, sellable = int(warehouse.id), vehicle_location_id, True
             else:
                 src, dst, sellable = vehicle_location_id, int(warehouse.id), False
@@ -2141,8 +2195,14 @@ async def _dispatch_apply_pack_deltas(
             if current.get(pid, (0, 0))[0] + delta < 0:
                 raise HTTPException(status_code=400, detail=f"رصيد السيارة من ({variant.variant_name}) لا يكفي.")
             if delta > 0:
-                if not variant.is_active:
-                    raise HTTPException(status_code=400, detail=f"المنتج ({variant.variant_name}) موقوف.")
+                load_capability = evaluate_product_capability(
+                    variant.lifecycle_status, variant.operational_hold, ROUTE_LOAD_NEW,
+                )
+                if not load_capability.allowed:
+                    raise HTTPException(status_code=409, detail={"code": load_capability.code, "message": f"لا يمكن تحميل المنتج ({variant.variant_name}) في حالته الحالية."})
+                assignment = source_assignments.get(pid)
+                if assignment is None or not product_location_allows(assignment.operational_flags, ROUTE_LOAD_NEW):
+                    raise HTTPException(status_code=409, detail={"code": "PRODUCT_LOCATION_REQUIRED", "message": f"الصنف ({variant.variant_name}) غير مهيأ للصرف من مستودع المصدر."})
                 src, dst, sellable, ref = int(warehouse.id), vehicle_location_id, True, "DISPATCH_LOAD"
             else:
                 src, dst, sellable, ref = vehicle_location_id, int(warehouse.id), False, "DISPATCH_UNLOAD"
@@ -2664,7 +2724,7 @@ async def get_route_transfers(
                 InventoryTransferLine.transfer_header_id,
                 InventoryTransferLine.product_variant_id,
                 func.sum(InventoryTransferLine.quantity),
-                ProductVariant.variant_name,
+                ProductVariant.name,
                 ProductVariant.packs_per_carton,
             )
             .join(
@@ -2682,7 +2742,7 @@ async def get_route_transfers(
             .group_by(
                 InventoryTransferLine.transfer_header_id,
                 InventoryTransferLine.product_variant_id,
-                ProductVariant.variant_name,
+                ProductVariant.name,
                 ProductVariant.packs_per_carton,
             )
             .order_by(InventoryTransferLine.transfer_header_id.asc())
@@ -4639,6 +4699,9 @@ async def add_shortages(
     try:
         shop_ids = sorted({int(item.shopId) for item in payload})
         product_ids = sorted({int(item.product_variant_id) for item in payload})
+        await acquire_product_lifecycle_guards(
+            db, company_id, product_ids, exclusive=False,
+        )
         zone_ids = sorted({int(item.zoneId) for item in payload})
         driver_ids = sorted({int(item.driverId) for item in payload if item.driverId is not None})
 
@@ -4672,6 +4735,20 @@ async def add_shortages(
         variant_map = {int(v.id): v for v in variants}
         if set(product_ids) != set(variant_map):
             raise HTTPException(status_code=404, detail="أحد المنتجات غير موجود أو لا يتبع شركتك.")
+        for variant in variant_map.values():
+            replenishment_capability = evaluate_product_capability(
+                variant.lifecycle_status,
+                variant.operational_hold,
+                REPLENISHMENT_NEW,
+            )
+            if not replenishment_capability.allowed:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": replenishment_capability.code,
+                        "message": f"لا يمكن إنشاء طلب نقص جديد للصنف ({variant.variant_name}) في حالته الحالية.",
+                    },
+                )
 
         for item in payload:
             shop = bulk_shops[int(item.shopId)]

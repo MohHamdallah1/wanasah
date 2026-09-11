@@ -1,4 +1,5 @@
 from datetime import timezone, date, datetime
+from decimal import Decimal
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -34,19 +35,28 @@ from services import (
     complete_idempotent_operation,
     InventoryMutationError,
 )
-from models import (Driver, Product, ProductVariant, Branch,
+from models import (Driver, Product, ProductVariant, ProductLocation, Branch,
 DispatchRoute, SystemAuditLog,
 InventoryLocation, InventoryStockPolicy, InventoryBalance, InventoryMovement, InventoryMovementImpact, ProductBatch,
 InventoryTransferHeader, InventoryTransferLine, OverrideReason, SystemSetting,
 WorkSession, StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock)
+from models import UOM
+from quantity import QuantityError, canonical_quantity, validate_variant_quantity
+from product_lifecycle import (
+    INBOUND_NEW,
+    WAREHOUSE_BALANCING,
+    acquire_product_lifecycle_guards,
+    evaluate_product_capability,
+    product_capability_predicate,
+    product_location_allows,
+)
 
 from schemas import (UnifiedStocktakeStartRequest,
 WarehouseInventoryItem, WarehouseInventoryCursorPage, WarehouseLedgerItem, WarehouseLedgerCursorPage,
 WarehouseStatusResponse, WarehouseLocationCreateRequest, WarehouseLocationUpdateRequest,
 WarehouseLocationStateRequest, WarehouseLocationCursorPage, WarehouseLocationMutationResponse,
 WarehouseSetupStatusResponse,
-MessageResponse, SimpleProductVariantItem, SimpleProductVariantCursorPage, ProductVariantResolveRequest,
-AddProductVariantRequest, ProductVariantMutationResponse, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest,
+MessageResponse, AdjustWarehouseEntryRequest, UpgradedInboundRequest, UnifiedDispatchRequest, UnifiedReceiveRequest,
 UnifiedTransferDecisionRequest, WarehouseTransferCursorPage, WarehouseTransferDetail,
 UnifiedTransferLocationItem, UnifiedTransferSourceInventoryCursorPage,
 UnifiedTransferOverrideOptionsResponse,
@@ -1417,27 +1427,63 @@ async def warehouse_inbound(
             )
 
         requested_var_ids = {item.product_variant_id for item in payload.items}
-        valid_var_ids = set(
-            (
-                await db.execute(
-                    select(ProductVariant.id).filter(
-                        ProductVariant.company_id == company_id,
-                        ProductVariant.id.in_(requested_var_ids),
-                        ProductVariant.is_active.is_(True)
-                    )
-                )
-            ).scalars().all()
+        await acquire_product_lifecycle_guards(
+            db, company_id, requested_var_ids, exclusive=False,
         )
-        if valid_var_ids != requested_var_ids:
+        variant_uom_rows = (
+            await db.execute(
+                select(
+                    ProductVariant.id,
+                    ProductVariant.base_uom_id,
+                    ProductVariant.lifecycle_status,
+                    ProductVariant.operational_hold,
+                    ProductLocation.operational_flags,
+                ).join(
+                    ProductLocation,
+                    and_(
+                        ProductLocation.company_id == ProductVariant.company_id,
+                        ProductLocation.product_variant_id == ProductVariant.id,
+                        ProductLocation.location_id == payload.location_id,
+                    ),
+                ).filter(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id.in_(requested_var_ids),
+                )
+            )
+        ).all()
+        variant_uoms = {}
+        for row in variant_uom_rows:
+            decision = evaluate_product_capability(
+                row.lifecycle_status,
+                row.operational_hold,
+                INBOUND_NEW,
+            )
+            if not decision.allowed:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": decision.code, "message": "حالة الصنف لا تسمح باستلام جديد.", "context": {"product_variant_id": int(row.id)}},
+                )
+            if not product_location_allows(row.operational_flags, INBOUND_NEW):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "PRODUCT_LOCATION_INBOUND_DISABLED", "message": "الاستلام معطل لهذا الصنف في المستودع المحدد.", "context": {"product_variant_id": int(row.id), "location_id": payload.location_id}},
+                )
+            variant_uoms[int(row.id)] = int(row.base_uom_id)
+        if set(variant_uoms) != requested_var_ids:
             raise HTTPException(
-                status_code=400,
-                detail="يوجد صنف غير صالح أو غير فعال أو لا يتبع شركتك ضمن فاتورة الاستلام."
+                status_code=409,
+                detail={"code": "PRODUCT_LOCATION_REQUIRED", "message": "يجب ربط كل صنف بالمستودع صراحة قبل الاستلام.", "context": {"location_id": payload.location_id, "missing_product_variant_ids": sorted(requested_var_ids - set(variant_uoms))}}
             )
 
         as_of_date = await get_company_local_date(db, company_id)
         requested_batches = {}
         for item in payload.items:
-            if item.quantity_packs <= 0:
+            if item.uom_id != variant_uoms[item.product_variant_id]:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "UOM_MISMATCH", "message": "كمية الاستلام يجب أن تستخدم وحدة أساس الصنف.", "context": {"product_variant_id": item.product_variant_id, "expected_uom_id": variant_uoms[item.product_variant_id]}},
+                )
+            if item.quantity <= 0:
                 continue
             if not item.batch_number or not item.expiry_date:
                 raise HTTPException(
@@ -1545,23 +1591,23 @@ async def warehouse_inbound(
                     detail=f"الدفعة ({batch.batch_number}) موجودة مسبقاً بتاريخ إنتاج مختلف."
                 )
 
-        aggregated_items: dict[tuple[int, int], int] = {}
+        aggregated_items: dict[tuple[int, int], Decimal] = {}
         for item in payload.items:
-            if item.quantity_packs <= 0:
+            if item.quantity <= 0:
                 continue
             batch = batch_map[(int(item.product_variant_id), str(item.batch_number))]
             key = (int(item.product_variant_id), int(batch.id))
-            aggregated_items[key] = aggregated_items.get(key, 0) + int(item.quantity_packs)
+            aggregated_items[key] = aggregated_items.get(key, Decimal("0")) + item.quantity
 
         movement_specs = []
-        for (product_variant_id, batch_id), added_packs in sorted(aggregated_items.items()):
+        for (product_variant_id, batch_id), added_quantity in sorted(aggregated_items.items()):
             movement_raw_key = (
                 f"{company_id}|{normalized_ref}|{main_loc.id}|{product_variant_id}|{batch_id}"
             )
             movement_specs.append({
                 "product_variant_id": product_variant_id,
                 "batch_id": batch_id,
-                "quantity": added_packs,
+                "quantity": added_quantity,
                 "movement_kind": 'PHYSICAL',
                 "reference_type": 'INBOUND_SUPPLIER',
                 "reference_id": reference_id,
@@ -1666,7 +1712,7 @@ async def get_warehouse_inventory(
         if clean_search:
             like_pattern = f"%{_escape_like(clean_search)}%"
             search_condition = or_(
-                func.lower(ProductVariant.variant_name).like(
+                func.lower(ProductVariant.name).like(
                     like_pattern,
                     escape="\\",
                 ),
@@ -1732,7 +1778,7 @@ async def get_warehouse_inventory(
         )
 
         visible_condition = or_(
-            ProductVariant.is_active.is_(True),
+            ProductVariant.lifecycle_status == 'ACTIVE',
             warehouse_stock_exists,
             vehicle_stock_exists,
         )
@@ -1792,7 +1838,7 @@ async def get_warehouse_inventory(
             return (
                 select(
                     ProductVariant.id,
-                    ProductVariant.variant_name,
+                    ProductVariant.name,
                 )
                 .join(
                     InventoryStockPolicy,
@@ -1812,7 +1858,8 @@ async def get_warehouse_inventory(
                 )
                 .filter(
                     ProductVariant.company_id == company_id,
-                    ProductVariant.is_active.is_(True),
+                    ProductVariant.lifecycle_status == 'ACTIVE',
+                    ProductVariant.operational_hold == 'NONE',
                     InventoryStockPolicy.minimum_quantity > 0,
                     free_expression
                     <= InventoryStockPolicy.minimum_quantity,
@@ -1824,7 +1871,7 @@ async def get_warehouse_inventory(
         else:
             candidate_stmt = select(
                 ProductVariant.id,
-                ProductVariant.variant_name,
+                ProductVariant.name,
             ).filter(
                 ProductVariant.company_id == company_id,
                 visible_condition,
@@ -1860,9 +1907,9 @@ async def get_warehouse_inventory(
             )
             candidate_stmt = candidate_stmt.filter(
                 or_(
-                    ProductVariant.variant_name > cursor_name,
+                    ProductVariant.name > cursor_name,
                     and_(
-                        ProductVariant.variant_name == cursor_name,
+                        ProductVariant.name == cursor_name,
                         ProductVariant.id > cursor_id,
                     ),
                 )
@@ -1872,7 +1919,7 @@ async def get_warehouse_inventory(
             await db.execute(
                 candidate_stmt
                 .order_by(
-                    ProductVariant.variant_name.asc(),
+                    ProductVariant.name.asc(),
                     ProductVariant.id.asc(),
                 )
                 .limit(limit + 1)
@@ -1887,7 +1934,7 @@ async def get_warehouse_inventory(
         alert_samples: list[str] = []
         if cursor is None and not clean_search and not only_alerts:
             alert_stmt = _build_alert_variants_stmt().order_by(
-                ProductVariant.variant_name.asc(),
+                ProductVariant.name.asc(),
                 ProductVariant.id.asc(),
             )
 
@@ -1906,7 +1953,7 @@ async def get_warehouse_inventory(
                     (
                         await db.execute(
                             alert_stmt.with_only_columns(
-                                ProductVariant.variant_name
+                                ProductVariant.name
                             ).limit(3)
                         )
                     ).scalars().all()
@@ -2055,6 +2102,7 @@ async def get_warehouse_inventory(
         stmt = (
             select(
                 ProductVariant,
+                UOM,
                 warehouse_available_subq.c.warehouse_on_hand,
                 warehouse_available_subq.c.warehouse_reserved,
                 warehouse_available_subq.c.warehouse_sellable_on_hand,
@@ -2063,6 +2111,7 @@ async def get_warehouse_inventory(
                 vehicle_inventory_subq.c.vehicle_packs,
                 policy_subq.c.minimum_quantity,
             )
+            .join(UOM, UOM.id == ProductVariant.base_uom_id)
             .outerjoin(
                 warehouse_available_subq,
                 warehouse_available_subq.c.product_variant_id
@@ -2088,7 +2137,7 @@ async def get_warehouse_inventory(
                 ProductVariant.id.in_(page_variant_ids),
             )
             .order_by(
-                ProductVariant.variant_name.asc(),
+                ProductVariant.name.asc(),
                 ProductVariant.id.asc(),
             )
         )
@@ -2098,6 +2147,7 @@ async def get_warehouse_inventory(
         result = []
         for (
             variant,
+            base_uom,
             warehouse_on_hand,
             warehouse_reserved,
             warehouse_sellable_on_hand,
@@ -2106,54 +2156,55 @@ async def get_warehouse_inventory(
             vehicle_packs,
             minimum_quantity,
         ) in rows:
-            on_hand = int(warehouse_on_hand or 0)
-            reserved = int(warehouse_reserved or 0)
+            on_hand = Decimal(warehouse_on_hand or 0)
+            reserved = Decimal(warehouse_reserved or 0)
 
             sellable_on_hand = (
-                int(warehouse_sellable_on_hand or 0)
-                if variant.is_active
+                Decimal(warehouse_sellable_on_hand or 0)
+                if variant.lifecycle_status == 'ACTIVE' and variant.operational_hold == 'NONE'
                 else 0
             )
             sellable_reserved = (
-                int(warehouse_sellable_reserved or 0)
-                if variant.is_active
+                Decimal(warehouse_sellable_reserved or 0)
+                if variant.lifecycle_status == 'ACTIVE' and variant.operational_hold == 'NONE'
                 else 0
             )
 
-            free_packs = sellable_on_hand - sellable_reserved
-            blocked_packs = on_hand - sellable_on_hand
-            vehicle_total = int(vehicle_packs or 0)
-            damaged = int(damaged_packs or 0)
+            free_quantity = sellable_on_hand - sellable_reserved
+            blocked_quantity = on_hand - sellable_on_hand
+            vehicle_total = Decimal(vehicle_packs or 0)
+            damaged = Decimal(damaged_packs or 0)
 
-            if free_packs < 0:
+            if free_quantity < 0:
                 raise RuntimeError(
                     f"Inventory invariant violated for "
                     f"product_variant_id={variant.id}: "
                     "sellable reserved quantity exceeds sellable on-hand."
                 )
-            if blocked_packs < 0:
+            if blocked_quantity < 0:
                 raise RuntimeError(
                     f"Inventory invariant violated for "
                     f"product_variant_id={variant.id}: "
                     "sellable stock exceeds physical AVAILABLE stock."
                 )
 
-            ppc = int(variant.packs_per_carton or 1)
             total_physical_available = on_hand + vehicle_total
 
             result.append({
                 "id": variant.id,
                 "name": variant.variant_name,
                 "sku": variant.sku,
-                "packs_per_carton": ppc,
-                "available_packs": free_packs,
-                "reserved_packs": reserved,
-                "blocked_packs": blocked_packs,
-                "total_packs": total_physical_available,
-                "damaged_packs": damaged,
-                "available_cartons": free_packs // ppc,
-                "available_loose_packs": free_packs % ppc,
-                "min_threshold": int(minimum_quantity or 0),
+                "base_uom_id": variant.base_uom_id,
+                "base_uom_code": base_uom.code,
+                "base_uom_name": base_uom.name,
+                "quantity_scale": variant.quantity_scale,
+                "quantity_step": canonical_quantity(variant.quantity_step),
+                "available_quantity": canonical_quantity(free_quantity),
+                "reserved_quantity": canonical_quantity(reserved),
+                "blocked_quantity": canonical_quantity(blocked_quantity),
+                "total_quantity": canonical_quantity(total_physical_available),
+                "damaged_quantity": canonical_quantity(damaged),
+                "minimum_quantity": canonical_quantity(minimum_quantity or 0),
             })
 
         if len(result) != len(page_variant_ids):
@@ -2248,8 +2299,10 @@ async def get_warehouse_ledger_cursor(
 
         stmt = select(
             InventoryMovement,
-            ProductVariant.variant_name,
-            ProductVariant.packs_per_carton,
+            ProductVariant.name,
+            UOM,
+            ProductVariant.quantity_scale,
+            ProductVariant.quantity_step,
             Driver.full_name,
         ).join(
             ProductVariant,
@@ -2257,7 +2310,7 @@ async def get_warehouse_ledger_cursor(
                 ProductVariant.company_id == InventoryMovement.company_id,
                 ProductVariant.id == InventoryMovement.product_variant_id,
             ),
-        ).join(
+        ).join(UOM, UOM.id == ProductVariant.base_uom_id).join(
             Driver,
             and_(
                 Driver.company_id == InventoryMovement.company_id,
@@ -2291,7 +2344,7 @@ async def get_warehouse_ledger_cursor(
             like_pattern = f"%{_escape_like(clean_search)}%"
             stmt = stmt.filter(
                 or_(
-                    func.lower(ProductVariant.variant_name).like(
+                    func.lower(ProductVariant.name).like(
                         like_pattern, escape="\\"
                     ),
                     func.lower(InventoryMovement.reference_id).like(
@@ -2417,7 +2470,7 @@ async def get_warehouse_ledger_cursor(
 
         result = []
 
-        for movement, product_name, packs_per_carton, admin_name in rows:
+        for movement, product_name, base_uom, quantity_scale, quantity_step, admin_name in rows:
             candidates = impacts_by_movement.get(movement.id, [])
             chosen = None
 
@@ -2471,21 +2524,21 @@ async def get_warehouse_ledger_cursor(
 
                 if movement.movement_kind == 'RESERVATION':
                     balance_before = (
-                        int(impact.on_hand_before)
-                        - int(impact.reserved_before)
+                        Decimal(impact.on_hand_before)
+                        - Decimal(impact.reserved_before)
                     )
                     balance_after = (
-                        int(impact.on_hand_after)
-                        - int(impact.reserved_after)
+                        Decimal(impact.on_hand_after)
+                        - Decimal(impact.reserved_after)
                     )
                 else:
-                    balance_before = int(impact.on_hand_before)
-                    balance_after = int(impact.on_hand_after)
+                    balance_before = Decimal(impact.on_hand_before)
+                    balance_after = Decimal(impact.on_hand_after)
 
                 quantity_packs = balance_after - balance_before
 
             if quantity_packs is None:
-                quantity = int(movement.quantity)
+                quantity = Decimal(movement.quantity)
 
                 if movement.movement_kind == 'RESERVATION':
                     quantity_packs = (
@@ -2529,9 +2582,12 @@ async def get_warehouse_ledger_cursor(
                 "id": movement.id,
                 "product_variant_id": movement.product_variant_id,
                 "product_name": product_name,
-                "packs_per_carton": int(packs_per_carton or 1),
+                "base_uom_id": base_uom.id,
+                "base_uom_code": base_uom.code,
+                "quantity_scale": int(quantity_scale),
+                "quantity_step": canonical_quantity(quantity_step),
                 "type": movement.reference_type,
-                "quantity_packs": int(quantity_packs),
+                "quantity": canonical_quantity(quantity_packs),
                 "balance_before": balance_before,
                 "balance_after": balance_after,
                 "admin_name": admin_name or "غير معروف",
@@ -2620,359 +2676,7 @@ async def get_warehouse_status(
     }
 
 
-# =================================================================================
-# 6. جلب قائمة المنتجات فقط (للقوائم المنسدلة Dropdowns)
-# =================================================================================
-@router.get(
-    "/product_variants/simple/cursor",
-    response_model=SimpleProductVariantCursorPage,
-    status_code=200,
-)
-async def get_simple_product_variants(
-    cursor: Optional[str] = Query(default=None, max_length=1024),
-    limit: int = Query(default=50, ge=1, le=200),
-    search: Optional[str] = Query(default=None, min_length=2, max_length=100),
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
-):
-    access = InventoryAccess(db, current_admin)
-    await access.require('catalog.read', any_location=True)
-
-    company_id = current_admin.company_id
-    clean_search = (search or "").strip().lower()
-
-    if clean_search and len(clean_search) < 2:
-        raise HTTPException(
-            status_code=400,
-            detail="البحث في كتالوج المنتجات يتطلب حرفين على الأقل.",
-        )
-
-    stmt = select(
-        ProductVariant.id,
-        ProductVariant.variant_name,
-        ProductVariant.sku,
-        ProductVariant.packs_per_carton,
-    ).filter(
-        ProductVariant.company_id == company_id,
-        ProductVariant.is_active.is_(True),
-    )
-
-    if clean_search:
-        like_pattern = f"%{_escape_like(clean_search)}%"
-        stmt = stmt.filter(
-            or_(
-                func.lower(ProductVariant.variant_name).like(
-                    like_pattern,
-                    escape="\\",
-                ),
-                func.lower(
-                    func.coalesce(ProductVariant.sku, "")
-                ).like(
-                    like_pattern,
-                    escape="\\",
-                ),
-            )
-        )
-
-    total = None
-    if cursor is None:
-        total = int(
-            (
-                await db.execute(
-                    select(func.count()).select_from(
-                        stmt.with_only_columns(
-                            ProductVariant.id,
-                            maintain_column_froms=True,
-                        ).order_by(None).subquery()
-                    )
-                )
-            ).scalar_one()
-        )
-
-    scope = f"catalog|{company_id}|{clean_search}"
-    if cursor is not None:
-        cursor_name, cursor_id = _decode_variant_cursor(
-            cursor,
-            expected_kind="product-catalog",
-            expected_scope=scope,
-        )
-        stmt = stmt.filter(
-            or_(
-                ProductVariant.variant_name > cursor_name,
-                and_(
-                    ProductVariant.variant_name == cursor_name,
-                    ProductVariant.id > cursor_id,
-                ),
-            )
-        )
-
-    rows = (
-        await db.execute(
-            stmt.order_by(
-                ProductVariant.variant_name.asc(),
-                ProductVariant.id.asc(),
-            ).limit(limit + 1)
-        )
-    ).all()
-
-    has_more = len(rows) > limit
-    page_rows = rows[:limit]
-
-    next_cursor = None
-    if has_more and page_rows:
-        last_row = page_rows[-1]
-        next_cursor = _encode_variant_cursor(
-            kind="product-catalog",
-            variant_name=str(last_row.variant_name),
-            variant_id=int(last_row.id),
-            scope=scope,
-        )
-
-    return {
-        "items": [
-            {
-                "id": int(row.id),
-                "name": row.variant_name,
-                "sku": row.sku,
-                "packs_per_carton": int(
-                    row.packs_per_carton or 1
-                ),
-            }
-            for row in page_rows
-        ],
-        "next_cursor": next_cursor,
-        "has_more": has_more,
-        "total": total,
-    }
-
-
-@router.post(
-    "/product_variants/simple/resolve",
-    response_model=List[SimpleProductVariantItem],
-    status_code=200,
-)
-async def resolve_simple_product_variants(
-    payload: ProductVariantResolveRequest,
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
-):
-    access = InventoryAccess(db, current_admin)
-    await access.require('catalog.read', any_location=True)
-
-    company_id = current_admin.company_id
-    requested_ids = sorted(set(int(value) for value in payload.ids))
-
-    rows = (
-        await db.execute(
-            select(
-                ProductVariant.id,
-                ProductVariant.variant_name,
-                ProductVariant.sku,
-                ProductVariant.packs_per_carton,
-            )
-            .filter(
-                ProductVariant.company_id == company_id,
-                ProductVariant.is_active.is_(True),
-                ProductVariant.id.in_(requested_ids),
-            )
-            .order_by(
-                ProductVariant.variant_name.asc(),
-                ProductVariant.id.asc(),
-            )
-        )
-    ).all()
-
-    return [
-        {
-            "id": int(row.id),
-            "name": row.variant_name,
-            "sku": row.sku,
-            "packs_per_carton": int(row.packs_per_carton or 1),
-        }
-        for row in rows
-    ]
-
-
-# =================================================================================
-# 7. إضافة منتج جديد لكتالوج الشركة - Tenant/Concurrency Safe
-# =================================================================================
-@router.post(
-    "/warehouse/product_variants",
-    response_model=ProductVariantMutationResponse,
-    status_code=201,
-)
-async def add_product_variant(
-    payload: AddProductVariantRequest,
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver)
-):
-    access = InventoryAccess(db, current_admin)
-    await access.require('catalog.manage')
-
-    company_id = current_admin.company_id
-    clean_name = payload.variant_name.strip()
-    normalized_name = clean_name.lower()
-    clean_sku = payload.sku.strip() if payload.sku else None
-
-    try:
-        # نفس الاسم أو SKU داخل الشركة يجب أن يتسلسل قبل فحص التكرار.
-        # ترتيب المفاتيح يمنع Deadlock لو طلبان يشتركان في أكثر من قيمة.
-        lock_tokens = [
-            f"product-name:{normalized_name}"
-        ]
-        if clean_sku:
-            lock_tokens.append(
-                f"product-sku:{clean_sku}"
-            )
-
-        for token in sorted(lock_tokens):
-            await db.execute(
-                select(
-                    func.pg_advisory_xact_lock(
-                        company_id,
-                        func.hashtext(token)
-                    )
-                )
-            )
-
-        duplicate_conditions = [
-            func.lower(ProductVariant.variant_name) == normalized_name
-        ]
-        if clean_sku:
-            duplicate_conditions.append(
-                ProductVariant.sku == clean_sku
-            )
-
-        stmt_exist = select(ProductVariant).filter(
-            ProductVariant.company_id == company_id,
-            or_(*duplicate_conditions)
-        )
-        existing = (
-            await db.execute(stmt_exist)
-        ).scalars().first()
-
-        if existing:
-            if existing.variant_name.lower() == normalized_name:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"المنتج '{payload.variant_name}' موجود مسبقاً في شركتك."
-                )
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"الباركود (SKU) '{clean_sku}' مستخدم بالفعل "
-                    f"لمنتج آخر في شركتك ({existing.variant_name})."
-                )
-            )
-
-        from models import UOM
-
-        # Bootstrap للـ Parent باستخدام UPSERT، لذلك منتجان مختلفان
-        # يُضافان معاً لأول مرة بدون أن يتصادما على "منتجات عامة".
-        stmt_parent_insert = pg_insert(Product).values(
-            company_id=company_id,
-            base_name="منتجات عامة"
-        ).on_conflict_do_nothing(
-            index_elements=['company_id', 'base_name']
-        )
-        await db.execute(stmt_parent_insert)
-
-        stmt_product = select(Product).filter_by(
-            company_id=company_id,
-            base_name="منتجات عامة"
-        )
-        base_product = (
-            await db.execute(stmt_product)
-        ).scalar_one_or_none()
-
-        if base_product is None:
-            raise HTTPException(
-                status_code=409,
-                detail="تعذر تجهيز الكتالوج الأساسي للشركة."
-            )
-
-        # UOM جدول سيادي مشترك. Bootstrap آمن حتى لو أول شركتين
-        # بدأتا بإضافة المنتجات في نفس اللحظة.
-        stmt_uom = select(UOM.id).filter(
-            func.upper(UOM.code) == 'CARTON'
-        ).limit(1)
-
-        uom_id = (
-            await db.execute(stmt_uom)
-        ).scalar_one_or_none()
-
-        if uom_id is None:
-            stmt_uom_insert = pg_insert(UOM).values(
-                name="كرتونة",
-                code="CARTON"
-            ).on_conflict_do_nothing()
-
-            await db.execute(stmt_uom_insert)
-
-            uom_id = (
-                await db.execute(stmt_uom)
-            ).scalar_one_or_none()
-
-        if uom_id is None:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "تعذر تجهيز وحدة القياس CARTON. "
-                    "يوجد تعارض في بيانات وحدات القياس السيادية ويجب تصحيحه إدارياً."
-                )
-            )
-
-        new_variant = ProductVariant(
-            company_id=company_id,
-            product_id=base_product.id,
-            base_uom_id=uom_id,
-            variant_name=clean_name,
-            sku=clean_sku,
-            price_per_carton=payload.price_per_carton,
-            packs_per_carton=payload.packs_per_carton,
-            price_per_pack=payload.price_per_pack,
-            default_max_samples_per_day=(
-                payload.default_max_samples_per_day or 0
-            ),
-            is_active=True
-        )
-        db.add(new_variant)
-        await db.flush()
-
-        await db.commit()
-
-        return {
-            "message": f"تم إضافة المنتج '{new_variant.variant_name}' بنجاح.",
-            "product_id": new_variant.id
-        }
-
-    except HTTPException:
-        await db.rollback()
-        raise
-    except IntegrityError as e:
-        await db.rollback()
-        logger.warning(
-            f"تعارض متزامن أثناء إضافة المنتج: {str(e)}",
-            exc_info=True
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "مرفوض: حدث تعارض متزامن أثناء إضافة المنتج. "
-                "تحقق من الاسم أو SKU ثم أعد المحاولة."
-            )
-        )
-    except Exception as e:
-        await db.rollback()
-        logger.error(
-            f"خطأ في حفظ المنتج: {str(e)}",
-            exc_info=True
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="حدث خطأ داخلي في الخادم أثناء حفظ المنتج."
-        )
-
+# Catalog ownership moved to api/catalog.py; operational consumers use /catalog/variants.
 
 # =================================================================================
 # 8. تعديل فاتورة توريد - Correction append-only على المحرك الموحد
@@ -3023,8 +2727,8 @@ async def adjust_warehouse_entry(
         )
 
     try:
-        new_total_packs = int(payload.new_total_packs)
-        if new_total_packs < 0:
+        new_total_quantity = payload.new_total_quantity
+        if new_total_quantity < 0:
             raise HTTPException(
                 status_code=400,
                 detail="مرفوض: لا يمكن أن يكون الإجمالي الجديد قيمة سالبة."
@@ -3043,6 +2747,18 @@ async def adjust_warehouse_entry(
             raise HTTPException(
                 status_code=404,
                 detail="حركة التوريد غير موجودة أو لا تتبع لشركتك."
+            )
+
+        variant_uom_id = await db.scalar(
+            select(ProductVariant.base_uom_id).where(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id == original.product_variant_id,
+            )
+        )
+        if variant_uom_id is None or int(variant_uom_id) != payload.uom_id:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "UOM_MISMATCH", "message": "التصحيح يجب أن يستخدم وحدة أساس الصنف.", "context": {"expected_uom_id": variant_uom_id}},
             )
 
         if (
@@ -3168,10 +2884,10 @@ async def adjust_warehouse_entry(
             await db.execute(stmt_invoice_movements)
         ).scalars().all()
 
-        current_total_packs = 0
+        current_total_quantity = Decimal("0")
 
         for movement in invoice_movements:
-            quantity = int(movement.quantity)
+            quantity = Decimal(movement.quantity)
 
             if movement.reference_type == 'INBOUND_SUPPLIER':
                 if (
@@ -3183,7 +2899,7 @@ async def adjust_warehouse_entry(
                         status_code=409,
                         detail="تم اكتشاف قيد توريد غير متسق؛ أوقف التعديل وراجع السجل."
                     )
-                current_total_packs += quantity
+                current_total_quantity += quantity
                 continue
 
             is_positive_correction = (
@@ -3198,22 +2914,22 @@ async def adjust_warehouse_entry(
             )
 
             if is_positive_correction:
-                current_total_packs += quantity
+                current_total_quantity += quantity
             elif is_negative_correction:
-                current_total_packs -= quantity
+                current_total_quantity -= quantity
             else:
                 raise HTTPException(
                     status_code=409,
                     detail="تم اكتشاف قيد تصحيح غير متسق؛ أوقف التعديل وراجع السجل."
                 )
 
-        if current_total_packs < 0:
+        if current_total_quantity < 0:
             raise HTTPException(
                 status_code=409,
                 detail="الصافي التاريخي للفاتورة أصبح سالباً؛ تم رفض أي تعديل إضافي."
             )
 
-        delta = new_total_packs - current_total_packs
+        delta = new_total_quantity - current_total_quantity
 
         if delta == 0:
             await db.commit()
@@ -3223,7 +2939,7 @@ async def adjust_warehouse_entry(
 
         idempotency_raw = (
             f"{company_id}|{normalized_ref}|{original.product_variant_id}|"
-            f"{batch_id}|{current_total_packs}|{new_total_packs}"
+            f"{batch_id}|{canonical_quantity(current_total_quantity)}|{canonical_quantity(new_total_quantity)}"
         )
         idempotency_key = (
             "ADJ-"
@@ -3282,14 +2998,16 @@ async def adjust_warehouse_entry(
                     "reference": ref_id,
                     "product_variant_id": original.product_variant_id,
                     "batch_id": batch_id,
-                    "total_packs": current_total_packs
+                    "total_quantity": canonical_quantity(current_total_quantity),
+                    "uom_id": payload.uom_id,
                 },
                 ensure_ascii=False
             ),
             new_value=json.dumps(
                 {
-                    "total_packs": new_total_packs,
-                    "delta": delta
+                    "total_quantity": canonical_quantity(new_total_quantity),
+                    "delta": canonical_quantity(delta),
+                    "uom_id": payload.uom_id,
                 },
                 ensure_ascii=False
             )
@@ -3551,10 +3269,14 @@ async def get_unified_transfer_source_inventory(
     stmt = (
         select(
             ProductVariant.id,
-            ProductVariant.variant_name,
+            ProductVariant.name,
             ProductVariant.sku,
-            ProductVariant.packs_per_carton,
-            available_expression.label("available_packs"),
+            ProductVariant.base_uom_id,
+            UOM.code.label("base_uom_code"),
+            UOM.name.label("base_uom_name"),
+            ProductVariant.quantity_scale,
+            ProductVariant.quantity_step,
+            available_expression.label("available_quantity"),
         )
         .join(
             InventoryBalance,
@@ -3569,9 +3291,19 @@ async def get_unified_transfer_source_inventory(
             ProductBatch,
             sellable_batch,
         )
+        .join(UOM, UOM.id == ProductVariant.base_uom_id)
+        .join(
+            ProductLocation,
+            and_(
+                ProductLocation.company_id == ProductVariant.company_id,
+                ProductLocation.product_variant_id == ProductVariant.id,
+                ProductLocation.location_id == location_id,
+            ),
+        )
         .filter(
             ProductVariant.company_id == company_id,
-            ProductVariant.is_active.is_(True),
+            product_capability_predicate(ProductVariant, WAREHOUSE_BALANCING),
+            ProductLocation.operational_flags['outbound_enabled'].as_boolean().is_(True),
             InventoryBalance.company_id == company_id,
             InventoryBalance.location_id == location_id,
             InventoryBalance.stock_status == 'AVAILABLE',
@@ -3579,9 +3311,13 @@ async def get_unified_transfer_source_inventory(
         )
         .group_by(
             ProductVariant.id,
-            ProductVariant.variant_name,
+            ProductVariant.name,
             ProductVariant.sku,
-            ProductVariant.packs_per_carton,
+            ProductVariant.base_uom_id,
+            UOM.code,
+            UOM.name,
+            ProductVariant.quantity_scale,
+            ProductVariant.quantity_step,
         )
         .having(available_expression > 0)
     )
@@ -3590,7 +3326,7 @@ async def get_unified_transfer_source_inventory(
         pattern = f"%{_escape_like(clean_search)}%"
         stmt = stmt.filter(
             or_(
-                func.lower(ProductVariant.variant_name).like(
+                func.lower(ProductVariant.name).like(
                     pattern,
                     escape="\\",
                 ),
@@ -3627,9 +3363,9 @@ async def get_unified_transfer_source_inventory(
         )
         stmt = stmt.filter(
             or_(
-                ProductVariant.variant_name > cursor_name,
+                ProductVariant.name > cursor_name,
                 and_(
-                    ProductVariant.variant_name == cursor_name,
+                    ProductVariant.name == cursor_name,
                     ProductVariant.id > cursor_id,
                 ),
             )
@@ -3638,7 +3374,7 @@ async def get_unified_transfer_source_inventory(
     rows = (
         await db.execute(
             stmt.order_by(
-                ProductVariant.variant_name.asc(),
+                ProductVariant.name.asc(),
                 ProductVariant.id.asc(),
             ).limit(limit + 1)
         )
@@ -3652,7 +3388,7 @@ async def get_unified_transfer_source_inventory(
         last_row = page_rows[-1]
         next_cursor = _encode_variant_cursor(
             kind="transfer-source-inventory",
-            variant_name=str(last_row.variant_name),
+            variant_name=str(last_row.name),
             variant_id=int(last_row.id),
             scope=scope,
         )
@@ -3661,14 +3397,14 @@ async def get_unified_transfer_source_inventory(
         "items": [
             {
                 "id": int(row.id),
-                "name": str(row.variant_name),
+                "name": str(row.name),
                 "sku": row.sku,
-                "packs_per_carton": int(
-                    row.packs_per_carton or 1
-                ),
-                "available_packs": int(
-                    row.available_packs or 0
-                ),
+                "base_uom_id": int(row.base_uom_id),
+                "base_uom_code": str(row.base_uom_code),
+                "base_uom_name": str(row.base_uom_name),
+                "quantity_scale": int(row.quantity_scale),
+                "quantity_step": canonical_quantity(row.quantity_step),
+                "available_quantity": canonical_quantity(row.available_quantity or 0),
             }
             for row in page_rows
         ],
@@ -3718,10 +3454,18 @@ async def get_unified_transfer_override_options(
 
     product_exists = (
         await db.execute(
-            select(ProductVariant.id).filter(
+            select(ProductVariant.id).join(
+                ProductLocation,
+                and_(
+                    ProductLocation.company_id == ProductVariant.company_id,
+                    ProductLocation.product_variant_id == ProductVariant.id,
+                    ProductLocation.location_id == location_id,
+                ),
+            ).filter(
                 ProductVariant.company_id == company_id,
                 ProductVariant.id == product_variant_id,
-                ProductVariant.is_active.is_(True),
+                product_capability_predicate(ProductVariant, WAREHOUSE_BALANCING),
+                ProductLocation.operational_flags['outbound_enabled'].as_boolean().is_(True),
             )
         )
     ).scalar_one_or_none()
@@ -3772,7 +3516,7 @@ async def get_unified_transfer_override_options(
                 ProductBatch.batch_number,
                 ProductBatch.production_date,
                 ProductBatch.expiry_date,
-                available_expression.label("available_packs"),
+                available_expression.label("available_quantity"),
             )
             .join(
                 InventoryBalance,
@@ -3845,7 +3589,7 @@ async def get_unified_transfer_override_options(
                 "batch_number": str(row.batch_number),
                 "production_date": row.production_date,
                 "expiry_date": row.expiry_date,
-                "available_packs": int(row.available_packs or 0),
+                "available_quantity": canonical_quantity(row.available_quantity or 0),
                 "is_fefo_head": (
                     fefo_batch_id is not None
                     and int(row.id) == fefo_batch_id
@@ -3945,7 +3689,7 @@ async def _serialize_transfer_headers(
             )
 
     aggregates = {
-        int(header_id): (int(line_count), int(total_quantity or 0))
+        int(header_id): (int(line_count), Decimal(total_quantity or 0))
         for header_id, line_count, total_quantity in (
             await db.execute(
                 select(
@@ -3966,7 +3710,7 @@ async def _serialize_transfer_headers(
     for header in headers:
         line_count, total_quantity = aggregates.get(
             int(header.id),
-            (0, 0),
+            (0, Decimal("0")),
         )
         result.append({
             "id": int(header.id),
@@ -3999,7 +3743,7 @@ async def _serialize_transfer_headers(
                 else None
             ),
             "line_count": line_count,
-            "total_quantity": total_quantity,
+            "total_quantity": canonical_quantity(total_quantity),
             "notes": header.notes,
             "decision_reason": header.decision_reason,
             "created_at": header.created_at,
@@ -4206,7 +3950,8 @@ async def get_unified_transfer_detail(
         await db.execute(
             select(
                 InventoryTransferLine,
-                ProductVariant.variant_name,
+                ProductVariant.name,
+                ProductVariant.base_uom_id,
                 ProductBatch.batch_number,
                 ProductBatch.expiry_date,
             ).join(
@@ -4242,7 +3987,8 @@ async def get_unified_transfer_detail(
             "batch_id": int(line.batch_id),
             "batch_number": str(batch_number),
             "expiry_date": expiry_date,
-            "quantity": int(line.quantity),
+            "quantity": canonical_quantity(line.quantity),
+            "uom_id": int(base_uom_id),
             "fefo_override_reason_id": (
                 int(line.fefo_override_reason_id)
                 if line.fefo_override_reason_id is not None
@@ -4255,7 +4001,7 @@ async def get_unified_transfer_detail(
             ),
             "fefo_override_note": line.fefo_override_note,
         }
-        for line, product_name, batch_number, expiry_date in line_rows
+        for line, product_name, base_uom_id, batch_number, expiry_date in line_rows
     ]
 
     if not lines:
@@ -4306,22 +4052,97 @@ async def unified_transfer_dispatch(
         )
 
         requested_variant_ids = {item.product_variant_id for item in payload.items}
-        valid_variant_ids = set(
-            (
-                await db.execute(
-                    select(ProductVariant.id).filter(
-                        ProductVariant.company_id == company_id,
-                        ProductVariant.id.in_(requested_variant_ids),
-                        ProductVariant.is_active.is_(True)
-                    )
-                )
-            ).scalars().all()
+        await acquire_product_lifecycle_guards(
+            db, company_id, requested_variant_ids, exclusive=False,
         )
-        if valid_variant_ids != requested_variant_ids:
+        location_types = dict((await db.execute(
+            select(InventoryLocation.id, InventoryLocation.location_type).where(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id.in_([payload.source_location_id, payload.destination_location_id]),
+            )
+        )).all())
+        variant_uom_rows = (
+            await db.execute(
+                select(
+                    ProductVariant.id,
+                    ProductVariant.base_uom_id,
+                    ProductVariant.lifecycle_status,
+                    ProductVariant.operational_hold,
+                ).filter(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id.in_(requested_variant_ids),
+                )
+            )
+        ).all()
+        variant_uoms = {}
+        for row in variant_uom_rows:
+            decision = evaluate_product_capability(
+                row.lifecycle_status,
+                row.operational_hold,
+                WAREHOUSE_BALANCING,
+            )
+            if not decision.allowed:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": decision.code, "message": "حالة الصنف لا تسمح بحوالة جديدة.", "context": {"product_variant_id": int(row.id)}},
+                )
+            variant_uoms[int(row.id)] = int(row.base_uom_id)
+        if set(variant_uoms) != requested_variant_ids:
             raise HTTPException(
                 status_code=400,
                 detail="يوجد صنف غير صالح أو غير فعال أو لا يتبع شركتك ضمن الحوالة."
             )
+
+        assignment_rows = (await db.execute(
+            select(
+                ProductLocation.location_id,
+                ProductLocation.product_variant_id,
+                ProductLocation.operational_flags,
+            ).where(
+                ProductLocation.company_id == company_id,
+                ProductLocation.product_variant_id.in_(requested_variant_ids),
+                ProductLocation.location_id.in_([payload.source_location_id, payload.destination_location_id]),
+            )
+        )).all()
+        assignments = {
+            (int(row.location_id), int(row.product_variant_id)): row.operational_flags
+            for row in assignment_rows
+        }
+        missing_source = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if not product_location_allows(
+                assignments.get((payload.source_location_id, variant_id)),
+                WAREHOUSE_BALANCING,
+            )
+        )
+        missing_destination = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if location_types.get(payload.destination_location_id) == 'WAREHOUSE'
+            and not product_location_allows(
+                assignments.get((payload.destination_location_id, variant_id)),
+                INBOUND_NEW,
+            )
+        )
+        if missing_source or missing_destination:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "PRODUCT_LOCATION_REQUIRED",
+                    "message": "الحوالة تتطلب ربطاً تشغيلياً صريحاً للصنف بالموقع.",
+                    "context": {
+                        "source_location_id": payload.source_location_id,
+                        "destination_location_id": payload.destination_location_id,
+                        "source_product_variant_ids": missing_source,
+                        "destination_product_variant_ids": missing_destination,
+                    },
+                },
+            )
+        for item in payload.items:
+            if item.uom_id != variant_uoms[item.product_variant_id]:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "UOM_MISMATCH", "message": "كمية الحوالة يجب أن تستخدم وحدة أساس الصنف.", "context": {"product_variant_id": item.product_variant_id, "expected_uom_id": variant_uoms[item.product_variant_id]}},
+                )
 
         transit_location = await ensure_system_transit_location(db, company_id)
         transit_location_id = int(transit_location.id)
@@ -4400,7 +4221,7 @@ async def unified_transfer_dispatch(
                 db,
                 company_id=company_id,
                 location_id=payload.source_location_id,
-                requests={int(item.product_variant_id): int(item.quantity) for item in normal_items},
+                requests={int(item.product_variant_id): item.quantity for item in normal_items},
                 as_of_date=as_of_date,
                 require_full=True,
             )
@@ -4411,7 +4232,7 @@ async def unified_transfer_dispatch(
                 db,
                 company_id=company_id,
                 location_id=payload.source_location_id,
-                requests={int(item.product_variant_id): 1 for item in override_items},
+                requests={int(item.product_variant_id): item.quantity for item in override_items},
                 as_of_date=as_of_date,
                 require_full=False,
             )
@@ -4435,7 +4256,7 @@ async def unified_transfer_dispatch(
         movement_specs = []
         for item in ordered_items:
             if item.is_fefo_override:
-                allocations = [(int(item.override_batch_id), int(item.quantity))]
+                allocations = [(int(item.override_batch_id), item.quantity)]
                 expected_rows = override_expected.get(int(item.product_variant_id), [])
                 expected_batch_id = expected_rows[0][0] if expected_rows else None
                 override_reason_id = int(item.override_reason_id)
@@ -5780,7 +5601,7 @@ async def list_active_stocktake_sessions(
             StocktakeSession.status,
             StocktakeSession.location_id,
             StocktakeSession.scope_product_variant_id,
-            ProductVariant.variant_name.label("scope_product_name"),
+            ProductVariant.name.label("scope_product_name"),
             StocktakeSession.scope_batch_id,
             ProductBatch.batch_number.label("scope_batch_number"),
             StocktakeSession.related_work_session_id,
@@ -6301,7 +6122,7 @@ async def start_unified_stocktake(
                 batch_id=balance.batch_id,
                 stock_status=balance.stock_status,
                 line_origin='SNAPSHOT',
-                expected_quantity=int(balance.on_hand_quantity),
+                expected_quantity=Decimal(balance.on_hand_quantity),
             ))
 
         cutoff = _utc_naive_now()
@@ -6356,8 +6177,12 @@ async def get_stocktake_count_sheet(
         await db.execute(
             select(
                 StocktakeLine,
-                ProductVariant.variant_name,
-                ProductVariant.packs_per_carton,
+                ProductVariant.name,
+                ProductVariant.base_uom_id,
+                ProductVariant.quantity_scale,
+                ProductVariant.quantity_step,
+                UOM.code,
+                UOM.name,
                 ProductBatch.batch_number,
                 ProductBatch.expiry_date,
             )
@@ -6367,6 +6192,10 @@ async def get_stocktake_count_sheet(
                     ProductVariant.company_id == StocktakeLine.company_id,
                     ProductVariant.id == StocktakeLine.product_variant_id,
                 ),
+            )
+            .join(
+                UOM,
+                UOM.id == ProductVariant.base_uom_id,
             )
             .join(
                 ProductBatch,
@@ -6381,7 +6210,7 @@ async def get_stocktake_count_sheet(
                 StocktakeLine.stocktake_session_id == session.id,
             )
             .order_by(
-                ProductVariant.variant_name.asc(),
+                ProductVariant.name.asc(),
                 ProductBatch.expiry_date.asc(),
                 ProductBatch.id.asc(),
                 StocktakeLine.stock_status.asc(),
@@ -6396,10 +6225,17 @@ async def get_stocktake_count_sheet(
         "stock_status": line.stock_status,
         "line_origin": line.line_origin,
         "product_name": product_name,
-        "packs_per_carton": int(packs_per_carton or 1),
+        "base_uom_id": base_uom_id,
+        "base_uom_code": base_uom_code,
+        "base_uom_name": base_uom_name,
+        "quantity_scale": quantity_scale,
+        "quantity_step": canonical_quantity(quantity_step),
         "batch_number": batch_number,
         "expiry_date": expiry_date.isoformat(),
-    } for line, product_name, packs_per_carton, batch_number, expiry_date in rows]
+    } for (
+        line, product_name, base_uom_id, quantity_scale, quantity_step,
+        base_uom_code, base_uom_name, batch_number, expiry_date,
+    ) in rows]
 
 
 @router.post("/warehouse/unified/stocktake/{session_id}/count", status_code=200)
@@ -6451,10 +6287,44 @@ async def submit_stocktake_count(
         if len(line_map) != len(existing_lines):
             raise HTTPException(status_code=409, detail="جلسة الجرد تحتوي أسطر Snapshot مكررة.")
 
-        submitted_map = {
-            (item.product_variant_id, item.batch_id, item.stock_status): int(item.actual_quantity)
-            for item in payload.items
+        submitted_variant_ids = {item.product_variant_id for item in payload.items}
+        variant_rows = (
+            await db.execute(
+                select(
+                    ProductVariant.id,
+                    ProductVariant.base_uom_id,
+                    ProductVariant.quantity_scale,
+                    ProductVariant.quantity_step,
+                ).where(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id.in_(submitted_variant_ids),
+                )
+            )
+        ).all()
+        variant_rules = {
+            row.id: (row.base_uom_id, row.quantity_scale, row.quantity_step)
+            for row in variant_rows
         }
+        if set(variant_rules) != submitted_variant_ids:
+            raise HTTPException(status_code=422, detail="محاولة العد تحتوي صنفاً غير معروف أو لا يتبع شركتك.")
+
+        submitted_map = {}
+        for item in payload.items:
+            base_uom_id, quantity_scale, quantity_step = variant_rules[item.product_variant_id]
+            if item.uom_id != base_uom_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="كمية العد يجب أن ترسل بوحدة الأساس الخاصة بالصنف.",
+                )
+            submitted_map[(item.product_variant_id, item.batch_id, item.stock_status)] = (
+                validate_variant_quantity(
+                    item.actual_quantity,
+                    quantity_scale=quantity_scale,
+                    quantity_step=quantity_step,
+                    field_name="actual_quantity",
+                    allow_zero=True,
+                )
+            )
         missing_keys = set(line_map) - set(submitted_map)
         if missing_keys:
             raise HTTPException(
@@ -6485,7 +6355,7 @@ async def submit_stocktake_count(
                         ProductBatch.production_date,
                         ProductBatch.expiry_date,
                         ProductBatch.is_active,
-                        ProductVariant.is_active,
+                        ProductVariant.lifecycle_status.in_(['ACTIVE', 'RETIRING']).label("variant_is_countable"),
                     )
                     .join(
                         ProductVariant,
@@ -6509,7 +6379,7 @@ async def submit_stocktake_count(
                     production_date,
                     expiry_date,
                     batch_is_active,
-                    variant_is_active,
+                    variant_is_countable,
                 )
                 for (
                     batch_id,
@@ -6517,7 +6387,7 @@ async def submit_stocktake_count(
                     production_date,
                     expiry_date,
                     batch_is_active,
-                    variant_is_active,
+                    variant_is_countable,
                 ) in batch_rows
             }
 
@@ -6536,7 +6406,7 @@ async def submit_stocktake_count(
                     production_date,
                     expiry_date,
                     batch_is_active,
-                    variant_is_active,
+                    variant_is_countable,
                 ) = batch_meta
 
                 if (
@@ -6549,7 +6419,7 @@ async def submit_stocktake_count(
                     )
 
                 if stock_status == 'AVAILABLE':
-                    if not batch_is_active or not variant_is_active:
+                    if not batch_is_active or not variant_is_countable:
                         raise HTTPException(
                             status_code=422,
                             detail="DISCOVERED بحالة AVAILABLE يتطلب صنفاً ودفعة فعالين.",
@@ -6623,7 +6493,7 @@ async def submit_stocktake_count(
         attempt_line_values = []
         for line in all_lines:
             key = (line.product_variant_id, line.batch_id, line.stock_status)
-            expected_quantity = int(line.expected_quantity)
+            expected_quantity = Decimal(line.expected_quantity)
             actual_quantity = submitted_map[key]
             variance_quantity = actual_quantity - expected_quantity
             db.add(StocktakeCountAttemptLine(
@@ -6682,6 +6552,9 @@ async def submit_stocktake_count(
         await db.rollback()
         logger.warning(f"تعارض متزامن أثناء تثبيت الجرد: {e}", exc_info=True)
         raise HTTPException(status_code=409, detail="حدث تعارض متزامن أثناء تثبيت العد؛ لم يُحفظ Attempt جزئي.")
+    except QuantityError as e:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في تثبيت الجرد: {e}", exc_info=True)
@@ -6753,8 +6626,12 @@ async def get_stocktake_review(
             select(
                 StocktakeCountAttemptLine,
                 StocktakeLine,
-                ProductVariant.variant_name,
-                ProductVariant.packs_per_carton,
+                ProductVariant.name,
+                ProductVariant.base_uom_id,
+                ProductVariant.quantity_scale,
+                ProductVariant.quantity_step,
+                UOM.code,
+                UOM.name,
                 ProductBatch.batch_number,
                 ProductBatch.expiry_date,
             )
@@ -6774,6 +6651,10 @@ async def get_stocktake_review(
                 ),
             )
             .join(
+                UOM,
+                UOM.id == ProductVariant.base_uom_id,
+            )
+            .join(
                 ProductBatch,
                 and_(
                     ProductBatch.company_id == StocktakeLine.company_id,
@@ -6787,7 +6668,7 @@ async def get_stocktake_review(
                 StocktakeCountAttemptLine.count_attempt_id == latest_attempt.id,
             )
             .order_by(
-                ProductVariant.variant_name.asc(),
+                ProductVariant.name.asc(),
                 ProductBatch.expiry_date.asc(),
                 ProductBatch.id.asc(),
                 StocktakeLine.stock_status.asc(),
@@ -6838,14 +6719,22 @@ async def get_stocktake_review(
             "stock_status": stocktake_line.stock_status,
             "line_origin": stocktake_line.line_origin,
             "product_name": product_name,
-            "packs_per_carton": int(packs_per_carton or 1),
+            "base_uom_id": base_uom_id,
+            "base_uom_code": base_uom_code,
+            "base_uom_name": base_uom_name,
+            "quantity_scale": quantity_scale,
+            "quantity_step": canonical_quantity(quantity_step),
             "batch_number": batch_number,
             "expiry_date": expiry_date.isoformat(),
-            "expected_quantity": attempt_line.expected_quantity,
-            "actual_quantity": attempt_line.actual_quantity,
-            "variance_quantity": attempt_line.variance_quantity,
+            "expected_quantity": canonical_quantity(attempt_line.expected_quantity),
+            "actual_quantity": canonical_quantity(attempt_line.actual_quantity),
+            "variance_quantity": canonical_quantity(attempt_line.variance_quantity),
             "notes": attempt_line.notes,
-        } for attempt_line, stocktake_line, product_name, packs_per_carton, batch_number, expiry_date in rows],
+        } for (
+            attempt_line, stocktake_line, product_name, base_uom_id,
+            quantity_scale, quantity_step, base_uom_code, base_uom_name,
+            batch_number, expiry_date,
+        ) in rows],
     }
 
 

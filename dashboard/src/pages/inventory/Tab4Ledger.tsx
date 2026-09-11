@@ -2,7 +2,8 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { History, Search, ChevronRight, ChevronLeft, Eye, FileText, Package, RefreshCcw } from "lucide-react";
-import { getLedgerBadge, formatQty } from "./inventoryUtils";
+import { getLedgerBadge } from "./inventoryUtils";
+import { absoluteQuantity, addQuantity, compareQuantity, formatQuantity } from "./quantity";
 import {
   buildLedgerAdjustmentPayload,
   formatLedgerDate,
@@ -46,7 +47,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
 
   const [adjustingEntry, setAdjustingEntry] = useState<LedgerEntry | null>(null);
   const [adjPassword, setAdjPassword] = useState("");
-  const [newQty, setNewQty] = useState({ cartons: 0, loose: 0 });
+  const [newQty, setNewQty] = useState("0");
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
   const requestSequence = useRef(0);
@@ -227,11 +228,10 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
         movement.product_variant_id === entry.product_variant_id
         && (movement.type === "INBOUND_SUPPLIER" || movement.type === "INBOUND_CORRECTION")
       ));
-      const net = relevant.reduce((sum, movement) => sum + movement.quantity_packs, 0);
-      const ppc = entry.packs_per_carton || 1;
-      const safeNet = Math.max(0, net);
+      const net = relevant.reduce((sum, movement) => addQuantity(sum, movement.quantity), "0");
+      const safeNet = compareQuantity(net, "0") < 0 ? "0" : net;
       setAdjustingEntry(entry);
-      setNewQty({ cartons: Math.floor(safeNet / ppc), loose: safeNet % ppc });
+      setNewQty(safeNet);
     } catch (e: unknown) {
       if (sequence !== referenceRequestSequence.current) return;
       if (e instanceof Error && e.name === "AbortError") return;
@@ -317,17 +317,16 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
               )}
               {!loading && entries.map((entry) => {
                 const badge = getLedgerBadge(entry.type);
-                const ppc = entry.packs_per_carton || 1;
-                const isNeg = entry.quantity_packs < 0;
+                const isNeg = compareQuantity(entry.quantity, "0") < 0;
                 const reference = entry.reference || "";
 
                 return (
                   <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-lg text-[11px] font-black ${badge.bg} ${badge.text}`}>{badge.label}</span></td>
                     <td className="px-4 py-3 font-bold text-slate-800">{entry.product_name}</td>
-                    <td className="px-4 py-3 text-slate-500 font-semibold text-xs">{entry.balance_before === null ? "—" : formatQty(entry.balance_before, ppc)}</td>
-                    <td className={`px-4 py-3 font-bold text-xs ${isNeg ? "text-red-600" : "text-emerald-600"}`}>{isNeg ? "-" : "+"}{formatQty(Math.abs(entry.quantity_packs), ppc)}</td>
-                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50">{entry.balance_after === null ? "—" : formatQty(entry.balance_after, ppc)}</td>
+                    <td className="px-4 py-3 text-slate-500 font-semibold text-xs">{entry.balance_before === null ? "—" : formatQuantity(entry.balance_before, entry.base_uom_code)}</td>
+                    <td className={`px-4 py-3 font-bold text-xs ${isNeg ? "text-red-600" : "text-emerald-600"}`}>{isNeg ? "-" : "+"}{formatQuantity(absoluteQuantity(entry.quantity), entry.base_uom_code)}</td>
+                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50">{entry.balance_after === null ? "—" : formatQuantity(entry.balance_after, entry.base_uom_code)}</td>
                     <td className="px-4 py-3 text-slate-600 text-xs font-bold">{entry.admin_name || "—"}</td>
                     <td className="px-4 py-3">
                       {reference ? (
@@ -399,7 +398,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
                   return (
                     <tr key={item.id}>
                       <td className="px-4 py-3 font-bold text-slate-800 flex items-center gap-2"><Package className="w-4 h-4 text-slate-400" />{item.product_name}</td>
-                      <td className="px-4 py-3 text-center font-bold">{item.quantity_packs < 0 ? "-" : "+"}{formatQty(Math.abs(item.quantity_packs), item.packs_per_carton || 1)}</td>
+                      <td className="px-4 py-3 text-center font-bold">{compareQuantity(item.quantity, "0") < 0 ? "-" : "+"}{formatQuantity(absoluteQuantity(item.quantity), item.base_uom_code)}</td>
                       <td className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-md text-[10px] font-bold ${badge.bg} ${badge.text}`}>{badge.label}</span></td>
                     </tr>
                   );
@@ -422,13 +421,11 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
               disabled={adjSubmitting || !adjPassword}
               onClick={async () => {
                 if (!adjustingEntry) return;
-                const ppc = adjustingEntry.packs_per_carton || 1;
                 setAdjSubmitting(true);
                 try {
                   const payload = buildLedgerAdjustmentPayload(
-                    newQty.cartons,
-                    newQty.loose,
-                    ppc,
+                    newQty,
+                    adjustingEntry,
                     adjPassword,
                   );
                   const response = parseLedgerMutationResponse(await authenticatedFetch(`/warehouse/ledger/${adjustingEntry.id}/adjust`, {
@@ -457,15 +454,10 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
             <p className="text-[11px] font-bold text-purple-800">صنف: {adjustingEntry?.product_name}</p>
             <p className="text-[10px] text-purple-600 mt-1">المرجع: {adjustingEntry?.reference}</p>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-black text-slate-600">الإجمالي الصحيح (كراتين)</label>
-              <input type="number" min={0} max={2147483647} step={1} value={newQty.cartons} onChange={(e) => setNewQty((prev) => ({ ...prev, cartons: Math.max(0, Number(e.target.value) || 0) }))} className="w-full rounded-xl border-2 border-slate-100 p-2 text-center font-black outline-none" />
-            </div>
-            <div>
-              <label className="text-xs font-black text-slate-600">الإجمالي الصحيح (حبات)</label>
-              <input type="number" min={0} max={Math.max(0, (adjustingEntry?.packs_per_carton || 1) - 1)} step={1} value={newQty.loose} onChange={(e) => setNewQty((prev) => ({ ...prev, loose: Math.max(0, Number(e.target.value) || 0) }))} className="w-full rounded-xl border-2 border-slate-100 p-2 text-center font-black outline-none" />
-            </div>
+          <div>
+            <label className="text-xs font-black text-slate-600">الإجمالي الصحيح بوحدة الأساس ({adjustingEntry?.base_uom_code})</label>
+            <input inputMode="decimal" value={newQty} onChange={(e) => setNewQty(e.target.value.replace(/[^0-9.]/g, ""))} className="w-full rounded-xl border-2 border-slate-100 p-2 text-center font-black outline-none" />
+            <p className="mt-1 text-[10px] text-slate-500">الدقة {adjustingEntry?.quantity_scale ?? 0} · الخطوة {adjustingEntry?.quantity_step ?? "1"}</p>
           </div>
           <div>
             <label className="text-xs font-black text-red-600">كلمة مرور المسؤول للتأكيد 🔑</label>

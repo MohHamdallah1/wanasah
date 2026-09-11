@@ -1,6 +1,6 @@
 # Inventory & Commercial Foundation Plan
 
-**الحالة:** OWNER-APPROVED ARCHITECTURAL BASELINE — NOT IMPLEMENTED
+**الحالة:** OWNER-APPROVED ARCHITECTURAL BASELINE — IMPLEMENTATION IN PROGRESS (STAGES 0–2 COMPLETE)
 
 **تاريخ الاعتماد:** 2026-09-11
 
@@ -1635,16 +1635,21 @@ Gate:
 
 ### Stage 2 — Quantity, UOM, Product and Variant Foundation
 
-- NUMERIC/Decimal quantities.
-- Product/Variant split.
-- UOM/Conversion immutability.
-- Barcode/GS1 foundation.
-- إزالة السعر من Variant.
-- تحديث Unified Engine contracts.
+- [x] تحويل كميات مخزون المستودعات والمحرك الموحد إلى NUMERIC(20,6)/Decimal exact.
+- [x] فصل Product العائلة عن ProductVariant/SKU بعقد Tenant-scoped.
+- [x] تأسيس UOM والتحويلات الدقيقة، وقصر تعديل البنية على DRAFT.
+- [x] تأسيس Barcodes one-to-many وGS1 parsing.
+- [x] إزالة السعر من عقود Catalog وDashboard الجديدة.
+- [x] تحديث عقود Unified Inventory Movement Engine وInbound/Live Stock/Ledger/Transfers/Stocktake.
+
+حدود الانتقال المعتمدة أثناء التنفيذ:
+
+- تبقى حقول `price_per_carton` و`price_per_pack` القديمة nullable داخل `ProductVariant` مؤقتاً فقط حتى يستبدل Stage 5 مستهلكي التسعير الحي في Driver وVEHICLE_RECON ثم يحذفها من المخطط في نفس الـcheckpoint؛ لا تعرضها عقود Catalog الجديدة ولا تعتمد عليها واجهات Inventory الجديدة.
+- تبقى عقود الكراتين/الحبات التجارية القديمة في Visit/Offer/Driver إلى مراحل التسعير والعروض والتقييم 5–7، لأن تحويل شكلها قبل تثبيت Commercial Context يغيّر عقد البيع القائم جزئياً. يمنع أي `int()` أو Float في مسارات مخزون المستودعات والمحرك الموحد المنجزة هنا.
 
 Gate:
 
-- PRODUCT_FOUNDATION_GATE=PASS
+- [x] PRODUCT_FOUNDATION_GATE=PASS
 
 ### Stage 3 — ProductLocation, Lifecycle, Holds and Archive
 
@@ -1675,6 +1680,7 @@ Gate:
 ### Stage 5 — Temporal Pricing and Route Commercial Context
 
 - PriceBook/Publication/Entry/Assignment.
+- إزالة حقول السعر القديمة من ProductVariant بعد تحويل آخر مستهلك حي لها.
 - btree_gist exclusion.
 - Publish workflow.
 - Deterministic precedence.
@@ -1832,11 +1838,12 @@ Final gate:
 
 ### Product/UOM
 
-- [ ] لا أسعار في ProductVariant.
-- [ ] DRAFT وحده يسمح بتعديل البنية.
-- [ ] كل Quantity يستخدم Decimal/NUMERIC بلاFloat.
-- [ ] UOM step/scale مفروضان.
-- [ ] Barcodes one-to-many وGS1 parsing.
+- [x] لا أسعار في عقود Catalog الجديدة؛ الحذف الفيزيائي لحقول الانتقال القديمة ملزم في Stage 5.
+- [x] DRAFT وحده يسمح بتعديل البنية.
+- [x] كل Quantity في مخزون المستودعات والمحرك الموحد يستخدم Decimal/NUMERIC بلاFloat.
+- [x] UOM step/scale مفروضان.
+- [x] Barcodes one-to-many وGS1 parsing.
+- [ ] تحويل عقود Quantity التجارية القديمة وحذف carton/pack compatibility fields ضمن Stages 5–7.
 
 ### Lifecycle/Holds
 

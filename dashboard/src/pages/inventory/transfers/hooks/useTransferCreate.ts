@@ -18,8 +18,9 @@ import type {
 import {
   getErrorMessage,
   getMutationMessage,
-  totalDraftPacks,
+  totalDraftQuantity,
 } from "../utils";
+import { compareQuantity, type Quantity } from "../../quantity";
 
 interface UseTransferCreateArgs {
   locationId: number;
@@ -234,7 +235,7 @@ export function useTransferCreate({
 
         const page = parseSourceInventoryPage(raw);
         const nextItems = page.items.filter(
-          (item) => item.available_packs > 0
+          (item) => compareQuantity(item.available_quantity, "0") > 0
         );
 
         setSourceProducts((prev) => {
@@ -308,8 +309,7 @@ export function useTransferCreate({
         ...product,
         draft_key: crypto.randomUUID(),
         product_variant_id: product.id,
-        cartons: 0,
-        loose_packs: 0,
+        quantity: "0",
         fefo_mode: "auto",
         override_batch_id: null,
         override_reason_id: null,
@@ -328,20 +328,13 @@ export function useTransferCreate({
 
   const updateDraftQuantity = (
     draftKey: string,
-    field: "cartons" | "loose_packs",
-    value: number
+    value: string
   ) => {
     setDraftItems((prev) =>
       prev.map((item) => {
         if (item.draft_key !== draftKey) return item;
 
-        const raw = Math.max(0, Math.floor(Number(value) || 0));
-        const normalized =
-          field === "loose_packs"
-            ? Math.min(raw, Math.max(0, item.packs_per_carton - 1))
-            : raw;
-
-        return { ...item, [field]: normalized };
+        return { ...item, quantity: value.replace(/[^0-9.]/g, "") };
       })
     );
     resetCreateRequestId();
@@ -533,7 +526,7 @@ export function useTransferCreate({
           ? {
               ...item,
               override_batch_id: batch.id,
-              override_batch_available: batch.available_packs,
+              override_batch_available: batch.available_quantity,
             }
           : item
       )
@@ -605,8 +598,7 @@ export function useTransferCreate({
       {
         ...template,
         draft_key: crypto.randomUUID(),
-        cartons: 0,
-        loose_packs: 0,
+        quantity: "0",
         fefo_mode: "override",
         override_batch_id: null,
         override_reason_id: null,
@@ -688,7 +680,8 @@ export function useTransferCreate({
 
     type DispatchItem = {
       product_variant_id: number;
-      quantity: number;
+      quantity: Quantity;
+      uom_id: number;
       is_fefo_override?: boolean;
       override_batch_id?: number;
       override_reason_id?: number;
@@ -719,10 +712,7 @@ export function useTransferCreate({
       const seenKeys = new Set<string>();
 
       items = draftItems.map((item) => {
-        const quantity = totalDraftPacks(item);
-        if (quantity <= 0) {
-          throw new Error(`حدد كمية للصنف ${item.name}.`);
-        }
+        const quantity = totalDraftQuantity(item);
 
         if (item.fefo_mode === "auto") {
           const key = `${item.product_variant_id}:auto`;
@@ -733,7 +723,7 @@ export function useTransferCreate({
           }
           seenKeys.add(key);
 
-          if (quantity > item.available_packs) {
+          if (compareQuantity(quantity, item.available_quantity) > 0) {
             throw new Error(
               `كمية ${item.name} تتجاوز المتاح في المصدر.`
             );
@@ -742,6 +732,7 @@ export function useTransferCreate({
           return {
             product_variant_id: item.product_variant_id,
             quantity,
+            uom_id: item.base_uom_id,
             is_fefo_override: false,
           };
         }
@@ -782,7 +773,7 @@ export function useTransferCreate({
           );
         }
 
-        if (quantity > batch.available_packs) {
+        if (compareQuantity(quantity, batch.available_quantity) > 0) {
           throw new Error(
             `كمية ${item.name} تتجاوز المتاح في الدفعة ${batch.batch_number}.`
           );
@@ -800,6 +791,7 @@ export function useTransferCreate({
         return {
           product_variant_id: item.product_variant_id,
           quantity,
+          uom_id: item.base_uom_id,
           is_fefo_override: true,
           override_batch_id: item.override_batch_id,
           override_reason_id: item.override_reason_id,

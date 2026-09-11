@@ -2,6 +2,7 @@ import type {
   StocktakeRow,
   StocktakeStockStatus,
 } from "../inventoryUtils";
+import type { Quantity } from "../quantity";
 
 export type StocktakeType =
   | "FULL_COUNT"
@@ -32,7 +33,11 @@ export interface CountSheetItem {
   batch_id: number | null;
   stock_status: StocktakeStockStatus;
   product_name: string;
-  packs_per_carton: number;
+  base_uom_id: number;
+  base_uom_code: string;
+  base_uom_name: string;
+  quantity_scale: number;
+  quantity_step: Quantity;
   batch_number: string | null;
   expiry_date: string | null;
 }
@@ -44,12 +49,16 @@ export interface ReviewLine {
   stock_status: StocktakeStockStatus;
   line_origin: "SNAPSHOT" | "DISCOVERED";
   product_name: string;
-  packs_per_carton: number;
+  base_uom_id: number;
+  base_uom_code: string;
+  base_uom_name: string;
+  quantity_scale: number;
+  quantity_step: Quantity;
   batch_number: string | null;
   expiry_date: string | null;
-  expected_quantity: number;
-  actual_quantity: number;
-  variance_quantity: number;
+  expected_quantity: Quantity;
+  actual_quantity: Quantity;
+  variance_quantity: Quantity;
   notes?: string | null;
 }
 
@@ -101,7 +110,11 @@ export interface CycleProductOption {
   id: number;
   name: string;
   sku: string | null;
-  packs_per_carton: number;
+  base_uom_id: number;
+  base_uom_code: string;
+  base_uom_name: string;
+  quantity_scale: number;
+  quantity_step: Quantity;
 }
 
 export interface CycleProductCursorPage {

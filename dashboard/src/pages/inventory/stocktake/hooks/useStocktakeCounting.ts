@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { Dispatch, SetStateAction } from "react";
 import type { StocktakeRow } from "../../inventoryUtils";
-import { toTotalPacks } from "../../inventoryUtils";
 import type {
   StocktakeAuthFetch,
   StocktakePhase,
@@ -102,9 +101,12 @@ export function useStocktakeCounting({
         product_name: item.product_name,
         batch_number: item.batch_number,
         expiry_date: item.expiry_date,
-        packs_per_carton: item.packs_per_carton || 1,
-        actual_cartons: 0,
-        actual_loose_packs: 0,
+        base_uom_id: item.base_uom_id,
+        base_uom_code: item.base_uom_code,
+        base_uom_name: item.base_uom_name,
+        quantity_scale: item.quantity_scale,
+        quantity_step: item.quantity_step,
+        actual_quantity: "0",
         counted: false,
       }));
 
@@ -130,14 +132,7 @@ export function useStocktakeCounting({
               savedMap.get(row.row_key);
             if (!old) continue;
 
-            row.actual_cartons = Math.max(
-              0,
-              Number(old.actual_cartons) || 0
-            );
-            row.actual_loose_packs = Math.max(
-              0,
-              Number(old.actual_loose_packs) || 0
-            );
+            row.actual_quantity = typeof old.actual_quantity === "string" ? old.actual_quantity : "0";
             row.counted =
               old.counted === true;
           }
@@ -190,45 +185,12 @@ export function useStocktakeCounting({
 
   const updateRow = useCallback((
     key: string,
-    field:
-      | "actual_cartons"
-      | "actual_loose_packs",
-    val: number
+    value: string
   ) => {
     setRows((prev) => prev.map((row) => {
       if (row.row_key !== key) return row;
 
-      const updated = {
-        ...row,
-        [field]: val,
-        counted: true,
-      };
-
-      const ppc =
-        updated.packs_per_carton || 1;
-
-      if (
-        updated.actual_loose_packs >= ppc
-      ) {
-        updated.actual_cartons +=
-          Math.floor(
-            updated.actual_loose_packs /
-              ppc
-          );
-        updated.actual_loose_packs %= ppc;
-      } else if (
-        updated.actual_loose_packs < 0
-      ) {
-        if (updated.actual_cartons > 0) {
-          updated.actual_cartons -= 1;
-          updated.actual_loose_packs =
-            ppc - 1;
-        } else {
-          updated.actual_loose_packs = 0;
-        }
-      }
-
-      return updated;
+      return { ...row, actual_quantity: value.replace(/[^0-9.]/g, ""), counted: true };
     }));
   }, [setRows]);
 
@@ -239,8 +201,7 @@ export function useStocktakeCounting({
           row.row_key === key
             ? {
                 ...row,
-                actual_cartons: 0,
-                actual_loose_packs: 0,
+                actual_quantity: "0",
                 counted: true,
               }
             : row
@@ -291,11 +252,8 @@ export function useStocktakeCounting({
           row.product_variant_id,
         batch_id: row.batch_id,
         stock_status: row.stock_status,
-        actual_quantity: toTotalPacks(
-          row.actual_cartons,
-          row.actual_loose_packs,
-          row.packs_per_carton
-        ),
+        actual_quantity: row.actual_quantity,
+        uom_id: row.base_uom_id,
       }));
 
       setSubmitting(true);

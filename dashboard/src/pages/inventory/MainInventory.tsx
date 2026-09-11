@@ -614,6 +614,7 @@ export default function MainInventory() {
 
         {activeTab === "catalog" && tabAllowed("catalog") && (
           <TabProductCatalog
+            locations={locations}
             onCatalogChanged={async () => {
               if (canAny('location.read')) await fetchLocations();
               refreshStock();

@@ -117,7 +117,7 @@ export function FefoOverrideEditor({
                       >
                         {batch.batch_number} — صلاحية{" "}
                         {batch.expiry_date} — متاح{" "}
-                        {batch.available_packs}
+                        {batch.available_quantity}
                         {batch.is_fefo_head
                           ? " — FEFO الحالي"
                           : ""}
@@ -160,7 +160,7 @@ export function FefoOverrideEditor({
                 <div className="text-[10px] text-slate-500">
                   المتاح في الدفعة المختارة:{" "}
                   <span className="font-bold">
-                    {selectedBatch.available_packs} حبة
+                    {selectedBatch.available_quantity} {item.base_uom_name}
                   </span>
                   {selectedBatch.is_fefo_head && (
                     <span className="text-amber-700">

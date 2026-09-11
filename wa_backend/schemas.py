@@ -1,10 +1,12 @@
 from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator
 from pydantic.functional_validators import BeforeValidator
+from pydantic.functional_serializers import PlainSerializer
 from typing import Optional, List, Any, Literal, Annotated, Dict, Union
 from datetime import datetime, timezone, date
 from uuid import UUID
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
+from quantity import canonical_quantity, parse_quantity
 
 # ==========================================
 # 0. Boundary primitives — fail closed, preserve DB precision, and reject lossy coercion.
@@ -229,6 +231,35 @@ Longitude = Annotated[Optional[float], BeforeValidator(_longitude_input)]
 MoneyInput = Annotated[Decimal, BeforeValidator(safe_decimal_input)]
 RequiredMoneyInput = Annotated[Decimal, BeforeValidator(required_money_input)]
 OptionalMoneyInput = Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)]
+
+
+def positive_quantity_input(v: Any) -> Decimal:
+    return parse_quantity(v, "quantity")
+
+
+def nonnegative_quantity_input(v: Any) -> Decimal:
+    return parse_quantity(v, "quantity", allow_zero=True)
+
+
+def signed_quantity_input(v: Any) -> Decimal:
+    return parse_quantity(v, "quantity", allow_zero=True, allow_negative=True)
+
+
+PositiveQuantity = Annotated[
+    Decimal,
+    BeforeValidator(positive_quantity_input),
+    PlainSerializer(canonical_quantity, return_type=str),
+]
+NonNegativeQuantity = Annotated[
+    Decimal,
+    BeforeValidator(nonnegative_quantity_input),
+    PlainSerializer(canonical_quantity, return_type=str),
+]
+SignedQuantity = Annotated[
+    Decimal,
+    BeforeValidator(signed_quantity_input),
+    PlainSerializer(canonical_quantity, return_type=str),
+]
 
 # ==========================================
 # 1. دروع الردود العامة (Generic Responses)
@@ -1293,7 +1324,8 @@ class BulkImportRequest(RequestModel):
 class InboundItemRequest(RequestModel):
     """Legacy inbound wire item kept only for compatibility; unified inbound uses InboundBatchItem."""
     product_variant_id: PositiveDbInt
-    quantity_packs: NonNegativeDbInt
+    quantity: NonNegativeQuantity
+    uom_id: PositiveDbInt
 
 # ==========================================
 # 9. دروع المستودع المركزي (Warehouse)
@@ -1318,22 +1350,24 @@ class ToggleLockRequest(RequestModel):
 class WarehouseAlertItem(BaseModel):
     product_variant_id: int
     product_name: str
-    current_total_packs: int
-    min_threshold_packs: int
+    current_quantity: NonNegativeQuantity
+    minimum_quantity: NonNegativeQuantity
 
 class WarehouseInventoryItem(BaseModel):
     id: PositiveDbInt
     name: str = Field(..., min_length=1, max_length=200)
     sku: Optional[str] = Field(None, max_length=100)
-    packs_per_carton: PositiveDbInt
-    available_packs: int = Field(..., ge=0)
-    reserved_packs: int = Field(..., ge=0)
-    blocked_packs: int = Field(..., ge=0)
-    total_packs: int = Field(..., ge=0)
-    damaged_packs: int = Field(..., ge=0)
-    available_cartons: int = Field(..., ge=0)
-    available_loose_packs: int = Field(..., ge=0)
-    min_threshold: NonNegativeDbInt
+    base_uom_id: PositiveDbInt
+    base_uom_code: str
+    base_uom_name: str
+    quantity_scale: int = Field(..., ge=0, le=6)
+    quantity_step: PositiveQuantity
+    available_quantity: NonNegativeQuantity
+    reserved_quantity: NonNegativeQuantity
+    blocked_quantity: NonNegativeQuantity
+    total_quantity: NonNegativeQuantity
+    damaged_quantity: NonNegativeQuantity
+    minimum_quantity: NonNegativeQuantity
 
 class WarehouseInventoryCursorPage(BaseModel):
     items: List[WarehouseInventoryItem] = Field(..., max_length=200)
@@ -1348,11 +1382,14 @@ class WarehouseLedgerItem(BaseModel):
     id: PositiveDbInt
     product_variant_id: PositiveDbInt
     product_name: str = Field(..., min_length=1, max_length=200)
-    packs_per_carton: PositiveDbInt
+    base_uom_id: PositiveDbInt
+    base_uom_code: str
+    quantity_scale: int = Field(..., ge=0, le=6)
+    quantity_step: PositiveQuantity
     type: str = Field(..., min_length=1, max_length=50)
-    quantity_packs: SignedDbInt
-    balance_before: Optional[NonNegativeDbInt] = None
-    balance_after: Optional[NonNegativeDbInt] = None
+    quantity: SignedQuantity
+    balance_before: Optional[NonNegativeQuantity] = None
+    balance_after: Optional[NonNegativeQuantity] = None
     admin_name: str = Field(..., min_length=1, max_length=120)
     reference: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
@@ -1552,66 +1589,10 @@ class WarehouseSetupStatusResponse(BaseModel):
     can_create: bool
 
 
-class SimpleProductVariantItem(BaseModel):
-    id: PositiveDbInt
-    name: str = Field(..., min_length=1, max_length=200)
-    sku: Optional[str] = Field(None, max_length=100)
-    packs_per_carton: PositiveDbInt
-
-
-class SimpleProductVariantCursorPage(BaseModel):
-    items: List[SimpleProductVariantItem] = Field(..., max_length=200)
-    next_cursor: Optional[str] = Field(None, max_length=1024)
-    has_more: bool
-    total: Optional[int] = Field(None, ge=0)
-
-
-class ProductVariantMutationResponse(BaseModel):
-    message: str = Field(..., min_length=1, max_length=1000)
-    product_id: PositiveDbInt
-
-
-class ProductVariantResolveRequest(RequestModel):
-    ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=5000)
-
-    @field_validator("ids")
-    @classmethod
-    def deduplicate_ids(cls, values: List[int]) -> List[int]:
-        if len(set(values)) != len(values):
-            raise ValueError("قائمة معرفات المنتجات لا يجوز أن تحتوي تكراراً.")
-        return values
-
-
-class AddProductVariantRequest(RequestModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    variant_name: str = Field(..., min_length=2, max_length=200, description="اسم المنتج")
-    sku: Optional[str] = Field(None, max_length=100)
-    price_per_carton: RequiredMoneyInput
-    packs_per_carton: PositiveDbInt = Field(..., description="عدد الحبات في الكرتونة")
-    price_per_pack: OptionalMoneyInput = None
-    default_max_samples_per_day: Optional[NonNegativeDbInt] = Field(
-        0,
-        alias="max_samples",
-        description="الحد الأقصى للعينات المجانية يومياً",
-    )
-
-    @field_validator("variant_name", mode="before")
-    @classmethod
-    def normalize_name(cls, v: Any) -> str:
-        return _required_text(v)
-
-    @field_validator("sku", mode="before")
-    @classmethod
-    def normalize_sku(cls, v: Any) -> Optional[str]:
-        return _optional_text(v)
-
-
 class AdjustWarehouseEntryRequest(RequestModel):
     password: str = Field(..., description="كلمة مرور المشرف للتأكيد")
-    new_total_packs: NonNegativeDbInt = Field(
-        ..., description="الصافي الجديد المطلوب للكمية (بالحبات)"
-    )
+    new_total_quantity: NonNegativeQuantity
+    uom_id: PositiveDbInt
     notes: Optional[str] = Field("تعديل خطأ إدخال", max_length=2000)
 
     @field_validator("password", mode="before")
@@ -1630,7 +1611,8 @@ class AdjustWarehouseEntryRequest(RequestModel):
 # =================================================================================
 class InboundBatchItem(RequestModel):
     product_variant_id: PositiveDbInt
-    quantity_packs: PositiveDbInt
+    quantity: PositiveQuantity
+    uom_id: PositiveDbInt
     batch_number: str = Field(..., min_length=1, max_length=100)
     production_date: Optional[date] = None
     expiry_date: date
@@ -1679,7 +1661,8 @@ class UpgradedInboundRequest(RequestModel):
 
 class UnifiedTransferItem(RequestModel):
     product_variant_id: PositiveDbInt
-    quantity: PositiveDbInt
+    quantity: PositiveQuantity
+    uom_id: PositiveDbInt
     is_fefo_override: bool = False
     override_batch_id: OptionalPositiveDbInt = None
     override_reason_id: OptionalPositiveDbInt = None
@@ -1753,8 +1736,12 @@ class UnifiedTransferSourceInventoryItem(BaseModel):
     id: int
     name: str
     sku: Optional[str] = None
-    packs_per_carton: int
-    available_packs: int
+    base_uom_id: PositiveDbInt
+    base_uom_code: str
+    base_uom_name: str
+    quantity_scale: int = Field(..., ge=0, le=6)
+    quantity_step: PositiveQuantity
+    available_quantity: NonNegativeQuantity
 
 
 class UnifiedTransferSourceInventoryCursorPage(BaseModel):
@@ -1775,7 +1762,7 @@ class UnifiedTransferSourceBatchItem(BaseModel):
     batch_number: str
     production_date: Optional[date] = None
     expiry_date: date
-    available_packs: int
+    available_quantity: NonNegativeQuantity
     is_fefo_head: bool
 
 
@@ -1812,7 +1799,7 @@ class WarehouseTransferListItem(BaseModel):
     cancelled_by: Optional[int] = None
     cancelled_by_name: Optional[str] = None
     line_count: int
-    total_quantity: int
+    total_quantity: NonNegativeQuantity
     notes: Optional[str] = None
     decision_reason: Optional[str] = None
     created_at: datetime
@@ -1837,7 +1824,8 @@ class WarehouseTransferLineItem(BaseModel):
     batch_id: int
     batch_number: str
     expiry_date: date
-    quantity: int
+    quantity: PositiveQuantity
+    uom_id: PositiveDbInt
     fefo_override_reason_id: Optional[int] = None
     fefo_overridden_by: Optional[int] = None
     fefo_override_note: Optional[str] = None
@@ -1992,7 +1980,8 @@ class StocktakeCountItem(RequestModel):
     product_variant_id: PositiveDbInt
     batch_id: PositiveDbInt
     stock_status: Literal["AVAILABLE", "DAMAGED"]
-    actual_quantity: NonNegativeDbInt
+    actual_quantity: NonNegativeQuantity
+    uom_id: PositiveDbInt
 
 
 class UnifiedStocktakeCountRequest(RequestModel):

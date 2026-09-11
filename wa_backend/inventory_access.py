@@ -14,14 +14,19 @@ from models import (Driver, Permission, UserRole, UserLocationAccess, role_permi
 PERMISSIONS = frozenset({
     'location.read', 'location.create', 'location.update', 'location.state',
     'inventory.read', 'inbound.create', 'ledger.read', 'ledger.adjust',
-    'catalog.read', 'catalog.manage',
+    'catalog.read', 'catalog.manage', 'catalog.publish', 'catalog.retire',
+    'catalog.restore', 'catalog.archive', 'catalog.hold',
+    'product_location.read', 'product_location.manage',
     'transfer.read', 'transfer.send', 'transfer.receive', 'transfer.cancel',
     'transfer.reject', 'transfer.destination', 'inventory.fefo_override',
     'stocktake.read', 'stocktake.start', 'stocktake.count', 'stocktake.review',
     'stocktake.approve', 'stocktake.recount', 'stocktake.cancel',
     'dispatch.read', 'dispatch.execute',
 })
-COMPANY_ONLY = frozenset({'location.create', 'catalog.manage'})
+COMPANY_ONLY = frozenset({
+    'location.create', 'catalog.manage', 'catalog.publish', 'catalog.retire',
+    'catalog.restore', 'catalog.archive', 'catalog.hold',
+})
 
 
 def _permission_codes(codes):

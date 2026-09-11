@@ -50,6 +50,21 @@ async def rebuild_schema():
         await conn.run_sync(Base.metadata.create_all)
         print(f"[1/3] Created {len(Base.metadata.tables)} tables from Models.")
 
+        # UOM is sovereign reference data. It is provisioned once with the schema,
+        # independently from tenant seed/demo data.
+        await conn.execute(text("""
+            INSERT INTO uom (code, name) VALUES
+                ('EACH', 'حبة'),
+                ('CARTON', 'كرتونة'),
+                ('CASE', 'صندوق'),
+                ('KG', 'كيلوغرام'),
+                ('G', 'غرام'),
+                ('L', 'لتر'),
+                ('ML', 'ملليلتر'),
+                ('PALLET', 'طبلية')
+            ON CONFLICT (code) DO NOTHING
+        """))
+
         # 3. فرض درع RLS ديناميكياً على كل جدول يملك company_id (المستأجَر)
         #    أي جدول جديد سيُضاف مستقبلاً ويحمل company_id سيُحمى تلقائياً هنا
         tenant_tables = [name for name, t in Base.metadata.tables.items() if "company_id" in t.columns]
@@ -101,12 +116,31 @@ async def rebuild_schema():
             EXECUTE FUNCTION public.prevent_system_audit_log_mutation()
         """))
         await conn.execute(text(
+            "DROP TRIGGER IF EXISTS trg_domain_audit_events_append_only "
+            "ON public.domain_audit_events"
+        ))
+        await conn.execute(text("""
+            CREATE TRIGGER trg_domain_audit_events_append_only
+            BEFORE UPDATE OR DELETE OR TRUNCATE
+            ON public.domain_audit_events
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION public.prevent_system_audit_log_mutation()
+        """))
+        await conn.execute(text(
             f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "
             f"public.system_audit_logs FROM {quoted_app_user}"
         ))
         await conn.execute(text(
             f"GRANT SELECT, INSERT ON TABLE "
             f"public.system_audit_logs TO {quoted_app_user}"
+        ))
+        await conn.execute(text(
+            f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "
+            f"public.domain_audit_events FROM {quoted_app_user}"
+        ))
+        await conn.execute(text(
+            f"GRANT SELECT, INSERT ON TABLE "
+            f"public.domain_audit_events TO {quoted_app_user}"
         ))
         print(f"[3/3] Grants applied to app user '{app_user}'.")
 
@@ -124,9 +158,9 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
             await session.flush()
             gov = Governorate(name="عمان", country_id=country.id)
             session.add(gov)
-            uom_carton = UOM(name="كرتونة", code="CARTON")
-            session.add(uom_carton)
-            await session.flush()
+            uom_carton = await session.scalar(select(UOM).where(UOM.code == "CARTON"))
+            if uom_carton is None:
+                raise RuntimeError("Sovereign UOM provisioning failed: CARTON is missing")
 
             for i in range(1, num_companies + 1):
                 c_name = "شركة وناسة" if i == 1 else f"شركة النسر {i}"
@@ -161,11 +195,11 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                 session.add_all([admin, driver])
                 await session.flush()
 
-                prod = Product(company_id=cid, base_name=f"منتج أساسي {cid}")
+                prod = Product(company_id=cid, code=f"PROD-{cid}", name=f"منتج أساسي {cid}")
                 session.add(prod)
                 await session.flush()
 
-                var = ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, variant_name=f"صنف {cid}", sku=f"SKU-{cid}", packs_per_carton=24, price_per_carton=Decimal("24.0"), price_per_pack=Decimal("1.0"), is_active=True)
+                var = ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, name=f"صنف {cid}", sku=f"SKU-{cid}", packs_per_carton=24, price_per_carton=Decimal("24.0"), price_per_pack=Decimal("1.0"), lifecycle_status="ACTIVE", published_at=utc_now())
                 session.add(var)
                 await session.flush()
 
@@ -184,7 +218,7 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                     for d_idx in range(1, 21):
                         session.add(Driver(company_id=cid, username=f"drv_{cid}_{d_idx}", full_name=f"مندوب {d_idx}", password_hash=hashed_pw, is_admin=False, is_active=True, max_debt_limit=Decimal("1000.0")))
                     for p_idx in range(1, 21):
-                        session.add(ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, variant_name=f"صنف إضافي {p_idx}", sku=f"SKU-{cid}-{p_idx}", packs_per_carton=12, price_per_carton=Decimal("10.0"), price_per_pack=Decimal("1.0"), is_active=True))
+                        session.add(ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, name=f"صنف إضافي {p_idx}", sku=f"SKU-{cid}-{p_idx}", packs_per_carton=12, price_per_carton=Decimal("10.0"), price_per_pack=Decimal("1.0"), lifecycle_status="ACTIVE", published_at=utc_now()))
 
             await session.commit()
             print(f"SEED OK: {num_companies} companies seeded." + (" (Heavy Injection)" if inject_heavy else ""))

@@ -27,7 +27,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
-from api import auth, branches, driver, dispatch, tenant, warehouse, reconciliation
+from api import auth, branches, catalog, driver, dispatch, product_locations, tenant, warehouse, reconciliation
 from config import Config
 from database import engine, get_db
 from ws_manager import dispatch_manager
@@ -133,6 +133,7 @@ app = FastAPI(
 )
 app.include_router(reconciliation.router, tags=["Reconciliation"])
 app.include_router(platform.router)
+app.include_router(product_locations.router)
 
 # S-04: Restrictive CORS configuration
 _CORS_RAW = os.getenv("CORS_ALLOWED_ORIGINS", "https://dashboard.wanasah.com,https://www.wanasah.com")
@@ -298,6 +299,7 @@ app.include_router(driver.router, tags=["Driver Operations"])
 app.include_router(dispatch.router, tags=["Dispatch & Routing"])
 app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 app.include_router(branches.router)
+app.include_router(catalog.router)
 app.include_router(tenant.router)
 
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates

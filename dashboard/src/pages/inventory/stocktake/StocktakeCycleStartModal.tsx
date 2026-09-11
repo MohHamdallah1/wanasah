@@ -49,7 +49,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
                 <button type="button" key={product.id} onClick={() => chooseProduct(product)} className="w-full px-4 py-3 text-right hover:bg-slate-50 flex items-center justify-between gap-3">
                   <div>
                     <div className="font-black text-slate-800 text-sm">{product.name}</div>
-                    <div className="text-[11px] text-slate-500 mt-1">SKU: {product.sku || "—"} · {product.packs_per_carton} حبة/كرتونة</div>
+                    <div className="text-[11px] text-slate-500 mt-1">SKU: {product.sku || "—"} · وحدة الأساس {product.base_uom_name} · خطوة {product.quantity_step}</div>
                   </div>
                   <ChevronLeft className="w-4 h-4 text-slate-400" />
                 </button>

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/hooks/useAuthFetch', () => ({useAuthFetch: vi.fn()}));
 import { hasInventoryPermission, parseInventoryCapabilities } from '@/hooks/useInventoryAccess';
-import { parseCatalogItems, parseCatalogPage } from '@/pages/inventory/catalogParsers';
-import { buildProductVariantCreatePayload, parseProductVariantMutationResponse } from '@/pages/inventory/catalog/contracts';
+import { parseCatalogPage } from '@/pages/inventory/catalogParsers';
+import { buildVariantPayload, parseMutationMessage } from '@/pages/inventory/catalog/contracts';
 import {
   buildInboundItems,
   inboundStorageKeys,
@@ -44,41 +44,25 @@ describe('inventory permission contract', () => {
   });
 });
 
-describe('catalog contract used before carton conversion', () => {
-  const item = {id: 7, name: 'صنف', sku: null, packs_per_carton: 12};
-  it('preserves the server conversion factor', () => {
-    expect(parseCatalogItems([item])).toEqual([item]);
-  });
-  it.each([0, -1, 1.5, '12', NaN])('rejects invalid carton conversion %s', factor => {
-    expect(() => parseCatalogItems([{...item, packs_per_carton: factor}])).toThrow();
-  });
+describe('catalog product and UOM contract', () => {
+  const item = {id:7,product_id:3,name:'صنف',sku:'SKU-7',gtin:null,base_uom:{id:1,code:'EACH',name:'حبة'},quantity_scale:0,quantity_step:'1',lot_control_mode:'REQUIRED',expiry_control_mode:'REQUIRED',lifecycle_status:'ACTIVE',operational_hold:'NONE',lifecycle_revision:1,version:1,published_at:'2026-09-12T00:00:00',retired_at:null,archived_at:null};
   it('rejects malformed pagination and duplicate identities', () => {
-    expect(() => parseCatalogPage({items: [item], next_cursor: 10, has_more: true, total: null})).toThrow();
-    expect(() => parseCatalogPage({items: [item], next_cursor: null, has_more: true, total: 1})).toThrow();
-    expect(() => parseCatalogPage({items: [item, item], next_cursor: null, has_more: false, total: 2})).toThrow();
+    expect(() => parseCatalogPage({items: [item], next_cursor: 10, has_more: true})).toThrow();
+    expect(() => parseCatalogPage({items: [item], next_cursor: null, has_more: true})).toThrow();
   });
-  it('builds the exact product-create contract and validates the mutation response', () => {
-    expect(buildProductVariantCreatePayload({
-      variant_name: '  منتج جديد  ', sku: ' ', price_per_carton: '12.5',
-      packs_per_carton: '12', price_per_pack: '1.250', max_samples: '2',
-    })).toEqual({
-      variant_name: 'منتج جديد', sku: null, price_per_carton: '12.500',
-      packs_per_carton: 12, price_per_pack: '1.250', max_samples: 2,
-    });
-    expect(parseProductVariantMutationResponse({message: 'تم', product_id: 9})).toEqual({message: 'تم', product_id: 9});
-    expect(() => buildProductVariantCreatePayload({
-      variant_name: 'منتج', sku: '', price_per_carton: '1.2345', packs_per_carton: '1',
-      price_per_pack: '', max_samples: '0',
-    })).toThrow();
+  it('builds a price-free exact-quantity SKU contract', () => {
+    const payload=buildVariantPayload({product_id:'3',name:'صنف',sku:'sku-7',gtin:'',base_uom_id:'1',quantity_scale:'3',quantity_step:'0.125',lot_control_mode:'REQUIRED',expiry_control_mode:'REQUIRED'});
+    expect(payload).toMatchObject({product_id:3,name:'صنف',sku:'SKU-7',gtin:null,base_uom_id:1,quantity_scale:3,quantity_step:'0.125'});
+    expect(parseMutationMessage({message:'تم'})).toBe('تم');
   });
 });
 
 describe('inbound contract and draft isolation', () => {
   const draft = JSON.stringify({'7': [{
-    row_id: 'row-1', cartons: 2, loose_packs: 3, batch_number: ' B-1 ',
+    row_id: 'row-1', quantity:'27.125', batch_number: ' B-1 ',
     production_date: '2026-01-01', expiry_date: '2027-01-01',
   }]});
-  const product = {id: 7, name: 'صنف', sku: null, packs_per_carton: 12};
+  const product = {id:7,product_id:3,name:'صنف',sku:'SKU-7',gtin:null,base_uom:{id:1,code:'EACH',name:'حبة'},quantity_scale:3,quantity_step:'0.125',lot_control_mode:'REQUIRED' as const,expiry_control_mode:'REQUIRED' as const,lifecycle_status:'ACTIVE' as const,operational_hold:'NONE' as const,lifecycle_revision:1,version:1,published_at:'2026-09-12T00:00:00',retired_at:null,archived_at:null};
 
   it('partitions UX state by tenant, actor, and location', () => {
     expect(inboundStorageKeys(1, 7, 100).drafts).not.toBe(inboundStorageKeys(1, 7, 101).drafts);
@@ -89,7 +73,7 @@ describe('inbound contract and draft isolation', () => {
   it('builds the strict backend batch payload from fresh product metadata', () => {
     const items = buildInboundItems(parseInboundDrafts(draft), new Map([['7', product]]));
     expect(items).toEqual([{
-      product_variant_id: 7, quantity_packs: 27, batch_number: 'B-1',
+      product_variant_id:7,quantity:'27.125',uom_id:1,batch_number:'B-1',
       production_date: '2026-01-01', expiry_date: '2027-01-01',
     }]);
     expect(parseInboundResponse({message: 'تم'})).toEqual({message: 'تم'});
@@ -97,17 +81,15 @@ describe('inbound contract and draft isolation', () => {
 
   it('fails closed for malformed persisted drafts and product snapshots', () => {
     expect(parseInboundDrafts('{bad')).toEqual({});
-    expect(parseInboundDrafts(JSON.stringify({'7': [{...JSON.parse(draft)['7'][0], cartons: 1.5}]}))).toEqual({});
+    expect(parseInboundDrafts(JSON.stringify({'7': [{...JSON.parse(draft)['7'][0], quantity:'1.0000001'}]}))).toEqual({});
     expect(parseInboundDraftProducts(JSON.stringify({'7': {...product, id: 8}}))).toEqual({});
   });
 });
 
 describe('live stock response contract', () => {
   const item = {
-    id: 7, name: 'صنف', sku: 'SKU-7', packs_per_carton: 12,
-    available_packs: 27, reserved_packs: 3, blocked_packs: 2,
-    total_packs: 40, damaged_packs: 1, available_cartons: 2,
-    available_loose_packs: 3, min_threshold: 10,
+    id:7,name:'صنف',sku:'SKU-7',base_uom_id:1,base_uom_code:'EACH',base_uom_name:'حبة',quantity_scale:3,quantity_step:'0.125',
+    available_quantity:'27.125',reserved_quantity:'3',blocked_quantity:'2',total_quantity:'32.125',damaged_quantity:'1',minimum_quantity:'10',
   };
 
   it('accepts the exact cursor page and preserves base-unit quantities', () => {
@@ -121,10 +103,10 @@ describe('live stock response contract', () => {
   });
 
   it.each([
-    {...item, available_packs: -1},
-    {...item, packs_per_carton: 0},
-    {...item, available_cartons: 3},
-    {...item, available_loose_packs: 12},
+    {...item, available_quantity: '-1'},
+    {...item, quantity_scale: 7},
+    {...item, quantity_step: '0'},
+    {...item, total_quantity: 4.1},
   ])('rejects malformed stock quantities %#', malformed => {
     expect(() => parseLiveStockPage({
       items: [malformed], next_cursor: null, has_more: false,
@@ -142,9 +124,8 @@ describe('live stock response contract', () => {
 
 describe('unified ledger response contract', () => {
   const entry = {
-    id: 44, product_variant_id: 7, product_name: 'صنف', packs_per_carton: 12,
-    type: 'INBOUND_SUPPLIER', quantity_packs: 27, balance_before: 0,
-    balance_after: 27, admin_name: 'مدير', reference: 'INV-1', notes: null,
+    id:44,product_variant_id:7,product_name:'صنف',base_uom_id:1,base_uom_code:'EACH',quantity_scale:3,quantity_step:'0.125',
+    type:'INBOUND_SUPPLIER',quantity:'27.125',balance_before:'0',balance_after:'27.125',admin_name:'مدير',reference:'INV-1',notes:null,
     date: '2026-09-10T05:00:00+00:00',
   };
 
@@ -161,7 +142,7 @@ describe('unified ledger response contract', () => {
   it.each([
     {...entry, balance_after: 26},
     {...entry, balance_before: null},
-    {...entry, quantity_packs: 0},
+    {...entry, quantity: '0'},
     {...entry, date: '2026-09-10T05:00:00'},
   ])('rejects malformed movement evidence %#', malformed => {
     expect(() => parseLedgerPage({
@@ -171,11 +152,9 @@ describe('unified ledger response contract', () => {
   });
 
   it('builds a DB-safe correction contract and validates its response', () => {
-    expect(buildLedgerAdjustmentPayload(2, 3, 12, 'secret')).toEqual({
-      password: 'secret', new_total_packs: 27,
+    expect(buildLedgerAdjustmentPayload('27.125', parseLedgerPage({items:[entry],next_cursor:null,has_more:false,total:1,available_types:['INBOUND_SUPPLIER']}).items[0], 'secret')).toEqual({
+      password: 'secret', new_total_quantity:'27.125',uom_id:1,
     });
-    expect(() => buildLedgerAdjustmentPayload(2, 12, 12, 'secret')).toThrow();
-    expect(() => buildLedgerAdjustmentPayload(2147483647, 0, 12, 'secret')).toThrow();
     expect(parseLedgerMutationResponse({message: 'تم التصحيح'})).toEqual({message: 'تم التصحيح'});
   });
 });

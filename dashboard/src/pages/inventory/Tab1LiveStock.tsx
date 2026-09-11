@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { AlertTriangle, RefreshCcw, Search, Info, FilterX, ChevronRight, ChevronLeft } from "lucide-react";
 import type { WarehouseProduct } from "./liveStock/contracts";
-import { formatQty } from "./inventoryUtils";
+import { compareQuantity, formatQuantity } from "./quantity";
 
 interface Props {
   locationId: number;
@@ -167,7 +167,7 @@ export function Tab1LiveStock({
               )}
 
               {products.map((p) => {
-                const isAlert = p.min_threshold > 0 && p.available_packs <= p.min_threshold;
+                const isAlert = compareQuantity(p.minimum_quantity, "0") > 0 && compareQuantity(p.available_quantity, p.minimum_quantity) <= 0;
                 return (
                   <tr
                     key={p.id}
@@ -185,21 +185,21 @@ export function Tab1LiveStock({
                     </td>
                     <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku || "—"}</td>
                     <td className="px-4 py-3 text-emerald-700 font-semibold">
-                      {formatQty(p.available_packs, p.packs_per_carton)}
-                      {p.blocked_packs > 0 && (
+                      {formatQuantity(p.available_quantity, p.base_uom_name)}
+                      {compareQuantity(p.blocked_quantity, "0") > 0 && (
                         <div className="text-[10px] font-bold text-amber-600 mt-0.5">
-                          محجوب عن الصرف: {formatQty(p.blocked_packs, p.packs_per_carton)}
+                          محجوب عن الصرف: {formatQuantity(p.blocked_quantity, p.base_uom_name)}
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-violet-600 font-semibold">
-                      {formatQty(p.reserved_packs, p.packs_per_carton)}
+                      {formatQuantity(p.reserved_quantity, p.base_uom_name)}
                     </td>
                     <td className="px-4 py-3 text-slate-700 font-bold border-l border-slate-100">
-                      {formatQty(p.total_packs, p.packs_per_carton)}
+                      {formatQuantity(p.total_quantity, p.base_uom_name)}
                     </td>
                     <td className="px-4 py-3 text-red-600 font-bold bg-red-50/30">
-                      {formatQty(p.damaged_packs || 0, p.packs_per_carton)}
+                      {formatQuantity(p.damaged_quantity, p.base_uom_name)}
                     </td>
                   </tr>
                 );

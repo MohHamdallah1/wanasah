@@ -1,7 +1,9 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
+from sqlalchemy import BigInteger, Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, Uuid, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
 from decimal import Decimal
+from uuid import uuid4
 import bcrypt
 
 convention = {
@@ -240,58 +242,56 @@ class Driver(Base):
 # ④ المنتجات (Product → ProductVariant)
 # =================================================================================
 class Product(Base):
+    """عائلة Master Data مستقلة عن المواقع والمخزون والتسعير."""
     __tablename__ = 'products'
     __table_args__ = (
-        UniqueConstraint('company_id', 'base_name', name='uq_company_base_name'),
-        UniqueConstraint('company_id', 'id', name='uq_products_company_id'), # +++ Parent Guard +++
+        UniqueConstraint('company_id', 'code', name='uq_company_product_code'),
+        UniqueConstraint('company_id', 'id', name='uq_products_company_id'),
+        Index('ix_product_company_name_id', 'company_id', 'name', 'id'),
     )
-    id         = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True) # +++ زرع الهوية[cite: 9] +++
-    base_name  = Column(String(150), nullable=False)
-    brand      = Column(String(100), nullable=True)
-    category   = Column(String(100), nullable=True)
-    created_at = Column(DateTime,   nullable=False, default=utc_now)  # FIX ①
+    id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    code        = Column(String(100), nullable=False)
+    name        = Column(String(150), nullable=False)
+    description = Column(Text, nullable=True)
+    brand       = Column(String(100), nullable=True)
+    category    = Column(String(100), nullable=True)
+    version     = Column(Integer, nullable=False, default=1, server_default='1')
+    created_at  = Column(DateTime, nullable=False, default=utc_now)
+    updated_at  = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     variants = relationship('ProductVariant', backref='product', lazy='raise')
 
-
-class UOMConversion(Base):
-    """معامل تحويل Tenant-safe بين وحدات القياس لمنتج محدد."""
-    __tablename__ = 'uom_conversions'
-    __table_args__ = (
-        UniqueConstraint(
-            'company_id', 'product_variant_id', 'from_uom_id', 'to_uom_id',
-            name='uq_uom_conversion'
-        ),
-        ForeignKeyConstraint(
-            ['company_id', 'product_variant_id'],
-            ['product_variants.company_id', 'product_variants.id'],
-            ondelete='RESTRICT',
-            name='fk_uom_conversion_tenant_variant'
-        ),
-        CheckConstraint('from_uom_id <> to_uom_id', name='chk_uom_conversion_distinct_units'),
-        CheckConstraint('conversion_factor > 0', name='chk_positive_conversion'),
-    )
-    id                 = Column(Integer, primary_key=True)
-    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
-    product_variant_id = Column(Integer, nullable=False, index=True)
-    from_uom_id        = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
-    to_uom_id          = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
-    conversion_factor  = Column(Numeric(10, 4), nullable=False)
-
 class ProductVariant(Base):
-    """نسخة المنتج التجارية؛ لا يمكن ربطها بمنتج من Tenant آخر."""
+    """SKU بنيوي؛ يبدأ Draft وتخضع كمياته لدقة وخطوة UOM."""
     __tablename__ = 'product_variants'
     __table_args__ = (
         UniqueConstraint('company_id', 'sku', name='uq_company_sku'),
         UniqueConstraint('company_id', 'id', name='uq_product_variants_company_id'),
-        Index('ix_product_variant_company_name_id', 'company_id', 'variant_name', 'id'),
+        Index('ix_product_variant_company_name_id', 'company_id', 'name', 'id'),
+        Index('uq_product_variant_company_gtin', 'company_id', 'gtin', unique=True, postgresql_where=text('gtin IS NOT NULL')),
         ForeignKeyConstraint(
             ['company_id', 'product_id'],
             ['products.company_id', 'products.id'],
             ondelete='RESTRICT',
             name='fk_product_variant_tenant_product'
         ),
+        CheckConstraint('quantity_scale BETWEEN 0 AND 6', name='chk_product_variant_quantity_scale'),
+        CheckConstraint('quantity_step > 0', name='chk_product_variant_quantity_step'),
+        CheckConstraint('quantity_step = round(quantity_step, quantity_scale)', name='chk_product_variant_quantity_step_scale'),
+        CheckConstraint("lot_control_mode IN ('NONE', 'OPTIONAL', 'REQUIRED')", name='chk_product_variant_lot_control'),
+        CheckConstraint("expiry_control_mode IN ('NONE', 'OPTIONAL', 'REQUIRED')", name='chk_product_variant_expiry_control'),
+        CheckConstraint("lifecycle_status IN ('DRAFT', 'ACTIVE', 'RETIRING', 'ARCHIVED')", name='chk_product_variant_lifecycle'),
+        CheckConstraint("operational_hold IN ('NONE', 'SALES_HOLD', 'RECALL')", name='chk_product_variant_hold'),
+        CheckConstraint(
+            "((lifecycle_status = 'DRAFT' AND published_at IS NULL AND retired_at IS NULL AND archived_at IS NULL) OR "
+            "(lifecycle_status = 'ACTIVE' AND published_at IS NOT NULL AND retired_at IS NULL AND archived_at IS NULL) OR "
+            "(lifecycle_status = 'RETIRING' AND published_at IS NOT NULL AND retired_at IS NOT NULL AND archived_at IS NULL) OR "
+            "(lifecycle_status = 'ARCHIVED' AND published_at IS NOT NULL AND retired_at IS NOT NULL AND archived_at IS NOT NULL))",
+            name='chk_product_variant_lifecycle_timestamps'
+        ),
+        CheckConstraint('lifecycle_revision > 0', name='chk_product_variant_lifecycle_revision'),
+        CheckConstraint('version > 0', name='chk_product_variant_version'),
         CheckConstraint('packs_per_carton > 0', name='chk_packs_per_carton_positive'),
         CheckConstraint('price_per_carton >= 0', name='chk_product_variant_carton_price'),
         CheckConstraint('price_per_pack IS NULL OR price_per_pack >= 0', name='chk_product_variant_pack_price'),
@@ -302,15 +302,148 @@ class ProductVariant(Base):
     product_id  = Column(Integer, nullable=False, index=True)
     base_uom_id = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
 
-    variant_name     = Column(String(200), nullable=False)
-    flavor           = Column(String(50), nullable=True)
-    size             = Column(String(50), nullable=True)
-    sku              = Column(String(100), nullable=True)
+    name             = Column(String(200), nullable=False)
+    sku              = Column(String(100), nullable=False)
+    gtin             = Column(String(14), nullable=True)
+    quantity_scale   = Column(Integer, nullable=False, default=0, server_default='0')
+    quantity_step    = Column(Numeric(20, 6), nullable=False, default=Decimal('1'), server_default='1')
+    lot_control_mode = Column(String(20), nullable=False, default='REQUIRED', server_default='REQUIRED')
+    expiry_control_mode = Column(String(20), nullable=False, default='REQUIRED', server_default='REQUIRED')
+    lifecycle_status = Column(String(20), nullable=False, default='DRAFT', server_default='DRAFT', index=True)
+    operational_hold = Column(String(20), nullable=False, default='NONE', server_default='NONE', index=True)
+    lifecycle_revision = Column(Integer, nullable=False, default=1, server_default='1')
+    version          = Column(Integer, nullable=False, default=1, server_default='1')
+    published_at     = Column(DateTime, nullable=True)
+    retired_at       = Column(DateTime, nullable=True)
+    archived_at      = Column(DateTime, nullable=True)
+    created_at       = Column(DateTime, nullable=False, default=utc_now)
+    updated_at       = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+    # Transitional read/write fields remain until Stage 5 atomically replaces all
+    # live pricing consumers. New catalog contracts never accept these values.
     packs_per_carton = Column(Integer, nullable=False, default=50, server_default='50')
-    price_per_carton = Column(Numeric(12, 3), nullable=False)
+    price_per_carton = Column(Numeric(12, 3), nullable=True)
     price_per_pack   = Column(Numeric(12, 3), nullable=True)
-    is_active        = Column(Boolean, nullable=False, default=True, server_default='true', index=True)
     default_max_samples_per_day = Column(Integer, nullable=False, default=0, server_default='0')
+
+    @property
+    def variant_name(self):
+        return self.name
+
+
+class ProductUomConversion(Base):
+    """تحويل Exact Rational خاص بـVariant، قابل للتحرير في DRAFT فقط."""
+    __tablename__ = 'product_uom_conversions'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_product_uom_conversions_company_id'),
+        UniqueConstraint('company_id', 'product_variant_id', 'from_uom_id', 'to_uom_id', name='uq_product_uom_conversion'),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_product_uom_conversion_tenant_variant'
+        ),
+        CheckConstraint('from_uom_id <> to_uom_id', name='chk_product_uom_conversion_distinct'),
+        CheckConstraint('numerator > 0', name='chk_product_uom_conversion_numerator'),
+        CheckConstraint('denominator > 0', name='chk_product_uom_conversion_denominator'),
+        CheckConstraint('quantity_scale BETWEEN 0 AND 6', name='chk_product_uom_conversion_scale'),
+        CheckConstraint('version > 0', name='chk_product_uom_conversion_version'),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    product_variant_id = Column(Integer, nullable=False, index=True)
+    from_uom_id        = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
+    to_uom_id          = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
+    numerator          = Column(Numeric(20, 6), nullable=False)
+    denominator        = Column(Numeric(20, 6), nullable=False)
+    quantity_scale     = Column(Integer, nullable=False, default=0, server_default='0')
+    version            = Column(Integer, nullable=False, default=1, server_default='1')
+    created_at         = Column(DateTime, nullable=False, default=utc_now)
+    updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class ProductBarcode(Base):
+    """هوية مسح one-to-many؛ lot/expiry/serial تستخرج من GS1 ولا تثبت هنا."""
+    __tablename__ = 'product_barcodes'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_product_barcodes_company_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_product_barcode_tenant_variant'
+        ),
+        CheckConstraint("barcode_type IN ('EAN8', 'EAN13', 'UPC_A', 'GTIN14', 'GS1_128', 'INTERNAL')", name='chk_product_barcode_type'),
+        CheckConstraint('valid_to IS NULL OR valid_to > valid_from', name='chk_product_barcode_validity'),
+        CheckConstraint('version > 0', name='chk_product_barcode_version'),
+        Index('uq_active_product_barcode', 'company_id', 'barcode', unique=True, postgresql_where=text('is_active IS TRUE')),
+        Index('uq_primary_product_barcode_uom', 'company_id', 'product_variant_id', 'uom_id', unique=True, postgresql_where=text('is_primary IS TRUE AND is_active IS TRUE')),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    product_variant_id = Column(Integer, nullable=False, index=True)
+    uom_id             = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
+    barcode            = Column(String(128), nullable=False)
+    barcode_type       = Column(String(20), nullable=False)
+    is_primary         = Column(Boolean, nullable=False, default=False, server_default='false')
+    valid_from         = Column(DateTime, nullable=False, default=utc_now)
+    valid_to           = Column(DateTime, nullable=True)
+    is_active          = Column(Boolean, nullable=False, default=True, server_default='true')
+    version            = Column(Integer, nullable=False, default=1, server_default='1')
+    created_at         = Column(DateTime, nullable=False, default=utc_now)
+    updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class ProductLocation(Base):
+    """Sparse operational assignment; never stores stock, reservations or prices."""
+    __tablename__ = 'product_locations'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_product_locations_company_id'),
+        UniqueConstraint('company_id', 'location_id', 'product_variant_id', name='uq_product_location_assignment'),
+        ForeignKeyConstraint(
+            ['company_id', 'location_id'],
+            ['inventory_locations.company_id', 'inventory_locations.id'],
+            ondelete='RESTRICT',
+            name='fk_product_location_tenant_location'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_product_location_tenant_variant'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'created_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_product_location_tenant_creator'
+        ),
+        CheckConstraint("jsonb_typeof(operational_flags) = 'object'", name='chk_product_location_flags_object'),
+        CheckConstraint(
+            "operational_flags ?& ARRAY['inbound_enabled', 'outbound_enabled'] "
+            "AND operational_flags - 'inbound_enabled' - 'outbound_enabled' = '{}'::jsonb "
+            "AND jsonb_typeof(operational_flags->'inbound_enabled') = 'boolean' "
+            "AND jsonb_typeof(operational_flags->'outbound_enabled') = 'boolean'",
+            name='chk_product_location_flags_contract'
+        ),
+        CheckConstraint('version > 0', name='chk_product_location_version'),
+        Index('ix_product_location_variant_location', 'company_id', 'product_variant_id', 'location_id'),
+        Index('ix_product_location_location_variant', 'company_id', 'location_id', 'product_variant_id'),
+    )
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    location_id        = Column(Integer, nullable=False, index=True)
+    product_variant_id = Column(Integer, nullable=False, index=True)
+    operational_flags  = Column(
+        JSONB,
+        nullable=False,
+        default=lambda: {'inbound_enabled': True, 'outbound_enabled': True},
+        server_default=text("'{\"inbound_enabled\": true, \"outbound_enabled\": true}'::jsonb"),
+    )
+    version            = Column(Integer, nullable=False, default=1, server_default='1')
+    created_by         = Column(Integer, nullable=False, index=True)
+    created_at         = Column(DateTime, nullable=False, default=utc_now)
+    updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
 # =================================================================================
@@ -468,8 +601,8 @@ class SessionInventorySnapshot(Base):
     product_variant_id = Column(Integer, nullable=False, index=True)
     stock_status       = Column(String(50), nullable=False, index=True)
 
-    starting_quantity = Column(Integer, nullable=False)
-    ending_quantity   = Column(Integer, nullable=True)
+    starting_quantity = Column(Numeric(20, 6), nullable=False)
+    ending_quantity   = Column(Numeric(20, 6), nullable=True)
     created_at        = Column(DateTime, nullable=False, default=utc_now)
     settled_by        = Column(Integer, nullable=True, index=True)
     settled_at        = Column(DateTime, nullable=True, index=True)
@@ -625,7 +758,7 @@ class DispatchLoadPlanLine(Base):
     company_id            = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     dispatch_route_id     = Column(Integer, nullable=False, index=True)
     product_variant_id    = Column(Integer, nullable=False, index=True)
-    target_quantity_packs = Column(Integer, nullable=False, default=0, server_default='0')
+    target_quantity_packs = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
     updated_by            = Column(Integer, nullable=False, index=True)
     created_at            = Column(DateTime, nullable=False, default=utc_now)
     updated_at            = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
@@ -904,6 +1037,70 @@ class SystemAuditLog(Base):
 
     admin = relationship('Driver', foreign_keys=[admin_id], lazy='raise')
 
+
+class DomainAuditEvent(Base):
+    """Immutable, structured evidence for approved domain commands."""
+    __tablename__ = 'domain_audit_events'
+    __table_args__ = (
+        UniqueConstraint('external_id', name='uq_domain_audit_external_id'),
+        UniqueConstraint('company_id', 'id', name='uq_domain_audit_company_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'actor_user_id'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_domain_audit_tenant_actor'
+        ),
+        CheckConstraint('schema_version > 0', name='chk_domain_audit_schema_version'),
+        Index('ix_domain_audit_entity_time', 'company_id', 'entity_type', 'entity_id', 'occurred_at'),
+        Index('ix_domain_audit_event_time', 'company_id', 'event_type', 'occurred_at'),
+    )
+    id              = Column(BigInteger, primary_key=True)
+    external_id     = Column(Uuid(as_uuid=True), nullable=False, default=uuid4)
+    company_id      = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+    event_type      = Column(String(100), nullable=False, index=True)
+    entity_type     = Column(String(100), nullable=False)
+    entity_id       = Column(String(100), nullable=False)
+    actor_user_id   = Column(Integer, nullable=True, index=True)
+    actor_context   = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    reason_code     = Column(String(100), nullable=True)
+    reason_text     = Column(Text, nullable=True)
+    request_id      = Column(Uuid(as_uuid=True), nullable=False, index=True)
+    before_snapshot = Column(JSONB, nullable=True)
+    after_snapshot  = Column(JSONB, nullable=True)
+    schema_version  = Column(Integer, nullable=False, default=1, server_default='1')
+    occurred_at     = Column(DateTime, nullable=False, default=utc_now, index=True)
+
+
+class TransactionalOutbox(Base):
+    """Tenant-scoped outbox written atomically with the aggregate mutation."""
+    __tablename__ = 'transactional_outbox'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_transactional_outbox_company_id'),
+        UniqueConstraint('company_id', 'idempotency_key', name='uq_transactional_outbox_idempotency'),
+        CheckConstraint("status IN ('PENDING', 'PROCESSING', 'PUBLISHED', 'FAILED')", name='chk_transactional_outbox_status'),
+        CheckConstraint('attempts >= 0', name='chk_transactional_outbox_attempts'),
+        CheckConstraint('schema_version > 0', name='chk_transactional_outbox_schema_version'),
+        Index(
+            'ix_transactional_outbox_pending',
+            'status', 'available_at', 'id',
+            postgresql_where=text("status IN ('PENDING', 'FAILED')")
+        ),
+        Index('ix_transactional_outbox_aggregate', 'company_id', 'aggregate_type', 'aggregate_id', 'id'),
+    )
+    id              = Column(BigInteger, primary_key=True)
+    company_id      = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+    event_type      = Column(String(100), nullable=False, index=True)
+    aggregate_type  = Column(String(100), nullable=False)
+    aggregate_id    = Column(String(100), nullable=False)
+    payload         = Column(JSONB, nullable=False)
+    schema_version  = Column(Integer, nullable=False, default=1, server_default='1')
+    idempotency_key = Column(String(255), nullable=False)
+    status          = Column(String(20), nullable=False, default='PENDING', server_default='PENDING', index=True)
+    attempts        = Column(Integer, nullable=False, default=0, server_default='0')
+    available_at    = Column(DateTime, nullable=False, default=utc_now, index=True)
+    processed_at    = Column(DateTime, nullable=True)
+    created_at      = Column(DateTime, nullable=False, default=utc_now)
+
 # =================================================================================
 # ⑮ أرشيف الاستراحات
 # يحل مشكلة ضياع الاستراحة الأولى إذا قام المندوب باستراحة ثانية
@@ -1174,8 +1371,8 @@ class InventoryStockPolicy(Base):
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     location_id        = Column(Integer, nullable=False, index=True)
     product_variant_id = Column(Integer, nullable=False, index=True)
-    minimum_quantity   = Column(Integer, nullable=False, default=0, server_default='0')
-    target_quantity    = Column(Integer, nullable=True)
+    minimum_quantity   = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    target_quantity    = Column(Numeric(20, 6), nullable=True)
     is_active          = Column(Boolean, nullable=False, default=True, server_default='true')
     created_at         = Column(DateTime, nullable=False, default=utc_now)
     updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
@@ -1208,8 +1405,8 @@ class InventoryBalance(Base):
     product_variant_id = Column(Integer, nullable=False, index=True)
     batch_id           = Column(Integer, nullable=False, index=True)
     stock_status       = Column(String(50), nullable=False, default='AVAILABLE', server_default='AVAILABLE')
-    on_hand_quantity   = Column(Integer, nullable=False, default=0, server_default='0')
-    reserved_quantity  = Column(Integer, nullable=False, default=0, server_default='0')
+    on_hand_quantity   = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    reserved_quantity  = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
     last_updated       = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 class InventoryMovement(Base):
@@ -1307,7 +1504,7 @@ class InventoryMovement(Base):
 
     movement_kind             = Column(String(30), nullable=False, default='PHYSICAL', server_default='PHYSICAL', index=True)
     reservation_action        = Column(String(20), nullable=True, index=True)
-    quantity                  = Column(Integer, nullable=False)
+    quantity                  = Column(Numeric(20, 6), nullable=False)
     # Immutable financial valuation only for DRIVER_SHORTAGE; other movements must keep it NULL.
     financial_unit_price_snapshot = Column(Numeric(12, 3), nullable=True)
 
@@ -1364,10 +1561,10 @@ class InventoryMovementImpact(Base):
     movement_id          = Column(Integer, nullable=False, index=True)
     inventory_balance_id = Column(Integer, nullable=False, index=True)
 
-    on_hand_before  = Column(Integer, nullable=False)
-    on_hand_after   = Column(Integer, nullable=False)
-    reserved_before = Column(Integer, nullable=False)
-    reserved_after  = Column(Integer, nullable=False)
+    on_hand_before  = Column(Numeric(20, 6), nullable=False)
+    on_hand_after   = Column(Numeric(20, 6), nullable=False)
+    reserved_before = Column(Numeric(20, 6), nullable=False)
+    reserved_after  = Column(Numeric(20, 6), nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=utc_now, index=True)
 
@@ -1563,7 +1760,7 @@ class InventoryTransferLine(Base):
     transfer_header_id      = Column(Integer, nullable=False, index=True)
     product_variant_id      = Column(Integer, nullable=False, index=True)
     batch_id                = Column(Integer, nullable=False, index=True)
-    quantity                = Column(Integer, nullable=False)
+    quantity                = Column(Numeric(20, 6), nullable=False)
     fefo_override_reason_id = Column(Integer, nullable=True)
     fefo_overridden_by      = Column(Integer, nullable=True)
     fefo_override_note      = Column(String(255), nullable=True)
@@ -1734,7 +1931,7 @@ class StocktakeLine(Base):
     stock_status         = Column(String(50), nullable=False, default='AVAILABLE', server_default='AVAILABLE')
     line_origin          = Column(String(20), nullable=False, default='SNAPSHOT', server_default='SNAPSHOT', index=True)
 
-    expected_quantity = Column(Integer, nullable=False)
+    expected_quantity = Column(Numeric(20, 6), nullable=False)
     discovered_by     = Column(Integer, nullable=True, index=True)
     discovered_at     = Column(DateTime, nullable=True)
     notes             = Column(Text, nullable=True)
@@ -1826,9 +2023,9 @@ class StocktakeCountAttemptLine(Base):
     count_attempt_id     = Column(Integer, nullable=False, index=True)
     stocktake_line_id    = Column(Integer, nullable=False, index=True)
 
-    expected_quantity = Column(Integer, nullable=False)
-    actual_quantity   = Column(Integer, nullable=False)
-    variance_quantity = Column(Integer, nullable=False)
+    expected_quantity = Column(Numeric(20, 6), nullable=False)
+    actual_quantity   = Column(Numeric(20, 6), nullable=False)
+    variance_quantity = Column(Numeric(20, 6), nullable=False)
     notes             = Column(Text, nullable=True)
 
 class InventoryLock(Base):

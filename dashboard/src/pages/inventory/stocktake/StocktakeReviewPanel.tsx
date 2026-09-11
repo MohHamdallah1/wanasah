@@ -3,7 +3,7 @@ import {
   RotateCcw,
   ShieldCheck,
 } from "lucide-react";
-import { formatQty } from "../inventoryUtils";
+import { absoluteQuantity, compareQuantity, formatQuantity } from "../quantity";
 import type { StocktakeReview } from "./types";
 
 interface StocktakeReviewPanelProps {
@@ -97,38 +97,29 @@ export function StocktakeReviewPanel({
                   {line.batch_number || "بدون دفعة"}
                 </td>
                 <td className="px-4 py-3 text-center font-black text-slate-700">
-                  {formatQty(
-                    line.expected_quantity,
-                    line.packs_per_carton
-                  )}
+                  {formatQuantity(line.expected_quantity, line.base_uom_name)}
                 </td>
                 <td className="px-4 py-3 text-center font-black text-blue-700">
-                  {formatQty(
-                    line.actual_quantity,
-                    line.packs_per_carton
-                  )}
+                  {formatQuantity(line.actual_quantity, line.base_uom_name)}
                 </td>
                 <td className="px-4 py-3 text-center">
-                  {line.variance_quantity === 0 ? (
+                  {compareQuantity(line.variance_quantity, "0") === 0 ? (
                     <span className="text-slate-400 font-bold">
                       مطابق
                     </span>
                   ) : (
                     <span
                       className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black ${
-                        line.variance_quantity > 0
+                        compareQuantity(line.variance_quantity, "0") > 0
                           ? "bg-emerald-100 text-emerald-700"
                           : "bg-red-100 text-red-700"
                       }`}
                       dir="ltr"
                     >
-                      {line.variance_quantity > 0
+                      {compareQuantity(line.variance_quantity, "0") > 0
                         ? "+ "
                         : "- "}
-                      {formatQty(
-                        Math.abs(line.variance_quantity),
-                        line.packs_per_carton
-                      )}
+                      {formatQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name)}
                     </span>
                   )}
                 </td>

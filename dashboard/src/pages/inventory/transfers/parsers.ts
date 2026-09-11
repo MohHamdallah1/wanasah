@@ -1,4 +1,5 @@
 import { isTransferStatus } from "./constants";
+import { parseQuantity } from "../quantity";
 import type {
   TransferLocationOption,
   TransferOverrideBatch,
@@ -94,9 +95,10 @@ const parseTransfer = (raw: unknown): WarehouseTransferListItem => {
     cancelled_by: optionalPositiveInt(row.cancelled_by),
     cancelled_by_name: optionalString(row.cancelled_by_name),
     line_count: nonNegativeInt(row.line_count, "line_count"),
-    total_quantity: nonNegativeInt(
+    total_quantity: parseQuantity(
       row.total_quantity,
-      "total_quantity"
+      "total_quantity",
+      { allowZero: true }
     ),
     notes: optionalString(row.notes),
     decision_reason: optionalString(row.decision_reason),
@@ -146,7 +148,8 @@ const parseTransferLine = (raw: unknown): WarehouseTransferLine => {
     batch_id: positiveInt(row.batch_id, "batch_id"),
     batch_number: requiredString(row.batch_number, "batch_number"),
     expiry_date: requiredString(row.expiry_date, "expiry_date"),
-    quantity: positiveInt(row.quantity, "quantity"),
+    quantity: parseQuantity(row.quantity, "quantity"),
+    uom_id: positiveInt(row.uom_id, "uom_id"),
     fefo_override_reason_id: optionalPositiveInt(
       row.fefo_override_reason_id
     ),
@@ -231,14 +234,12 @@ const parseSourceInventoryItem = (
     id: positiveInt(row.id, "product.id"),
     name: requiredString(row.name, "product.name"),
     sku: optionalString(row.sku),
-    packs_per_carton: positiveInt(
-      row.packs_per_carton,
-      "packs_per_carton"
-    ),
-    available_packs: nonNegativeInt(
-      row.available_packs,
-      "available_packs"
-    ),
+    base_uom_id: positiveInt(row.base_uom_id, "base_uom_id"),
+    base_uom_code: requiredString(row.base_uom_code, "base_uom_code"),
+    base_uom_name: requiredString(row.base_uom_name, "base_uom_name"),
+    quantity_scale: nonNegativeInt(row.quantity_scale, "quantity_scale"),
+    quantity_step: parseQuantity(row.quantity_step, "quantity_step"),
+    available_quantity: parseQuantity(row.available_quantity, "available_quantity", { allowZero: true }),
   };
 };
 
@@ -295,10 +296,7 @@ const parseOverrideBatch = (raw: unknown): TransferOverrideBatch => {
     batch_number: requiredString(row.batch_number, "batch.batch_number"),
     production_date: optionalString(row.production_date),
     expiry_date: requiredString(row.expiry_date, "batch.expiry_date"),
-    available_packs: nonNegativeInt(
-      row.available_packs,
-      "batch.available_packs"
-    ),
+    available_quantity: parseQuantity(row.available_quantity, "batch.available_quantity", { allowZero: true }),
     is_fefo_head: row.is_fefo_head,
   };
 };

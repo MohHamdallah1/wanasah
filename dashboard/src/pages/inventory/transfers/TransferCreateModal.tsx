@@ -1,7 +1,7 @@
 import { Search, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import type { TransferCreateController } from "./hooks/useTransferCreate";
-import { totalDraftPacks } from "./utils";
+import { compareQuantity } from "../quantity";
 import { FefoOverrideEditor } from "./FefoOverrideEditor";
 
 interface TransferCreateModalProps {
@@ -166,7 +166,7 @@ export function TransferCreateModal({
                     </div>
                     <div className="text-[11px] text-slate-500 mt-1">
                       SKU: {product.sku || "—"} · المتاح:{" "}
-                      {product.available_packs} حبة
+                      {product.available_quantity} {product.base_uom_name}
                     </div>
                   </button>
                 );
@@ -218,7 +218,6 @@ export function TransferCreateModal({
 
             <div className="max-h-72 overflow-auto space-y-2">
               {draftItems.map((item) => {
-                const total = totalDraftPacks(item);
                 const options =
                   overrideOptionsByProduct[item.product_variant_id];
                 const overrideLoading =
@@ -234,10 +233,14 @@ export function TransferCreateModal({
                     : null;
                 const availableLimit =
                   item.fefo_mode === "override"
-                    ? selectedBatch?.available_packs ?? 0
-                    : item.available_packs;
-                const invalid =
-                  total > 0 && total > availableLimit;
+                    ? selectedBatch?.available_quantity ?? "0"
+                    : item.available_quantity;
+                let invalid = false;
+                try {
+                  invalid = compareQuantity(item.quantity || "0", availableLimit) > 0;
+                } catch {
+                  invalid = Boolean(item.quantity);
+                }
 
                 return (
                   <div
@@ -257,7 +260,7 @@ export function TransferCreateModal({
                         </div>
                         <div className="text-[10px] text-slate-400">
                           إجمالي المتاح في المصدر:{" "}
-                          {item.available_packs} حبة
+                          {item.available_quantity} {item.base_uom_name}
                         </div>
                       </div>
 
@@ -284,48 +287,23 @@ export function TransferCreateModal({
                       onAddBatchLine={addOverrideBatchLine}
                     />
 
-                    <div className="grid grid-cols-2 gap-2 mt-3">
+                    <div className="mt-3">
                       <div>
                         <label className="text-[10px] font-bold text-slate-500">
-                          كراتين
+                          الكمية بوحدة الأساس ({item.base_uom_name})
                         </label>
                         <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={item.cartons}
+                          inputMode="decimal"
+                          value={item.quantity}
                           onChange={(event) =>
                             updateDraftQuantity(
                               item.draft_key,
-                              "cartons",
-                              Number(event.target.value)
+                              event.target.value
                             )
                           }
                           className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-center"
                         />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500">
-                          حبات
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          max={Math.max(
-                            0,
-                            item.packs_per_carton - 1
-                          )}
-                          step="1"
-                          value={item.loose_packs}
-                          onChange={(event) =>
-                            updateDraftQuantity(
-                              item.draft_key,
-                              "loose_packs",
-                              Number(event.target.value)
-                            )
-                          }
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-center"
-                        />
+                        <p className="mt-1 text-[10px] text-slate-400">الدقة {item.quantity_scale} · الخطوة {item.quantity_step}</p>
                       </div>
                     </div>
 
@@ -334,7 +312,7 @@ export function TransferCreateModal({
                         invalid ? "text-red-600" : "text-slate-500"
                       }`}
                     >
-                      الإجمالي: {total} حبة
+                      الإجمالي: {item.quantity || "0"} {item.base_uom_name}
                       {item.fefo_mode === "override" &&
                       selectedBatch
                         ? ` من الدفعة ${selectedBatch.batch_number}`

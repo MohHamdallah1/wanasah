@@ -36,6 +36,8 @@ from models import (
 )
 
 from typing import Any, Type, Optional, List, Dict, Tuple
+from quantity import QUANTITY_MAX, QuantityError, parse_quantity, validate_variant_quantity
+from product_lifecycle import acquire_product_lifecycle_guards
 
 
 # حدود الأنواع الفعلية في PostgreSQL المستخدمة في models.py.
@@ -134,6 +136,24 @@ def _optional_positive_int(value: Any, field_name: str) -> Optional[int]:
         minimum=1,
         maximum=_DB_INT_MAX,
     )
+
+
+def _quantity_decimal(
+    value: Any,
+    field_name: str = "quantity",
+    *,
+    allow_zero: bool = True,
+    allow_negative: bool = False,
+) -> Decimal:
+    try:
+        return parse_quantity(
+            value,
+            field_name,
+            allow_zero=allow_zero,
+            allow_negative=allow_negative,
+        )
+    except QuantityError as exc:
+        raise InventoryMutationError(str(exc)) from exc
 
 
 # تحويل قيمة إعداد حسب النوع المطلوب مع رفض NaN/Infinity ومعالجة boolean النصي بشكل صحيح.
@@ -709,11 +729,11 @@ def _add_inventory_movement_impact(
     company_id: int,
     movement_id: int,
     balance: InventoryBalance,
-    before_on_hand: int,
-    before_reserved: int,
+    before_on_hand: Decimal,
+    before_reserved: Decimal,
 ) -> None:
-    after_on_hand = int(balance.on_hand_quantity or 0)
-    after_reserved = int(balance.reserved_quantity or 0)
+    after_on_hand = _quantity_decimal(balance.on_hand_quantity or 0)
+    after_reserved = _quantity_decimal(balance.reserved_quantity or 0)
 
     if before_on_hand == after_on_hand and before_reserved == after_reserved:
         return
@@ -838,7 +858,7 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 spec.get("product_variant_id"), "product_variant_id", minimum=1
             ),
             "batch_id": _strict_int(spec.get("batch_id"), "batch_id", minimum=1),
-            "quantity": _strict_int(spec.get("quantity"), "quantity", minimum=1),
+            "quantity": _quantity_decimal(spec.get("quantity"), "quantity", allow_zero=False),
             "source_location_id": _optional_positive_int(
                 spec.get("source_location_id"), "source_location_id"
             ),
@@ -917,7 +937,7 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 raise InventoryMutationError(
                     "DRIVER_SHORTAGE يتطلب سعراً مالياً مثبتاً لحظة الترحيل."
                 )
-            total_value = financial_unit_price_snapshot * Decimal(normalized["quantity"])
+            total_value = financial_unit_price_snapshot * normalized["quantity"]
             if not total_value.is_finite() or total_value > _MONEY_12_3_MAX:
                 raise InventoryMutationError("قيمة DRIVER_SHORTAGE تتجاوز السعة المالية.")
         elif financial_unit_price_snapshot is not None:
@@ -1275,7 +1295,52 @@ async def apply_inventory_movements_batch(
         for spec in new_specs
     })
 
-    # ترتيب القفل ثابت: idempotency -> locations -> location rows -> locks -> balances.
+    # Lifecycle mutations use the exclusive form of the same guard. Taking the
+    # shared guard here closes the archive-vs-new-movement race without blocking
+    # independent products.
+    await acquire_product_lifecycle_guards(
+        db_session,
+        company_id,
+        product_variant_ids,
+        exclusive=False,
+    )
+
+    variant_rows = (
+        await db_session.execute(
+            select(
+                ProductVariant.id,
+                ProductVariant.quantity_scale,
+                ProductVariant.quantity_step,
+                ProductVariant.lifecycle_status,
+            ).filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id.in_(product_variant_ids),
+            )
+        )
+    ).all()
+    variant_rules = {
+        int(row.id): (int(row.quantity_scale), row.quantity_step, row.lifecycle_status)
+        for row in variant_rows
+    }
+    if set(variant_rules) != set(product_variant_ids):
+        raise InventoryMutationError("أحد أصناف الحركة غير موجود داخل الشركة.")
+    try:
+        for spec in new_specs:
+            scale, step, lifecycle_status = variant_rules[spec["product_variant_id"]]
+            if lifecycle_status in {"DRAFT", "ARCHIVED"}:
+                raise InventoryMutationError(
+                    f"الصنف ({spec['product_variant_id']}) بحالة {lifecycle_status} ولا يقبل حركة مخزون جديدة."
+                )
+            spec["quantity"] = validate_variant_quantity(
+                spec["quantity"],
+                quantity_scale=scale,
+                quantity_step=step,
+                field_name="quantity",
+            )
+    except QuantityError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    # ترتيب القفل ثابت: idempotency -> product lifecycle -> locations -> rows -> balances.
     await acquire_inventory_location_guards(
         db_session,
         company_id,
@@ -1487,8 +1552,8 @@ async def apply_inventory_movements_batch(
 
         if spec["movement_kind"] == "RESERVATION":
             balance = balance_map[source_key]
-            before_on_hand = int(balance.on_hand_quantity or 0)
-            before_reserved = int(balance.reserved_quantity or 0)
+            before_on_hand = _quantity_decimal(balance.on_hand_quantity or 0)
+            before_reserved = _quantity_decimal(balance.reserved_quantity or 0)
 
             if spec["reservation_action"] == "RESERVE":
                 if before_on_hand - before_reserved < spec["quantity"]:
@@ -1511,17 +1576,17 @@ async def apply_inventory_movements_batch(
                 balance,
                 before_on_hand,
                 before_reserved,
-                int(balance.on_hand_quantity or 0),
-                int(balance.reserved_quantity or 0),
+                _quantity_decimal(balance.on_hand_quantity or 0),
+                _quantity_decimal(balance.reserved_quantity or 0),
             ))
 
         else:
             if source_key is not None:
                 source_balance = balance_map[source_key]
-                before_on_hand = int(
+                before_on_hand = _quantity_decimal(
                     source_balance.on_hand_quantity or 0
                 )
-                before_reserved = int(
+                before_reserved = _quantity_decimal(
                     source_balance.reserved_quantity or 0
                 )
                 if (
@@ -1546,18 +1611,18 @@ async def apply_inventory_movements_batch(
 
             if destination_key is not None:
                 destination_balance = balance_map[destination_key]
-                before_on_hand = int(
+                before_on_hand = _quantity_decimal(
                     destination_balance.on_hand_quantity or 0
                 )
-                before_reserved = int(
+                before_reserved = _quantity_decimal(
                     destination_balance.reserved_quantity or 0
                 )
                 after_on_hand = (
                     before_on_hand + spec["quantity"]
                 )
-                if after_on_hand > _DB_INT_MAX:
+                if after_on_hand > QUANTITY_MAX:
                     raise InventoryMutationError(
-                        "الرصيد الناتج في الوجهة يتجاوز سعة INTEGER في قاعدة البيانات."
+                        "الرصيد الناتج في الوجهة يتجاوز سعة NUMERIC(20,6)."
                     )
 
                 destination_balance.on_hand_quantity = after_on_hand
@@ -1629,7 +1694,7 @@ async def apply_inventory_movement(
     performed_by: int,
     product_variant_id: int,
     batch_id: int,
-    quantity: int,
+    quantity: Decimal,
     movement_kind: str,
     reference_type: str,
     reference_id: str,
@@ -1862,7 +1927,7 @@ async def open_vehicle_reconciliation_stocktake(
             batch_id=balance.batch_id,
             stock_status=balance.stock_status,
             line_origin="SNAPSHOT",
-            expected_quantity=int(balance.on_hand_quantity),
+            expected_quantity=_quantity_decimal(balance.on_hand_quantity),
         ))
 
     cutoff = utc_now()
@@ -2022,17 +2087,17 @@ async def finalize_vehicle_inventory_reconciliation(
     ).scalars().all()
     if len(final_rows) > _MAX_STOCKTAKE_POST_LINES:
         raise InventoryMutationError("رصيد السيارة يتجاوز الحد الآمن لتثبيت Ending Snapshot.")
-    if any(int(row.reserved_quantity or 0) != 0 for row in final_rows):
+    if any(_quantity_decimal(row.reserved_quantity or 0) != 0 for row in final_rows):
         raise InventoryMutationError(
             "لا يمكن ختم عهدة السيارة بوجود مخزون محجوز؛ يجب تحرير جميع الحجوزات أولاً."
         )
 
-    final_map: Dict[Tuple[int, str], int] = {}
+    final_map: Dict[Tuple[int, str], Decimal] = {}
     for balance in final_rows:
         key = (int(balance.product_variant_id), str(balance.stock_status))
-        next_value = final_map.get(key, 0) + int(balance.on_hand_quantity or 0)
-        if next_value < 0 or next_value > _DB_INT_MAX:
-            raise InventoryMutationError("إجمالي عهدة نهاية الجلسة يتجاوز سعة INTEGER.")
+        next_value = final_map.get(key, Decimal("0")) + _quantity_decimal(balance.on_hand_quantity or 0)
+        if next_value < 0 or next_value > QUANTITY_MAX:
+            raise InventoryMutationError("إجمالي عهدة نهاية الجلسة يتجاوز سعة NUMERIC(20,6).")
         final_map[key] = next_value
 
     snapshot_map: Dict[Tuple[int, str], SessionInventorySnapshot] = {}
@@ -2044,7 +2109,7 @@ async def finalize_vehicle_inventory_reconciliation(
 
     settled_at = utc_now()
     for key in sorted(set(snapshot_map) | set(final_map)):
-        ending_quantity = int(final_map.get(key, 0))
+        ending_quantity = final_map.get(key, Decimal("0"))
         row = snapshot_map.get(key)
         if row is None:
             product_variant_id, stock_status = key
@@ -2054,7 +2119,7 @@ async def finalize_vehicle_inventory_reconciliation(
                 location_id=vehicle_location_id,
                 product_variant_id=product_variant_id,
                 stock_status=stock_status,
-                starting_quantity=0,
+                starting_quantity=Decimal("0"),
             )
             db_session.add(row)
         row.ending_quantity = ending_quantity
@@ -2539,7 +2604,7 @@ async def post_approved_stocktake_adjustments(
                     "حركة DRIVER_SHORTAGE تاريخية بلا سعر مالي مثبت؛ البيانات غير مكتملة."
                 )
             snap_dec = Decimal(str(snap))
-            total_value = snap_dec * Decimal(spec["quantity"])
+            total_value = snap_dec * spec["quantity"]
             if (
                 not snap_dec.is_finite()
                 or snap_dec < 0
@@ -2728,7 +2793,7 @@ async def post_approved_stocktake_adjustments(
                 spec["financial_unit_price_snapshot"] = None
                 continue
             unit_price = shortage_unit_prices[int(spec["product_variant_id"])]
-            total_value = unit_price * Decimal(spec["quantity"])
+            total_value = unit_price * spec["quantity"]
             if not total_value.is_finite() or total_value > _MONEY_12_3_MAX:
                 raise InventoryMutationError(
                     "قيمة عجز المندوب الناتجة تتجاوز السعة المالية Numeric(12,3)."
@@ -2812,10 +2877,10 @@ async def allocate_fefo_inventory_batch(
     *,
     company_id: int,
     location_id: int,
-    requests: Dict[int, int],
+    requests: Dict[int, Decimal],
     as_of_date: date,
     require_full: bool = True,
-) -> Dict[int, List[Tuple[int, int]]]:
+) -> Dict[int, List[Tuple[int, Decimal]]]:
     try:
         company_id = _strict_int(company_id, "company_id", minimum=1)
         location_id = _strict_int(location_id, "location_id", minimum=1)
@@ -2833,7 +2898,7 @@ async def allocate_fefo_inventory_batch(
             "دفعة FEFO تتجاوز الحد الآمن البالغ 5000 صنف."
         )
 
-    normalized_requests: Dict[int, int] = {}
+    normalized_requests: Dict[int, Decimal] = {}
     try:
         for raw_variant_id, raw_quantity in requests.items():
             variant_id = _strict_int(
@@ -2841,11 +2906,7 @@ async def allocate_fefo_inventory_batch(
                 "product_variant_id",
                 minimum=1,
             )
-            quantity = _strict_int(
-                raw_quantity,
-                "quantity",
-                minimum=0,
-            )
+            quantity = _quantity_decimal(raw_quantity, "quantity", allow_zero=True)
             if variant_id in normalized_requests:
                 raise ValueError(
                     "product_variant_id مكرر داخل طلب FEFO الدفعي."
@@ -2885,6 +2946,30 @@ async def allocate_fefo_inventory_batch(
         )
 
     requested_variant_ids = sorted(positive_requests)
+
+    quantity_rule_rows = (
+        await db_session.execute(
+            select(ProductVariant.id, ProductVariant.quantity_scale, ProductVariant.quantity_step).filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id.in_(requested_variant_ids),
+            )
+        )
+    ).all()
+    quantity_rules = {int(row.id): (int(row.quantity_scale), row.quantity_step) for row in quantity_rule_rows}
+    if set(quantity_rules) != set(requested_variant_ids):
+        raise InventoryMutationError("أحد أصناف طلب FEFO غير موجود داخل الشركة.")
+    try:
+        positive_requests = {
+            variant_id: validate_variant_quantity(
+                quantity,
+                quantity_scale=quantity_rules[variant_id][0],
+                quantity_step=quantity_rules[variant_id][1],
+                field_name="quantity",
+            )
+            for variant_id, quantity in positive_requests.items()
+        }
+    except QuantityError as exc:
+        raise InventoryMutationError(str(exc)) from exc
 
     active_locks = (
         await db_session.execute(
@@ -3140,7 +3225,7 @@ async def allocate_fefo_inventory_batch(
             "بدأ جرد دفعة أثناء تخصيص FEFO؛ أعد المحاولة."
         )
 
-    allocations: Dict[int, List[Tuple[int, int]]] = {
+    allocations: Dict[int, List[Tuple[int, Decimal]]] = {
         variant_id: []
         for variant_id in requested_all
     }
@@ -3153,8 +3238,8 @@ async def allocate_fefo_inventory_batch(
             continue
 
         available = (
-            int(balance.on_hand_quantity or 0)
-            - int(balance.reserved_quantity or 0)
+            _quantity_decimal(balance.on_hand_quantity or 0)
+            - _quantity_decimal(balance.reserved_quantity or 0)
         )
         if available <= 0:
             continue
@@ -3186,9 +3271,9 @@ async def allocate_fefo_inventory(
     company_id: int,
     location_id: int,
     product_variant_id: int,
-    quantity: int,
+    quantity: Decimal,
     as_of_date: date,
-) -> List[Tuple[int, int]]:
+) -> List[Tuple[int, Decimal]]:
     result = await allocate_fefo_inventory_batch(
         db_session,
         company_id=company_id,

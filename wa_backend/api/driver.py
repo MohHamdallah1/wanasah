@@ -40,6 +40,13 @@ from models import (
 from schemas import (SessionStartRequest, BreakToggleRequest, TransferResponseRequest,
 BatchTransferResponseRequest, PendingBatchResponse, AddShopRequest, ProductVariantResponse,
 GetVisitsContract, VisitDetailsResponse, ActiveSessionResponse, VisitUpdateRequest,)
+from product_lifecycle import (
+    INBOUND_COMPLETE,
+    ROUTE_SALE_OPEN,
+    acquire_product_lifecycle_guards,
+    evaluate_product_capability,
+    product_capability_predicate,
+)
 
 logger = logging.getLogger("wanasah_logger")
 
@@ -864,6 +871,9 @@ async def update_visit(
         all_var_ids = sorted(
             set(cart_pids + [ret.product_variant_id for ret in payload.returns])
         )
+        await acquire_product_lifecycle_guards(
+            db, company_id, all_var_ids, exclusive=False,
+        )
         variants_map = {}
         if all_var_ids:
             variant_rows = (
@@ -1046,10 +1056,18 @@ async def update_visit(
         # Pass 1: نحسب الفاتورة والبونص أولاً ثم نجمع طلب FEFO لكل صنف.
         for line_index, item in enumerate(payload.cart_items):
             variant = variants_map[item.product_variant_id]
-            if not variant.is_active:
+            sale_capability = evaluate_product_capability(
+                variant.lifecycle_status,
+                variant.operational_hold,
+                ROUTE_SALE_OPEN,
+            )
+            if not sale_capability.allowed:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"مرفوض: المنتج ({variant.variant_name}) مسحوب من السوق أو موقوف حالياً ولا يمكن بيعه.",
+                    status_code=409,
+                    detail={
+                        "code": sale_capability.code,
+                        "message": f"مرفوض: لا يمكن بيع المنتج ({variant.variant_name}) في حالته الحالية.",
+                    },
                 )
 
             ppc = int(variant.packs_per_carton)
@@ -1674,7 +1692,7 @@ async def _load_handshake_product_totals(
                 InventoryTransferLine.transfer_header_id,
                 InventoryTransferLine.product_variant_id,
                 func.sum(InventoryTransferLine.quantity),
-                ProductVariant.variant_name,
+                ProductVariant.name,
                 ProductVariant.packs_per_carton,
             )
             .join(
@@ -1691,7 +1709,7 @@ async def _load_handshake_product_totals(
             .group_by(
                 InventoryTransferLine.transfer_header_id,
                 InventoryTransferLine.product_variant_id,
-                ProductVariant.variant_name,
+                ProductVariant.name,
                 ProductVariant.packs_per_carton,
             )
             .order_by(
@@ -2293,6 +2311,9 @@ async def respond_to_transfer(
         lines = lines_by_header[header.id]
 
         product_variant_id = int(lines[0].product_variant_id)
+        await acquire_product_lifecycle_guards(
+            db, company_id, [product_variant_id], exclusive=False,
+        )
         variant = (
             await db.execute(
                 select(ProductVariant).filter_by(
@@ -2307,10 +2328,19 @@ async def respond_to_transfer(
         # الاستلام AVAILABLE إلى السيارة يحتاج صنفاً وBatch صالحين لحظة القبول.
         # هذا لا يغيّر مسار المرتجعات: VisitReturn يدخل DAMAGED فوراً حتى لو منتهي/موقوف.
         if response == "accepted" and int(header.destination_location_id) == vehicle_location_id:
-            if not variant.is_active:
+            receipt_capability = evaluate_product_capability(
+                variant.lifecycle_status,
+                variant.operational_hold,
+                INBOUND_COMPLETE,
+                document_started=True,
+            )
+            if not receipt_capability.allowed:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"لا يمكنك استلام حمولة جديدة من المنتج ({variant.variant_name}) لأنه موقوف حالياً.",
+                    status_code=409,
+                    detail={
+                        "code": receipt_capability.code,
+                        "message": f"لا يمكن إنهاء استلام المنتج ({variant.variant_name}) في حالته الحالية.",
+                    },
                 )
             as_of_date = await get_company_local_date(db, company_id)
             await _validate_incoming_handshake_batches(
@@ -2499,6 +2529,9 @@ async def batch_respond_to_transfers(
                 int(lines[0].product_variant_id)
                 for lines in lines_by_header.values()
             })
+            await acquire_product_lifecycle_guards(
+                db, company_id, variant_ids, exclusive=False,
+            )
             variants = (
                 await db.execute(
                     select(ProductVariant).filter(
@@ -2525,10 +2558,19 @@ async def batch_respond_to_transfers(
                 variant = variant_map[int(lines[0].product_variant_id)]
 
                 if accepted and int(header.destination_location_id) == vehicle_location_id:
-                    if not variant.is_active:
+                    receipt_capability = evaluate_product_capability(
+                        variant.lifecycle_status,
+                        variant.operational_hold,
+                        INBOUND_COMPLETE,
+                        document_started=True,
+                    )
+                    if not receipt_capability.allowed:
                         raise HTTPException(
-                            status_code=400,
-                            detail=f"مرفوض في الحوالة ({header.id}): المنتج ({variant.variant_name}) موقوف حالياً.",
+                            status_code=409,
+                            detail={
+                                "code": receipt_capability.code,
+                                "message": f"لا يمكن إنهاء استلام المنتج ({variant.variant_name}) في الحوالة ({header.id}).",
+                            },
                         )
                     await _validate_incoming_handshake_batches(
                         db,
@@ -2844,7 +2886,10 @@ async def get_products(
     ):
         # +++  النخبة لـ N+1 ومحرقة الـ CPU: استعلام مباشر وإرجاع الكائنات فوراً +++
         # لا توجد حلقات تكرارية (No Python Loops)، الداتا تُسلم مباشرة لمحرك Pydantic ليقوم بالـ Serialization بسرعة الصاروخ
-        stmt = select(ProductVariant).filter_by(company_id=current_driver.company_id, is_active=True).order_by(ProductVariant.id.asc())
+        stmt = select(ProductVariant).where(
+            ProductVariant.company_id == current_driver.company_id,
+            product_capability_predicate(ProductVariant, ROUTE_SALE_OPEN),
+        ).order_by(ProductVariant.id.asc())
         result = await db.execute(stmt)
         return result.scalars().all()
 

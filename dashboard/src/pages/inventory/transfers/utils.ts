@@ -1,7 +1,8 @@
 import type { TransferDraftItem } from "./types";
+import { validateVariantQuantity, type Quantity } from "../quantity";
 
-export const totalDraftPacks = (item: TransferDraftItem): number =>
-  item.cartons * item.packs_per_carton + item.loose_packs;
+export const totalDraftQuantity = (item: TransferDraftItem): Quantity =>
+  validateVariantQuantity(item.quantity, item.quantity_scale, item.quantity_step, "quantity");
 
 export const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "حدث خطأ غير متوقع";

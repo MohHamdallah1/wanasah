@@ -1,5 +1,5 @@
 import { Modal } from "@/components/ui/modal";
-import { formatQty } from "../inventoryUtils";
+import { absoluteQuantity, compareQuantity, formatQuantity } from "../quantity";
 import type { StocktakeReview } from "./types";
 
 interface StocktakeApproveModalProps {
@@ -309,7 +309,7 @@ export function StocktakeVarianceModal({
         {review?.lines
           .filter(
             (line) =>
-              line.variance_quantity !== 0
+              compareQuantity(line.variance_quantity, "0") !== 0
           )
           .map((line) => (
             <div
@@ -326,21 +326,16 @@ export function StocktakeVarianceModal({
               </div>
               <span
                 className={`font-black text-sm px-3 py-1 rounded-lg ${
-                  line.variance_quantity > 0
+                  compareQuantity(line.variance_quantity, "0") > 0
                     ? "bg-emerald-100 text-emerald-700"
                     : "bg-red-100 text-red-700"
                 }`}
                 dir="ltr"
               >
-                {line.variance_quantity > 0
+                {compareQuantity(line.variance_quantity, "0") > 0
                   ? "+ "
                   : "- "}
-                {formatQty(
-                  Math.abs(
-                    line.variance_quantity
-                  ),
-                  line.packs_per_carton
-                )}
+                {formatQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name)}
               </span>
             </div>
           ))}

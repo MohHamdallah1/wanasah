@@ -1,3 +1,5 @@
+import type { Quantity } from "../quantity";
+
 export type TransferStatus =
   | "DRAFT"
   | "PENDING"
@@ -25,7 +27,7 @@ export interface WarehouseTransferListItem {
   cancelled_by: number | null;
   cancelled_by_name: string | null;
   line_count: number;
-  total_quantity: number;
+  total_quantity: Quantity;
   notes: string | null;
   decision_reason: string | null;
   created_at: string;
@@ -50,7 +52,8 @@ export interface WarehouseTransferLine {
   batch_id: number;
   batch_number: string;
   expiry_date: string;
-  quantity: number;
+  quantity: Quantity;
+  uom_id: number;
   fefo_override_reason_id: number | null;
   fefo_overridden_by: number | null;
   fefo_override_note: string | null;
@@ -81,8 +84,12 @@ export interface TransferSourceInventoryItem {
   id: number;
   name: string;
   sku: string | null;
-  packs_per_carton: number;
-  available_packs: number;
+  base_uom_id: number;
+  base_uom_code: string;
+  base_uom_name: string;
+  quantity_scale: number;
+  quantity_step: Quantity;
+  available_quantity: Quantity;
 }
 
 export interface TransferSourceInventoryPage {
@@ -105,7 +112,7 @@ export interface TransferOverrideBatch {
   batch_number: string;
   production_date: string | null;
   expiry_date: string;
-  available_packs: number;
+  available_quantity: Quantity;
   is_fefo_head: boolean;
 }
 
@@ -120,10 +127,9 @@ export interface TransferOverrideOptions {
 export interface TransferDraftItem extends TransferSourceInventoryItem {
   draft_key: string;
   product_variant_id: number;
-  cartons: number;
-  loose_packs: number;
+  quantity: string;
   fefo_mode: FefoMode;
   override_batch_id: number | null;
   override_reason_id: number | null;
-  override_batch_available: number | null;
+  override_batch_available: Quantity | null;
 }

@@ -1,149 +1,23 @@
-const MAX_CURSOR_LENGTH = 1024;
-const MAX_PAGE_SIZE = 200;
-const MAX_PRODUCT_NAME_LENGTH = 200;
-const MAX_SKU_LENGTH = 100;
+import { parseQuantity, type Quantity } from "../quantity";
 
 export interface WarehouseProduct {
-  id: number;
-  name: string;
-  sku: string | null;
-  packs_per_carton: number;
-  available_packs: number;
-  reserved_packs: number;
-  blocked_packs: number;
-  total_packs: number;
-  damaged_packs: number;
-  available_cartons: number;
-  available_loose_packs: number;
-  min_threshold: number;
+  id: number; name: string; sku: string | null;
+  base_uom_id: number; base_uom_code: string; base_uom_name: string;
+  quantity_scale: number; quantity_step: Quantity;
+  available_quantity: Quantity; reserved_quantity: Quantity; blocked_quantity: Quantity;
+  total_quantity: Quantity; damaged_quantity: Quantity; minimum_quantity: Quantity;
 }
-
-export interface WarehouseInventoryCursorPage {
-  items: WarehouseProduct[];
-  next_cursor: string | null;
-  has_more: boolean;
-  total: number | null;
-  alert_count: number | null;
-  alert_samples: string[];
-}
-
-function asRecord(value: unknown, message: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(message);
-  }
-  return value as Record<string, unknown>;
-}
-
-function safeInteger(value: unknown, field: string, minimum = 0): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
-    throw new Error(`حقل ${field} في عقد الرصيد الحي غير صالح.`);
-  }
-  return value;
-}
-
-function nullableCount(value: unknown, field: string): number | null {
-  return value === null ? null : safeInteger(value, field);
-}
-
-function nullableString(value: unknown, field: string, maximumLength: number): string | null {
-  if (value === null) return null;
-  if (typeof value !== "string" || !value || value.length > maximumLength) {
-    throw new Error(`حقل ${field} في عقد الرصيد الحي غير صالح.`);
-  }
-  return value;
-}
-
-function parseProduct(raw: unknown, seenIds: Set<number>): WarehouseProduct {
-  const value = asRecord(raw, "عنصر الرصيد الحي غير صالح.");
-  const id = safeInteger(value.id, "id", 1);
-  if (seenIds.has(id)) {
-    throw new Error("عقد الرصيد الحي يحتوي صنفاً مكرراً.");
-  }
-  seenIds.add(id);
-
-  const name = value.name;
-  if (
-    typeof name !== "string" ||
-    !name.trim() ||
-    name.length > MAX_PRODUCT_NAME_LENGTH
-  ) {
-    throw new Error("اسم الصنف في عقد الرصيد الحي غير صالح.");
-  }
-  const sku = value.sku === "" ? "" : nullableString(value.sku, "sku", MAX_SKU_LENGTH);
-
-  const packsPerCarton = safeInteger(value.packs_per_carton, "packs_per_carton", 1);
-  const availablePacks = safeInteger(value.available_packs, "available_packs");
-  const availableCartons = safeInteger(value.available_cartons, "available_cartons");
-  const availableLoosePacks = safeInteger(value.available_loose_packs, "available_loose_packs");
-
-  if (
-    availableCartons !== Math.floor(availablePacks / packsPerCarton) ||
-    availableLoosePacks !== availablePacks % packsPerCarton
-  ) {
-    throw new Error("تفصيل كراتين الرصيد الحي لا يطابق الكمية الأساسية.");
-  }
-
-  return {
-    id,
-    name,
-    sku,
-    packs_per_carton: packsPerCarton,
-    available_packs: availablePacks,
-    reserved_packs: safeInteger(value.reserved_packs, "reserved_packs"),
-    blocked_packs: safeInteger(value.blocked_packs, "blocked_packs"),
-    total_packs: safeInteger(value.total_packs, "total_packs"),
-    damaged_packs: safeInteger(value.damaged_packs, "damaged_packs"),
-    available_cartons: availableCartons,
-    available_loose_packs: availableLoosePacks,
-    min_threshold: safeInteger(value.min_threshold, "min_threshold"),
-  };
-}
-
+export interface WarehouseInventoryCursorPage { items: WarehouseProduct[]; next_cursor: string | null; has_more: boolean; total: number | null; alert_count: number | null; alert_samples: string[] }
+const record = (value: unknown): Record<string,unknown> => { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("عقد الرصيد الحي غير صالح."); return value as Record<string,unknown>; };
+const int = (value: unknown, field: string, min=0): number => { if(typeof value!=="number"||!Number.isSafeInteger(value)||value<min) throw new Error(`حقل ${field} غير صالح.`); return value; };
+const str = (value: unknown, field: string, max=200): string => { if(typeof value!=="string"||!value.trim()||value.length>max) throw new Error(`حقل ${field} غير صالح.`); return value; };
+const optional = (value: unknown): string|null => value===null ? null : str(value,"sku",100);
 export function parseLiveStockPage(raw: unknown): WarehouseInventoryCursorPage {
-  const value = asRecord(raw, "تنسيق صفحة المخزون غير صالح.");
-  if (!Array.isArray(value.items) || value.items.length > MAX_PAGE_SIZE) {
-    throw new Error("قائمة صفحة المخزون غير صالحة.");
-  }
-  if (typeof value.has_more !== "boolean") {
-    throw new Error("حالة ترقيم صفحة المخزون غير صالحة.");
-  }
-
-  const nextCursor = nullableString(value.next_cursor, "next_cursor", MAX_CURSOR_LENGTH);
-  if (value.has_more !== (nextCursor !== null)) {
-    throw new Error("عقد ترقيم صفحة المخزون غير متسق.");
-  }
-
-  const seenIds = new Set<number>();
-  const items = value.items.map((item) => parseProduct(item, seenIds));
-  const total = nullableCount(value.total, "total");
-  if (total !== null && total < items.length) {
-    throw new Error("إجمالي نتائج المخزون أصغر من الصفحة الحالية.");
-  }
-
-  const alertCount = nullableCount(value.alert_count, "alert_count");
-  const alertSamples = value.alert_samples;
-  if (
-    !Array.isArray(alertSamples) ||
-    alertSamples.length > 3 ||
-    !alertSamples.every(
-      (sample) =>
-        typeof sample === "string" &&
-        Boolean(sample.trim()) &&
-        sample.length <= MAX_PRODUCT_NAME_LENGTH
-    )
-  ) {
-    throw new Error("عينات تنبيهات المخزون غير صالحة.");
-  }
-  if (alertCount !== null && alertCount < alertSamples.length) {
-    throw new Error("عدد تنبيهات المخزون لا يطابق العينات.");
-  }
-
-  return {
-    items,
-    next_cursor: nextCursor,
-    has_more: value.has_more,
-    total,
-    alert_count: alertCount,
-    alert_samples: [...alertSamples],
-  };
+  const page=record(raw); if(!Array.isArray(page.items)||page.items.length>200||typeof page.has_more!=="boolean") throw new Error("صفحة المخزون غير صالحة.");
+  const ids=new Set<number>(); const items=page.items.map((rawItem)=>{const row=record(rawItem); const id=int(row.id,"id",1); if(ids.has(id)) throw new Error("صنف مكرر في الرصيد الحي."); ids.add(id); const scale=int(row.quantity_scale,"quantity_scale"); if(scale>6) throw new Error("دقة كمية غير صالحة."); return {
+    id,name:str(row.name,"name"),sku:optional(row.sku),base_uom_id:int(row.base_uom_id,"base_uom_id",1),base_uom_code:str(row.base_uom_code,"base_uom_code",20),base_uom_name:str(row.base_uom_name,"base_uom_name",50),quantity_scale:scale,quantity_step:parseQuantity(row.quantity_step,"quantity_step"),available_quantity:parseQuantity(row.available_quantity,"available_quantity",{allowZero:true}),reserved_quantity:parseQuantity(row.reserved_quantity,"reserved_quantity",{allowZero:true}),blocked_quantity:parseQuantity(row.blocked_quantity,"blocked_quantity",{allowZero:true}),total_quantity:parseQuantity(row.total_quantity,"total_quantity",{allowZero:true}),damaged_quantity:parseQuantity(row.damaged_quantity,"damaged_quantity",{allowZero:true}),minimum_quantity:parseQuantity(row.minimum_quantity,"minimum_quantity",{allowZero:true}),
+  };});
+  const next=page.next_cursor===null?null:str(page.next_cursor,"next_cursor",1024); if(page.has_more!==(next!==null)) throw new Error("ترقيم المخزون غير متسق.");
+  const nullableCount=(value:unknown):number|null=>value===null?null:int(value,"count"); const samples=page.alert_samples; if(!Array.isArray(samples)||!samples.every((v)=>typeof v==="string")) throw new Error("عينات التنبيه غير صالحة.");
+  return {items,next_cursor:next,has_more:page.has_more,total:nullableCount(page.total),alert_count:nullableCount(page.alert_count),alert_samples:[...samples] as string[]};
 }
