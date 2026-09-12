@@ -54,6 +54,9 @@ from domains.pricing.context import (
     commercial_context_payload,
     require_route_commercial_context,
 )
+from domains.pricing.driver_authority import (
+    resolve_legacy_driver_prices_bulk,
+)
 
 logger = logging.getLogger("wanasah_logger")
 
@@ -962,6 +965,19 @@ async def update_visit(
                     detail=f"إعداد عدد الحبات في الكرتونة غير صالح للصنف ({variant.variant_name}).",
                 )
 
+        sale_prices = await resolve_legacy_driver_prices_bulk(
+            db,
+            company_id=company_id,
+            dispatch_route_id=int(current_route.id),
+            variant_ids=sorted(set(cart_pids)),
+            customer_id=int(shop.id),
+            expected_commercial_context_id=(
+                int(active_session.commercial_context_id)
+                if active_session.commercial_context_id is not None
+                else None
+            ),
+        )
+
         company_local_date = await get_company_local_date(db, company_id)
 
         sample_items = [
@@ -1097,11 +1113,12 @@ async def update_visit(
                 )
 
             ppc = int(variant.packs_per_carton)
+            price_authority = sale_prices[item.product_variant_id]
             invoice = calculate_invoice(
                 item.quantity,
                 item.packs_quantity,
-                variant.price_per_carton,
-                variant.price_per_pack,
+                price_authority.price_per_carton,
+                price_authority.price_per_pack,
                 current_tax_pct,
                 active_offers,
                 company_id=company_id,
@@ -1126,6 +1143,7 @@ async def update_visit(
                     "line_index": line_index,
                     "item": item,
                     "variant": variant,
+                    "price_authority": price_authority,
                     "invoice": invoice,
                     "bonus_cartons": final_bonus_cartons,
                     "total_issue_packs": total_issue_packs,
@@ -1252,7 +1270,9 @@ async def update_visit(
                     sample_quantity=item.sample_quantity,
                     sample_packs_quantity=item.sample_packs_quantity,
                     sample_reason=item.sample_reason,
-                    price_per_unit_at_sale=variant.price_per_carton,
+                    price_per_unit_at_sale=ctx[
+                        "price_authority"
+                    ].price_per_carton,
                     total_price=Decimal(str(ctx["invoice"]["final_amount"])),
                 )
             )
@@ -1478,6 +1498,12 @@ async def update_visit(
     except HTTPException:
         await db.rollback()
         raise
+    except PricingError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
     except InventoryReversalError as exc:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2899,22 +2925,126 @@ async def add_new_shop(
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء إضافة المحل.")
 
 
+
+async def _load_driver_pricing_route(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    driver_id: int,
+):
+    active_session = (
+        await db.execute(
+            select(WorkSession)
+            .filter_by(
+                company_id=company_id,
+                driver_id=driver_id,
+                end_time=None,
+            )
+            .order_by(WorkSession.id.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+
+    if active_session is not None:
+        route = (
+            await db.execute(
+                select(DispatchRoute)
+                .filter_by(
+                    company_id=company_id,
+                    work_session_id=active_session.id,
+                    driver_id=driver_id,
+                )
+                .order_by(DispatchRoute.id.asc())
+                .limit(1)
+            )
+        ).scalars().first()
+    else:
+        company_local_date = await get_company_local_date(db, company_id)
+        route = (
+            await db.execute(
+                select(DispatchRoute)
+                .filter(
+                    DispatchRoute.company_id == company_id,
+                    DispatchRoute.driver_id == driver_id,
+                    DispatchRoute.dispatch_date == company_local_date,
+                    DispatchRoute.status.in_(
+                        ["active", "waiting", "postponed"]
+                    ),
+                )
+                .order_by(DispatchRoute.id.asc())
+                .limit(1)
+            )
+        ).scalars().first()
+
+    if route is None:
+        raise PricingError(
+            "COMMERCIAL_CONTEXT_REQUIRED",
+            "لا يوجد خط سير تجاري حالي يمكن حل الأسعار ضمنه.",
+            context={"driver_id": int(driver_id)},
+        )
+    return route, active_session
+
+
 # =========================================
 # 10. قائمة المنتجات والأسعار (Product Catalog - Legacy URL Match)
 # =========================================
 @router.get("/product_variants", response_model=List[ProductVariantResponse], status_code=200)
 async def get_products(
     db: AsyncSession = Depends(get_db),
-    current_driver: Driver = Depends(get_current_driver) # حماية الرابط بالتوكن الأصلي دون المساس بالـ URLContract
-    ):
-        # +++  النخبة لـ N+1 ومحرقة الـ CPU: استعلام مباشر وإرجاع الكائنات فوراً +++
-        # لا توجد حلقات تكرارية (No Python Loops)، الداتا تُسلم مباشرة لمحرك Pydantic ليقوم بالـ Serialization بسرعة الصاروخ
-        stmt = select(ProductVariant).where(
-            ProductVariant.company_id == current_driver.company_id,
-            product_capability_predicate(ProductVariant, ROUTE_SALE_OPEN),
-        ).order_by(ProductVariant.id.asc())
-        result = await db.execute(stmt)
-        return result.scalars().all()
+    current_driver: Driver = Depends(get_current_driver)
+):
+    company_id = int(current_driver.company_id)
+    driver_id = int(current_driver.id)
+    try:
+        route, active_session = await _load_driver_pricing_route(
+            db,
+            company_id=company_id,
+            driver_id=driver_id,
+        )
+        variants = (
+            await db.execute(
+                select(ProductVariant).where(
+                    ProductVariant.company_id == company_id,
+                    product_capability_predicate(
+                        ProductVariant, ROUTE_SALE_OPEN
+                    ),
+                ).order_by(ProductVariant.id.asc())
+            )
+        ).scalars().all()
+
+        prices = await resolve_legacy_driver_prices_bulk(
+            db,
+            company_id=company_id,
+            dispatch_route_id=int(route.id),
+            variant_ids=[int(variant.id) for variant in variants],
+            customer_id=None,
+            expected_commercial_context_id=(
+                int(active_session.commercial_context_id)
+                if active_session is not None
+                and active_session.commercial_context_id is not None
+                else None
+            ),
+        )
+
+        return [
+            {
+                "id": int(variant.id),
+                "variant_name": variant.variant_name,
+                "price_per_carton": str(
+                    prices[int(variant.id)].price_per_carton
+                ),
+                "packs_per_carton": int(variant.packs_per_carton),
+                "price_per_pack": str(
+                    prices[int(variant.id)].price_per_pack
+                ),
+            }
+            for variant in variants
+        ]
+    except PricingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
 
 
 # =========================================
@@ -3031,16 +3161,44 @@ async def get_driver_visits(
             work_session_id=(active_session.id if active_session else None),
         )
 
+        try:
+            inventory_prices = await resolve_legacy_driver_prices_bulk(
+                db,
+                company_id=company_id,
+                dispatch_route_id=int(active_route.id),
+                variant_ids=[
+                    int(row["variant"].id)
+                    for row in inventory_projection
+                ],
+                customer_id=None,
+                expected_commercial_context_id=(
+                    int(active_session.commercial_context_id)
+                    if active_session is not None
+                    and active_session.commercial_context_id is not None
+                    else None
+                ),
+            )
+        except PricingError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.as_detail(),
+            ) from exc
+
         for row in inventory_projection:
             variant = row["variant"]
             packs = row["packs_per_carton"]
             starting = row["starting_quantity"]
             current = row["current_quantity"]
+            price_authority = inventory_prices[int(variant.id)]
             inventory_data.append({
                 "id": variant.id,
                 "name": variant.variant_name,
-                "price_per_carton": str(variant.price_per_carton or "0.000"),
-                "price_per_pack": str(variant.price_per_pack or "0.000"),
+                "price_per_carton": str(
+                    price_authority.price_per_carton
+                ),
+                "price_per_pack": str(
+                    price_authority.price_per_pack
+                ),
                 "packs_per_carton": packs,
                 "starting_cartons": starting // packs,
                 "starting_packs": starting % packs,

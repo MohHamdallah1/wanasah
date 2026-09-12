@@ -45,6 +45,10 @@ from product_lifecycle import (
     evaluate_product_capability,
     record_domain_event,
 )
+from domains.pricing.core import PricingError
+from domains.pricing.driver_authority import (
+    resolve_work_session_pack_prices_bulk,
+)
 
 
 # حدود الأنواع الفعلية في PostgreSQL المستخدمة في models.py.
@@ -4997,7 +5001,9 @@ async def post_approved_stocktake_adjustments(
                 "ظهر قفل جرد متعارض أثناء الترحيل؛ أعد المحاولة لضمان لقطة متسقة."
             )
 
-    # تثبيت سعر العجز في لحظة اعتماد/ترحيل VEHICLE_RECON؛ لا نقرأ السعر الحي لاحقاً أبداً.
+    # VEHICLE_RECON يحافظ على قاعدة المحاسبة الحالية: العجز يقيّم بسعر
+    # الوحدة الأساسية/الحبة، لكن السلطة أصبحت RouteCommercialContext المقفل
+    # لا ProductVariant live price.
     shortage_variant_ids = sorted({
         int(spec["product_variant_id"])
         for spec in specs
@@ -5005,38 +5011,38 @@ async def post_approved_stocktake_adjustments(
     })
     shortage_unit_prices = {}
     if shortage_variant_ids:
-        price_rows = (
-            await db_session.execute(
-                select(
-                    ProductVariant.id,
-                    ProductVariant.price_per_pack,
-                )
-                .filter(
-                    ProductVariant.company_id == company_id,
-                    ProductVariant.id.in_(shortage_variant_ids),
-                )
-                .order_by(ProductVariant.id.asc())
-                .with_for_update(read=True)
+        if session.related_work_session_id is None:
+            raise InventoryMutationError(
+                "DRIVER_SHORTAGE يتطلب WorkSession مرتبطاً بالسياق التجاري."
             )
-        ).all()
-        if {int(row.id) for row in price_rows} != set(shortage_variant_ids):
-            raise InventoryMutationError("أحد أصناف عجز المندوب مفقود داخل الشركة.")
-
-        for row in price_rows:
-            # Preserve the existing accounting rule exactly: DRIVER_SHORTAGE is valued by price_per_pack.
-            # We only freeze that value here; we do not invent a new carton-price fallback.
-            unit_price = _money_12_3(row.price_per_pack or "0.000", "price_per_pack")
-            if not unit_price.is_finite() or unit_price < 0 or unit_price > _MONEY_12_3_MAX:
-                raise InventoryMutationError("سعر عجز المندوب غير صالح للتثبيت المالي.")
-            shortage_unit_prices[int(row.id)] = unit_price
+        try:
+            shortage_unit_prices = (
+                await resolve_work_session_pack_prices_bulk(
+                    db_session,
+                    company_id=company_id,
+                    work_session_id=int(
+                        session.related_work_session_id
+                    ),
+                    variant_ids=shortage_variant_ids,
+                )
+            )
+        except PricingError as exc:
+            raise InventoryMutationError(
+                f"{exc.code}: {exc.message}"
+            ) from exc
 
         for spec in specs:
             if spec["reference_type"] != "DRIVER_SHORTAGE":
                 spec["financial_unit_price_snapshot"] = None
                 continue
-            unit_price = shortage_unit_prices[int(spec["product_variant_id"])]
+            unit_price = shortage_unit_prices[
+                int(spec["product_variant_id"])
+            ]
             total_value = unit_price * spec["quantity"]
-            if not total_value.is_finite() or total_value > _MONEY_12_3_MAX:
+            if (
+                not total_value.is_finite()
+                or total_value > _MONEY_12_3_MAX
+            ):
                 raise InventoryMutationError(
                     "قيمة عجز المندوب الناتجة تتجاوز السعة المالية Numeric(12,3)."
                 )
