@@ -7,7 +7,6 @@ import traceback
 import ipaddress
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
-from api import platform
 import jwt
 from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import HTTPException, RequestValidationError
@@ -27,7 +26,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
-from api import auth, branches, catalog, driver, dispatch, product_locations, tenant, warehouse, reconciliation
+from api import auth, branches, catalog, driver, dispatch, product_locations, tenant, warehouse, reconciliation, platform_manager
 from config import Config
 from database import engine, get_db
 from ws_manager import dispatch_manager
@@ -132,7 +131,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 app.include_router(reconciliation.router, tags=["Reconciliation"])
-app.include_router(platform.router)
+app.include_router(platform_manager.router)
 app.include_router(product_locations.router)
 
 # S-04: Restrictive CORS configuration
