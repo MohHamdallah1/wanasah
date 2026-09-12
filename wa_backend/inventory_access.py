@@ -21,6 +21,9 @@ PERMISSIONS = frozenset({
     'product_location.read', 'product_location.manage',
     'transfer.read', 'transfer.send', 'transfer.receive', 'transfer.cancel',
     'transfer.reject', 'transfer.destination', 'inventory.fefo_override',
+    'transfer.special.quarantine', 'transfer.special.recall_return',
+    'transfer.special.return_to_vendor', 'transfer.special.disposal',
+    'transfer.warehouse_balancing_override',
     'stocktake.read', 'stocktake.start', 'stocktake.count', 'stocktake.review',
     'stocktake.approve', 'stocktake.recount', 'stocktake.cancel',
     'dispatch.read', 'dispatch.execute',
@@ -29,6 +32,9 @@ COMPANY_ONLY = frozenset({
     'location.create', 'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
     'batch.disposition', 'inventory.transfer_policy.manage',
+    'transfer.special.quarantine', 'transfer.special.recall_return',
+    'transfer.special.return_to_vendor', 'transfer.special.disposal',
+    'transfer.warehouse_balancing_override',
 })
 
 

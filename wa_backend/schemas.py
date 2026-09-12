@@ -1793,6 +1793,66 @@ class TransferDestinationPolicyStateResponse(BaseModel):
 
 
 
+
+# STAGE4E2B1_SPECIAL_TRANSFER_CONTRACT
+SpecialTransferPurpose = Literal[
+    "RETURN_TO_VENDOR",
+    "QUARANTINE",
+    "RECALL_RETURN",
+    "DISPOSAL",
+]
+
+
+class SpecialTransferItem(RequestModel):
+    product_variant_id: PositiveDbInt
+    batch_id: PositiveDbInt
+    source_status: InventoryStockStatus
+    quantity: PositiveQuantity
+    uom_id: PositiveDbInt
+
+
+class SpecialTransferDispatchRequest(RequestModel):
+    request_id: UUID
+    source_location_id: PositiveDbInt
+    transfer_purpose: SpecialTransferPurpose
+    items: List[SpecialTransferItem] = Field(..., min_length=1, max_length=5000)
+    notes: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def normalize_notes(cls, v: Any) -> str:
+        return _required_text(v)
+
+    @model_validator(mode="after")
+    def validate_unique_lines(self) -> "SpecialTransferDispatchRequest":
+        # DB transfer-line identity is product+batch. Different source statuses
+        # for the same batch must use separate transfer documents.
+        keys = [
+            (
+                int(item.product_variant_id),
+                int(item.batch_id),
+            )
+            for item in self.items
+        ]
+        if len(keys) != len(set(keys)):
+            raise ValueError(
+                "لا يجوز تكرار نفس الصنف/الدفعة في التحويل الخاص."
+            )
+        return self
+
+
+class SpecialTransferDispatchResponse(BaseModel):
+    message: str
+    transfer_reference: str
+    header_id: PositiveDbInt
+    transfer_purpose: SpecialTransferPurpose
+    source_location_id: PositiveDbInt
+    destination_location_id: PositiveDbInt
+    tenant_policy_id: PositiveDbInt
+    tenant_policy_revision: PositiveDbInt
+
+
+
 class UnifiedTransferItem(RequestModel):
     product_variant_id: PositiveDbInt
     quantity: PositiveQuantity

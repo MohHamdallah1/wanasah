@@ -1410,6 +1410,10 @@ class TenantOperationalPolicy(Base):
             'company_id', 'policy_code', 'revision',
             name='uq_tenant_operational_policy_revision'
         ),
+        UniqueConstraint(
+            'company_id', 'id', 'revision',
+            name='uq_tenant_operational_policy_identity_revision'
+        ),
         ForeignKeyConstraint(
             ['company_id', 'created_by'],
             ['drivers.company_id', 'drivers.id'],
@@ -1742,6 +1746,12 @@ class InventoryTransferHeader(Base):
         ForeignKeyConstraint(['company_id', 'work_session_id'], ['work_sessions.company_id', 'work_sessions.id'],
                              ondelete='RESTRICT', name='fk_transfer_header_tenant_session'),
         ForeignKeyConstraint(
+            ['company_id', 'tenant_policy_id', 'tenant_policy_revision'],
+            ['tenant_operational_policies.company_id', 'tenant_operational_policies.id', 'tenant_operational_policies.revision'],
+            ondelete='RESTRICT',
+            name='fk_transfer_header_tenant_policy_snapshot'
+        ),
+        ForeignKeyConstraint(
             ['company_id', 'work_session_id', 'expected_receiver_id'],
             ['work_sessions.company_id', 'work_sessions.id', 'work_sessions.driver_id'],
             ondelete='RESTRICT',
@@ -1753,6 +1763,16 @@ class InventoryTransferHeader(Base):
             "transfer_purpose IN ('REPLENISHMENT', 'ROUTE_LOAD', 'ROUTE_RETURN', 'WAREHOUSE_BALANCING', "
             "'RETURN_TO_VENDOR', 'QUARANTINE', 'RECALL_RETURN', 'DISPOSAL')",
             name='chk_transfer_header_purpose'
+        ),
+        CheckConstraint(
+            "((tenant_policy_id IS NULL AND tenant_policy_revision IS NULL) OR "
+            "(tenant_policy_id IS NOT NULL AND tenant_policy_revision IS NOT NULL))",
+            name='chk_transfer_header_policy_snapshot_pair'
+        ),
+        CheckConstraint(
+            "transfer_purpose NOT IN ('RETURN_TO_VENDOR','QUARANTINE','RECALL_RETURN','DISPOSAL') "
+            "OR (tenant_policy_id IS NOT NULL AND tenant_policy_revision IS NOT NULL)",
+            name='chk_transfer_header_special_policy_required'
         ),
         CheckConstraint(
             "((workflow_type = 'DIRECT' AND status IN ('DRAFT', 'POSTED', 'CANCELLED')) OR "
@@ -1863,6 +1883,10 @@ class InventoryTransferHeader(Base):
             'company_id', 'status', 'created_at', 'id',
             postgresql_where=text("workflow_type = 'TRANSIT'")
         ),
+        Index(
+            'ix_transfer_header_policy_snapshot',
+            'company_id', 'tenant_policy_id', 'tenant_policy_revision'
+        ),
     )
     id                      = Column(Integer, primary_key=True)
     company_id              = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -1876,6 +1900,8 @@ class InventoryTransferHeader(Base):
     # STAGE4E_CORE_PURPOSE_INFLIGHT: purpose is mandatory at every constructor; no silent fallback.
     transfer_purpose        = Column(String(50), nullable=False, index=True)
     commercial_context      = Column(JSONB, nullable=False)
+    tenant_policy_id        = Column(Integer, nullable=True, index=True)
+    tenant_policy_revision  = Column(Integer, nullable=True)
 
     work_session_id      = Column(Integer, nullable=True, index=True)
     expected_receiver_id = Column(Integer, nullable=True, index=True)

@@ -39,7 +39,12 @@ from models import (
 
 from typing import Any, Type, Optional, List, Dict, Tuple
 from quantity import QUANTITY_MAX, QuantityError, parse_quantity, validate_variant_quantity
-from product_lifecycle import acquire_product_lifecycle_guards, record_domain_event
+from product_lifecycle import (
+    RETURN_DISPOSAL,
+    acquire_product_lifecycle_guards,
+    evaluate_product_capability,
+    record_domain_event,
+)
 
 
 # حدود الأنواع الفعلية في PostgreSQL المستخدمة في models.py.
@@ -1343,12 +1348,664 @@ async def load_published_transfer_destination_policy(
 
 
 
+
+# STAGE4E2B1_SPECIAL_TRANSFER_CONTRACT
+SPECIAL_TRANSFER_PURPOSES = frozenset({
+    "RETURN_TO_VENDOR",
+    "QUARANTINE",
+    "RECALL_RETURN",
+    "DISPOSAL",
+})
+
+SPECIAL_TRANSFER_DESTINATION_POLICY_KEY = {
+    "RETURN_TO_VENDOR": "vendor_return_staging_location_id",
+    "QUARANTINE": "quarantine_location_id",
+    "RECALL_RETURN": "quarantine_location_id",
+    "DISPOSAL": "disposal_location_id",
+}
+
+SPECIAL_TRANSFER_PERMISSION = {
+    "RETURN_TO_VENDOR": "transfer.special.return_to_vendor",
+    "QUARANTINE": "transfer.special.quarantine",
+    "RECALL_RETURN": "transfer.special.recall_return",
+    "DISPOSAL": "transfer.special.disposal",
+}
+
+
+async def resolve_special_transfer_direction_context(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    source_location_id: int,
+    transfer_purpose: str,
+    additional_location_ids: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    # Destination is server-derived from exactly one published tenant policy
+    # revision. The client cannot choose a destination for special transfers.
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+        source_location_id = _strict_int(
+            source_location_id,
+            "source_location_id",
+            minimum=1,
+        )
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    purpose = str(transfer_purpose or "").strip().upper()
+    if purpose not in SPECIAL_TRANSFER_PURPOSES:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_PURPOSE_INVALID",
+            "الغرض ليس من أغراض التحويل الخاصة المعتمدة.",
+            context={"transfer_purpose": purpose},
+        )
+
+    policy, raw_payload = await load_published_transfer_destination_policy(
+        db_session,
+        company_id=company_id,
+        revalidate_locations=False,
+    )
+
+    if (
+        not isinstance(raw_payload, dict)
+        or set(raw_payload) != _TRANSFER_DESTINATION_POLICY_KEYS
+    ):
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_STALE",
+            "سياسة وجهات التحويل المنشورة لا تطابق Schema المعتمد.",
+            context={
+                "policy_id": int(policy.id),
+                "policy_revision": int(policy.revision),
+            },
+        )
+
+    try:
+        policy_location_ids = {
+            _strict_int(
+                raw_payload["quarantine_location_id"],
+                "quarantine_location_id",
+                minimum=1,
+            ),
+            _strict_int(
+                raw_payload["disposal_location_id"],
+                "disposal_location_id",
+                minimum=1,
+            ),
+            _strict_int(
+                raw_payload["vendor_return_staging_location_id"],
+                "vendor_return_staging_location_id",
+                minimum=1,
+            ),
+        }
+    except ValueError as exc:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_STALE",
+            "سياسة وجهات التحويل المنشورة تحمل معرف موقع غير صالح.",
+            context={
+                "policy_id": int(policy.id),
+                "policy_revision": int(policy.revision),
+            },
+        ) from exc
+
+    try:
+        extra_location_ids = {
+            _strict_int(location_id, "additional_location_id", minimum=1)
+            for location_id in (additional_location_ids or [])
+        }
+    except (TypeError, ValueError) as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    # One sorted acquisition closes deactivation races and preserves the same
+    # location-lock ordering later used by the Unified Inventory Movement Engine.
+    await acquire_inventory_location_guards(
+        db_session,
+        company_id,
+        sorted(
+            policy_location_ids
+            | {source_location_id}
+            | extra_location_ids
+        ),
+    )
+
+    try:
+        normalized = await validate_transfer_destination_policy_payload(
+            db_session,
+            company_id=company_id,
+            payload=dict(raw_payload),
+            lock_locations=False,
+        )
+    except InventoryRuleError as exc:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_STALE",
+            "سياسة وجهات التحويل المنشورة لم تعد صالحة للاستخدام التشغيلي.",
+            context={
+                "policy_id": int(policy.id),
+                "policy_revision": int(policy.revision),
+                "reason_code": exc.code,
+            },
+        ) from exc
+
+    destination_key = SPECIAL_TRANSFER_DESTINATION_POLICY_KEY[purpose]
+    destination_location_id = int(normalized[destination_key])
+    if destination_location_id == source_location_id:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_SAME_LOCATION",
+            "المصدر يطابق الوجهة المعتمدة في السياسة.",
+            context={
+                "transfer_purpose": purpose,
+                "location_id": source_location_id,
+            },
+        )
+
+    rows = (
+        await db_session.execute(
+            select(
+                InventoryLocation.id,
+                InventoryLocation.location_type,
+                InventoryLocation.is_active,
+                InventoryLocation.is_system_managed,
+            )
+            .filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id.in_(
+                    [source_location_id, destination_location_id]
+                ),
+            )
+            .order_by(InventoryLocation.id.asc())
+            .with_for_update(read=True)
+        )
+    ).all()
+    locations = {int(row.id): row for row in rows}
+
+    if set(locations) != {source_location_id, destination_location_id}:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_LOCATION_INVALID",
+            "المصدر أو الوجهة غير موجود أو لا يتبع الشركة.",
+        )
+
+    source = locations[source_location_id]
+    destination = locations[destination_location_id]
+
+    if not bool(source.is_active) or not bool(destination.is_active):
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_LOCATION_INVALID",
+            "المصدر أو الوجهة غير فعال.",
+        )
+    if bool(source.is_system_managed) or bool(destination.is_system_managed):
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_LOCATION_INVALID",
+            "مواقع النظام الداخلية لا تستخدم للتحويل الخاص.",
+        )
+
+    source_type = str(source.location_type).upper()
+    destination_type = str(destination.location_type).upper()
+
+    if source_type not in {"WAREHOUSE", "VEHICLE"}:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_DIRECTION_BLOCKED",
+            "التحويل الخاص يبدأ فقط من WAREHOUSE أو VEHICLE.",
+            context={"source_location_type": source_type},
+        )
+
+    expected_destination_types = (
+        {"WAREHOUSE", "SCRAP"}
+        if purpose == "DISPOSAL"
+        else {"WAREHOUSE"}
+    )
+    if destination_type not in expected_destination_types:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_DIRECTION_BLOCKED",
+            "نوع الوجهة المنشورة لا يطابق غرض التحويل الخاص.",
+            context={
+                "transfer_purpose": purpose,
+                "destination_location_type": destination_type,
+            },
+        )
+
+    return {
+        "transfer_purpose": purpose,
+        "source_location_id": source_location_id,
+        "source_location_type": source_type,
+        "destination_location_id": destination_location_id,
+        "destination_location_type": destination_type,
+        "tenant_policy_id": int(policy.id),
+        "tenant_policy_revision": int(policy.revision),
+        "permission_code": SPECIAL_TRANSFER_PERMISSION[purpose],
+        "allow_retiring_warehouse_balancing": bool(
+            normalized["allow_retiring_warehouse_balancing"]
+        ),
+    }
+
+
+
+# STAGE4E2B2_SPECIAL_TRANSFER_EXECUTION
+async def validate_special_transfer_source_items_locked(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    source_location_id: int,
+    transfer_purpose: str,
+    items: List[Any],
+    as_of_date: date,
+) -> List[Dict[str, Any]]:
+    # PRECONDITION: caller already holds shared lifecycle guards for all variants
+    # and shared location guards for source/destination/transit. Do not reacquire
+    # them here in reverse order.
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+        source_location_id = _strict_int(
+            source_location_id,
+            "source_location_id",
+            minimum=1,
+        )
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    purpose = str(transfer_purpose or "").strip().upper()
+    if purpose not in SPECIAL_TRANSFER_PURPOSES:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_PURPOSE_INVALID",
+            "غرض التحويل الخاص غير صالح.",
+            context={"transfer_purpose": purpose},
+        )
+    if type(as_of_date) is not date:
+        raise InventoryMutationError("as_of_date يجب أن يكون date صريحاً.")
+    if not isinstance(items, list) or not items:
+        raise InventoryMutationError(
+            "التحويل الخاص يجب أن يحتوي سطراً واحداً على الأقل."
+        )
+
+    normalized_inputs: List[Dict[str, Any]] = []
+    pair_keys = set()
+    requested_variant_ids = set()
+    batch_pairs = set()
+
+    for item in items:
+        try:
+            variant_id = _strict_int(
+                getattr(item, "product_variant_id", None),
+                "product_variant_id",
+                minimum=1,
+            )
+            batch_id = _strict_int(
+                getattr(item, "batch_id", None),
+                "batch_id",
+                minimum=1,
+            )
+            uom_id = _strict_int(
+                getattr(item, "uom_id", None),
+                "uom_id",
+                minimum=1,
+            )
+        except ValueError as exc:
+            raise InventoryMutationError(str(exc)) from exc
+
+        source_status = str(
+            getattr(item, "source_status", "") or ""
+        ).strip().upper()
+        if source_status not in _INVENTORY_STOCK_STATUSES:
+            raise InventoryRuleError(
+                "SPECIAL_TRANSFER_SOURCE_STATUS_INVALID",
+                "حالة مخزون المصدر غير صالحة للتحويل الخاص.",
+                context={
+                    "product_variant_id": variant_id,
+                    "batch_id": batch_id,
+                    "source_status": source_status,
+                },
+            )
+
+        quantity = _quantity_decimal(
+            getattr(item, "quantity", None),
+            "quantity",
+            allow_zero=False,
+        )
+
+        pair = (variant_id, batch_id)
+        if pair in pair_keys:
+            raise InventoryRuleError(
+                "SPECIAL_TRANSFER_DUPLICATE_BATCH",
+                "لا يجوز تكرار نفس الصنف/الدفعة في مستند التحويل الخاص.",
+                context={
+                    "product_variant_id": variant_id,
+                    "batch_id": batch_id,
+                },
+            )
+        pair_keys.add(pair)
+        requested_variant_ids.add(variant_id)
+        batch_pairs.add(pair)
+        normalized_inputs.append({
+            "product_variant_id": variant_id,
+            "batch_id": batch_id,
+            "uom_id": uom_id,
+            "source_stock_status": source_status,
+            "quantity": quantity,
+        })
+
+    variant_rows = (
+        await db_session.execute(
+            select(
+                ProductVariant.id,
+                ProductVariant.base_uom_id,
+                ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
+                ProductVariant.lifecycle_revision,
+                ProductVariant.expiry_control_mode,
+            )
+            .filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id.in_(sorted(requested_variant_ids)),
+            )
+            .order_by(ProductVariant.id.asc())
+        )
+    ).all()
+    variants = {int(row.id): row for row in variant_rows}
+    if set(variants) != set(requested_variant_ids):
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_ITEM_INVALID",
+            "أحد الأصناف/الدفعات غير موجود أو لا يتبع الشركة.",
+        )
+
+    batches = (
+        await db_session.execute(
+            select(ProductBatch)
+            .filter(
+                ProductBatch.company_id == company_id,
+                tuple_(
+                    ProductBatch.product_variant_id,
+                    ProductBatch.id,
+                ).in_(sorted(batch_pairs)),
+            )
+            .order_by(
+                ProductBatch.product_variant_id.asc(),
+                ProductBatch.id.asc(),
+            )
+            .with_for_update(read=True)
+        )
+    ).scalars().all()
+    batch_map = {
+        (int(row.product_variant_id), int(row.id)): row
+        for row in batches
+    }
+    if set(batch_map) != set(batch_pairs):
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_ITEM_INVALID",
+            "أحد الأصناف/الدفعات غير موجود أو لا يتبع الشركة.",
+        )
+
+    policy_rows = (
+        await db_session.execute(
+            select(
+                InventoryStockPolicy.product_variant_id,
+                InventoryStockPolicy.minimum_remaining_shelf_life_days,
+            ).filter(
+                InventoryStockPolicy.company_id == company_id,
+                InventoryStockPolicy.location_id == source_location_id,
+                InventoryStockPolicy.product_variant_id.in_(
+                    sorted(requested_variant_ids)
+                ),
+                InventoryStockPolicy.is_active.is_(True),
+            )
+        )
+    ).all()
+    min_shelf_life = {
+        int(row.product_variant_id):
+            int(row.minimum_remaining_shelf_life_days or 0)
+        for row in policy_rows
+    }
+
+    requested_balance_keys = [
+        (
+            row["product_variant_id"],
+            row["batch_id"],
+            row["source_stock_status"],
+        )
+        for row in normalized_inputs
+    ]
+    balance_rows = (
+        await db_session.execute(
+            select(InventoryBalance).filter(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == source_location_id,
+                tuple_(
+                    InventoryBalance.product_variant_id,
+                    InventoryBalance.batch_id,
+                    InventoryBalance.stock_status,
+                ).in_(requested_balance_keys),
+            )
+        )
+    ).scalars().all()
+    balance_map = {
+        (
+            int(row.product_variant_id),
+            int(row.batch_id),
+            str(row.stock_status).upper(),
+        ): row
+        for row in balance_rows
+    }
+
+    result: List[Dict[str, Any]] = []
+    for input_row in normalized_inputs:
+        variant_id = input_row["product_variant_id"]
+        batch_id = input_row["batch_id"]
+        source_status = input_row["source_stock_status"]
+        quantity = input_row["quantity"]
+
+        variant = variants[variant_id]
+        batch = batch_map[(variant_id, batch_id)]
+        balance = balance_map.get(
+            (variant_id, batch_id, source_status)
+        )
+        if balance is None:
+            raise InventoryRuleError(
+                "SPECIAL_TRANSFER_SOURCE_BALANCE_INVALID",
+                "الرصيد المحدد غير موجود في موقع المصدر أو لا يطابق حالة المخزون.",
+                context={
+                    "source_location_id": source_location_id,
+                    "product_variant_id": variant_id,
+                    "batch_id": batch_id,
+                    "source_status": source_status,
+                },
+            )
+
+        on_hand = _quantity_decimal(
+            balance.on_hand_quantity or 0,
+            "on_hand_quantity",
+        )
+        reserved = _quantity_decimal(
+            balance.reserved_quantity or 0,
+            "reserved_quantity",
+        )
+        if reserved > on_hand:
+            raise InventoryMutationError(
+                "Inventory invariant violated: reserved exceeds on-hand."
+            )
+        if source_status != "AVAILABLE" and reserved != 0:
+            raise InventoryMutationError(
+                "Inventory invariant violated: non-AVAILABLE balance is reserved."
+            )
+        movable = on_hand - reserved
+        if movable < quantity:
+            raise InventoryRuleError(
+                "SPECIAL_TRANSFER_INSUFFICIENT_STOCK",
+                "الرصيد الحر في حالة المصدر لا يغطي كمية التحويل الخاص.",
+                context={
+                    "source_location_id": source_location_id,
+                    "product_variant_id": variant_id,
+                    "batch_id": batch_id,
+                    "source_status": source_status,
+                },
+            )
+
+        if int(variant.base_uom_id) != input_row["uom_id"]:
+            raise InventoryRuleError(
+                "SPECIAL_TRANSFER_UOM_MISMATCH",
+                "التحويل الخاص يجب أن يستخدم وحدة أساس الصنف.",
+                context={
+                    "product_variant_id": variant_id,
+                    "expected_uom_id": int(variant.base_uom_id),
+                },
+            )
+
+        lifecycle = str(variant.lifecycle_status or "").upper()
+        hold = str(variant.operational_hold or "").upper()
+        disposition = str(batch.disposition or "").upper()
+
+        decision = evaluate_product_capability(
+            lifecycle,
+            hold,
+            RETURN_DISPOSAL,
+        )
+        if not decision.allowed:
+            raise InventoryRuleError(
+                decision.code,
+                "حالة الصنف لا تسمح ببدء تحويل إرجاع/حجر/إتلاف جديد.",
+                context={
+                    "product_variant_id": variant_id,
+                    "transfer_purpose": purpose,
+                    "lifecycle_status": lifecycle,
+                    "operational_hold": hold,
+                },
+            )
+
+        if hold not in {"NONE", "SALES_HOLD", "RECALL"}:
+            raise InventoryMutationError(
+                "Product operational hold invariant is invalid."
+            )
+        if disposition not in _BATCH_DISPOSITIONS:
+            raise InventoryMutationError(
+                "Product batch disposition invariant is invalid."
+            )
+
+        metadata_sellable = (
+            bool(batch.is_active)
+            and _batch_metadata_is_sellable(
+                as_of_date=as_of_date,
+                expiry_control_mode=str(variant.expiry_control_mode),
+                production_date=batch.production_date,
+                expiry_date=batch.expiry_date,
+                minimum_remaining_shelf_life_days=(
+                    min_shelf_life.get(variant_id, 0)
+                ),
+            )
+        )
+        unsafe_or_restricted = (
+            source_status != "AVAILABLE"
+            or disposition != "RELEASED"
+            or not metadata_sellable
+            or hold != "NONE"
+        )
+
+        if purpose == "RECALL_RETURN":
+            if hold != "RECALL":
+                raise InventoryRuleError(
+                    "RECALL_RETURN_REQUIRES_RECALL",
+                    "RECALL_RETURN مسموح فقط أثناء RECALL فعّال.",
+                    context={"product_variant_id": variant_id},
+                )
+            if source_status in {"DAMAGED", "DISPOSAL_PENDING"}:
+                raise InventoryRuleError(
+                    "SPECIAL_TRANSFER_SOURCE_STATUS_BLOCKED",
+                    "الرصيد التالف/المخصص للإتلاف لا يخرج عبر RECALL_RETURN.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "batch_id": batch_id,
+                        "source_status": source_status,
+                    },
+                )
+
+        elif purpose == "RETURN_TO_VENDOR":
+            if (
+                hold == "RECALL"
+                or disposition == "RECALLED"
+                or source_status in {"RECALLED", "DISPOSAL_PENDING"}
+            ):
+                raise InventoryRuleError(
+                    "RETURN_TO_VENDOR_RECALL_BLOCKED",
+                    "المخزون المستدعى يستخدم RECALL_RETURN أو DISPOSAL وليس RETURN_TO_VENDOR.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "batch_id": batch_id,
+                    },
+                )
+            returnable = (
+                source_status in {"QUARANTINED", "BLOCKED", "DAMAGED"}
+                or disposition in {"QUARANTINED", "BLOCKED"}
+                or not metadata_sellable
+            )
+            if not returnable:
+                raise InventoryRuleError(
+                    "RETURN_TO_VENDOR_NOT_ELIGIBLE",
+                    "المخزون السليم RELEASED/AVAILABLE لا يخرج إلى المورد عبر هذا المسار.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "batch_id": batch_id,
+                    },
+                )
+
+        elif purpose == "QUARANTINE":
+            if (
+                source_status in {"BLOCKED", "DAMAGED", "DISPOSAL_PENDING"}
+                or disposition == "BLOCKED"
+            ):
+                raise InventoryRuleError(
+                    "QUARANTINE_SOURCE_BLOCKED",
+                    "المخزون BLOCKED/التالف/المخصص للإتلاف يستخدم Return/Disposal ولا يخفض إلى Quarantine.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "batch_id": batch_id,
+                        "source_status": source_status,
+                        "batch_disposition": disposition,
+                    },
+                )
+            if not unsafe_or_restricted:
+                raise InventoryRuleError(
+                    "QUARANTINE_REASON_REQUIRED",
+                    "المخزون السليم يحتاج أولاً سبباً تشغيلياً صريحاً (Hold/Disposition/Expiry) قبل نقله للحجر.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "batch_id": batch_id,
+                    },
+                )
+
+        elif purpose == "DISPOSAL":
+            if not unsafe_or_restricted:
+                raise InventoryRuleError(
+                    "DISPOSAL_NOT_ELIGIBLE",
+                    "لا يجوز إرسال مخزون سليم RELEASED/AVAILABLE للإتلاف دون حالة سلامة/تشغيل تبرر ذلك.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "batch_id": batch_id,
+                    },
+                )
+
+        result.append({
+            "product_variant_id": variant_id,
+            "batch_id": batch_id,
+            "quantity": quantity,
+            "source_stock_status": source_status,
+            "lifecycle_revision_snapshot": int(
+                variant.lifecycle_revision
+            ),
+            "lifecycle_status_snapshot": lifecycle,
+            "operational_hold_snapshot": hold,
+        })
+
+    result.sort(
+        key=lambda row: (
+            row["product_variant_id"],
+            row["batch_id"],
+            row["source_stock_status"],
+        )
+    )
+    return result
+
 # STAGE4E_CORE_PURPOSE_INFLIGHT
 _TRANSFER_TERMINAL_REFERENCE_TYPES = frozenset({
     "TRANSFER_RECEIPT",
     "TRANSFER_CANCELLED",
     "TRANSFER_REJECTED",
     "TRANSFER_TERMINAL_STATUS",
+    "SPECIAL_TRANSFER_TERMINAL_STATUS",
     "HANDSHAKE_POST",
     "HANDSHAKE_RELEASE",
     "HANDSHAKE_TERMINAL_STATUS",
@@ -1567,6 +2224,289 @@ async def resolve_inflight_transfer_destination_statuses(
             final_status = "AVAILABLE"
 
         result[int(line.id)] = final_status
+
+    return result
+
+# STAGE4E2B3_SPECIAL_TRANSFER_TERMINAL_MATRIX
+async def validate_special_transfer_policy_snapshot(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    header: Any,
+) -> Dict[str, Any]:
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+        header_id = _strict_int(
+            getattr(header, "id", None),
+            "transfer_header_id",
+            minimum=1,
+        )
+        policy_id = _strict_int(
+            getattr(header, "tenant_policy_id", None),
+            "tenant_policy_id",
+            minimum=1,
+        )
+        policy_revision = _strict_int(
+            getattr(header, "tenant_policy_revision", None),
+            "tenant_policy_revision",
+            minimum=1,
+        )
+        destination_location_id = _strict_int(
+            getattr(header, "destination_location_id", None),
+            "destination_location_id",
+            minimum=1,
+        )
+    except ValueError as exc:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "مستند التحويل الخاص لا يحمل Policy snapshot صالحاً.",
+        ) from exc
+
+    purpose = str(
+        getattr(header, "transfer_purpose", "") or ""
+    ).strip().upper()
+    if purpose not in SPECIAL_TRANSFER_PURPOSES:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_PURPOSE_INVALID",
+            "غرض التحويل الخاص المخزن غير صالح.",
+            context={"transfer_header_id": header_id},
+        )
+
+    context = getattr(header, "commercial_context", None)
+    if not isinstance(context, dict):
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "commercial_context للتحويل الخاص غير صالح.",
+            context={"transfer_header_id": header_id},
+        )
+
+    try:
+        context_schema = _strict_int(
+            context.get("schema_version"),
+            "commercial_context.schema_version",
+            minimum=1,
+        )
+        context_policy_id = _strict_int(
+            context.get("tenant_policy_id"),
+            "commercial_context.tenant_policy_id",
+            minimum=1,
+        )
+        context_policy_revision = _strict_int(
+            context.get("tenant_policy_revision"),
+            "commercial_context.tenant_policy_revision",
+            minimum=1,
+        )
+    except ValueError as exc:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "commercial_context لا يحمل Policy snapshot صالحاً.",
+            context={"transfer_header_id": header_id},
+        ) from exc
+
+    if (
+        context_schema != 1
+        or context.get("tenant_policy_code")
+        != TRANSFER_DESTINATION_POLICY_CODE
+        or context_policy_id != policy_id
+        or context_policy_revision != policy_revision
+        or str(context.get("transfer_purpose") or "").upper() != purpose
+    ):
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "Policy evidence في رأس الحوالة لا يطابق commercial_context.",
+            context={
+                "transfer_header_id": header_id,
+                "tenant_policy_id": policy_id,
+                "tenant_policy_revision": policy_revision,
+            },
+        )
+
+    policy = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.id == policy_id,
+                TenantOperationalPolicy.revision == policy_revision,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+            )
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    if policy is None:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "Policy revision الأصلية للحوالة غير موجودة داخل الشركة.",
+            context={
+                "transfer_header_id": header_id,
+                "tenant_policy_id": policy_id,
+                "tenant_policy_revision": policy_revision,
+            },
+        )
+
+    if int(policy.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_SCHEMA_UNSUPPORTED",
+            "Policy revision الأصلية تستخدم Schema غير مدعوم.",
+            context={
+                "transfer_header_id": header_id,
+                "tenant_policy_revision": policy_revision,
+                "schema_version": int(policy.schema_version),
+            },
+        )
+    if str(policy.status).upper() not in {"PUBLISHED", "SUPERSEDED"}:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "Policy revision الأصلية لم تكن Revision منشورة صالحة.",
+            context={
+                "transfer_header_id": header_id,
+                "policy_status": str(policy.status),
+            },
+        )
+
+    policy_payload = dict(policy.validated_payload or {})
+    if set(policy_payload) != _TRANSFER_DESTINATION_POLICY_KEYS:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "Policy revision الأصلية لا تطابق Schema الوجهات المعتمد.",
+            context={"transfer_header_id": header_id},
+        )
+
+    destination_key = SPECIAL_TRANSFER_DESTINATION_POLICY_KEY[purpose]
+    try:
+        policy_destination_id = _strict_int(
+            policy_payload[destination_key],
+            destination_key,
+            minimum=1,
+        )
+    except (KeyError, ValueError) as exc:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "Policy revision الأصلية لا تحمل وجهة صالحة لهذا الغرض.",
+            context={"transfer_header_id": header_id},
+        ) from exc
+
+    if policy_destination_id != destination_location_id:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_POLICY_EVIDENCE_INVALID",
+            "وجهة الحوالة لا تطابق Policy revision المثبتة وقت الإنشاء.",
+            context={
+                "transfer_header_id": header_id,
+                "destination_location_id": destination_location_id,
+                "policy_destination_location_id": policy_destination_id,
+            },
+        )
+
+    return {
+        "policy_id": policy_id,
+        "policy_revision": policy_revision,
+        "transfer_purpose": purpose,
+        "destination_location_id": destination_location_id,
+    }
+
+
+def _special_return_to_source_status(
+    source_status: str,
+    current_safe_status: str,
+) -> str:
+    source = str(source_status or "").upper()
+    current = str(current_safe_status or "").upper()
+
+    if source in {"DAMAGED", "DISPOSAL_PENDING"}:
+        return source
+    if current == "RECALLED" or source == "RECALLED":
+        return "RECALLED"
+    if current == "BLOCKED" or source == "BLOCKED":
+        return "BLOCKED"
+    if current == "QUARANTINED" or source == "QUARANTINED":
+        return "QUARANTINED"
+    return "AVAILABLE"
+
+
+async def resolve_special_transfer_terminal_statuses(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    destination_location_id: int,
+    transfer_purpose: str,
+    terminal_action: str,
+    lines: List[Any],
+) -> Dict[int, str]:
+    purpose = str(transfer_purpose or "").strip().upper()
+    action = str(terminal_action or "").strip().upper()
+    if purpose not in SPECIAL_TRANSFER_PURPOSES:
+        raise InventoryRuleError(
+            "SPECIAL_TRANSFER_PURPOSE_INVALID",
+            "غرض التحويل الخاص غير صالح أثناء الإنهاء.",
+            context={"transfer_purpose": purpose},
+        )
+    if action not in {"RECEIVE", "RETURN_TO_SOURCE"}:
+        raise InventoryMutationError(
+            "terminal_action للتحويل الخاص غير صالح."
+        )
+
+    current_safe = await resolve_inflight_transfer_destination_statuses(
+        db_session,
+        company_id=company_id,
+        destination_location_id=destination_location_id,
+        transfer_purpose=purpose,
+        lines=lines,
+    )
+
+    result: Dict[int, str] = {}
+    for line in lines:
+        line_id = _strict_int(
+            getattr(line, "id", None),
+            "transfer_line_id",
+            minimum=1,
+        )
+        source_status = str(
+            getattr(line, "source_stock_status", "") or ""
+        ).strip().upper()
+        safe_status = str(current_safe[line_id]).upper()
+
+        if action == "RETURN_TO_SOURCE":
+            final_status = _special_return_to_source_status(
+                source_status,
+                safe_status,
+            )
+        elif purpose == "DISPOSAL":
+            # Arrival at the approved disposal location is not destruction.
+            final_status = "DISPOSAL_PENDING"
+        elif purpose == "RECALL_RETURN":
+            # Creation purpose remains immutable evidence even if Recall closes
+            # while the valid in-flight document is being completed.
+            final_status = "RECALLED"
+        elif purpose == "QUARANTINE":
+            if safe_status == "RECALLED" or source_status == "RECALLED":
+                final_status = "RECALLED"
+            elif safe_status == "BLOCKED" or source_status == "BLOCKED":
+                final_status = "BLOCKED"
+            else:
+                final_status = "QUARANTINED"
+        elif purpose == "RETURN_TO_VENDOR":
+            if source_status == "DAMAGED":
+                final_status = "DAMAGED"
+            elif source_status == "DISPOSAL_PENDING":
+                final_status = "DISPOSAL_PENDING"
+            elif safe_status == "RECALLED" or source_status == "RECALLED":
+                final_status = "RECALLED"
+            elif safe_status == "BLOCKED" or source_status == "BLOCKED":
+                final_status = "BLOCKED"
+            else:
+                # Vendor-return staging must never make stock sellable.
+                final_status = "QUARANTINED"
+        else:
+            raise InventoryMutationError(
+                "Special transfer terminal matrix is incomplete."
+            )
+
+        if final_status not in _INVENTORY_STOCK_STATUSES:
+            raise InventoryMutationError(
+                "Special transfer terminal status invariant is invalid."
+            )
+        result[line_id] = final_status
 
     return result
 
@@ -2093,7 +3033,17 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             source_stock_status,
             frozenset(),
         )
-        if destination_stock_status not in allowed_destinations:
+        special_disposal_transition = (
+            reference_type == "SPECIAL_TRANSFER_TERMINAL_STATUS"
+            and normalized["transfer_header_id"] is not None
+            and destination_stock_status == "DISPOSAL_PENDING"
+            and source_stock_status in _INVENTORY_STOCK_STATUSES
+            and source_stock_status != "DISPOSAL_PENDING"
+        )
+        if (
+            destination_stock_status not in allowed_destinations
+            and not special_disposal_transition
+        ):
             raise InventoryRuleError(
                 "STOCK_STATUS_TRANSITION_BLOCKED",
                 "انتقال حالة الرصيد المطلوب غير مسموح حسب مصفوفة Stage 4.",
