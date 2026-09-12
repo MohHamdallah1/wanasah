@@ -4,12 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from decimal import Decimal
 from typing import List, Optional
 import json
 import logging
 
 from database import get_db
 from api.dependencies import get_current_driver
+from schemas import NonNegativeQuantity
+from quantity import QUANTITY_MAX, QuantityError, validate_variant_quantity
 from models import (
     WorkSession,
     DispatchRoute,
@@ -39,7 +42,7 @@ _MAX_RECON_BALANCE_ROWS = 10000
 class VehicleCountItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     product_variant_id: StrictInt = Field(gt=0, le=_DB_INT_MAX)
-    actual_quantity: StrictInt = Field(ge=0, le=_DB_INT_MAX)
+    actual_quantity: NonNegativeQuantity
 
 
 class VehicleReconciliationRequest(BaseModel):
@@ -220,17 +223,44 @@ async def reconcile_driver_end_of_day(
             raise HTTPException(status_code=409, detail="يوجد جرد/قفل مخزني فعال على السيارة؛ أكمله قبل التسوية.")
 
         submitted_ids = sorted({item.product_variant_id for item in payload.counts})
+        variant_rows = []
         if submitted_ids:
-            valid_ids = set((
+            variant_rows = (
                 await db.execute(
-                    select(ProductVariant.id).filter(
+                    select(
+                        ProductVariant.id,
+                        ProductVariant.quantity_scale,
+                        ProductVariant.quantity_step,
+                    ).filter(
                         ProductVariant.company_id == company_id,
                         ProductVariant.id.in_(submitted_ids),
                     )
                 )
-            ).scalars().all())
-            if valid_ids != set(submitted_ids):
-                raise HTTPException(status_code=422, detail="أحد الأصناف المعدودة غير موجود أو لا يتبع شركتك.")
+            ).all()
+
+        variant_rules = {
+            int(row.id): (int(row.quantity_scale), row.quantity_step)
+            for row in variant_rows
+        }
+        if set(variant_rules) != set(submitted_ids):
+            raise HTTPException(
+                status_code=422,
+                detail="أحد الأصناف المعدودة غير موجود أو لا يتبع شركتك.",
+            )
+
+        try:
+            actual_map = {
+                int(item.product_variant_id): validate_variant_quantity(
+                    item.actual_quantity,
+                    quantity_scale=variant_rules[int(item.product_variant_id)][0],
+                    quantity_step=variant_rules[int(item.product_variant_id)][1],
+                    field_name="actual_quantity",
+                    allow_zero=True,
+                )
+                for item in payload.counts
+            }
+        except QuantityError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         balance_rows = (
             await db.execute(
@@ -256,25 +286,30 @@ async def reconcile_driver_end_of_day(
         if len(balance_rows) > _MAX_RECON_BALANCE_ROWS:
             raise HTTPException(status_code=409, detail="رصيد السيارة كبير جداً للتسوية التجميعية الآمنة.")
 
-        expected_map = {}
-        reserved_total = 0
+        expected_map: dict[int, Decimal] = {}
+        reserved_total = Decimal("0")
         for balance in balance_rows:
-            reserved_total += int(balance.reserved_quantity or 0)
-            if balance.on_hand_quantity <= 0:
+            reserved_total += Decimal(balance.reserved_quantity or 0)
+            if Decimal(balance.on_hand_quantity or 0) <= 0:
                 continue
             product_variant_id = int(balance.product_variant_id)
-            next_total = expected_map.get(product_variant_id, 0) + int(balance.on_hand_quantity or 0)
-            if next_total > _DB_INT_MAX:
-                raise HTTPException(status_code=409, detail="إجمالي أحد أصناف السيارة يتجاوز سعة INTEGER.")
+            next_total = (
+                expected_map.get(product_variant_id, Decimal("0"))
+                + Decimal(balance.on_hand_quantity or 0)
+            )
+            if next_total > QUANTITY_MAX:
+                raise HTTPException(
+                    status_code=409,
+                    detail="إجمالي أحد أصناف السيارة يتجاوز سعة NUMERIC(20,6).",
+                )
             expected_map[product_variant_id] = next_total
 
-        if reserved_total != 0:
+        if reserved_total != Decimal("0"):
             raise HTTPException(
                 status_code=409,
                 detail="يوجد مخزون محجوز على السيارة بعد إنهاء الجلسة؛ يجب تحرير الحجز قبل التسوية.",
             )
 
-        actual_map = {item.product_variant_id: item.actual_quantity for item in payload.counts}
         missing_products = sorted(set(expected_map) - set(actual_map))
         if missing_products:
             raise HTTPException(
@@ -287,8 +322,8 @@ async def reconcile_driver_end_of_day(
 
         variances = []
         for product_variant_id in sorted(set(expected_map) | set(actual_map)):
-            expected = int(expected_map.get(product_variant_id, 0))
-            actual = int(actual_map.get(product_variant_id, 0))
+            expected = expected_map.get(product_variant_id, Decimal("0"))
+            actual = actual_map.get(product_variant_id, Decimal("0"))
             if expected != actual:
                 variances.append({
                     "product_variant_id": product_variant_id,

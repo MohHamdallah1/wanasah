@@ -59,13 +59,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        """
-        DELETE FROM permissions
-        WHERE code IN ('batch.disposition', 'inventory.status_change')
-        """
-    )
-
+    # Deliberately keep permission catalog rows on downgrade.
+    # They can be referenced by role_permissions, and deleting them would be
+    # destructive. Older application code safely ignores unknown permission codes.
     op.drop_constraint(
         "chk_inv_bal_nonavailable_not_reserved",
         "inventory_balances",

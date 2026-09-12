@@ -9,6 +9,7 @@ from typing import List
 from api.dependencies import get_current_driver
 from datetime import datetime, timezone
 from decimal import Decimal
+from quantity import QUANTITY_MAX
 from services import (
     reverse_previous_visit_state,
     InventoryReversalError,
@@ -260,7 +261,7 @@ async def start_work_session(
         ).all()
 
         for product_variant_id, stock_status, starting_quantity in opening_rows:
-            qty = int(starting_quantity or 0)
+            qty = Decimal(starting_quantity or 0)
             normalized_status = str(stock_status or "").upper()
 
             if normalized_status not in {
@@ -268,9 +269,9 @@ async def start_work_session(
                 "DAMAGED", "DISPOSAL_PENDING",
             }:
                 raise RuntimeError("Vehicle opening inventory has unsupported stock_status.")
-            if qty < 0 or qty > 2_147_483_647:
+            if qty < Decimal("0") or qty > QUANTITY_MAX:
                 raise RuntimeError(
-                    "Vehicle opening inventory exceeds SessionInventorySnapshot INTEGER bounds."
+                    "Vehicle opening inventory exceeds NUMERIC(20,6) quantity bounds."
                 )
 
             db.add(

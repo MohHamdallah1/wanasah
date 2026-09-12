@@ -477,19 +477,17 @@ _INVENTORY_STOCK_STATUSES = frozenset({
     "DISPOSAL_PENDING",
 })
 
-# Conservative transitions derived from the approved Stage 4 capability matrix.
-# DAMAGE creation remains on the already-approved return/damage workflows;
-# this administrative reclassification path does not invent a second damage workflow.
+# STAGE4D1_HARDENING
+# Stage 4D.1: keep the generic same-location reclassification command narrow.
+# Transfer-purpose operations (return / recall-return / quarantine transfer /
+# disposal) are NOT represented here; Stage 4E owns those directional workflows.
+# This command supports only local safety escalation plus explicit quarantine release.
 _PORTION_STATUS_TRANSITIONS = {
-    "AVAILABLE": frozenset({
-        "QUARANTINED", "BLOCKED", "RECALLED", "DISPOSAL_PENDING",
-    }),
-    "QUARANTINED": frozenset({
-        "AVAILABLE", "BLOCKED", "RECALLED", "DISPOSAL_PENDING",
-    }),
-    "BLOCKED": frozenset({"RECALLED", "DISPOSAL_PENDING"}),
-    "RECALLED": frozenset({"QUARANTINED", "DISPOSAL_PENDING"}),
-    "DAMAGED": frozenset({"DISPOSAL_PENDING"}),
+    "AVAILABLE": frozenset({"QUARANTINED", "BLOCKED", "RECALLED"}),
+    "QUARANTINED": frozenset({"AVAILABLE", "BLOCKED", "RECALLED"}),
+    "BLOCKED": frozenset({"RECALLED"}),
+    "RECALLED": frozenset(),
+    "DAMAGED": frozenset(),
     "DISPOSAL_PENDING": frozenset(),
 }
 
@@ -497,13 +495,15 @@ _BATCH_DISPOSITIONS = frozenset({
     "RELEASED", "QUARANTINED", "BLOCKED", "RECALLED",
 })
 
-# QUARANTINED -> RELEASED is the explicit Test/Release path.
-# RECALL can move only to a safer quarantine state, never directly to RELEASED.
+# Explicit Batch disposition commands only.
+# QUARANTINED -> RELEASED is the documented Test/Release path.
+# RECALLED is terminal here; return/quarantine/disposal of recalled physical stock
+# belongs to Stage 4E transfer-purpose workflows, not a generic disposition patch.
 _BATCH_DISPOSITION_TRANSITIONS = {
     "RELEASED": frozenset({"QUARANTINED", "BLOCKED", "RECALLED"}),
     "QUARANTINED": frozenset({"RELEASED", "BLOCKED", "RECALLED"}),
     "BLOCKED": frozenset({"RECALLED"}),
-    "RECALLED": frozenset({"QUARANTINED"}),
+    "RECALLED": frozenset(),
 }
 
 

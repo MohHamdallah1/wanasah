@@ -3289,7 +3289,14 @@ async def change_batch_disposition(
     await access.require("batch.disposition")
 
     if batch_id <= 0:
-        raise HTTPException(status_code=422, detail="batch_id يجب أن يكون موجباً.")
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "BATCH_ID_INVALID",
+                "batch_id يجب أن يكون موجباً.",
+                context={"batch_id": batch_id},
+            ),
+        )
 
     company_id = current_admin.company_id
     try:
@@ -3339,13 +3346,24 @@ async def change_batch_disposition(
         raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
     except InventoryMutationError as exc:
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "BATCH_DISPOSITION_REJECTED",
+                str(exc),
+                context={"batch_id": batch_id},
+            ),
+        ) from exc
     except IntegrityError as exc:
         await db.rollback()
         logger.warning("تعارض أثناء تغيير disposition للدفعة", exc_info=True)
         raise HTTPException(
             status_code=409,
-            detail="حدث تعارض متزامن أثناء تغيير حالة الدفعة؛ أعد المحاولة.",
+            detail=inventory_business_error(
+                "BATCH_DISPOSITION_CONFLICT",
+                "حدث تعارض متزامن أثناء تغيير حالة الدفعة؛ أعد المحاولة.",
+                context={"batch_id": batch_id},
+            ),
         ) from exc
     except HTTPException:
         await db.rollback()
@@ -3398,7 +3416,13 @@ async def change_inventory_status(
         if base_uom_id is None:
             raise HTTPException(
                 status_code=404,
-                detail="الصنف غير موجود أو لا يتبع الشركة.",
+                detail=inventory_business_error(
+                    "PRODUCT_NOT_FOUND",
+                    "الصنف غير موجود أو لا يتبع الشركة.",
+                    context={
+                        "product_variant_id": int(payload.product_variant_id),
+                    },
+                ),
             )
         if int(base_uom_id) != int(payload.uom_id):
             raise HTTPException(
@@ -3446,13 +3470,32 @@ async def change_inventory_status(
         raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
     except InventoryMutationError as exc:
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "INVENTORY_STATUS_CHANGE_REJECTED",
+                str(exc),
+                context={
+                    "location_id": int(payload.location_id),
+                    "product_variant_id": int(payload.product_variant_id),
+                    "batch_id": int(payload.batch_id),
+                },
+            ),
+        ) from exc
     except IntegrityError as exc:
         await db.rollback()
         logger.warning("تعارض أثناء تغيير Bucket المخزون", exc_info=True)
         raise HTTPException(
             status_code=409,
-            detail="حدث تعارض متزامن أثناء تغيير حالة الرصيد؛ أعد المحاولة.",
+            detail=inventory_business_error(
+                "INVENTORY_STATUS_CHANGE_CONFLICT",
+                "حدث تعارض متزامن أثناء تغيير حالة الرصيد؛ أعد المحاولة.",
+                context={
+                    "location_id": int(payload.location_id),
+                    "product_variant_id": int(payload.product_variant_id),
+                    "batch_id": int(payload.batch_id),
+                },
+            ),
         ) from exc
     except HTTPException:
         await db.rollback()
