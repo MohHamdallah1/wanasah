@@ -26,7 +26,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
-from api import auth, branches, catalog, driver, dispatch, product_locations, tenant, warehouse, reconciliation, platform_manager
+from api import auth, branches, catalog, driver, dispatch, pricing, product_locations, tenant, warehouse, reconciliation, platform_manager
 from config import Config
 from database import engine, get_db
 from ws_manager import dispatch_manager
@@ -299,6 +299,7 @@ app.include_router(dispatch.router, tags=["Dispatch & Routing"])
 app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 app.include_router(branches.router)
 app.include_router(catalog.router)
+app.include_router(pricing.router)
 app.include_router(tenant.router)
 
 # Step 5.7a: WebSocket endpoint for real-time dispatch dashboard updates

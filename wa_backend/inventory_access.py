@@ -24,7 +24,7 @@ PERMISSIONS = frozenset({
     'transfer.special.quarantine', 'transfer.special.recall_return',
     'transfer.special.return_to_vendor', 'transfer.special.disposal',
     'transfer.warehouse_balancing_override',
-    'pricing.read', 'pricing.manage', 'pricing.publish', 'pricing.assign',
+    'pricing.view', 'pricing.manage', 'pricing.approve',
     'stocktake.read', 'stocktake.start', 'stocktake.count', 'stocktake.review',
     'stocktake.approve', 'stocktake.recount', 'stocktake.cancel',
     'dispatch.read', 'dispatch.execute',
@@ -36,7 +36,7 @@ COMPANY_ONLY = frozenset({
     'transfer.special.quarantine', 'transfer.special.recall_return',
     'transfer.special.return_to_vendor', 'transfer.special.disposal',
     'transfer.warehouse_balancing_override',
-    'pricing.read', 'pricing.manage', 'pricing.publish', 'pricing.assign',
+    'pricing.view', 'pricing.manage', 'pricing.approve',
 })
 
 
