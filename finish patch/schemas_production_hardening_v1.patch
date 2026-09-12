@@ -1,0 +1,1441 @@
+diff --git a/wa_backend/schemas.py b/wa_backend/schemas.py
+index b9586ff..bf64d26 100644
+--- a/wa_backend/schemas.py
++++ b/wa_backend/schemas.py
+@@ -1,62 +1,228 @@
+-from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator, BaseModel
++from pydantic import BaseModel, Field, ConfigDict, model_validator, AliasChoices, field_validator
+ from pydantic.functional_validators import BeforeValidator
+ from typing import Optional, List, Any, Literal, Annotated, Dict, Union
+ from datetime import datetime, timezone, date
+-from decimal import Decimal
++from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+ 
+ # ==========================================
+-# 0. الدروع الفولاذية (دوال التطهير المساعدة - يجب أن تكون في الأعلى دائماً)
++# 0. Boundary primitives — fail closed, preserve DB precision, and reject lossy coercion.
+ # ==========================================
+-def clean_finance_str(v) -> str:
+-    if v is None or str(v).strip() == "": 
+-        return "0.0"
+-    return str(v)
++_DB_INT_MAX = 2_147_483_647
++_MONEY_12_3_MAX = Decimal("999999999.999")
++_MONEY_QUANT = Decimal("0.001")
+ 
+-def safe_finance_float(v) -> float:
+-    if v is None: return 0.0
+-    try:
+-        return float(v)
+-    except (ValueError, TypeError):
+-        return 0.0
+ 
+-def clean_null_string(v) -> str:
+-    return str(v) if v else ""
++class RequestModel(BaseModel):
++    """Base for request DTOs: unknown client fields are contract violations."""
++    model_config = ConfigDict(extra="forbid")
++
+ 
+-def clean_null_price(v) -> str: # +++ الدرع المالي للبيسة العُمانية: إرجاع نص للحفاظ على الـ Decimal في JSON +++
+-    if v is None or str(v).strip() == "": return "0.000"
++# تحويل أي قيمة مالية إلى Decimal محدود من NaN/Infinity مع دعم None عند الطلب.
++def _finite_decimal(v: Any, *, allow_none: bool = False) -> Optional[Decimal]:
++    if v is None or (isinstance(v, str) and not v.strip()):
++        if allow_none:
++            return None
++        return Decimal("0.000")
+     try:
+-        return str(Decimal(str(v)))
+-    except (Exception):
+-        return "0.000"
++        dec = Decimal(str(v).strip())
++    except (InvalidOperation, ValueError, TypeError) as exc:
++        raise ValueError("قيمة مالية غير صالحة") from exc
++    if not dec.is_finite():
++        raise ValueError("قيمة مالية غير صالحة (NaN/Infinity)")
++    return dec
++
++
++# تسلسل قيمة مالية صالحة إلى نص ثابت بثلاث منازل عشرية.
++def clean_finance_str(v: Any) -> str:
++    """Serialize a finite Numeric(12,3)-compatible value as a canonical 3-decimal string."""
++    dec = _finite_decimal(v)
++    if abs(dec) > _MONEY_12_3_MAX:
++        raise ValueError("القيمة المالية تتجاوز سعة Numeric(12,3)")
++    try:
++        return format(dec.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP), "f")
++    except InvalidOperation as exc:
++        raise ValueError("قيمة مالية غير قابلة للتمثيل") from exc
++
++
++# تحويل None إلى نص فارغ دون إسقاط القيم النصية الأخرى.
++def clean_null_string(v: Any) -> str:
++    return "" if v is None else str(v)
+ 
+-def clean_zero_packs(v) -> int:
+-    if v is None: return 1 # +++ العبث بالديفولت 50 يدمر المنتجات الفردية، 1 هو الآمن +++
++
++# تسلسل السعر إلى نص مالي ثابت مع رفض القيم الفاسدة أو السالبة.
++def clean_null_price(v: Any) -> str:
++    if v is None or (isinstance(v, str) and not v.strip()):
++        return "0.000"
++    dec = _finite_decimal(v)
++    if dec < 0 or dec > _MONEY_12_3_MAX:
++        raise ValueError("السعر خارج النطاق المالي المسموح")
++    return format(dec.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP), "f")
++
++
++# تحويل قيمة إلى INTEGER آمن دون قص الكسور أو قبول bool أو تجاوز سعة PostgreSQL.
++def _strict_db_int(
++    v: Any,
++    *,
++    minimum: int = 0,
++    maximum: int = _DB_INT_MAX,
++    empty_default: Optional[int] = None,
++) -> int:
++    if v is None or (isinstance(v, str) and not v.strip()):
++        if empty_default is not None:
++            return empty_default
++        raise ValueError("قيمة رقمية مطلوبة")
++    if isinstance(v, bool):
++        raise ValueError("القيمة يجب أن تكون عدداً صحيحاً")
+     try:
+-        val = int(float(v))
+-        return val if val > 0 else 1
+-    except (ValueError, TypeError):
+-        return 1
++        dec = Decimal(str(v).strip())
++    except (InvalidOperation, ValueError, TypeError) as exc:
++        raise ValueError("قيمة رقمية غير صالحة") from exc
++    if not dec.is_finite() or dec != dec.to_integral_value():
++        raise ValueError("القيمة يجب أن تكون عدداً صحيحاً بدون كسور")
++    if dec < minimum or dec > maximum:
++        raise ValueError(f"القيمة خارج النطاق المسموح ({minimum}..{maximum})")
++    return int(dec)
++
++
++# تطبيع معرّف/كمية موجبة ضمن سعة INTEGER.
++def positive_db_int_input(v: Any) -> int:
++    return _strict_db_int(v, minimum=1)
++
++
++# تطبيع كمية غير سالبة ضمن سعة INTEGER.
++def nonnegative_db_int_input(v: Any) -> int:
++    return _strict_db_int(v, minimum=0)
+ 
++
++# تطبيع فرق موقّع ضمن سعة INTEGER.
++def signed_db_int_input(v: Any) -> int:
++    return _strict_db_int(v, minimum=-_DB_INT_MAX, maximum=_DB_INT_MAX)
++
++
++# فرض invariant عدد الحبات في الكرتونة كموجب بدلاً من إخفاء فساد البيانات.
++def clean_zero_packs(v: Any) -> int:
++    # packs_per_carton is a model invariant; do not hide corrupt data by silently converting it to 1.
++    return positive_db_int_input(v)
++
++
++# تطبيع قيمة مالية اختيارية-المدخل إلى Numeric(12,3) دون تقريب صامت.
+ def safe_decimal_input(v: Any) -> Decimal:
+-    if v is None or str(v).strip() == "": return Decimal('0.0')
+-    try: 
+-        dec = Decimal(str(v).strip())
+-        if not dec.is_finite(): raise ValueError("قيمة مالية غير صالحة (NaN/Infinity)")
+-        return dec
+-    except Exception: raise ValueError("قيمة مالية غير صالحة")
++    dec = _finite_decimal(v)
++    if dec < 0 or dec > _MONEY_12_3_MAX:
++        raise ValueError("القيمة المالية يجب أن تكون بين 0 و 999999999.999")
++    try:
++        quantized = dec.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
++    except InvalidOperation as exc:
++        raise ValueError("القيمة المالية غير قابلة للتمثيل بدقة 3 منازل") from exc
++    if dec != quantized:
++        raise ValueError("القيمة المالية لا يجوز أن تحتوي على أكثر من 3 منازل عشرية")
++    return quantized
+ 
++
++
++# تطبيع قيمة مالية اختيارية إلى Numeric(12,3) مع إبقاء None صريحاً.
+ def safe_optional_decimal(v: Any) -> Optional[Decimal]:
+-    if v is None or str(v).strip() == "": return None
+-    try: 
+-        dec = Decimal(str(v).strip())
+-        if not dec.is_finite(): raise ValueError("قيمة مالية غير صالحة (NaN/Infinity)")
+-        return dec
+-    except Exception: raise ValueError("قيمة مالية غير صالحة")
++    dec = _finite_decimal(v, allow_none=True)
++    if dec is None:
++        return None
++    if dec < 0 or dec > _MONEY_12_3_MAX:
++        raise ValueError("القيمة المالية يجب أن تكون بين 0 و 999999999.999")
++    try:
++        quantized = dec.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
++    except InvalidOperation as exc:
++        raise ValueError("القيمة المالية غير قابلة للتمثيل بدقة 3 منازل") from exc
++    if dec != quantized:
++        raise ValueError("القيمة المالية لا يجوز أن تحتوي على أكثر من 3 منازل عشرية")
++    return quantized
++
++
++
++# رفض الفراغ/None للحقول المالية الإلزامية ثم تطبيق نفس حدود Numeric(12,3).
++def required_money_input(v: Any) -> Decimal:
++    if v is None or (isinstance(v, str) and not v.strip()):
++        raise ValueError("القيمة المالية مطلوبة")
++    return safe_decimal_input(v)
+ 
++
++# تطبيع sequence قديم مع الحفاظ على default=999 للفراغ فقط.
+ def safe_int_input(v: Any) -> int:
+-    if v is None or str(v).strip() == "": return 999
+-    try: return int(float(str(v).strip()))
+-    except Exception: raise ValueError("قيمة رقمية غير صالحة")
++    # Preserve the legacy empty-sequence default, but never truncate fractional/huge values through float().
++    return _strict_db_int(v, minimum=0, empty_default=999)
++
++
++# تنظيف نص اختياري وتحويل الفراغ إلى None.
++def _optional_text(v: Any) -> Optional[str]:
++    if v is None:
++        return None
++    if not isinstance(v, str):
++        raise ValueError("القيمة النصية يجب أن تكون نصاً")
++    value = v.strip()
++    return value or None
++
++
++# تنظيف نص إلزامي ورفض الفراغ أو الأنواع غير النصية.
++def _required_text(v: Any) -> str:
++    if not isinstance(v, str):
++        raise ValueError("القيمة النصية مطلوبة ويجب أن تكون نصاً")
++    value = v.strip()
++    if not value:
++        raise ValueError("القيمة النصية لا يمكن أن تكون فارغة")
++    return value
++
++
++# تطبيع خط العرض ورفض NaN/Infinity وخارج النطاق الجغرافي.
++def _latitude_input(v: Any) -> Optional[float]:
++    if v is None or (isinstance(v, str) and not v.strip()):
++        return None
++    try:
++        dec = Decimal(str(v).strip())
++    except (InvalidOperation, ValueError, TypeError) as exc:
++        raise ValueError("خط العرض غير صالح") from exc
++    if not dec.is_finite() or dec < Decimal("-90") or dec > Decimal("90"):
++        raise ValueError("خط العرض يجب أن يكون بين -90 و 90")
++    return float(dec)
++
++
++# تطبيع خط الطول ورفض NaN/Infinity وخارج النطاق الجغرافي.
++def _longitude_input(v: Any) -> Optional[float]:
++    if v is None or (isinstance(v, str) and not v.strip()):
++        return None
++    try:
++        dec = Decimal(str(v).strip())
++    except (InvalidOperation, ValueError, TypeError) as exc:
++        raise ValueError("خط الطول غير صالح") from exc
++    if not dec.is_finite() or dec < Decimal("-180") or dec > Decimal("180"):
++        raise ValueError("خط الطول يجب أن يكون بين -180 و 180")
++    return float(dec)
++
++
++# حماية حدود bcrypt مع إبقاء كلمة المرور نفسها دون strip أو تغيير.
++def _bcrypt_password(v: Any) -> str:
++    if not isinstance(v, str):
++        raise ValueError("كلمة المرور يجب أن تكون نصاً")
++    if not v:
++        raise ValueError("كلمة المرور مطلوبة")
++    if len(v.encode("utf-8")) > 72:
++        raise ValueError("كلمة المرور تتجاوز حد bcrypt البالغ 72 بايت")
++    return v
++
++
++# تطبيع معرّف اختياري موجب مع تحويل الفراغ إلى None.
++def _normalize_optional_positive_id(v: Any) -> Optional[int]:
++    if v is None or (isinstance(v, str) and not v.strip()):
++        return None
++    return positive_db_int_input(v)
++
++
++PositiveDbInt = Annotated[int, BeforeValidator(positive_db_int_input)]
++NonNegativeDbInt = Annotated[int, BeforeValidator(nonnegative_db_int_input)]
++SignedDbInt = Annotated[int, BeforeValidator(signed_db_int_input)]
++OptionalPositiveDbInt = Annotated[Optional[int], BeforeValidator(_normalize_optional_positive_id)]
++Latitude = Annotated[Optional[float], BeforeValidator(_latitude_input)]
++Longitude = Annotated[Optional[float], BeforeValidator(_longitude_input)]
++MoneyInput = Annotated[Decimal, BeforeValidator(safe_decimal_input)]
++RequiredMoneyInput = Annotated[Decimal, BeforeValidator(required_money_input)]
++OptionalMoneyInput = Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)]
+ 
+ # ==========================================
+ # 1. دروع الردود العامة (Generic Responses)
+@@ -67,11 +233,22 @@ class MessageResponse(BaseModel):
+ # ==========================================
+ # 2. دروع المصادقة وتسجيل الدخول (Auth)
+ # ==========================================
+-class LoginRequest(BaseModel):
+-    company_code: str = Field(..., min_length=2, max_length=50, strip_whitespace=True)
+-    username: str = Field(..., min_length=2, description="اسم المستخدم")
++class LoginRequest(RequestModel):
++    company_code: str = Field(..., min_length=2, max_length=50)
++    username: str = Field(..., min_length=2, max_length=80, description="اسم المستخدم")
+     password: str = Field(..., min_length=4, description="كلمة المرور")
+ 
++    @field_validator("company_code", "username", mode="before")
++    @classmethod
++    def normalize_identity(cls, v: Any) -> str:
++        return _required_text(v)
++
++    @field_validator("password", mode="before")
++    @classmethod
++    def validate_password(cls, v: Any) -> str:
++        return _bcrypt_password(v)
++
++
+ class LoginResponse(BaseModel):
+     message: str
+     token: str
+@@ -86,16 +263,27 @@ class LoginResponse(BaseModel):
+ # 3. دروع العمليات المشتركة والمنتجات الفرعية (Shared)
+ # ==========================================
+ class ShopBase(BaseModel):
+-    name: str = Field(..., min_length=2, description="اسم المحل إجباري")
+-    phone_number: Optional[str] = None
+-    address: Optional[str] = None
+-    latitude: Optional[float] = None
+-    longitude: Optional[float] = None
+-    location_link: Optional[str] = None
+-    notes: Optional[str] = None
++    name: str = Field(..., min_length=2, max_length=150, description="اسم المحل إجباري")
++    phone_number: Optional[str] = Field(None, max_length=20)
++    address: Optional[str] = Field(None, max_length=2000)
++    latitude: Latitude = None
++    longitude: Longitude = None
++    location_link: Optional[str] = Field(None, max_length=500)
++    notes: Optional[str] = Field(None, max_length=4000)
++
++    @field_validator("name", mode="before")
++    @classmethod
++    def normalize_name(cls, v: Any) -> str:
++        return _required_text(v)
++
++    @field_validator("phone_number", "address", "location_link", "notes", mode="before")
++    @classmethod
++    def normalize_optional_strings(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
+ 
+ class ShopCreate(ShopBase):
+-    pass
++    model_config = ConfigDict(extra="forbid")
+ 
+ class ShopResponse(ShopBase):
+     id: int
+@@ -108,9 +296,16 @@ class ShopResponse(ShopBase):
+     sequence: Optional[int] = 999
+     model_config = ConfigDict(from_attributes=True)
+ 
+-class TransferResponseRequest(BaseModel):
+-    response: Literal['accepted', 'rejected'] = Field(..., description="رد المندوب")
+-    reason: Optional[str] = Field(None, description="سبب الرفض إن وجد")
++class TransferResponseRequest(RequestModel):
++    response: Literal["accepted", "rejected"] = Field(..., description="رد المندوب")
++    reason: Optional[str] = Field(None, max_length=1000, description="سبب الرفض إن وجد")
++
++    @field_validator("reason", mode="before")
++    @classmethod
++    def normalize_reason(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++
+ 
+ class ProductVariantResponse(BaseModel):
+     model_config = ConfigDict(from_attributes=True)
+@@ -195,19 +390,30 @@ class VisitDetailsResponse(BaseModel):
+ # ==========================================
+ # 5. دروع عمليات الميدان والجلسات (Driver Operations)
+ # ==========================================
+-class SessionStartRequest(BaseModel):
+-    latitude: Optional[float] = None
+-    longitude: Optional[float] = None
++class SessionStartRequest(RequestModel):
++    latitude: Latitude = None
++    longitude: Longitude = None
+ 
+-class BreakToggleRequest(BaseModel):
++
++class BreakToggleRequest(RequestModel):
+     action: Literal["start", "end"]
+ 
+-class BatchTransferItem(BaseModel):
+-    transfer_id: int
+-    status: Literal['accepted', 'rejected']
+ 
+-class BatchTransferResponseRequest(BaseModel):
+-    transfers: List[BatchTransferItem]
++class BatchTransferItem(RequestModel):
++    transfer_id: PositiveDbInt
++    status: Literal["accepted", "rejected"]
++
++
++class BatchTransferResponseRequest(RequestModel):
++    transfers: List[BatchTransferItem] = Field(..., min_length=1, max_length=200)
++
++    @model_validator(mode="after")
++    def reject_duplicate_transfers(self) -> "BatchTransferResponseRequest":
++        ids = [item.transfer_id for item in self.transfers]
++        if len(ids) != len(set(ids)):
++            raise ValueError("لا يجوز إرسال نفس الحوالة أكثر من مرة في نفس الطلب.")
++        return self
++
+ 
+ class PendingTransferItem(BaseModel):
+     real_transfer_id: int
+@@ -220,24 +426,26 @@ class PendingBatchResponse(BaseModel):
+     created_at: Optional[str]
+     items: List[PendingTransferItem]
+ 
+-class AddShopRequest(BaseModel):
+-    model_config = ConfigDict(str_strip_whitespace=True)
++class AddShopRequest(RequestModel):
+     name: str = Field(..., min_length=2, max_length=150)
+     phone_number: str = Field(..., min_length=5, max_length=20)
+-    address: Optional[str] = Field(None, max_length=500)
++    address: Optional[str] = Field(None, max_length=2000)
+     contact_person: Optional[str] = Field(None, max_length=100)
+-    notes: Optional[str] = None
++    notes: Optional[str] = Field(None, max_length=4000)
+     location_link: Optional[str] = Field(None, max_length=500)
+-    latitude: Optional[float] = None
+-    longitude: Optional[float] = None
++    latitude: Latitude = None
++    longitude: Longitude = None
++
++    @field_validator("name", "phone_number", mode="before")
++    @classmethod
++    def clean_required_strings(cls, v: Any) -> str:
++        return _required_text(v)
+ 
+-    @field_validator('name', 'phone_number', 'address', 'contact_person', 'notes', 'location_link', mode='before')
++    @field_validator("address", "contact_person", "notes", "location_link", mode="before")
+     @classmethod
+-    def clean_strings(cls, v):
+-        if isinstance(v, str):
+-            cleaned = v.strip()
+-            return cleaned if cleaned else None
+-        return v
++    def clean_optional_strings(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
+ 
+ # ==========================================
+ # 6. دروع استعراض الزيارات للمندوب (Get Visits)
+@@ -296,13 +504,18 @@ class DriverVisitResponse(BaseModel):
+     shop_phone: Optional[str] = None
+     shop: Optional[VisitShopResponse] = Field(default=None, exclude=True)
+     cart_items: List[VisitItemResponse] = Field(default_factory=list, validation_alias="items")
+-    returns: List[VisitReturnResponse] = []
++    returns: List[VisitReturnResponse] = Field(default_factory=list)
+     visit_timestamp: Optional[str] = None
+ 
+     @field_validator('visit_timestamp', mode='before')
+     @classmethod
+     def format_time(cls, v):
+-        if isinstance(v, datetime): return v.replace(tzinfo=timezone.utc).isoformat()
++        if isinstance(v, datetime):
++            if v.tzinfo is None:
++                v = v.replace(tzinfo=timezone.utc)
++            else:
++                v = v.astimezone(timezone.utc)
++            return v.isoformat()
+         return str(v) if v else None
+ 
+     @field_validator('cart_items', 'returns', mode='after')
+@@ -357,97 +570,126 @@ class GetVisitsContract(BaseModel):
+ # ==========================================
+ # 7. دروع التحديث الميداني (Update Visit)
+ # ==========================================
+-class VisitItemInput(BaseModel):
+-    # +++ تم نسف كارثة النسخ واللصق التي كانت ستدمر الـ API +++
+-    product_variant_id: int
+-    quantity: int = Field(0, ge=0)
+-    packs_quantity: int = Field(0, ge=0)
+-    bonus_quantity: int = Field(0, ge=0)
+-    sample_quantity: int = Field(0, ge=0, validation_alias=AliasChoices('sample_quantity', 'sample_cartons'))
+-    sample_packs_quantity: int = Field(0, ge=0, validation_alias=AliasChoices('sample_packs_quantity', 'sample_packs'))
+-    sample_reason: Optional[str] = None
+-
+-    @field_validator('quantity', 'packs_quantity', 'bonus_quantity', 'sample_quantity', 'sample_packs_quantity', mode='before')
++class VisitItemInput(RequestModel):
++    product_variant_id: PositiveDbInt
++    quantity: NonNegativeDbInt = 0
++    packs_quantity: NonNegativeDbInt = 0
++    # العميل لا يحدد البونص؛ الخادم يحسبه من OfferRule. نبقي الحقل للتوافق لكن لا نسمح بقيمة غير صفرية.
++    bonus_quantity: NonNegativeDbInt = 0
++    sample_quantity: NonNegativeDbInt = Field(
++        0, validation_alias=AliasChoices("sample_quantity", "sample_cartons")
++    )
++    sample_packs_quantity: NonNegativeDbInt = Field(
++        0, validation_alias=AliasChoices("sample_packs_quantity", "sample_packs")
++    )
++    sample_reason: Optional[str] = Field(None, max_length=255)
++
++    @field_validator("sample_reason", mode="before")
+     @classmethod
+-    def clean_empty_ints(cls, v: Any) -> int:
+-        if v == "" or v is None or str(v).strip() == "": return 0
+-        return int(v)
+-
+-    # +++ الدرع الجنائي الشامل (Zero Trust): حماية العينات (كراتين وفراطة) من التهريب بدون سبب +++
+-    @model_validator(mode='after')
+-    def validate_samples_and_bonus(self) -> 'VisitItemInput':
+-        total_samples = self.sample_quantity + getattr(self, 'sample_packs_quantity', 0)
++    def normalize_sample_reason(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    @model_validator(mode="after")
++    def validate_line(self) -> "VisitItemInput":
++        if self.bonus_quantity != 0:
++            raise ValueError("bonus_quantity محسوب من الخادم ولا يجوز للعميل إرساله بقيمة غير صفرية.")
++        total_samples = self.sample_quantity + self.sample_packs_quantity
+         if total_samples > 0 and not self.sample_reason:
+-            raise ValueError(f"مرفوض أمنياً: يجب تحديد سبب مقنع لصرف عينات للمنتج رقم {self.product_variant_id}")
++            raise ValueError(
++                f"يجب تحديد سبب صرف العينات للمنتج رقم {self.product_variant_id}."
++            )
+         if total_samples == 0:
+             self.sample_reason = None
++        if self.quantity + self.packs_quantity + total_samples == 0:
++            raise ValueError("لا يجوز إرسال سطر منتج بكميات صفرية بالكامل.")
+         return self
+ 
+-class VisitReturnInput(BaseModel):
+-    product_variant_id: int
+-    quantity: int = Field(0, ge=0, validation_alias=AliasChoices('quantity', 'cartons'))
+-    packs_quantity: int = Field(0, ge=0, validation_alias=AliasChoices('packs_quantity', 'packs'))
+-    # +++  لثغرة طباعة الأموال: إعدام حالة 'Sellable' تماماً لتطابق سياسة الشركة (لا استرجاع، استبدال تالف فقط) +++
+-    return_type: Literal['Expired', 'Damaged', 'Factory_Defect'] = Field('Damaged')
+-    reason: Optional[str] = None
+ 
+-    @field_validator('quantity', 'packs_quantity', mode='before')
++class VisitReturnInput(RequestModel):
++    product_variant_id: PositiveDbInt
++    quantity: NonNegativeDbInt = Field(
++        0, validation_alias=AliasChoices("quantity", "cartons")
++    )
++    packs_quantity: NonNegativeDbInt = Field(
++        0, validation_alias=AliasChoices("packs_quantity", "packs")
++    )
++    return_type: Literal["Expired", "Damaged", "Factory_Defect"] = "Damaged"
++    reason: Optional[str] = Field(None, max_length=2000)
++
++    @field_validator("return_type", mode="before")
+     @classmethod
+-    def clean_empty_ints(cls, v: Any) -> int:
+-        if v == "" or v is None or str(v).strip() == "": return 0
+-        return int(v)
++    def normalize_return_type(cls, v: Any) -> str:
++        if v is None or (isinstance(v, str) and not v.strip()):
++            return "Damaged"
++        return str(v).strip()
+ 
+-    @field_validator('return_type', mode='before')
++    @field_validator("reason", mode="before")
+     @classmethod
+-    def enforce_zero_trust(cls, v: Any) -> str:
+-        if v is None or str(v).strip() == "": return 'Damaged'
+-        return v
++    def normalize_reason(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
+ 
+-class VisitUpdateRequest(BaseModel):
+-    outcome: Literal['Sale', 'NoSale', 'Postponed']
+-    notes: Optional[str] = None
+-    is_emergency: bool = False
+-    latitude: Optional[float] = None
+-    longitude: Optional[float] = None
+-    cash_collected: Decimal = Field(default=Decimal('0.00'), ge=0)
+-    debt_paid: Decimal = Field(default=Decimal('0.00'), ge=0)
+-    cart_items: List[VisitItemInput] = Field(default_factory=list)
+-    returns: List[VisitReturnInput] = Field(default_factory=list)
+-
+-    @field_validator('cash_collected', 'debt_paid', mode='before')
+-    @classmethod
+-    def clean_empty_decimals(cls, v: Any) -> Decimal:
+-        if v == "" or v is None or str(v).strip() == "": return Decimal('0.00')
+-        try:
+-            dec = Decimal(str(v))
+-            if not dec.is_finite(): raise ValueError("قيمة غير صالحة")
+-            return dec
+-        except Exception:
+-            raise ValueError("قيمة غير صالحة")
++    @model_validator(mode="after")
++    def require_nonzero_return(self) -> "VisitReturnInput":
++        if self.quantity + self.packs_quantity == 0:
++            raise ValueError("لا يجوز إرسال سطر مرتجع بكميات صفرية بالكامل.")
++        return self
+ 
+-    @model_validator(mode='after')
+-    def validate_visit_logic(self) -> 'VisitUpdateRequest':
+-        if self.outcome == 'Sale':
+-            total_items_qty = sum(i.quantity + i.packs_quantity + i.bonus_quantity + i.sample_quantity + i.sample_packs_quantity for i in self.cart_items)
+-            total_returns_qty = sum(r.quantity + r.packs_quantity for r in self.returns)
+-            has_real_activity = (total_items_qty > 0 or total_returns_qty > 0 or self.cash_collected > Decimal('0') or self.debt_paid > Decimal('0'))
+-            if not has_real_activity:
+-                raise ValueError("لا يمكن تسجيل 'بيع' بمنتجات صفرية بدون تحصيل مالي.")
+-        elif self.outcome == 'NoSale':
+-            # +++ الدرع المعماري لحل الـ 422: السماح بالـ NoSale بدون ملاحظات إذا كان المندوب قد أدخل عينات أو مرتجعات (لأنها تعتبر مبرراً بحد ذاتها) +++
+-            total_samples = sum(i.sample_quantity + getattr(i, 'sample_packs_quantity', 0) for i in self.cart_items)
+-            total_returns = sum(r.quantity + r.packs_quantity for r in self.returns)
+-            
+-            if total_samples == 0 and total_returns == 0:
+-                if not self.notes or not self.notes.strip():
+-                    raise ValueError("يجب كتابة سبب عدم البيع في الملاحظات.")
+-        elif self.outcome == 'Postponed':
+-            self.cash_collected = Decimal('0.00')
+-            self.debt_paid = Decimal('0.00')
+-            self.cart_items = []
+-            self.returns = []
++
++class VisitUpdateRequest(RequestModel):
++    outcome: Literal["Sale", "NoSale", "Postponed"]
++    notes: Optional[str] = Field(None, max_length=4000)
++    is_emergency: bool = False
++    latitude: Latitude = None
++    longitude: Longitude = None
++    cash_collected: MoneyInput = Decimal("0.000")
++    debt_paid: MoneyInput = Decimal("0.000")
++    cart_items: List[VisitItemInput] = Field(default_factory=list, max_length=500)
++    returns: List[VisitReturnInput] = Field(default_factory=list, max_length=500)
++
++    @field_validator("notes", mode="before")
++    @classmethod
++    def normalize_notes(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    @model_validator(mode="after")
++    def validate_visit_logic(self) -> "VisitUpdateRequest":
++        has_real_sales = any(
++            item.quantity > 0 or item.packs_quantity > 0
++            for item in self.cart_items
++        )
++        total_samples = sum(
++            item.sample_quantity + item.sample_packs_quantity
++            for item in self.cart_items
++        )
++        total_returns = sum(
++            item.quantity + item.packs_quantity
++            for item in self.returns
++        )
++
++        if self.outcome == "Sale":
++            if not self.cart_items:
++                raise ValueError("لا يمكن تسجيل حالة بيع دون وجود منتجات في السلة.")
++        elif self.outcome == "NoSale":
++            if has_real_sales or self.cash_collected > Decimal("0"):
++                raise ValueError(
++                    "حالة NoSale لا تقبل مبيعات فعلية أو تحصيل كاش؛ "
++                    "يسمح بالعينات/المرتجعات أو تحصيل ديون سابقة."
++                )
++            if total_samples == 0 and total_returns == 0 and not self.notes:
++                raise ValueError("يجب كتابة سبب عدم البيع في الملاحظات.")
++        else:  # Postponed
++            if (
++                self.cash_collected > Decimal("0")
++                or self.debt_paid > Decimal("0")
++                or self.cart_items
++                or self.returns
++            ):
++                raise ValueError(
++                    "الزيارة المؤجلة لا تقبل مبيعات أو عينات أو مرتجعات أو تحصيلاً مالياً."
++                )
+         return self
+ 
++
+ # +++ سكيما الدالة القادمة (Active Session) +++
+ class ActiveSessionResponse(BaseModel):
+     active_session_found: bool
+@@ -457,9 +699,12 @@ class ActiveSessionResponse(BaseModel):
+ # ==========================================
+ # 8. دروع لوحة التحكم والإدارة (Admin / Dispatch)
+ # ==========================================
+-class AuthorizeSessionRequest(BaseModel):
+-    # +++  لفخ الـ 422: إعادة القيمة الافتراضية True للوفاء بعقد الواجهة القديم +++
+-    is_authorized: bool = Field(True, description="حالة الصلاحية المطلوبة (True للضوء الأخضر، False للإيقاف)")
++class AuthorizeSessionRequest(RequestModel):
++    # القيمة الافتراضية True جزء من عقد الواجهة القديم؛ الحقول الزائدة تظل مرفوضة.
++    is_authorized: bool = Field(
++        True,
++        description="حالة الصلاحية المطلوبة (True للضوء الأخضر، False للإيقاف)",
++    )
+ 
+ class AdminInventoryItem(BaseModel):
+     model_config = ConfigDict(from_attributes=True)
+@@ -541,31 +786,21 @@ class SessionSettlementReportResponse(BaseModel):
+         return str(v) if v else None
+ 
+ # +++ دروع التسوية المالية (محكمة المندوب) +++
+-class JardItemInput(BaseModel):
+-    product_id: int
+-    actual: int = Field(..., ge=0, description="الجرد الفعلي بالحبات")
++class JardItemInput(RequestModel):
++    product_id: PositiveDbInt
++    actual: NonNegativeDbInt = Field(..., description="الجرد الفعلي بالحبات")
+ 
+-    @field_validator('actual', mode='before')
+-    @classmethod
+-    def clean_empty_ints(cls, v: Any) -> int:
+-        if v == "" or v is None or str(v).strip() == "": return 0
+-        return int(v)
+ 
+-class SettleSessionRequest(BaseModel):
+-    actual_cash: Decimal = Field(default=Decimal('0.00'), ge=0)
+-    inventory_jard: List[JardItemInput] = Field(default_factory=list)
+-    notes: Annotated[str, BeforeValidator(clean_null_string)] = ""
++class SettleSessionRequest(RequestModel):
++    actual_cash: MoneyInput = Decimal("0.000")
++    inventory_jard: List[JardItemInput] = Field(default_factory=list, max_length=5000)
++    notes: Optional[str] = Field(None, max_length=4000)
+ 
+-    @field_validator('actual_cash', mode='before')
++    @field_validator("notes", mode="before")
+     @classmethod
+-    def clean_empty_decimals(cls, v: Any) -> Decimal:
+-        if v == "" or v is None or str(v).strip() == "": return Decimal('0.00')
+-        try:
+-            dec = Decimal(str(v))
+-            if not dec.is_finite(): raise ValueError("قيمة غير صالحة")
+-            return dec
+-        except Exception:
+-            raise ValueError("قيمة غير صالحة")
++    def normalize_notes(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
+ 
+ class SettleSessionResponse(BaseModel):
+     message: str
+@@ -599,12 +834,31 @@ class DispatchInitResponse(BaseModel):
+     vehicles: List[DispatchVehicleResponse]
+     products: List[DispatchProductResponse]
+ 
+-class DispatchRouteRequest(BaseModel):
+-    zone_id: int
+-    driver_id: int
+-    vehicle_id: int
+-    # استقبال الجرد كقاموس نصوص (للتوافق مع React) وسيتم تنظيفه داخلياً
+-    inventory: Optional[Dict[str, Any]] = Field(default_factory=dict)
++class DispatchRouteRequest(RequestModel):
++    zone_id: PositiveDbInt
++    driver_id: PositiveDbInt
++    vehicle_id: PositiveDbInt
++    # Final model requires an explicit source warehouse; never infer "first active warehouse".
++    source_location_id: PositiveDbInt
++    # Legacy React wire shape is preserved, but keys/values are now validated and normalized.
++    inventory: Dict[str, NonNegativeDbInt] = Field(default_factory=dict, max_length=5000)
++
++    @field_validator("inventory", mode="before")
++    @classmethod
++    def validate_inventory_map(cls, v: Any) -> Dict[str, Any]:
++        if v is None:
++            return {}
++        if not isinstance(v, dict):
++            raise ValueError("inventory يجب أن يكون قاموس product_id -> target cartons.")
++        out: Dict[str, Any] = {}
++        for raw_key, raw_value in v.items():
++            product_id = positive_db_int_input(raw_key)
++            key = str(product_id)
++            if key in out:
++                raise ValueError("يوجد product_id مكرر في خطة التحميل.")
++            out[key] = raw_value
++        return out
++
+ 
+ class VehicleInventoryItemResponse(BaseModel):
+     product_id: str
+@@ -618,12 +872,29 @@ class RouteLiveInventoryItemResponse(BaseModel):
+     current_cartons: int
+     current_packs: int
+ 
+-class InventoryAdjustmentDelta(BaseModel):
+-    product_id: int
+-    delta_cartons: int
++class InventoryAdjustmentDelta(RequestModel):
++    product_id: PositiveDbInt
++    delta_cartons: SignedDbInt
++
++    @model_validator(mode="after")
++    def reject_zero_delta(self) -> "InventoryAdjustmentDelta":
++        if self.delta_cartons == 0:
++            raise ValueError("delta_cartons لا يجوز أن يكون صفراً.")
++        return self
++
++
++class AdjustRouteInventoryRequest(RequestModel):
++    deltas: List[InventoryAdjustmentDelta] = Field(
++        ..., min_length=1, max_length=5000, description="قائمة بالتعديلات المطلوبة"
++    )
++
++    @model_validator(mode="after")
++    def reject_duplicate_products(self) -> "AdjustRouteInventoryRequest":
++        ids = [item.product_id for item in self.deltas]
++        if len(ids) != len(set(ids)):
++            raise ValueError("لا يجوز تكرار نفس المنتج في تعديلات المسار.")
++        return self
+ 
+-class AdjustRouteInventoryRequest(BaseModel):
+-    deltas: List[InventoryAdjustmentDelta] = Field(..., description="قائمة بالتعديلات المطلوبة")
+ 
+ class RouteTransferResponse(BaseModel):
+     transfer_id: int
+@@ -646,35 +917,64 @@ class DispatchShopResponse(BaseModel):
+     sequence: Optional[int] = 999
+     archived: bool
+ 
+-class BulkUpdateShopItem(BaseModel):
+-    id: str # React يرسلها أحياناً كـ 's12'
++class BulkUpdateShopItem(RequestModel):
++    id: str  # React may send "s12"; normalize/validate without losing wire compatibility.
+     zoneId: Optional[str] = None
+     sequence: Optional[Union[str, int]] = None
+     archived: Optional[bool] = None
+ 
+-class AdminAddShopRequest(BaseModel):
+-    name: str
+-    owner: Optional[str] = ""
+-    phone: Optional[str] = ""
+-    mapLink: Optional[str] = ""
+-    zoneId: int
+-    latitude: Optional[float] = None
+-    longitude: Optional[float] = None
+-    
+-    # +++   درع تحويل الفراغات القادمة من React إلى Null صريح لمنع كراش Postgres +++
+-    @field_validator('latitude', 'longitude', mode='before')
++    @field_validator("id", mode="before")
++    @classmethod
++    def validate_shop_id(cls, v: Any) -> str:
++        value = _required_text(v)
++        normalized = value[1:] if value.lower().startswith("s") else value
++        return str(positive_db_int_input(normalized))
++
++    @field_validator("zoneId", mode="before")
+     @classmethod
+-    def clean_geo_cords(cls, v: Any):
+-        if v == "" or v is None or str(v).strip() == "": return None
+-        try: return float(v)
+-        except ValueError: return None
++    def validate_zone_id(cls, v: Any) -> Optional[str]:
++        if v is None or (isinstance(v, str) and not v.strip()):
++            return None
++        return str(positive_db_int_input(v))
++
++    @field_validator("sequence", mode="before")
++    @classmethod
++    def validate_sequence(cls, v: Any) -> Optional[int]:
++        if v is None or (isinstance(v, str) and not v.strip()):
++            return None
++        return _strict_db_int(v, minimum=0)
++
++    @model_validator(mode="after")
++    def require_a_change(self) -> "BulkUpdateShopItem":
++        if self.zoneId is None and self.sequence is None and self.archived is None:
++            raise ValueError("يجب إرسال تغيير واحد على الأقل للمحل.")
++        return self
+ 
+-    # +++ سد ثغرة הـ Type Coercion: تحويل إجباري لـ Decimal قبل وصولها لـ SQLAlchemy +++
+-    initialDebt: Annotated[Decimal, BeforeValidator(safe_decimal_input)] = Decimal('0.0')
+-    maxDebtLimit: Annotated[Decimal, BeforeValidator(safe_decimal_input)] = Decimal('0.0')
++
++class AdminAddShopRequest(RequestModel):
++    name: str = Field(..., min_length=2, max_length=150)
++    owner: Optional[str] = Field("", max_length=100)
++    phone: Optional[str] = Field("", max_length=20)
++    mapLink: Optional[str] = Field("", max_length=500)
++    zoneId: PositiveDbInt
++    latitude: Latitude = None
++    longitude: Longitude = None
++    initialDebt: MoneyInput = Decimal("0.000")
++    maxDebtLimit: MoneyInput = Decimal("0.000")
+     sequence: Annotated[int, BeforeValidator(safe_int_input)] = 999
+     force_save: bool = False
+ 
++    @field_validator("name", mode="before")
++    @classmethod
++    def normalize_name(cls, v: Any) -> str:
++        return _required_text(v)
++
++    @field_validator("owner", "phone", "mapLink", mode="before")
++    @classmethod
++    def normalize_optional_text(cls, v: Any) -> str:
++        return _optional_text(v) or ""
++
++
+ class ActiveRouteResponse(BaseModel):
+     id: str
+     zoneId: str
+@@ -686,34 +986,112 @@ class ActiveRouteResponse(BaseModel):
+     status: str
+     sessionEnded: bool
+ 
+-class UpdateRouteStatusRequest(BaseModel):
+-    status: Optional[Literal['active', 'closed', 'waiting', 'postponed']] = None
+-    driverId: Optional[Union[int, str]] = None
+-    vehicleId: Optional[Union[int, str]] = None
+-    inventory: Optional[Dict[str, Any]] = None
++class UpdateRouteStatusRequest(RequestModel):
++    status: Optional[Literal["active", "closed", "waiting", "postponed"]] = None
++    driverId: OptionalPositiveDbInt = None
++    vehicleId: OptionalPositiveDbInt = None
++    inventory: Optional[Dict[str, NonNegativeDbInt]] = None
+ 
+-class AddZoneRequest(BaseModel):
+-    name: str
++    @field_validator("inventory", mode="before")
++    @classmethod
++    def validate_inventory_map(cls, v: Any) -> Optional[Dict[str, Any]]:
++        if v is None:
++            return None
++        if not isinstance(v, dict):
++            raise ValueError("inventory يجب أن يكون قاموساً.")
++        out: Dict[str, Any] = {}
++        for raw_key, raw_value in v.items():
++            key = str(positive_db_int_input(raw_key))
++            if key in out:
++                raise ValueError("يوجد product_id مكرر في خطة التحميل.")
++            out[key] = raw_value
++        return out
++
++    @model_validator(mode="after")
++    def require_update(self) -> "UpdateRouteStatusRequest":
++        if (
++            self.status is None
++            and self.driverId is None
++            and self.vehicleId is None
++            and self.inventory is None
++        ):
++            raise ValueError("يجب إرسال حقل واحد على الأقل لتحديث المسار.")
++        return self
++
++
++class AddZoneRequest(RequestModel):
++    name: str = Field(..., min_length=2, max_length=100)
++
++    @field_validator("name", mode="before")
++    @classmethod
++    def normalize_name(cls, v: Any) -> str:
++        return _required_text(v)
++
++
++class UpdateZoneRequest(RequestModel):
++    name: Optional[str] = Field(None, min_length=2, max_length=100)
++    frequency: Optional[Literal["weekly", "monthly", "custom"]] = None
++    visitDay: Optional[str] = Field(None, max_length=20)
++    startDate: Optional[date] = None
++
++    @field_validator("name", "visitDay", mode="before")
++    @classmethod
++    def normalize_text(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    @model_validator(mode="after")
++    def require_update(self) -> "UpdateZoneRequest":
++        if (
++            self.name is None
++            and self.frequency is None
++            and self.visitDay is None
++            and self.startDate is None
++        ):
++            raise ValueError("يجب إرسال حقل واحد على الأقل لتحديث المنطقة.")
++        return self
+ 
+-class UpdateZoneRequest(BaseModel):
+-    name: Optional[str] = None
+-    frequency: Optional[str] = None
+-    visitDay: Optional[str] = None
+-    startDate: Optional[date] = None # Pydantic سيتكفل بتحويل 'YYYY-MM-DD' بأمان تام
+ 
+ class ArchivedZoneResponse(BaseModel):
+     id: str
+     name: str
+ 
+-class EditShopDetailsRequest(BaseModel):
+-    name: Optional[str] = None
+-    owner: Optional[str] = None
+-    phone: Optional[str] = None
+-    mapLink: Optional[str] = None
+-    zoneId: Optional[Union[int, str]] = None
+-    # +++ سد ثغرة الـ Pydantic Schizophrenia وتوحيد المخرجات لتطابق SQLAlchemy بسلاسة +++
+-    max_debt_limit: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = Field(default=None, validation_alias=AliasChoices('maxDebtLimit', 'max_debt_limit'))
+-    initial_debt: Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)] = Field(default=None, validation_alias=AliasChoices('initialDebt', 'initial_debt'))
++class EditShopDetailsRequest(RequestModel):
++    name: Optional[str] = Field(None, min_length=2, max_length=150)
++    owner: Optional[str] = Field(None, max_length=100)
++    phone: Optional[str] = Field(None, max_length=20)
++    mapLink: Optional[str] = Field(None, max_length=500)
++    zoneId: OptionalPositiveDbInt = None
++    max_debt_limit: OptionalMoneyInput = Field(
++        default=None,
++        validation_alias=AliasChoices("maxDebtLimit", "max_debt_limit"),
++    )
++    initial_debt: OptionalMoneyInput = Field(
++        default=None,
++        validation_alias=AliasChoices("initialDebt", "initial_debt"),
++    )
++
++    @field_validator("name", "owner", "phone", "mapLink", mode="before")
++    @classmethod
++    def normalize_text(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    @model_validator(mode="after")
++    def require_update(self) -> "EditShopDetailsRequest":
++        if all(
++            value is None
++            for value in (
++                self.name,
++                self.owner,
++                self.phone,
++                self.mapLink,
++                self.zoneId,
++                self.max_debt_limit,
++                self.initial_debt,
++            )
++        ):
++            raise ValueError("يجب إرسال حقل واحد على الأقل لتعديل المحل.")
++        return self
++
+ 
+ class ShortageResponseItem(BaseModel):
+     id: str
+@@ -729,46 +1107,76 @@ class ShortageResponseItem(BaseModel):
+     waitTime: Optional[str] = None
+     createdAt: Optional[str] = None
+ 
+-class CreateShortageItem(BaseModel):
+-    model_config = ConfigDict(populate_by_name=True) # السماح بقراءة productId أو product_variant_id
+-    
+-    shopId: Union[int, str]
+-    zoneId: Union[int, str]
+-    # +++   الإجبار على الـ ID لضمان سلامة الداتابيز (Integrity) بناءً على التحديث الأخير +++
+-    product_variant_id: int = Field(..., alias="productId")
+-    productName: Optional[str] = None
+-    driverId: Optional[Union[int, str]] = None
+-    quantity: int = Field(1, gt=0)
+-
+-class BulkImportShopItem(BaseModel):
+-    # +++   إجبار الإكسيل على توفير اسم للمحل لمنع ولادة محلات شبحية تكسر الـ UI +++
+-    name: str = Field(..., min_length=2)
+-    owner: Optional[str] = ""
+-    phone: Optional[str] = ""
+-    mapLink: Optional[str] = ""
+-    # +++ حماية ملفات الإكسيل من النصوص المكسورة +++
+-    initialDebt: Annotated[Decimal, BeforeValidator(safe_decimal_input)] = Decimal('0.0')
++class CreateShortageItem(RequestModel):
++    model_config = ConfigDict(extra="forbid", populate_by_name=True)
++
++    shopId: PositiveDbInt
++    zoneId: PositiveDbInt
++    product_variant_id: PositiveDbInt = Field(..., alias="productId")
++    productName: Optional[str] = Field(None, max_length=200)
++    driverId: OptionalPositiveDbInt = None
++    quantity: PositiveDbInt = 1
++
++    @field_validator("productName", mode="before")
++    @classmethod
++    def normalize_product_name(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++
++class BulkImportShopItem(RequestModel):
++    name: str = Field(..., min_length=2, max_length=150)
++    owner: Optional[str] = Field("", max_length=100)
++    phone: Optional[str] = Field("", max_length=20)
++    mapLink: Optional[str] = Field("", max_length=500)
++    initialDebt: MoneyInput = Decimal("0.000")
+     sequence: Annotated[int, BeforeValidator(safe_int_input)] = 999
+ 
+-class BulkImportRequest(BaseModel):
+-    zoneId: int
+-    fileName: Optional[str] = "استيراد غير معروف"
+-    shops: List[BulkImportShopItem]
++    @field_validator("name", mode="before")
++    @classmethod
++    def normalize_name(cls, v: Any) -> str:
++        return _required_text(v)
+ 
+-class InboundItemRequest(BaseModel):
+-    product_variant_id: int
+-    quantity_packs: int = Field(..., ge=0)
++    @field_validator("owner", "phone", "mapLink", mode="before")
++    @classmethod
++    def normalize_optional_text(cls, v: Any) -> str:
++        return _optional_text(v) or ""
++
++
++class BulkImportRequest(RequestModel):
++    zoneId: PositiveDbInt
++    fileName: Optional[str] = Field("استيراد غير معروف", max_length=255)
++    shops: List[BulkImportShopItem] = Field(..., min_length=1, max_length=10000)
++
++    @field_validator("fileName", mode="before")
++    @classmethod
++    def normalize_file_name(cls, v: Any) -> str:
++        return _optional_text(v) or "استيراد غير معروف"
++
++
++class InboundItemRequest(RequestModel):
++    """Legacy inbound wire item kept only for compatibility; unified inbound uses InboundBatchItem."""
++    product_variant_id: PositiveDbInt
++    quantity_packs: NonNegativeDbInt
+ 
+ # ==========================================
+ # 9. دروع المستودع المركزي (Warehouse)
+ # ==========================================
+-class WarehouseInboundRequest(BaseModel):
+-    items: List[InboundItemRequest] = Field(..., description="قائمة الأصناف المستلمة")
+-    reference_id: Optional[str] = "بدون فاتورة"
+-    notes: Optional[str] = ""
++class WarehouseInboundRequest(RequestModel):
++    """Legacy inbound envelope; kept strict while batch-aware UpgradedInboundRequest is the target contract."""
++    items: List[InboundItemRequest] = Field(
++        ..., min_length=1, max_length=5000, description="قائمة الأصناف المستلمة"
++    )
++    reference_id: Optional[str] = Field("بدون فاتورة", max_length=100)
++    notes: Optional[str] = Field("", max_length=4000)
++
++    @field_validator("reference_id", "notes", mode="before")
++    @classmethod
++    def normalize_text(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
+ 
+-class ToggleLockRequest(BaseModel):
+-    status: Literal['AUDIT_LOCK', 'ACTIVE']
++
++class ToggleLockRequest(RequestModel):
++    status: Literal["AUDIT_LOCK", "ACTIVE"]
+ 
+ class WarehouseAlertItem(BaseModel):
+     product_variant_id: int
+@@ -810,99 +1218,248 @@ class SimpleProductVariantItem(BaseModel):
+     name: str
+     packs_per_carton: int
+ 
+-class AddProductVariantRequest(BaseModel):
+-    model_config = ConfigDict(populate_by_name=True) # +++ درع الـ Alias لمنع كراش الـ Pydantic +++
+-    
+-    variant_name: str = Field(..., min_length=2, description="اسم المنتج")
+-    sku: Optional[str] = None
+-    # +++ حماية Pydantic V2: يجب أن يكون النوع Decimal صراحة لمنع فقدان الدقة +++
+-    price_per_carton: Decimal
+-    packs_per_carton: int = Field(..., gt=0, description="عدد الحبات في الكرتونة")
+-    price_per_pack: Optional[Decimal] = None
+-    min_threshold_packs: Optional[int] = Field(0, ge=0, description="الحد الأدنى لإنذار النواقص (بالحبات)")
+-    # +++ نسف الكارثة التشغيلية: استعادة سياسة العينات المفقودة مع Alias لامتصاص بيانات React +++
+-    default_max_samples_per_day: Optional[int] = Field(0, ge=0, alias="max_samples", description="الحد الأقصى للعينات المجانية يومياً")
+-
+-    # +++ درع تنظيف الأسعار وحمايتها من الـ Decimal Crash و الـ NaN +++
+-    @field_validator('price_per_carton', 'price_per_pack', mode='before')
+-    @classmethod
+-    def clean_prices(cls, v: Any) -> Optional[Decimal]:
+-        if v == "" or v is None or str(v).strip() == "": return None
+-        try:
+-            dec = Decimal(str(v).strip())
+-            if not dec.is_finite(): raise ValueError("صيغة السعر غير صالحة.")
+-            return dec
+-        except Exception:
+-            raise ValueError("صيغة السعر غير صالحة.")
+-
+-class AdjustWarehouseEntryRequest(BaseModel):
++class AddProductVariantRequest(RequestModel):
++    model_config = ConfigDict(extra="forbid", populate_by_name=True)
++
++    variant_name: str = Field(..., min_length=2, max_length=200, description="اسم المنتج")
++    sku: Optional[str] = Field(None, max_length=100)
++    price_per_carton: RequiredMoneyInput
++    packs_per_carton: PositiveDbInt = Field(..., description="عدد الحبات في الكرتونة")
++    price_per_pack: OptionalMoneyInput = None
++    min_threshold_packs: Optional[NonNegativeDbInt] = Field(
++        0, description="الحد الأدنى لإنذار النواقص (بالحبات)"
++    )
++    default_max_samples_per_day: Optional[NonNegativeDbInt] = Field(
++        0,
++        alias="max_samples",
++        description="الحد الأقصى للعينات المجانية يومياً",
++    )
++
++    @field_validator("variant_name", mode="before")
++    @classmethod
++    def normalize_name(cls, v: Any) -> str:
++        return _required_text(v)
++
++    @field_validator("sku", mode="before")
++    @classmethod
++    def normalize_sku(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++
++class AdjustWarehouseEntryRequest(RequestModel):
+     password: str = Field(..., description="كلمة مرور المشرف للتأكيد")
+-    new_total_packs: int = Field(..., ge=0, description="الصافي الجديد المطلوب للكمية (بالحبات)")
+-    notes: Optional[str] = "تعديل خطأ إدخال"
++    new_total_packs: NonNegativeDbInt = Field(
++        ..., description="الصافي الجديد المطلوب للكمية (بالحبات)"
++    )
++    notes: Optional[str] = Field("تعديل خطأ إدخال", max_length=2000)
++
++    @field_validator("password", mode="before")
++    @classmethod
++    def validate_password(cls, v: Any) -> str:
++        return _bcrypt_password(v)
++
++    @field_validator("notes", mode="before")
++    @classmethod
++    def normalize_notes(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
+ 
+ # =================================================================================
+ # [المرحلة 3 و 4 و 5] Pydantic Schemas (المحرك الموحد ودعم الدفعات)
+ # =================================================================================
+-class InboundBatchItem(BaseModel):
+-    product_variant_id: int
+-    quantity_packs: int
+-    batch_number: Optional[str] = None
++class InboundBatchItem(RequestModel):
++    product_variant_id: PositiveDbInt
++    quantity_packs: PositiveDbInt
++    batch_number: str = Field(..., min_length=1, max_length=100)
+     production_date: Optional[date] = None
+-    expiry_date: Optional[date] = None
++    expiry_date: date
+ 
+-class UpgradedInboundRequest(BaseModel):
+-    location_id: int # +++ إضافة حقل الموقع لاختيار المستودع +++
+-    reference_id: Optional[str] = None
+-    notes: Optional[str] = None
+-    items: List[InboundBatchItem]
++    @field_validator("batch_number", mode="before")
++    @classmethod
++    def normalize_batch_number(cls, v: Any) -> str:
++        return _required_text(v)
+ 
+-class UnifiedTransferItem(BaseModel):
+-    product_variant_id: int
+-    quantity: int
++    @model_validator(mode="after")
++    def validate_dates(self) -> "InboundBatchItem":
++        if self.production_date is not None and self.production_date > self.expiry_date:
++            raise ValueError("تاريخ الإنتاج لا يجوز أن يكون بعد تاريخ الصلاحية.")
++        return self
++
++
++class UpgradedInboundRequest(RequestModel):
++    location_id: PositiveDbInt
++    reference_id: Optional[str] = Field(None, max_length=100)
++    notes: Optional[str] = Field(None, max_length=4000)
++    items: List[InboundBatchItem] = Field(..., min_length=1, max_length=5000)
++
++    @field_validator("reference_id", "notes", mode="before")
++    @classmethod
++    def normalize_text(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    @model_validator(mode="after")
++    def validate_duplicate_batch_metadata(self) -> "UpgradedInboundRequest":
++        seen: Dict[tuple[int, str], tuple[Optional[date], date]] = {}
++        for item in self.items:
++            key = (item.product_variant_id, item.batch_number)
++            metadata = (item.production_date, item.expiry_date)
++            if key in seen and seen[key] != metadata:
++                raise ValueError(
++                    "نفس رقم الدفعة للصنف لا يجوز أن يظهر ببيانات إنتاج/صلاحية متعارضة."
++                )
++            seen[key] = metadata
++        return self
++
++
++class UnifiedTransferItem(RequestModel):
++    product_variant_id: PositiveDbInt
++    quantity: PositiveDbInt
+     is_fefo_override: bool = False
+-    override_batch_id: Optional[int] = None
+-    override_reason_id: Optional[int] = None 
++    override_batch_id: OptionalPositiveDbInt = None
++    override_reason_id: OptionalPositiveDbInt = None
++
++    @model_validator(mode="after")
++    def validate_override_contract(self) -> "UnifiedTransferItem":
++        if self.is_fefo_override:
++            if self.override_batch_id is None or self.override_reason_id is None:
++                raise ValueError(
++                    "تجاوز FEFO يتطلب override_batch_id و override_reason_id."
++                )
++        elif self.override_batch_id is not None or self.override_reason_id is not None:
++            raise ValueError(
++                "override_batch_id/override_reason_id لا يسمح بهما بدون is_fefo_override=true."
++            )
++        return self
+ 
+-class UnifiedDispatchRequest(BaseModel):
+-    source_location_id: int
+-    destination_location_id: int
+-    items: List[UnifiedTransferItem]
+-    notes: str = ""
+ 
+-class UnifiedReceiveRequest(BaseModel):
+-    transfer_header_id: int 
+-    destination_location_id: int
++class UnifiedDispatchRequest(RequestModel):
++    source_location_id: PositiveDbInt
++    destination_location_id: PositiveDbInt
++    items: List[UnifiedTransferItem] = Field(..., min_length=1, max_length=5000)
++    notes: Optional[str] = Field("", max_length=4000)
+ 
++    @field_validator("notes", mode="before")
++    @classmethod
++    def normalize_notes(cls, v: Any) -> str:
++        return _optional_text(v) or ""
++
++    @model_validator(mode="after")
++    def validate_transfer_shape(self) -> "UnifiedDispatchRequest":
++        if self.source_location_id == self.destination_location_id:
++            raise ValueError("المصدر والوجهة يجب أن يكونا مختلفين.")
++        seen = set()
++        for item in self.items:
++            key = (item.product_variant_id, item.override_batch_id)
++            if key in seen:
++                raise ValueError(
++                    "لا يجوز تكرار نفس الصنف/الدفعة في طلب الحوالة؛ اجمع الكمية في سطر واحد."
++                )
++            seen.add(key)
++        return self
+ 
+-class UnifiedStocktakeStartRequest(BaseModel):
+-    location_id: int
+-    stocktake_type: Literal['FULL_COUNT', 'CYCLE_COUNT', 'VEHICLE_RECON']
+-    product_variant_id: Optional[int] = None
+-    batch_id: Optional[int] = None
+-    notes: Optional[str] = None
+ 
+-class StocktakeCountItem(BaseModel):
+-    product_variant_id: int
+-    batch_id: Optional[int] = None
+-    actual_quantity: int = Field(..., ge=0)
++class UnifiedReceiveRequest(RequestModel):
++    transfer_header_id: PositiveDbInt
++    destination_location_id: PositiveDbInt
+ 
+ 
+-class UnifiedStocktakeCountRequest(BaseModel):
+-    items: List[StocktakeCountItem] = Field(..., min_length=1)
+-    notes: Optional[str] = None
+ 
++class UnifiedStocktakeStartRequest(RequestModel):
++    location_id: PositiveDbInt
++    stocktake_type: Literal["FULL_COUNT", "CYCLE_COUNT", "VEHICLE_RECON"]
++    product_variant_id: OptionalPositiveDbInt = None
++    batch_id: OptionalPositiveDbInt = None
++    notes: Optional[str] = Field(None, max_length=4000)
+ 
+-class StocktakeRecountRequest(BaseModel):
++    @field_validator("notes", mode="before")
++    @classmethod
++    def normalize_notes(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    @model_validator(mode="after")
++    def validate_scope(self) -> "UnifiedStocktakeStartRequest":
++        if self.stocktake_type == "CYCLE_COUNT":
++            if self.product_variant_id is None:
++                raise ValueError("CYCLE_COUNT يتطلب product_variant_id.")
++        else:
++            if self.product_variant_id is not None or self.batch_id is not None:
++                raise ValueError(
++                    "FULL_COUNT و VEHICLE_RECON لا يقبلان product_variant_id أو batch_id."
++                )
++        if self.batch_id is not None and self.product_variant_id is None:
++            raise ValueError("batch_id يتطلب product_variant_id.")
++        return self
++
++
++class StocktakeCountItem(RequestModel):
++    product_variant_id: PositiveDbInt
++    batch_id: PositiveDbInt
++    actual_quantity: NonNegativeDbInt
++
++
++
++class UnifiedStocktakeCountRequest(RequestModel):
++    items: List[StocktakeCountItem] = Field(..., min_length=1, max_length=10000)
++    notes: Optional[str] = Field(None, max_length=4000)
++
++    @field_validator("notes", mode="before")
++    @classmethod
++    def normalize_notes(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++    @model_validator(mode="after")
++    def reject_duplicate_lines(self) -> "UnifiedStocktakeCountRequest":
++        keys = [(item.product_variant_id, item.batch_id) for item in self.items]
++        if len(keys) != len(set(keys)):
++            raise ValueError("لا يجوز تكرار نفس الصنف/الدفعة في محاولة العد.")
++        return self
++
++
++
++class StocktakeRecountRequest(RequestModel):
+     reason: str = Field(..., min_length=5, max_length=500)
+     authorizer_username: str = Field(..., min_length=1, max_length=80)
+-    authorizer_password: str = Field(..., min_length=1, max_length=200)
++    authorizer_password: str
+ 
++    @field_validator("reason", "authorizer_username", mode="before")
++    @classmethod
++    def normalize_text(cls, v: Any) -> str:
++        return _required_text(v)
++
++    @field_validator("authorizer_password", mode="before")
++    @classmethod
++    def validate_password(cls, v: Any) -> str:
++        return _bcrypt_password(v)
+ 
+-class StocktakeApprovalRequest(BaseModel):
+-    password: str = Field(..., min_length=1, max_length=200)
++
++
++class StocktakeApprovalRequest(RequestModel):
++    password: str
+     notes: Optional[str] = Field(None, max_length=500)
+ 
++    @field_validator("password", mode="before")
++    @classmethod
++    def validate_password(cls, v: Any) -> str:
++        return _bcrypt_password(v)
++
++    @field_validator("notes", mode="before")
++    @classmethod
++    def normalize_notes(cls, v: Any) -> Optional[str]:
++        return _optional_text(v)
++
++
++
++class StocktakeCancelRequest(RequestModel):
++    password: str
++    reason: str = Field(..., min_length=5, max_length=500)
++
++    @field_validator("password", mode="before")
++    @classmethod
++    def validate_password(cls, v: Any) -> str:
++        return _bcrypt_password(v)
++
++    @field_validator("reason", mode="before")
++    @classmethod
++    def normalize_reason(cls, v: Any) -> str:
++        return _required_text(v)
+ 
+-class StocktakeCancelRequest(BaseModel):
+-    password: str = Field(..., min_length=1, max_length=200)
+-    reason: str = Field(..., min_length=5, max_length=500)
+\ No newline at end of file

@@ -296,7 +296,6 @@ class ProductVariant(Base):
         CheckConstraint('price_per_carton >= 0', name='chk_product_variant_carton_price'),
         CheckConstraint('price_per_pack IS NULL OR price_per_pack >= 0', name='chk_product_variant_pack_price'),
         CheckConstraint('default_max_samples_per_day >= 0', name='chk_product_variant_samples_limit'),
-        CheckConstraint('min_shelf_life_days IS NULL OR min_shelf_life_days >= 0', name='chk_product_variant_min_shelf_life'),
     )
     id          = Column(Integer, primary_key=True)
     company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -310,7 +309,6 @@ class ProductVariant(Base):
     quantity_step    = Column(Numeric(20, 6), nullable=False, default=Decimal('1'), server_default='1')
     lot_control_mode = Column(String(20), nullable=False, default='REQUIRED', server_default='REQUIRED')
     expiry_control_mode = Column(String(20), nullable=False, default='REQUIRED', server_default='REQUIRED')
-    min_shelf_life_days = Column(Integer, nullable=True)
     lifecycle_status = Column(String(20), nullable=False, default='DRAFT', server_default='DRAFT', index=True)
     operational_hold = Column(String(20), nullable=False, default='NONE', server_default='NONE', index=True)
     lifecycle_revision = Column(Integer, nullable=False, default=1, server_default='1')
@@ -1286,18 +1284,57 @@ class ProductBatch(Base):
             name='fk_product_batch_tenant_variant'
         ),
         CheckConstraint("length(trim(batch_number)) > 0", name='chk_product_batch_number_not_blank'),
-        CheckConstraint('production_date IS NULL OR production_date <= expiry_date', name='chk_product_batch_date_order'),
-        CheckConstraint("disposition IN ('RELEASED', 'QUARANTINED', 'BLOCKED', 'RECALLED')", name='chk_product_batch_disposition'),
+        CheckConstraint(
+            'expiry_date IS NULL OR production_date IS NULL OR production_date <= expiry_date',
+            name='chk_product_batch_date_order'
+        ),
+        CheckConstraint(
+            "disposition IN ('RELEASED', 'QUARANTINED', 'BLOCKED', 'RECALLED')",
+            name='chk_product_batch_disposition'
+        ),
+        CheckConstraint(
+            'disposition_revision > 0',
+            name='chk_product_batch_disposition_revision'
+        ),
+        CheckConstraint(
+            "disposition_reason IS NULL OR length(trim(disposition_reason)) > 0",
+            name='chk_product_batch_disposition_reason'
+        ),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     product_variant_id = Column(Integer, nullable=False, index=True)
     batch_number       = Column(String(100), nullable=False, index=True)
-    production_date    = Column(Date, nullable=True)
-    expiry_date        = Column(Date, nullable=False, index=True)
-    disposition        = Column(String(50), nullable=False, default='RELEASED', server_default='RELEASED', index=True)
-    is_active          = Column(Boolean, nullable=False, default=True, server_default='true', index=True)
-    created_at         = Column(DateTime, nullable=False, default=utc_now)
+    production_date       = Column(Date, nullable=True)
+    expiry_date           = Column(Date, nullable=True, index=True)
+    disposition           = Column(
+        String(50),
+        nullable=False,
+        default='RELEASED',
+        server_default='RELEASED',
+        index=True,
+    )
+    disposition_reason    = Column(Text, nullable=True)
+    disposition_revision  = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default='1',
+    )
+    is_active             = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default='true',
+        index=True,
+    )
+    created_at            = Column(DateTime, nullable=False, default=utc_now)
+    updated_at            = Column(
+        DateTime,
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
 
 class OverrideReason(Base):
     # سبب معتمد لتجاوز FEFO ويبقى مرجعاً تدقيقياً للحركة.
@@ -1370,6 +1407,10 @@ class InventoryStockPolicy(Base):
                              ondelete='RESTRICT', name='fk_inventory_stock_policy_tenant_variant'),
         CheckConstraint('minimum_quantity >= 0', name='chk_inventory_stock_policy_minimum'),
         CheckConstraint('target_quantity IS NULL OR target_quantity >= minimum_quantity', name='chk_inventory_stock_policy_target'),
+        CheckConstraint(
+            'minimum_remaining_shelf_life_days >= 0',
+            name='chk_inventory_stock_policy_min_shelf_life'
+        ),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -1377,6 +1418,12 @@ class InventoryStockPolicy(Base):
     product_variant_id = Column(Integer, nullable=False, index=True)
     minimum_quantity   = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
     target_quantity    = Column(Numeric(20, 6), nullable=True)
+    minimum_remaining_shelf_life_days = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default='0',
+    )
     is_active          = Column(Boolean, nullable=False, default=True, server_default='true')
     created_at         = Column(DateTime, nullable=False, default=utc_now)
     updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
@@ -1608,7 +1655,7 @@ class InventoryTransferHeader(Base):
         CheckConstraint("status IN ('DRAFT', 'PENDING', 'IN_TRANSIT', 'ACCEPTED', 'REJECTED', 'POSTED', 'CANCELLED')", name='chk_transfer_header_status'),
         CheckConstraint(
             "transfer_purpose IN ('REPLENISHMENT', 'ROUTE_LOAD', 'ROUTE_RETURN', 'WAREHOUSE_BALANCING', "
-            "'RETURN_TO_VENDOR', 'QUARANTINE', 'DISPOSAL', 'CONSUMPTION')",
+            "'RETURN_TO_VENDOR', 'QUARANTINE', 'RECALL_RETURN', 'DISPOSAL')",
             name='chk_transfer_header_purpose'
         ),
         CheckConstraint(

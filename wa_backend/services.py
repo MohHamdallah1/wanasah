@@ -23,6 +23,7 @@ from models import (
     VisitReturn,
     InventoryLock,
     InventoryLocation,
+    InventoryStockPolicy,
     InventoryBalance,
     InventoryMovement,
     InventoryMovementImpact,
@@ -482,6 +483,93 @@ def warehouse_setup_required_detail() -> Dict[str, Any]:
         "WAREHOUSE_SETUP_REQUIRED",
         "يجب إنشاء مستودع فعال قبل تنفيذ هذه العملية.",
     )
+
+
+# PATCH: STAGE4C_SYNCHRONOUS_BATCH_ELIGIBILITY
+def batch_sellability_predicate(
+    as_of_date: date,
+    *,
+    expiry_control_mode,
+    minimum_remaining_shelf_life_days=None,
+):
+    """SQL predicate موحد لصلاحية Batch للبيع/التحميل/الحوالة العادية."""
+    if type(as_of_date) is not date:
+        raise ValueError("as_of_date يجب أن يكون date صريحاً.")
+
+    min_days = (
+        func.coalesce(minimum_remaining_shelf_life_days, 0)
+        if minimum_remaining_shelf_life_days is not None
+        else 0
+    )
+    expiry_meets_policy = and_(
+        ProductBatch.expiry_date.is_not(None),
+        (ProductBatch.expiry_date - as_of_date) >= min_days,
+    )
+    no_expiry_allowed = and_(
+        ProductBatch.expiry_date.is_(None),
+        min_days == 0,
+    )
+
+    return and_(
+        ProductBatch.is_active.is_(True),
+        ProductBatch.disposition == "RELEASED",
+        or_(
+            ProductBatch.production_date.is_(None),
+            ProductBatch.production_date <= as_of_date,
+        ),
+        or_(
+            and_(
+                expiry_control_mode == "NONE",
+                no_expiry_allowed,
+            ),
+            and_(
+                expiry_control_mode == "OPTIONAL",
+                or_(no_expiry_allowed, expiry_meets_policy),
+            ),
+            and_(
+                expiry_control_mode == "REQUIRED",
+                expiry_meets_policy,
+            ),
+        ),
+    )
+
+
+def _batch_metadata_is_sellable(
+    *,
+    as_of_date: date,
+    expiry_control_mode: str,
+    production_date: Optional[date],
+    expiry_date: Optional[date],
+    minimum_remaining_shelf_life_days: int,
+) -> bool:
+    """نفس عقد SQL أعلاه لصفوف Metadata المقفلة داخل FEFO."""
+    if type(as_of_date) is not date:
+        raise InventoryMutationError("as_of_date يجب أن يكون date صريحاً.")
+
+    mode = str(expiry_control_mode or "").strip().upper()
+    if mode not in {"NONE", "OPTIONAL", "REQUIRED"}:
+        raise InventoryMutationError("expiry_control_mode غير صالح للصنف.")
+
+    try:
+        min_days = _strict_int(
+            minimum_remaining_shelf_life_days,
+            "minimum_remaining_shelf_life_days",
+            minimum=0,
+        )
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    if production_date is not None and production_date > as_of_date:
+        return False
+
+    # لا يمكن إثبات Minimum Shelf Life موجب بدون expiry_date؛ نفشل مغلقاً.
+    if mode == "NONE":
+        return expiry_date is None and min_days == 0
+
+    if expiry_date is None:
+        return mode == "OPTIONAL" and min_days == 0
+
+    return expiry_date >= as_of_date + timedelta(days=min_days)
 
 
 # تثبيت أن VEHICLE_RECON مرتبط بجلسة عمل منتهية وغير مسواة وبنفس السيارة داخل Tenant واحد.
@@ -2953,23 +3041,51 @@ async def allocate_fefo_inventory_batch(
                 ProductVariant.id,
                 ProductVariant.quantity_scale,
                 ProductVariant.quantity_step,
-                ProductVariant.min_shelf_life_days,
+                ProductVariant.expiry_control_mode,
             ).filter(
                 ProductVariant.company_id == company_id,
                 ProductVariant.id.in_(requested_variant_ids),
             )
         )
     ).all()
+
     quantity_rules = {
         int(row.id): (
             int(row.quantity_scale),
             row.quantity_step,
-            int(row.min_shelf_life_days or 0),
+            str(row.expiry_control_mode),
         )
         for row in quantity_rule_rows
     }
+
     if set(quantity_rules) != set(requested_variant_ids):
-        raise InventoryMutationError("أحد أصناف طلب FEFO غير موجود داخل الشركة.")
+        raise InventoryMutationError(
+            "أحد أصناف طلب FEFO غير موجود داخل الشركة."
+        )
+
+    shelf_life_rows = (
+        await db_session.execute(
+            select(
+                InventoryStockPolicy.product_variant_id,
+                InventoryStockPolicy.minimum_remaining_shelf_life_days,
+            ).filter(
+                InventoryStockPolicy.company_id == company_id,
+                InventoryStockPolicy.location_id == location_id,
+                InventoryStockPolicy.product_variant_id.in_(
+                    requested_variant_ids
+                ),
+                InventoryStockPolicy.is_active.is_(True),
+            ).order_by(
+                InventoryStockPolicy.product_variant_id.asc()
+            ).with_for_update(read=True)
+        )
+    ).all()
+
+    minimum_shelf_life_by_variant = {
+        int(row.product_variant_id):
+            int(row.minimum_remaining_shelf_life_days or 0)
+        for row in shelf_life_rows
+    }
     try:
         positive_requests = {
             variant_id: validate_variant_quantity(
@@ -3059,10 +3175,13 @@ async def allocate_fefo_inventory_batch(
                     ProductBatch.production_date.is_(None),
                     ProductBatch.production_date <= as_of_date,
                 ),
-                ProductBatch.expiry_date >= as_of_date,
+                or_(
+                    ProductBatch.expiry_date.is_(None),
+                    ProductBatch.expiry_date >= as_of_date,
+                ),
             ).order_by(
                 InventoryBalance.product_variant_id.asc(),
-                ProductBatch.expiry_date.asc(),
+                ProductBatch.expiry_date.asc().nulls_last(),
                 ProductBatch.id.asc(),
             )
         )
@@ -3089,7 +3208,10 @@ async def allocate_fefo_inventory_batch(
     # نقفل Metadata ثم الأرصدة على chunks ثابتة لتجنب حد parameters
     # في PostgreSQL عندما يكون لكل صنف عدد كبير من الدفعات.
     metadata_pairs = set()
-    metadata_expiry: Dict[Tuple[int, int], date] = {}
+    metadata_dates: Dict[
+        Tuple[int, int],
+        Tuple[Optional[date], Optional[date]],
+    ] = {}
 
     for offset in range(
         0,
@@ -3104,6 +3226,7 @@ async def allocate_fefo_inventory_batch(
                 select(
                     ProductBatch.product_variant_id,
                     ProductBatch.id,
+                    ProductBatch.production_date,
                     ProductBatch.expiry_date,
                 ).filter(
                     ProductBatch.company_id == company_id,
@@ -3117,29 +3240,41 @@ async def allocate_fefo_inventory_batch(
                         ProductBatch.production_date.is_(None),
                         ProductBatch.production_date <= as_of_date,
                     ),
-                    ProductBatch.expiry_date >= as_of_date,
+                    or_(
+                        ProductBatch.expiry_date.is_(None),
+                        ProductBatch.expiry_date >= as_of_date,
+                    ),
                 ).order_by(
                     ProductBatch.product_variant_id.asc(),
-                    ProductBatch.expiry_date.asc(),
+                    ProductBatch.expiry_date.asc().nulls_last(),
                     ProductBatch.id.asc(),
                 ).with_for_update(read=True)
             )
         ).all()
 
-        for variant_id, batch_id, expiry_date in rows:
+        for variant_id, batch_id, production_date, expiry_date in rows:
             key = (int(variant_id), int(batch_id))
             metadata_pairs.add(key)
-            metadata_expiry[key] = expiry_date
+            metadata_dates[key] = (production_date, expiry_date)
 
-    from datetime import timedelta
     valid_candidate_pairs = []
     for pair in candidate_pairs:
-        if pair in metadata_pairs:
-            variant_id = pair[0]
-            expiry_date = metadata_expiry[pair]
-            min_days = quantity_rules[variant_id][2]
-            if expiry_date >= as_of_date + timedelta(days=min_days):
-                valid_candidate_pairs.append(pair)
+        if pair not in metadata_pairs:
+            continue
+
+        variant_id = pair[0]
+        production_date, expiry_date = metadata_dates[pair]
+        expiry_control_mode = quantity_rules[variant_id][2]
+        min_days = minimum_shelf_life_by_variant.get(variant_id, 0)
+
+        if _batch_metadata_is_sellable(
+            as_of_date=as_of_date,
+            expiry_control_mode=expiry_control_mode,
+            production_date=production_date,
+            expiry_date=expiry_date,
+            minimum_remaining_shelf_life_days=min_days,
+        ):
+            valid_candidate_pairs.append(pair)
     candidate_pairs = valid_candidate_pairs
 
     balance_rows = []
@@ -3178,12 +3313,18 @@ async def allocate_fefo_inventory_batch(
     balance_rows.sort(
         key=lambda balance: (
             int(balance.product_variant_id),
-            metadata_expiry[
+            metadata_dates[
                 (
                     int(balance.product_variant_id),
                     int(balance.batch_id),
                 )
-            ],
+            ][1] is None,
+            metadata_dates[
+                (
+                    int(balance.product_variant_id),
+                    int(balance.batch_id),
+                )
+            ][1] or date.max,
             int(balance.batch_id),
         )
     )
@@ -3278,7 +3419,7 @@ async def allocate_fefo_inventory_batch(
     if shortages and require_full:
         first_variant = sorted(shortages)[0]
         raise InventoryMutationError(
-            f"الرصيد FEFO غير المقفل وغير المنتهي لا يغطي الصنف ({first_variant}). "
+            f"الرصيد FEFO المؤهل وغير المقفل لا يغطي الصنف ({first_variant}). "
             f"العجز: {shortages[first_variant]} حبة."
         )
 

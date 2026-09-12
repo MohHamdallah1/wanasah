@@ -1615,7 +1615,7 @@ class InboundBatchItem(RequestModel):
     uom_id: PositiveDbInt
     batch_number: str = Field(..., min_length=1, max_length=100)
     production_date: Optional[date] = None
-    expiry_date: date
+    expiry_date: Optional[date] = None
 
     @field_validator("batch_number", mode="before")
     @classmethod
@@ -1624,8 +1624,14 @@ class InboundBatchItem(RequestModel):
 
     @model_validator(mode="after")
     def validate_dates(self) -> "InboundBatchItem":
-        if self.production_date is not None and self.production_date > self.expiry_date:
-            raise ValueError("تاريخ الإنتاج لا يجوز أن يكون بعد تاريخ الصلاحية.")
+        if (
+            self.production_date is not None
+            and self.expiry_date is not None
+            and self.production_date > self.expiry_date
+        ):
+            raise ValueError(
+                "تاريخ الإنتاج لا يجوز أن يكون بعد تاريخ الصلاحية."
+            )
         return self
 
 
@@ -1643,7 +1649,10 @@ class UpgradedInboundRequest(RequestModel):
 
     @model_validator(mode="after")
     def validate_duplicate_batch_metadata(self) -> "UpgradedInboundRequest":
-        seen: Dict[tuple[int, str], tuple[Optional[date], date]] = {}
+        seen: Dict[
+            tuple[int, str],
+            tuple[Optional[date], Optional[date]],
+        ] = {}
         for item in self.items:
             key = (item.product_variant_id, item.batch_number)
             metadata = (item.production_date, item.expiry_date)

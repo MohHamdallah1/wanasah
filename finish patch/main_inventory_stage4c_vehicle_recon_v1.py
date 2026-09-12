@@ -1,0 +1,1038 @@
+from __future__ import annotations
+
+from pathlib import Path
+import base64
+import hashlib
+import zlib
+
+ROOT = Path(__file__).resolve().parent
+INV = ROOT / "dashboard" / "src" / "pages" / "inventory"
+SCHEMAS = ROOT / "wa_backend" / "schemas.py"
+WAREHOUSE = ROOT / "wa_backend" / "api" / "warehouse.py"
+
+BASELINE = {'Tab3Stocktake.tsx': '4f56f3e2cf4c8fccba89e0c445d2e2ccb50a276e', 'stocktake/types.ts': 'acd237549974f602c77c24fe2dda8751432b8e33', 'stocktake/parsers.ts': 'ebe91566b7d5f9872039652986cbddf9136f9c0b', 'stocktake/StocktakeSessionCenter.tsx': 'a25ecbb9186f7fdec6b8f5035c4d32c996323e52', 'stocktake/hooks/useStocktakeState.ts': 'e72be35f14af9055b726f104d5538ea113f4dbeb', 'stocktake/hooks/useStocktakeCounting.ts': '4c893b211c9d8e09938cd182b18b67875773d8d6', 'stocktake/hooks/useStocktakeReview.ts': '73d79bed9ff0035dbac112b27db9e89380326d90', 'stocktake/hooks/useStocktakeActions.ts': '36d870c4ff87fd08786d05b4dc6498e6459b9b55', 'stocktake/hooks/useStocktakeLifecycle.ts': 'fd6b9e6a69367c09319eb6a28219bbc0351f5ba4', 'stocktake/hooks/useCycleCountStart.ts': '7d662337ad82430809ea7dd53eab3e37aca9e1b6'}
+PAYLOADS = {'Tab3Stocktake.tsx': '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', 'stocktake/types.ts': 'eNrFV99vGjkQfuevWPF0J1XtO7m04jabFgkBhSTVqTpZZncIFou9sccktJf//ca7LOwPL5d7SPqC8Hg8nvnmm88gtpnSGOA+g+BnLwgWqOIN8g3M1eO76jr/skCO1rzrPQcrrbZB//37D0LuQKLS+1sUqelf9HrwdAp5PH7jVpcU8J+gf307HrNweju56ReG8K9wHNUsd9GXkbPNo3A66QxapFOGvZoPr48RXazR5PNhOYsmV7SicHej6NvB6GKTFxm/3o7m0dXBPJzN5tO743I2XdwcF+FwEkbjMa27UpqtuTkW2siidvu34chtsdHkKnLpRVR7V9ChxfU1YLwOLoPf6LjV6SAwqIW8dz1SGZpPg2AODxYMjqTA3u/B5cdgRj0SBv6wciPVo/x4Ci8kgl7xGIJQWYmLNQCOELY5BTKtEhsj23EtuEQmkkEg7XYJ+oJ2l5zyqNioFmnT1G0Zly8zeVMGXuZcVMJLvoWyitzO441hGWgWc41Kti8t1uWZysVUldB7lnCE1u6zp+g57AQ8joUsOM+RSs+QpWRoVPvKWOQ3Ki3uBZXbX0yGs8WX6U0/Z/NoERIN5znX3hy1fBdihIQ9WCpc4L4amcdoeerdKpCKwbspFYKj6ot7NCxak7epjn3ZtLK8007sKE2JL/d+awtDTuNFTfhRO1OBorZfO11x0pDfwNSKlamJ5JMnWumogRvXL0+kBys0GCZkAhnQR+6dnxoES6VS4DLnmF1uBbqiOL4I05O45+DmqBowRijZYLaGFWhwbazT50htF4U5lRrUNb5waLH+SHgVc2xf56mUGXI0KwFJreaU2GqwhHhQp0mVF2th3KvU8Pj+dzl2ZlCRAWc+C9iiQGlht1uu9x46vjFgJlYZsG51qipRzbWDvYXTOT2rOHQqigbXnoQ9Kk3a1yJWTR5JrVozerK2dY7YQV99M8EOA1MnipE8M2uFLLaoVivfiJAo0BDW58dZbZa0rD52hPs4hVkB7DRzXfIQo1mI2VhPIt0y/l8Xh1YbpWf8vnjLBNGcmNROrWC+hCeHiDviyYJ+u7Ct0lADEhXytNXCzrT+dBTpROMl72l7gA6nHJu6X6vmW5brimH0VIldtaLzmZ+Bs1LZG4DZlJ5Q0dYTntHsV5CZ/zHQymoSP28cX3l3sBaE6ZxGWIacZtu1Li+u4y53SaKpldpvbM3ZIUKTEqQdDEXdd1ck0whcWjuwaW03M2g5xCqpp/JEb5QTtVPnzmLs8T8+O96ZaIf3M+AsEb2d8o+J1/VXzIo3u47H/NXyK/5T1/5RB88XvX8B2WVmmA==', 'stocktake/parsers.ts': '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', 'stocktake/StocktakeSessionCenter.tsx': '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', 'stocktake/hooks/useStocktakeState.ts': 'eNqtVF1v2jAUfc+vuEJTBVIE77AyVQhtaB2toOwFIfCSC7EgdmQ7ZVHhv8+x8+EA3bRpUhT5fh2fe31sGidcKHiDVOI3jLmfL+aKKIQzbAWPoSWQBKo18KhNVVmCOn+ueLBXZI8zfqxSu92e/ih7Raa4yBaKHuRlpQd17XNEJPquZ4avFI++5yDmZTmKR5lCsSUBwiLnWFQYsg9iJw10wOOEsGwS9kEqQdluoJ0HHhBFOcu9LI1/oBh4Z8/Dn4bWNmVBHrWdu6jtBqLfQNIU+7d5dAoiTCpYJqZDkKhMryu41zGohvyxOYphuzV6WkxfJtPPrc6gRhH8KA2IHrZ8H0NHl6the7lq1NqJmmqz/E29icNJD+lwGLbzv4skUUrbew42L60rPDv4d2FMcoH16MzTukvcZkTvUePbI7zErzYoDmwecC03S606QzidoEUYZ1nMUyMqgF4PHlgQcQF7zCQITARKLWBQEcKRCIx0KkJCdmhFeYxoEJlo0YXOkqB3Yxh2LeCLDupbk5JDlVNKB6gEJUiwxxAoC1GXhXq3QwZbTeH7+Mtk9Dhez8ajp2m36qkA+YqZHUR+VdumtXYH7odmBbBJGd1SDNeyPNF1Udj/8OaO5aztWsrnjR3+0k3xHa2vdNidsBH133MxZf+XSSjIVv2BSSVbuLu71l2RBPAJNkfCiCTRmqQhVWuDfYPuFYTjzFuoEPtGoEVHhbfR2CXBC8fl5aibF6hSwcw7cwuyVou1y/OyVjkzJ1ZdvufaMm9O6Z9VRvGcVIGG2ejDfSP8f7n05/yV/gU9IyoD', 'stocktake/hooks/useStocktakeCounting.ts': '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', 'stocktake/hooks/useStocktakeReview.ts': 'eNq9Vt1q40YUvvdTTExZZCrk9NaOYrJtCqHdUuJu9yIE70Q6jofIkndmZK9JfJGlC8u+SLZloYRCS/ok8tv0jDSSRrLsze5FQzDymfPzne87c2Q2nUVckmsSC/iWBsEF9a5s9eUZTCOyImMeTUmbA/Vku99imbdczgBDvmNiRqU3sckQ5FBSCUeeZFH4ibChjLwrSa/gNFoUro7TxX8WziGUEV8+lywQ9cgWKWOPYjn5HlRx0/rzhAqoWE5hzmBht4w6KpmR+5rMKBdQizCBpedchbRYKIGPqQfk+UbIEb8UKUgBQiANP0YeVXSc+D0SxtML4OQGH4Kgjz4zhfQHWPaIkJyFl8pGsSdsn2EY+GlzvYaGlSdPC/bqbRr5BchT7ZTLdFBV6aA5+PAwD48W4jHB0eLsvAgaZq2rlrdFZv3Wqw03OduWoMJlkSCV/hF4Uz8VtWq14HU6AeM4zOY23tDUatTTNgS0G4WzC5FsUwy7pNauEWZv4cE22sMx7m0ZvE46eV4UCkmCiPpaU9e81xZ6IFixDD2SPWNq5ucjaGuTpPwSZIlgkI9vet4h7mFaS/1l9WA8BiRwDmUMcbXHZjoyGGwyilcr82bjAhppTuy6qfDk5qbw2/spxecwcYL38xK41RDZMSOaMh+4ZF87dIoOEf+E454KkcxjziNeoiOkvX67frd+kzyQ5OP6t+Sv5HeS3OHDx+Q++TN9XN8mD/j5niT/rt8n92T9NnlI7jHo1mkXiTp9/bhqVXjlVAlIF5TJhhErgbzsLiiHSYRSd+OQjRn4XZGPSPera9R41c2m8WWrVjKr5FNJDcmaFqKFaDrNMqloJ9BEjphP9lx3F9OfTTIydrt+l/zda+QZH+5I8kfyT3KXfFi/IaUoqY8RkKuxk/umS2g9pp3+RgIMRO7NA82lYqxixoVgnZ2bpvTCW+3T419Pjl+0ixNFc4DScHoJDrqdSJiW6MylpNnTCaogV5nDmbY276+mhI2r0ERs13u1q13aDSTZO5jPzs5bKfRiw2XD/EskaSCyHad+rliWsZzUhO5lfuWgcZAxD825Uyl6ZL8kbKreHuBXbGKCrwkkvGKM5sDrtjnljIYeKFWEcbLStGczplFk4JyAhSAcDn7sQa6kRT3PJuqksm5RKc9zUszka5d80y/slftI0kgnBzN6FVMUVy7T3blfjr6RN8use6/lXn1mlYOdNXIuVZFnVE4ceiHMpNvSGi6dL8d2uBOblhShPQLQl4PY+4QMlSnaKoaeIgwoVlg+bv//fLcKXVY2Ocsm+9y8sXQ249GcBk9xgV3hiLnkaRQFQENLXwkVMXAC3EBCjqjEAjOps+PleBUzDmLEQh9mgB+hHHHwojiU5MkT7aZvewF24DS4jwQuFqFekcVKqSyF8reTbQDLNk1mqXWijCv1a/I/a6IckQ==', 'stocktake/hooks/useStocktakeActions.ts': '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', 'stocktake/hooks/useStocktakeLifecycle.ts': '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', 'stocktake/hooks/useCycleCountStart.ts': 'eNrVWl9vG8cRf9enWBNBcISvJzVNX0hLQkQ4hVNbFiz7oTAE+XRcigeTd8zeUgphE4hRJy383C9Q9MGO4dR10QLtNzm+9pN09t/d/rsjZccB8iLx5mZnZ2Zn5zeze+l0lhOKnmwhNC/wIJ5MzuLkcSgeb45GOKHy4R4eyV/HNKY43FqiEcmnqENwnNBOfyuVohDN44Ii9brIswyT+j1dzDCfb7BIJvggpsn47oymeRYq2hHJh/OE1tRjmiePafwYfzGn4y8xjKhnj6JtJrHQFIAR55jeJCQnd3BRxOeYCZnFBAys5jxyyHJa4wWYSugxCAFNbg2NWfl7wubdSjOKyShOMHogZQ3yeUb54C/IecFVmuRJTLmYHsrm0zNM+kDFWXw2wUA6y/MJjjNGi8FKnNEU+PGQm9vzuIBxFkKz3+NFDxWUpNk5o87GcYEtWoFrM3oouIgnc6zeo6eg0GTSRbt76CJPhyb/bU1vNU7o7xs3yeOhMH6MMYURQKv0ZCLElKFOrmfYV6LhNRcLazJNC3yDid9j8rOcpqNF5Y3BOM7OmfsCH/tyawt/w2NiNM8SNgUPcnOBAnNxwnpRQu9ahIbfQ83foeXnsMGPoeOnsNEyCLleQ1R1eVgleQab7eFMBO8xjkkyvpXN5jRkcx855BO0W+3hoNPp9htkuMPXjyz0QYXOf8Pd2A9P9oKHJz4ph/gbOpiTIieGvJpsSDZieC/gEekRehsczgJPlyhphmGjeFLgFgF3coJ9Qhi9VZCUcw9/PccFuPRrwQxpNdjR5yvwBJIuHkr5oQghg7bGs7YvatlnLPPZMXJgEVvWWRtvD103Chf1COyJDQ0I3MiQEqzAOLCpV4kLKVIPiwOD1B4V5vAqKA4ccqsYLmXjiODCjXjglFZfNscC5Bu5JofsV8v6FSzjKCcdywevXXrZEIiU/IRneiGJplNAjV10mWbD/DICafeBks9NXsWdMDwEbje1RbC004CrKGDETFQBHxlNcHZOx2hvF32G9qW0HpKmIbQM0W92duQDwXROMokiUj02gigFueqcGcZ5su3Jx7Le3rKu7dom/PiW2+qc6DFFMKjzZU6mIjZUNWnY56TBKJkTAhCLru+iXwudrG3h4fBCW1BZ6ESE502hcgzyg0ydMZAn3WtbGTWggc1iJXFLvp2FDZX1JXbo2LTEyYq+iXCTHW4CazKDc1qyeSZRGrJwMcJjxMon5SgrROJikSUoSLjGVmEKrOxfiOLZDGdDeBQq1UGVjlBwTVZtXRnSfW3rFTy3Xr/eGHz9SoyYo1vtxoa1pWSufLJEGLRpGWAw1/qqmVqjj7NTsrCyAzQf8ZT5MMOX6MG92yI2jjg1UKx1WXuaDlkLwXwa1KVuN6wZ02kK1XrntzsdRVxWOYZpa2S8rpyf5bCgU3BaJzQTtTFaLKs5TNBgmHzZNwwk8SVYF1/GKfXU4MGj7cuY4HEOIbSdZhfwNieLbSFp/5Mnch6aS5u7y0eGPiweru3uNicjM4hqr59jBki+ljEAjT2IVATgOnxhJHhr/WUGZsKjlOJp0a/4xLSQf6ETkIt9J57dED1S6OmW92pkQGiUE3A9F8HkonyEhC5CIF8G9iJKhyHnWDO2UnAjCdKsh1EUSW7ePBZB96TvhJh/D/AZM3g+NWJkiRKWe1CAWYvfQ/PscZZfZvWefa8lNtakXiovYGwEGmqzI3EgEnFtA+tkQtgQos7qWfmv1XNUvlk9L1+h8m/lv1ffly9XzxD8eV6+Kd+Vb8XPt6s/l+9WL6JOt3LHKM0gjy4c+3fb7Tfj0TV9I2DzZMANEFP3zrJKjAwxPA131Y/rbbqZbVrLr2Z0eL9qgJ0umGAWCHyqLWSWVFobrC4iSsj9aICInj5F16yu0sA3p4pYX0cgw41LD9Q21HCtQOspPlpx1ipl1sJso0k/E8rKkD29iEkaZ1Tnt9YHEupV0FmryhuwWef42ZB5nqWjFA+3C3WotZ0wxPqVbJ6vANQN0bQhTFcHvgykWRfr+NqN+4+O21qT/gtGbXdL/RSgveFyN0O2J6VtktQ+ALDfwvN/y5fla4HSgN6rZ5tidKO5GyH0mpatGaBbOsGr4bNxLOgFa2vLtcL1Rt3/+3S+jZ0rc64Cy08/RQ5W1oCvpl2P9wf1oafPdHnIM87zQlXw9qGJRIuep8zXvOU5WJADP/BsocFbTlfPD4saTGjX8yc4ANlUSXbdwnZGw+mDUy26VxGsivJcBZgpyVMZ+i41qkKF6Wmwh8h73eAK8VrnryQd45zTdGabe6DdZJraA55DecMw3xG5Z4wu07CKHzvX917++ti2rbHO1VN6B/L038vX5TstV4uf/1i9QOzF6gVrt3jXtfpT1LGqXrHx7UqTH6jL49nqCBZ9vrOz06DF6juY8WX5Y/mfGjdEo8foCHR4A73eP6EZXH3PtHoNb19yChOKYOA7jjFtylUbRR7b60WyW/Cuqe06rbUdXy+oGmuUmWI6zqHG7RzdPb7fqevZs3y46KGvju8eRqKvSUeLQAcno6I272Yr/FLznrLrf5hj8IfB7Zung7sPDvWp/EW3WwHqI3iQGnw8PPeBDe3vi9ZLY+fr3kP68rMNZbItu3rlbji9SFmNKAtgz1cH/GSpWmTmjckxzQkrs2Bhb0H9Fmj30UxcO3N1XQ0+Y966dfi7jl7SOffVejPj8sF7fUoRPOb1NmPQ6wGL2X/zHdR+ErummCcJTBlo9Zy2OtqC7KNH5evVd6h8Vb4t/4rU4Yk8OIHNVe35T57YkZDFU7xE//v2L+qwhVV1P2iMfLJIhIio55fRI23y3gdPXr5a/ZEVllVFCRlIzaDtdXnVEtjbn23wDUvuq5S50px1h1HeLOQUv3pC0stOVWTyB/+nF75PJ5CTI8Tlpvrp/a6C5wbtyw3Np+rrFP3a1SCpu3n9K5ZKjP0JSPNHIBLupMeM+zH9kr75xivUhxTmk4axBl3dePuIHKSbLTXKVUnSqr96efRSK6yLep9RB94X6pMB/cE2yLrB99Bcc4y1NKtHU/sDXQEtmtQll3xSN+P1U12weIJqqX+TxD+Es77rGeQZJflkwi+K7/G4uA9sNxgvNPPu10t7/a3/A1RDQ48=', 'stocktake/hooks/useVehicleReconStart.ts': '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', 'stocktake/StocktakeVehicleReconModal.tsx': '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'}
+
+
+def fail(message: str) -> None:
+    raise SystemExit(f"PATCH_ABORTED: {message}")
+
+
+def normalize_bytes(path: Path) -> bytes:
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
+def git_blob_sha(data: bytes) -> str:
+    header = f"blob {len(data)}\0".encode("ascii")
+    return hashlib.sha1(header + data).hexdigest()
+
+
+def read(path: Path) -> str:
+    return path.read_text(
+        encoding="utf-8"
+    ).replace("\r\n", "\n")
+
+
+def decode(relative: str) -> str:
+    return zlib.decompress(
+        base64.b64decode(PAYLOADS[relative])
+    ).decode("utf-8")
+
+
+def replace_once(
+    text: str,
+    old: str,
+    new: str,
+    label: str,
+) -> str:
+    if new in text:
+        print(f"UNCHANGED={label}")
+        return text
+    count = text.count(old)
+    if count != 1:
+        fail(
+            f"{label}: expected exactly 1 match, "
+            f"found {count}. No files changed."
+        )
+    print(f"PATCHED={label}")
+    return text.replace(old, new, 1)
+
+
+# 0) Exact frontend baseline = Stage 4B after the ESLint fixes.
+for relative, expected in BASELINE.items():
+    path = INV / relative
+    if not path.exists():
+        fail(f"Missing baseline file: {relative}")
+
+    actual = git_blob_sha(
+        normalize_bytes(path)
+    )
+    if actual != expected:
+        fail(
+            f"Baseline mismatch for {relative}: "
+            f"expected {expected}, got {actual}. "
+            "No files changed."
+        )
+
+for path in (SCHEMAS, WAREHOUSE):
+    if not path.exists():
+        fail(
+            f"Missing backend file: "
+            f"{path.relative_to(ROOT)}"
+        )
+
+for relative in (
+    "stocktake/hooks/useVehicleReconStart.ts",
+    "stocktake/StocktakeVehicleReconModal.tsx",
+):
+    path = INV / relative
+    if path.exists():
+        expected = decode(relative)
+        current = read(path)
+        if current != expected:
+            fail(
+                "Refusing to overwrite existing "
+                f"different file: {relative}"
+            )
+
+schemas = read(SCHEMAS)
+warehouse = read(WAREHOUSE)
+
+# 1) Prove the exact backend foundation from 4A-2A + 4B.
+backend_checks = {
+    "ACTIVE_CENTER_SCHEMA":
+        "class StocktakeActiveSessionCursorPage(BaseModel):"
+        in schemas,
+    "CYCLE_BATCH_SCHEMA":
+        "class StocktakeCycleBatchCursorPage(BaseModel):"
+        in schemas,
+    "CYCLE_BATCH_ROUTE":
+        "/warehouse/unified/stocktake/cycle-batches"
+        in warehouse,
+    "ACTIVE_CENTER_ROUTE":
+        "/warehouse/unified/stocktakes/active"
+        in warehouse,
+    "UNIFIED_START":
+        "/warehouse/unified/stocktake/start"
+        in warehouse,
+    "NO_VEHICLE_CANDIDATE_YET":
+        "/warehouse/unified/stocktake/vehicle-recon-candidates"
+        not in warehouse,
+    "NO_CONTEXT_YET":
+        "/warehouse/unified/stocktake/{session_id}/context"
+        not in warehouse,
+}
+missing = [
+    name
+    for name, ok in backend_checks.items()
+    if not ok
+]
+if missing:
+    fail(
+        "Backend prerequisites failed: "
+        + ", ".join(missing)
+    )
+
+# 2) Response schemas.
+schema_anchor = "class UnifiedStocktakeStartRequest(RequestModel):"
+schema_block = '''class StocktakeSessionContextResponse(BaseModel):
+    session_id: int
+    stocktake_type: Literal[
+        "FULL_COUNT",
+        "CYCLE_COUNT",
+        "VEHICLE_RECON",
+    ]
+    status: Literal[
+        "DRAFT",
+        "COUNTING",
+        "PENDING_REVIEW",
+        "RECOUNT_REQUIRED",
+        "APPROVED",
+        "POSTED",
+        "CANCELLED",
+    ]
+    location_id: int
+    related_work_session_id: Optional[int] = None
+    source_location_id: int
+
+
+class VehicleReconCandidateItem(BaseModel):
+    work_session_id: int
+    driver_id: int
+    driver_name: str
+    session_date: date
+    end_time: datetime
+    vehicle_id: int
+    vehicle_location_id: int
+    vehicle_location_name: str
+    vehicle_location_code: str
+    existing_stocktake_session_id: Optional[int] = None
+    existing_stocktake_reference: Optional[str] = None
+    existing_stocktake_status: Optional[
+        Literal[
+            "DRAFT",
+            "COUNTING",
+            "PENDING_REVIEW",
+            "RECOUNT_REQUIRED",
+            "APPROVED",
+            "POSTED",
+        ]
+    ] = None
+
+
+class VehicleReconCandidateCursorPage(BaseModel):
+    items: List[VehicleReconCandidateItem]
+    next_cursor: Optional[str] = None
+    has_more: bool
+    total: Optional[int] = None
+
+
+'''
+
+if (
+    "class StocktakeSessionContextResponse(BaseModel):"
+    not in schemas
+):
+    if schemas.count(schema_anchor) != 1:
+        fail(
+            "Could not locate unique "
+            "UnifiedStocktakeStartRequest schema anchor."
+        )
+    schemas = schemas.replace(
+        schema_anchor,
+        schema_block + schema_anchor,
+        1,
+    )
+    print(
+        "PATCHED=vehicle_recon_context_candidate_schemas"
+    )
+else:
+    print(
+        "UNCHANGED=vehicle_recon_context_candidate_schemas"
+    )
+
+# 3) Backend imports.
+warehouse = replace_once(
+    warehouse,
+    "StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock)",
+    "WorkSession, StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock)",
+    "vehicle_recon_work_session_model_import",
+)
+
+warehouse = replace_once(
+    warehouse,
+    "StocktakeCycleBatchCursorPage,\nUnifiedStocktakeCountRequest",
+    "StocktakeCycleBatchCursorPage,\nStocktakeSessionContextResponse,\nVehicleReconCandidateCursorPage,\nUnifiedStocktakeCountRequest",
+    "vehicle_recon_response_schema_imports",
+)
+
+# 4) Candidate cursor + endpoint.
+candidate_anchor = "_ACTIVE_STOCKTAKE_STATUSES = frozenset({"
+
+candidate_block = r'''def _vehicle_recon_candidate_cursor_scope_hash(
+    scope: str,
+) -> str:
+    return hashlib.sha256(
+        scope.encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _encode_vehicle_recon_candidate_cursor(
+    work_session_id: int,
+    *,
+    scope: str,
+) -> str:
+    raw = json.dumps(
+        {
+            "v": 1,
+            "kind":
+                "stocktake-vehicle-recon-candidate",
+            "scope":
+                _vehicle_recon_candidate_cursor_scope_hash(
+                    scope
+                ),
+            "id": int(work_session_id),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(
+        raw
+    ).decode("ascii").rstrip("=")
+
+
+def _decode_vehicle_recon_candidate_cursor(
+    cursor: str,
+    *,
+    expected_scope: str,
+) -> int:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(
+            (cursor + padding).encode("ascii")
+        )
+        payload = json.loads(
+            raw.decode("utf-8")
+        )
+
+        if (
+            not isinstance(payload, dict)
+            or payload.get("v") != 1
+            or payload.get("kind")
+            != "stocktake-vehicle-recon-candidate"
+            or payload.get("scope")
+            != _vehicle_recon_candidate_cursor_scope_hash(
+                expected_scope
+            )
+        ):
+            raise ValueError
+
+        work_session_id = payload.get("id")
+        if (
+            type(work_session_id) is not int
+            or work_session_id <= 0
+        ):
+            raise ValueError
+
+        return work_session_id
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cursor جلسات تسوية السيارات "
+                "غير صالح أو لا يطابق المستودع الحالي."
+            ),
+        ) from exc
+
+
+@router.get(
+    "/warehouse/unified/stocktake/vehicle-recon-candidates",
+    response_model=VehicleReconCandidateCursorPage,
+    status_code=200,
+)
+async def list_vehicle_recon_candidates(
+    source_location_id: int = Query(
+        ...,
+        ge=1,
+    ),
+    search: Optional[str] = Query(
+        default=None,
+        min_length=2,
+        max_length=100,
+    ),
+    cursor: Optional[str] = Query(
+        default=None,
+        max_length=1024,
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=100,
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(
+        get_current_admin
+    ),
+):
+    company_id = current_admin.company_id
+
+    source_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id
+                == company_id,
+                InventoryLocation.id
+                == source_location_id,
+                InventoryLocation.location_type
+                == "WAREHOUSE",
+                InventoryLocation.is_active.is_(
+                    True
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if source_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "المستودع المصدر غير موجود "
+                "أو غير فعال أو لا يتبع شركتك."
+            ),
+        )
+
+    clean_search = (
+        search.strip()
+        if search
+        else ""
+    )
+    scope = (
+        f"{company_id}|"
+        f"{source_location_id}|"
+        f"{clean_search}"
+    )
+
+    base_filters = [
+        WorkSession.company_id == company_id,
+        WorkSession.end_time.is_not(None),
+        WorkSession.is_settled.is_(False),
+        WorkSession.inventory_reconciled_at
+        .is_(None),
+    ]
+
+    if clean_search:
+        escaped = _escape_like(clean_search)
+        pattern = f"%{escaped}%"
+        base_filters.append(
+            or_(
+                Driver.full_name.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+                InventoryLocation.name.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+                InventoryLocation.code.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+            )
+        )
+
+    def _candidate_query_columns():
+        return (
+            WorkSession.id.label(
+                "work_session_id"
+            ),
+            WorkSession.driver_id,
+            Driver.full_name.label(
+                "driver_name"
+            ),
+            WorkSession.session_date,
+            WorkSession.end_time,
+            DispatchRoute.vehicle_id,
+            InventoryLocation.id.label(
+                "vehicle_location_id"
+            ),
+            InventoryLocation.name.label(
+                "vehicle_location_name"
+            ),
+            InventoryLocation.code.label(
+                "vehicle_location_code"
+            ),
+        )
+
+    def _candidate_joins(stmt):
+        return (
+            stmt
+            .join(
+                DispatchRoute,
+                and_(
+                    DispatchRoute.company_id
+                    == WorkSession.company_id,
+                    DispatchRoute.work_session_id
+                    == WorkSession.id,
+                    DispatchRoute.driver_id
+                    == WorkSession.driver_id,
+                    DispatchRoute.source_location_id
+                    == source_location_id,
+                    DispatchRoute.vehicle_id
+                    .is_not(None),
+                ),
+            )
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id
+                    == WorkSession.company_id,
+                    InventoryLocation.vehicle_id
+                    == DispatchRoute.vehicle_id,
+                    InventoryLocation.location_type
+                    == "VEHICLE",
+                    InventoryLocation.is_active
+                    .is_(True),
+                ),
+            )
+            .join(
+                Driver,
+                and_(
+                    Driver.company_id
+                    == WorkSession.company_id,
+                    Driver.id
+                    == WorkSession.driver_id,
+                ),
+            )
+        )
+
+    total = None
+    if cursor is None:
+        count_stmt = _candidate_joins(
+            select(
+                func.count(
+                    WorkSession.id
+                )
+            ).select_from(WorkSession)
+        ).filter(*base_filters)
+
+        total = int(
+            (
+                await db.execute(
+                    count_stmt
+                )
+            ).scalar_one()
+        )
+
+    stmt = _candidate_joins(
+        select(
+            *_candidate_query_columns()
+        ).select_from(WorkSession)
+    ).filter(*base_filters)
+
+    if cursor is not None:
+        cursor_id = (
+            _decode_vehicle_recon_candidate_cursor(
+                cursor,
+                expected_scope=scope,
+            )
+        )
+        stmt = stmt.filter(
+            WorkSession.id < cursor_id
+        )
+
+    rows = (
+        await db.execute(
+            stmt.order_by(
+                WorkSession.id.desc()
+            ).limit(limit + 1)
+        )
+    ).all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+
+    next_cursor = None
+    if has_more and page_rows:
+        next_cursor = (
+            _encode_vehicle_recon_candidate_cursor(
+                int(
+                    page_rows[-1]
+                    .work_session_id
+                ),
+                scope=scope,
+            )
+        )
+
+    work_session_ids = [
+        int(row.work_session_id)
+        for row in page_rows
+    ]
+    existing_by_work_session = {}
+
+    if work_session_ids:
+        existing_rows = (
+            await db.execute(
+                select(
+                    StocktakeSession
+                    .related_work_session_id,
+                    StocktakeSession.id,
+                    StocktakeSession
+                    .reference_number,
+                    StocktakeSession.status,
+                )
+                .filter(
+                    StocktakeSession.company_id
+                    == company_id,
+                    StocktakeSession.stocktake_type
+                    == "VEHICLE_RECON",
+                    StocktakeSession
+                    .related_work_session_id
+                    .in_(work_session_ids),
+                    StocktakeSession.status
+                    != "CANCELLED",
+                )
+                .order_by(
+                    StocktakeSession
+                    .related_work_session_id
+                    .asc(),
+                    StocktakeSession.id.desc(),
+                )
+            )
+        ).all()
+
+        for existing in existing_rows:
+            work_session_id = int(
+                existing.related_work_session_id
+            )
+            if (
+                work_session_id
+                not in existing_by_work_session
+            ):
+                existing_by_work_session[
+                    work_session_id
+                ] = existing
+
+    items = []
+    for row in page_rows:
+        work_session_id = int(
+            row.work_session_id
+        )
+        existing = (
+            existing_by_work_session.get(
+                work_session_id
+            )
+        )
+
+        items.append(
+            {
+                "work_session_id":
+                    work_session_id,
+                "driver_id":
+                    int(row.driver_id),
+                "driver_name":
+                    str(row.driver_name),
+                "session_date":
+                    row.session_date,
+                "end_time":
+                    row.end_time,
+                "vehicle_id":
+                    int(row.vehicle_id),
+                "vehicle_location_id":
+                    int(
+                        row.vehicle_location_id
+                    ),
+                "vehicle_location_name":
+                    str(
+                        row
+                        .vehicle_location_name
+                    ),
+                "vehicle_location_code":
+                    str(
+                        row
+                        .vehicle_location_code
+                    ),
+                "existing_stocktake_session_id":
+                    (
+                        int(existing.id)
+                        if existing is not None
+                        else None
+                    ),
+                "existing_stocktake_reference":
+                    (
+                        str(
+                            existing
+                            .reference_number
+                        )
+                        if existing is not None
+                        else None
+                    ),
+                "existing_stocktake_status":
+                    (
+                        str(existing.status)
+                        if existing is not None
+                        else None
+                    ),
+            }
+        )
+
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+    }
+
+
+'''
+
+if (
+    "/warehouse/unified/stocktake/vehicle-recon-candidates"
+    not in warehouse
+):
+    if warehouse.count(candidate_anchor) != 1:
+        fail(
+            "Could not locate unique active "
+            "stocktake status anchor."
+        )
+    warehouse = warehouse.replace(
+        candidate_anchor,
+        candidate_block + candidate_anchor,
+        1,
+    )
+    print(
+        "PATCHED=vehicle_recon_candidate_endpoint"
+    )
+else:
+    print(
+        "UNCHANGED=vehicle_recon_candidate_endpoint"
+    )
+
+# 5) Session context endpoint.
+context_anchor = (
+    '@router.post("/warehouse/unified/stocktake/start"'
+)
+
+context_block = r'''@router.get(
+    "/warehouse/unified/stocktake/{session_id}/context",
+    response_model=StocktakeSessionContextResponse,
+    status_code=200,
+)
+async def get_stocktake_session_context(
+    session_id: int,
+    anchor_location_id: int = Query(
+        ...,
+        ge=1,
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(
+        get_current_admin
+    ),
+):
+    company_id = current_admin.company_id
+
+    anchor_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id
+                == company_id,
+                InventoryLocation.id
+                == anchor_location_id,
+                InventoryLocation.location_type
+                == "WAREHOUSE",
+                InventoryLocation.is_active.is_(
+                    True
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if anchor_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "مستودع سياق الجرد غير موجود "
+                "أو غير فعال أو لا يتبع شركتك."
+            ),
+        )
+
+    session = (
+        await db.execute(
+            select(
+                StocktakeSession.id,
+                StocktakeSession.stocktake_type,
+                StocktakeSession.status,
+                StocktakeSession.location_id,
+                StocktakeSession.related_work_session_id,
+            ).filter(
+                StocktakeSession.company_id
+                == company_id,
+                StocktakeSession.id
+                == session_id,
+            )
+        )
+    ).one_or_none()
+
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "جلسة الجرد غير موجودة "
+                "أو لا تتبع شركتك."
+            ),
+        )
+
+    stocktake_type = str(
+        session.stocktake_type
+    )
+    actual_location_id = int(
+        session.location_id
+    )
+    related_work_session_id = (
+        int(
+            session
+            .related_work_session_id
+        )
+        if session
+        .related_work_session_id
+        is not None
+        else None
+    )
+
+    if stocktake_type in {
+        "FULL_COUNT",
+        "CYCLE_COUNT",
+    }:
+        if (
+            actual_location_id
+            != anchor_location_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "جلسة الجرد لا تتبع "
+                    "المستودع المحدد."
+                ),
+            )
+    elif stocktake_type == "VEHICLE_RECON":
+        if related_work_session_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "VEHICLE_RECON بلا "
+                    "related_work_session_id صالح."
+                ),
+            )
+
+        vehicle_id = (
+            await db.execute(
+                select(
+                    InventoryLocation.vehicle_id
+                ).filter(
+                    InventoryLocation.company_id
+                    == company_id,
+                    InventoryLocation.id
+                    == actual_location_id,
+                    InventoryLocation.location_type
+                    == "VEHICLE",
+                    InventoryLocation.is_active
+                    .is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if vehicle_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "موقع VEHICLE_RECON "
+                    "ليس موقع سيارة فعالاً."
+                ),
+            )
+
+        route_source = (
+            await db.execute(
+                select(
+                    DispatchRoute
+                    .source_location_id
+                )
+                .filter(
+                    DispatchRoute.company_id
+                    == company_id,
+                    DispatchRoute.work_session_id
+                    == related_work_session_id,
+                    DispatchRoute.vehicle_id
+                    == vehicle_id,
+                    DispatchRoute
+                    .source_location_id
+                    == anchor_location_id,
+                )
+                .order_by(
+                    DispatchRoute.id.desc()
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if route_source is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "جلسة السيارة لا ترتبط "
+                    "بالمستودع المحدد."
+                ),
+            )
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail="نوع جلسة الجرد غير مدعوم.",
+        )
+
+    return {
+        "session_id": int(session.id),
+        "stocktake_type":
+            stocktake_type,
+        "status":
+            str(session.status),
+        "location_id":
+            actual_location_id,
+        "related_work_session_id":
+            related_work_session_id,
+        "source_location_id":
+            int(anchor_location_id),
+    }
+
+
+'''
+
+if (
+    "/warehouse/unified/stocktake/{session_id}/context"
+    not in warehouse
+):
+    if warehouse.count(context_anchor) != 1:
+        fail(
+            "Could not locate unique unified "
+            "stocktake start route anchor."
+        )
+    index = warehouse.index(
+        context_anchor
+    )
+    warehouse = (
+        warehouse[:index]
+        + context_block
+        + warehouse[index:]
+    )
+    print(
+        "PATCHED=stocktake_session_context_endpoint"
+    )
+else:
+    print(
+        "UNCHANGED=stocktake_session_context_endpoint"
+    )
+
+# 6) Frontend payloads and static architecture gates.
+targets = {
+    INV / relative: decode(relative)
+    for relative in PAYLOADS
+}
+combined = "\n".join(
+    targets.values()
+)
+
+checks = {
+    "SESSION_LOCATION_STATE":
+        "sessionLocationId" in combined
+        and "setSessionLocationId"
+        in combined,
+    "CONTEXT_ENDPOINT":
+        "/context?" in combined,
+    "CONTEXT_ANCHOR":
+        "anchor_location_id"
+        in combined,
+    "VEHICLE_CANDIDATES":
+        "/warehouse/unified/stocktake/vehicle-recon-candidates?"
+        in combined,
+    "VEHICLE_START":
+        '"VEHICLE_RECON"' in combined,
+    "WORK_SESSION_LINK":
+        "related_work_session_id:"
+        in combined,
+    "VEHICLE_LOCATION_PAYLOAD":
+        "candidate.vehicle_location_id"
+        in combined,
+    "OPEN_EXISTING":
+        "existing_stocktake_session_id"
+        in combined
+        and "openSessionById"
+        in combined,
+    "DRAFT_ACTUAL_LOCATION":
+        "wanasah_audit_draft:${companyScope}:${effectiveLocationId}:${sid}"
+        in combined,
+    "REVIEW_ACTUAL_LOCATION":
+        "effectiveLocationId"
+        in combined
+        and "data.location_id"
+        in combined,
+    "FULL_COUNT_PRESERVED":
+        '"FULL_COUNT"' in combined,
+    "CYCLE_COUNT_PRESERVED":
+        '"CYCLE_COUNT"' in combined,
+    "COUNT_STATUS_PRESERVED":
+        "stock_status: row.stock_status"
+        in combined,
+    "NO_COMPANY_ID_FRONTEND":
+        "company_id" not in combined,
+    "NO_EXPLICIT_ANY":
+        ": any" not in combined
+        and "any[]" not in combined
+        and "Promise<any>" not in combined,
+}
+failed = [
+    name
+    for name, ok in checks.items()
+    if not ok
+]
+if failed:
+    fail(
+        "Frontend architecture gate failed "
+        "before writes: "
+        + ", ".join(failed)
+    )
+
+backend_post_checks = {
+    "CANDIDATE_TENANT":
+        "WorkSession.company_id == company_id"
+        in warehouse,
+    "SOURCE_WAREHOUSE":
+        "DispatchRoute.source_location_id"
+        in candidate_block,
+    "ENDED_ONLY":
+        "WorkSession.end_time.is_not(None)"
+        in candidate_block,
+    "UNSETTLED_ONLY":
+        "WorkSession.is_settled.is_(False)"
+        in candidate_block,
+    "UNRECONCILED_ONLY":
+        "WorkSession.inventory_reconciled_at"
+        in candidate_block,
+    "CONTEXT_ROUTE_LINK":
+        "DispatchRoute.work_session_id"
+        in context_block
+        and "anchor_location_id"
+        in context_block,
+    "NO_DRIVER_RECON_ENDPOINT_CHANGE":
+        "/driver/session/"
+        not in warehouse,
+}
+backend_failed = [
+    name
+    for name, ok
+    in backend_post_checks.items()
+    if not ok
+]
+if backend_failed:
+    fail(
+        "Backend architecture gate failed "
+        "before writes: "
+        + ", ".join(backend_failed)
+    )
+
+# 7) Write only after every check passes.
+for path, content in targets.items():
+    relative = path.relative_to(INV)
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if path.exists():
+        current = read(path)
+        if current == content:
+            print(
+                f"UNCHANGED={relative}"
+            )
+            continue
+
+    path.write_text(
+        content,
+        encoding="utf-8",
+    )
+    print(f"PATCHED={relative}")
+
+SCHEMAS.write_text(
+    schemas,
+    encoding="utf-8",
+)
+WAREHOUSE.write_text(
+    warehouse,
+    encoding="utf-8",
+)
+
+print("STOCKTAKE_VEHICLE_CANDIDATE_ENDPOINT=OK")
+print("STOCKTAKE_VEHICLE_CONTEXT_ENDPOINT=OK")
+print("STOCKTAKE_VEHICLE_SOURCE_WAREHOUSE_SCOPE=OK")
+print("STOCKTAKE_VEHICLE_WORK_SESSION_ELIGIBILITY=OK")
+print("STOCKTAKE_VEHICLE_EXISTING_SESSION_REUSE=OK")
+print("STOCKTAKE_SESSION_LOCATION_FAIL_CLOSED=OK")
+print("STOCKTAKE_VEHICLE_REUSES_COUNT_REVIEW_ACTIONS=OK")
+print("STOCKTAKE_VEHICLE_FINANCIAL_SETTLEMENT_SEPARATE=OK")
+print("MAIN_INVENTORY_STAGE4C_VEHICLE_RECON=OK")

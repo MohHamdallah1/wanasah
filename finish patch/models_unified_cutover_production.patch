@@ -1,0 +1,532 @@
+diff --git a/wa_backend/models.py b/wa_backend/models.py
+index 1ce5a2b..df44f88 100644
+--- a/wa_backend/models.py
++++ b/wa_backend/models.py
+@@ -251,36 +251,60 @@ class Product(Base):
+ 
+ 
+ class UOMConversion(Base):
+-    """معاملات التحويل بين الوحدات لكل منتج[cite: 9]"""
++    """معامل تحويل Tenant-safe بين وحدات القياس لمنتج محدد."""
+     __tablename__ = 'uom_conversions'
+-    __table_args__ = (UniqueConstraint('company_id', 'product_variant_id', 'from_uom_id', 'to_uom_id', name='uq_uom_conversion'),)
+-    id = Column(Integer, primary_key=True)
+-    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+-    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='CASCADE'), nullable=False)
+-    from_uom_id = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
+-    to_uom_id   = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
+-    conversion_factor = Column(Numeric(10, 4), CheckConstraint('conversion_factor > 0', name='chk_positive_conversion'), nullable=False)
++    __table_args__ = (
++        UniqueConstraint(
++            'company_id', 'product_variant_id', 'from_uom_id', 'to_uom_id',
++            name='uq_uom_conversion'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id'],
++            ['product_variants.company_id', 'product_variants.id'],
++            ondelete='RESTRICT',
++            name='fk_uom_conversion_tenant_variant'
++        ),
++        CheckConstraint('from_uom_id <> to_uom_id', name='chk_uom_conversion_distinct_units'),
++        CheckConstraint('conversion_factor > 0', name='chk_positive_conversion'),
++    )
++    id                 = Column(Integer, primary_key=True)
++    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
++    product_variant_id = Column(Integer, nullable=False, index=True)
++    from_uom_id        = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
++    to_uom_id          = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
++    conversion_factor  = Column(Numeric(10, 4), nullable=False)
+ 
+ class ProductVariant(Base):
++    """نسخة المنتج التجارية؛ لا يمكن ربطها بمنتج من Tenant آخر."""
+     __tablename__ = 'product_variants'
+     __table_args__ = (
+         UniqueConstraint('company_id', 'sku', name='uq_company_sku'),
+-        UniqueConstraint('company_id', 'id', name='uq_product_variants_company_id'), # +++ Parent Guard +++
++        UniqueConstraint('company_id', 'id', name='uq_product_variants_company_id'),
++        ForeignKeyConstraint(
++            ['company_id', 'product_id'],
++            ['products.company_id', 'products.id'],
++            ondelete='RESTRICT',
++            name='fk_product_variant_tenant_product'
++        ),
++        CheckConstraint('packs_per_carton > 0', name='chk_packs_per_carton_positive'),
++        CheckConstraint('price_per_carton >= 0', name='chk_product_variant_carton_price'),
++        CheckConstraint('price_per_pack IS NULL OR price_per_pack >= 0', name='chk_product_variant_pack_price'),
++        CheckConstraint('default_max_samples_per_day >= 0', name='chk_product_variant_samples_limit'),
+     )
+-    id         = Column(Integer, primary_key=True)
+-    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True) # +++ زرع الهوية[cite: 9] +++
+-    product_id = Column(Integer, ForeignKey('products.id'), nullable=False)
+-    base_uom_id= Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False) # +++ NOT NULL الإلزامي +++
+-
+-    variant_name    = Column(String(200), nullable=False)
+-    flavor          = Column(String(50),  nullable=True)
+-    size            = Column(String(50),  nullable=True)
+-    sku             = Column(String(100), nullable=True)
+-    packs_per_carton = Column(Integer, CheckConstraint('packs_per_carton > 0', name='chk_packs_per_carton_positive'), nullable=False, default=50)
++    id          = Column(Integer, primary_key=True)
++    company_id  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
++    product_id  = Column(Integer, nullable=False, index=True)
++    base_uom_id = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=False)
++
++    variant_name     = Column(String(200), nullable=False)
++    flavor           = Column(String(50), nullable=True)
++    size             = Column(String(50), nullable=True)
++    sku              = Column(String(100), nullable=True)
++    packs_per_carton = Column(Integer, nullable=False, default=50, server_default='50')
+     price_per_carton = Column(Numeric(12, 3), nullable=False)
+     price_per_pack   = Column(Numeric(12, 3), nullable=True)
+     is_active        = Column(Boolean, nullable=False, default=True, server_default='true', index=True)
+-    default_max_samples_per_day = Column(Integer, nullable=False, default=0)
++    default_max_samples_per_day = Column(Integer, nullable=False, default=0, server_default='0')
+ 
+ 
+ # =================================================================================
+@@ -305,23 +329,7 @@ class Vehicle(Base):
+ 
+ # =================================================================================
+ # ⑥ جلسات العمل (المحرك الموحد: العهدة أصبحت تدار عبر InventoryBalance لموقع السيارة)
+-class VehicleLoad(Base):
+-    """
+-    مسودة الحمولة التي يجهزها أمين المستودع ليلاً.
+-    قيد الفرادة يمنع تكرار نفس المنتج على نفس السيارة.
+-    """
+-    __tablename__ = 'vehicle_loads'
+-    __table_args__ = (
+-        UniqueConstraint('vehicle_id', 'product_variant_id', name='uq_vehicle_variant_load'),
+-    )
+-    id                 = Column(Integer, primary_key=True)
+-    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+-    vehicle_id         = Column(Integer, ForeignKey('vehicles.id'),         nullable=False) # تم نسف الـ index المكرر لحماية الـ RAM
+-    product_variant_id = Column(Integer, ForeignKey('product_variants.id'), nullable=False)
+-    quantity           = Column(Integer, CheckConstraint('quantity >= 0', name='chk_vload_qty'), nullable=False, default=0)
+-    updated_at         = Column(DateTime, nullable=False, default=utc_now)  # FIX ①
+ 
+-    product_variant = relationship('ProductVariant', lazy='raise')
+ 
+ # =================================================================================
+ class WorkSession(Base):
+@@ -364,48 +372,57 @@ class WorkSession(Base):
+ 
+     driver = relationship('Driver', foreign_keys=[driver_id], backref=backref('work_sessions', lazy='raise'), lazy='raise')
+ 
+-class SessionInventory(Base):
+-    # Projection مجمّع للجلسة، وليس مصدراً للحقيقة للمخزون.
+-    # المصدر الوحيد للأرصدة هو InventoryBalance؛ هذا الجدول يخدم التقارير والأوفلاين.
+-    __tablename__ = 'session_inventory'
++class SessionInventorySnapshot(Base):
++    """
++    لقطة تاريخية لعهدة جلسة المندوب وليست رصيداً حياً.
++
++    الرصيد الحي يُقرأ حصرياً من InventoryBalance لموقع السيارة.
++    starting_quantity يثبت عند بدء الجلسة، وending_quantity يثبت عند التسوية.
++    صافي الحوالات والحركات يُستخرج من InventoryMovement المرتبط بالجلسة.
++    """
++    __tablename__ = 'session_inventory_snapshots'
+     __table_args__ = (
+         UniqueConstraint(
+             'company_id', 'work_session_id', 'product_variant_id',
+-            name='uq_session_variant_inv'
++            name='uq_session_inventory_snapshot_variant'
+         ),
+         ForeignKeyConstraint(
+             ['company_id', 'work_session_id'],
+             ['work_sessions.company_id', 'work_sessions.id'],
+             ondelete='RESTRICT',
+-            name='fk_session_inventory_tenant_session'
++            name='fk_session_snapshot_tenant_session'
+         ),
+         ForeignKeyConstraint(
+-            ['company_id', 'product_variant_id'],
+-            ['product_variants.company_id', 'product_variants.id'],
++            ['company_id', 'location_id'],
++            ['inventory_locations.company_id', 'inventory_locations.id'],
+             ondelete='RESTRICT',
+-            name='fk_session_inventory_tenant_variant'
++            name='fk_session_snapshot_tenant_location'
+         ),
+         ForeignKeyConstraint(
+-            ['company_id', 'location_id'],
+-            ['inventory_locations.company_id', 'inventory_locations.id'],
++            ['company_id', 'product_variant_id'],
++            ['product_variants.company_id', 'product_variants.id'],
+             ondelete='RESTRICT',
+-            name='fk_session_inventory_tenant_location'
++            name='fk_session_snapshot_tenant_variant'
++        ),
++        CheckConstraint('starting_quantity >= 0', name='chk_session_snapshot_starting'),
++        CheckConstraint('ending_quantity IS NULL OR ending_quantity >= 0', name='chk_session_snapshot_ending'),
++        CheckConstraint(
++            "((settled_at IS NULL AND ending_quantity IS NULL) OR "
++            "(settled_at IS NOT NULL AND ending_quantity IS NOT NULL))",
++            name='chk_session_snapshot_settlement_pair'
+         ),
+-        CheckConstraint('starting_quantity >= 0', name='chk_session_inventory_starting'),
+-        CheckConstraint('current_remaining_quantity >= 0', name='chk_positive_inventory'),
+     )
++
+     id                 = Column(Integer, primary_key=True)
+-    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
++    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+     work_session_id    = Column(Integer, nullable=False, index=True)
+     location_id        = Column(Integer, nullable=False, index=True)
+     product_variant_id = Column(Integer, nullable=False, index=True)
+ 
+-    starting_quantity          = Column(Integer, nullable=False, default=0, server_default='0')
+-    net_transfers              = Column(Integer, nullable=False, default=0, server_default='0')
+-    current_remaining_quantity = Column(Integer, nullable=False, default=0, server_default='0')
+-    updated_at                 = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+-
+-    product_variant = relationship('ProductVariant', foreign_keys=[product_variant_id], lazy='raise')
++    starting_quantity = Column(Integer, nullable=False)
++    ending_quantity   = Column(Integer, nullable=True)
++    created_at        = Column(DateTime, nullable=False, default=utc_now)
++    settled_at        = Column(DateTime, nullable=True, index=True)
+ 
+ # =================================================================================
+ # ⑦ المحلات
+@@ -479,6 +496,50 @@ class DispatchRoute(Base):
+     driver  = relationship('Driver', foreign_keys=[driver_id], lazy='raise')
+     vehicle = relationship('Vehicle', foreign_keys=[vehicle_id], lazy='raise')
+ 
++class DispatchLoadPlanLine(Base):
++    """
++    هدف تحميل مخطط لخط سير؛ ليس رصيداً مخزنياً.
++
++    target_quantity_packs يمثل الكمية المستهدفة على السيارة بعد تنفيذ التحميل،
++    بينما الرصيد الفعلي يبقى حصرياً في InventoryBalance.
++    """
++    __tablename__ = 'dispatch_load_plan_lines'
++    __table_args__ = (
++        UniqueConstraint(
++            'company_id', 'dispatch_route_id', 'product_variant_id',
++            name='uq_dispatch_load_plan_variant'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'dispatch_route_id'],
++            ['dispatch_routes.company_id', 'dispatch_routes.id'],
++            ondelete='CASCADE',
++            name='fk_dispatch_load_plan_tenant_route'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id'],
++            ['product_variants.company_id', 'product_variants.id'],
++            ondelete='RESTRICT',
++            name='fk_dispatch_load_plan_tenant_variant'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'updated_by'],
++            ['drivers.company_id', 'drivers.id'],
++            ondelete='RESTRICT',
++            name='fk_dispatch_load_plan_tenant_actor'
++        ),
++        CheckConstraint('target_quantity_packs >= 0', name='chk_dispatch_load_plan_target'),
++    )
++
++    id                    = Column(Integer, primary_key=True)
++    company_id            = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
++    dispatch_route_id     = Column(Integer, nullable=False, index=True)
++    product_variant_id    = Column(Integer, nullable=False, index=True)
++    target_quantity_packs = Column(Integer, nullable=False, default=0, server_default='0')
++    updated_by            = Column(Integer, nullable=False, index=True)
++    created_at            = Column(DateTime, nullable=False, default=utc_now)
++    updated_at            = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
++
++
+ # =================================================================================
+ # ⑨ الزيارات وتفاصيلها
+ # =================================================================================
+@@ -655,42 +716,8 @@ class ImportLog(Base):
+ # ⑬ سجل حركات المخزون (Inventory Ledger) - دفتر الأستاذ
+ # السجل المالي غير القابل للمسح
+ # =================================================================================
+-# (تمت إزالة InventoryLedger: استُبدل بدفتر الأستاذ الموحد InventoryMovement)
+-
+-
+-# =================================================================================
+-# ⑬ سجل حركات المخزون (Inventory Ledger) - دفتر الأستاذ
+-# السجل المالي غير القابل للمسح
+-# =================================================================================
+-class InventoryLedger(Base):
+-    """
+-    يوثق العجز والزيادة وأي تسوية على سيارة المندوب.
+-    transaction_type: Deficit (عجز) | Surplus (زيادة) | Adjustment (تعديل)
+-    """
+-    __tablename__ = 'inventory_ledgers'
+-    # +++  (G-04): إجبار الداتابيز على حساب الفرق بدقة لمنع التلاعب المالي +++
+-    __table_args__ = (
+-        CheckConstraint('difference = actual_quantity - expected_quantity', name='chk_ledger_difference'),
+-    )
+-    id                 = Column(Integer, primary_key=True)
+-    work_session_id    = Column(Integer, ForeignKey('work_sessions.id'), nullable=True, index=True)
+-    driver_id          = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+-    vehicle_id         = Column(Integer, ForeignKey('vehicles.id'),      nullable=True)
+-    product_variant_id = Column(Integer, ForeignKey('product_variants.id'), nullable=False)
+-
+-    transaction_type  = Column(String(50), nullable=False)
+-    expected_quantity = Column(Integer,    nullable=False)
+-    actual_quantity   = Column(Integer,    nullable=False)
+-    difference        = Column(Integer,    nullable=False)  # سالب للعجز، موجب للزيادة
++# السجل المخزني الموحد الوحيد هو InventoryMovement.
+ 
+-    # +++ حماية سجل الأستاذ (Issue 6): تقييد حذف الأدمن (RESTRICT) للحفاظ على الدفتر المالي من التلف +++
+-    admin_id  = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+-    timestamp = Column(DateTime, nullable=False, default=utc_now)  # FIX ①
+-    notes     = Column(Text, nullable=True)
+-
+-    product_variant = relationship('ProductVariant', lazy='raise')
+-    driver          = relationship('Driver', foreign_keys=[driver_id], lazy='raise')
+-    admin           = relationship('Driver', foreign_keys=[admin_id], lazy='raise')
+ 
+ # =================================================================================
+ # ⑭ سجل النظام الشامل (System Audit Log)
+@@ -739,129 +766,63 @@ class WorkBreakLog(Base):
+ # ⑯ الحوالات المعلقة (المصافحة - Handshake)
+ # عنق الزجاجة الذي يمنع دخول أي بضاعة للعهدة إلا بموافقة المندوب
+ # =================================================================================
+-# (تمت إزالة InventoryTransfer و MainWarehouse: استُبدلا بـ InventoryTransferHeader/Line و InventoryBalance)
+-
+-
+-# =================================================================================
+-# ⑰ المستودع الرئيسي (Main Warehouse)
+-# يعتمد على الحبات (Packs) كأصغر وحدة قياس لمنع تضارب الفراطة.
+-# =================================================================================
+-class MainWarehouse(Base):
+-    __tablename__ = 'main_warehouse'
+-    # استخدام product_variant_id كـ Primary Key يمنع تكرار نفس المنتج في المستودع ويجعل الاستعلام O(1)
+-    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), primary_key=True)
+-    
+-    # الرصيد الفعلي المتاح للتحميل (الحبات)
+-    available_quantity_packs = Column(Integer, CheckConstraint('available_quantity_packs >= 0', name='chk_main_warehouse_positive'), nullable=False, default=0)
+-    
+-    # +++ معمارية In-Transit: الرصيد المحجوز للحوالات المعلقة لمنع إرساله لمندوب آخر +++
+-    reserved_quantity_packs = Column(Integer, CheckConstraint('reserved_quantity_packs >= 0', name='chk_reserved_warehouse_positive'), nullable=False, default=0)
+-    
+-    # +++ إشعارات العجز (Threshold Alerts): الحد الأدنى بالحبات +++
+-    min_threshold_packs = Column(Integer, nullable=False, default=0)
+-    
+-    last_updated = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now, index=True) # +++ فهرس التقارير الراكدة +++
+-
+-    product_variant = relationship('ProductVariant', lazy='raise')
+-
+-# =================================================================================
+-# ⑯ الحوالات المعلقة (المصافحة - Handshake)
+-# عنق الزجاجة الذي يمنع دخول أي بضاعة للعهدة إلا بموافقة المندوب
+-# =================================================================================
+-class InventoryTransfer(Base):
+-    __tablename__ = 'inventory_transfers'
+-    __table_args__ = (
+-        Index('uq_pending_transfer', 'company_id', 'work_session_id', 'product_variant_id', unique=True, postgresql_where=text("status = 'pending'")),
+-    )
+-    id                 = Column(Integer, primary_key=True)
+-    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+-    work_session_id    = Column(Integer, ForeignKey('work_sessions.id',    ondelete='RESTRICT'), nullable=False)
+-    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+-
+-    quantity_packs = Column(Integer,    nullable=False)  # موجب للزيادة، سالب للسحب
+-    status         = Column(String(20), nullable=False, default='pending')  # pending | accepted | rejected
++# تم إلغاء مخزن MainWarehouse والحوالة القديمة نهائياً؛ المصدر هو المحرك الموحد فقط.
+ 
+-    admin_id   = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+-    created_at = Column(DateTime, nullable=False, default=utc_now)
+-    notes = Column(String(255), nullable=True)
+-
+-    product_variant = relationship('ProductVariant', lazy='raise')
+-    work_session    = relationship('WorkSession',
+-                                      backref=backref('transfers', lazy='raise',
+-                                                         cascade='all, delete-orphan'))
+ 
+ # =================================================================================
+ # ⑱ مقبرة التوالف (Damaged Goods Log)
+ # سجل دقيق لكل حبة تالفة تعود للمستودع مع توثيق (من أحضرها ومن أي محل).
+ # =================================================================================
+-class DamagedItemLog(Base):
+-    __tablename__ = 'damaged_items_log'
+-    id = Column(Integer, primary_key=True)
+-    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+-    
+-    # +++ الدرع المحاسبي: منع التوالف السالبة +++
+-    quantity_packs = Column(Integer, CheckConstraint('quantity_packs >= 0', name='chk_damaged_positive'), nullable=False)
+-    damage_type    = Column(String(50), nullable=False) # Expired | Factory_Defect | Damaged
+-    
+-    # +++ التتبع الأمني (Traceability) +++
+-    source_driver_id = Column(Integer, ForeignKey('drivers.id', ondelete='SET NULL'), nullable=True)
+-    source_visit_id  = Column(Integer, ForeignKey('visits.id', ondelete='SET NULL'), nullable=True)
+-    receiving_admin_id = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+-    
+-    notes = Column(Text, nullable=True)
+-    created_at = Column(DateTime, nullable=False, default=utc_now)
++class InventoryDamageEvent(Base):
++    """
++    بيانات سبب/مصدر الضرر المرتبطة بحركة مخزون واحدة.
+ 
+-    product_variant = relationship('ProductVariant', lazy='raise')
+-    driver = relationship('Driver', foreign_keys=[source_driver_id], lazy='raise')
+-    admin = relationship('Driver', foreign_keys=[receiving_admin_id], lazy='raise')
+-    visit = relationship('Visit', lazy='raise')
++    الكمية والصنف والدفعة والموقع لا تُكرر هنا؛ مصدرها الوحيد InventoryMovement.
++    """
++    __tablename__ = 'inventory_damage_events'
++    __table_args__ = (
++        UniqueConstraint('company_id', 'inventory_movement_id', name='uq_inventory_damage_event_movement'),
++        ForeignKeyConstraint(
++            ['company_id', 'inventory_movement_id'],
++            ['inventory_movements.company_id', 'inventory_movements.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_damage_event_tenant_movement'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'source_driver_id'],
++            ['drivers.company_id', 'drivers.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_damage_event_tenant_driver'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'receiving_admin_id'],
++            ['drivers.company_id', 'drivers.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_damage_event_tenant_admin'
++        ),
++        CheckConstraint(
++            "damage_type IN ('Expired', 'Factory_Defect', 'Damaged')",
++            name='chk_inventory_damage_event_type'
++        ),
++    )
+ 
++    id                    = Column(Integer, primary_key=True)
++    company_id            = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
++    inventory_movement_id = Column(Integer, nullable=False, index=True)
++    source_visit_id       = Column(Integer, ForeignKey('visits.id', ondelete='RESTRICT'), nullable=True, index=True)
++    source_driver_id      = Column(Integer, nullable=True, index=True)
++    receiving_admin_id    = Column(Integer, nullable=False, index=True)
++    damage_type           = Column(String(50), nullable=False)
++    notes                 = Column(Text, nullable=True)
++    created_at            = Column(DateTime, nullable=False, default=utc_now, index=True)
+ 
+-# =================================================================================
+-# ⑲ دفتر أستاذ المستودع (Warehouse Ledger)
+-# السجل المالي للبضاعة - لا يمكن مسحه أو تعديله. يوثق الموردين وحركات التحميل.
+-# =================================================================================
+-# (تمت إزالة WarehouseLedger: استُبدل بدفتر الأستاذ الموحد للحركات InventoryMovement)
+ 
+ # =================================================================================
+ # ⑲ دفتر أستاذ المستودع (Warehouse Ledger)
+ # السجل المالي للبضاعة - لا يمكن مسحه أو تعديله. يوثق الموردين وحركات التحميل.
+ # =================================================================================
+-class WarehouseLedger(Base):
+-    """
+-    أنواع الحركات (transaction_type):
+-    - INBOUND_SUPPLIER: استلام بضاعة من المورد.
+-    - DISPATCH_LOAD: تحميل سيارة مندوب.
+-    - DISPATCH_UNLOAD: تفريغ سيارة (أو مرتجع فراطة).
+-    - HANDSHAKE_RESERVE: حجز بضاعة لمصافحة معلقة.
+-    - HANDSHAKE_RELEASE: إعادة بضاعة محجوزة (رفض המندوب).
+-    - HANDSHAKE_COMMIT: تأكيد المصافحة (لا يغير الإجمالي لكن يصفر المحجوز).
+-    - AUDIT_ADJUSTMENT: تسوية جرد المستودع (عجز/زيادة).
+-    """
+-    __tablename__ = 'warehouse_ledger'
+-    __table_args__ = (
+-        Index('idx_ledger_variant_created', 'product_variant_id', 'created_at'),
+-        # +++ سحق الـ Magic String العربي واعتماد IS NOT NULL مع منع الفراغ +++
+-        Index('uq_ledger_supplier_ref', 'reference_id', 'product_variant_id', unique=True, postgresql_where=text("transaction_type = 'INBOUND_SUPPLIER' AND reference_id IS NOT NULL AND trim(reference_id) != ''")),
+-    )
+-    id = Column(Integer, primary_key=True)
+-    product_variant_id = Column(Integer, ForeignKey('product_variants.id', ondelete='RESTRICT'), nullable=False)
+-    
+-    transaction_type = Column(String(50), nullable=False, index=True)
+-    
+-    # تفاصيل الحركة بالحبات
+-    quantity_packs = Column(Integer, nullable=False)    
+-    # +++ لقطة الرصيد الفوري (Snapshot) قبل وبعد الحركة لضمان سلامة الدفاتر +++
+-    balance_before_packs = Column(Integer, nullable=False)
+-    balance_after_packs = Column(Integer, nullable=False)    
+-    admin_id = Column(Integer, ForeignKey('drivers.id', ondelete='RESTRICT'), nullable=False)
+-    # رقم مرجعي (فاتورة مورد، رقم حوالة، رقم جلسة المندوب)
+-    reference_id = Column(String(100), nullable=True, index=True)
+-    notes = Column(Text, nullable=True)
+-    created_at = Column(DateTime, nullable=False, default=utc_now)
++# دفتر حركة المستودع والسيارات والتسويات موحد في InventoryMovement.
+ 
+-    product_variant = relationship('ProductVariant', lazy='raise')
+-    admin = relationship('Driver', foreign_keys=[admin_id], lazy='raise')
+ 
+ # =================================================================================
+ # ⑳ القائمة السوداء للتوكنز (Token Blacklist) - لإنهاء الجلسات (Logout)
+@@ -1102,6 +1063,76 @@ class InventoryMovement(Base):
+     notes           = Column(Text, nullable=True)
+     created_at      = Column(DateTime, nullable=False, default=utc_now, index=True)
+ 
++class InventoryMovementImpact(Base):
++    """
++    لقطة الرصيد قبل/بعد لكل Balance تأثر بحركة واحدة.
++
++    هذا هو البديل الجنائي المنظم لـ balance_before/balance_after في WarehouseLedger،
++    ويمنع فقدان قابلية التتبع بعد توحيد جميع الحركات في InventoryMovement.
++    """
++    __tablename__ = 'inventory_movement_impacts'
++    __table_args__ = (
++        UniqueConstraint(
++            'company_id', 'movement_id', 'location_id', 'product_variant_id', 'batch_id', 'stock_status',
++            name='uq_inventory_movement_impact_balance'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'movement_id'],
++            ['inventory_movements.company_id', 'inventory_movements.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_movement_impact_tenant_movement'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'location_id'],
++            ['inventory_locations.company_id', 'inventory_locations.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_movement_impact_tenant_location'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'product_variant_id'],
++            ['product_variants.company_id', 'product_variants.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_movement_impact_tenant_variant'
++        ),
++        ForeignKeyConstraint(
++            ['company_id', 'batch_id'],
++            ['product_batches.company_id', 'product_batches.id'],
++            ondelete='RESTRICT',
++            name='fk_inventory_movement_impact_tenant_batch'
++        ),
++        CheckConstraint("stock_status IN ('AVAILABLE', 'DAMAGED')", name='chk_inventory_movement_impact_status'),
++        CheckConstraint('on_hand_before >= 0', name='chk_inventory_movement_impact_onhand_before'),
++        CheckConstraint('on_hand_after >= 0', name='chk_inventory_movement_impact_onhand_after'),
++        CheckConstraint('reserved_before >= 0', name='chk_inventory_movement_impact_reserved_before'),
++        CheckConstraint('reserved_after >= 0', name='chk_inventory_movement_impact_reserved_after'),
++        CheckConstraint('reserved_before <= on_hand_before', name='chk_inventory_movement_impact_reserved_before_bound'),
++        CheckConstraint('reserved_after <= on_hand_after', name='chk_inventory_movement_impact_reserved_after_bound'),
++        CheckConstraint(
++            "stock_status <> 'DAMAGED' OR (reserved_before = 0 AND reserved_after = 0)",
++            name='chk_inventory_movement_impact_damaged_not_reserved'
++        ),
++        CheckConstraint(
++            'on_hand_before <> on_hand_after OR reserved_before <> reserved_after',
++            name='chk_inventory_movement_impact_has_change'
++        ),
++    )
++
++    id                 = Column(Integer, primary_key=True)
++    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
++    movement_id        = Column(Integer, nullable=False, index=True)
++    location_id        = Column(Integer, nullable=False, index=True)
++    product_variant_id = Column(Integer, nullable=False, index=True)
++    batch_id           = Column(Integer, nullable=False, index=True)
++    stock_status       = Column(String(50), nullable=False, index=True)
++
++    on_hand_before  = Column(Integer, nullable=False)
++    on_hand_after   = Column(Integer, nullable=False)
++    reserved_before = Column(Integer, nullable=False)
++    reserved_after  = Column(Integer, nullable=False)
++
++    created_at = Column(DateTime, nullable=False, default=utc_now, index=True)
++
++
+ # =================================================================================
+ # [المرحلة الخامسة] هيكلة الحوالات الصارمة (Header & Line Architecture)
+ # =================================================================================

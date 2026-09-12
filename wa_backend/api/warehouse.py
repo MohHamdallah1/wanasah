@@ -29,6 +29,7 @@ from services import (
     apply_inventory_movements_batch,
     post_approved_stocktake_adjustments,
     allocate_fefo_inventory_batch,
+    batch_sellability_predicate,
     get_company_local_date,
     validate_vehicle_recon_work_session,
     begin_idempotent_operation,
@@ -68,6 +69,7 @@ UnifiedStocktakeCountRequest, StocktakeRecountRequest, StocktakeApprovalRequest,
 
 router = APIRouter()
 
+# PATCH: STAGE4C_SYNCHRONOUS_BATCH_ELIGIBILITY
 
 # إنشاء بصمة ثابتة للطلب مع اعتبار ترتيب items غير مؤثر منطقياً.
 def _stable_request_hash(
@@ -1435,6 +1437,7 @@ async def warehouse_inbound(
                 select(
                     ProductVariant.id,
                     ProductVariant.base_uom_id,
+                    ProductVariant.expiry_control_mode,
                     ProductVariant.lifecycle_status,
                     ProductVariant.operational_hold,
                     ProductLocation.operational_flags,
@@ -1452,6 +1455,7 @@ async def warehouse_inbound(
             )
         ).all()
         variant_uoms = {}
+        variant_expiry_modes = {}
         for row in variant_uom_rows:
             decision = evaluate_product_capability(
                 row.lifecycle_status,
@@ -1469,6 +1473,9 @@ async def warehouse_inbound(
                     detail={"code": "PRODUCT_LOCATION_INBOUND_DISABLED", "message": "الاستلام معطل لهذا الصنف في المستودع المحدد.", "context": {"product_variant_id": int(row.id), "location_id": payload.location_id}},
                 )
             variant_uoms[int(row.id)] = int(row.base_uom_id)
+            variant_expiry_modes[int(row.id)] = str(
+                row.expiry_control_mode
+            )
         if set(variant_uoms) != requested_var_ids:
             raise HTTPException(
                 status_code=409,
@@ -1485,27 +1492,76 @@ async def warehouse_inbound(
                 )
             if item.quantity <= 0:
                 continue
-            if not item.batch_number or not item.expiry_date:
+
+            if not item.batch_number:
                 raise HTTPException(
                     status_code=422,
-                    detail="مرفوض: النظام الموحد يفرض إدخال رقم الدفعة وتاريخ الصلاحية."
-                )
-            if item.expiry_date < as_of_date:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"مرفوض: لا يمكن استلام بضاعة منتهية الصلاحية (الدفعة: {item.batch_number})."
+                    detail="رقم الدفعة مطلوب.",
                 )
 
-            if item.production_date is not None and item.production_date > as_of_date:
+            expiry_mode = variant_expiry_modes[
+                item.product_variant_id
+            ]
+
+            if (
+                expiry_mode == 'REQUIRED'
+                and item.expiry_date is None
+            ):
                 raise HTTPException(
                     status_code=422,
-                    detail=f"مرفوض: تاريخ إنتاج الدفعة ({item.batch_number}) يقع في المستقبل."
+                    detail=(
+                        f"الصنف ({item.product_variant_id}) "
+                        "يتطلب تاريخ صلاحية."
+                    ),
                 )
 
-            if item.production_date is not None and item.production_date > item.expiry_date:
+            if (
+                expiry_mode == 'NONE'
+                and item.expiry_date is not None
+            ):
                 raise HTTPException(
                     status_code=422,
-                    detail=f"مرفوض: تاريخ إنتاج الدفعة ({item.batch_number}) بعد تاريخ صلاحيتها."
+                    detail=(
+                        f"الصنف ({item.product_variant_id}) "
+                        "غير خاضع لتتبع الصلاحية."
+                    ),
+                )
+
+            if (
+                item.expiry_date is not None
+                and item.expiry_date < as_of_date
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "مرفوض: لا يمكن استلام بضاعة "
+                        f"منتهية الصلاحية (الدفعة: {item.batch_number})."
+                    ),
+                )
+
+            if (
+                item.production_date is not None
+                and item.production_date > as_of_date
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"مرفوض: تاريخ إنتاج الدفعة "
+                        f"({item.batch_number}) يقع في المستقبل."
+                    ),
+                )
+
+            if (
+                item.production_date is not None
+                and item.expiry_date is not None
+                and item.production_date > item.expiry_date
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"مرفوض: تاريخ إنتاج الدفعة "
+                        f"({item.batch_number}) بعد تاريخ صلاحيتها."
+                    ),
                 )
 
             key = (int(item.product_variant_id), str(item.batch_number))
@@ -1560,13 +1616,59 @@ async def warehouse_inbound(
             if not batch.is_active:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"الدفعة ({batch.batch_number}) متوقفة إدارياً ولا يمكن إدخال رصيد AVAILABLE عليها."
+                    detail=(
+                        f"الدفعة ({batch.batch_number}) متوقفة إدارياً "
+                        "ولا يمكن إدخال رصيد AVAILABLE عليها."
+                    ),
                 )
 
-            if batch.expiry_date < as_of_date:
+            if batch.disposition != 'RELEASED':
                 raise HTTPException(
                     status_code=409,
-                    detail=f"الدفعة ({batch.batch_number}) منتهية الصلاحية ولا يمكن إدخال رصيد AVAILABLE عليها."
+                    detail=(
+                        f"الدفعة ({batch.batch_number}) حالتها "
+                        f"({batch.disposition}) ولا تقبل رصيد AVAILABLE جديد."
+                    ),
+                )
+
+            expiry_mode = variant_expiry_modes[
+                int(batch.product_variant_id)
+            ]
+
+            if (
+                expiry_mode == 'REQUIRED'
+                and batch.expiry_date is None
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"الدفعة ({batch.batch_number}) تفتقد تاريخ "
+                        "صلاحية إلزامياً للصنف."
+                    ),
+                )
+
+            if (
+                expiry_mode == 'NONE'
+                and batch.expiry_date is not None
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"الدفعة ({batch.batch_number}) تحمل تاريخ "
+                        "صلاحية رغم أن الصنف غير خاضع لتتبع الصلاحية."
+                    ),
+                )
+
+            if (
+                batch.expiry_date is not None
+                and batch.expiry_date < as_of_date
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"الدفعة ({batch.batch_number}) منتهية الصلاحية "
+                        "ولا يمكن إدخال رصيد AVAILABLE عليها."
+                    ),
                 )
 
             if batch.production_date is not None and batch.production_date > as_of_date:
@@ -1783,13 +1885,12 @@ async def get_warehouse_inventory(
             vehicle_stock_exists,
         )
 
-        batch_is_sellable = and_(
-            ProductBatch.is_active.is_(True),
-            or_(
-                ProductBatch.production_date.is_(None),
-                ProductBatch.production_date <= as_of_date,
+        batch_is_sellable = batch_sellability_predicate(
+            as_of_date,
+            expiry_control_mode=ProductVariant.expiry_control_mode,
+            minimum_remaining_shelf_life_days=(
+                InventoryStockPolicy.minimum_remaining_shelf_life_days
             ),
-            ProductBatch.expiry_date >= as_of_date,
         )
 
         alert_inventory_subq = None
@@ -1812,6 +1913,26 @@ async def get_warehouse_inventory(
                         ProductBatch.product_variant_id
                         == InventoryBalance.product_variant_id,
                         ProductBatch.id == InventoryBalance.batch_id,
+                    ),
+                )
+                .join(
+                    ProductVariant,
+                    and_(
+                        ProductVariant.company_id
+                        == InventoryBalance.company_id,
+                        ProductVariant.id
+                        == InventoryBalance.product_variant_id,
+                    ),
+                )
+                .outerjoin(
+                    InventoryStockPolicy,
+                    and_(
+                        InventoryStockPolicy.company_id
+                        == InventoryBalance.company_id,
+                        InventoryStockPolicy.location_id == location_id,
+                        InventoryStockPolicy.product_variant_id
+                        == InventoryBalance.product_variant_id,
+                        InventoryStockPolicy.is_active.is_(True),
                     ),
                 )
                 .filter(
@@ -2005,6 +2126,26 @@ async def get_warehouse_inventory(
                     ProductBatch.product_variant_id
                     == InventoryBalance.product_variant_id,
                     ProductBatch.id == InventoryBalance.batch_id,
+                ),
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id
+                    == InventoryBalance.company_id,
+                    ProductVariant.id
+                    == InventoryBalance.product_variant_id,
+                ),
+            )
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id
+                    == InventoryBalance.company_id,
+                    InventoryStockPolicy.location_id == location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == InventoryBalance.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
                 ),
             )
             .filter(
@@ -3222,17 +3363,18 @@ async def get_unified_transfer_source_inventory(
 
     as_of_date = await get_company_local_date(db, company_id)
 
-    sellable_batch = and_(
+    sellable_batch_join = and_(
         ProductBatch.company_id == InventoryBalance.company_id,
         ProductBatch.product_variant_id
         == InventoryBalance.product_variant_id,
         ProductBatch.id == InventoryBalance.batch_id,
-        ProductBatch.is_active.is_(True),
-        or_(
-            ProductBatch.production_date.is_(None),
-            ProductBatch.production_date <= as_of_date,
+    )
+    sellable_batch = batch_sellability_predicate(
+        as_of_date,
+        expiry_control_mode=ProductVariant.expiry_control_mode,
+        minimum_remaining_shelf_life_days=(
+            InventoryStockPolicy.minimum_remaining_shelf_life_days
         ),
-        ProductBatch.expiry_date >= as_of_date,
     )
 
     active_lock_exists = (
@@ -3289,7 +3431,7 @@ async def get_unified_transfer_source_inventory(
         )
         .join(
             ProductBatch,
-            sellable_batch,
+            sellable_batch_join,
         )
         .join(UOM, UOM.id == ProductVariant.base_uom_id)
         .join(
@@ -3300,9 +3442,21 @@ async def get_unified_transfer_source_inventory(
                 ProductLocation.location_id == location_id,
             ),
         )
+        .outerjoin(
+            InventoryStockPolicy,
+            and_(
+                InventoryStockPolicy.company_id
+                == ProductVariant.company_id,
+                InventoryStockPolicy.location_id == location_id,
+                InventoryStockPolicy.product_variant_id
+                == ProductVariant.id,
+                InventoryStockPolicy.is_active.is_(True),
+            ),
+        )
         .filter(
             ProductVariant.company_id == company_id,
             product_capability_predicate(ProductVariant, WAREHOUSE_BALANCING),
+            sellable_batch,
             ProductLocation.operational_flags['outbound_enabled'].as_boolean().is_(True),
             InventoryBalance.company_id == company_id,
             InventoryBalance.location_id == location_id,
@@ -3528,16 +3682,34 @@ async def get_unified_transfer_override_options(
                     InventoryBalance.batch_id == ProductBatch.id,
                 ),
             )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == ProductBatch.company_id,
+                    ProductVariant.id == ProductBatch.product_variant_id,
+                ),
+            )
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id == ProductBatch.company_id,
+                    InventoryStockPolicy.location_id == location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == ProductBatch.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                ),
+            )
             .filter(
                 ProductBatch.company_id == company_id,
                 ProductBatch.product_variant_id
                 == product_variant_id,
-                ProductBatch.is_active.is_(True),
-                or_(
-                    ProductBatch.production_date.is_(None),
-                    ProductBatch.production_date <= as_of_date,
+                batch_sellability_predicate(
+                    as_of_date,
+                    expiry_control_mode=ProductVariant.expiry_control_mode,
+                    minimum_remaining_shelf_life_days=(
+                        InventoryStockPolicy.minimum_remaining_shelf_life_days
+                    ),
                 ),
-                ProductBatch.expiry_date >= as_of_date,
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == location_id,
                 InventoryBalance.product_variant_id
@@ -3553,7 +3725,7 @@ async def get_unified_transfer_override_options(
             )
             .having(available_expression > 0)
             .order_by(
-                ProductBatch.expiry_date.asc(),
+                ProductBatch.expiry_date.asc().nulls_last(),
                 ProductBatch.id.asc(),
             )
         )
@@ -4196,15 +4368,70 @@ async def unified_transfer_dispatch(
             valid_override_pairs = set(
                 (
                     await db.execute(
-                        select(ProductBatch.product_variant_id, ProductBatch.id).filter(
-                            ProductBatch.company_id == company_id,
-                            tuple_(ProductBatch.product_variant_id, ProductBatch.id).in_(sorted(override_batch_pairs)),
-                            ProductBatch.is_active.is_(True),
-                            or_(
-                                ProductBatch.production_date.is_(None),
-                                ProductBatch.production_date <= as_of_date,
+                        select(
+                            ProductBatch.product_variant_id,
+                            ProductBatch.id,
+                        )
+                        .join(
+                            ProductVariant,
+                            and_(
+                                ProductVariant.company_id
+                                == ProductBatch.company_id,
+                                ProductVariant.id
+                                == ProductBatch.product_variant_id,
                             ),
-                            ProductBatch.expiry_date >= as_of_date,
+                        )
+                        .join(
+                            InventoryBalance,
+                            and_(
+                                InventoryBalance.company_id
+                                == ProductBatch.company_id,
+                                InventoryBalance.product_variant_id
+                                == ProductBatch.product_variant_id,
+                                InventoryBalance.batch_id == ProductBatch.id,
+                            ),
+                        )
+                        .outerjoin(
+                            InventoryStockPolicy,
+                            and_(
+                                InventoryStockPolicy.company_id
+                                == ProductBatch.company_id,
+                                InventoryStockPolicy.location_id
+                                == payload.source_location_id,
+                                InventoryStockPolicy.product_variant_id
+                                == ProductBatch.product_variant_id,
+                                InventoryStockPolicy.is_active.is_(True),
+                            ),
+                        )
+                        .filter(
+                            ProductBatch.company_id == company_id,
+                            tuple_(
+                                ProductBatch.product_variant_id,
+                                ProductBatch.id,
+                            ).in_(sorted(override_batch_pairs)),
+                            batch_sellability_predicate(
+                                as_of_date,
+                                expiry_control_mode=(
+                                    ProductVariant.expiry_control_mode
+                                ),
+                                minimum_remaining_shelf_life_days=(
+                                    InventoryStockPolicy.minimum_remaining_shelf_life_days
+                                ),
+                            ),
+                            InventoryBalance.company_id == company_id,
+                            InventoryBalance.location_id
+                            == payload.source_location_id,
+                            InventoryBalance.stock_status == "AVAILABLE",
+                            InventoryBalance.on_hand_quantity
+                            > InventoryBalance.reserved_quantity,
+                        )
+                        .order_by(
+                            ProductBatch.product_variant_id.asc(),
+                            ProductBatch.id.asc(),
+                        )
+                        .with_for_update(
+                            read=True,
+                            of=ProductBatch,
                         )
                     )
                 ).all()
@@ -4212,7 +4439,10 @@ async def unified_transfer_dispatch(
             if valid_override_pairs != override_batch_pairs:
                 raise HTTPException(
                     status_code=400,
-                    detail="إحدى دفعات تجاوز FEFO غير صالحة أو منتهية أو لا تتبع الصنف/الشركة."
+                    detail=(
+                        "إحدى دفعات تجاوز FEFO غير مؤهلة للبيع/التحميل "
+                        "بسبب disposition/expiry/shelf-life أو لا تتبع الصنف/الشركة."
+                    )
                 )
 
         normal_allocations = {}
