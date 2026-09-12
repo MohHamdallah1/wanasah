@@ -1396,6 +1396,102 @@ class InventoryLocation(Base):
     updated_at    = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
+
+class TenantOperationalPolicy(Base):
+    """Versioned, validated tenant policy. JSONB is data only; no executable expressions."""
+
+    __tablename__ = 'tenant_operational_policies'
+    __table_args__ = (
+        UniqueConstraint(
+            'company_id', 'id',
+            name='uq_tenant_operational_policies_company_id'
+        ),
+        UniqueConstraint(
+            'company_id', 'policy_code', 'revision',
+            name='uq_tenant_operational_policy_revision'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'created_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_tenant_operational_policy_creator'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'approved_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_tenant_operational_policy_approver'
+        ),
+        CheckConstraint(
+            "length(trim(policy_code)) > 0",
+            name='chk_tenant_operational_policy_code_not_blank'
+        ),
+        CheckConstraint(
+            'schema_version > 0',
+            name='chk_tenant_operational_policy_schema_version'
+        ),
+        CheckConstraint(
+            'revision > 0',
+            name='chk_tenant_operational_policy_revision'
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT', 'PUBLISHED', 'SUPERSEDED')",
+            name='chk_tenant_operational_policy_status'
+        ),
+        CheckConstraint(
+            "jsonb_typeof(validated_payload) = 'object'",
+            name='chk_tenant_operational_policy_payload_object'
+        ),
+        CheckConstraint(
+            "((status = 'DRAFT' AND effective_from IS NULL AND effective_to IS NULL "
+            "AND approved_by IS NULL AND approved_at IS NULL) OR "
+            "(status = 'PUBLISHED' AND effective_from IS NOT NULL AND effective_to IS NULL "
+            "AND approved_by IS NOT NULL AND approved_at IS NOT NULL) OR "
+            "(status = 'SUPERSEDED' AND effective_from IS NOT NULL AND effective_to IS NOT NULL "
+            "AND approved_by IS NOT NULL AND approved_at IS NOT NULL "
+            "AND effective_to >= effective_from))",
+            name='chk_tenant_operational_policy_state_metadata'
+        ),
+        Index(
+            'ix_tenant_operational_policy_lookup',
+            'company_id', 'policy_code', 'status', 'revision'
+        ),
+        Index(
+            'uq_tenant_operational_policy_one_draft',
+            'company_id', 'policy_code',
+            unique=True,
+            postgresql_where=text("status = 'DRAFT'")
+        ),
+        Index(
+            'uq_tenant_operational_policy_one_published',
+            'company_id', 'policy_code',
+            unique=True,
+            postgresql_where=text("status = 'PUBLISHED'")
+        ),
+    )
+
+    id                = Column(Integer, primary_key=True)
+    company_id        = Column(
+        Integer,
+        ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    policy_code       = Column(String(80), nullable=False)
+    schema_version    = Column(Integer, nullable=False, default=1)
+    revision          = Column(Integer, nullable=False)
+    validated_payload = Column(JSONB, nullable=False)
+    status            = Column(String(20), nullable=False, default='DRAFT')
+    effective_from    = Column(DateTime, nullable=True)
+    effective_to      = Column(DateTime, nullable=True)
+    approved_by       = Column(Integer, nullable=True, index=True)
+    approved_at       = Column(DateTime, nullable=True)
+    created_by        = Column(Integer, nullable=False, index=True)
+    created_at        = Column(DateTime, nullable=False, default=utc_now)
+    updated_at        = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+
 class InventoryStockPolicy(Base):
     # حد النقص والهدف لكل مستودع/صنف بدلاً من MainWarehouse.min_threshold_packs.
     __tablename__ = 'inventory_stock_policies'

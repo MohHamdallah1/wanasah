@@ -1746,6 +1746,53 @@ class InventoryStatusChangeResponse(BaseModel):
     destination_status: InventoryStockStatus
 
 
+
+# STAGE4E2A_TRANSFER_POLICY_GUARD
+class TransferDestinationPolicyPayload(RequestModel):
+    quarantine_location_id: PositiveDbInt
+    disposal_location_id: PositiveDbInt
+    vendor_return_staging_location_id: PositiveDbInt
+    allow_retiring_warehouse_balancing: bool = False
+
+
+class TransferDestinationPolicySaveRequest(RequestModel):
+    request_id: UUID
+    expected_revision: OptionalPositiveDbInt = None
+    payload: TransferDestinationPolicyPayload
+
+
+class TransferDestinationPolicyPublishRequest(RequestModel):
+    request_id: UUID
+    expected_revision: PositiveDbInt
+
+
+class TransferDestinationPolicyItem(BaseModel):
+    id: PositiveDbInt
+    policy_code: Literal["INVENTORY_TRANSFER_DESTINATIONS"]
+    schema_version: PositiveDbInt
+    revision: PositiveDbInt
+    validated_payload: TransferDestinationPolicyPayload
+    status: Literal["DRAFT", "PUBLISHED", "SUPERSEDED"]
+    effective_from: Optional[datetime] = None
+    effective_to: Optional[datetime] = None
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    created_by: PositiveDbInt
+    created_at: datetime
+    updated_at: datetime
+
+
+class TransferDestinationPolicyMutationResponse(BaseModel):
+    message: str
+    policy: TransferDestinationPolicyItem
+
+
+class TransferDestinationPolicyStateResponse(BaseModel):
+    draft: Optional[TransferDestinationPolicyItem] = None
+    published: Optional[TransferDestinationPolicyItem] = None
+
+
+
 class UnifiedTransferItem(RequestModel):
     product_variant_id: PositiveDbInt
     quantity: PositiveQuantity

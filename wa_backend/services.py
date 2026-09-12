@@ -23,6 +23,7 @@ from models import (
     VisitReturn,
     InventoryLock,
     InventoryLocation,
+    TenantOperationalPolicy,
     InventoryStockPolicy,
     InventoryBalance,
     InventoryMovement,
@@ -841,6 +842,504 @@ def _batch_metadata_is_sellable(
         return mode == "OPTIONAL" and min_days == 0
 
     return expiry_date >= as_of_date + timedelta(days=min_days)
+
+
+
+
+# STAGE4E2A_TRANSFER_POLICY_GUARD
+TRANSFER_DESTINATION_POLICY_CODE = "INVENTORY_TRANSFER_DESTINATIONS"
+TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION = 1
+_TRANSFER_DESTINATION_POLICY_KEYS = frozenset({
+    "quarantine_location_id",
+    "disposal_location_id",
+    "vendor_return_staging_location_id",
+    "allow_retiring_warehouse_balancing",
+})
+
+
+async def validate_transfer_destination_policy_payload(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    payload: Dict[str, Any],
+    lock_locations: bool = True,
+) -> Dict[str, Any]:
+    """Hard Domain Validator for JSONB location references.
+
+    JSONB cannot carry relational foreign keys.  Therefore every save/publish
+    validates the complete known schema and locks every referenced location row
+    in deterministic ID order.  Cross-tenant/missing/inactive references fail
+    closed without revealing whether an ID exists in another tenant.
+    """
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    if not isinstance(payload, dict) or set(payload) != _TRANSFER_DESTINATION_POLICY_KEYS:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_PAYLOAD_INVALID",
+            "validated_payload لا يطابق Schema سياسة وجهات التحويل المعتمدة.",
+        )
+
+    try:
+        quarantine_id = _strict_int(
+            payload["quarantine_location_id"],
+            "quarantine_location_id",
+            minimum=1,
+        )
+        disposal_id = _strict_int(
+            payload["disposal_location_id"],
+            "disposal_location_id",
+            minimum=1,
+        )
+        vendor_id = _strict_int(
+            payload["vendor_return_staging_location_id"],
+            "vendor_return_staging_location_id",
+            minimum=1,
+        )
+    except ValueError as exc:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_PAYLOAD_INVALID",
+            str(exc),
+        ) from exc
+
+    allow_retiring = payload["allow_retiring_warehouse_balancing"]
+    if type(allow_retiring) is not bool:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_PAYLOAD_INVALID",
+            "allow_retiring_warehouse_balancing يجب أن يكون boolean.",
+        )
+
+    ids = sorted({quarantine_id, disposal_id, vendor_id})
+
+    # Use the project-wide shared Location Guard so policy validation serializes
+    # against deactivation while concurrent readers/transfers remain concurrent.
+    if lock_locations:
+        await acquire_inventory_location_guards(
+            db_session,
+            company_id,
+            ids,
+        )
+
+    stmt = (
+        select(InventoryLocation)
+        .filter(
+            InventoryLocation.company_id == company_id,
+            InventoryLocation.id.in_(ids),
+        )
+        .order_by(InventoryLocation.id.asc())
+    )
+    if lock_locations:
+        stmt = stmt.with_for_update(read=True)
+
+    rows = (await db_session.execute(stmt)).scalars().all()
+    locations = {int(row.id): row for row in rows}
+
+    # One generic error protects against ID probing across tenants.
+    if set(locations) != set(ids) or any(
+        not bool(locations[location_id].is_active)
+        for location_id in ids
+    ):
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_LOCATION_INVALID",
+            "أحد مواقع سياسة التحويل غير موجود أو غير فعال أو لا يتبع الشركة.",
+        )
+
+    if any(bool(locations[location_id].is_system_managed) for location_id in ids):
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_LOCATION_INVALID",
+            "مواقع النظام الداخلية لا يجوز استخدامها كوجهة تشغيلية في هذه السياسة.",
+        )
+
+    if str(locations[quarantine_id].location_type).upper() != "WAREHOUSE":
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
+            "quarantine_location_id يجب أن يشير إلى WAREHOUSE فعال.",
+            context={"field": "quarantine_location_id"},
+        )
+
+    if str(locations[vendor_id].location_type).upper() != "WAREHOUSE":
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
+            "vendor_return_staging_location_id يجب أن يشير إلى WAREHOUSE فعال.",
+            context={"field": "vendor_return_staging_location_id"},
+        )
+
+    disposal_type = str(locations[disposal_id].location_type).upper()
+    if disposal_type not in {"WAREHOUSE", "SCRAP"}:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
+            "disposal_location_id يجب أن يشير إلى WAREHOUSE أو SCRAP فعال.",
+            context={"field": "disposal_location_id"},
+        )
+
+    return {
+        "quarantine_location_id": quarantine_id,
+        "disposal_location_id": disposal_id,
+        "vendor_return_staging_location_id": vendor_id,
+        "allow_retiring_warehouse_balancing": allow_retiring,
+    }
+
+
+async def _acquire_transfer_policy_guard(
+    db_session: AsyncSession,
+    company_id: int,
+) -> None:
+    await db_session.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                int(company_id),
+                func.hashtext(
+                    f"tenant-policy:{TRANSFER_DESTINATION_POLICY_CODE}"
+                ),
+            )
+        )
+    )
+
+
+async def save_transfer_destination_policy_draft(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    request_id: UUID,
+    expected_revision: Optional[int],
+    payload: Dict[str, Any],
+) -> TenantOperationalPolicy:
+    company_id = _strict_int(company_id, "company_id", minimum=1)
+    actor_id = _strict_int(actor_id, "actor_id", minimum=1)
+    await _acquire_transfer_policy_guard(db_session, company_id)
+
+    normalized = await validate_transfer_destination_policy_payload(
+        db_session,
+        company_id=company_id,
+        payload=payload,
+        lock_locations=True,
+    )
+
+    draft = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+                TenantOperationalPolicy.status == "DRAFT",
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    max_revision = int(
+        (
+            await db_session.execute(
+                select(
+                    func.coalesce(
+                        func.max(TenantOperationalPolicy.revision),
+                        0,
+                    )
+                ).filter(
+                    TenantOperationalPolicy.company_id == company_id,
+                    TenantOperationalPolicy.policy_code
+                    == TRANSFER_DESTINATION_POLICY_CODE,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    now = utc_now()
+    before = None
+
+    if draft is None:
+        if expected_revision is not None:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_REVISION_CONFLICT",
+                "لا يوجد Draft يطابق expected_revision المرسل.",
+                context={"current_revision": None},
+            )
+        draft = TenantOperationalPolicy(
+            company_id=company_id,
+            policy_code=TRANSFER_DESTINATION_POLICY_CODE,
+            schema_version=TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
+            revision=max_revision + 1,
+            validated_payload=normalized,
+            status="DRAFT",
+            created_by=actor_id,
+            created_at=now,
+            updated_at=now,
+        )
+        db_session.add(draft)
+        await db_session.flush()
+    else:
+        current_revision = int(draft.revision)
+        if expected_revision is None or int(expected_revision) != current_revision:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_REVISION_CONFLICT",
+                "تغير Draft السياسة منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
+                context={"current_revision": current_revision},
+            )
+        if current_revision != max_revision:
+            raise InventoryMutationError(
+                "Policy invariant violated: active DRAFT is not latest revision."
+            )
+        before = {
+            "revision": current_revision,
+            "validated_payload": dict(draft.validated_payload or {}),
+        }
+        draft.revision = current_revision + 1
+        draft.schema_version = TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION
+        draft.validated_payload = normalized
+        draft.updated_at = now
+        await db_session.flush()
+
+    after = {
+        "revision": int(draft.revision),
+        "validated_payload": dict(draft.validated_payload),
+        "status": str(draft.status),
+    }
+    record_domain_event(
+        db_session,
+        company_id=company_id,
+        actor_id=actor_id,
+        request_id=request_id,
+        event_type="TenantOperationalPolicyDraftSaved",
+        entity_type="TenantOperationalPolicy",
+        entity_id=int(draft.id),
+        reason="INVENTORY_TRANSFER_DESTINATIONS_DRAFT_SAVE",
+        before=before,
+        after=after,
+        emit_outbox=True,
+    )
+    return draft
+
+
+async def publish_transfer_destination_policy(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    policy_id: int,
+    expected_revision: int,
+    request_id: UUID,
+) -> TenantOperationalPolicy:
+    company_id = _strict_int(company_id, "company_id", minimum=1)
+    actor_id = _strict_int(actor_id, "actor_id", minimum=1)
+    policy_id = _strict_int(policy_id, "policy_id", minimum=1)
+    expected_revision = _strict_int(
+        expected_revision,
+        "expected_revision",
+        minimum=1,
+    )
+
+    await _acquire_transfer_policy_guard(db_session, company_id)
+
+    draft = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.id == policy_id,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+                TenantOperationalPolicy.status == "DRAFT",
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if draft is None:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_DRAFT_NOT_FOUND",
+            "Draft سياسة وجهات التحويل غير موجود أو لم يعد قابلاً للنشر.",
+            context={"policy_id": policy_id},
+        )
+
+    if int(draft.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_SCHEMA_UNSUPPORTED",
+            "Draft policy schema_version غير مدعوم ولا يجوز نشره.",
+            context={
+                "schema_version": int(draft.schema_version),
+                "supported_schema_version": TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
+            },
+        )
+
+    if int(draft.revision) != expected_revision:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_REVISION_CONFLICT",
+            "تغير Draft السياسة منذ فتحه. حدّث البيانات ثم أعد المحاولة.",
+            context={"current_revision": int(draft.revision)},
+        )
+
+    normalized = await validate_transfer_destination_policy_payload(
+        db_session,
+        company_id=company_id,
+        payload=dict(draft.validated_payload or {}),
+        lock_locations=True,
+    )
+    draft.validated_payload = normalized
+
+    current = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+                TenantOperationalPolicy.status == "PUBLISHED",
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    now = utc_now()
+    previous_published = None
+    if current is not None:
+        previous_published = {
+            "id": int(current.id),
+            "revision": int(current.revision),
+            "status": str(current.status),
+        }
+        current.status = "SUPERSEDED"
+        current.effective_to = now
+        current.updated_at = now
+
+        # Free the partial-unique PUBLISHED slot before promoting the Draft.
+        # Correctness must not depend on ORM UPDATE ordering.
+        await db_session.flush()
+
+    before = {
+        "revision": int(draft.revision),
+        "status": "DRAFT",
+        "previous_published": previous_published,
+    }
+
+    draft.status = "PUBLISHED"
+    draft.effective_from = now
+    draft.effective_to = None
+    draft.approved_by = actor_id
+    draft.approved_at = now
+    draft.updated_at = now
+    await db_session.flush()
+
+    record_domain_event(
+        db_session,
+        company_id=company_id,
+        actor_id=actor_id,
+        request_id=request_id,
+        event_type="TenantOperationalPolicyPublished",
+        entity_type="TenantOperationalPolicy",
+        entity_id=int(draft.id),
+        reason="INVENTORY_TRANSFER_DESTINATIONS_PUBLISH",
+        before=before,
+        after={
+            "revision": int(draft.revision),
+            "status": "PUBLISHED",
+            "validated_payload": dict(draft.validated_payload),
+        },
+        emit_outbox=True,
+    )
+    return draft
+
+
+async def get_transfer_destination_policy_state(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+) -> Tuple[
+    Optional[TenantOperationalPolicy],
+    Optional[TenantOperationalPolicy],
+]:
+    company_id = _strict_int(company_id, "company_id", minimum=1)
+
+    rows = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+                TenantOperationalPolicy.status.in_(["DRAFT", "PUBLISHED"]),
+            )
+            .order_by(
+                TenantOperationalPolicy.status.asc(),
+                TenantOperationalPolicy.revision.desc(),
+            )
+        )
+    ).scalars().all()
+
+    draft = next((row for row in rows if row.status == "DRAFT"), None)
+    published = next(
+        (row for row in rows if row.status == "PUBLISHED"),
+        None,
+    )
+    return draft, published
+
+
+async def load_published_transfer_destination_policy(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    revalidate_locations: bool = True,
+) -> Tuple[TenantOperationalPolicy, Dict[str, Any]]:
+    """Runtime fail-closed read; Stage 4E.2B transfer commands consume this once."""
+    company_id = _strict_int(company_id, "company_id", minimum=1)
+    policy = (
+        await db_session.execute(
+            select(TenantOperationalPolicy)
+            .filter(
+                TenantOperationalPolicy.company_id == company_id,
+                TenantOperationalPolicy.policy_code
+                == TRANSFER_DESTINATION_POLICY_CODE,
+                TenantOperationalPolicy.status == "PUBLISHED",
+                TenantOperationalPolicy.effective_to.is_(None),
+            )
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+
+    if policy is None:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_REQUIRED",
+            "يجب نشر سياسة وجهات التحويل قبل تنفيذ هذا الغرض.",
+        )
+
+    if int(policy.schema_version) != TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION:
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_SCHEMA_UNSUPPORTED",
+            "نسخة Schema لسياسة وجهات التحويل المنشورة غير مدعومة.",
+            context={
+                "policy_id": int(policy.id),
+                "policy_revision": int(policy.revision),
+                "schema_version": int(policy.schema_version),
+                "supported_schema_version": TRANSFER_DESTINATION_POLICY_SCHEMA_VERSION,
+            },
+        )
+
+    if revalidate_locations:
+        try:
+            normalized = await validate_transfer_destination_policy_payload(
+                db_session,
+                company_id=company_id,
+                payload=dict(policy.validated_payload or {}),
+                lock_locations=True,
+            )
+        except InventoryRuleError as exc:
+            raise InventoryRuleError(
+                "TRANSFER_POLICY_STALE",
+                "سياسة وجهات التحويل المنشورة لم تعد تشير إلى مواقع تشغيلية صالحة.",
+                context={
+                    "policy_id": int(policy.id),
+                    "policy_revision": int(policy.revision),
+                    "reason_code": exc.code,
+                },
+            ) from exc
+    else:
+        normalized = dict(policy.validated_payload or {})
+
+    return policy, normalized
 
 
 

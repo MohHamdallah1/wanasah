@@ -25,6 +25,10 @@ from services import (
     ensure_system_transit_location,
     inventory_business_error,
     warehouse_setup_required_detail,
+    TRANSFER_DESTINATION_POLICY_CODE,
+    save_transfer_destination_policy_draft,
+    publish_transfer_destination_policy,
+    get_transfer_destination_policy_state,
     apply_inventory_movement,
     apply_inventory_movements_batch,
     post_approved_stocktake_adjustments,
@@ -41,7 +45,7 @@ from services import (
 )
 from models import (Driver, Product, ProductVariant, ProductLocation, Branch,
 DispatchRoute, SystemAuditLog,
-InventoryLocation, InventoryStockPolicy, InventoryBalance, InventoryMovement, InventoryMovementImpact, ProductBatch,
+InventoryLocation, TenantOperationalPolicy, InventoryStockPolicy, InventoryBalance, InventoryMovement, InventoryMovementImpact, ProductBatch,
 InventoryTransferHeader, InventoryTransferLine, OverrideReason, SystemSetting,
 WorkSession, StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock)
 from models import UOM
@@ -71,7 +75,9 @@ StocktakeSessionContextResponse,
 VehicleReconCandidateCursorPage,
 UnifiedStocktakeCountRequest, StocktakeRecountRequest, StocktakeApprovalRequest, StocktakeCancelRequest,
 BatchDispositionChangeRequest, BatchDispositionMutationResponse,
-InventoryStatusChangeRequest, InventoryStatusChangeResponse )
+InventoryStatusChangeRequest, InventoryStatusChangeResponse,
+TransferDestinationPolicySaveRequest, TransferDestinationPolicyPublishRequest,
+TransferDestinationPolicyMutationResponse, TransferDestinationPolicyStateResponse )
 
 router = APIRouter()
 
@@ -1280,6 +1286,48 @@ async def deactivate_warehouse_location(
                         "LOCATION_DEACTIVATION_BLOCKED",
                         "لا يمكن تعطيل المستودع أثناء وجود جلسة جرد غير نهائية عليه.",
                         context={"blocker_type": "OPEN_STOCKTAKE", "reference_number": str(active_stocktake)},
+                    ),
+                )
+
+
+            published_policy_ref = (
+                await db.execute(
+                    select(
+                        TenantOperationalPolicy.id,
+                        TenantOperationalPolicy.revision,
+                    ).filter(
+                        TenantOperationalPolicy.company_id == company_id,
+                        TenantOperationalPolicy.policy_code
+                        == TRANSFER_DESTINATION_POLICY_CODE,
+                        TenantOperationalPolicy.status == "PUBLISHED",
+                        TenantOperationalPolicy.effective_to.is_(None),
+                        or_(
+                            TenantOperationalPolicy.validated_payload[
+                                "quarantine_location_id"
+                            ].as_integer() == location.id,
+                            TenantOperationalPolicy.validated_payload[
+                                "disposal_location_id"
+                            ].as_integer() == location.id,
+                            TenantOperationalPolicy.validated_payload[
+                                "vendor_return_staging_location_id"
+                            ].as_integer() == location.id,
+                        ),
+                    ).limit(1)
+                )
+            ).first()
+            if published_policy_ref is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=inventory_business_error(
+                        "LOCATION_DEACTIVATION_BLOCKED",
+                        "لا يمكن تعطيل الموقع لأنه مرجع في سياسة تحويل منشورة.",
+                        context={
+                            "blocker_type": "PUBLISHED_OPERATIONAL_POLICY",
+                            "policy_id": int(published_policy_ref.id),
+                            "policy_revision": int(
+                                published_policy_ref.revision
+                            ),
+                        },
                     ),
                 )
 
@@ -3231,6 +3279,272 @@ async def adjust_warehouse_entry(
             status_code=500,
             detail="خطأ داخلي أثناء معالجة التعديل."
         )
+
+
+
+
+# STAGE4E2A_TRANSFER_POLICY_GUARD
+_TRANSFER_POLICY_VALIDATION_CODES = frozenset({
+    "TRANSFER_POLICY_PAYLOAD_INVALID",
+    "TRANSFER_POLICY_LOCATION_INVALID",
+    "TRANSFER_POLICY_LOCATION_TYPE_INVALID",
+})
+
+
+def _transfer_policy_to_payload(policy: Optional[TenantOperationalPolicy]):
+    if policy is None:
+        return None
+    return {
+        "id": int(policy.id),
+        "policy_code": str(policy.policy_code),
+        "schema_version": int(policy.schema_version),
+        "revision": int(policy.revision),
+        "validated_payload": dict(policy.validated_payload or {}),
+        "status": str(policy.status),
+        "effective_from": (
+            policy.effective_from.isoformat()
+            if policy.effective_from is not None
+            else None
+        ),
+        "effective_to": (
+            policy.effective_to.isoformat()
+            if policy.effective_to is not None
+            else None
+        ),
+        "approved_by": (
+            int(policy.approved_by)
+            if policy.approved_by is not None
+            else None
+        ),
+        "approved_at": (
+            policy.approved_at.isoformat()
+            if policy.approved_at is not None
+            else None
+        ),
+        "created_by": int(policy.created_by),
+        "created_at": policy.created_at.isoformat(),
+        "updated_at": policy.updated_at.isoformat(),
+    }
+
+
+async def _require_transfer_policy_location_access(
+    access: InventoryAccess,
+    validated_payload: dict,
+) -> None:
+    location_ids = sorted({
+        int(validated_payload["quarantine_location_id"]),
+        int(validated_payload["disposal_location_id"]),
+        int(validated_payload["vendor_return_staging_location_id"]),
+    })
+    for location_id in location_ids:
+        # Policy administration itself is company-scoped; referenced locations
+        # must still be visible to the actor through the normal location ACL.
+        await access.require(
+            "location.read",
+            location_id,
+        )
+
+
+@router.get(
+    "/warehouse/operational-policy/transfer-destinations",
+    response_model=TransferDestinationPolicyStateResponse,
+    status_code=200,
+)
+async def get_transfer_destination_policy(
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.transfer_policy.manage", any_location=True)
+
+    try:
+        draft, published = await get_transfer_destination_policy_state(
+            db,
+            company_id=current_admin.company_id,
+        )
+        return {
+            "draft": _transfer_policy_to_payload(draft),
+            "published": _transfer_policy_to_payload(published),
+        }
+    except InventoryMutationError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "TRANSFER_POLICY_READ_FAILED",
+                str(exc),
+            ),
+        ) from exc
+
+
+@router.put(
+    "/warehouse/operational-policy/transfer-destinations/draft",
+    response_model=TransferDestinationPolicyMutationResponse,
+    status_code=200,
+)
+async def save_transfer_destination_policy(
+    payload: TransferDestinationPolicySaveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.transfer_policy.manage", any_location=True)
+    company_id = current_admin.company_id
+
+    try:
+        request_hash = _stable_request_hash(payload)
+        idem, replay = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="TRANSFER_DESTINATION_POLICY_DRAFT_SAVE",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
+        policy = await save_transfer_destination_policy_draft(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            request_id=payload.request_id,
+            expected_revision=payload.expected_revision,
+            payload=payload.payload.model_dump(mode="python"),
+        )
+        await _require_transfer_policy_location_access(
+            access,
+            dict(policy.validated_payload),
+        )
+
+        response = {
+            "message": "تم حفظ Draft سياسة وجهات التحويل بعد التحقق الصارم من المواقع.",
+            "policy": _transfer_policy_to_payload(policy),
+        }
+        complete_idempotent_operation(idem, response)
+        await db.commit()
+        return response
+
+    except InventoryRuleError as exc:
+        await db.rollback()
+        status_code = (
+            400
+            if exc.code in _TRANSFER_POLICY_VALIDATION_CODES
+            else 409
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=exc.as_detail(),
+        ) from exc
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "TRANSFER_POLICY_SAVE_REJECTED",
+                str(exc),
+            ),
+        ) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "TRANSFER_POLICY_CONFLICT",
+                "حدث تعارض متزامن أثناء حفظ السياسة.",
+            ),
+        ) from exc
+
+
+@router.post(
+    "/warehouse/operational-policy/transfer-destinations/{policy_id}/publish",
+    response_model=TransferDestinationPolicyMutationResponse,
+    status_code=200,
+)
+async def publish_transfer_destination_policy_endpoint(
+    policy_id: int,
+    payload: TransferDestinationPolicyPublishRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.transfer_policy.manage", any_location=True)
+    company_id = current_admin.company_id
+
+    try:
+        request_hash = _stable_request_hash(
+            payload,
+            context={"policy_id": int(policy_id)},
+        )
+        idem, replay = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="TRANSFER_DESTINATION_POLICY_PUBLISH",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
+        policy = await publish_transfer_destination_policy(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            policy_id=policy_id,
+            expected_revision=payload.expected_revision,
+            request_id=payload.request_id,
+        )
+        await _require_transfer_policy_location_access(
+            access,
+            dict(policy.validated_payload),
+        )
+
+        response = {
+            "message": "تم نشر سياسة وجهات التحويل بعد إعادة التحقق من المواقع.",
+            "policy": _transfer_policy_to_payload(policy),
+        }
+        complete_idempotent_operation(idem, response)
+        await db.commit()
+        return response
+
+    except InventoryRuleError as exc:
+        await db.rollback()
+        if exc.code in _TRANSFER_POLICY_VALIDATION_CODES:
+            status_code = 400
+        elif exc.code == "TRANSFER_POLICY_DRAFT_NOT_FOUND":
+            status_code = 404
+        else:
+            status_code = 409
+        raise HTTPException(
+            status_code=status_code,
+            detail=exc.as_detail(),
+        ) from exc
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "TRANSFER_POLICY_PUBLISH_REJECTED",
+                str(exc),
+            ),
+        ) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "TRANSFER_POLICY_CONFLICT",
+                "حدث تعارض متزامن أثناء نشر السياسة.",
+            ),
+        ) from exc
 
 
 # =================================================================================
