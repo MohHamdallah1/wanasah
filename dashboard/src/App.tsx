@@ -12,6 +12,7 @@ const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayo
 const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
 const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
 const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
+const PricingDashboard = lazy(() => import("./pages/PricingDashboard"));
 const Login = lazy(() => import("./pages/Login"));
 const PlatformLogin = lazy(() => import("./pages/PlatformLogin"));
 const PlatformDashboard = lazy(() => import("./pages/PlatformDashboard"));
@@ -183,6 +184,7 @@ const App = () => (
                 <Route path="/" element={<OperationsDashboard />} />
                 <Route path="/dispatch" element={<DispatchBoard />} />
                 <Route path="/inventory" element={<MainInventory />} />
+                <Route path="/pricing" element={<PricingDashboard />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

@@ -1,6 +1,6 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useRef, useEffect } from "react";
-import { Radar, Truck, Package, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin } from "lucide-react";
+import { Radar, Truck, Package, BadgeDollarSign, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatTenantDate } from "@/features/tenantIdentity/contracts";
@@ -15,6 +15,7 @@ const navItems = [
   { label: "الصفحة الرئيسية", icon: Radar, path: "/" },
   { label: "التوزيع والمناطق", icon: Truck, path: "/dispatch" },
   { label: "المخزون والمستودع", icon: Package, path: "/inventory" },
+  { label: "التسعير التجاري", icon: BadgeDollarSign, path: "/pricing" },
   { label: "الأرشيف والتقارير", icon: FileText, path: "/reports" },
   { label: "الإعدادات", icon: Settings, path: "/settings" },
 ];
@@ -47,7 +48,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
   }, []);
 
   const handleNav = (item: typeof navItems[0]) => {
-    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory") {
+    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/pricing") {
       navigate(item.path);
       onClose(); 
     } else {
@@ -139,7 +140,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
 
         {/* روابط التنقل (كما هي بدون تغيير بالألوان) */}
         <nav className="operations-nav flex flex-col gap-1" aria-label="التنقل الرئيسي">
-          {navItems.filter(item => access.isCompanyAdmin || item.path === '/inventory' || (item.path === '/dispatch' && access.canAny('dispatch.read'))).map((item) => (
+          {navItems.filter(item => access.isCompanyAdmin || item.path === '/inventory' || (item.path === '/dispatch' && access.canAny('dispatch.read')) || (item.path === '/pricing' && access.canAny('pricing.view'))).map((item) => (
             <button
               key={item.label}
               onClick={() => handleNav(item)}

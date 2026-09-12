@@ -14,6 +14,7 @@ const DashboardLayout = () => {
     if (access.isError) return <div className="dashboard-access-state dashboard-access-state--error" dir="rtl"><strong>تعذر التحقق من صلاحيات الحساب</strong><button onClick={() => void access.refetch()}>إعادة المحاولة</button></div>;
     if (!access.isCompanyAdmin && location.pathname === '/') return <Navigate to="/inventory" replace />;
     if (!access.isCompanyAdmin && location.pathname === '/dispatch' && !access.canAny('dispatch.read')) return <Navigate to="/inventory" replace />;
+    if (!access.isCompanyAdmin && location.pathname === '/pricing' && !access.canAny('pricing.view')) return <Navigate to="/inventory" replace />;
 
     return (
         // +++ الكي الجراحي 1: قفل الشاشة الإجباري (h-screen overflow-hidden) لنسف أي سكرول خارجي نهائياً +++

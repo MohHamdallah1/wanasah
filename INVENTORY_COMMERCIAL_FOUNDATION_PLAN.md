@@ -1682,18 +1682,18 @@ Gate:
 
 ### Stage 5 — Temporal Pricing and Route Commercial Context
 
-- PriceBook/Publication/Entry/Assignment.
-- إزالة حقول السعر القديمة من ProductVariant بعد تحويل آخر مستهلك حي لها.
-- btree_gist exclusion.
-- Publish workflow.
-- Deterministic precedence.
-- Route launch lock.
-- Driver sync price authority.
-- Dashboard pricing.
+- [x]PriceBook/Publication/Entry/Assignment.
+- [x] إزالة حقول السعر القديمة من ProductVariant بعد تحويل آخر مستهلك حي لها.
+- [x] btree_gist exclusion.
+- [x] Publish workflow.
+- [x] Deterministic precedence.
+- [x] Route launch lock.
+- [x] Driver sync price authority.
+- [x] Dashboard pricing.
 
 Gate:
 
-- COMMERCIAL_PRICING_GATE=PASS
+- [x] COMMERCIAL_PRICING_GATE=PASS
 
 ### Stage 6 — Offers, Taxes and Immutable Sales Evidence
 
