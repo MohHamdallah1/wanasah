@@ -1,5 +1,5 @@
-from sqlalchemy import BigInteger, Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, Uuid, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import BigInteger, Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, Uuid, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint, Computed
+from sqlalchemy.dialects.postgresql import JSONB, TSTZRANGE, ExcludeConstraint
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -719,6 +719,403 @@ class DispatchRoute(Base):
     zone    = relationship('Zone', foreign_keys=[zone_id], lazy='raise')
     driver  = relationship('Driver', foreign_keys=[driver_id], lazy='raise')
     vehicle = relationship('Vehicle', foreign_keys=[vehicle_id], lazy='raise')
+
+# =================================================================================
+# ⑧.1 التسعير الزمني وسياق Route التجاري — Stage 5
+# =================================================================================
+class PriceBook(Base):
+    """Tenant-owned price book. Product master data never stores a live sale price."""
+    __tablename__ = "price_books"
+    __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_price_books_company_id"),
+        UniqueConstraint("company_id", "code", name="uq_price_book_company_code"),
+        ForeignKeyConstraint(
+            ["company_id", "created_by"],
+            ["drivers.company_id", "drivers.id"],
+            ondelete="RESTRICT",
+            name="fk_price_book_tenant_creator",
+        ),
+        CheckConstraint("length(trim(code)) > 0", name="chk_price_book_code_not_blank"),
+        CheckConstraint("length(trim(name)) > 0", name="chk_price_book_name_not_blank"),
+        CheckConstraint("length(trim(currency_code)) > 0", name="chk_price_book_currency_not_blank"),
+        CheckConstraint("status IN ('ACTIVE', 'ARCHIVED')", name="chk_price_book_status"),
+        CheckConstraint("version > 0", name="chk_price_book_version"),
+        CheckConstraint(
+            "jsonb_typeof(applicability_metadata) = 'object'",
+            name="chk_price_book_applicability_object",
+        ),
+        Index("ix_price_book_company_status", "company_id", "status", "id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    code = Column(String(100), nullable=False)
+    name = Column(String(150), nullable=False)
+    currency_code = Column(String(10), nullable=False)
+    status = Column(String(20), nullable=False, default="ACTIVE", server_default="ACTIVE")
+    applicability_metadata = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_by = Column(Integer, nullable=False, index=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class PricePublication(Base):
+    """Immutable-after-publish revision of one PriceBook.
+
+    revision is tenant-global (not merely per book) so a RouteCommercialContext can
+    store one deterministic publication revision ceiling without copying every price.
+    """
+    __tablename__ = "price_publications"
+    __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_price_publications_company_id"),
+        UniqueConstraint(
+            "company_id", "id", "price_book_id",
+            name="uq_price_publication_company_id_book",
+        ),
+        UniqueConstraint(
+            "company_id", "revision",
+            name="uq_price_publication_company_revision",
+        ),
+        UniqueConstraint(
+            "company_id", "request_id",
+            name="uq_price_publication_company_request",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "price_book_id"],
+            ["price_books.company_id", "price_books.id"],
+            ondelete="RESTRICT",
+            name="fk_price_publication_tenant_book",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "created_by"],
+            ["drivers.company_id", "drivers.id"],
+            ondelete="RESTRICT",
+            name="fk_price_publication_tenant_creator",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "approved_by"],
+            ["drivers.company_id", "drivers.id"],
+            ondelete="RESTRICT",
+            name="fk_price_publication_tenant_approver",
+        ),
+        CheckConstraint("revision > 0", name="chk_price_publication_revision"),
+        CheckConstraint(
+            "status IN ('DRAFT','PENDING_APPROVAL','PUBLISHED','SUPERSEDED','CANCELLED')",
+            name="chk_price_publication_status",
+        ),
+        CheckConstraint("version > 0", name="chk_price_publication_version"),
+        CheckConstraint(
+            "status NOT IN ('PUBLISHED','SUPERSEDED') OR "
+            "(effective_at IS NOT NULL AND approved_by IS NOT NULL "
+            "AND approved_at IS NOT NULL AND published_at IS NOT NULL)",
+            name="chk_price_publication_published_metadata",
+        ),
+        Index(
+            "ix_price_publication_resolver",
+            "company_id", "price_book_id", "status", "revision", "effective_at",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    price_book_id = Column(Integer, nullable=False, index=True)
+    revision = Column(Integer, nullable=False)
+    status = Column(String(30), nullable=False, default="DRAFT", server_default="DRAFT", index=True)
+    effective_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_by = Column(Integer, nullable=False, index=True)
+    approved_by = Column(Integer, nullable=True, index=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    published_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    request_id = Column(Uuid(as_uuid=True), nullable=False)
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class PriceBookEntry(Base):
+    """Effective-dated price row; published history is overlap-protected in PostgreSQL."""
+    __tablename__ = "price_book_entries"
+    __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_price_book_entries_company_id"),
+        ForeignKeyConstraint(
+            ["company_id", "price_book_id"],
+            ["price_books.company_id", "price_books.id"],
+            ondelete="RESTRICT",
+            name="fk_price_book_entry_tenant_book",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "publication_id", "price_book_id"],
+            [
+                "price_publications.company_id",
+                "price_publications.id",
+                "price_publications.price_book_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_price_book_entry_tenant_publication_book",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "product_variant_id"],
+            ["product_variants.company_id", "product_variants.id"],
+            ondelete="RESTRICT",
+            name="fk_price_book_entry_tenant_variant",
+        ),
+        CheckConstraint("amount >= 0", name="chk_price_book_entry_amount"),
+        CheckConstraint("priority >= 0", name="chk_price_book_entry_priority"),
+        CheckConstraint("version > 0", name="chk_price_book_entry_version"),
+        CheckConstraint(
+            "NOT isempty(effectivity) AND lower(effectivity) IS NOT NULL "
+            "AND lower_inc(effectivity) AND NOT upper_inc(effectivity)",
+            name="chk_price_book_entry_effectivity_half_open",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(metadata) = 'object'",
+            name="chk_price_book_entry_metadata_object",
+        ),
+        ExcludeConstraint(
+            ("company_id", "="),
+            ("price_book_id", "="),
+            ("product_variant_id", "="),
+            ("uom_id", "="),
+            ("effectivity", "&&"),
+            where=text("is_published IS TRUE"),
+            using="gist",
+            name="excl_price_book_entry_published_overlap",
+        ),
+        Index(
+            "ix_price_book_entry_resolver",
+            "company_id", "price_book_id", "product_variant_id", "uom_id",
+            "is_published", "priority", "publication_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    price_book_id = Column(Integer, nullable=False, index=True)
+    publication_id = Column(Integer, nullable=False, index=True)
+    product_variant_id = Column(Integer, nullable=False, index=True)
+    uom_id = Column(Integer, ForeignKey("uom.id", ondelete="RESTRICT"), nullable=False, index=True)
+    amount = Column(Numeric(20, 6), nullable=False)
+    effectivity = Column(TSTZRANGE, nullable=False)
+    priority = Column(Integer, nullable=False, default=0, server_default="0")
+    is_published = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
+    entry_metadata = Column(
+        "metadata", JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class PriceBookAssignment(Base):
+    """Effective-dated assignment with deterministic precedence.
+
+    Stage 5 initially supports CUSTOMER (Shop), BRANCH, and COMPANY_DEFAULT.
+    CUSTOMER_GROUP and CHANNEL remain reserved resolver scopes until real tenant
+    entities exist; they are intentionally rejected by the database today.
+    """
+    __tablename__ = "price_book_assignments"
+    __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_price_book_assignments_company_id"),
+        UniqueConstraint(
+            "company_id", "revision",
+            name="uq_price_book_assignment_company_revision",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "price_book_id"],
+            ["price_books.company_id", "price_books.id"],
+            ondelete="RESTRICT",
+            name="fk_price_book_assignment_tenant_book",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "customer_scope_id"],
+            ["shops.company_id", "shops.id"],
+            ondelete="RESTRICT",
+            name="fk_price_book_assignment_tenant_customer",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "branch_scope_id"],
+            ["branches.company_id", "branches.id"],
+            ondelete="RESTRICT",
+            name="fk_price_book_assignment_tenant_branch",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "created_by"],
+            ["drivers.company_id", "drivers.id"],
+            ondelete="RESTRICT",
+            name="fk_price_book_assignment_tenant_creator",
+        ),
+        CheckConstraint(
+            "scope_type IN ('CUSTOMER','BRANCH','COMPANY_DEFAULT')",
+            name="chk_price_book_assignment_scope_type",
+        ),
+        CheckConstraint(
+            "((scope_type IN ('CUSTOMER','BRANCH') AND scope_id IS NOT NULL AND scope_id > 0) "
+            "OR (scope_type = 'COMPANY_DEFAULT' AND scope_id IS NULL))",
+            name="chk_price_book_assignment_scope_id",
+        ),
+        CheckConstraint("priority >= 0", name="chk_price_book_assignment_priority"),
+        CheckConstraint("revision > 0", name="chk_price_book_assignment_revision"),
+        CheckConstraint("version > 0", name="chk_price_book_assignment_version"),
+        CheckConstraint(
+            "NOT isempty(effectivity) AND lower(effectivity) IS NOT NULL "
+            "AND lower_inc(effectivity) AND NOT upper_inc(effectivity)",
+            name="chk_price_book_assignment_effectivity_half_open",
+        ),
+        ExcludeConstraint(
+            ("company_id", "="),
+            ("scope_type", "="),
+            ("scope_identity", "="),
+            ("priority", "="),
+            ("effectivity", "&&"),
+            using="gist",
+            name="excl_price_book_assignment_equal_priority_overlap",
+        ),
+        Index(
+            "ix_price_book_assignment_resolver",
+            "company_id", "scope_type", "scope_identity", "priority", "revision",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    price_book_id = Column(Integer, nullable=False, index=True)
+    scope_type = Column(String(30), nullable=False, index=True)
+    scope_id = Column(Integer, nullable=True)
+    customer_scope_id = Column(
+        Integer,
+        Computed(
+            "CASE WHEN scope_type = 'CUSTOMER' THEN scope_id ELSE NULL END",
+            persisted=True,
+        ),
+        nullable=True,
+    )
+    branch_scope_id = Column(
+        Integer,
+        Computed(
+            "CASE WHEN scope_type = 'BRANCH' THEN scope_id ELSE NULL END",
+            persisted=True,
+        ),
+        nullable=True,
+    )
+    scope_identity = Column(
+        Integer,
+        Computed("COALESCE(scope_id, 0)", persisted=True),
+        nullable=False,
+    )
+    priority = Column(Integer, nullable=False, default=0, server_default="0")
+    effectivity = Column(TSTZRANGE, nullable=False)
+    revision = Column(Integer, nullable=False)
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_by = Column(Integer, nullable=False, index=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class RouteCommercialContext(Base):
+    """One immutable commercial lock per launched DispatchRoute."""
+    __tablename__ = "route_commercial_contexts"
+    __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_route_commercial_contexts_company_id"),
+        UniqueConstraint(
+            "company_id", "dispatch_route_id",
+            name="uq_route_commercial_context_route",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "dispatch_route_id"],
+            ["dispatch_routes.company_id", "dispatch_routes.id"],
+            ondelete="RESTRICT",
+            name="fk_route_commercial_context_tenant_route",
+        ),
+        CheckConstraint(
+            "price_publication_revision > 0",
+            name="chk_route_commercial_context_price_revision",
+        ),
+        CheckConstraint(
+            "assignment_revision > 0",
+            name="chk_route_commercial_context_assignment_revision",
+        ),
+        CheckConstraint(
+            "length(trim(transaction_currency_code)) > 0",
+            name="chk_route_commercial_context_transaction_currency",
+        ),
+        CheckConstraint(
+            "length(trim(functional_currency_code)) > 0",
+            name="chk_route_commercial_context_functional_currency",
+        ),
+        Index(
+            "ix_route_commercial_context_lock",
+            "company_id", "pricing_locked_at", "price_publication_revision",
+            "assignment_revision",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    dispatch_route_id = Column(Integer, nullable=False, index=True)
+    pricing_locked_at = Column(DateTime(timezone=True), nullable=False)
+    price_publication_revision = Column(Integer, nullable=False)
+    assignment_revision = Column(Integer, nullable=False)
+    offer_ruleset_version = Column(Integer, nullable=True)
+    tax_ruleset_version = Column(Integer, nullable=True)
+    transaction_currency_code = Column(String(10), nullable=False)
+    functional_currency_code = Column(String(10), nullable=False)
+    rounding_policy_version = Column(Integer, nullable=True)
+    tenant_policy_revision = Column(Integer, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
 
 class DispatchLoadPlanLine(Base):
     """
