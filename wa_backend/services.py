@@ -38,7 +38,7 @@ from models import (
 
 from typing import Any, Type, Optional, List, Dict, Tuple
 from quantity import QUANTITY_MAX, QuantityError, parse_quantity, validate_variant_quantity
-from product_lifecycle import acquire_product_lifecycle_guards
+from product_lifecycle import acquire_product_lifecycle_guards, record_domain_event
 
 
 # حدود الأنواع الفعلية في PostgreSQL المستخدمة في models.py.
@@ -463,6 +463,277 @@ async def check_debt_limits(
 
 class InventoryMutationError(Exception):
     pass
+
+
+
+# PATCH: STAGE4D_BATCH_DISPOSITION_PORTION_STATUS
+
+_INVENTORY_STOCK_STATUSES = frozenset({
+    "AVAILABLE",
+    "QUARANTINED",
+    "BLOCKED",
+    "RECALLED",
+    "DAMAGED",
+    "DISPOSAL_PENDING",
+})
+
+# Conservative transitions derived from the approved Stage 4 capability matrix.
+# DAMAGE creation remains on the already-approved return/damage workflows;
+# this administrative reclassification path does not invent a second damage workflow.
+_PORTION_STATUS_TRANSITIONS = {
+    "AVAILABLE": frozenset({
+        "QUARANTINED", "BLOCKED", "RECALLED", "DISPOSAL_PENDING",
+    }),
+    "QUARANTINED": frozenset({
+        "AVAILABLE", "BLOCKED", "RECALLED", "DISPOSAL_PENDING",
+    }),
+    "BLOCKED": frozenset({"RECALLED", "DISPOSAL_PENDING"}),
+    "RECALLED": frozenset({"QUARANTINED", "DISPOSAL_PENDING"}),
+    "DAMAGED": frozenset({"DISPOSAL_PENDING"}),
+    "DISPOSAL_PENDING": frozenset(),
+}
+
+_BATCH_DISPOSITIONS = frozenset({
+    "RELEASED", "QUARANTINED", "BLOCKED", "RECALLED",
+})
+
+# QUARANTINED -> RELEASED is the explicit Test/Release path.
+# RECALL can move only to a safer quarantine state, never directly to RELEASED.
+_BATCH_DISPOSITION_TRANSITIONS = {
+    "RELEASED": frozenset({"QUARANTINED", "BLOCKED", "RECALLED"}),
+    "QUARANTINED": frozenset({"RELEASED", "BLOCKED", "RECALLED"}),
+    "BLOCKED": frozenset({"RECALLED"}),
+    "RECALLED": frozenset({"QUARANTINED"}),
+}
+
+
+class InventoryRuleError(InventoryMutationError):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.code = str(code)
+        self.context = dict(context or {})
+        super().__init__(message)
+
+    def as_detail(self) -> Dict[str, Any]:
+        return inventory_business_error(
+            self.code,
+            str(self),
+            context=self.context,
+        )
+
+
+async def change_product_batch_disposition(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    batch_id: int,
+    expected_revision: int,
+    target_disposition: str,
+    reason: str,
+    request_id: UUID,
+) -> ProductBatch:
+    """Batch-wide safety overlay; never rewrites portion stock_status implicitly."""
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+        actor_id = _strict_int(actor_id, "actor_id", minimum=1)
+        batch_id = _strict_int(batch_id, "batch_id", minimum=1)
+        expected_revision = _strict_int(
+            expected_revision,
+            "expected_revision",
+            minimum=1,
+        )
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    target = str(target_disposition or "").strip().upper()
+    if target not in _BATCH_DISPOSITIONS:
+        raise InventoryRuleError(
+            "BATCH_DISPOSITION_INVALID",
+            "حالة الدفعة المطلوبة غير صالحة.",
+            context={"batch_id": batch_id, "target_disposition": target},
+        )
+
+    if not isinstance(reason, str):
+        raise InventoryMutationError("سبب تغيير حالة الدفعة يجب أن يكون نصاً.")
+    reason = reason.strip()
+    if not reason or "\x00" in reason or len(reason) > 2000:
+        raise InventoryMutationError(
+            "سبب تغيير حالة الدفعة مطلوب ويجب ألا يتجاوز 2000 حرف."
+        )
+    if not isinstance(request_id, UUID):
+        raise InventoryMutationError("request_id يجب أن يكون UUID صالحاً.")
+
+    # قراءة الهوية فقط قبل الحارس؛ القرار نفسه يعاد تحت shared lifecycle guard
+    # ثم Row Lock على ProductBatch، وهو نفس الصف الذي تقفله FEFO في Stage 4C.
+    variant_id = (
+        await db_session.execute(
+            select(ProductBatch.product_variant_id).filter(
+                ProductBatch.company_id == company_id,
+                ProductBatch.id == batch_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if variant_id is None:
+        raise InventoryRuleError(
+            "BATCH_NOT_FOUND",
+            "الدفعة غير موجودة أو لا تتبع الشركة.",
+            context={"batch_id": batch_id},
+        )
+    variant_id = int(variant_id)
+
+    await acquire_product_lifecycle_guards(
+        db_session,
+        company_id,
+        [variant_id],
+        exclusive=False,
+    )
+
+    batch = (
+        await db_session.execute(
+            select(ProductBatch)
+            .execution_options(populate_existing=True)
+            .filter(
+                ProductBatch.company_id == company_id,
+                ProductBatch.id == batch_id,
+                ProductBatch.product_variant_id == variant_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if batch is None:
+        raise InventoryRuleError(
+            "BATCH_NOT_FOUND",
+            "الدفعة تغيرت أو لم تعد متاحة داخل الشركة.",
+            context={"batch_id": batch_id},
+        )
+
+    variant_state = (
+        await db_session.execute(
+            select(
+                ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
+            ).filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id == variant_id,
+            )
+        )
+    ).one_or_none()
+    if variant_state is None:
+        raise InventoryMutationError("الصنف المرتبط بالدفعة غير موجود داخل الشركة.")
+
+    if not bool(batch.is_active):
+        raise InventoryRuleError(
+            "BATCH_INACTIVE",
+            "الدفعة متوقفة إدارياً ولا تقبل تغيير disposition جديداً.",
+            context={"batch_id": batch_id},
+        )
+
+    current_revision = int(batch.disposition_revision)
+    if current_revision != expected_revision:
+        raise InventoryRuleError(
+            "BATCH_DISPOSITION_REVISION_CONFLICT",
+            "تغيرت حالة الدفعة منذ فتحها. حدّث البيانات ثم أعد المحاولة.",
+            context={
+                "batch_id": batch_id,
+                "expected_revision": expected_revision,
+                "current_revision": current_revision,
+            },
+        )
+
+    current = str(batch.disposition or "").strip().upper()
+    if current not in _BATCH_DISPOSITIONS:
+        raise InventoryRuleError(
+            "BATCH_DISPOSITION_INVALID",
+            "الدفعة تحمل disposition غير معروف.",
+            context={"batch_id": batch_id, "current_disposition": current},
+        )
+    if current == target:
+        raise InventoryRuleError(
+            "BATCH_DISPOSITION_NO_CHANGE",
+            "الدفعة موجودة بالفعل بالحالة المطلوبة.",
+            context={"batch_id": batch_id, "disposition": current},
+        )
+    if target not in _BATCH_DISPOSITION_TRANSITIONS[current]:
+        raise InventoryRuleError(
+            "BATCH_DISPOSITION_TRANSITION_BLOCKED",
+            "انتقال disposition المطلوب غير مسموح حسب مصفوفة Stage 4.",
+            context={
+                "batch_id": batch_id,
+                "from": current,
+                "to": target,
+            },
+        )
+
+    lifecycle_status = str(variant_state.lifecycle_status or "").upper()
+    operational_hold = str(variant_state.operational_hold or "").upper()
+    if lifecycle_status in {"DRAFT", "ARCHIVED"}:
+        raise InventoryRuleError(
+            "PRODUCT_NOT_OPERATIONAL",
+            "حالة الصنف لا تسمح بأمر disposition تشغيلي جديد.",
+            context={
+                "product_variant_id": variant_id,
+                "lifecycle_status": lifecycle_status,
+            },
+        )
+    if target == "RELEASED" and operational_hold != "NONE":
+        hold_code = (
+            "PRODUCT_RECALLED"
+            if operational_hold == "RECALL"
+            else "PRODUCT_SALES_HOLD"
+        )
+        raise InventoryRuleError(
+            hold_code,
+            "لا يمكن تحرير الدفعة إلى RELEASED أثناء وجود Hold تشغيلي على الصنف.",
+            context={
+                "product_variant_id": variant_id,
+                "batch_id": batch_id,
+                "operational_hold": operational_hold,
+            },
+        )
+
+    before = {
+        "id": int(batch.id),
+        "product_variant_id": variant_id,
+        "disposition": current,
+        "disposition_reason": batch.disposition_reason,
+        "disposition_revision": current_revision,
+    }
+
+    batch.disposition = target
+    batch.disposition_reason = reason
+    batch.disposition_revision = current_revision + 1
+    batch.updated_at = utc_now()
+
+    after = {
+        "id": int(batch.id),
+        "product_variant_id": variant_id,
+        "disposition": target,
+        "disposition_reason": reason,
+        "disposition_revision": current_revision + 1,
+    }
+
+    record_domain_event(
+        db_session,
+        company_id=company_id,
+        actor_id=actor_id,
+        request_id=request_id,
+        event_type="BatchDispositionChanged",
+        entity_type="ProductBatch",
+        entity_id=batch_id,
+        reason=reason,
+        before=before,
+        after=after,
+        emit_outbox=True,
+    )
+    await db_session.flush()
+    return batch
+
 
 
 def inventory_business_error(
@@ -1052,7 +1323,7 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     if reservation_action is not None:
         reservation_action = str(reservation_action).strip().upper()
 
-    allowed_statuses = {"AVAILABLE", "DAMAGED"}
+    allowed_statuses = _INVENTORY_STOCK_STATUSES
     if source_stock_status is not None and source_stock_status not in allowed_statuses:
         raise InventoryMutationError("حالة مخزون المصدر غير صالحة.")
     if destination_stock_status is not None and destination_stock_status not in allowed_statuses:
@@ -1084,12 +1355,26 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             "reservation_action مسموح فقط لحركة RESERVATION."
         )
 
-    if movement_kind == "STATUS_CHANGE" and (
-        source_location_id is None
-        or destination_location_id != source_location_id
-        or source_stock_status == destination_stock_status
-    ):
-        raise InventoryMutationError("شكل تغيير حالة المخزون غير صالح.")
+    if movement_kind == "STATUS_CHANGE":
+        if (
+            source_location_id is None
+            or destination_location_id != source_location_id
+            or source_stock_status == destination_stock_status
+        ):
+            raise InventoryMutationError("شكل تغيير حالة المخزون غير صالح.")
+        allowed_destinations = _PORTION_STATUS_TRANSITIONS.get(
+            source_stock_status,
+            frozenset(),
+        )
+        if destination_stock_status not in allowed_destinations:
+            raise InventoryRuleError(
+                "STOCK_STATUS_TRANSITION_BLOCKED",
+                "انتقال حالة الرصيد المطلوب غير مسموح حسب مصفوفة Stage 4.",
+                context={
+                    "from": source_stock_status,
+                    "to": destination_stock_status,
+                },
+            )
 
     if movement_kind == "PHYSICAL":
         if source_location_id is None and destination_location_id is None:
@@ -1400,6 +1685,8 @@ async def apply_inventory_movements_batch(
                 ProductVariant.quantity_scale,
                 ProductVariant.quantity_step,
                 ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
+                ProductVariant.expiry_control_mode,
             ).filter(
                 ProductVariant.company_id == company_id,
                 ProductVariant.id.in_(product_variant_ids),
@@ -1407,14 +1694,20 @@ async def apply_inventory_movements_batch(
         )
     ).all()
     variant_rules = {
-        int(row.id): (int(row.quantity_scale), row.quantity_step, row.lifecycle_status)
+        int(row.id): (
+            int(row.quantity_scale),
+            row.quantity_step,
+            row.lifecycle_status,
+            row.operational_hold,
+            row.expiry_control_mode,
+        )
         for row in variant_rows
     }
     if set(variant_rules) != set(product_variant_ids):
         raise InventoryMutationError("أحد أصناف الحركة غير موجود داخل الشركة.")
     try:
         for spec in new_specs:
-            scale, step, lifecycle_status = variant_rules[spec["product_variant_id"]]
+            scale, step, lifecycle_status, _operational_hold, _expiry_mode = variant_rules[spec["product_variant_id"]]
             if lifecycle_status in {"DRAFT", "ARCHIVED"}:
                 raise InventoryMutationError(
                     f"الصنف ({spec['product_variant_id']}) بحالة {lifecycle_status} ولا يقبل حركة مخزون جديدة."
@@ -1458,26 +1751,149 @@ async def apply_inventory_movements_batch(
         (spec["product_variant_id"], spec["batch_id"])
         for spec in new_specs
     })
-    valid_batch_keys = set(
-        (
-            await db_session.execute(
-                select(
+    locked_batches = (
+        await db_session.execute(
+            select(ProductBatch)
+            .execution_options(populate_existing=True)
+            .filter(
+                ProductBatch.company_id == company_id,
+                tuple_(
                     ProductBatch.product_variant_id,
                     ProductBatch.id,
-                ).filter(
-                    ProductBatch.company_id == company_id,
-                    tuple_(
-                        ProductBatch.product_variant_id,
-                        ProductBatch.id,
-                    ).in_(batch_keys),
-                )
+                ).in_(batch_keys),
             )
-        ).all()
-    )
-    if valid_batch_keys != set(batch_keys):
+            .order_by(
+                ProductBatch.product_variant_id.asc(),
+                ProductBatch.id.asc(),
+            )
+            .with_for_update()
+        )
+    ).scalars().all()
+    batch_map = {
+        (int(batch.product_variant_id), int(batch.id)): batch
+        for batch in locked_batches
+    }
+    if set(batch_map) != set(batch_keys):
         raise InventoryMutationError(
             "إحدى الدفعات لا تنتمي للصنف أو الشركة المحددة."
         )
+
+    # تحرير Portion إلى AVAILABLE قرار correctness لحظي، وليس مجرد تغيير Label.
+    # يتم بعد location guards وتحت Row Lock على ProductBatch كي لا يسبق Recall/Expiry race.
+    release_specs = [
+        spec
+        for spec in new_specs
+        if spec["movement_kind"] == "STATUS_CHANGE"
+        and spec["destination_stock_status"] == "AVAILABLE"
+    ]
+    if release_specs:
+        as_of_date = await get_company_local_date(db_session, company_id)
+        policy_keys = sorted({
+            (int(spec["destination_location_id"]), int(spec["product_variant_id"]))
+            for spec in release_specs
+        })
+        policy_rows = (
+            await db_session.execute(
+                select(
+                    InventoryStockPolicy.location_id,
+                    InventoryStockPolicy.product_variant_id,
+                    InventoryStockPolicy.minimum_remaining_shelf_life_days,
+                ).filter(
+                    InventoryStockPolicy.company_id == company_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                    tuple_(
+                        InventoryStockPolicy.location_id,
+                        InventoryStockPolicy.product_variant_id,
+                    ).in_(policy_keys),
+                )
+            )
+        ).all()
+        min_shelf_life = {
+            (int(row.location_id), int(row.product_variant_id)):
+                int(row.minimum_remaining_shelf_life_days or 0)
+            for row in policy_rows
+        }
+
+        for spec in release_specs:
+            variant_id = int(spec["product_variant_id"])
+            location_id = int(spec["destination_location_id"])
+            batch = batch_map[(variant_id, int(spec["batch_id"]))]
+            (
+                _scale,
+                _step,
+                _lifecycle_status,
+                operational_hold,
+                expiry_control_mode,
+            ) = variant_rules[variant_id]
+
+            normalized_hold = str(operational_hold or "").upper()
+            if normalized_hold != "NONE":
+                hold_code = (
+                    "PRODUCT_RECALLED"
+                    if normalized_hold == "RECALL"
+                    else "PRODUCT_SALES_HOLD"
+                )
+                raise InventoryRuleError(
+                    hold_code,
+                    "لا يمكن تحرير الرصيد إلى AVAILABLE أثناء وجود Hold تشغيلي على الصنف.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "batch_id": int(batch.id),
+                        "operational_hold": normalized_hold,
+                    },
+                )
+            if not bool(batch.is_active):
+                raise InventoryRuleError(
+                    "BATCH_NOT_ELIGIBLE",
+                    "الدفعة متوقفة إدارياً ولا يمكن تحرير رصيدها إلى AVAILABLE.",
+                    context={"batch_id": int(batch.id)},
+                )
+            if str(batch.disposition or "").upper() != "RELEASED":
+                raise InventoryRuleError(
+                    "BATCH_NOT_RELEASED",
+                    "الدفعة ليست RELEASED ولا يمكن تحرير رصيدها إلى AVAILABLE.",
+                    context={
+                        "batch_id": int(batch.id),
+                        "disposition": str(batch.disposition),
+                    },
+                )
+            if (
+                batch.production_date is not None
+                and batch.production_date > as_of_date
+            ):
+                raise InventoryRuleError(
+                    "BATCH_NOT_ELIGIBLE",
+                    "تاريخ إنتاج الدفعة يقع في المستقبل.",
+                    context={"batch_id": int(batch.id)},
+                )
+            if batch.expiry_date is not None and batch.expiry_date < as_of_date:
+                raise InventoryRuleError(
+                    "BATCH_EXPIRED",
+                    "الدفعة منتهية الصلاحية ولا يمكن تحريرها إلى AVAILABLE.",
+                    context={
+                        "batch_id": int(batch.id),
+                        "expiry_date": batch.expiry_date.isoformat(),
+                    },
+                )
+
+            minimum_days = min_shelf_life.get((location_id, variant_id), 0)
+            if not _batch_metadata_is_sellable(
+                as_of_date=as_of_date,
+                expiry_control_mode=str(expiry_control_mode),
+                production_date=batch.production_date,
+                expiry_date=batch.expiry_date,
+                minimum_remaining_shelf_life_days=minimum_days,
+            ):
+                raise InventoryRuleError(
+                    "SHELF_LIFE_POLICY_BLOCKED",
+                    "الدفعة لا تحقق سياسة الصلاحية/العمر المتبقي للموقع.",
+                    context={
+                        "location_id": location_id,
+                        "product_variant_id": variant_id,
+                        "batch_id": int(batch.id),
+                        "minimum_remaining_shelf_life_days": minimum_days,
+                    },
+                )
 
     async def _relevant_active_locks():
         if not location_ids:
@@ -1991,7 +2407,6 @@ async def open_vehicle_reconciliation_stocktake(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == vehicle_location_id,
                 InventoryBalance.product_variant_id.in_(normalized_variant_ids),
-                InventoryBalance.stock_status.in_(["AVAILABLE", "DAMAGED"]),
                 InventoryBalance.on_hand_quantity > 0,
             )
             .order_by(
@@ -2157,7 +2572,6 @@ async def finalize_vehicle_inventory_reconciliation(
             .filter(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == vehicle_location_id,
-                InventoryBalance.stock_status.in_(["AVAILABLE", "DAMAGED"]),
                 or_(
                     InventoryBalance.on_hand_quantity > 0,
                     InventoryBalance.reserved_quantity > 0,
@@ -2580,7 +2994,7 @@ async def post_approved_stocktake_adjustments(
         ):
             raise InventoryMutationError("هوية سطر العد لا تطابق لقطة الجرد والمحاولة.")
         stock_status = stocktake_line.stock_status
-        if stock_status not in {"AVAILABLE", "DAMAGED"}:
+        if stock_status not in _INVENTORY_STOCK_STATUSES:
             raise InventoryMutationError("حالة مخزون غير صالحة في سطر الجرد.")
         key = (stocktake_line.product_variant_id, stocktake_line.batch_id, stock_status)
         if key in expected_by_key:

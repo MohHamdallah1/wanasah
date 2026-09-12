@@ -1668,6 +1668,72 @@ class UpgradedInboundRequest(RequestModel):
         return self
 
 
+
+# PATCH: STAGE4D_BATCH_DISPOSITION_PORTION_STATUS
+
+InventoryStockStatus = Literal[
+    "AVAILABLE",
+    "QUARANTINED",
+    "BLOCKED",
+    "RECALLED",
+    "DAMAGED",
+    "DISPOSAL_PENDING",
+]
+
+
+class BatchDispositionChangeRequest(RequestModel):
+    request_id: UUID
+    expected_revision: PositiveDbInt
+    disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
+    reason: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, v: Any) -> str:
+        return _required_text(v)
+
+
+class BatchDispositionMutationResponse(BaseModel):
+    message: str
+    batch_id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    batch_number: str
+    disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
+    disposition_reason: Optional[str] = None
+    disposition_revision: PositiveDbInt
+    updated_at: datetime
+
+
+class InventoryStatusChangeRequest(RequestModel):
+    request_id: UUID
+    location_id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    batch_id: PositiveDbInt
+    uom_id: PositiveDbInt
+    source_status: InventoryStockStatus
+    destination_status: InventoryStockStatus
+    quantity: PositiveQuantity
+    reason: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, v: Any) -> str:
+        return _required_text(v)
+
+    @model_validator(mode="after")
+    def reject_same_status(self) -> "InventoryStatusChangeRequest":
+        if self.source_status == self.destination_status:
+            raise ValueError("source_status و destination_status يجب أن يكونا مختلفين.")
+        return self
+
+
+class InventoryStatusChangeResponse(BaseModel):
+    message: str
+    movement_id: PositiveDbInt
+    source_status: InventoryStockStatus
+    destination_status: InventoryStockStatus
+
+
 class UnifiedTransferItem(RequestModel):
     product_variant_id: PositiveDbInt
     quantity: PositiveQuantity
@@ -1988,7 +2054,7 @@ class UnifiedStocktakeStartRequest(RequestModel):
 class StocktakeCountItem(RequestModel):
     product_variant_id: PositiveDbInt
     batch_id: PositiveDbInt
-    stock_status: Literal["AVAILABLE", "DAMAGED"]
+    stock_status: InventoryStockStatus
     actual_quantity: NonNegativeQuantity
     uom_id: PositiveDbInt
 

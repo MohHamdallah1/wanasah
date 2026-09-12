@@ -35,6 +35,8 @@ from services import (
     begin_idempotent_operation,
     complete_idempotent_operation,
     InventoryMutationError,
+    InventoryRuleError,
+    change_product_batch_disposition,
 )
 from models import (Driver, Product, ProductVariant, ProductLocation, Branch,
 DispatchRoute, SystemAuditLog,
@@ -65,7 +67,9 @@ StocktakeActiveSessionCursorPage,
 StocktakeCycleBatchCursorPage,
 StocktakeSessionContextResponse,
 VehicleReconCandidateCursorPage,
-UnifiedStocktakeCountRequest, StocktakeRecountRequest, StocktakeApprovalRequest, StocktakeCancelRequest )
+UnifiedStocktakeCountRequest, StocktakeRecountRequest, StocktakeApprovalRequest, StocktakeCancelRequest,
+BatchDispositionChangeRequest, BatchDispositionMutationResponse,
+InventoryStatusChangeRequest, InventoryStatusChangeResponse )
 
 router = APIRouter()
 
@@ -1866,7 +1870,7 @@ async def get_warehouse_inventory(
             .filter(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.product_variant_id == ProductVariant.id,
-                InventoryBalance.stock_status == 'AVAILABLE',
+                InventoryBalance.stock_status != 'DAMAGED',
                 InventoryBalance.on_hand_quantity > 0,
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.location_type == 'VEHICLE',
@@ -2160,6 +2164,31 @@ async def get_warehouse_inventory(
             .subquery()
         )
 
+
+        warehouse_blocked_status_subq = (
+            select(
+                InventoryBalance.product_variant_id,
+                func.sum(
+                    InventoryBalance.on_hand_quantity
+                ).label('blocked_status_packs'),
+            )
+            .filter(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.stock_status.in_([
+                    'QUARANTINED',
+                    'BLOCKED',
+                    'RECALLED',
+                    'DISPOSAL_PENDING',
+                ]),
+                InventoryBalance.product_variant_id.in_(
+                    page_variant_ids
+                ),
+            )
+            .group_by(InventoryBalance.product_variant_id)
+            .subquery()
+        )
+
         warehouse_damaged_subq = (
             select(
                 InventoryBalance.product_variant_id,
@@ -2209,7 +2238,7 @@ async def get_warehouse_inventory(
             )
             .filter(
                 InventoryBalance.company_id == company_id,
-                InventoryBalance.stock_status == 'AVAILABLE',
+                InventoryBalance.stock_status != 'DAMAGED',
                 InventoryBalance.product_variant_id.in_(
                     page_variant_ids
                 ),
@@ -2248,6 +2277,7 @@ async def get_warehouse_inventory(
                 warehouse_available_subq.c.warehouse_reserved,
                 warehouse_available_subq.c.warehouse_sellable_on_hand,
                 warehouse_available_subq.c.warehouse_sellable_reserved,
+                warehouse_blocked_status_subq.c.blocked_status_packs,
                 warehouse_damaged_subq.c.damaged_packs,
                 vehicle_inventory_subq.c.vehicle_packs,
                 policy_subq.c.minimum_quantity,
@@ -2256,6 +2286,11 @@ async def get_warehouse_inventory(
             .outerjoin(
                 warehouse_available_subq,
                 warehouse_available_subq.c.product_variant_id
+                == ProductVariant.id,
+            )
+            .outerjoin(
+                warehouse_blocked_status_subq,
+                warehouse_blocked_status_subq.c.product_variant_id
                 == ProductVariant.id,
             )
             .outerjoin(
@@ -2293,6 +2328,7 @@ async def get_warehouse_inventory(
             warehouse_reserved,
             warehouse_sellable_on_hand,
             warehouse_sellable_reserved,
+            blocked_status_packs,
             damaged_packs,
             vehicle_packs,
             minimum_quantity,
@@ -2312,7 +2348,8 @@ async def get_warehouse_inventory(
             )
 
             free_quantity = sellable_on_hand - sellable_reserved
-            blocked_quantity = on_hand - sellable_on_hand
+            explicit_blocked = Decimal(blocked_status_packs or 0)
+            blocked_quantity = (on_hand - sellable_on_hand) + explicit_blocked
             vehicle_total = Decimal(vehicle_packs or 0)
             damaged = Decimal(damaged_packs or 0)
 
@@ -2329,7 +2366,7 @@ async def get_warehouse_inventory(
                     "sellable stock exceeds physical AVAILABLE stock."
                 )
 
-            total_physical_available = on_hand + vehicle_total
+            total_physical_available = on_hand + explicit_blocked + vehicle_total
 
             result.append({
                 "id": variant.id,
@@ -3232,6 +3269,201 @@ async def _verify_location_ownership(
             raise ValueError(
                 f"مرفوض أمنياً: نوع الموقع ({location_type}) غير مسموح لهذه العملية."
             )
+
+
+
+# PATCH: STAGE4D_BATCH_DISPOSITION_PORTION_STATUS
+
+@router.post(
+    "/warehouse/batches/{batch_id}/disposition",
+    response_model=BatchDispositionMutationResponse,
+    status_code=200,
+)
+async def change_batch_disposition(
+    batch_id: int,
+    payload: BatchDispositionChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("batch.disposition")
+
+    if batch_id <= 0:
+        raise HTTPException(status_code=422, detail="batch_id يجب أن يكون موجباً.")
+
+    company_id = current_admin.company_id
+    try:
+        request_hash = _stable_request_hash(
+            payload,
+            context={"batch_id": int(batch_id)},
+        )
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="BATCH_DISPOSITION_CHANGE",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        batch = await change_product_batch_disposition(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            batch_id=batch_id,
+            expected_revision=payload.expected_revision,
+            target_disposition=payload.disposition,
+            reason=payload.reason,
+            request_id=payload.request_id,
+        )
+
+        response_payload = {
+            "message": "تم تحديث disposition للدفعة دون تغيير Bucket الرصيد تلقائياً.",
+            "batch_id": int(batch.id),
+            "product_variant_id": int(batch.product_variant_id),
+            "batch_number": str(batch.batch_number),
+            "disposition": str(batch.disposition),
+            "disposition_reason": batch.disposition_reason,
+            "disposition_revision": int(batch.disposition_revision),
+            "updated_at": batch.updated_at.isoformat(),
+        }
+        complete_idempotent_operation(idempotency_record, response_payload)
+        await db.commit()
+        return response_payload
+
+    except InventoryRuleError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("تعارض أثناء تغيير disposition للدفعة", exc_info=True)
+        raise HTTPException(
+            status_code=409,
+            detail="حدث تعارض متزامن أثناء تغيير حالة الدفعة؛ أعد المحاولة.",
+        ) from exc
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.error("خطأ داخلي أثناء تغيير disposition للدفعة", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء تحديث حالة الدفعة.",
+        ) from exc
+
+
+@router.post(
+    "/warehouse/inventory/status-change",
+    response_model=InventoryStatusChangeResponse,
+    status_code=200,
+)
+async def change_inventory_status(
+    payload: InventoryStatusChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.status_change", payload.location_id)
+
+    company_id = current_admin.company_id
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="INVENTORY_STATUS_CHANGE",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        base_uom_id = (
+            await db.execute(
+                select(ProductVariant.base_uom_id).filter(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id == payload.product_variant_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if base_uom_id is None:
+            raise HTTPException(
+                status_code=404,
+                detail="الصنف غير موجود أو لا يتبع الشركة.",
+            )
+        if int(base_uom_id) != int(payload.uom_id):
+            raise HTTPException(
+                status_code=422,
+                detail=inventory_business_error(
+                    "UOM_MISMATCH",
+                    "تغيير حالة المخزون يجب أن يستخدم وحدة أساس الصنف.",
+                    context={
+                        "product_variant_id": int(payload.product_variant_id),
+                        "expected_uom_id": int(base_uom_id),
+                    },
+                ),
+            )
+
+        movement = await apply_inventory_movement(
+            db,
+            company_id=company_id,
+            performed_by=current_admin.id,
+            product_variant_id=payload.product_variant_id,
+            batch_id=payload.batch_id,
+            quantity=payload.quantity,
+            movement_kind="STATUS_CHANGE",
+            reference_type="STATUS_RECLASSIFICATION",
+            reference_id=str(payload.request_id),
+            idempotency_key=f"STATUS-{payload.request_id}",
+            source_location_id=payload.location_id,
+            destination_location_id=payload.location_id,
+            source_stock_status=payload.source_status,
+            destination_stock_status=payload.destination_status,
+            notes=payload.reason,
+        )
+
+        response_payload = {
+            "message": "تم تغيير Bucket الرصيد عبر Unified Inventory Movement Engine.",
+            "movement_id": int(movement.id),
+            "source_status": str(movement.source_stock_status),
+            "destination_status": str(movement.destination_stock_status),
+        }
+        complete_idempotent_operation(idempotency_record, response_payload)
+        await db.commit()
+        return response_payload
+
+    except InventoryRuleError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=exc.as_detail()) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("تعارض أثناء تغيير Bucket المخزون", exc_info=True)
+        raise HTTPException(
+            status_code=409,
+            detail="حدث تعارض متزامن أثناء تغيير حالة الرصيد؛ أعد المحاولة.",
+        ) from exc
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.error("خطأ داخلي أثناء تغيير Bucket المخزون", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء تغيير حالة الرصيد.",
+        ) from exc
 
 
 @router.get(
@@ -5278,7 +5510,6 @@ async def list_stocktake_cycle_batches(
         InventoryBalance.product_variant_id == product_variant_id,
         InventoryBalance.batch_id.is_not(None),
         InventoryBalance.on_hand_quantity > 0,
-        InventoryBalance.stock_status.in_(["AVAILABLE", "DAMAGED"]),
     ).distinct()
 
     filters = [
@@ -6316,7 +6547,6 @@ async def start_unified_stocktake(
             InventoryBalance.company_id == company_id,
             InventoryBalance.location_id == payload.location_id,
             InventoryBalance.on_hand_quantity > 0,
-            InventoryBalance.stock_status.in_(['AVAILABLE', 'DAMAGED']),
         )
         if payload.stocktake_type == 'CYCLE_COUNT':
             stmt_balances = stmt_balances.filter(
@@ -6653,15 +6883,6 @@ async def submit_stocktake_count(
                         raise HTTPException(
                             status_code=422,
                             detail="DISCOVERED بحالة AVAILABLE يتطلب صنفاً ودفعة فعالين.",
-                        )
-
-                    if expiry_date < as_of_date:
-                        raise HTTPException(
-                            status_code=422,
-                            detail=(
-                                "الدفعة المنتهية لا يجوز تسجيلها DISCOVERED "
-                                "بحالة AVAILABLE؛ استخدم DAMAGED."
-                            ),
                         )
 
                 if session.stocktake_type == 'CYCLE_COUNT':

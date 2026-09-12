@@ -263,7 +263,10 @@ async def start_work_session(
             qty = int(starting_quantity or 0)
             normalized_status = str(stock_status or "").upper()
 
-            if normalized_status not in {"AVAILABLE", "DAMAGED"}:
+            if normalized_status not in {
+                "AVAILABLE", "QUARANTINED", "BLOCKED", "RECALLED",
+                "DAMAGED", "DISPOSAL_PENDING",
+            }:
                 raise RuntimeError("Vehicle opening inventory has unsupported stock_status.")
             if qty < 0 or qty > 2_147_483_647:
                 raise RuntimeError(

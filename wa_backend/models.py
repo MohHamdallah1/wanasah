@@ -1446,7 +1446,7 @@ class InventoryBalance(Base):
         CheckConstraint('on_hand_quantity >= 0', name='chk_inv_bal_onhand_qty'),
         CheckConstraint('reserved_quantity >= 0', name='chk_inv_bal_res_qty'),
         CheckConstraint('reserved_quantity <= on_hand_quantity', name='chk_inv_bal_reserved_within_onhand'),
-        CheckConstraint("stock_status <> 'DAMAGED' OR reserved_quantity = 0", name='chk_inv_bal_damaged_not_reserved'),
+        CheckConstraint("stock_status = 'AVAILABLE' OR reserved_quantity = 0", name='chk_inv_bal_nonavailable_not_reserved'),
         Index('ix_inv_balance_search', 'company_id', 'location_id', 'product_variant_id', 'stock_status'),
         Index('ix_inv_balance_fefo', 'company_id', 'location_id', 'product_variant_id', 'stock_status', 'batch_id'),
     )

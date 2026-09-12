@@ -77,7 +77,7 @@ async def reconcile_driver_end_of_day(
     """
     تسوية عهدة نهاية اليوم بدون إجبار المندوب على Batch count عندما تكون الإجماليات مطابقة.
 
-    - يقارن العد الفعلي التجميعي مع إجمالي on_hand (AVAILABLE + DAMAGED) للسيارة.
+    - يقارن العد الفعلي التجميعي مع إجمالي on_hand لكل Portion stock statuses في السيارة.
     - المطابقة التامة: يثبت Ending Snapshot ويختم التسوية المخزنية فقط؛ التسوية المالية تبقى للمحاسب.
     - وجود فرق: يفتح VEHICLE_RECON موجهاً فقط للأصناف المختلفة؛ لا يخمّن Batch الفرق.
     """
@@ -238,7 +238,6 @@ async def reconcile_driver_end_of_day(
                 .filter(
                     InventoryBalance.company_id == company_id,
                     InventoryBalance.location_id == vehicle_location_id,
-                    InventoryBalance.stock_status.in_(["AVAILABLE", "DAMAGED"]),
                     or_(
                         InventoryBalance.on_hand_quantity > 0,
                         InventoryBalance.reserved_quantity > 0,

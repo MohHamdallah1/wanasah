@@ -14,6 +14,7 @@ from models import (Driver, Permission, UserRole, UserLocationAccess, role_permi
 PERMISSIONS = frozenset({
     'location.read', 'location.create', 'location.update', 'location.state',
     'inventory.read', 'inbound.create', 'ledger.read', 'ledger.adjust',
+    'batch.disposition', 'inventory.status_change',
     'catalog.read', 'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
     'product_location.read', 'product_location.manage',
@@ -26,6 +27,7 @@ PERMISSIONS = frozenset({
 COMPANY_ONLY = frozenset({
     'location.create', 'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
+    'batch.disposition',
 })
 
 
