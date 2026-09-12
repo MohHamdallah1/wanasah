@@ -49,6 +49,11 @@ from product_lifecycle import (
     evaluate_product_capability,
     product_capability_predicate,
 )
+from domains.pricing.core import PricingError
+from domains.pricing.context import (
+    commercial_context_payload,
+    require_route_commercial_context,
+)
 
 logger = logging.getLogger("wanasah_logger")
 
@@ -150,6 +155,12 @@ async def start_work_session(
                 detail="خط السير الحالي مربوط مسبقاً بجلسة عمل أخرى."
             )
 
+        commercial_context = await require_route_commercial_context(
+            db,
+            company_id=company_id,
+            dispatch_route_id=int(active_route.id),
+        )
+
         existing_session = (
             await db.execute(
                 select(WorkSession)
@@ -225,6 +236,7 @@ async def start_work_session(
         new_session = WorkSession(
             company_id=company_id,
             driver_id=driver_id,
+            commercial_context_id=int(commercial_context.id),
             session_date=company_local_date,
             start_time=get_utc_now(),
             start_latitude=payload.latitude,
@@ -320,11 +332,20 @@ async def start_work_session(
         return {
             "message": "تم بدء الجلسة بنجاح، وتم تثبيت رصيد السيارة الافتتاحي.",
             "session_id": new_session.id,
+            "commercial_context": commercial_context_payload(
+                commercial_context
+            ),
         }
 
     except HTTPException:
         await db.rollback()
         raise
+    except PricingError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
     except Exception as e:
         await db.rollback()
         logger.error(f"خطأ في بدء جلسة العمل: {str(e)}", exc_info=True)

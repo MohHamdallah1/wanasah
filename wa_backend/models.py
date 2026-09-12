@@ -485,11 +485,21 @@ class WorkSession(Base):
         ),
         UniqueConstraint('company_id', 'id', name='uq_work_sessions_company_id'),
         UniqueConstraint('company_id', 'id', 'driver_id', name='uq_work_sessions_company_driver_id'),
+        UniqueConstraint(
+            'company_id', 'commercial_context_id',
+            name='uq_work_sessions_commercial_context'
+        ),
         ForeignKeyConstraint(
             ['company_id', 'driver_id'],
             ['drivers.company_id', 'drivers.id'],
             ondelete='RESTRICT',
             name='fk_work_session_tenant_driver'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'commercial_context_id'],
+            ['route_commercial_contexts.company_id', 'route_commercial_contexts.id'],
+            ondelete='RESTRICT',
+            name='fk_work_session_tenant_commercial_context'
         ),
         CheckConstraint(
             'end_time IS NULL OR end_time >= start_time',
@@ -523,6 +533,7 @@ class WorkSession(Base):
     id           = Column(Integer, primary_key=True)
     company_id   = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     driver_id    = Column(Integer, nullable=False, index=True)
+    commercial_context_id = Column(Integer, nullable=True)
     start_time   = Column(DateTime, nullable=False, default=utc_now)
     end_time     = Column(DateTime, nullable=True, index=True)
     session_date = Column(Date, nullable=False, default=lambda: utc_now().date(), index=True)

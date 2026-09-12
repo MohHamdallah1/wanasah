@@ -70,6 +70,12 @@ from product_lifecycle import (
     product_capability_predicate,
     product_location_allows,
 )
+from domains.pricing.core import PricingError
+from domains.pricing.context import (
+    commercial_context_payload,
+    lock_route_commercial_context,
+    require_route_commercial_context,
+)
 
 from schemas import ( MessageResponse, AuthorizeSessionRequest, AdminDashboardDriverResponse,
 SessionSettlementReportResponse, SettleSessionRequest, SettleSessionResponse, DispatchInitResponse,
@@ -1540,6 +1546,14 @@ async def dispatch_route(
         db.add(route)
         await db.flush()
 
+        # POST /dispatch/route is the current workflow's Launch point.
+        # Pricing writes and this lock share the same Company-row mutex.
+        commercial_context = await lock_route_commercial_context(
+            db,
+            company_id=company_id,
+            dispatch_route_id=int(route.id),
+        )
+
         movement_specs = []
         for product_variant_id in all_product_ids:
             variant = variants_map[product_variant_id]
@@ -1738,11 +1752,23 @@ async def dispatch_route(
                 company_id=company_id,
             )
         )
-        return {"message": "تم إطلاق خط السير بنجاح"}
+        return {
+            "message": "تم إطلاق خط السير بنجاح",
+            "route_id": int(route.id),
+            "commercial_context": commercial_context_payload(
+                commercial_context
+            ),
+        }
 
     except HTTPException:
         await db.rollback()
         raise
+    except PricingError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -3875,6 +3901,34 @@ async def update_route_status(
             # Route مؤجل من يوم سابق يجب أن يصبح قابلاً لبدء جلسة اليوم.
             route.dispatch_date = company_local_date
 
+        commercial_context = None
+        if target_status == "active":
+            if bound_session is None:
+                commercial_context = await lock_route_commercial_context(
+                    db,
+                    company_id=company_id,
+                    dispatch_route_id=int(route.id),
+                )
+            else:
+                commercial_context = await require_route_commercial_context(
+                    db,
+                    company_id=company_id,
+                    dispatch_route_id=int(route.id),
+                )
+                if (
+                    bound_session.commercial_context_id is None
+                    or int(bound_session.commercial_context_id)
+                    != int(commercial_context.id)
+                ):
+                    raise PricingError(
+                        "COMMERCIAL_CONTEXT_LOCKED",
+                        "الجلسة المربوطة لا تحمل نفس السياق التجاري المقفل للمسار؛ لا يجوز إنشاء سياق رجعي أو إعادة تسعيرها.",
+                        context={
+                            "dispatch_route_id": int(route.id),
+                            "work_session_id": int(bound_session.id),
+                        },
+                    )
+
         zone_shop_ids = select(Shop.id).filter(
             Shop.company_id == company_id,
             Shop.zone_id == route.zone_id,
@@ -4070,11 +4124,22 @@ async def update_route_status(
                 company_id=company_id,
             )
         )
-        return {"message": "تم تحديث خط السير بنجاح"}
+        response = {"message": "تم تحديث خط السير بنجاح"}
+        if commercial_context is not None:
+            response["commercial_context"] = commercial_context_payload(
+                commercial_context
+            )
+        return response
 
     except HTTPException:
         await db.rollback()
         raise
+    except PricingError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc

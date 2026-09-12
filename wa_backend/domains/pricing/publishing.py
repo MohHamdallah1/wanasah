@@ -14,6 +14,7 @@ from models import (
     PriceBookAssignment,
     PriceBookEntry,
     PricePublication,
+    RouteCommercialContext,
     ProductUomConversion,
     ProductVariant,
     Shop,
@@ -567,6 +568,82 @@ async def _close_predecessor_ranges(
     company_id: int,
     publication: PricePublication,
 ) -> None:
+    locked_context_conflict = await db.scalar(
+        text(
+            """
+            WITH new_starts AS (
+                SELECT
+                    product_variant_id,
+                    uom_id,
+                    MIN(lower(effectivity)) AS new_start
+                FROM price_book_entries
+                WHERE company_id = :company_id
+                  AND publication_id = :publication_id
+                GROUP BY product_variant_id, uom_id
+            ),
+            candidates AS (
+                SELECT
+                    old.id,
+                    old.company_id,
+                    old.price_book_id,
+                    old.publication_id,
+                    old.effectivity,
+                    ns.new_start
+                FROM price_book_entries AS old
+                JOIN new_starts AS ns
+                  ON ns.product_variant_id = old.product_variant_id
+                 AND ns.uom_id = old.uom_id
+                WHERE old.company_id = :company_id
+                  AND old.price_book_id = :price_book_id
+                  AND old.publication_id <> :publication_id
+                  AND old.is_published IS TRUE
+                  AND upper_inf(old.effectivity)
+                  AND lower(old.effectivity) < ns.new_start
+            )
+            SELECT EXISTS (
+                SELECT 1
+                FROM candidates AS candidate
+                JOIN price_publications AS old_publication
+                  ON old_publication.company_id = candidate.company_id
+                 AND old_publication.id = candidate.publication_id
+                 AND old_publication.price_book_id = candidate.price_book_id
+                JOIN route_commercial_contexts AS context
+                  ON context.company_id = candidate.company_id
+                WHERE old_publication.published_at IS NOT NULL
+                  AND old_publication.published_at <= context.pricing_locked_at
+                  AND old_publication.revision
+                      <= context.price_publication_revision
+                  AND candidate.effectivity @> context.pricing_locked_at
+                  AND context.pricing_locked_at >= candidate.new_start
+                  AND EXISTS (
+                        SELECT 1
+                        FROM price_book_assignments AS assignment
+                        WHERE assignment.company_id = candidate.company_id
+                          AND assignment.price_book_id = candidate.price_book_id
+                          AND assignment.revision
+                              <= context.assignment_revision
+                          AND assignment.effectivity
+                              @> context.pricing_locked_at
+                  )
+            )
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "publication_id": int(publication.id),
+            "price_book_id": int(publication.price_book_id),
+        },
+    )
+    if locked_context_conflict:
+        raise PricingError(
+            "COMMERCIAL_CONTEXT_LOCKED",
+            "لا يمكن نشر هذه النسخة لأن إغلاق السعر السابق سيغير التاريخ التجاري لمسار تم قفله مسبقاً.",
+            context={
+                "publication_id": int(publication.id),
+                "price_book_id": int(publication.price_book_id),
+            },
+        )
+
     now = utc_now()
     await db.execute(
         text(
@@ -947,6 +1024,29 @@ async def create_assignment(
             and overlaps[0].effectivity.lower < effectivity.lower
         ):
             old = overlaps[0]
+            locked_context_id = await db.scalar(
+                select(RouteCommercialContext.id)
+                .where(
+                    RouteCommercialContext.company_id == int(company_id),
+                    RouteCommercialContext.assignment_revision
+                    >= int(old.revision),
+                    RouteCommercialContext.pricing_locked_at
+                    >= effectivity.lower,
+                )
+                .order_by(RouteCommercialContext.id.asc())
+                .limit(1)
+            )
+            if locked_context_id is not None:
+                raise PricingError(
+                    "COMMERCIAL_CONTEXT_LOCKED",
+                    "لا يمكن إغلاق Assignment السابق بهذا التاريخ لأنه سيغير سياقاً تجارياً لمسار تم قفله مسبقاً.",
+                    context={
+                        "assignment_id": int(old.id),
+                        "commercial_context_id": int(locked_context_id),
+                        "requested_effective_from": effectivity.lower.isoformat(),
+                    },
+                )
+
             old.effectivity = Range(
                 old.effectivity.lower, effectivity.lower, bounds="[)"
             )
