@@ -32,6 +32,7 @@ from services import (
     validate_special_transfer_source_items_locked,
     validate_special_transfer_policy_snapshot,
     resolve_special_transfer_terminal_statuses,
+    resolve_retiring_warehouse_balancing_override_context,
     save_transfer_destination_policy_draft,
     publish_transfer_destination_policy,
     get_transfer_destination_policy_state,
@@ -5152,24 +5153,76 @@ async def unified_transfer_dispatch(
         ).all()
         variant_uoms = {}
         variant_context = {}
+        retiring_balancing_variant_ids = []
+
         for row in variant_uom_rows:
-            decision = evaluate_product_capability(
-                row.lifecycle_status,
-                row.operational_hold,
-                lifecycle_capability,
+            lifecycle_status = str(row.lifecycle_status or "").upper()
+            operational_hold = str(row.operational_hold or "").upper()
+
+            retiring_balancing_candidate = (
+                transfer_purpose == "WAREHOUSE_BALANCING"
+                and lifecycle_status == "RETIRING"
             )
-            if not decision.allowed:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"code": decision.code, "message": "حالة الصنف لا تسمح بالحوالة المطلوبة.", "context": {"product_variant_id": int(row.id), "transfer_purpose": transfer_purpose}},
+
+            if retiring_balancing_candidate:
+                # This is the single owner-approved RETIRING exception.
+                # RECALL remains a hard safety block.
+                if operational_hold == "RECALL":
+                    raise HTTPException(
+                        status_code=409,
+                        detail=inventory_business_error(
+                            "PRODUCT_RECALL_WAREHOUSE_BALANCING_BLOCKED",
+                            "الصنف المستدعى لا يقبل WAREHOUSE_BALANCING جديداً.",
+                            context={
+                                "product_variant_id": int(row.id),
+                                "transfer_purpose": transfer_purpose,
+                            },
+                        ),
+                    )
+                retiring_balancing_variant_ids.append(int(row.id))
+            else:
+                decision = evaluate_product_capability(
+                    lifecycle_status,
+                    operational_hold,
+                    lifecycle_capability,
                 )
+                if not decision.allowed:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": decision.code,
+                            "message": "حالة الصنف لا تسمح بالحوالة المطلوبة.",
+                            "context": {
+                                "product_variant_id": int(row.id),
+                                "transfer_purpose": transfer_purpose,
+                            },
+                        },
+                    )
+
             variant_uoms[int(row.id)] = int(row.base_uom_id)
             variant_context[int(row.id)] = row
+
         if set(variant_uoms) != requested_variant_ids:
             raise HTTPException(
                 status_code=400,
                 detail="يوجد صنف غير صالح أو غير فعال أو لا يتبع شركتك ضمن الحوالة."
             )
+
+        retiring_balancing_policy = None
+        if retiring_balancing_variant_ids:
+            await access.require("transfer.warehouse_balancing_override")
+            try:
+                retiring_balancing_policy = (
+                    await resolve_retiring_warehouse_balancing_override_context(
+                        db,
+                        company_id=company_id,
+                    )
+                )
+            except InventoryRuleError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=exc.as_detail(),
+                ) from exc
 
         assignment_rows = (await db.execute(
             select(
@@ -5374,6 +5427,17 @@ async def unified_transfer_dispatch(
             )
 
         transfer_ref = f"TRN-{uuid.uuid4().hex.upper()}"
+        balancing_policy_id = (
+            int(retiring_balancing_policy["tenant_policy_id"])
+            if retiring_balancing_policy is not None
+            else None
+        )
+        balancing_policy_revision = (
+            int(retiring_balancing_policy["tenant_policy_revision"])
+            if retiring_balancing_policy is not None
+            else None
+        )
+
         header = InventoryTransferHeader(
             company_id=company_id,
             reference_number=transfer_ref,
@@ -5386,16 +5450,59 @@ async def unified_transfer_dispatch(
             commercial_context={
                 "schema_version": 1,
                 "commercial_context_id": None,
-                "tenant_policy_revision": None,
+                "tenant_policy_code": (
+                    TRANSFER_DESTINATION_POLICY_CODE
+                    if retiring_balancing_policy is not None
+                    else None
+                ),
+                "tenant_policy_id": balancing_policy_id,
+                "tenant_policy_revision": balancing_policy_revision,
+                "retiring_warehouse_balancing_override": (
+                    retiring_balancing_policy is not None
+                ),
+                "retiring_product_variant_ids": (
+                    sorted(retiring_balancing_variant_ids)
+                    if retiring_balancing_policy is not None
+                    else []
+                ),
                 "source_location_type": source_type,
                 "destination_location_type": destination_type,
                 "transfer_purpose": transfer_purpose,
             },
+            tenant_policy_id=balancing_policy_id,
+            tenant_policy_revision=balancing_policy_revision,
             dispatched_by=current_admin.id,
             notes=payload.notes or None
         )
         db.add(header)
         await db.flush()
+
+        if retiring_balancing_policy is not None:
+            db.add(SystemAuditLog(
+                company_id=company_id,
+                admin_id=current_admin.id,
+                target_id=f"Transfer_{header.id}",
+                action_type="RETIRING_WAREHOUSE_BALANCING_OVERRIDE",
+                old_value=None,
+                new_value=json.dumps(
+                    {
+                        "transfer_purpose": transfer_purpose,
+                        "tenant_policy_id": balancing_policy_id,
+                        "tenant_policy_revision": balancing_policy_revision,
+                        "product_variant_ids": sorted(
+                            retiring_balancing_variant_ids
+                        ),
+                        "source_location_id": int(
+                            payload.source_location_id
+                        ),
+                        "destination_location_id": int(
+                            payload.destination_location_id
+                        ),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            ))
 
         transfer_lines = []
         movement_specs = []

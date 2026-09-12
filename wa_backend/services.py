@@ -1577,6 +1577,52 @@ async def resolve_special_transfer_direction_context(
     }
 
 
+# STAGE4E2B4_RETIRING_BALANCING_OVERRIDE
+async def resolve_retiring_warehouse_balancing_override_context(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+) -> Dict[str, int]:
+    """Resolve one published tenant-policy revision for RETIRING balancing."""
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    policy, payload = await load_published_transfer_destination_policy(
+        db_session,
+        company_id=company_id,
+        revalidate_locations=False,
+    )
+
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != _TRANSFER_DESTINATION_POLICY_KEYS
+        or type(payload.get("allow_retiring_warehouse_balancing")) is not bool
+    ):
+        raise InventoryRuleError(
+            "TRANSFER_POLICY_STALE",
+            "سياسة التحويل المنشورة لا تطابق Schema المعتمد.",
+            context={
+                "policy_id": int(policy.id),
+                "policy_revision": int(policy.revision),
+            },
+        )
+
+    if payload["allow_retiring_warehouse_balancing"] is not True:
+        raise InventoryRuleError(
+            "RETIRING_WAREHOUSE_BALANCING_POLICY_DISABLED",
+            "سياسة الشركة المنشورة لا تسمح بنقل أصناف RETIRING بين المستودعات.",
+            context={
+                "policy_id": int(policy.id),
+                "policy_revision": int(policy.revision),
+            },
+        )
+
+    return {
+        "tenant_policy_id": int(policy.id),
+        "tenant_policy_revision": int(policy.revision),
+    }
 
 # STAGE4E2B2_SPECIAL_TRANSFER_EXECUTION
 async def validate_special_transfer_source_items_locked(
@@ -3205,7 +3251,16 @@ async def ensure_system_transit_location(
         raise InventoryMutationError(str(exc)) from exc
 
     await db_session.execute(
-        select(func.pg_advisory_xact_lock(company_id, _SYSTEM_TRANSIT_PROVISION_GUARD))
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "CAST(:company_id AS integer), "
+            "CAST(:guard_key AS integer)"
+            ")"
+        ),
+        {
+            "company_id": company_id,
+            "guard_key": _SYSTEM_TRANSIT_PROVISION_GUARD,
+        },
     )
     location = (
         await db_session.execute(
