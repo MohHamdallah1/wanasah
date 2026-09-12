@@ -1777,7 +1777,9 @@ class InventoryTransferHeader(Base):
 
     workflow_type           = Column(String(30), nullable=False, default='TRANSIT', server_default='TRANSIT', index=True)
     status                  = Column(String(50), nullable=False, default='DRAFT', server_default='DRAFT', index=True)
-    transfer_purpose        = Column(String(50), nullable=False, default='WAREHOUSE_BALANCING', server_default='WAREHOUSE_BALANCING', index=True)
+    # STAGE4E_CORE_PURPOSE_INFLIGHT: purpose is mandatory at every constructor; no silent fallback.
+    transfer_purpose        = Column(String(50), nullable=False, index=True)
+    commercial_context      = Column(JSONB, nullable=False)
 
     work_session_id      = Column(Integer, nullable=True, index=True)
     expected_receiver_id = Column(Integer, nullable=True, index=True)
@@ -1811,6 +1813,22 @@ class InventoryTransferLine(Base):
         ForeignKeyConstraint(['company_id', 'fefo_overridden_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_transfer_line_tenant_override_actor'),
         CheckConstraint('quantity > 0', name='chk_transfer_line_qty'),
         CheckConstraint("((fefo_override_reason_id IS NULL AND fefo_overridden_by IS NULL) OR (fefo_override_reason_id IS NOT NULL AND fefo_overridden_by IS NOT NULL))", name='chk_transfer_line_fefo_override_pair'),
+        CheckConstraint(
+            "source_stock_status IN ('AVAILABLE', 'QUARANTINED', 'BLOCKED', 'RECALLED', 'DAMAGED', 'DISPOSAL_PENDING')",
+            name='chk_transfer_line_source_status'
+        ),
+        CheckConstraint(
+            'lifecycle_revision_snapshot > 0',
+            name='chk_transfer_line_lifecycle_revision_snapshot'
+        ),
+        CheckConstraint(
+            "lifecycle_status_snapshot IN ('DRAFT', 'ACTIVE', 'RETIRING', 'ARCHIVED')",
+            name='chk_transfer_line_lifecycle_status_snapshot'
+        ),
+        CheckConstraint(
+            "operational_hold_snapshot IN ('NONE', 'SALES_HOLD', 'RECALL')",
+            name='chk_transfer_line_operational_hold_snapshot'
+        ),
     )
     id                      = Column(Integer, primary_key=True)
     company_id              = Column(Integer, nullable=False, index=True)
@@ -1818,6 +1836,10 @@ class InventoryTransferLine(Base):
     product_variant_id      = Column(Integer, nullable=False, index=True)
     batch_id                = Column(Integer, nullable=False, index=True)
     quantity                = Column(Numeric(20, 6), nullable=False)
+    source_stock_status     = Column(String(50), nullable=False)
+    lifecycle_revision_snapshot = Column(Integer, nullable=False)
+    lifecycle_status_snapshot   = Column(String(20), nullable=False)
+    operational_hold_snapshot   = Column(String(20), nullable=False)
     fefo_override_reason_id = Column(Integer, nullable=True)
     fefo_overridden_by      = Column(Integer, nullable=True)
     fefo_override_note      = Column(String(255), nullable=True)

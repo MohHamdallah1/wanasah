@@ -843,6 +843,234 @@ def _batch_metadata_is_sellable(
     return expiry_date >= as_of_date + timedelta(days=min_days)
 
 
+
+# STAGE4E_CORE_PURPOSE_INFLIGHT
+_TRANSFER_TERMINAL_REFERENCE_TYPES = frozenset({
+    "TRANSFER_RECEIPT",
+    "TRANSFER_CANCELLED",
+    "TRANSFER_REJECTED",
+    "TRANSFER_TERMINAL_STATUS",
+    "HANDSHAKE_POST",
+    "HANDSHAKE_RELEASE",
+    "HANDSHAKE_TERMINAL_STATUS",
+})
+
+_TRANSFER_PURPOSES = frozenset({
+    "REPLENISHMENT",
+    "ROUTE_LOAD",
+    "ROUTE_RETURN",
+    "WAREHOUSE_BALANCING",
+    "RETURN_TO_VENDOR",
+    "QUARANTINE",
+    "RECALL_RETURN",
+    "DISPOSAL",
+})
+
+
+async def resolve_inflight_transfer_destination_statuses(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    destination_location_id: int,
+    transfer_purpose: str,
+    lines: List[Any],
+) -> Dict[int, str]:
+    """Resolve safe terminal portion status from creation evidence + current state.
+
+    This never chooses a warehouse and never mutates InventoryBalance.  It only
+    returns the destination bucket for each immutable transfer line.  Physical
+    and status movements remain the responsibility of the Unified Engine.
+    """
+    try:
+        company_id = _strict_int(company_id, "company_id", minimum=1)
+        destination_location_id = _strict_int(
+            destination_location_id,
+            "destination_location_id",
+            minimum=1,
+        )
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
+    purpose = str(transfer_purpose or "").strip().upper()
+    if purpose not in _TRANSFER_PURPOSES:
+        raise InventoryRuleError(
+            "TRANSFER_PURPOSE_INVALID",
+            "غرض الحوالة غير صالح.",
+            context={"transfer_purpose": purpose},
+        )
+    if not lines:
+        raise InventoryMutationError("الحوالة لا تحتوي أسطر مخزون.")
+
+    line_ids = set()
+    batch_keys = set()
+    variant_ids = set()
+    for line in lines:
+        line_id = _strict_int(getattr(line, "id", None), "transfer_line_id", minimum=1)
+        if line_id in line_ids:
+            raise InventoryMutationError("تكرار transfer line داخل قرار الإكمال.")
+        line_ids.add(line_id)
+
+        variant_id = _strict_int(
+            getattr(line, "product_variant_id", None),
+            "product_variant_id",
+            minimum=1,
+        )
+        batch_id = _strict_int(getattr(line, "batch_id", None), "batch_id", minimum=1)
+        revision = _strict_int(
+            getattr(line, "lifecycle_revision_snapshot", None),
+            "lifecycle_revision_snapshot",
+            minimum=1,
+        )
+        _ = revision
+
+        source_status = str(
+            getattr(line, "source_stock_status", "") or ""
+        ).strip().upper()
+        creation_lifecycle = str(
+            getattr(line, "lifecycle_status_snapshot", "") or ""
+        ).strip().upper()
+        creation_hold = str(
+            getattr(line, "operational_hold_snapshot", "") or ""
+        ).strip().upper()
+
+        if source_status not in _INVENTORY_STOCK_STATUSES:
+            raise InventoryMutationError("transfer line يحمل source_stock_status غير صالح.")
+        if creation_lifecycle not in {"DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"}:
+            raise InventoryMutationError("transfer line يحمل lifecycle snapshot غير صالح.")
+        if creation_hold not in {"NONE", "SALES_HOLD", "RECALL"}:
+            raise InventoryMutationError("transfer line يحمل hold snapshot غير صالح.")
+        # Valid new documents cannot start in DRAFT/ARCHIVED.  Do not fabricate
+        # creation evidence if corrupted rows somehow appear.
+        if creation_lifecycle in {"DRAFT", "ARCHIVED"}:
+            raise InventoryMutationError(
+                "Creation lifecycle snapshot غير صالح لمستند تحويل بدأ تشغيلياً."
+            )
+
+        variant_ids.add(variant_id)
+        batch_keys.add((variant_id, batch_id))
+
+    await acquire_product_lifecycle_guards(
+        db_session,
+        company_id,
+        sorted(variant_ids),
+        exclusive=False,
+    )
+    as_of_date = await get_company_local_date(db_session, company_id)
+
+    rows = (
+        await db_session.execute(
+            select(
+                ProductBatch.product_variant_id.label("variant_id"),
+                ProductBatch.id.label("batch_id"),
+                ProductBatch.is_active.label("batch_is_active"),
+                ProductBatch.disposition.label("batch_disposition"),
+                ProductBatch.production_date,
+                ProductBatch.expiry_date,
+                ProductVariant.lifecycle_status.label("current_lifecycle_status"),
+                ProductVariant.operational_hold.label("current_operational_hold"),
+                ProductVariant.lifecycle_revision.label("current_lifecycle_revision"),
+                ProductVariant.expiry_control_mode,
+                InventoryStockPolicy.minimum_remaining_shelf_life_days,
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == ProductBatch.company_id,
+                    ProductVariant.id == ProductBatch.product_variant_id,
+                ),
+            )
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id == ProductBatch.company_id,
+                    InventoryStockPolicy.location_id == destination_location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == ProductBatch.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                ),
+            )
+            .filter(
+                ProductBatch.company_id == company_id,
+                tuple_(
+                    ProductBatch.product_variant_id,
+                    ProductBatch.id,
+                ).in_(sorted(batch_keys)),
+            )
+            .order_by(
+                ProductBatch.product_variant_id.asc(),
+                ProductBatch.id.asc(),
+            )
+            .with_for_update(read=True, of=ProductBatch)
+        )
+    ).all()
+
+    current = {
+        (int(row.variant_id), int(row.batch_id)): row
+        for row in rows
+    }
+    if set(current) != set(batch_keys):
+        raise InventoryMutationError(
+            "إحدى دفعات مستند التحويل مفقودة أو لا تتبع الشركة/الصنف."
+        )
+
+    result: Dict[int, str] = {}
+    for line in lines:
+        variant_id = int(line.product_variant_id)
+        batch_id = int(line.batch_id)
+        row = current[(variant_id, batch_id)]
+
+        current_revision = int(row.current_lifecycle_revision)
+        creation_revision = int(line.lifecycle_revision_snapshot)
+        if current_revision < creation_revision:
+            raise InventoryMutationError(
+                "lifecycle_revision الحالي أقدم من Snapshot إنشاء الحوالة."
+            )
+
+        lifecycle = str(row.current_lifecycle_status or "").upper()
+        hold = str(row.current_operational_hold or "").upper()
+        disposition = str(row.batch_disposition or "").upper()
+
+        if lifecycle not in {"DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"}:
+            raise InventoryMutationError("حالة Lifecycle الحالية غير صالحة.")
+        if hold not in {"NONE", "SALES_HOLD", "RECALL"}:
+            raise InventoryMutationError("حالة Hold الحالية غير صالحة.")
+        if disposition not in _BATCH_DISPOSITIONS:
+            raise InventoryMutationError("Batch disposition الحالي غير صالح.")
+        if lifecycle == "DRAFT":
+            # A valid started document can never return to DRAFT through the FSM.
+            raise InventoryMutationError(
+                "تم اكتشاف رجوع Lifecycle إلى DRAFT بعد بدء مستند التحويل."
+            )
+
+        min_days = int(row.minimum_remaining_shelf_life_days or 0)
+        metadata_sellable = _batch_metadata_is_sellable(
+            as_of_date=as_of_date,
+            expiry_control_mode=str(row.expiry_control_mode),
+            production_date=row.production_date,
+            expiry_date=row.expiry_date,
+            minimum_remaining_shelf_life_days=min_days,
+        )
+
+        # Safety precedence is deterministic and fail-closed.
+        if hold == "RECALL" or disposition == "RECALLED":
+            final_status = "RECALLED"
+        elif disposition == "BLOCKED":
+            final_status = "BLOCKED"
+        elif (
+            hold == "SALES_HOLD"
+            or disposition == "QUARANTINED"
+            or not bool(row.batch_is_active)
+            or lifecycle == "ARCHIVED"
+            or not metadata_sellable
+        ):
+            final_status = "QUARANTINED"
+        else:
+            final_status = "AVAILABLE"
+
+        result[int(line.id)] = final_status
+
+    return result
+
 # تثبيت أن VEHICLE_RECON مرتبط بجلسة عمل منتهية وغير مسواة وبنفس السيارة داخل Tenant واحد.
 async def validate_vehicle_recon_work_session(
     db_session: AsyncSession,
@@ -1708,9 +1936,17 @@ async def apply_inventory_movements_batch(
     try:
         for spec in new_specs:
             scale, step, lifecycle_status, _operational_hold, _expiry_mode = variant_rules[spec["product_variant_id"]]
-            if lifecycle_status in {"DRAFT", "ARCHIVED"}:
+            if lifecycle_status == "DRAFT":
                 raise InventoryMutationError(
-                    f"الصنف ({spec['product_variant_id']}) بحالة {lifecycle_status} ولا يقبل حركة مخزون جديدة."
+                    f"الصنف ({spec['product_variant_id']}) بحالة DRAFT ولا يقبل حركة مخزون."
+                )
+            if lifecycle_status == "ARCHIVED" and not (
+                spec["transfer_header_id"] is not None
+                and spec["reference_type"] in _TRANSFER_TERMINAL_REFERENCE_TYPES
+            ):
+                raise InventoryMutationError(
+                    f"الصنف ({spec['product_variant_id']}) بحالة ARCHIVED ولا يقبل حركة جديدة؛ "
+                    "المسموح فقط إنهاء مستند تحويل بدأ سابقاً."
                 )
             spec["quantity"] = validate_variant_quantity(
                 spec["quantity"],

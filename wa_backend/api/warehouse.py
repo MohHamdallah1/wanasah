@@ -30,6 +30,7 @@ from services import (
     post_approved_stocktake_adjustments,
     allocate_fefo_inventory_batch,
     batch_sellability_predicate,
+    resolve_inflight_transfer_destination_statuses,
     get_company_local_date,
     validate_vehicle_recon_work_session,
     begin_idempotent_operation,
@@ -47,6 +48,7 @@ from models import UOM
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
 from product_lifecycle import (
     INBOUND_NEW,
+    REPLENISHMENT_NEW,
     WAREHOUSE_BALANCING,
     acquire_product_lifecycle_guards,
     evaluate_product_capability,
@@ -4166,6 +4168,7 @@ async def _serialize_transfer_headers(
             "source_location_name": location_map[int(header.source_location_id)],
             "destination_location_id": int(header.destination_location_id),
             "destination_location_name": location_map[int(header.destination_location_id)],
+            "transfer_purpose": str(header.transfer_purpose),
             "status": str(header.status),
             "dispatched_by": int(header.dispatched_by),
             "dispatched_by_name": actor_map[int(header.dispatched_by)],
@@ -4462,6 +4465,16 @@ async def get_unified_transfer_detail(
     }
 
 
+# Stage 4E generic TRANSIT endpoint intentionally owns only the two unambiguous
+# warehouse-to-warehouse purposes. Route load/return stay in Dispatch workflows.
+# Special return/quarantine/disposal purposes remain fail-closed until their
+# tenant-configured destination capability is approved and represented explicitly.
+_GENERIC_TRANSFER_PURPOSE_CAPABILITY = {
+    "REPLENISHMENT": REPLENISHMENT_NEW,
+    "WAREHOUSE_BALANCING": WAREHOUSE_BALANCING,
+}
+
+
 @router.post("/warehouse/unified/transfer/dispatch", status_code=200)
 async def unified_transfer_dispatch(
     payload: UnifiedDispatchRequest,
@@ -4508,6 +4521,37 @@ async def unified_transfer_dispatch(
                 InventoryLocation.id.in_([payload.source_location_id, payload.destination_location_id]),
             )
         )).all())
+
+        transfer_purpose = str(payload.transfer_purpose).upper()
+        lifecycle_capability = _GENERIC_TRANSFER_PURPOSE_CAPABILITY.get(
+            transfer_purpose
+        )
+        if lifecycle_capability is None:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "TRANSFER_PURPOSE_WORKFLOW_REQUIRED",
+                    "غرض الحوالة المطلوب يحتاج Workflow واتجاهاً مخصصاً ولا يجوز تمريره عبر الحوالة العامة.",
+                    context={"transfer_purpose": transfer_purpose},
+                ),
+            )
+
+        source_type = location_types.get(payload.source_location_id)
+        destination_type = location_types.get(payload.destination_location_id)
+        if source_type != "WAREHOUSE" or destination_type != "WAREHOUSE":
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "TRANSFER_DIRECTION_BLOCKED",
+                    "REPLENISHMENT/WAREHOUSE_BALANCING في المسار العام يتطلبان WAREHOUSE -> WAREHOUSE.",
+                    context={
+                        "transfer_purpose": transfer_purpose,
+                        "source_location_type": source_type,
+                        "destination_location_type": destination_type,
+                    },
+                ),
+            )
+
         variant_uom_rows = (
             await db.execute(
                 select(
@@ -4515,6 +4559,7 @@ async def unified_transfer_dispatch(
                     ProductVariant.base_uom_id,
                     ProductVariant.lifecycle_status,
                     ProductVariant.operational_hold,
+                    ProductVariant.lifecycle_revision,
                 ).filter(
                     ProductVariant.company_id == company_id,
                     ProductVariant.id.in_(requested_variant_ids),
@@ -4522,18 +4567,20 @@ async def unified_transfer_dispatch(
             )
         ).all()
         variant_uoms = {}
+        variant_context = {}
         for row in variant_uom_rows:
             decision = evaluate_product_capability(
                 row.lifecycle_status,
                 row.operational_hold,
-                WAREHOUSE_BALANCING,
+                lifecycle_capability,
             )
             if not decision.allowed:
                 raise HTTPException(
                     status_code=409,
-                    detail={"code": decision.code, "message": "حالة الصنف لا تسمح بحوالة جديدة.", "context": {"product_variant_id": int(row.id)}},
+                    detail={"code": decision.code, "message": "حالة الصنف لا تسمح بالحوالة المطلوبة.", "context": {"product_variant_id": int(row.id), "transfer_purpose": transfer_purpose}},
                 )
             variant_uoms[int(row.id)] = int(row.base_uom_id)
+            variant_context[int(row.id)] = row
         if set(variant_uoms) != requested_variant_ids:
             raise HTTPException(
                 status_code=400,
@@ -4559,7 +4606,7 @@ async def unified_transfer_dispatch(
             variant_id for variant_id in requested_variant_ids
             if not product_location_allows(
                 assignments.get((payload.source_location_id, variant_id)),
-                WAREHOUSE_BALANCING,
+                lifecycle_capability,
             )
         )
         missing_destination = sorted(
@@ -4751,6 +4798,15 @@ async def unified_transfer_dispatch(
             transit_location_id=transit_location_id,
             workflow_type='TRANSIT',
             status='IN_TRANSIT',
+            transfer_purpose=transfer_purpose,
+            commercial_context={
+                "schema_version": 1,
+                "commercial_context_id": None,
+                "tenant_policy_revision": None,
+                "source_location_type": source_type,
+                "destination_location_type": destination_type,
+                "transfer_purpose": transfer_purpose,
+            },
             dispatched_by=current_admin.id,
             notes=payload.notes or None
         )
@@ -4786,12 +4842,17 @@ async def unified_transfer_dispatch(
                 override_note = None
 
             for batch_id, take_qty in allocations:
+                variant_state = variant_context[int(item.product_variant_id)]
                 transfer_lines.append(InventoryTransferLine(
                     company_id=company_id,
                     transfer_header_id=header.id,
                     product_variant_id=item.product_variant_id,
                     batch_id=batch_id,
                     quantity=take_qty,
+                    source_stock_status="AVAILABLE",
+                    lifecycle_revision_snapshot=int(variant_state.lifecycle_revision),
+                    lifecycle_status_snapshot=str(variant_state.lifecycle_status),
+                    operational_hold_snapshot=str(variant_state.operational_hold),
                     fefo_override_reason_id=override_reason_id,
                     fefo_overridden_by=override_actor_id,
                     fefo_override_note=override_note
@@ -4827,6 +4888,7 @@ async def unified_transfer_dispatch(
             "message": "تم تحميل البضاعة بنجاح وهي الآن في الطريق.",
             "transfer_reference": transfer_ref,
             "header_id": header.id,
+            "transfer_purpose": transfer_purpose,
         }
         complete_idempotent_operation(
             idempotency_record,
@@ -4916,8 +4978,8 @@ async def _move_transfer_lines_from_transit(
     reference_type: str,
     idempotency_prefix: str,
     notes: Optional[str]
-) -> None:
-    """ترحيل جميع أسطر حوالة واحدة من IN_TRANSIT إلى موقع نهائي بترتيب ثابت."""
+) -> dict[int, str]:
+    """Complete an already-valid TRANSIT document into a current safe terminal bucket."""
     transit_location_id = int(header.transit_location_id)
 
     await _verify_location_ownership(
@@ -4960,7 +5022,7 @@ async def _move_transfer_lines_from_transit(
                 InventoryTransferLine.product_variant_id.asc(),
                 InventoryTransferLine.batch_id.asc(),
                 InventoryTransferLine.id.asc()
-            )
+            ).with_for_update()
         )
     ).scalars().all()
 
@@ -4970,8 +5032,22 @@ async def _move_transfer_lines_from_transit(
             detail="الحوالة لا تحتوي على أسطر مخزون صالحة."
         )
 
-    movement_specs = [
-        {
+    terminal_statuses = await resolve_inflight_transfer_destination_statuses(
+        db,
+        company_id=company_id,
+        destination_location_id=destination_location_id,
+        transfer_purpose=str(header.transfer_purpose),
+        lines=lines,
+    )
+
+    movement_specs = []
+    for line in lines:
+        source_status = str(line.source_stock_status).upper()
+        final_status = terminal_statuses[int(line.id)]
+
+        # PHYSICAL preserves portion status by DB invariant.  Any safety downgrade
+        # is a second explicit STATUS_CHANGE through the same Unified Engine.
+        movement_specs.append({
             "product_variant_id": line.product_variant_id,
             "batch_id": line.batch_id,
             "quantity": line.quantity,
@@ -4981,19 +5057,40 @@ async def _move_transfer_lines_from_transit(
             "idempotency_key": f"{idempotency_prefix}-{header.id}-{line.id}",
             "source_location_id": transit_location_id,
             "destination_location_id": destination_location_id,
-            "source_stock_status": 'AVAILABLE',
-            "destination_stock_status": 'AVAILABLE',
+            "source_stock_status": source_status,
+            "destination_stock_status": source_status,
             "transfer_header_id": header.id,
             "notes": notes,
-        }
-        for line in lines
-    ]
+        })
+        if final_status != source_status:
+            movement_specs.append({
+                "product_variant_id": line.product_variant_id,
+                "batch_id": line.batch_id,
+                "quantity": line.quantity,
+                "movement_kind": 'STATUS_CHANGE',
+                "reference_type": 'TRANSFER_TERMINAL_STATUS',
+                "reference_id": header.reference_number,
+                "idempotency_key": (
+                    f"{idempotency_prefix}-STATUS-{header.id}-{line.id}"
+                ),
+                "source_location_id": destination_location_id,
+                "destination_location_id": destination_location_id,
+                "source_stock_status": source_status,
+                "destination_stock_status": final_status,
+                "transfer_header_id": header.id,
+                "notes": (
+                    f"Safe terminal status for {header.transfer_purpose}: "
+                    f"{source_status}->{final_status}"
+                ),
+            })
+
     await apply_inventory_movements_batch(
         db,
         company_id=company_id,
         performed_by=performed_by,
         movements=movement_specs,
     )
+    return terminal_statuses
 
 
 @router.post("/warehouse/unified/transfer/receive", status_code=200)

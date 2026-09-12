@@ -5,7 +5,7 @@ from sqlalchemy import func, update, or_, and_, delete, case
 from sqlalchemy.orm import joinedload, contains_eager, selectinload
 from sqlalchemy.exc import IntegrityError
 from database import get_db
-from typing import List
+from typing import List, Optional
 from api.dependencies import get_current_driver
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -22,6 +22,7 @@ from services import (
     get_company_local_date,
     allocate_fefo_inventory_batch,
     apply_inventory_movements_batch,
+    resolve_inflight_transfer_destination_statuses,
     begin_idempotent_operation,
     complete_idempotent_operation,
 )
@@ -1851,57 +1852,20 @@ async def _validate_handshake_locations(
 
 
 
-async def _validate_incoming_handshake_batches(
+async def _resolve_handshake_destination_statuses(
     db: AsyncSession,
     *,
     company_id: int,
     header: InventoryTransferHeader,
     lines,
-    vehicle_location_id: int,
-    as_of_date,
-):
-    """نمنع فقط إدخال AVAILABLE غير صالح إلى السيارة؛ لا علاقة لهذا بمسار المرتجعات DAMAGED."""
-    if int(header.destination_location_id) != int(vehicle_location_id):
-        return
-
-    batch_ids = sorted({int(line.batch_id) for line in lines})
-    rows = (
-        await db.execute(
-            select(ProductBatch).filter(
-                ProductBatch.company_id == company_id,
-                ProductBatch.id.in_(batch_ids),
-            ).order_by(ProductBatch.id.asc())
-        )
-    ).scalars().all()
-    batch_map = {int(row.id): row for row in rows}
-    if set(batch_map) != set(batch_ids):
-        raise HTTPException(
-            status_code=409,
-            detail="إحدى دفعات المصافحة غير موجودة أو لا تتبع الشركة.",
-        )
-
-    for line in lines:
-        batch = batch_map[int(line.batch_id)]
-        if int(batch.product_variant_id) != int(line.product_variant_id):
-            raise HTTPException(
-                status_code=409,
-                detail="إحدى دفعات المصافحة لا تتبع الصنف المسجل في سطر الحوالة.",
-            )
-        if not batch.is_active:
-            raise HTTPException(
-                status_code=409,
-                detail=f"الدفعة ({batch.batch_number}) موقوفة ولا يجوز إدخالها AVAILABLE إلى السيارة.",
-            )
-        if batch.production_date is not None and batch.production_date > as_of_date:
-            raise HTTPException(
-                status_code=409,
-                detail=f"الدفعة ({batch.batch_number}) تاريخ إنتاجها في المستقبل.",
-            )
-        if batch.expiry_date < as_of_date:
-            raise HTTPException(
-                status_code=409,
-                detail=f"الدفعة ({batch.batch_number}) منتهية الصلاحية ولا يجوز إدخالها AVAILABLE إلى السيارة.",
-            )
+) -> dict[int, str]:
+    return await resolve_inflight_transfer_destination_statuses(
+        db,
+        company_id=company_id,
+        destination_location_id=int(header.destination_location_id),
+        transfer_purpose=str(header.transfer_purpose),
+        lines=lines,
+    )
 
 
 def _handshake_signed_quantity(
@@ -1972,13 +1936,19 @@ def _build_handshake_movement_specs(
     header: InventoryTransferHeader,
     lines,
     accepted: bool,
+    destination_status_by_line: Optional[dict[int, str]] = None,
 ):
     movement_specs = []
+    status_map = destination_status_by_line or {}
+
     for line in lines:
+        quantity = line.quantity
+        source_status = str(line.source_stock_status).upper()
+
         movement_specs.append({
             "product_variant_id": int(line.product_variant_id),
             "batch_id": int(line.batch_id),
-            "quantity": int(line.quantity),
+            "quantity": quantity,
             "movement_kind": "RESERVATION",
             "reservation_action": "RELEASE",
             "reference_type": "HANDSHAKE_RELEASE",
@@ -1986,28 +1956,58 @@ def _build_handshake_movement_specs(
             "idempotency_key": f"HS-REL-{header.id}-{line.id}",
             "source_location_id": int(header.source_location_id),
             "destination_location_id": int(header.source_location_id),
-            "source_stock_status": "AVAILABLE",
-            "destination_stock_status": "AVAILABLE",
+            "source_stock_status": source_status,
+            "destination_stock_status": source_status,
             "work_session_id": int(header.work_session_id),
             "transfer_header_id": int(header.id),
             "notes": "تحرير حجز المصافحة بعد قرار المندوب.",
         })
-        if accepted:
+
+        if not accepted:
+            continue
+
+        final_status = status_map.get(int(line.id))
+        if final_status is None:
+            raise RuntimeError(
+                "Accepted handshake missing safe destination status decision."
+            )
+
+        movement_specs.append({
+            "product_variant_id": int(line.product_variant_id),
+            "batch_id": int(line.batch_id),
+            "quantity": quantity,
+            "movement_kind": "PHYSICAL",
+            "reference_type": "HANDSHAKE_POST",
+            "reference_id": str(header.reference_number),
+            "idempotency_key": f"HS-POST-{header.id}-{line.id}",
+            "source_location_id": int(header.source_location_id),
+            "destination_location_id": int(header.destination_location_id),
+            "source_stock_status": source_status,
+            "destination_stock_status": source_status,
+            "work_session_id": int(header.work_session_id),
+            "transfer_header_id": int(header.id),
+            "notes": "ترحيل مصافحة منتصف اليوم بعد موافقة المندوب.",
+        })
+
+        if final_status != source_status:
             movement_specs.append({
                 "product_variant_id": int(line.product_variant_id),
                 "batch_id": int(line.batch_id),
-                "quantity": int(line.quantity),
-                "movement_kind": "PHYSICAL",
-                "reference_type": "HANDSHAKE_POST",
+                "quantity": quantity,
+                "movement_kind": "STATUS_CHANGE",
+                "reference_type": "HANDSHAKE_TERMINAL_STATUS",
                 "reference_id": str(header.reference_number),
-                "idempotency_key": f"HS-POST-{header.id}-{line.id}",
-                "source_location_id": int(header.source_location_id),
+                "idempotency_key": f"HS-STATUS-{header.id}-{line.id}",
+                "source_location_id": int(header.destination_location_id),
                 "destination_location_id": int(header.destination_location_id),
-                "source_stock_status": "AVAILABLE",
-                "destination_stock_status": "AVAILABLE",
+                "source_stock_status": source_status,
+                "destination_stock_status": final_status,
                 "work_session_id": int(header.work_session_id),
                 "transfer_header_id": int(header.id),
-                "notes": "ترحيل مصافحة منتصف اليوم بعد موافقة المندوب.",
+                "notes": (
+                    f"Safe terminal status for {header.transfer_purpose}: "
+                    f"{source_status}->{final_status}"
+                ),
             })
     return movement_specs
 
@@ -2329,8 +2329,8 @@ async def respond_to_transfer(
         if variant is None:
             raise HTTPException(status_code=409, detail="صنف الحوالة غير موجود داخل الشركة.")
 
-        # الاستلام AVAILABLE إلى السيارة يحتاج صنفاً وBatch صالحين لحظة القبول.
-        # هذا لا يغيّر مسار المرتجعات: VisitReturn يدخل DAMAGED فوراً حتى لو منتهي/موقوف.
+        # مستند بدأ صحيحاً لا يُعلق عند RETIRING/Hold/Recall. عند القبول
+        # نعيد تقييم الحالة الحالية ونستلم إلى Bucket آمن غير قابل للبيع عند الحاجة.
         if response == "accepted" and int(header.destination_location_id) == vehicle_location_id:
             receipt_capability = evaluate_product_capability(
                 variant.lifecycle_status,
@@ -2346,20 +2346,21 @@ async def respond_to_transfer(
                         "message": f"لا يمكن إنهاء استلام المنتج ({variant.variant_name}) في حالته الحالية.",
                     },
                 )
-            as_of_date = await get_company_local_date(db, company_id)
-            await _validate_incoming_handshake_batches(
+
+        destination_status_by_line = {}
+        if response == "accepted":
+            destination_status_by_line = await _resolve_handshake_destination_statuses(
                 db,
                 company_id=company_id,
                 header=header,
                 lines=lines,
-                vehicle_location_id=vehicle_location_id,
-                as_of_date=as_of_date,
             )
 
         movement_specs = _build_handshake_movement_specs(
             header=header,
             lines=lines,
             accepted=(response == "accepted"),
+            destination_status_by_line=destination_status_by_line,
         )
         await apply_inventory_movements_batch(
             db,
@@ -2550,11 +2551,6 @@ async def batch_respond_to_transfers(
 
             movement_specs = []
             now_utc = get_utc_now()
-            as_of_date = (
-                await get_company_local_date(db, company_id)
-                if accepted_headers
-                else None
-            )
             for header in pending_headers:
                 request_item = request_map[int(header.id)]
                 accepted = request_item.status == "accepted"
@@ -2576,13 +2572,14 @@ async def batch_respond_to_transfers(
                                 "message": f"لا يمكن إنهاء استلام المنتج ({variant.variant_name}) في الحوالة ({header.id}).",
                             },
                         )
-                    await _validate_incoming_handshake_batches(
+
+                destination_status_by_line = {}
+                if accepted:
+                    destination_status_by_line = await _resolve_handshake_destination_statuses(
                         db,
                         company_id=company_id,
                         header=header,
                         lines=lines,
-                        vehicle_location_id=vehicle_location_id,
-                        as_of_date=as_of_date,
                     )
 
                 movement_specs.extend(
@@ -2590,6 +2587,7 @@ async def batch_respond_to_transfers(
                         header=header,
                         lines=lines,
                         accepted=accepted,
+                        destination_status_by_line=destination_status_by_line,
                     )
                 )
 

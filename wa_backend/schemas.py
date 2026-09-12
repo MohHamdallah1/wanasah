@@ -1681,6 +1681,18 @@ InventoryStockStatus = Literal[
 ]
 
 
+TransferPurpose = Literal[
+    "REPLENISHMENT",
+    "ROUTE_LOAD",
+    "ROUTE_RETURN",
+    "WAREHOUSE_BALANCING",
+    "RETURN_TO_VENDOR",
+    "QUARANTINE",
+    "RECALL_RETURN",
+    "DISPOSAL",
+]
+
+
 class BatchDispositionChangeRequest(RequestModel):
     request_id: UUID
     expected_revision: PositiveDbInt
@@ -1760,6 +1772,7 @@ class UnifiedDispatchRequest(RequestModel):
     request_id: UUID
     source_location_id: PositiveDbInt
     destination_location_id: PositiveDbInt
+    transfer_purpose: TransferPurpose
     items: List[UnifiedTransferItem] = Field(..., min_length=1, max_length=5000)
     notes: Optional[str] = Field("", max_length=4000)
 
@@ -1836,7 +1849,7 @@ class UnifiedTransferSourceBatchItem(BaseModel):
     id: int
     batch_number: str
     production_date: Optional[date] = None
-    expiry_date: date
+    expiry_date: Optional[date] = None
     available_quantity: NonNegativeQuantity
     is_fefo_head: bool
 
@@ -1866,6 +1879,7 @@ class WarehouseTransferListItem(BaseModel):
     source_location_name: str
     destination_location_id: int
     destination_location_name: str
+    transfer_purpose: TransferPurpose
     status: str
     dispatched_by: int
     dispatched_by_name: str
@@ -1898,7 +1912,7 @@ class WarehouseTransferLineItem(BaseModel):
     product_name: str
     batch_id: int
     batch_number: str
-    expiry_date: date
+    expiry_date: Optional[date] = None
     quantity: PositiveQuantity
     uom_id: PositiveDbInt
     fefo_override_reason_id: Optional[int] = None
@@ -1942,7 +1956,7 @@ class StocktakeCycleBatchItem(BaseModel):
     product_variant_id: int
     batch_number: str
     production_date: Optional[date] = None
-    expiry_date: date
+    expiry_date: Optional[date] = None
     is_active: bool
 
 

@@ -2136,6 +2136,9 @@ async def _dispatch_apply_pack_deltas(
                 as_of_date=as_of_date,
                 require_sellable=sellable,
             )
+            transfer_purpose = "ROUTE_LOAD" if delta > 0 else "ROUTE_RETURN"
+            source_location_type = "WAREHOUSE" if delta > 0 else "VEHICLE"
+            destination_location_type = "VEHICLE" if delta > 0 else "WAREHOUSE"
             header = InventoryTransferHeader(
                 company_id=company_id,
                 reference_number=f"HS-{uuid4().hex.upper()}",
@@ -2143,6 +2146,17 @@ async def _dispatch_apply_pack_deltas(
                 destination_location_id=dst,
                 workflow_type="HANDSHAKE",
                 status="PENDING",
+                transfer_purpose=transfer_purpose,
+                commercial_context={
+                    "schema_version": 1,
+                    "commercial_context_id": None,
+                    "tenant_policy_revision": None,
+                    "route_id": int(route.id),
+                    "work_session_id": int(session.id),
+                    "source_location_type": source_location_type,
+                    "destination_location_type": destination_location_type,
+                    "transfer_purpose": transfer_purpose,
+                },
                 work_session_id=session.id,
                 expected_receiver_id=route.driver_id,
                 dispatched_by=admin.id,
@@ -2157,6 +2171,10 @@ async def _dispatch_apply_pack_deltas(
                     product_variant_id=pid,
                     batch_id=batch_id,
                     quantity=quantity,
+                    source_stock_status="AVAILABLE",
+                    lifecycle_revision_snapshot=int(variant.lifecycle_revision),
+                    lifecycle_status_snapshot=str(variant.lifecycle_status),
+                    operational_hold_snapshot=str(variant.operational_hold),
                 )
                 db.add(line)
                 specs.append({
@@ -2594,7 +2612,7 @@ async def force_cancel_handshake(
         specs = [{
             "product_variant_id": int(line.product_variant_id),
             "batch_id": int(line.batch_id),
-            "quantity": int(line.quantity),
+            "quantity": line.quantity,
             "movement_kind": "RESERVATION",
             "reservation_action": "RELEASE",
             "reference_type": "HANDSHAKE_RELEASE",
