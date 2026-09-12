@@ -13,6 +13,15 @@ interface PendingRoutesTableProps {
   onOpenRadar: (route: PendingRoute) => void;
 }
 
+const formatCommercialLockTime = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "وقت قفل غير صالح";
+  return new Intl.DateTimeFormat("ar-JO", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+};
+
 export function PendingRoutesTable({
   routes,
   onOpenRouteModal,
@@ -176,6 +185,26 @@ export function PendingRoutesTable({
                     🟢 قيد العمل
                   </span>
                 )}
+
+                {route.commercial_context ? (
+                  <span
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold border border-slate-200"
+                    title={`عملة المعاملة: ${route.commercial_context.transaction_currency_code} | العملة الوظيفية: ${route.commercial_context.functional_currency_code}`}
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    قفل تجاري {formatCommercialLockTime(route.commercial_context.pricing_locked_at)}
+                    {" · "}نشر r{route.commercial_context.price_publication_revision}
+                    {" · "}تعيين r{route.commercial_context.assignment_revision}
+                  </span>
+                ) : route.sessionBound ? (
+                  <span
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-200"
+                    title="الجولة مرتبطة بـ WorkSession لكن RouteCommercialContext غير متاح في القراءة الحالية."
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    سياق تجاري غير متاح
+                  </span>
+                ) : null}
               </div>
             </div>
 

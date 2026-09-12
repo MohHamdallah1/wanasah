@@ -30,6 +30,7 @@ from models import (
     SystemAuditLog,
     ProductVariant,
     DispatchRoute,
+    RouteCommercialContext,
     Zone,
     Vehicle,
     Shop,
@@ -3339,14 +3340,34 @@ async def get_active_routes(
     access = InventoryAccess(db, current_admin)
     await access.require('dispatch.read', any_location=True)
 
-    stmt_routes = select(DispatchRoute, route_filter(access, 'dispatch.execute').label('can_execute')).filter(
-    DispatchRoute.company_id == current_admin.company_id,
-    route_filter(access, 'dispatch.read'),
-    DispatchRoute.status.in_(['active', 'waiting', 'postponed'])
-)
+    stmt_routes = (
+        select(
+            DispatchRoute,
+            route_filter(access, 'dispatch.execute').label('can_execute'),
+            RouteCommercialContext,
+        )
+        .outerjoin(
+            RouteCommercialContext,
+            and_(
+                RouteCommercialContext.company_id == DispatchRoute.company_id,
+                RouteCommercialContext.dispatch_route_id == DispatchRoute.id,
+            ),
+        )
+        .filter(
+            DispatchRoute.company_id == current_admin.company_id,
+            route_filter(access, 'dispatch.read'),
+            DispatchRoute.status.in_(['active', 'waiting', 'postponed']),
+        )
+    )
     route_rows = (await db.execute(stmt_routes)).all()
     routes = [row[0] for row in route_rows]
     executable_routes = {row[0].id: bool(row[1]) for row in route_rows}
+    commercial_context_by_route = {
+        row[0].id: (
+            commercial_context_payload(row[2]) if row[2] is not None else None
+        )
+        for row in route_rows
+    }
     
     # +++ تدمير N+1 باستخدام القواميس (Dictionaries) مع تنظيف التكرار عبر Set لحماية السيرفر +++
     zone_ids = list({r.zone_id for r in routes if r.zone_id})
@@ -3439,7 +3460,8 @@ async def get_active_routes(
             "status": r.status,
             "sessionEnded": session_ended,
             "sessionBound": r.work_session_id is not None,
-            "can_execute": executable_routes[r.id]
+            "can_execute": executable_routes[r.id],
+            "commercial_context": commercial_context_by_route.get(r.id),
         })
         
     return res

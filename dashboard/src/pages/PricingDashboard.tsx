@@ -27,6 +27,10 @@ type Page<T> = {
   has_more: boolean;
 };
 
+type PricingPolicy = {
+  maker_checker_enabled: boolean;
+};
+
 type PriceBook = {
   id: number;
   code: string;
@@ -307,6 +311,18 @@ export default function PricingDashboard() {
   });
   const [preview, setPreview] = useState<ResolvePreviewResult | null>(null);
 
+  const policyQuery = useQuery({
+    queryKey: ["pricing", "policy"],
+    queryFn: async () => {
+      const response = (await authFetch("/pricing/policy")) as PricingPolicy;
+      if (!response || typeof response.maker_checker_enabled !== "boolean") {
+        throw new Error("عقد سياسة اعتماد التسعير غير صالح.");
+      }
+      return response;
+    },
+    retry: false,
+  });
+
   const booksQuery = useQuery({
     queryKey: ["pricing", "books"],
     queryFn: () => fetchAll<PriceBook>(authFetch, "/pricing/books"),
@@ -358,12 +374,31 @@ export default function PricingDashboard() {
     retry: false,
   });
 
-  const books = booksQuery.data ?? [];
-  const publications = publicationsQuery.data ?? [];
-  const entries = entriesQuery.data ?? [];
-  const assignments = assignmentsQuery.data ?? [];
-  const variants = variantsQuery.data ?? [];
-  const uoms = uomsQuery.data ?? [];
+  const books = useMemo(
+  () => booksQuery.data ?? [],
+  [booksQuery.data]
+);
+  const publications = useMemo(
+    () => publicationsQuery.data ?? [],
+    [publicationsQuery.data]
+  );
+  const variants = useMemo(
+    () => variantsQuery.data ?? [],
+    [variantsQuery.data]
+  );
+  const uoms = useMemo(
+    () => uomsQuery.data ?? [],
+    [uomsQuery.data]
+  );
+  const entries = useMemo(
+    () => entriesQuery.data ?? [],
+    [entriesQuery.data]
+  );
+  const assignments = useMemo(
+    () => assignmentsQuery.data ?? [],
+    [assignmentsQuery.data]
+  );
+  const makerCheckerEnabled = policyQuery.data?.maker_checker_enabled;
 
   const selectedBook =
     books.find((item) => item.id === selectedBookId) ?? null;
@@ -710,6 +745,7 @@ export default function PricingDashboard() {
   };
 
   const isBusy =
+    policyQuery.isLoading ||
     booksQuery.isLoading ||
     assignmentsQuery.isLoading ||
     variantsQuery.isLoading ||
@@ -857,6 +893,18 @@ export default function PricingDashboard() {
             subtitle="النسخة المنشورة immutable؛ التغيير يتم بنسخة لاحقة."
             icon={Layers3}
           >
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-xs font-bold text-slate-600">
+              <ShieldCheck className="h-4 w-4 text-slate-500" />
+              <span>سياسة النشر:</span>
+              <span className="font-black text-slate-900">
+                {policyQuery.isError
+                  ? "غير متاحة — إجراءات تغيير الحالة موقوفة احتياطياً"
+                  : makerCheckerEnabled === true
+                    ? "Maker / Checker"
+                    : "نشر مباشر"}
+              </span>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="نسخة النشر">
                 <select
@@ -920,32 +968,36 @@ export default function PricingDashboard() {
               <div className="mt-4 flex flex-wrap gap-2">
                 {canManage && selectedPublication.status === "DRAFT" ? (
                   <>
-                    <button
-                      className={softButton}
-                      disabled={publicationCommand.isPending}
-                      onClick={() =>
-                        publicationCommand.mutate({
-                          action: "submit",
-                          reason: "إرسال نسخة الأسعار للاعتماد من لوحة التسعير",
-                        })
-                      }
-                    >
-                      <ShieldCheck className="h-4 w-4" />
-                      إرسال للموافقة
-                    </button>
-                    <button
-                      className={primaryButton}
-                      disabled={publicationCommand.isPending}
-                      onClick={() =>
-                        publicationCommand.mutate({
-                          action: "publish",
-                          reason: "نشر مباشر من لوحة التسعير",
-                        })
-                      }
-                    >
-                      <Rocket className="h-4 w-4" />
-                      نشر مباشر
-                    </button>
+                    {makerCheckerEnabled === true ? (
+                      <button
+                        className={softButton}
+                        disabled={publicationCommand.isPending}
+                        onClick={() =>
+                          publicationCommand.mutate({
+                            action: "submit",
+                            reason: "إرسال نسخة الأسعار للاعتماد من لوحة التسعير",
+                          })
+                        }
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        إرسال للموافقة
+                      </button>
+                    ) : null}
+                    {makerCheckerEnabled === false ? (
+                      <button
+                        className={primaryButton}
+                        disabled={publicationCommand.isPending}
+                        onClick={() =>
+                          publicationCommand.mutate({
+                            action: "publish",
+                            reason: "نشر مباشر من لوحة التسعير",
+                          })
+                        }
+                      >
+                        <Rocket className="h-4 w-4" />
+                        نشر مباشر
+                      </button>
+                    ) : null}
                     <button
                       className={softButton}
                       disabled={publicationCommand.isPending}
@@ -962,6 +1014,7 @@ export default function PricingDashboard() {
                   </>
                 ) : null}
                 {canApprove &&
+                makerCheckerEnabled === true &&
                 selectedPublication.status === "PENDING_APPROVAL" ? (
                   <button
                     className={primaryButton}

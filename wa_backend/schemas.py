@@ -1090,6 +1090,19 @@ class AdminAddShopRequest(RequestModel):
         return _optional_text(v) or ""
 
 
+class RouteCommercialContextResponse(BaseModel):
+    commercial_context_id: int
+    pricing_locked_at: str
+    price_publication_revision: int
+    assignment_revision: int
+    offer_ruleset_version: Optional[int] = None
+    tax_ruleset_version: Optional[int] = None
+    transaction_currency_code: str
+    functional_currency_code: str
+    rounding_policy_version: Optional[int] = None
+    tenant_policy_revision: Optional[int] = None
+
+
 class ActiveRouteResponse(BaseModel):
     id: str
     zoneId: str
@@ -1102,6 +1115,7 @@ class ActiveRouteResponse(BaseModel):
     sessionEnded: bool
     sessionBound: bool
     can_execute: bool = False
+    commercial_context: Optional[RouteCommercialContextResponse] = None
 
 class UpdateRouteStatusRequest(RequestModel):
     status: Optional[Literal["active", "closed", "waiting", "postponed"]] = None

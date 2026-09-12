@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
 from database import get_db
-from domains.pricing.core import PricingError
+from domains.pricing.core import PricingError, maker_checker_enabled
 from domains.pricing.publishing import (
     approve_publication,
     cancel_publication,
@@ -303,6 +303,19 @@ class ResolvePreview(StrictRequest):
     as_of: Optional[datetime] = None
     price_publication_revision: Optional[int] = Field(None, gt=0)
     assignment_revision: Optional[int] = Field(None, gt=0)
+
+
+@router.get("/policy")
+async def get_pricing_policy(
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "pricing.view")
+    try:
+        enabled = await maker_checker_enabled(db, actor.company_id)
+    except PricingError as exc:
+        raise _pricing_http_error(exc) from exc
+    return {"maker_checker_enabled": enabled}
 
 
 @router.get("/books")

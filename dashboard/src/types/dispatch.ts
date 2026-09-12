@@ -3,6 +3,19 @@ export type TabId = "routes" | "zones" | "launch";
 export type ScheduleStatus = "overdue" | "today" | "upcoming" | "null";
 export type RouteStatus = "waiting" | "active" | "postponed";
 
+export interface RouteCommercialContext {
+  commercial_context_id: number;
+  pricing_locked_at: string;
+  price_publication_revision: number;
+  assignment_revision: number;
+  offer_ruleset_version: number | null;
+  tax_ruleset_version: number | null;
+  transaction_currency_code: string;
+  functional_currency_code: string;
+  rounding_policy_version: number | null;
+  tenant_policy_revision: number | null;
+}
+
 export interface PendingRoute {
   id: string;
   zoneId: string;
@@ -15,6 +28,7 @@ export interface PendingRoute {
   sessionEnded: boolean; // +++ إضافة حالة الجلسة (للتراجع عن إنهاء العمل) +++
   sessionBound: boolean;
   can_execute: boolean;
+  commercial_context: RouteCommercialContext | null;
 }
 
 export interface Shop {
