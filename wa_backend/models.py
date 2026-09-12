@@ -293,8 +293,6 @@ class ProductVariant(Base):
         CheckConstraint('lifecycle_revision > 0', name='chk_product_variant_lifecycle_revision'),
         CheckConstraint('version > 0', name='chk_product_variant_version'),
         CheckConstraint('packs_per_carton > 0', name='chk_packs_per_carton_positive'),
-        CheckConstraint('price_per_carton >= 0', name='chk_product_variant_carton_price'),
-        CheckConstraint('price_per_pack IS NULL OR price_per_pack >= 0', name='chk_product_variant_pack_price'),
         CheckConstraint('default_max_samples_per_day >= 0', name='chk_product_variant_samples_limit'),
     )
     id          = Column(Integer, primary_key=True)
@@ -319,11 +317,9 @@ class ProductVariant(Base):
     created_at       = Column(DateTime, nullable=False, default=utc_now)
     updated_at       = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
-    # Transitional read/write fields remain until Stage 5 atomically replaces all
-    # live pricing consumers. New catalog contracts never accept these values.
+    # Carton shape remains only as quantity/UOM compatibility.
+    # Commercial prices are authoritative only in temporal PriceBook publications.
     packs_per_carton = Column(Integer, nullable=False, default=50, server_default='50')
-    price_per_carton = Column(Numeric(12, 3), nullable=True)
-    price_per_pack   = Column(Numeric(12, 3), nullable=True)
     default_max_samples_per_day = Column(Integer, nullable=False, default=0, server_default='0')
 
     @property

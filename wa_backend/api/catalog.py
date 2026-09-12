@@ -524,7 +524,7 @@ async def create_variant(
             name=payload.name, base_uom_id=payload.base_uom_id, quantity_scale=payload.quantity_scale,
             quantity_step=payload.quantity_step, lot_control_mode=payload.lot_control_mode,
             expiry_control_mode=payload.expiry_control_mode, lifecycle_status="DRAFT", operational_hold="NONE",
-            packs_per_carton=1, price_per_carton=None, price_per_pack=None,
+            packs_per_carton=1,
         )
         db.add(row)
         await db.flush()

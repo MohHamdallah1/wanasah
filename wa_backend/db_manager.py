@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select, delete
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +30,13 @@ engine = create_async_engine(DB_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 from models import *
+from domains.pricing.publishing import (
+    create_assignment,
+    create_draft_entry,
+    create_price_book,
+    create_publication,
+    publish_publication,
+)
 
 # ====================================================================
 # 1. إعادة بناء قاعدة البيانات من الصفر (بدون Alembic - بيئة التطوير)
@@ -158,9 +166,12 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
             await session.flush()
             gov = Governorate(name="عمان", country_id=country.id)
             session.add(gov)
+            uom_each = await session.scalar(select(UOM).where(UOM.code == "EACH"))
             uom_carton = await session.scalar(select(UOM).where(UOM.code == "CARTON"))
-            if uom_carton is None:
-                raise RuntimeError("Sovereign UOM provisioning failed: CARTON is missing")
+            if uom_each is None or uom_carton is None:
+                raise RuntimeError(
+                    "Sovereign UOM provisioning failed: EACH/CARTON is missing"
+                )
 
             for i in range(1, num_companies + 1):
                 c_name = "شركة وناسة" if i == 1 else f"شركة النسر {i}"
@@ -199,9 +210,34 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                 session.add(prod)
                 await session.flush()
 
-                var = ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, name=f"صنف {cid}", sku=f"SKU-{cid}", packs_per_carton=24, price_per_carton=Decimal("24.0"), price_per_pack=Decimal("1.0"), lifecycle_status="ACTIVE", published_at=utc_now())
+                price_seed_rows = []
+
+                var = ProductVariant(
+                    company_id=cid,
+                    product_id=prod.id,
+                    base_uom_id=uom_each.id,
+                    name=f"صنف {cid}",
+                    sku=f"SKU-{cid}",
+                    packs_per_carton=24,
+                    lifecycle_status="ACTIVE",
+                    published_at=utc_now(),
+                )
                 session.add(var)
                 await session.flush()
+                session.add(
+                    ProductUomConversion(
+                        company_id=cid,
+                        product_variant_id=var.id,
+                        from_uom_id=uom_carton.id,
+                        to_uom_id=uom_each.id,
+                        numerator=Decimal("24"),
+                        denominator=Decimal("1"),
+                        quantity_scale=0,
+                    )
+                )
+                price_seed_rows.append(
+                    (var, Decimal("1.000"), Decimal("24.000"))
+                )
 
                 batch = ProductBatch(company_id=cid, product_variant_id=var.id, batch_number=f"B-{cid}-01", production_date=datetime.now(timezone.utc).date(), expiry_date=datetime.now(timezone.utc).date() + timedelta(days=365), is_active=True)
                 session.add(batch)
@@ -218,7 +254,104 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                     for d_idx in range(1, 21):
                         session.add(Driver(company_id=cid, username=f"drv_{cid}_{d_idx}", full_name=f"مندوب {d_idx}", password_hash=hashed_pw, is_admin=False, is_active=True, max_debt_limit=Decimal("1000.0")))
                     for p_idx in range(1, 21):
-                        session.add(ProductVariant(company_id=cid, product_id=prod.id, base_uom_id=uom_carton.id, name=f"صنف إضافي {p_idx}", sku=f"SKU-{cid}-{p_idx}", packs_per_carton=12, price_per_carton=Decimal("10.0"), price_per_pack=Decimal("1.0"), lifecycle_status="ACTIVE", published_at=utc_now()))
+                        heavy_variant = ProductVariant(
+                            company_id=cid,
+                            product_id=prod.id,
+                            base_uom_id=uom_each.id,
+                            name=f"صنف إضافي {p_idx}",
+                            sku=f"SKU-{cid}-{p_idx}",
+                            packs_per_carton=12,
+                            lifecycle_status="ACTIVE",
+                            published_at=utc_now(),
+                        )
+                        session.add(heavy_variant)
+                        await session.flush()
+                        session.add(
+                            ProductUomConversion(
+                                company_id=cid,
+                                product_variant_id=heavy_variant.id,
+                                from_uom_id=uom_carton.id,
+                                to_uom_id=uom_each.id,
+                                numerator=Decimal("12"),
+                                denominator=Decimal("1"),
+                                quantity_scale=0,
+                            )
+                        )
+                        price_seed_rows.append(
+                            (
+                                heavy_variant,
+                                Decimal("1.000"),
+                                Decimal("10.000"),
+                            )
+                        )
+
+                # Seed demo pricing through the real Stage 5 temporal authority.
+                # No ProductVariant price column is written or read.
+                await session.flush()
+                effective_at = datetime.now(timezone.utc)
+                price_book = await create_price_book(
+                    session,
+                    company_id=cid,
+                    actor_id=admin.id,
+                    code="DEFAULT",
+                    name="الأسعار الافتراضية",
+                    currency_code=comp.currency_code,
+                )
+                publication = await create_publication(
+                    session,
+                    company_id=cid,
+                    actor_id=admin.id,
+                    book_id=price_book.id,
+                    expected_book_version=int(price_book.version),
+                    effective_at=effective_at,
+                    request_id=uuid4(),
+                )
+                for priced_variant, pack_price, carton_price in price_seed_rows:
+                    await create_draft_entry(
+                        session,
+                        company_id=cid,
+                        publication_id=publication.id,
+                        expected_publication_version=int(publication.version),
+                        product_variant_id=priced_variant.id,
+                        uom_id=uom_each.id,
+                        amount=pack_price,
+                        effective_from=effective_at,
+                        effective_to=None,
+                        priority=0,
+                        metadata={"seed": True, "unit": "PACK"},
+                    )
+                    await create_draft_entry(
+                        session,
+                        company_id=cid,
+                        publication_id=publication.id,
+                        expected_publication_version=int(publication.version),
+                        product_variant_id=priced_variant.id,
+                        uom_id=uom_carton.id,
+                        amount=carton_price,
+                        effective_from=effective_at,
+                        effective_to=None,
+                        priority=0,
+                        metadata={"seed": True, "unit": "CARTON"},
+                    )
+
+                await publish_publication(
+                    session,
+                    company_id=cid,
+                    actor_id=admin.id,
+                    publication_id=publication.id,
+                    expected_version=int(publication.version),
+                )
+                await create_assignment(
+                    session,
+                    company_id=cid,
+                    actor_id=admin.id,
+                    price_book_id=price_book.id,
+                    scope_type="COMPANY_DEFAULT",
+                    scope_id=None,
+                    priority=0,
+                    effective_from=effective_at,
+                    effective_to=None,
+                )
 
             await session.commit()
             print(f"SEED OK: {num_companies} companies seeded." + (" (Heavy Injection)" if inject_heavy else ""))
