@@ -67,6 +67,10 @@ class OfferVersion(Base):
     __tablename__ = "offer_versions"
     __table_args__ = (
         UniqueConstraint("company_id", "id", name="uq_offer_versions_company_id"),
+        UniqueConstraint(
+            "company_id", "id", "offer_definition_id",
+            name="uq_offer_versions_company_id_definition",
+        ),
         UniqueConstraint("company_id", "revision", name="uq_offer_version_company_revision"),
         UniqueConstraint(
             "company_id",

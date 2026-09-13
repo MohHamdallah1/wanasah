@@ -150,6 +150,10 @@ class TaxRuleSetVersion(Base):
     __tablename__ = "tax_rule_set_versions"
     __table_args__ = (
         UniqueConstraint("company_id", "id", name="uq_tax_rule_set_versions_company_id"),
+        UniqueConstraint(
+            "company_id", "id", "tax_rule_set_id",
+            name="uq_tax_rule_set_versions_company_id_rule_set",
+        ),
         UniqueConstraint("company_id", "revision", name="uq_tax_version_company_revision"),
         UniqueConstraint(
             "company_id", "tax_rule_set_id", "definition_version",
@@ -254,6 +258,10 @@ class TaxRuleComponent(Base):
     __tablename__ = "tax_rule_components"
     __table_args__ = (
         UniqueConstraint("company_id", "id", name="uq_tax_rule_components_company_id"),
+        UniqueConstraint(
+            "company_id", "id", "tax_rule_set_version_id",
+            name="uq_tax_rule_components_company_id_version",
+        ),
         UniqueConstraint(
             "company_id", "tax_rule_set_version_id", "component_code",
             name="uq_tax_component_code",

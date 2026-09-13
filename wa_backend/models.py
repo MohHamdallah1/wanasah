@@ -1191,6 +1191,64 @@ class Visit(Base):
         ),
         CheckConstraint('work_session_id IS NULL OR driver_id IS NOT NULL',
                         name='chk_visit_session_requires_driver'),
+        ForeignKeyConstraint(
+            ['company_id', 'commercial_context_id'],
+            ['route_commercial_contexts.company_id', 'route_commercial_contexts.id'],
+            ondelete='RESTRICT',
+            name='fk_visit_tenant_commercial_context'
+        ),
+        CheckConstraint(
+            """
+            (
+                financial_evidence_version IS NULL
+                AND financial_evidence_frozen_at IS NULL
+                AND commercial_calculated_at IS NULL
+                AND commercial_context_id IS NULL
+                AND transaction_currency_code IS NULL
+                AND functional_currency_code IS NULL
+                AND rounding_policy_version IS NULL
+                AND rounding_precision IS NULL
+                AND rounding_mode IS NULL
+                AND price_publication_revision_ceiling IS NULL
+                AND assignment_revision_ceiling IS NULL
+                AND offer_revision_ceiling IS NULL
+                AND tax_revision_ceiling IS NULL
+                AND post_offer_amount IS NULL
+                AND taxable_amount IS NULL
+                AND line_total_amount IS NULL
+                AND rounding_adjustment IS NULL
+                AND offer_snapshot IS NULL
+            )
+            OR
+            (
+                financial_evidence_version = 1
+                AND financial_evidence_frozen_at IS NOT NULL
+                AND commercial_calculated_at IS NOT NULL
+                AND transaction_currency_code ~ '^[A-Z][A-Z0-9]{2,9}$'
+                AND functional_currency_code ~ '^[A-Z][A-Z0-9]{2,9}$'
+                AND rounding_policy_version > 0
+                AND rounding_precision BETWEEN 0 AND 6
+                AND rounding_mode IN ('HALF_UP','HALF_EVEN')
+                AND price_publication_revision_ceiling > 0
+                AND assignment_revision_ceiling > 0
+                AND offer_revision_ceiling >= 0
+                AND tax_revision_ceiling > 0
+                AND amount_before_tax_and_discount >= 0
+                AND discount_applied >= 0
+                AND post_offer_amount >= 0
+                AND taxable_amount >= 0
+                AND tax_amount >= 0
+                AND line_total_amount >= 0
+                AND final_amount_due >= 0
+                AND post_offer_amount = amount_before_tax_and_discount - discount_applied
+                AND line_total_amount = taxable_amount + tax_amount
+                AND final_amount_due = line_total_amount + rounding_adjustment
+                AND offer_snapshot IS NOT NULL
+                AND jsonb_typeof(offer_snapshot) = 'object'
+            )
+            """,
+            name='visit_financial_evidence_shape'
+        ),
         Index('ix_visit_shop_timestamp', 'shop_id', 'visit_timestamp'),
         Index('ix_visit_session_outcome', 'work_session_id', 'outcome'),
         Index(
@@ -1212,11 +1270,32 @@ class Visit(Base):
     outcome = Column(String(50), nullable=True, default='Pending', index=True)
 
     # +++ الدرع المحاسبي (Issue 2): تحويل جميع القيم المالية إلى Decimal لحماية دقة القروش وفرض server_default +++
-    amount_before_tax_and_discount = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
-    discount_applied               = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
+    amount_before_tax_and_discount = Column(Numeric(20, 6), nullable=True, default=Decimal('0.000000'), server_default='0.000000')
+    discount_applied               = Column(Numeric(20, 6), nullable=True, default=Decimal('0.000000'), server_default='0.000000')
     tax_percentage_applied         = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
-    tax_amount                     = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
-    final_amount_due               = Column(Numeric(12, 3), nullable=True, default=Decimal('0.000'), server_default='0.000')
+    tax_amount                     = Column(Numeric(20, 6), nullable=True, default=Decimal('0.000000'), server_default='0.000000')
+    final_amount_due               = Column(Numeric(20, 6), nullable=True, default=Decimal('0.000000'), server_default='0.000000')
+
+    # Stage 6F — immutable financial evidence. Nullable until the Stage 6H cutover
+    # freezes a completed sale; the DB shape constraint forbids partial evidence.
+    financial_evidence_version = Column(Integer, nullable=True)
+    financial_evidence_frozen_at = Column(DateTime(timezone=True), nullable=True)
+    commercial_calculated_at = Column(DateTime(timezone=True), nullable=True)
+    commercial_context_id = Column(Integer, nullable=True, index=True)
+    transaction_currency_code = Column(String(10), nullable=True)
+    functional_currency_code = Column(String(10), nullable=True)
+    rounding_policy_version = Column(Integer, nullable=True)
+    rounding_precision = Column(Integer, nullable=True)
+    rounding_mode = Column(String(20), nullable=True)
+    price_publication_revision_ceiling = Column(Integer, nullable=True)
+    assignment_revision_ceiling = Column(Integer, nullable=True)
+    offer_revision_ceiling = Column(Integer, nullable=True)
+    tax_revision_ceiling = Column(Integer, nullable=True)
+    post_offer_amount = Column(Numeric(20, 6), nullable=True)
+    taxable_amount = Column(Numeric(20, 6), nullable=True)
+    line_total_amount = Column(Numeric(20, 6), nullable=True)
+    rounding_adjustment = Column(Numeric(20, 6), nullable=True)
+    offer_snapshot = Column(JSONB, nullable=True)
     cash_collected                 = Column(Numeric(12, 3), CheckConstraint('cash_collected >= 0', name='chk_cash_collected_positive'), nullable=False, default=Decimal('0.000'), server_default='0.000')
     debt_paid                      = Column(Numeric(12, 3), CheckConstraint('debt_paid >= 0', name='chk_debt_paid_positive'), nullable=False, default=Decimal('0.000'), server_default='0.000')
 
@@ -1245,10 +1324,84 @@ class VisitItem(Base):
     """
     __tablename__ = 'visit_items'
     __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_visit_items_company_id'),
         ForeignKeyConstraint(['company_id', 'visit_id'], ['visits.company_id', 'visits.id'],
                              name='fk_visit_item_tenant_visit'),
         ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'],
                              ondelete='RESTRICT', name='fk_visit_item_tenant_variant'),
+        ForeignKeyConstraint(
+            ['company_id', 'commercial_context_id'],
+            ['route_commercial_contexts.company_id', 'route_commercial_contexts.id'],
+            ondelete='RESTRICT',
+            name='fk_visit_item_tenant_commercial_context'
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'selected_price_entry_id'],
+            ['price_book_entries.company_id', 'price_book_entries.id'],
+            ondelete='RESTRICT',
+            name='fk_visit_item_tenant_price_entry'
+        ),
+        ForeignKeyConstraint(
+            ['base_uom_id'],
+            ['uom.id'],
+            ondelete='RESTRICT',
+            name='fk_visit_item_base_uom'
+        ),
+        CheckConstraint(
+            'price_per_unit_at_sale >= 0 AND total_price >= 0',
+            name='visit_item_sale_money_nonnegative'
+        ),
+        CheckConstraint(
+            """
+            (
+                financial_evidence_version IS NULL
+                AND financial_evidence_frozen_at IS NULL
+                AND commercial_context_id IS NULL
+                AND base_uom_id IS NULL
+                AND canonical_quantity IS NULL
+                AND selected_price_entry_id IS NULL
+                AND price_publication_revision IS NULL
+                AND assignment_revision IS NULL
+                AND gross_amount IS NULL
+                AND discount_amount IS NULL
+                AND post_offer_amount IS NULL
+                AND taxable_amount IS NULL
+                AND tax_amount IS NULL
+                AND net_amount IS NULL
+                AND transaction_currency_code IS NULL
+                AND functional_currency_code IS NULL
+                AND offer_snapshot IS NULL
+                AND tax_snapshot IS NULL
+            )
+            OR
+            (
+                financial_evidence_version = 1
+                AND financial_evidence_frozen_at IS NOT NULL
+                AND base_uom_id IS NOT NULL
+                AND canonical_quantity > 0
+                AND selected_price_entry_id IS NOT NULL
+                AND price_publication_revision > 0
+                AND assignment_revision > 0
+                AND gross_amount >= 0
+                AND discount_amount >= 0
+                AND post_offer_amount >= 0
+                AND taxable_amount >= 0
+                AND tax_amount >= 0
+                AND net_amount >= 0
+                AND discount_amount <= gross_amount
+                AND post_offer_amount = gross_amount - discount_amount
+                AND net_amount = taxable_amount + tax_amount
+                AND total_price = net_amount
+                AND transaction_currency_code ~ '^[A-Z][A-Z0-9]{2,9}$'
+                AND functional_currency_code ~ '^[A-Z][A-Z0-9]{2,9}$'
+                AND offer_snapshot IS NOT NULL
+                AND jsonb_typeof(offer_snapshot) = 'object'
+                AND tax_snapshot IS NOT NULL
+                AND jsonb_typeof(tax_snapshot) = 'object'
+            )
+            """,
+            name='visit_item_financial_evidence_shape'
+        ),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -1262,8 +1415,28 @@ class VisitItem(Base):
     bonus_quantity = Column(Integer, CheckConstraint('bonus_quantity >= 0', name='chk_vitem_bqty'), nullable=False, default=0, server_default='0')   # بونص كراتين
     sample_quantity = Column(Integer, CheckConstraint('sample_quantity >= 0', name='chk_vitem_sqty'), nullable=False, default=0, server_default='0')   # عينات مجانية
     sample_packs_quantity = Column(Integer, CheckConstraint('sample_packs_quantity >= 0', name='chk_vitem_spqty'), nullable=False, default=0, server_default='0')
-    price_per_unit_at_sale = Column(Numeric(12, 3), nullable=False) # +++ إلزامي لحماية الفواتير +++
-    total_price            = Column(Numeric(12, 3), nullable=False, default=Decimal('0.000'), server_default='0.000')
+    price_per_unit_at_sale = Column(Numeric(20, 6), nullable=False) # +++ إلزامي لحماية الفواتير +++
+    total_price            = Column(Numeric(20, 6), nullable=False, default=Decimal('0.000000'), server_default='0.000000')
+
+    financial_evidence_version = Column(Integer, nullable=True)
+    financial_evidence_frozen_at = Column(DateTime(timezone=True), nullable=True)
+    commercial_context_id = Column(Integer, nullable=True, index=True)
+    base_uom_id = Column(Integer, nullable=True)
+    canonical_quantity = Column(Numeric(20, 6), nullable=True)
+    selected_price_entry_id = Column(Integer, nullable=True, index=True)
+    price_publication_revision = Column(Integer, nullable=True)
+    assignment_revision = Column(Integer, nullable=True)
+    gross_amount = Column(Numeric(20, 6), nullable=True)
+    discount_amount = Column(Numeric(20, 6), nullable=True)
+    post_offer_amount = Column(Numeric(20, 6), nullable=True)
+    taxable_amount = Column(Numeric(20, 6), nullable=True)
+    tax_amount = Column(Numeric(20, 6), nullable=True)
+    net_amount = Column(Numeric(20, 6), nullable=True)
+    transaction_currency_code = Column(String(10), nullable=True)
+    functional_currency_code = Column(String(10), nullable=True)
+    offer_snapshot = Column(JSONB, nullable=True)
+    tax_snapshot = Column(JSONB, nullable=True)
+
     sample_reason = Column(String(255), nullable=True)
     is_cancelled = Column(Boolean, nullable=False, default=False, server_default='false') # +++ لمنع طمس الأدلة وإغلاق ثغرة الـ NULL بالداتابيز +++
 
