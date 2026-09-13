@@ -18,6 +18,7 @@ sys.path.append(os.getcwd())
 # استيراد الـ Base وكل الجداول لكي يكتشفها Alembic
 from models import Base # إذا كان الـ Base معرف في database.py، غيرها لـ from database import Base
 from models import * # استيراد إجباري لكل الجداول لتفعيل الرادار
+from domains.offers import models as offer_models  # noqa: F401
 
 target_metadata = Base.metadata
 
