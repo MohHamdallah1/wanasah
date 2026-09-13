@@ -251,7 +251,9 @@ async def resolve_tax_rules_bulk(
     ceiling = (
         int(revision_ceiling)
         if explicit_ceiling
-        else await current_tax_revision_ceiling(db, company_id)
+        else await current_tax_revision_ceiling(
+            db, company_id, as_of=when
+        )
     )
     if explicit_ceiling and ceiling <= 0:
         raise TaxError(

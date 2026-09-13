@@ -1027,6 +1027,7 @@ class DispatchShopResponse(BaseModel):
     phone: Optional[str] = ""
     mapLink: Optional[str] = ""
     zoneId: Optional[str] = ""
+    taxJurisdictionId: Optional[int] = None
     initialDebt: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
     maxDebtLimit: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
     sequence: Optional[int] = 999
@@ -1072,6 +1073,7 @@ class AdminAddShopRequest(RequestModel):
     phone: Optional[str] = Field("", max_length=20)
     mapLink: Optional[str] = Field("", max_length=500)
     zoneId: PositiveDbInt
+    taxJurisdictionId: OptionalPositiveDbInt = None
     latitude: Latitude = None
     longitude: Longitude = None
     initialDebt: MoneyInput = Decimal("0.000")
@@ -1095,12 +1097,12 @@ class RouteCommercialContextResponse(BaseModel):
     pricing_locked_at: str
     price_publication_revision: int
     assignment_revision: int
-    offer_ruleset_version: Optional[int] = None
-    tax_ruleset_version: Optional[int] = None
+    offer_ruleset_version: int
+    tax_ruleset_version: int
     transaction_currency_code: str
     functional_currency_code: str
-    rounding_policy_version: Optional[int] = None
-    tenant_policy_revision: Optional[int] = None
+    rounding_policy_version: int
+    tenant_policy_revision: int
 
 
 class ActiveRouteResponse(BaseModel):
@@ -1234,6 +1236,7 @@ class EditShopDetailsRequest(RequestModel):
     phone: Optional[str] = Field(None, max_length=20)
     mapLink: Optional[str] = Field(None, max_length=500)
     zoneId: OptionalPositiveDbInt = None
+    taxJurisdictionId: OptionalPositiveDbInt = None
     max_debt_limit: OptionalMoneyInput = Field(
         default=None,
         validation_alias=AliasChoices("maxDebtLimit", "max_debt_limit"),
@@ -1266,6 +1269,7 @@ class EditShopDetailsRequest(RequestModel):
                 self.phone,
                 self.mapLink,
                 self.zoneId,
+                self.taxJurisdictionId,
                 self.max_debt_limit,
                 self.initial_debt,
             )
@@ -1310,6 +1314,7 @@ class BulkImportShopItem(RequestModel):
     owner: Optional[str] = Field("", max_length=100)
     phone: Optional[str] = Field("", max_length=20)
     mapLink: Optional[str] = Field("", max_length=500)
+    taxJurisdictionId: OptionalPositiveDbInt = None
     initialDebt: MoneyInput = Decimal("0.000")
     sequence: Annotated[int, BeforeValidator(safe_int_input)] = 999
 

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domains.taxation.models import TaxRuleSetVersion
+from domains.taxation.models import TaxJurisdiction, TaxRuleSetVersion
 from models import Company, SystemSetting
 
 
@@ -86,14 +86,58 @@ async def next_tenant_revision(db: AsyncSession, company_id: int) -> int:
     return int(current or 0) + 1
 
 
+async def require_active_jurisdictions(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    jurisdiction_ids: Iterable[int],
+) -> set[int]:
+    ids = sorted({int(value) for value in jurisdiction_ids if value is not None})
+    if any(value <= 0 for value in ids):
+        raise TaxError(
+            "TAX_JURISDICTION_INVALID",
+            "Tax jurisdiction IDs must be positive.",
+            status_code=422,
+        )
+    if not ids:
+        return set()
+
+    found = {
+        int(value)
+        for value in (
+            await db.scalars(
+                select(TaxJurisdiction.id).where(
+                    TaxJurisdiction.company_id == int(company_id),
+                    TaxJurisdiction.id.in_(ids),
+                    TaxJurisdiction.is_active.is_(True),
+                )
+            )
+        ).all()
+    }
+    missing = sorted(set(ids) - found)
+    if missing:
+        raise TaxError(
+            "TAX_JURISDICTION_NOT_FOUND",
+            "One or more tax jurisdictions are missing, inactive, or outside this company.",
+            status_code=404,
+            context={"tax_jurisdiction_ids": missing},
+        )
+    return found
+
+
 async def current_tax_revision_ceiling(
     db: AsyncSession,
     company_id: int,
+    *,
+    as_of: datetime | None = None,
 ) -> int:
+    when = require_aware_datetime(as_of or utc_now(), "as_of")
     value = await db.scalar(
         select(func.max(TaxRuleSetVersion.revision)).where(
             TaxRuleSetVersion.company_id == int(company_id),
             TaxRuleSetVersion.status.in_(("PUBLISHED", "SUPERSEDED")),
+            TaxRuleSetVersion.published_at.is_not(None),
+            TaxRuleSetVersion.published_at <= when,
         )
     )
     return int(value or 0)

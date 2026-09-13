@@ -641,6 +641,12 @@ class Shop(Base):
             ondelete='RESTRICT',
             name='fk_shop_tenant_archive_source_zone'
         ),
+        ForeignKeyConstraint(
+            ['company_id', 'tax_jurisdiction_id'],
+            ['tax_jurisdictions.company_id', 'tax_jurisdictions.id'],
+            ondelete='RESTRICT',
+            name='fk_shop_tenant_tax_jurisdiction'
+        ),
         CheckConstraint(
             'archived_due_to_zone_id IS NULL OR '
             '(is_archived IS TRUE AND zone_id = archived_due_to_zone_id)',
@@ -656,6 +662,8 @@ class Shop(Base):
     phone_number   = Column(String(20),  nullable=True)
     contact_person = Column(String(100), nullable=True)
     zone_id        = Column(Integer, nullable=True, index=True)
+    # سلطة ضريبية صريحة؛ لا تُستنتج أبداً من العنوان أو Zone.
+    tax_jurisdiction_id = Column(Integer, nullable=True, index=True)
     # +++  حماية الـ Decimal، فرض server_default، وتطبيق سياسة (SET NULL) لحماية الداتابيز +++
     current_balance  = Column(Numeric(12, 3), CheckConstraint('current_balance >= 0', name='chk_positive_balance'), nullable=False, default=Decimal('0.000'), server_default='0.000')
     max_debt_limit   = Column(Numeric(12, 3), CheckConstraint('max_debt_limit >= 0', name='chk_positive_max_debt'), nullable=False, default=Decimal('0.000'), server_default='0.000')
@@ -1089,6 +1097,22 @@ class RouteCommercialContext(Base):
             name="chk_route_commercial_context_assignment_revision",
         ),
         CheckConstraint(
+            "offer_ruleset_version >= 0",
+            name="chk_route_commercial_context_offer_revision",
+        ),
+        CheckConstraint(
+            "tax_ruleset_version > 0",
+            name="chk_route_commercial_context_tax_revision",
+        ),
+        CheckConstraint(
+            "rounding_policy_version > 0",
+            name="chk_route_commercial_context_rounding_version",
+        ),
+        CheckConstraint(
+            "tenant_policy_revision > 0",
+            name="chk_route_commercial_context_tenant_policy_revision",
+        ),
+        CheckConstraint(
             "length(trim(transaction_currency_code)) > 0",
             name="chk_route_commercial_context_transaction_currency",
         ),
@@ -1109,12 +1133,12 @@ class RouteCommercialContext(Base):
     pricing_locked_at = Column(DateTime(timezone=True), nullable=False)
     price_publication_revision = Column(Integer, nullable=False)
     assignment_revision = Column(Integer, nullable=False)
-    offer_ruleset_version = Column(Integer, nullable=True)
-    tax_ruleset_version = Column(Integer, nullable=True)
+    offer_ruleset_version = Column(Integer, nullable=False)
+    tax_ruleset_version = Column(Integer, nullable=False)
     transaction_currency_code = Column(String(10), nullable=False)
     functional_currency_code = Column(String(10), nullable=False)
-    rounding_policy_version = Column(Integer, nullable=True)
-    tenant_policy_revision = Column(Integer, nullable=True)
+    rounding_policy_version = Column(Integer, nullable=False)
+    tenant_policy_revision = Column(Integer, nullable=False)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

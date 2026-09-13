@@ -20,6 +20,26 @@ from collections import Counter
 import logging
 logger = logging.getLogger("wanasah_logger")
 
+
+async def _require_shop_tax_jurisdictions(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    jurisdiction_ids,
+) -> set[int]:
+    try:
+        return await require_active_jurisdictions(
+            db,
+            company_id=company_id,
+            jurisdiction_ids=jurisdiction_ids,
+        )
+    except TaxError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
+
+
 # +++ توحيد الزمن المعماري لنسف تعارض الـ Timezone في قاعدة البيانات +++
 def get_utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -77,6 +97,7 @@ from domains.pricing.context import (
     lock_route_commercial_context,
     require_route_commercial_context,
 )
+from domains.taxation.core import TaxError, require_active_jurisdictions
 
 from schemas import ( MessageResponse, AuthorizeSessionRequest, AdminDashboardDriverResponse,
 SessionSettlementReportResponse, SettleSessionRequest, SettleSessionResponse, DispatchInitResponse,
@@ -2884,6 +2905,11 @@ async def get_dispatch_shops(
             "phone": s.phone_number or "",
             "mapLink": s.location_link or "",
             "zoneId": str(s.zone_id) if s.zone_id else "",
+            "taxJurisdictionId": (
+                int(s.tax_jurisdiction_id)
+                if s.tax_jurisdiction_id is not None
+                else None
+            ),
             "initialDebt": float(s.current_balance or 0.0),
             "maxDebtLimit": float(s.max_debt_limit or 0.0),
             "sequence": s.sequence if s.sequence is not None else 999, # +++ حماية Pydantic من كراش الـ None +++
@@ -3193,6 +3219,15 @@ async def admin_add_shop(
     phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
     map_link = payload.mapLink.strip() if payload.mapLink else ""
     zone_id = int(payload.zoneId)
+    await _require_shop_tax_jurisdictions(
+        db,
+        company_id=company_id,
+        jurisdiction_ids=(
+            [payload.taxJurisdictionId]
+            if payload.taxJurisdictionId is not None
+            else []
+        ),
+    )
 
     # Pydantic أنهى التحقق من الإحداثيات/الأموال؛ نحافظ على القيم كما وصلت بلا تصحيح صامت.
     lat = float(payload.latitude) if payload.latitude is not None else None
@@ -3297,6 +3332,11 @@ async def admin_add_shop(
             latitude=payload.latitude,
             longitude=payload.longitude,
             zone_id=zone_id,
+            tax_jurisdiction_id=(
+                int(payload.taxJurisdictionId)
+                if payload.taxJurisdictionId is not None
+                else None
+            ),
             is_active=True,
             is_archived=False,
             current_balance=payload.initialDebt,
@@ -4681,6 +4721,13 @@ async def edit_shop_details(
             if duplicate_phone is not None:
                 raise HTTPException(status_code=409, detail="رقم الهاتف مستخدم لمحل آخر")
 
+        if payload.taxJurisdictionId is not None:
+            await _require_shop_tax_jurisdictions(
+                db,
+                company_id=company_id,
+                jurisdiction_ids=[payload.taxJurisdictionId],
+            )
+
         if payload.zoneId is not None and target_zone_id != pre_zone_id:
             blocked = await _dispatch_blocking_shop_zone_move_ids(
                 db, company_id=company_id, shop_ids=[clean_id]
@@ -4709,6 +4756,9 @@ async def edit_shop_details(
         if payload.zoneId is not None:
             shop.zone_id = target_zone_id
             shop.archived_due_to_zone_id = None
+
+        if payload.taxJurisdictionId is not None:
+            shop.tax_jurisdiction_id = int(payload.taxJurisdictionId)
 
         if payload.max_debt_limit is not None:
             shop.max_debt_limit = payload.max_debt_limit
@@ -5141,6 +5191,15 @@ async def bulk_import_shops(
 
     log_id = None
     try:
+        await _require_shop_tax_jurisdictions(
+            db,
+            company_id=company_id,
+            jurisdiction_ids=[
+                shop.taxJurisdictionId
+                for shop in shops_list
+                if shop.taxJurisdictionId is not None
+            ],
+        )
         # Log له معاملة مستقلة حتى يبقى أثر الفشل حتى لو rollback للاستيراد نفسه.
         zone_exists = (
             await db.execute(
@@ -5292,6 +5351,11 @@ async def bulk_import_shops(
                 phone_number=s_phone or None,
                 location_link=(s.mapLink or "").strip(),
                 zone_id=zone_id,
+                tax_jurisdiction_id=(
+                    int(s.taxJurisdictionId)
+                    if s.taxJurisdictionId is not None
+                    else None
+                ),
                 is_active=True,
                 is_archived=False,
                 current_balance=s.initialDebt,

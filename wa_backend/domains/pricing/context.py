@@ -5,6 +5,13 @@ from typing import Any
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domains.offers.core import OfferError
+from domains.offers.eligibility import current_offer_revision_ceiling
+from domains.sales_calculation.policy import (
+    CommercialPolicyError,
+    resolve_commercial_rounding_policy,
+)
+from domains.taxation.core import TaxError, current_tax_revision_ceiling
 from models import (
     Company,
     DispatchRoute,
@@ -23,7 +30,7 @@ async def _read_lock_snapshot(
     company_id: int,
     locked_at,
 ) -> tuple[str, int, int, int | None]:
-    """Read commercial revision ceilings in one PostgreSQL statement."""
+    """Read pricing revision ceilings in one PostgreSQL statement."""
     publication_ceiling = (
         select(func.max(PricePublication.revision))
         .where(
@@ -128,16 +135,48 @@ async def _read_lock_snapshot(
     )
 
 
+def _require_complete_context(
+    context: RouteCommercialContext,
+) -> RouteCommercialContext:
+    values = {
+        "offer_revision_ceiling": context.offer_ruleset_version,
+        "tax_revision_ceiling": context.tax_ruleset_version,
+        "rounding_policy_version": context.rounding_policy_version,
+        "tenant_policy_revision": context.tenant_policy_revision,
+    }
+    if (
+        values["offer_revision_ceiling"] is None
+        or int(values["offer_revision_ceiling"]) < 0
+        or values["tax_revision_ceiling"] is None
+        or int(values["tax_revision_ceiling"]) <= 0
+        or values["rounding_policy_version"] is None
+        or int(values["rounding_policy_version"]) <= 0
+        or values["tenant_policy_revision"] is None
+        or int(values["tenant_policy_revision"]) <= 0
+    ):
+        raise PricingError(
+            "COMMERCIAL_CONTEXT_INCOMPLETE",
+            "السياق التجاري للمسار ناقص ولا يجوز استخدامه للبيع.",
+            context={
+                "commercial_context_id": int(context.id),
+                **values,
+            },
+        )
+    return context
+
+
 async def lock_route_commercial_context(
     db: AsyncSession,
     *,
     company_id: int,
     dispatch_route_id: int,
 ) -> RouteCommercialContext:
-    """Create the immutable Route commercial lock once; never silently reprice."""
+    """Atomically lock price, offer, tax and rounding authorities once."""
     company_id = int(company_id)
     dispatch_route_id = int(dispatch_route_id)
 
+    # Shared tenant lock root. Pricing writes, offer/tax publication and the
+    # rounding-policy publisher all serialize against the Company row.
     await acquire_pricing_company_lock(db, company_id)
 
     route_exists = await db.scalar(
@@ -161,7 +200,7 @@ async def lock_route_commercial_context(
         )
     )
     if existing is not None:
-        return existing
+        return _require_complete_context(existing)
 
     locked_at = utc_now()
     (
@@ -175,22 +214,71 @@ async def lock_route_commercial_context(
         locked_at=locked_at,
     )
 
+    try:
+        offer_revision = await current_offer_revision_ceiling(
+            db,
+            company_id=company_id,
+            as_of=locked_at,
+        )
+    except OfferError as exc:
+        raise PricingError(
+            exc.code,
+            exc.message,
+            status_code=exc.status_code,
+            context=exc.context,
+        ) from exc
+
+    try:
+        tax_revision = await current_tax_revision_ceiling(
+            db,
+            company_id,
+            as_of=locked_at,
+        )
+    except TaxError as exc:
+        raise PricingError(
+            exc.code,
+            exc.message,
+            status_code=exc.status_code,
+            context=exc.context,
+        ) from exc
+    if int(tax_revision) <= 0:
+        raise PricingError(
+            "TAX_CONFIGURATION_REQUIRED",
+            "لا يمكن إطلاق خط السير قبل نشر إعداد ضريبي صالح. استخدم مكوناً بنسبة 0 عند عدم وجود ضريبة فعلية.",
+            context={"tax_revision_ceiling": int(tax_revision)},
+        )
+
+    try:
+        rounding = await resolve_commercial_rounding_policy(
+            db,
+            company_id=company_id,
+            as_of=locked_at,
+            expected_currency_code=currency,
+        )
+    except CommercialPolicyError as exc:
+        raise PricingError(
+            exc.code,
+            exc.message,
+            status_code=exc.status_code,
+            context=exc.context,
+        ) from exc
+
     context = RouteCommercialContext(
         company_id=company_id,
         dispatch_route_id=dispatch_route_id,
         pricing_locked_at=locked_at,
         price_publication_revision=publication_revision,
         assignment_revision=assignment_revision,
-        offer_ruleset_version=None,
-        tax_ruleset_version=None,
+        offer_ruleset_version=int(offer_revision),
+        tax_ruleset_version=int(tax_revision),
         transaction_currency_code=currency,
         functional_currency_code=currency,
-        rounding_policy_version=None,
-        tenant_policy_revision=None,
+        rounding_policy_version=int(rounding.rounding_policy.version),
+        tenant_policy_revision=int(rounding.policy_revision),
     )
     db.add(context)
     await db.flush()
-    return context
+    return _require_complete_context(context)
 
 
 async def require_route_commercial_context(
@@ -208,24 +296,25 @@ async def require_route_commercial_context(
     if context is None:
         raise PricingError(
             "COMMERCIAL_CONTEXT_REQUIRED",
-            "خط السير لا يملك سياقاً تجارياً مقفلاً. يجب إطلاقه ضمن Stage 5 pricing authority قبل بدء البيع.",
+            "خط السير لا يملك سياقاً تجارياً مقفلاً. يجب إطلاقه ضمن السلطة التجارية قبل بدء البيع.",
             context={"dispatch_route_id": int(dispatch_route_id)},
         )
-    return context
+    return _require_complete_context(context)
 
 
 def commercial_context_payload(
     context: RouteCommercialContext,
 ) -> dict[str, Any]:
+    checked = _require_complete_context(context)
     return {
-        "commercial_context_id": int(context.id),
-        "pricing_locked_at": context.pricing_locked_at.isoformat(),
-        "price_publication_revision": int(context.price_publication_revision),
-        "assignment_revision": int(context.assignment_revision),
-        "offer_ruleset_version": context.offer_ruleset_version,
-        "tax_ruleset_version": context.tax_ruleset_version,
-        "transaction_currency_code": context.transaction_currency_code,
-        "functional_currency_code": context.functional_currency_code,
-        "rounding_policy_version": context.rounding_policy_version,
-        "tenant_policy_revision": context.tenant_policy_revision,
+        "commercial_context_id": int(checked.id),
+        "pricing_locked_at": checked.pricing_locked_at.isoformat(),
+        "price_publication_revision": int(checked.price_publication_revision),
+        "assignment_revision": int(checked.assignment_revision),
+        "offer_ruleset_version": int(checked.offer_ruleset_version),
+        "tax_ruleset_version": int(checked.tax_ruleset_version),
+        "transaction_currency_code": checked.transaction_currency_code,
+        "functional_currency_code": checked.functional_currency_code,
+        "rounding_policy_version": int(checked.rounding_policy_version),
+        "tenant_policy_revision": int(checked.tenant_policy_revision),
     }
