@@ -138,17 +138,6 @@ class OfferVersion(Base):
             "currency_code IS NULL OR length(trim(currency_code)) > 0",
             name="offer_version_currency_not_blank",
         ),
-        CheckConstraint(
-            "status NOT IN ('PUBLISHED','SUPERSEDED') OR "
-            "(approved_by IS NOT NULL AND approved_at IS NOT NULL AND published_at IS NOT NULL)",
-            name="offer_version_published_metadata",
-        ),
-        CheckConstraint(
-            "status <> 'CANCELLED' OR "
-            "(cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL "
-            "AND cancel_reason IS NOT NULL AND length(trim(cancel_reason)) > 0)",
-            name="offer_version_cancelled_metadata",
-        ),
         Index(
             "ix_offer_version_resolver",
             "company_id",

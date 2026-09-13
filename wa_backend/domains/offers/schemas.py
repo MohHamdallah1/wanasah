@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from quantity import parse_quantity
+
 
 OfferType = Literal[
     "PERCENTAGE_DISCOUNT",
@@ -260,3 +262,45 @@ class VersionCommand(StrictModel):
     request_id: UUID
     expected_version: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=1000)
+
+
+class PreviewLine(StrictModel):
+    product_variant_id: int = Field(gt=0)
+    quantity: Decimal
+
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def canonical_quantity(cls, value: Any) -> Decimal:
+        return parse_quantity(value, "quantity")
+
+
+class PreviewRequest(StrictModel):
+    customer_id: Optional[int] = Field(None, gt=0)
+    branch_id: Optional[int] = Field(None, gt=0)
+    channel_code: Optional[str] = Field(None, min_length=1, max_length=50)
+    as_of: Optional[datetime] = None
+    offer_revision_ceiling: Optional[int] = Field(None, gt=0)
+    lines: list[PreviewLine] = Field(min_length=1, max_length=500)
+
+    @field_validator("channel_code", mode="before")
+    @classmethod
+    def normalize_preview_channel(cls, value: Any):
+        if value is None:
+            return None
+        if not isinstance(value, str) or "\x00" in value:
+            raise ValueError("Invalid channel_code.")
+        clean = value.strip().upper()
+        if not clean or not re.fullmatch(r"[A-Z0-9][A-Z0-9_.:-]{0,49}", clean):
+            raise ValueError("channel_code must be a stable code.")
+        return clean
+
+    @model_validator(mode="after")
+    def validate_preview(self):
+        if self.as_of is not None and (
+            self.as_of.tzinfo is None or self.as_of.utcoffset() is None
+        ):
+            raise ValueError("as_of must include a timezone.")
+        ids = [line.product_variant_id for line in self.lines]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Preview basket cannot repeat a product variant.")
+        return self

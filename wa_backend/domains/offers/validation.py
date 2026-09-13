@@ -98,42 +98,58 @@ def validate_offer_configuration(
         )
 
     roles = {item.role for item in products}
-    product_scope_exists = any(item.scope_type == "PRODUCT_VARIANT" for item in scopes)
+    product_scopes = [
+        item for item in scopes if item.scope_type == "PRODUCT_VARIANT"
+    ]
 
-    if offer_type in {"PERCENTAGE_DISCOUNT", "FIXED_DISCOUNT", "QUANTITY_TIERS"}:
+    if offer_type in {"PERCENTAGE_DISCOUNT", "FIXED_DISCOUNT"}:
         if products:
             raise OfferError(
                 "OFFER_PRODUCT_ROLE_NOT_ALLOWED",
-                "This offer type uses scopes and does not accept cross-product roles.",
+                "This offer type uses product scopes and does not accept cross-product roles.",
                 status_code=422,
             )
-    elif offer_type == "BUY_X_GET_Y":
-        if "QUALIFYING" not in roles or "REWARD" not in roles:
+    elif offer_type == "QUANTITY_TIERS":
+        if products:
+            raise OfferError(
+                "OFFER_PRODUCT_ROLE_NOT_ALLOWED",
+                "QUANTITY_TIERS uses a product scope and does not accept cross-product roles.",
+                status_code=422,
+            )
+        if len(product_scopes) != 1:
+            raise OfferError(
+                "OFFER_QUANTITY_TIER_SCOPE_REQUIRED",
+                "QUANTITY_TIERS must target exactly one product variant.",
+                status_code=422,
+            )
+    elif offer_type in {"BUY_X_GET_Y", "FREE_GOODS"}:
+        if product_scopes:
+            raise OfferError(
+                "OFFER_PRODUCT_SCOPE_NOT_ALLOWED",
+                f"{offer_type} uses qualifying/reward products instead of product scopes.",
+                status_code=422,
+            )
+        qualifying = [item for item in products if item.role == "QUALIFYING"]
+        rewards = [item for item in products if item.role == "REWARD"]
+        if not qualifying or len(rewards) != 1:
             raise OfferError(
                 "OFFER_PRODUCT_ROLE_REQUIRED",
-                "BUY_X_GET_Y requires at least one qualifying and one reward product.",
+                f"{offer_type} requires one or more qualifying products and exactly one reward product.",
                 status_code=422,
             )
         if roles - {"QUALIFYING", "REWARD"}:
             raise OfferError(
                 "OFFER_PRODUCT_ROLE_NOT_ALLOWED",
-                "BUY_X_GET_Y only accepts qualifying and reward products.",
-                status_code=422,
-            )
-    elif offer_type == "FREE_GOODS":
-        if "REWARD" not in roles or ("QUALIFYING" not in roles and not product_scope_exists):
-            raise OfferError(
-                "OFFER_PRODUCT_ROLE_REQUIRED",
-                "FREE_GOODS requires reward products and a qualifying product target.",
-                status_code=422,
-            )
-        if roles - {"QUALIFYING", "REWARD"}:
-            raise OfferError(
-                "OFFER_PRODUCT_ROLE_NOT_ALLOWED",
-                "FREE_GOODS only accepts qualifying and reward products.",
+                f"{offer_type} only accepts qualifying and reward products.",
                 status_code=422,
             )
     elif offer_type == "BUNDLE":
+        if product_scopes:
+            raise OfferError(
+                "OFFER_PRODUCT_SCOPE_NOT_ALLOWED",
+                "BUNDLE uses bundle-component products instead of product scopes.",
+                status_code=422,
+            )
         components = [item for item in products if item.role == "BUNDLE_COMPONENT"]
         if len(components) < 2 or roles != {"BUNDLE_COMPONENT"}:
             raise OfferError(

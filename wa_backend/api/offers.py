@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_current_driver
 from database import get_db
 from domains.offers.core import OfferError, maker_checker_enabled
+from domains.offers.service import preview_offer_basket
+from domains.pricing.core import PricingError
 from domains.offers.models import (
     OfferDefinition,
     OfferVersion,
@@ -42,6 +44,7 @@ from domains.offers.schemas import (
     VersionCreate,
     VersionDelete,
     VersionUpdate,
+    PreviewRequest,
 )
 from inventory_access import InventoryAccess
 from models import Driver, SystemAuditLog
@@ -591,6 +594,25 @@ async def remove_version(
         action_name="OFFER_VERSION_DELETED",
         fn=run,
     )
+
+
+@router.post("/preview")
+async def preview_basket(
+    payload: PreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "offers.view")
+    try:
+        return await preview_offer_basket(
+            db,
+            company_id=actor.company_id,
+            payload=payload,
+        )
+    except OfferError as exc:
+        raise _offer_http_error(exc) from exc
+    except PricingError as exc:
+        raise HTTPException(exc.status_code, detail=exc.as_detail()) from exc
 
 
 @router.post("/versions/{version_id}/validate")
