@@ -173,7 +173,7 @@ def _document_offer_snapshot(calculation: CommercialCalculation) -> dict:
                     "offer_revision": row.offer_revision,
                     "offer_type": row.offer_type,
                     "product_variant_id": row.product_variant_id,
-                    "base_uom_id": row.base_uom_id,
+                    "uom_id": row.uom_id,
                     "quantity": row.quantity,
                 }
                 for row in calculation.rewards
@@ -205,6 +205,7 @@ def _line_offer_snapshot(
                     "offer_definition_id": row.offer_definition_id,
                     "offer_revision": row.offer_revision,
                     "offer_type": row.offer_type,
+                    "uom_id": row.uom_id,
                     "basis_amount": row.basis_amount,
                     "discount_amount": row.discount_amount,
                     "offer_metadata": (
@@ -403,6 +404,7 @@ async def freeze_sales_evidence(
                 "priority": applied.priority if applied else None,
                 "stacking_mode": applied.stacking_mode if applied else None,
                 "application_count": applied.application_count if applied else None,
+                "target_uom_id": int(adjustment.uom_id),
                 "reward_value": applied.reward_value if applied else ZERO,
                 "benefit_amount": applied.benefit_amount if applied else adjustment.discount_amount,
                 "unrounded_basis_amount": adjustment.basis_amount,

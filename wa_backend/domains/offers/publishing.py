@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -21,7 +22,11 @@ from domains.offers.models import (
 )
 from domains.offers.schemas import OfferProductInput, OfferScopeInput
 from domains.offers.validation import validate_offer_configuration
-from models import Branch, ProductVariant, Shop
+from domains.uom_authority import (
+    UomAuthorityError,
+    load_variant_uom_authorities,
+)
+from models import Branch, Shop
 
 
 def _now() -> datetime:
@@ -86,47 +91,162 @@ def _expect_version(row: Any, expected_version: int) -> None:
         )
 
 
+def _validate_offer_quantity_semantics(
+    *,
+    authorities: dict[int, Any],
+    offer_type: str,
+    payload: dict[str, Any],
+    scopes: list[OfferScopeInput],
+    products: list[OfferProductInput],
+) -> None:
+    try:
+        if offer_type == "QUANTITY_TIERS":
+            target = next(
+                item
+                for item in scopes
+                if item.scope_type == "PRODUCT_VARIANT"
+            )
+            authority = authorities[int(target.product_variant_id)]
+            uom_id = int(target.uom_id)
+            for index, tier in enumerate(payload["tiers"]):
+                authority.to_base(
+                    Decimal(str(tier["minimum_quantity"])),
+                    uom_id=uom_id,
+                    field_name=f"tier[{index}].minimum_quantity",
+                    validate_step=True,
+                )
+                if tier["reward_type"] == "FREE_QUANTITY":
+                    authority.to_base(
+                        Decimal(str(tier["reward_value"])),
+                        uom_id=uom_id,
+                        field_name=f"tier[{index}].reward_value",
+                        validate_step=True,
+                    )
+            caps = payload.get("caps") or {}
+            if caps.get("max_reward_quantity") is not None:
+                authority.to_base(
+                    Decimal(str(caps["max_reward_quantity"])),
+                    uom_id=uom_id,
+                    field_name="caps.max_reward_quantity",
+                    validate_step=True,
+                )
+
+        elif offer_type in {"BUY_X_GET_Y", "FREE_GOODS"}:
+            threshold_key = (
+                "buy_quantity"
+                if offer_type == "BUY_X_GET_Y"
+                else "qualifying_quantity"
+            )
+            threshold = Decimal(str(payload[threshold_key]))
+            for item in products:
+                if item.role != "QUALIFYING":
+                    continue
+                authorities[int(item.product_variant_id)].to_base(
+                    threshold,
+                    uom_id=int(item.uom_id),
+                    field_name=threshold_key,
+                    validate_step=True,
+                )
+    except UomAuthorityError:
+        raise
+    except (KeyError, StopIteration, TypeError, ValueError) as exc:
+        raise UomAuthorityError(
+            "OFFER_UOM_QUANTITY_INVALID",
+            "Offer quantity/UOM semantics are invalid.",
+            context={"offer_type": offer_type},
+        ) from exc
+
+
 async def _validate_entity_targets(
     db: AsyncSession,
     company_id: int,
     scopes: list[OfferScopeInput],
     products: list[OfferProductInput],
+    *,
+    offer_type: str,
+    payload: dict[str, Any],
 ) -> None:
-    # Bounded set validation: at most one query per tenant-owned entity type, never N+1.
+    # Bounded validation: one variant/conversion load plus at most one query
+    # per customer/branch entity type. Never query per product term.
     variant_ids = {
         int(item.product_variant_id)
         for item in scopes
-        if item.scope_type == "PRODUCT_VARIANT" and item.product_variant_id is not None
+        if (
+            item.scope_type == "PRODUCT_VARIANT"
+            and item.product_variant_id is not None
+        )
     }
-    variant_ids.update(int(item.product_variant_id) for item in products)
+    variant_ids.update(
+        int(item.product_variant_id)
+        for item in products
+    )
     customer_ids = {
         int(item.customer_id)
         for item in scopes
-        if item.scope_type == "CUSTOMER" and item.customer_id is not None
+        if (
+            item.scope_type == "CUSTOMER"
+            and item.customer_id is not None
+        )
     }
     branch_ids = {
         int(item.branch_id)
         for item in scopes
-        if item.scope_type == "BRANCH" and item.branch_id is not None
+        if (
+            item.scope_type == "BRANCH"
+            and item.branch_id is not None
+        )
     }
 
+    authorities: dict[int, Any] = {}
     if variant_ids:
-        found = set(
-            (
-                await db.scalars(
-                    select(ProductVariant.id).where(
-                        ProductVariant.company_id == company_id,
-                        ProductVariant.id.in_(variant_ids),
-                    )
-                )
-            ).all()
-        )
-        if found != variant_ids:
-            raise OfferError(
-                "OFFER_SCOPE_VARIANT_NOT_FOUND",
-                "One or more product variants do not belong to this company.",
-                status_code=404,
+        try:
+            authorities = await load_variant_uom_authorities(
+                db,
+                company_id=company_id,
+                variant_ids=variant_ids,
             )
+            for item in scopes:
+                if (
+                    item.scope_type == "PRODUCT_VARIANT"
+                    and item.product_variant_id is not None
+                    and item.uom_id is not None
+                ):
+                    authorities[
+                        int(item.product_variant_id)
+                    ].factor_to_base(
+                        int(item.uom_id)
+                    )
+            for item in products:
+                authority = authorities[
+                    int(item.product_variant_id)
+                ]
+                authority.factor_to_base(
+                    int(item.uom_id)
+                )
+                if item.quantity_per_application is not None:
+                    authority.to_base(
+                        item.quantity_per_application,
+                        uom_id=int(item.uom_id),
+                        field_name=(
+                            "offer_product_quantity"
+                            f"[{item.product_variant_id}:{item.uom_id}]"
+                        ),
+                        validate_step=True,
+                    )
+            _validate_offer_quantity_semantics(
+                authorities=authorities,
+                offer_type=offer_type,
+                payload=payload,
+                scopes=scopes,
+                products=products,
+            )
+        except UomAuthorityError as exc:
+            raise OfferError(
+                exc.code,
+                exc.message,
+                status_code=422,
+                context=exc.context,
+            ) from exc
 
     if customer_ids:
         found = set(
@@ -203,7 +323,6 @@ async def _replace_children(
     scopes: list[OfferScopeInput],
     products: list[OfferProductInput],
 ) -> None:
-    await _validate_entity_targets(db, row.company_id, scopes, products)
     await db.execute(
         delete(OfferVersionScope).where(
             OfferVersionScope.company_id == row.company_id,
@@ -216,7 +335,7 @@ async def _replace_children(
             OfferVersionProduct.offer_version_id == row.id,
         )
     )
-    # Make delete ordering explicit before reinserting potentially identical keys.
+    # Explicitly flush deletes before reinserting potentially identical keys.
     await db.flush()
 
     db.add_all(
@@ -226,6 +345,7 @@ async def _replace_children(
                 offer_version_id=row.id,
                 scope_type=item.scope_type,
                 product_variant_id=item.product_variant_id,
+                uom_id=item.uom_id,
                 customer_id=item.customer_id,
                 branch_id=item.branch_id,
                 channel_code=item.channel_code,
@@ -240,6 +360,10 @@ async def _replace_children(
                 offer_version_id=row.id,
                 role=item.role,
                 product_variant_id=item.product_variant_id,
+                uom_id=item.uom_id,
+                quantity_per_application=(
+                    item.quantity_per_application
+                ),
             )
             for item in products
         ]
@@ -349,6 +473,14 @@ async def create_draft_version(
         scopes=scopes,
         products=products,
     )
+    await _validate_entity_targets(
+        db,
+        company_id,
+        scopes,
+        products,
+        offer_type=offer_type,
+        payload=canonical,
+    )
     revision = await next_tenant_revision(db, company_id)
     number = int(
         await db.scalar(
@@ -410,6 +542,14 @@ async def update_draft_version(
         scopes=scopes,
         products=products,
     )
+    await _validate_entity_targets(
+        db,
+        company_id,
+        scopes,
+        products,
+        offer_type=offer_type,
+        payload=canonical,
+    )
     row.offer_type = offer_type
     row.validated_payload = canonical
     row.currency_code = currency_code
@@ -453,6 +593,7 @@ async def validate_version(
         OfferScopeInput(
             scope_type=item.scope_type,
             product_variant_id=item.product_variant_id,
+            uom_id=item.uom_id,
             customer_id=item.customer_id,
             branch_id=item.branch_id,
             channel_code=item.channel_code,
@@ -460,7 +601,14 @@ async def validate_version(
         for item in scopes
     ]
     product_inputs = [
-        OfferProductInput(role=item.role, product_variant_id=item.product_variant_id)
+        OfferProductInput(
+            role=item.role,
+            product_variant_id=item.product_variant_id,
+            uom_id=item.uom_id,
+            quantity_per_application=(
+                item.quantity_per_application
+            ),
+        )
         for item in products
     ]
     canonical = validate_offer_configuration(
@@ -470,7 +618,14 @@ async def validate_version(
         scopes=scope_inputs,
         products=product_inputs,
     )
-    await _validate_entity_targets(db, company_id, scope_inputs, product_inputs)
+    await _validate_entity_targets(
+        db,
+        company_id,
+        scope_inputs,
+        product_inputs,
+        offer_type=row.offer_type,
+        payload=canonical,
+    )
     return canonical
 
 

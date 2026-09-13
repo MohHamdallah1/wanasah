@@ -146,20 +146,45 @@ def _version_dict(
         "priority": int(row.priority),
         "stacking_mode": row.stacking_mode,
         "effective_from": row.effective_from.isoformat(),
-        "effective_to": row.effective_to.isoformat() if row.effective_to else None,
+        "effective_to": (
+            row.effective_to.isoformat()
+            if row.effective_to
+            else None
+        ),
         "request_id": str(row.request_id),
         "created_by": int(row.created_by),
-        "approved_by": int(row.approved_by) if row.approved_by is not None else None,
-        "approved_at": row.approved_at.isoformat() if row.approved_at else None,
-        "published_at": row.published_at.isoformat() if row.published_at else None,
-        "cancelled_by": int(row.cancelled_by) if row.cancelled_by is not None else None,
-        "cancelled_at": row.cancelled_at.isoformat() if row.cancelled_at else None,
+        "approved_by": (
+            int(row.approved_by)
+            if row.approved_by is not None
+            else None
+        ),
+        "approved_at": (
+            row.approved_at.isoformat()
+            if row.approved_at
+            else None
+        ),
+        "published_at": (
+            row.published_at.isoformat()
+            if row.published_at
+            else None
+        ),
+        "cancelled_by": (
+            int(row.cancelled_by)
+            if row.cancelled_by is not None
+            else None
+        ),
+        "cancelled_at": (
+            row.cancelled_at.isoformat()
+            if row.cancelled_at
+            else None
+        ),
         "cancel_reason": row.cancel_reason,
         "version": int(row.version),
         "scopes": [
             {
                 "scope_type": item.scope_type,
                 "product_variant_id": item.product_variant_id,
+                "uom_id": item.uom_id,
                 "customer_id": item.customer_id,
                 "branch_id": item.branch_id,
                 "channel_code": item.channel_code,
@@ -167,7 +192,18 @@ def _version_dict(
             for item in scopes
         ],
         "products": [
-            {"role": item.role, "product_variant_id": int(item.product_variant_id)}
+            {
+                "role": item.role,
+                "product_variant_id": int(
+                    item.product_variant_id
+                ),
+                "uom_id": int(item.uom_id),
+                "quantity_per_application": (
+                    str(item.quantity_per_application)
+                    if item.quantity_per_application is not None
+                    else None
+                ),
+            }
             for item in products
         ],
     }

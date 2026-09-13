@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 MONEY_QUANT = Decimal("0.000001")
 ZERO = Decimal("0.000000")
+ComponentKey = tuple[int, int]
 
 
 def money(value: Decimal) -> Decimal:
@@ -19,11 +20,10 @@ def money(value: Decimal) -> Decimal:
 
 
 @dataclass(frozen=True)
-class BasketLine:
-    line_id: int
-    product_variant_id: int
-    base_uom_id: int
+class BasketPriceComponent:
+    uom_id: int
     quantity: Decimal
+    base_quantity: Decimal
     unit_price: Decimal
     price_entry_id: int
 
@@ -33,17 +33,69 @@ class BasketLine:
 
 
 @dataclass(frozen=True)
-class CatalogPrice:
+class BasketLine:
+    line_id: int
     product_variant_id: int
     base_uom_id: int
+    quantity: Decimal
+    price_components: tuple[BasketPriceComponent, ...]
+
+    @property
+    def gross_amount(self) -> Decimal:
+        return money(
+            sum(
+                (component.gross_amount for component in self.price_components),
+                ZERO,
+            )
+        )
+
+    def component(self, uom_id: int) -> BasketPriceComponent | None:
+        target = int(uom_id)
+        for component in self.price_components:
+            if int(component.uom_id) == target:
+                return component
+        return None
+
+    def quantity_for_uom(self, uom_id: int) -> Decimal:
+        component = self.component(uom_id)
+        return component.quantity if component is not None else ZERO
+
+    def _single_price_component(self) -> BasketPriceComponent:
+        if len(self.price_components) != 1:
+            raise ValueError(
+                "Mixed-UOM line has no single authoritative unit price."
+            )
+        return self.price_components[0]
+
+    @property
+    def unit_price(self) -> Decimal:
+        return self._single_price_component().unit_price
+
+    @property
+    def price_entry_id(self) -> int:
+        return self._single_price_component().price_entry_id
+
+
+@dataclass(frozen=True)
+class CatalogPrice:
+    product_variant_id: int
+    uom_id: int
     unit_price: Decimal
     price_entry_id: int
+
+
+@dataclass(frozen=True)
+class ProductTargetRef:
+    product_variant_id: int
+    uom_id: int | None
 
 
 @dataclass(frozen=True)
 class OfferProductRef:
     role: str
     product_variant_id: int
+    uom_id: int
+    quantity_per_application: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -55,7 +107,7 @@ class OfferCandidate:
     priority: int
     stacking_mode: str
     payload: Mapping[str, Any]
-    product_scope_variant_ids: frozenset[int]
+    product_targets: tuple[ProductTargetRef, ...]
     products: tuple[OfferProductRef, ...]
 
 
@@ -63,6 +115,7 @@ class OfferCandidate:
 class RequestedAdjustment:
     line_id: int
     product_variant_id: int
+    uom_id: int
     basis_amount: Decimal
     discount_amount: Decimal
 
@@ -70,7 +123,7 @@ class RequestedAdjustment:
 @dataclass(frozen=True)
 class Reward:
     product_variant_id: int
-    base_uom_id: int
+    uom_id: int
     quantity: Decimal
 
 
@@ -93,6 +146,7 @@ class AppliedAdjustment:
     offer_type: str
     line_id: int
     product_variant_id: int
+    uom_id: int
     basis_amount: Decimal
     discount_amount: Decimal
 
@@ -105,7 +159,7 @@ class AppliedReward:
     offer_revision: int
     offer_type: str
     product_variant_id: int
-    base_uom_id: int
+    uom_id: int
     quantity: Decimal
 
 

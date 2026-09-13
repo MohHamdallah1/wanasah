@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -214,6 +215,12 @@ class OfferVersionScope(Base):
             name="fk_offer_scope_tenant_variant",
         ),
         ForeignKeyConstraint(
+            ["uom_id"],
+            ["uom.id"],
+            ondelete="RESTRICT",
+            name="fk_offer_scope_uom",
+        ),
+        ForeignKeyConstraint(
             ["company_id", "customer_id"],
             ["shops.company_id", "shops.id"],
             ondelete="RESTRICT",
@@ -235,25 +242,41 @@ class OfferVersionScope(Base):
                 AND customer_id IS NULL AND branch_id IS NULL AND channel_code IS NULL)
             OR
             (scope_type = 'CUSTOMER' AND customer_id IS NOT NULL
-                AND product_variant_id IS NULL AND branch_id IS NULL AND channel_code IS NULL)
+                AND product_variant_id IS NULL AND uom_id IS NULL
+                AND branch_id IS NULL AND channel_code IS NULL)
             OR
             (scope_type = 'BRANCH' AND branch_id IS NOT NULL
-                AND product_variant_id IS NULL AND customer_id IS NULL AND channel_code IS NULL)
+                AND product_variant_id IS NULL AND uom_id IS NULL
+                AND customer_id IS NULL AND channel_code IS NULL)
             OR
             (scope_type = 'CHANNEL' AND channel_code IS NOT NULL
                 AND length(trim(channel_code)) > 0
-                AND product_variant_id IS NULL AND customer_id IS NULL AND branch_id IS NULL)
+                AND product_variant_id IS NULL AND uom_id IS NULL
+                AND customer_id IS NULL AND branch_id IS NULL)
             """,
             name="offer_scope_target_matches_type",
         ),
         Index("ix_offer_scope_version", "company_id", "offer_version_id", "scope_type"),
         Index(
-            "uq_offer_scope_product",
+            "uq_offer_scope_product_all_uom",
             "company_id",
             "offer_version_id",
             "product_variant_id",
             unique=True,
-            postgresql_where=text("scope_type = 'PRODUCT_VARIANT'"),
+            postgresql_where=text(
+                "scope_type = 'PRODUCT_VARIANT' AND uom_id IS NULL"
+            ),
+        ),
+        Index(
+            "uq_offer_scope_product_specific_uom",
+            "company_id",
+            "offer_version_id",
+            "product_variant_id",
+            "uom_id",
+            unique=True,
+            postgresql_where=text(
+                "scope_type = 'PRODUCT_VARIANT' AND uom_id IS NOT NULL"
+            ),
         ),
         Index(
             "uq_offer_scope_customer",
@@ -288,6 +311,7 @@ class OfferVersionScope(Base):
     offer_version_id = Column(Integer, nullable=False, index=True)
     scope_type = Column(String(30), nullable=False)
     product_variant_id = Column(Integer, nullable=True)
+    uom_id = Column(Integer, nullable=True)
     customer_id = Column(Integer, nullable=True)
     branch_id = Column(Integer, nullable=True)
     channel_code = Column(String(50), nullable=True)
@@ -304,7 +328,8 @@ class OfferVersionProduct(Base):
             "offer_version_id",
             "role",
             "product_variant_id",
-            name="uq_offer_version_product_role_variant",
+            "uom_id",
+            name="uq_offer_version_product_role_variant_uom",
         ),
         ForeignKeyConstraint(
             ["company_id", "offer_version_id"],
@@ -318,9 +343,25 @@ class OfferVersionProduct(Base):
             ondelete="RESTRICT",
             name="fk_offer_product_tenant_variant",
         ),
+        ForeignKeyConstraint(
+            ["uom_id"],
+            ["uom.id"],
+            ondelete="RESTRICT",
+            name="fk_offer_product_uom",
+        ),
         CheckConstraint(
             "role IN ('QUALIFYING','REWARD','BUNDLE_COMPONENT')",
             name="offer_product_role_valid",
+        ),
+        CheckConstraint(
+            """
+            (role = 'QUALIFYING' AND quantity_per_application IS NULL)
+            OR
+            (role IN ('REWARD','BUNDLE_COMPONENT')
+                AND quantity_per_application IS NOT NULL
+                AND quantity_per_application > 0)
+            """,
+            name="offer_product_quantity_shape",
         ),
         Index("ix_offer_product_version", "company_id", "offer_version_id", "role"),
     )
@@ -332,3 +373,5 @@ class OfferVersionProduct(Base):
     offer_version_id = Column(Integer, nullable=False, index=True)
     role = Column(String(30), nullable=False)
     product_variant_id = Column(Integer, nullable=False)
+    uom_id = Column(Integer, nullable=False)
+    quantity_per_application = Column(Numeric(20, 6), nullable=True)

@@ -28,6 +28,10 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _quantity(value: Any, field_name: str) -> Decimal:
+    return parse_quantity(value, field_name)
+
+
 class OfferCaps(StrictModel):
     max_applications_per_document: Optional[int] = Field(None, gt=0)
     max_discount_amount: Optional[Decimal] = Field(None, gt=0)
@@ -45,21 +49,38 @@ class FixedDiscountPayload(StrictModel):
 
 
 class BuyXGetYPayload(StrictModel):
-    buy_quantity: Decimal = Field(gt=0)
-    get_quantity: Decimal = Field(gt=0)
+    """Reward quantities live on typed REWARD product terms."""
+
+    buy_quantity: Decimal
     caps: Optional[OfferCaps] = None
+
+    @field_validator("buy_quantity", mode="before")
+    @classmethod
+    def normalize_quantity(cls, value: Any) -> Decimal:
+        return _quantity(value, "buy_quantity")
 
 
 class FreeGoodsPayload(StrictModel):
-    qualifying_quantity: Decimal = Field(gt=0)
-    free_quantity: Decimal = Field(gt=0)
+    """Every reward row owns its explicit UOM and quantity."""
+
+    qualifying_quantity: Decimal
     caps: Optional[OfferCaps] = None
+
+    @field_validator("qualifying_quantity", mode="before")
+    @classmethod
+    def normalize_quantity(cls, value: Any) -> Decimal:
+        return _quantity(value, "qualifying_quantity")
 
 
 class QuantityTier(StrictModel):
-    minimum_quantity: Decimal = Field(gt=0)
+    minimum_quantity: Decimal
     reward_type: Literal["PERCENTAGE_DISCOUNT", "FIXED_DISCOUNT", "FREE_QUANTITY"]
-    reward_value: Decimal = Field(gt=0)
+    reward_value: Decimal
+
+    @field_validator("minimum_quantity", "reward_value", mode="before")
+    @classmethod
+    def normalize_quantities(cls, value: Any, info) -> Decimal:
+        return _quantity(value, info.field_name)
 
     @model_validator(mode="after")
     def validate_percentage(self):
@@ -83,7 +104,8 @@ class QuantityTiersPayload(StrictModel):
 
 
 class BundlePayload(StrictModel):
-    bundle_quantity: Decimal = Field(default=Decimal("1"), gt=0)
+    """Each BUNDLE_COMPONENT row owns its UOM and required quantity."""
+
     reward_type: Literal["PERCENTAGE_DISCOUNT", "FIXED_DISCOUNT", "FIXED_PRICE"]
     reward_value: Decimal = Field(gt=0)
     caps: Optional[OfferCaps] = None
@@ -98,6 +120,7 @@ class BundlePayload(StrictModel):
 class OfferScopeInput(StrictModel):
     scope_type: ScopeType
     product_variant_id: Optional[int] = Field(None, gt=0)
+    uom_id: Optional[int] = Field(None, gt=0)
     customer_id: Optional[int] = Field(None, gt=0)
     branch_id: Optional[int] = Field(None, gt=0)
     channel_code: Optional[str] = Field(None, min_length=1, max_length=50)
@@ -124,14 +147,28 @@ class OfferScopeInput(StrictModel):
         }
         if values[self.scope_type] is None:
             raise ValueError(f"{self.scope_type} requires its matching target.")
-        if any(key != self.scope_type and value is not None for key, value in values.items()):
+        if any(
+            key != self.scope_type and value is not None
+            for key, value in values.items()
+        ):
             raise ValueError("Exactly one scope target may be supplied.")
+        if self.scope_type != "PRODUCT_VARIANT" and self.uom_id is not None:
+            raise ValueError("uom_id is allowed only for PRODUCT_VARIANT scope.")
         return self
 
 
 class OfferProductInput(StrictModel):
     role: ProductRole
     product_variant_id: int = Field(gt=0)
+    uom_id: int = Field(gt=0)
+    quantity_per_application: Optional[Decimal] = None
+
+    @field_validator("quantity_per_application", mode="before")
+    @classmethod
+    def normalize_quantity(cls, value: Any) -> Optional[Decimal]:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return _quantity(value, "quantity_per_application")
 
 
 class DefinitionCreate(StrictModel):
@@ -264,14 +301,26 @@ class VersionCommand(StrictModel):
     reason: str = Field(min_length=3, max_length=1000)
 
 
-class PreviewLine(StrictModel):
-    product_variant_id: int = Field(gt=0)
+class PreviewComponent(StrictModel):
+    uom_id: int = Field(gt=0)
     quantity: Decimal
 
     @field_validator("quantity", mode="before")
     @classmethod
-    def canonical_quantity(cls, value: Any) -> Decimal:
-        return parse_quantity(value, "quantity")
+    def normalize_quantity(cls, value: Any) -> Decimal:
+        return _quantity(value, "quantity")
+
+
+class PreviewLine(StrictModel):
+    product_variant_id: int = Field(gt=0)
+    components: list[PreviewComponent] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_components(self):
+        uoms = [component.uom_id for component in self.components]
+        if len(uoms) != len(set(uoms)):
+            raise ValueError("A preview line cannot repeat the same UOM.")
+        return self
 
 
 class PreviewRequest(StrictModel):

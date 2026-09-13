@@ -7,7 +7,11 @@ from typing import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domains.offers.contracts import BasketLine, CatalogPrice
+from domains.offers.contracts import (
+    BasketLine,
+    BasketPriceComponent,
+    CatalogPrice,
+)
 from domains.offers.core import OfferError
 from domains.offers.eligibility import resolve_offer_candidates
 from domains.offers.engine import calculate_offers
@@ -219,23 +223,26 @@ async def resolve_and_calculate_document(
             "Offer resolver did not honor the locked offer revision ceiling.",
         )
 
-    reward_product_ids = {
-        int(product.product_variant_id)
+    reward_pairs = {
+        (
+            int(product.product_variant_id),
+            int(product.uom_id),
+        )
         for candidate in offer_candidates
         for product in candidate.products
         if product.role == "REWARD"
     }
-    all_product_ids = set(product_ids) | reward_product_ids
-    all_variants = await _variants(
+    all_product_ids = set(product_ids) | {
+        variant_id
+        for variant_id, _uom_id in reward_pairs
+    }
+    await _variants(
         db,
         company_id=company_id,
         ids=all_product_ids,
     )
-    all_pairs = {
-        (variant_id, int(all_variants[variant_id].base_uom_id))
-        for variant_id in all_product_ids
-    }
-    missing_pairs = all_pairs - set(price_rows)
+
+    missing_pairs = reward_pairs - set(price_rows)
     if missing_pairs:
         try:
             reward_prices = await resolve_prices_bulk(
@@ -257,7 +264,10 @@ async def resolve_and_calculate_document(
             ) from exc
         price_rows.update(reward_prices)
 
-    resolved_currencies = {str(row.currency_code).upper() for row in price_rows.values()}
+    resolved_currencies = {
+        str(row.currency_code).upper()
+        for row in price_rows.values()
+    }
     if resolved_currencies != {currency}:
         raise CalculationError(
             "CALCULATION_CURRENCY_CONFLICT",
@@ -266,7 +276,8 @@ async def resolve_and_calculate_document(
     for pair, price in price_rows.items():
         if (
             int(price.price_publication_revision) <= 0
-            or int(price.price_publication_revision) > int(price_publication_revision_ceiling)
+            or int(price.price_publication_revision)
+            > int(price_publication_revision_ceiling)
         ):
             raise CalculationError(
                 "CALCULATION_PRICE_REVISION_OUT_OF_LOCK",
@@ -275,7 +286,8 @@ async def resolve_and_calculate_document(
             )
         if (
             int(price.assignment_revision) <= 0
-            or int(price.assignment_revision) > int(assignment_revision_ceiling)
+            or int(price.assignment_revision)
+            > int(assignment_revision_ceiling)
         ):
             raise CalculationError(
                 "CALCULATION_ASSIGNMENT_REVISION_OUT_OF_LOCK",
@@ -290,29 +302,43 @@ async def resolve_and_calculate_document(
             )
 
     catalog_prices = {
-        variant_id: CatalogPrice(
-            product_variant_id=variant_id,
-            base_uom_id=int(all_variants[variant_id].base_uom_id),
-            unit_price=price_rows[
-                (variant_id, int(all_variants[variant_id].base_uom_id))
-            ].amount,
-            price_entry_id=price_rows[
-                (variant_id, int(all_variants[variant_id].base_uom_id))
-            ].price_entry_id,
+        pair: CatalogPrice(
+            product_variant_id=int(pair[0]),
+            uom_id=int(pair[1]),
+            unit_price=price.amount,
+            price_entry_id=int(price.price_entry_id),
         )
-        for variant_id in all_product_ids
+        for pair, price in price_rows.items()
     }
-    basket_lines = [
-        BasketLine(
-            line_id=int(row.line_id),
-            product_variant_id=int(row.product_variant_id),
-            base_uom_id=int(variant_map[int(row.product_variant_id)].base_uom_id),
-            quantity=canonical_quantities[int(row.product_variant_id)],
-            unit_price=catalog_prices[int(row.product_variant_id)].unit_price,
-            price_entry_id=catalog_prices[int(row.product_variant_id)].price_entry_id,
+    basket_lines = []
+    for row in ordered_inputs:
+        variant_id = int(row.product_variant_id)
+        variant = variant_map[variant_id]
+        base_uom_id = int(variant.base_uom_id)
+        pair = (variant_id, base_uom_id)
+        price = price_rows[pair]
+        canonical_quantity = canonical_quantities[
+            variant_id
+        ]
+        basket_lines.append(
+            BasketLine(
+                line_id=int(row.line_id),
+                product_variant_id=variant_id,
+                base_uom_id=base_uom_id,
+                quantity=canonical_quantity,
+                price_components=(
+                    BasketPriceComponent(
+                        uom_id=base_uom_id,
+                        quantity=canonical_quantity,
+                        base_quantity=canonical_quantity,
+                        unit_price=price.amount,
+                        price_entry_id=int(
+                            price.price_entry_id
+                        ),
+                    ),
+                ),
+            )
         )
-        for row in ordered_inputs
-    ]
 
     if any(
         int(candidate.revision) <= 0
