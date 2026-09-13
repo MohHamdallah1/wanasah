@@ -15,6 +15,7 @@ const DashboardLayout = () => {
     if (!access.isCompanyAdmin && location.pathname === '/') return <Navigate to="/inventory" replace />;
     if (!access.isCompanyAdmin && location.pathname === '/dispatch' && !access.canAny('dispatch.read')) return <Navigate to="/inventory" replace />;
     if (!access.isCompanyAdmin && location.pathname === '/pricing' && !access.canAny('pricing.view')) return <Navigate to="/inventory" replace />;
+    if (!access.isCompanyAdmin && location.pathname === '/commercial-rules' && !(access.canAny('offers.view') || access.canAny('tax.view'))) return <Navigate to="/inventory" replace />;
 
     return (
         // +++ الكي الجراحي 1: قفل الشاشة الإجباري (h-screen overflow-hidden) لنسف أي سكرول خارجي نهائياً +++

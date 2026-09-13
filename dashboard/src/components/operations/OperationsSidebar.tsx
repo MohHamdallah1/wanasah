@@ -1,6 +1,6 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useRef, useEffect } from "react";
-import { Radar, Truck, Package, BadgeDollarSign, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin } from "lucide-react";
+import { Radar, Truck, Package, BadgeDollarSign, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin, BadgePercent } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatTenantDate } from "@/features/tenantIdentity/contracts";
@@ -16,6 +16,7 @@ const navItems = [
   { label: "التوزيع والمناطق", icon: Truck, path: "/dispatch" },
   { label: "المخزون والمستودع", icon: Package, path: "/inventory" },
   { label: "التسعير التجاري", icon: BadgeDollarSign, path: "/pricing" },
+  { label: "العروض والضرائب", icon: BadgePercent, path: "/commercial-rules" },
   { label: "الأرشيف والتقارير", icon: FileText, path: "/reports" },
   { label: "الإعدادات", icon: Settings, path: "/settings" },
 ];
@@ -48,7 +49,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
   }, []);
 
   const handleNav = (item: typeof navItems[0]) => {
-    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/pricing") {
+    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/pricing" || item.path === "/commercial-rules") {
       navigate(item.path);
       onClose(); 
     } else {
@@ -90,8 +91,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
       <aside
         className={`
           operations-sidebar fixed inset-y-0 end-0 z-50 w-[280px] glass-sidebar p-5 flex flex-col transition-transform duration-300
-          /* +++ الكي الجراحي 3: تحويل القائمة من static إلى sticky لتبقى ملتصقة بالشاشة، مع تقييد ارتفاعها ليناسب المتصفح والسماح بسكرول داخلي مخفي إذا صغرت الشاشة +++ */
-          lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar lg:translate-x-0 lg:rounded-2xl lg:border lg:z-auto
+          lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:translate-x-0 lg:rounded-2xl lg:border lg:z-auto
           ${open ? "translate-x-0" : "translate-x-full lg:translate-x-0"}
         `}
       >
@@ -140,7 +140,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
 
         {/* روابط التنقل (كما هي بدون تغيير بالألوان) */}
         <nav className="operations-nav flex flex-col gap-1" aria-label="التنقل الرئيسي">
-          {navItems.filter(item => access.isCompanyAdmin || item.path === '/inventory' || (item.path === '/dispatch' && access.canAny('dispatch.read')) || (item.path === '/pricing' && access.canAny('pricing.view'))).map((item) => (
+          {navItems.filter(item => access.isCompanyAdmin || item.path === '/inventory' || (item.path === '/dispatch' && access.canAny('dispatch.read')) || (item.path === '/pricing' && access.canAny('pricing.view')) || (item.path === '/commercial-rules' && (access.canAny('offers.view') || access.canAny('tax.view')))).map((item) => (
             <button
               key={item.label}
               onClick={() => handleNav(item)}
