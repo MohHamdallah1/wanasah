@@ -15,6 +15,8 @@ BasisMode = Literal["TAXABLE_BASE", "TAXABLE_BASE_PLUS_PRIOR_TAX"]
 ScopeType = Literal["JURISDICTION", "PRODUCT_VARIANT", "CUSTOMER", "DOCUMENT_TYPE"]
 
 _CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]*$")
+_MONEY_QUANT = Decimal("0.000001")
+_MONEY_MAX = Decimal("99999999999999.999999")
 
 
 class StrictModel(BaseModel):
@@ -218,7 +220,10 @@ class TaxComponentInput(StrictModel):
     component_code: str = Field(max_length=100)
     name: str = Field(max_length=150)
     sequence: int = Field(gt=0, le=100)
-    rate: Decimal = Field(ge=0)
+    rate: Decimal = Field(
+        ge=0,
+        description="Percentage points; 5.00000000 means 5 percent.",
+    )
     basis_mode: BasisMode = "TAXABLE_BASE"
     reporting_code: Optional[str] = Field(None, max_length=100)
 
@@ -324,3 +329,55 @@ class VersionCommand(StrictModel):
     request_id: UUID
     expected_version: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=1000)
+
+
+class TaxPreviewLine(StrictModel):
+    line_id: int = Field(gt=0)
+    product_variant_id: int = Field(gt=0)
+    amount: Decimal
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def exact_money(cls, value: Any) -> Decimal:
+        if isinstance(value, bool) or isinstance(value, float):
+            raise ValueError("amount must be an exact decimal value.")
+        try:
+            result = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValueError("amount must be an exact decimal value.") from exc
+        if not result.is_finite() or result < 0:
+            raise ValueError("amount must be finite and non-negative.")
+        try:
+            quantized = result.quantize(_MONEY_QUANT)
+        except InvalidOperation as exc:
+            raise ValueError("amount cannot be represented with 6 decimal places.") from exc
+        if result != quantized:
+            raise ValueError("amount accepts at most 6 decimal places.")
+        if result > _MONEY_MAX:
+            raise ValueError("amount exceeds NUMERIC(20,6) capacity.")
+        return result
+
+
+class TaxPreviewRequest(StrictModel):
+    jurisdiction_id: int = Field(gt=0)
+    customer_id: Optional[int] = Field(None, gt=0)
+    document_type_code: str = Field(min_length=1, max_length=80)
+    as_of: Optional[datetime] = None
+    tax_revision_ceiling: Optional[int] = Field(None, gt=0)
+    lines: list[TaxPreviewLine] = Field(min_length=1, max_length=500)
+
+    @field_validator("document_type_code", mode="before")
+    @classmethod
+    def document_code(cls, value: Any) -> str:
+        return _stable_code(value, "document_type_code", 80)
+
+    @model_validator(mode="after")
+    def validate_preview(self):
+        if self.as_of is not None and (
+            self.as_of.tzinfo is None or self.as_of.utcoffset() is None
+        ):
+            raise ValueError("as_of must include a timezone.")
+        line_ids = [line.line_id for line in self.lines]
+        if len(line_ids) != len(set(line_ids)):
+            raise ValueError("Tax preview line_id values must be unique.")
+        return self

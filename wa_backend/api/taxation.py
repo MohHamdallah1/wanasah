@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_current_driver
 from database import get_db
 from domains.taxation.core import TaxError, maker_checker_enabled
+from domains.taxation.service import preview_tax_document
 from domains.taxation.models import (
     TaxJurisdiction,
     TaxRuleComponent,
@@ -48,6 +49,7 @@ from domains.taxation.schemas import (
     VersionCreate,
     VersionDelete,
     VersionUpdate,
+    TaxPreviewRequest,
 )
 from inventory_access import InventoryAccess
 from models import Driver, SystemAuditLog
@@ -318,6 +320,23 @@ async def get_policy(
     except TaxError as exc:
         raise _http_error(exc) from exc
     return {"maker_checker_enabled": enabled}
+
+
+@router.post("/preview")
+async def preview_tax(
+    payload: TaxPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "tax.view")
+    try:
+        return await preview_tax_document(
+            db,
+            company_id=actor.company_id,
+            payload=payload,
+        )
+    except TaxError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.get("/jurisdictions")

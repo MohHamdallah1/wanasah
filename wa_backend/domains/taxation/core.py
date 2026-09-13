@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select
@@ -10,6 +11,21 @@ from models import Company, SystemSetting
 
 
 TAX_MAKER_CHECKER_SETTING = "tax_maker_checker_enabled"
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def require_aware_datetime(value: datetime, field_name: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise TaxError(
+            "TAX_DATETIME_OFFSET_REQUIRED",
+            f"{field_name} must include a UTC offset.",
+            status_code=422,
+            context={"field": field_name},
+        )
+    return value.astimezone(timezone.utc)
 
 
 class TaxError(Exception):
@@ -68,3 +84,16 @@ async def next_tenant_revision(db: AsyncSession, company_id: int) -> int:
         )
     )
     return int(current or 0) + 1
+
+
+async def current_tax_revision_ceiling(
+    db: AsyncSession,
+    company_id: int,
+) -> int:
+    value = await db.scalar(
+        select(func.max(TaxRuleSetVersion.revision)).where(
+            TaxRuleSetVersion.company_id == int(company_id),
+            TaxRuleSetVersion.status.in_(("PUBLISHED", "SUPERSEDED")),
+        )
+    )
+    return int(value or 0)
