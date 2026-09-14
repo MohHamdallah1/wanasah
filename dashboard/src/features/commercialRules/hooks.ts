@@ -1,13 +1,16 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import {
+  fetchOfferCatalogVariants,
   fetchOfferDefinitions,
   fetchOfferPolicy,
   fetchOfferVersions,
+  resolveOfferCatalogVariants,
   fetchTaxJurisdictions,
   fetchTaxPolicy,
   fetchTaxRuleSets,
   fetchTaxVersions,
+  fetchCatalogVariants
 } from "./api";
 
 const flatten = <T,>(
@@ -67,6 +70,52 @@ export function useOfferVersions(definitionId: number | null) {
   return { ...query, items: flatten(query.data?.pages) };
 }
 
+export function useOfferCatalogVariants(
+  enabled: boolean,
+  requiredIds: number[] = []
+) {
+  const authFetch = useAuthFetch();
+  const query = useInfiniteQuery({
+    queryKey: ["commercial-rules", "offers", "references", "variants"],
+    enabled,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam, signal }) =>
+      fetchOfferCatalogVariants(authFetch, pageParam, signal),
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.next_cursor ?? undefined : undefined,
+    staleTime: 120_000,
+    retry: false,
+  });
+  const browsed = flatten(query.data?.pages);
+  const browsedIds = new Set(browsed.map((row) => row.id));
+  const missingIds = [...new Set(requiredIds)]
+    .filter((id) => Number.isSafeInteger(id) && id > 0 && !browsedIds.has(id))
+    .sort((a, b) => a - b);
+  const resolved = useQuery({
+    queryKey: [
+      "commercial-rules",
+      "offers",
+      "references",
+      "variants",
+      "resolve",
+      ...missingIds,
+    ],
+    enabled: enabled && missingIds.length > 0,
+    queryFn: ({ signal }) => resolveOfferCatalogVariants(authFetch, missingIds, signal),
+    staleTime: 120_000,
+    retry: false,
+  });
+  const items = [...browsed];
+  const seen = new Set(items.map((row) => row.id));
+  for (const row of resolved.data?.items ?? []) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      items.push(row);
+    }
+  }
+  return { ...query, items, isResolvingRequired: resolved.isFetching };
+}
+
 export function useTaxJurisdictions(enabled = true) {
   const authFetch = useAuthFetch();
   const query = useInfiniteQuery({
@@ -122,7 +171,8 @@ export function useCatalogVariants(enabled: boolean) {
     queryKey: ["commercial-rules", "references", "catalog-variants"],
     enabled,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) => import("./api").then(({ fetchCatalogVariants }) => fetchCatalogVariants(authFetch, pageParam, signal)),
+    queryFn: ({ pageParam, signal }) =>
+    fetchCatalogVariants(authFetch, pageParam, signal),
     getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.next_cursor ?? undefined : undefined,
     staleTime: 120_000,
     retry: false,

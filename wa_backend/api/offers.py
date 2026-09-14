@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from database import get_db
 from domains.offers.core import OfferError, maker_checker_enabled
 from domains.offers.service import preview_offer_basket
 from domains.pricing.core import PricingError
+from domains.uom_authority import UomAuthorityError, load_variant_uom_authorities
 from domains.offers.models import (
     OfferDefinition,
     OfferVersion,
@@ -47,7 +48,7 @@ from domains.offers.schemas import (
     PreviewRequest,
 )
 from inventory_access import InventoryAccess
-from models import Driver, SystemAuditLog
+from models import Driver, ProductVariant, SystemAuditLog, UOM
 from services import (
     InventoryMutationError,
     begin_idempotent_operation,
@@ -127,6 +128,110 @@ def _definition_row(row: OfferDefinition) -> dict[str, Any]:
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+
+
+class ReferenceVariantResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[int] = Field(min_length=1, max_length=1000)
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, values: list[int]) -> list[int]:
+        if any(type(value) is not int or value <= 0 for value in values):
+            raise ValueError("Product variant IDs must be positive integers.")
+        if len(values) != len(set(values)):
+            raise ValueError("Product variant IDs must be unique.")
+        return values
+
+
+def _uom_authority_http_error(exc: UomAuthorityError) -> HTTPException:
+    return HTTPException(
+        409,
+        detail={
+            "code": exc.code,
+            "message": exc.message,
+            "context": exc.context,
+        },
+    )
+
+
+async def _reference_variant_rows(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    variants: list[ProductVariant],
+) -> list[dict[str, Any]]:
+    if not variants:
+        return []
+    ids = [int(row.id) for row in variants]
+    try:
+        authorities = await load_variant_uom_authorities(
+            db, company_id=company_id, variant_ids=ids
+        )
+    except UomAuthorityError as exc:
+        raise _uom_authority_http_error(exc) from exc
+
+    uom_ids = {
+        int(uom_id)
+        for authority in authorities.values()
+        for uom_id in authority.factors_to_base
+    }
+    uom_rows = list(
+        (await db.scalars(select(UOM).where(UOM.id.in_(uom_ids)))).all()
+    ) if uom_ids else []
+    uoms = {int(row.id): row for row in uom_rows}
+    missing_uoms = sorted(uom_ids - set(uoms))
+    if missing_uoms:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "OFFER_REFERENCE_UOM_NOT_FOUND",
+                "message": "A reachable offer UOM is missing from master data.",
+                "context": {"uom_ids": missing_uoms},
+            },
+        )
+
+    result: list[dict[str, Any]] = []
+    for row in variants:
+        authority = authorities[int(row.id)]
+        ordered_uom_ids = sorted(
+            authority.factors_to_base,
+            key=lambda uom_id: (
+                0 if int(uom_id) == int(authority.base_uom_id) else 1,
+                uoms[int(uom_id)].code,
+                int(uom_id),
+            ),
+        )
+        available_uoms = [
+            {
+                "id": int(uoms[int(uom_id)].id),
+                "code": uoms[int(uom_id)].code,
+                "name": uoms[int(uom_id)].name,
+            }
+            for uom_id in ordered_uom_ids
+        ]
+        base_uom = uoms[int(authority.base_uom_id)]
+        result.append(
+            {
+                "id": int(row.id),
+                "product_id": int(row.product_id),
+                "sku": row.sku,
+                "name": row.name,
+                "base_uom": {
+                    "id": int(base_uom.id),
+                    "code": base_uom.code,
+                    "name": base_uom.name,
+                },
+                "uoms": available_uoms,
+                "quantity_scale": int(row.quantity_scale),
+                "quantity_step": str(row.quantity_step),
+                "lifecycle_status": row.lifecycle_status,
+                "operational_hold": row.operational_hold,
+                "version": int(row.version),
+            }
+        )
+    return result
 
 
 def _version_dict(
@@ -325,6 +430,76 @@ async def get_policy(
     except OfferError as exc:
         raise _offer_http_error(exc) from exc
     return {"maker_checker_enabled": enabled}
+
+
+@router.get("/references/variants")
+async def list_reference_variants(
+    cursor: Optional[str] = Query(None, max_length=512),
+    limit: int = Query(100, ge=1, le=MAX_PAGE_SIZE),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.read")
+    rows = list(
+        (
+            await db.scalars(
+                select(ProductVariant)
+                .where(
+                    ProductVariant.company_id == actor.company_id,
+                    ProductVariant.id > _cursor(cursor),
+                )
+                .order_by(ProductVariant.id)
+                .limit(limit + 1)
+            )
+        ).all()
+    )
+    page, has_more = rows[:limit], len(rows) > limit
+    return {
+        "items": await _reference_variant_rows(
+            db, company_id=int(actor.company_id), variants=page
+        ),
+        "next_cursor": _next_cursor(page[-1].id) if has_more and page else None,
+        "has_more": has_more,
+    }
+
+
+@router.post("/references/variants/resolve")
+async def resolve_reference_variants(
+    payload: ReferenceVariantResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.read")
+    rows = list(
+        (
+            await db.scalars(
+                select(ProductVariant)
+                .where(
+                    ProductVariant.company_id == actor.company_id,
+                    ProductVariant.id.in_(payload.ids),
+                )
+                .order_by(ProductVariant.id)
+            )
+        ).all()
+    )
+    found = {int(row.id) for row in rows}
+    missing = sorted(set(payload.ids) - found)
+    if missing:
+        raise HTTPException(
+            404,
+            detail={
+                "code": "OFFER_REFERENCE_VARIANT_NOT_FOUND",
+                "message": "One or more product variants are not available inside this company.",
+                "context": {"product_variant_ids": missing},
+            },
+        )
+    return {
+        "items": await _reference_variant_rows(
+            db, company_id=int(actor.company_id), variants=rows
+        ),
+        "next_cursor": None,
+        "has_more": False,
+    }
 
 
 @router.get("/definitions")

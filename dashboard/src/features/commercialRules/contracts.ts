@@ -29,6 +29,7 @@ export type OfferDefinition = {
 export type OfferScope = {
   scope_type: "PRODUCT_VARIANT" | "CUSTOMER" | "BRANCH" | "CHANNEL";
   product_variant_id: number | null;
+  uom_id: number | null;
   customer_id: number | null;
   branch_id: number | null;
   channel_code: string | null;
@@ -37,6 +38,8 @@ export type OfferScope = {
 export type OfferProduct = {
   role: "QUALIFYING" | "REWARD" | "BUNDLE_COMPONENT";
   product_variant_id: number;
+  uom_id: number;
+  quantity_per_application: string | null;
 };
 
 export type OfferVersion = {
@@ -235,17 +238,23 @@ export type TaxPreview = {
   };
 };
 
+export type CatalogUom = { id: number; code: string; name: string };
+
 export type CatalogVariant = {
   id: number;
   product_id: number;
   sku: string;
   name: string;
-  base_uom: { id: number; code: string; name: string };
+  base_uom: CatalogUom;
   quantity_scale: number;
   quantity_step: string;
   lifecycle_status: string;
   operational_hold: string;
   version: number;
+};
+
+export type OfferCatalogVariant = CatalogVariant & {
+  uoms: CatalogUom[];
 };
 
 export type OfferType = OfferVersion["offer_type"];

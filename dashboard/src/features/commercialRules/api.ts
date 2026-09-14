@@ -1,6 +1,7 @@
 import type {
   ApprovalPolicy,
   CursorPage,
+  OfferCatalogVariant,
   OfferDefinition,
   OfferPreview,
   OfferVersion,
@@ -63,6 +64,32 @@ export async function fetchOfferVersions(
       { signal }
     ),
     "نسخ العرض"
+  );
+}
+
+export async function fetchOfferCatalogVariants(
+  authFetch: AuthFetch,
+  cursor: string | null,
+  signal?: AbortSignal
+) {
+  return assertPage<OfferCatalogVariant>(
+    await authFetch(pagePath("/offers/references/variants", cursor, 100), { signal }),
+    "مراجع أصناف العروض"
+  );
+}
+
+export async function resolveOfferCatalogVariants(
+  authFetch: AuthFetch,
+  ids: number[],
+  signal?: AbortSignal
+) {
+  return assertPage<OfferCatalogVariant>(
+    await authFetch("/offers/references/variants/resolve", {
+      method: "POST",
+      signal,
+      body: JSON.stringify({ ids }),
+    }),
+    "مراجع أصناف العرض المطلوبة"
   );
 }
 

@@ -1,12 +1,12 @@
 import type { OfferProduct, OfferScope, OfferType, OfferVersion, TaxScope, TaxVersion } from "./contracts";
 
-export type EditableOfferScope = { scope_type: OfferScope["scope_type"]; target: string };
-export type EditableOfferProduct = { role: OfferProduct["role"]; product_variant_id: string };
+export type EditableOfferScope = { scope_type: OfferScope["scope_type"]; target: string; uom_id: string };
+export type EditableOfferProduct = { role: OfferProduct["role"]; product_variant_id: string; uom_id: string; quantity_per_application: string };
 export type EditableTier = { minimum_quantity: string; reward_type: "PERCENTAGE_DISCOUNT" | "FIXED_DISCOUNT" | "FREE_QUANTITY"; reward_value: string };
 export type OfferVersionForm = {
   offer_type: OfferType; currency_code: string; priority: string; stacking_mode: "EXCLUSIVE" | "STACKABLE";
-  effective_from: string; effective_to: string; percentage: string; fixed_amount: string; buy_quantity: string; get_quantity: string;
-  qualifying_quantity: string; free_quantity: string; tiers: EditableTier[]; bundle_quantity: string;
+  effective_from: string; effective_to: string; percentage: string; fixed_amount: string; buy_quantity: string;
+  qualifying_quantity: string; tiers: EditableTier[];
   bundle_reward_type: "PERCENTAGE_DISCOUNT" | "FIXED_DISCOUNT" | "FIXED_PRICE"; bundle_reward_value: string;
   max_applications_per_document: string; max_discount_amount: string; max_reward_quantity: string;
   scopes: EditableOfferScope[]; products: EditableOfferProduct[];
@@ -86,9 +86,9 @@ const buildCaps = (form: OfferVersionForm) => {
 
 export const emptyOfferVersionForm = (): OfferVersionForm => ({
   offer_type: "PERCENTAGE_DISCOUNT", currency_code: "", priority: "0", stacking_mode: "EXCLUSIVE",
-  effective_from: localInput(), effective_to: "", percentage: "10", fixed_amount: "1", buy_quantity: "1", get_quantity: "1",
-  qualifying_quantity: "1", free_quantity: "1", tiers: [{ minimum_quantity: "1", reward_type: "PERCENTAGE_DISCOUNT", reward_value: "5" }],
-  bundle_quantity: "1", bundle_reward_type: "PERCENTAGE_DISCOUNT", bundle_reward_value: "5",
+  effective_from: localInput(), effective_to: "", percentage: "10", fixed_amount: "1", buy_quantity: "1",
+  qualifying_quantity: "1", tiers: [{ minimum_quantity: "1", reward_type: "PERCENTAGE_DISCOUNT", reward_value: "5" }],
+  bundle_reward_type: "PERCENTAGE_DISCOUNT", bundle_reward_value: "5",
   max_applications_per_document: "", max_discount_amount: "", max_reward_quantity: "", scopes: [], products: [],
 });
 
@@ -99,16 +99,16 @@ export const offerVersionToForm = (version: OfferVersion): OfferVersionForm => {
   form.offer_type = version.offer_type; form.currency_code = version.currency_code ?? ""; form.priority = String(version.priority);
   form.stacking_mode = version.stacking_mode; form.effective_from = localInput(version.effective_from); form.effective_to = version.effective_to ? localInput(version.effective_to) : "";
   form.percentage = get("percentage", form.percentage); form.fixed_amount = get("amount", form.fixed_amount); form.buy_quantity = get("buy_quantity", form.buy_quantity);
-  form.get_quantity = get("get_quantity", form.get_quantity); form.qualifying_quantity = get("qualifying_quantity", form.qualifying_quantity); form.free_quantity = get("free_quantity", form.free_quantity);
-  form.bundle_quantity = get("bundle_quantity", form.bundle_quantity); form.bundle_reward_type = (payload.reward_type as OfferVersionForm["bundle_reward_type"]) ?? form.bundle_reward_type;
+  form.qualifying_quantity = get("qualifying_quantity", form.qualifying_quantity);
+  form.bundle_reward_type = (payload.reward_type as OfferVersionForm["bundle_reward_type"]) ?? form.bundle_reward_type;
   form.bundle_reward_value = get("reward_value", form.bundle_reward_value);
   const caps = payload.caps && typeof payload.caps === "object" ? payload.caps as Record<string, unknown> : {};
   form.max_applications_per_document = caps.max_applications_per_document == null ? "" : String(caps.max_applications_per_document);
   form.max_discount_amount = caps.max_discount_amount == null ? "" : String(caps.max_discount_amount);
   form.max_reward_quantity = caps.max_reward_quantity == null ? "" : String(caps.max_reward_quantity);
   if (Array.isArray(payload.tiers)) form.tiers = payload.tiers.map((raw) => { const row = raw as Record<string, unknown>; return { minimum_quantity: String(row.minimum_quantity ?? ""), reward_type: (row.reward_type as EditableTier["reward_type"]) ?? "PERCENTAGE_DISCOUNT", reward_value: String(row.reward_value ?? "") }; });
-  form.scopes = version.scopes.map((scope) => ({ scope_type: scope.scope_type, target: scope.product_variant_id != null ? String(scope.product_variant_id) : scope.customer_id != null ? String(scope.customer_id) : scope.branch_id != null ? String(scope.branch_id) : scope.channel_code ?? "" }));
-  form.products = version.products.map((product) => ({ role: product.role, product_variant_id: String(product.product_variant_id) }));
+  form.scopes = version.scopes.map((scope) => ({ scope_type: scope.scope_type, target: scope.product_variant_id != null ? String(scope.product_variant_id) : scope.customer_id != null ? String(scope.customer_id) : scope.branch_id != null ? String(scope.branch_id) : scope.channel_code ?? "", uom_id: scope.uom_id == null ? "" : String(scope.uom_id) }));
+  form.products = version.products.map((product) => ({ role: product.role, product_variant_id: String(product.product_variant_id), uom_id: String(product.uom_id), quantity_per_application: product.quantity_per_application ?? "" }));
   return form;
 };
 
@@ -116,18 +116,19 @@ const offerScopePayload = (scope: EditableOfferScope) => {
   const target = scope.target.trim(); if (!target) throw new Error("كل نطاق عرض يحتاج قيمة هدف.");
   if (scope.scope_type === "CHANNEL") return { scope_type: scope.scope_type, channel_code: target.toUpperCase() };
   const id = positiveInteger(target, "معرّف نطاق العرض");
-  if (scope.scope_type === "PRODUCT_VARIANT") return { scope_type: scope.scope_type, product_variant_id: id };
+  if (scope.scope_type === "PRODUCT_VARIANT") return { scope_type: scope.scope_type, product_variant_id: id, uom_id: scope.uom_id.trim() ? positiveInteger(scope.uom_id, "وحدة نطاق المنتج") : null };
   if (scope.scope_type === "CUSTOMER") return { scope_type: scope.scope_type, customer_id: id };
   return { scope_type: scope.scope_type, branch_id: id };
 };
 
 export const buildOfferVersionPayload = (form: OfferVersionForm) => {
+  if (["BUY_X_GET_Y", "FREE_GOODS"].includes(form.offer_type) && form.max_reward_quantity.trim()) throw new Error("حد كمية المكافأة العام غير صالح للعروض متعددة وحدات القياس؛ استخدم حد مرات التطبيق.");
   const caps = buildCaps(form); let payload: Record<string, unknown>;
   switch (form.offer_type) {
     case "PERCENTAGE_DISCOUNT": payload = { percentage: percentage(form.percentage, "نسبة الخصم") }; break;
     case "FIXED_DISCOUNT": payload = { amount: positiveDecimal(form.fixed_amount, "الخصم الثابت") }; break;
-    case "BUY_X_GET_Y": payload = { buy_quantity: positiveDecimal(form.buy_quantity, "كمية الشراء"), get_quantity: positiveDecimal(form.get_quantity, "كمية المكافأة") }; break;
-    case "FREE_GOODS": payload = { qualifying_quantity: positiveDecimal(form.qualifying_quantity, "الكمية المؤهلة"), free_quantity: positiveDecimal(form.free_quantity, "الكمية المجانية") }; break;
+    case "BUY_X_GET_Y": payload = { buy_quantity: positiveDecimal(form.buy_quantity, "كمية الشراء") }; break;
+    case "FREE_GOODS": payload = { qualifying_quantity: positiveDecimal(form.qualifying_quantity, "الكمية المؤهلة") }; break;
     case "QUANTITY_TIERS": {
       if (!form.tiers.length) throw new Error("أضف شريحة كمية واحدة على الأقل.");
       let previous: string | null = null;
@@ -139,24 +140,27 @@ export const buildOfferVersionPayload = (form: OfferVersionForm) => {
       });
       payload = { tiers }; break;
     }
-    case "BUNDLE": payload = { bundle_quantity: positiveDecimal(form.bundle_quantity, "كمية الحزمة"), reward_type: form.bundle_reward_type, reward_value: form.bundle_reward_type === "PERCENTAGE_DISCOUNT" ? percentage(form.bundle_reward_value, "قيمة مكافأة الحزمة") : positiveDecimal(form.bundle_reward_value, "قيمة مكافأة الحزمة") }; break;
+    case "BUNDLE": payload = { reward_type: form.bundle_reward_type, reward_value: form.bundle_reward_type === "PERCENTAGE_DISCOUNT" ? percentage(form.bundle_reward_value, "قيمة مكافأة الحزمة") : positiveDecimal(form.bundle_reward_value, "قيمة مكافأة الحزمة") }; break;
   }
   if (caps) payload.caps = caps;
   const scopes = form.scopes.map(offerScopePayload);
   const scopeKeys = scopes.map((row) => JSON.stringify(row)); if (new Set(scopeKeys).size !== scopeKeys.length) throw new Error("يوجد نطاق عرض مكرر.");
-  const products = form.products.map((row) => ({ role: row.role, product_variant_id: positiveInteger(row.product_variant_id, "معرّف منتج العرض") }));
-  const productKeys = products.map((row) => `${row.role}:${row.product_variant_id}`); if (new Set(productKeys).size !== productKeys.length) throw new Error("يوجد منتج/دور مكرر في العرض.");
+  const products = form.products.map((row, index) => ({ role: row.role, product_variant_id: positiveInteger(row.product_variant_id, `منتج العرض ${index + 1}`), uom_id: positiveInteger(row.uom_id, `وحدة منتج العرض ${index + 1}`), quantity_per_application: row.quantity_per_application.trim() ? positiveDecimal(row.quantity_per_application, `كمية منتج العرض ${index + 1}`) : null }));
+  const productKeys = products.map((row) => `${row.role}:${row.product_variant_id}:${row.uom_id}`); if (new Set(productKeys).size !== productKeys.length) throw new Error("يوجد منتج/وحدة/دور مكرر في العرض.");
   const productScopes = scopes.filter((row) => row.scope_type === "PRODUCT_VARIANT");
   if (["PERCENTAGE_DISCOUNT", "FIXED_DISCOUNT"].includes(form.offer_type) && products.length) throw new Error("هذا النوع يستخدم نطاق المنتج ولا يقبل أدوار منتجات.");
-  if (form.offer_type === "QUANTITY_TIERS" && (products.length || productScopes.length !== 1)) throw new Error("عرض الشرائح يحتاج نطاق منتج واحد فقط ولا يقبل أدوار منتجات.");
+  if (form.offer_type === "QUANTITY_TIERS" && (products.length || productScopes.length !== 1 || productScopes[0].uom_id == null)) throw new Error("عرض الشرائح يحتاج منتجاً واحداً ووحدة قياس صريحة ولا يقبل أدوار منتجات.");
   if (["BUY_X_GET_Y", "FREE_GOODS"].includes(form.offer_type)) {
     if (productScopes.length) throw new Error("هذا النوع يستخدم أدوار المنتجات بدل نطاق المنتج.");
     const qualifying = products.filter((row) => row.role === "QUALIFYING"); const rewards = products.filter((row) => row.role === "REWARD");
-    if (!qualifying.length || rewards.length !== 1 || products.some((row) => !["QUALIFYING", "REWARD"].includes(row.role))) throw new Error("يلزم منتج مؤهل واحد على الأقل ومنتج مكافأة واحد بالضبط.");
+    if (!qualifying.length || !rewards.length || products.some((row) => !["QUALIFYING", "REWARD"].includes(row.role))) throw new Error("يلزم منتج مؤهل واحد على الأقل ومكافأة واحدة على الأقل.");
+    if (new Set(qualifying.map((row) => row.uom_id)).size !== 1) throw new Error("كل المنتجات المؤهلة في هذا العرض يجب أن تستخدم وحدة القياس نفسها.");
+    if (qualifying.some((row) => row.quantity_per_application !== null)) throw new Error("كمية المنتجات المؤهلة تُحدد من حد الشراء/التأهيل، وليس من صف المنتج.");
+    if (rewards.some((row) => row.quantity_per_application === null)) throw new Error("حدد كمية المكافأة لكل منتج مكافأة.");
   }
   if (form.offer_type === "BUNDLE") {
     const components = products.filter((row) => row.role === "BUNDLE_COMPONENT");
-    if (productScopes.length || components.length < 2 || components.length !== products.length) throw new Error("الحزمة تحتاج منتجين BUNDLE_COMPONENT على الأقل وبدون نطاق منتج.");
+    if (productScopes.length || components.length < 2 || new Set(components.map((row) => row.product_variant_id)).size < 2 || components.length !== products.length || components.some((row) => row.quantity_per_application === null)) throw new Error("الحزمة تحتاج منتجين مختلفين على الأقل، ولكل مكوّن وحدة وكمية صريحتان، وبدون نطاق منتج.");
   }
   const usesMoney = form.offer_type === "FIXED_DISCOUNT" || (form.offer_type === "QUANTITY_TIERS" && form.tiers.some((tier) => tier.reward_type === "FIXED_DISCOUNT")) || (form.offer_type === "BUNDLE" && ["FIXED_DISCOUNT", "FIXED_PRICE"].includes(form.bundle_reward_type)) || Boolean(form.max_discount_amount.trim());
   const currency = form.currency_code.trim().toUpperCase(); if (usesMoney && !currency) throw new Error("رمز العملة مطلوب لهذا العرض.");

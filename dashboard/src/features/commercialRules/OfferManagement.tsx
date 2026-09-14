@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BadgePercent, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { createOfferDefinition, createOfferVersion, deleteOfferDefinition, deleteOfferVersion, lifecycleCommand, updateOfferDefinition, updateOfferVersion, validateVersion } from "./api";
-import { useCatalogVariants, useOfferDefinitions, useOfferPolicy, useOfferVersions } from "./hooks";
+import { useOfferCatalogVariants, useOfferDefinitions, useOfferPolicy, useOfferVersions } from "./hooks";
 import type { LifecycleStatus, OfferDefinition, OfferVersion } from "./contracts";
 import { DeleteDialog } from "./DeleteDialog";
 import { OfferDefinitionEditor, OfferVersionEditor } from "./editors/OfferEditors";
@@ -17,9 +17,11 @@ function LoadMore({ visible, pending, onClick }: { visible: boolean; pending: bo
 export default function OfferManagement() {
   const authFetch = useAuthFetch(); const queryClient = useQueryClient(); const access = useInventoryAccess();
   const canManage = access.isCompanyAdmin || access.canAny("offers.manage"); const canApprove = access.isCompanyAdmin || access.canAny("offers.approve"); const catalogAvailable = access.isCompanyAdmin || access.canAny("catalog.read");
-  const policy = useOfferPolicy(); const definitions = useOfferDefinitions(); const catalog = useCatalogVariants(catalogAvailable);
+  const policy = useOfferPolicy(); const definitions = useOfferDefinitions();
   const [selectedId, setSelectedId] = useState<number | null>(null); const versions = useOfferVersions(selectedId); const selected = definitions.items.find((row) => row.id === selectedId) ?? null;
   const [definitionEditor, setDefinitionEditor] = useState<OfferDefinition | "new" | null>(null); const [versionEditor, setVersionEditor] = useState<OfferVersion | "new" | null>(null);
+  const editorVariantIds = useMemo(() => versionEditor && versionEditor !== "new" ? [...new Set([...versionEditor.products.map((row) => row.product_variant_id), ...versionEditor.scopes.flatMap((row) => row.product_variant_id == null ? [] : [row.product_variant_id])])] : [], [versionEditor]);
+  const catalog = useOfferCatalogVariants(catalogAvailable, editorVariantIds);
   const [deleteTarget, setDeleteTarget] = useState<{ kind: "definition"; row: OfferDefinition } | { kind: "version"; row: OfferVersion } | null>(null); const [reason, setReason] = useState("إجراء إداري من لوحة التحكم");
   useEffect(() => { if (!definitions.items.length) { setSelectedId(null); return; } if (!selectedId || !definitions.items.some((item) => item.id === selectedId)) setSelectedId(definitions.items[0].id); }, [definitions.items, selectedId]);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["commercial-rules", "offers"] });
