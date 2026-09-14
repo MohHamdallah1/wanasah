@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Mapping
 
-from domains.offers.contracts import AppliedAdjustment, AppliedOffer, AppliedReward
+from domains.offers.contracts import AppliedAdjustment, AppliedOffer
 from domains.taxation.contracts import TaxResolution
 
 
@@ -41,6 +41,24 @@ class CalculatedPriceComponent:
     assignment_revision: int
     unit_price: Decimal
     gross_amount: Decimal
+
+
+@dataclass(frozen=True)
+class CalculatedReward:
+    sequence: int
+    offer_version_id: int
+    offer_definition_id: int
+    offer_revision: int
+    offer_type: str
+    product_variant_id: int
+    uom_id: int
+    quantity: Decimal
+    base_quantity: Decimal
+    price_entry_id: int
+    price_publication_revision: int
+    assignment_revision: int
+    unit_price: Decimal
+    reward_value: Decimal
 
 
 @dataclass(frozen=True)
@@ -102,6 +120,6 @@ class CommercialCalculation:
     lines: tuple[CalculatedLine, ...]
     totals: CalculationTotals
     adjustments: tuple[AppliedAdjustment, ...]
-    rewards: tuple[AppliedReward, ...]
+    rewards: tuple[CalculatedReward, ...]
     applied_offers: tuple[AppliedOffer, ...]
     tax_resolutions: Mapping[int, TaxResolution]

@@ -255,6 +255,10 @@ async def preview_offer_basket(
             uom_id=int(pair[1]),
             unit_price=price.amount,
             price_entry_id=int(price.price_entry_id),
+            price_publication_revision=int(
+                price.price_publication_revision
+            ),
+            assignment_revision=int(price.assignment_revision),
         )
         for pair, price in price_rows.items()
     }

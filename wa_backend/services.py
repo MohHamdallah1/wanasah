@@ -6063,6 +6063,29 @@ async def reverse_previous_visit_state(
     )
 
     locked_shop.current_balance = new_balance
+    # The operational Visit is a mutable projection. Historical commercial
+    # authority remains append-only in sales_visit_revisions and frozen VisitItems.
+    # Clearing the current pointer never deletes or rewrites prior evidence.
+    locked_visit.current_sales_revision_id = None
+    locked_visit.financial_evidence_version = None
+    locked_visit.financial_evidence_frozen_at = None
+    locked_visit.commercial_calculated_at = None
+    locked_visit.commercial_context_id = None
+    locked_visit.transaction_currency_code = None
+    locked_visit.functional_currency_code = None
+    locked_visit.rounding_policy_version = None
+    locked_visit.rounding_precision = None
+    locked_visit.rounding_mode = None
+    locked_visit.price_publication_revision_ceiling = None
+    locked_visit.assignment_revision_ceiling = None
+    locked_visit.offer_revision_ceiling = None
+    locked_visit.tax_revision_ceiling = None
+    locked_visit.post_offer_amount = None
+    locked_visit.taxable_amount = None
+    locked_visit.line_total_amount = None
+    locked_visit.rounding_adjustment = None
+    locked_visit.offer_snapshot = None
+
     locked_visit.amount_before_tax_and_discount = Decimal("0.0")
     locked_visit.discount_applied = Decimal("0.0")
     locked_visit.tax_percentage_applied = Decimal("0.0")

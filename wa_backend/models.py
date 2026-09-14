@@ -1221,6 +1221,30 @@ class Visit(Base):
             ondelete='RESTRICT',
             name='fk_visit_tenant_commercial_context'
         ),
+        ForeignKeyConstraint(
+            ['company_id', 'id', 'current_sales_revision_id'],
+            [
+                'sales_visit_revisions.company_id',
+                'sales_visit_revisions.visit_id',
+                'sales_visit_revisions.id',
+            ],
+            ondelete='RESTRICT',
+            name='fk_visit_tenant_current_sales_revision'
+        ),
+        CheckConstraint(
+            """
+            (
+                current_sales_revision_id IS NULL
+                AND financial_evidence_version IS NULL
+            )
+            OR
+            (
+                current_sales_revision_id IS NOT NULL
+                AND financial_evidence_version = 4
+            )
+            """,
+            name='visit_current_sales_revision_shape'
+        ),
         CheckConstraint(
             """
             (
@@ -1245,7 +1269,7 @@ class Visit(Base):
             )
             OR
             (
-                financial_evidence_version = 3
+                financial_evidence_version = 4
                 AND financial_evidence_frozen_at IS NOT NULL
                 AND commercial_calculated_at IS NOT NULL
                 AND transaction_currency_code ~ '^[A-Z][A-Z0-9]{2,9}$'
@@ -1306,6 +1330,7 @@ class Visit(Base):
     financial_evidence_frozen_at = Column(DateTime(timezone=True), nullable=True)
     commercial_calculated_at = Column(DateTime(timezone=True), nullable=True)
     commercial_context_id = Column(Integer, nullable=True, index=True)
+    current_sales_revision_id = Column(Integer, nullable=True, index=True)
     transaction_currency_code = Column(String(10), nullable=True)
     functional_currency_code = Column(String(10), nullable=True)
     rounding_policy_version = Column(Integer, nullable=True)
@@ -1360,6 +1385,16 @@ class VisitItem(Base):
             name='fk_visit_item_tenant_commercial_context'
         ),
         ForeignKeyConstraint(
+            ['company_id', 'visit_id', 'sales_revision_id'],
+            [
+                'sales_visit_revisions.company_id',
+                'sales_visit_revisions.visit_id',
+                'sales_visit_revisions.id',
+            ],
+            ondelete='RESTRICT',
+            name='fk_visit_item_tenant_sales_revision'
+        ),
+        ForeignKeyConstraint(
             ['company_id', 'selected_price_entry_id'],
             ['price_book_entries.company_id', 'price_book_entries.id'],
             ondelete='RESTRICT',
@@ -1381,6 +1416,7 @@ class VisitItem(Base):
                 financial_evidence_version IS NULL
                 AND financial_evidence_frozen_at IS NULL
                 AND commercial_context_id IS NULL
+                AND sales_revision_id IS NULL
                 AND base_uom_id IS NULL
                 AND canonical_quantity IS NULL
                 AND selected_price_entry_id IS NULL
@@ -1399,8 +1435,9 @@ class VisitItem(Base):
             )
             OR
             (
-                financial_evidence_version = 3
+                financial_evidence_version = 4
                 AND financial_evidence_frozen_at IS NOT NULL
+                AND sales_revision_id IS NOT NULL
                 AND base_uom_id IS NOT NULL
                 AND canonical_quantity > 0
                 AND selected_price_entry_id IS NULL
@@ -1445,6 +1482,7 @@ class VisitItem(Base):
     financial_evidence_version = Column(Integer, nullable=True)
     financial_evidence_frozen_at = Column(DateTime(timezone=True), nullable=True)
     commercial_context_id = Column(Integer, nullable=True, index=True)
+    sales_revision_id = Column(Integer, nullable=True, index=True)
     base_uom_id = Column(Integer, nullable=True)
     canonical_quantity = Column(Numeric(20, 6), nullable=True)
     selected_price_entry_id = Column(Integer, nullable=True, index=True)

@@ -84,6 +84,8 @@ class CatalogPrice:
     uom_id: int
     unit_price: Decimal
     price_entry_id: int
+    price_publication_revision: int
+    assignment_revision: int
 
 
 @dataclass(frozen=True)

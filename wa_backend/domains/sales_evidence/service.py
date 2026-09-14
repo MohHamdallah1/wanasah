@@ -22,6 +22,8 @@ from domains.sales_evidence.models import (
     SalesLineAdjustment,
     SalesLinePriceComponent,
     SalesLineTaxComponent,
+    SalesRewardEvidence,
+    SalesVisitRevision,
 )
 from models import RouteCommercialContext, Visit, VisitItem
 
@@ -176,6 +178,14 @@ def _document_offer_snapshot(calculation: CommercialCalculation) -> dict:
                     "product_variant_id": row.product_variant_id,
                     "uom_id": row.uom_id,
                     "quantity": row.quantity,
+                    "base_quantity": row.base_quantity,
+                    "price_entry_id": row.price_entry_id,
+                    "price_publication_revision": (
+                        row.price_publication_revision
+                    ),
+                    "assignment_revision": row.assignment_revision,
+                    "unit_price": row.unit_price,
+                    "reward_value": row.reward_value,
                 }
                 for row in calculation.rewards
             ],
@@ -286,15 +296,26 @@ async def freeze_sales_evidence(
             "Calculation rounding currency does not match transaction currency.",
         )
 
+    if commercial_context_id is None:
+        raise SalesEvidenceError(
+            "SALES_EVIDENCE_CONTEXT_REQUIRED",
+            "A locked RouteCommercialContext is required for immutable sales evidence.",
+            status_code=422,
+        )
+
     visit = await _locked_visit(
         db,
         company_id=company_id,
         visit_id=visit_id,
     )
-    if visit.financial_evidence_version is not None:
+    if (
+        visit.current_sales_revision_id is not None
+        or visit.financial_evidence_version is not None
+    ):
         raise SalesEvidenceError(
-            "SALES_EVIDENCE_ALREADY_FROZEN",
-            "Financial evidence for this visit is already frozen.",
+            "SALES_EVIDENCE_CURRENT_REVISION_EXISTS",
+            "The visit already points to a current immutable sales revision. "
+            "Reverse the completed visit before creating a correction revision.",
         )
 
     calc_lines = {int(line.line_id): line for line in calculation.lines}
@@ -354,9 +375,128 @@ async def freeze_sales_evidence(
                 "Functional currency does not match the locked route context.",
             )
 
+    previous_revision = (
+        await db.execute(
+            select(
+                SalesVisitRevision.id,
+                SalesVisitRevision.revision_number,
+            )
+            .where(
+                SalesVisitRevision.company_id == int(company_id),
+                SalesVisitRevision.visit_id == int(visit_id),
+            )
+            .order_by(SalesVisitRevision.revision_number.desc())
+            .limit(1)
+        )
+    ).first()
+    next_revision_number = (
+        int(previous_revision.revision_number) + 1
+        if previous_revision is not None
+        else 1
+    )
+    previous_revision_id = (
+        int(previous_revision.id)
+        if previous_revision is not None
+        else None
+    )
+
+    totals = calculation.totals
+    document_offer_snapshot = _document_offer_snapshot(calculation)
+    revision = SalesVisitRevision(
+        company_id=int(company_id),
+        visit_id=int(visit_id),
+        revision_number=next_revision_number,
+        supersedes_revision_id=previous_revision_id,
+        evidence_schema_version=EVIDENCE_SCHEMA_VERSION,
+        frozen_at=None,
+        commercial_calculated_at=calculation.calculated_at,
+        commercial_context_id=int(commercial_context_id),
+        transaction_currency_code=transaction_currency,
+        functional_currency_code=functional_currency,
+        rounding_policy_version=int(calculation.rounding_policy.version),
+        rounding_precision=int(calculation.rounding_policy.precision),
+        rounding_mode=str(calculation.rounding_policy.mode),
+        price_publication_revision_ceiling=int(
+            calculation.price_publication_revision_ceiling
+        ),
+        assignment_revision_ceiling=int(
+            calculation.assignment_revision_ceiling
+        ),
+        offer_revision_ceiling=int(calculation.offer_revision_ceiling),
+        tax_revision_ceiling=int(calculation.tax_revision_ceiling),
+        gross_amount=totals.gross_amount,
+        discount_amount=totals.discount_amount,
+        post_offer_amount=totals.post_offer_amount,
+        taxable_amount=totals.taxable_amount,
+        tax_amount=totals.tax_amount,
+        line_total_amount=totals.line_total_amount,
+        rounding_adjustment=totals.rounding_adjustment,
+        final_amount=totals.final_amount,
+        offer_snapshot=document_offer_snapshot,
+    )
+    db.add(revision)
+    await db.flush()
+
+    seen_reward_keys: set[tuple[int, int, int]] = set()
+    for reward in calculation.rewards:
+        reward_key = (
+            int(reward.sequence),
+            int(reward.product_variant_id),
+            int(reward.uom_id),
+        )
+        if reward_key in seen_reward_keys:
+            raise SalesEvidenceError(
+                "SALES_EVIDENCE_REWARD_DUPLICATE",
+                "Reward evidence repeats the same offer/product/UOM.",
+                context={
+                    "offer_sequence": reward_key[0],
+                    "product_variant_id": reward_key[1],
+                    "uom_id": reward_key[2],
+                },
+            )
+        seen_reward_keys.add(reward_key)
+        if (
+            reward.quantity <= ZERO
+            or reward.base_quantity <= ZERO
+            or reward.unit_price < ZERO
+            or reward.reward_value < ZERO
+        ):
+            raise SalesEvidenceError(
+                "SALES_EVIDENCE_REWARD_INVALID",
+                "Reward evidence contains invalid quantities or monetary values.",
+                context={
+                    "offer_sequence": int(reward.sequence),
+                    "product_variant_id": int(reward.product_variant_id),
+                    "uom_id": int(reward.uom_id),
+                },
+            )
+        db.add(
+            SalesRewardEvidence(
+                company_id=int(company_id),
+                visit_id=int(visit_id),
+                sales_revision_id=int(revision.id),
+                sequence=int(reward.sequence),
+                offer_version_id=int(reward.offer_version_id),
+                offer_definition_id=int(reward.offer_definition_id),
+                offer_revision=int(reward.offer_revision),
+                offer_type=str(reward.offer_type),
+                product_variant_id=int(reward.product_variant_id),
+                uom_id=int(reward.uom_id),
+                quantity=reward.quantity,
+                base_quantity=reward.base_quantity,
+                price_entry_id=int(reward.price_entry_id),
+                price_publication_revision=int(
+                    reward.price_publication_revision
+                ),
+                assignment_revision=int(reward.assignment_revision),
+                unit_price=reward.unit_price,
+                reward_value=reward.reward_value,
+            )
+        )
+
     # Persist exact sold-UOM pricing evidence before freezing the parent.
     # The parent VisitItem intentionally carries no single price authority in
-    # schema v3; sales_line_price_components is the only immutable price SSOT.
+    # schema v4; sales_line_price_components is the only immutable price SSOT.
     for line in calculation.lines:
         item_id = mapping[int(line.line_id)]
         if not line.price_components:
@@ -535,6 +675,7 @@ async def freeze_sales_evidence(
         item.financial_evidence_version = EVIDENCE_SCHEMA_VERSION
         item.financial_evidence_frozen_at = frozen_at
         item.commercial_context_id = commercial_context_id
+        item.sales_revision_id = int(revision.id)
         item.base_uom_id = int(line.base_uom_id)
         item.canonical_quantity = line.quantity
         # Schema v3 removes the misleading single-price parent authority.
@@ -562,7 +703,13 @@ async def freeze_sales_evidence(
         )
         item.tax_snapshot = _line_tax_snapshot(calculation, line)
 
-    totals = calculation.totals
+    # Flush frozen line parents before sealing the document revision.
+    await db.flush()
+
+    revision.frozen_at = frozen_at
+    await db.flush()
+
+    visit.current_sales_revision_id = int(revision.id)
     visit.financial_evidence_version = EVIDENCE_SCHEMA_VERSION
     visit.financial_evidence_frozen_at = frozen_at
     visit.commercial_calculated_at = calculation.calculated_at
@@ -588,7 +735,7 @@ async def freeze_sales_evidence(
     visit.line_total_amount = totals.line_total_amount
     visit.rounding_adjustment = totals.rounding_adjustment
     visit.final_amount_due = totals.final_amount
-    visit.offer_snapshot = _document_offer_snapshot(calculation)
+    visit.offer_snapshot = document_offer_snapshot
 
     await db.flush()
     return visit

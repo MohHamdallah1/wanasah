@@ -3,10 +3,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Mapping, Sequence
 
-from domains.offers.contracts import BasketLine, OfferEngineResult
+from domains.offers.contracts import BasketLine, OfferEngineResult, money
 from domains.sales_calculation.contracts import (
     CalculatedLine,
     CalculatedPriceComponent,
+    CalculatedReward,
     CalculationTotals,
     CommercialCalculation,
     RoundedTaxComponent,
@@ -43,6 +44,7 @@ def calculate_document(
     *,
     basket_lines: Sequence[BasketLine],
     offer_result: OfferEngineResult,
+    calculated_rewards: Sequence[CalculatedReward],
     tax_resolutions: Mapping[int, TaxResolution],
     transaction_currency_code: str,
     rounding_policy: RoundingPolicy,
@@ -246,6 +248,108 @@ def calculate_document(
             "CALCULATION_CONTEXT_TIME_MISMATCH",
             "Offer engine calculation timestamp must include a UTC offset.",
         )
+
+    raw_reward_identity = [
+        (
+            int(row.sequence),
+            int(row.offer_version_id),
+            int(row.offer_definition_id),
+            int(row.offer_revision),
+            str(row.offer_type),
+            int(row.product_variant_id),
+            int(row.uom_id),
+            row.quantity,
+        )
+        for row in offer_result.rewards
+    ]
+    calculated_reward_identity = [
+        (
+            int(row.sequence),
+            int(row.offer_version_id),
+            int(row.offer_definition_id),
+            int(row.offer_revision),
+            str(row.offer_type),
+            int(row.product_variant_id),
+            int(row.uom_id),
+            row.quantity,
+        )
+        for row in calculated_rewards
+    ]
+    if raw_reward_identity != calculated_reward_identity:
+        raise CalculationError(
+            "CALCULATION_REWARD_EVIDENCE_MISMATCH",
+            "Typed reward evidence does not match the applied offer rewards.",
+        )
+
+    reward_value_by_sequence: dict[int, Decimal] = {}
+    seen_reward_keys: set[tuple[int, int, int]] = set()
+    for reward in calculated_rewards:
+        key = (
+            int(reward.sequence),
+            int(reward.product_variant_id),
+            int(reward.uom_id),
+        )
+        if key in seen_reward_keys:
+            raise CalculationError(
+                "CALCULATION_REWARD_EVIDENCE_DUPLICATE",
+                "Typed reward evidence repeats the same offer/product/UOM.",
+                context={
+                    "offer_sequence": key[0],
+                    "product_variant_id": key[1],
+                    "uom_id": key[2],
+                },
+            )
+        seen_reward_keys.add(key)
+        if (
+            reward.sequence <= 0
+            or reward.product_variant_id <= 0
+            or reward.uom_id <= 0
+            or reward.price_entry_id <= 0
+            or reward.offer_revision <= 0
+            or reward.offer_revision > offer_revision_ceiling
+            or reward.price_publication_revision <= 0
+            or reward.price_publication_revision
+            > price_publication_revision_ceiling
+            or reward.assignment_revision <= 0
+            or reward.assignment_revision > assignment_revision_ceiling
+            or not reward.quantity.is_finite()
+            or reward.quantity <= ZERO
+            or not reward.base_quantity.is_finite()
+            or reward.base_quantity <= ZERO
+            or not reward.unit_price.is_finite()
+            or reward.unit_price < ZERO
+            or not reward.reward_value.is_finite()
+            or reward.reward_value < ZERO
+            or reward.reward_value
+            != money(reward.quantity * reward.unit_price)
+        ):
+            raise CalculationError(
+                "CALCULATION_REWARD_EVIDENCE_INVALID",
+                "Typed reward evidence contains invalid or out-of-lock values.",
+                context={
+                    "offer_sequence": int(reward.sequence),
+                    "product_variant_id": int(reward.product_variant_id),
+                    "uom_id": int(reward.uom_id),
+                },
+            )
+        reward_value_by_sequence[reward.sequence] = money(
+            reward_value_by_sequence.get(reward.sequence, ZERO)
+            + reward.reward_value
+        )
+
+    for applied in offer_result.applied_offers:
+        expected = money(applied.reward_value)
+        actual = reward_value_by_sequence.get(int(applied.sequence), money(ZERO))
+        if expected != actual:
+            raise CalculationError(
+                "CALCULATION_REWARD_RECONCILIATION_FAILED",
+                "Typed reward values do not reconcile to applied offer evidence.",
+                context={
+                    "offer_sequence": int(applied.sequence),
+                    "expected_reward_value": str(expected),
+                    "actual_reward_value": str(actual),
+                },
+            )
 
     calculated_lines: list[CalculatedLine] = []
     raw_document_final = ZERO
@@ -505,7 +609,7 @@ def calculate_document(
             final_amount=final_total,
         ),
         adjustments=offer_result.adjustments,
-        rewards=offer_result.rewards,
+        rewards=tuple(calculated_rewards),
         applied_offers=offer_result.applied_offers,
         tax_resolutions=tax_resolutions,
     )

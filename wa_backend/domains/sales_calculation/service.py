@@ -10,6 +10,7 @@ from domains.offers.contracts import (
     BasketLine,
     BasketPriceComponent,
     CatalogPrice,
+    money,
 )
 from domains.offers.core import OfferError
 from domains.offers.eligibility import resolve_offer_candidates
@@ -17,6 +18,7 @@ from domains.offers.engine import calculate_offers
 from domains.pricing.core import PricingError
 from domains.pricing.resolver import resolve_prices_bulk
 from domains.sales_calculation.contracts import (
+    CalculatedReward,
     CalculationInputLine,
     CommercialCalculation,
     RoundingPolicy,
@@ -318,6 +320,10 @@ async def resolve_and_calculate_document(
             uom_id=int(pair[1]),
             unit_price=price.amount,
             price_entry_id=int(price.price_entry_id),
+            price_publication_revision=int(
+                price.price_publication_revision
+            ),
+            assignment_revision=int(price.assignment_revision),
         )
         for pair, price in price_rows.items()
     }
@@ -384,6 +390,79 @@ async def resolve_and_calculate_document(
             context=exc.context,
         ) from exc
 
+    calculated_rewards: list[CalculatedReward] = []
+    try:
+        for reward in offer_result.rewards:
+            variant_id = int(reward.product_variant_id)
+            uom_id = int(reward.uom_id)
+            pair = (variant_id, uom_id)
+            price = price_rows.get(pair)
+            if price is None:
+                raise CalculationError(
+                    "CALCULATION_REWARD_PRICE_MISSING",
+                    "Applied reward has no locked price evidence.",
+                    context={
+                        "product_variant_id": variant_id,
+                        "uom_id": uom_id,
+                    },
+                )
+            authority = all_authorities[variant_id]
+            base_quantity = authority.to_base(
+                reward.quantity,
+                uom_id=uom_id,
+                field_name=f"reward_quantity[{variant_id}:{uom_id}]",
+            )
+            base_quantity = authority.validate_canonical_total(
+                base_quantity,
+                field_name=f"reward_base_quantity[{variant_id}:{uom_id}]",
+            )
+            reward_value = money(reward.quantity * price.amount)
+            calculated_rewards.append(
+                CalculatedReward(
+                    sequence=int(reward.sequence),
+                    offer_version_id=int(reward.offer_version_id),
+                    offer_definition_id=int(reward.offer_definition_id),
+                    offer_revision=int(reward.offer_revision),
+                    offer_type=str(reward.offer_type),
+                    product_variant_id=variant_id,
+                    uom_id=uom_id,
+                    quantity=reward.quantity,
+                    base_quantity=base_quantity,
+                    price_entry_id=int(price.price_entry_id),
+                    price_publication_revision=int(
+                        price.price_publication_revision
+                    ),
+                    assignment_revision=int(price.assignment_revision),
+                    unit_price=price.amount,
+                    reward_value=reward_value,
+                )
+            )
+    except UomAuthorityError as exc:
+        raise _uom_error(exc) from exc
+
+    reward_value_by_sequence: dict[int, Decimal] = {}
+    for reward in calculated_rewards:
+        reward_value_by_sequence[reward.sequence] = money(
+            reward_value_by_sequence.get(reward.sequence, Decimal("0"))
+            + reward.reward_value
+        )
+    for applied in offer_result.applied_offers:
+        expected_reward_value = money(applied.reward_value)
+        actual_reward_value = reward_value_by_sequence.get(
+            int(applied.sequence),
+            money(Decimal("0")),
+        )
+        if actual_reward_value != expected_reward_value:
+            raise CalculationError(
+                "CALCULATION_REWARD_RECONCILIATION_FAILED",
+                "Typed reward price evidence does not reconcile to the applied offer.",
+                context={
+                    "offer_sequence": int(applied.sequence),
+                    "expected_reward_value": str(expected_reward_value),
+                    "actual_reward_value": str(actual_reward_value),
+                },
+            )
+
     try:
         tax_resolutions, used_tax_ceiling = await resolve_tax_rules_bulk(
             db,
@@ -411,6 +490,7 @@ async def resolve_and_calculate_document(
     return calculate_document(
         basket_lines=basket_lines,
         offer_result=offer_result,
+        calculated_rewards=tuple(calculated_rewards),
         tax_resolutions=tax_resolutions,
         transaction_currency_code=currency,
         rounding_policy=policy,
