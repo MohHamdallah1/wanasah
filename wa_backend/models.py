@@ -1245,7 +1245,7 @@ class Visit(Base):
             )
             OR
             (
-                financial_evidence_version = 1
+                financial_evidence_version = 3
                 AND financial_evidence_frozen_at IS NOT NULL
                 AND commercial_calculated_at IS NOT NULL
                 AND transaction_currency_code ~ '^[A-Z][A-Z0-9]{2,9}$'
@@ -1399,13 +1399,13 @@ class VisitItem(Base):
             )
             OR
             (
-                financial_evidence_version = 1
+                financial_evidence_version = 3
                 AND financial_evidence_frozen_at IS NOT NULL
                 AND base_uom_id IS NOT NULL
                 AND canonical_quantity > 0
-                AND selected_price_entry_id IS NOT NULL
-                AND price_publication_revision > 0
-                AND assignment_revision > 0
+                AND selected_price_entry_id IS NULL
+                AND price_publication_revision IS NULL
+                AND assignment_revision IS NULL
                 AND gross_amount >= 0
                 AND discount_amount >= 0
                 AND post_offer_amount >= 0

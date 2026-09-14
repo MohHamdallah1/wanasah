@@ -282,6 +282,12 @@ async def preview_offer_basket(
                     price_entry_id=int(
                         price.price_entry_id
                     ),
+                    price_publication_revision=int(
+                        price.price_publication_revision
+                    ),
+                    assignment_revision=int(
+                        price.assignment_revision
+                    ),
                 )
             )
         basket_lines.append(

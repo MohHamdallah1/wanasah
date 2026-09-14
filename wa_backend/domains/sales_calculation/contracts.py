@@ -18,10 +18,29 @@ class RoundingPolicy:
 
 
 @dataclass(frozen=True)
+class CalculationInputComponent:
+    uom_id: int
+    quantity: Decimal
+
+
+@dataclass(frozen=True)
 class CalculationInputLine:
     line_id: int
     product_variant_id: int
+    components: tuple[CalculationInputComponent, ...]
+
+
+@dataclass(frozen=True)
+class CalculatedPriceComponent:
+    sequence: int
+    uom_id: int
     quantity: Decimal
+    base_quantity: Decimal
+    price_entry_id: int
+    price_publication_revision: int
+    assignment_revision: int
+    unit_price: Decimal
+    gross_amount: Decimal
 
 
 @dataclass(frozen=True)
@@ -44,10 +63,7 @@ class CalculatedLine:
     product_variant_id: int
     base_uom_id: int
     quantity: Decimal
-    price_entry_id: int
-    price_publication_revision: int
-    assignment_revision: int
-    unit_price: Decimal
+    price_components: tuple[CalculatedPriceComponent, ...]
     gross_amount: Decimal
     discount_amount: Decimal
     post_offer_amount: Decimal

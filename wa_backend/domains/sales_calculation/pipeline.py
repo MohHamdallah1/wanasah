@@ -6,6 +6,7 @@ from typing import Mapping, Sequence
 from domains.offers.contracts import BasketLine, OfferEngineResult
 from domains.sales_calculation.contracts import (
     CalculatedLine,
+    CalculatedPriceComponent,
     CalculationTotals,
     CommercialCalculation,
     RoundedTaxComponent,
@@ -45,8 +46,6 @@ def calculate_document(
     tax_resolutions: Mapping[int, TaxResolution],
     transaction_currency_code: str,
     rounding_policy: RoundingPolicy,
-    price_publication_revisions: Mapping[int, int],
-    assignment_revisions: Mapping[int, int],
     price_publication_revision_ceiling: int,
     assignment_revision_ceiling: int,
     offer_revision_ceiling: int,
@@ -105,7 +104,7 @@ def calculate_document(
     if len(product_ids) != len(set(product_ids)):
         raise CalculationError(
             "CALCULATION_DUPLICATE_VARIANT",
-            "Calculation requires one canonical line per product variant.",
+            "Calculation requires one logical line per product variant.",
             status_code=422,
         )
     if any(
@@ -117,19 +116,63 @@ def calculate_document(
             "Line and product identifiers must be positive integers.",
             status_code=422,
         )
+
     for line in ordered_lines:
         if (
             not isinstance(line.quantity, Decimal)
             or not line.quantity.is_finite()
-            or not isinstance(line.unit_price, Decimal)
-            or not line.unit_price.is_finite()
+            or line.quantity <= ZERO
             or line.base_uom_id <= 0
-            or line.price_entry_id <= 0
+            or not line.price_components
         ):
             raise CalculationError(
                 "CALCULATION_LINE_INVALID",
-                "Calculation line contains invalid structural or decimal evidence.",
+                "Calculation line contains invalid mixed-UOM evidence.",
                 status_code=422,
+                context={"line_id": line.line_id},
+            )
+
+        uoms = [int(row.uom_id) for row in line.price_components]
+        if len(uoms) != len(set(uoms)):
+            raise CalculationError(
+                "CALCULATION_PRICE_COMPONENT_DUPLICATE_UOM",
+                "A logical product line cannot repeat a price UOM.",
+                status_code=422,
+                context={"line_id": line.line_id},
+            )
+
+        base_total = ZERO
+        for component in line.price_components:
+            if (
+                int(component.uom_id) <= 0
+                or int(component.price_entry_id) <= 0
+                or int(component.price_publication_revision) <= 0
+                or int(component.price_publication_revision)
+                > price_publication_revision_ceiling
+                or int(component.assignment_revision) <= 0
+                or int(component.assignment_revision)
+                > assignment_revision_ceiling
+                or not component.quantity.is_finite()
+                or component.quantity <= ZERO
+                or not component.base_quantity.is_finite()
+                or component.base_quantity <= ZERO
+                or not component.unit_price.is_finite()
+                or component.unit_price < ZERO
+            ):
+                raise CalculationError(
+                    "CALCULATION_PRICE_COMPONENT_INVALID",
+                    "Price component contains invalid or out-of-lock evidence.",
+                    status_code=422,
+                    context={
+                        "line_id": line.line_id,
+                        "uom_id": component.uom_id,
+                    },
+                )
+            base_total += component.base_quantity
+        if base_total != line.quantity:
+            raise CalculationError(
+                "CALCULATION_PRICE_COMPONENT_RECONCILIATION_FAILED",
+                "Price component base quantities do not equal canonical line quantity.",
                 context={"line_id": line.line_id},
             )
 
@@ -138,7 +181,10 @@ def calculate_document(
             "CALCULATION_OFFER_RESULT_MISMATCH",
             "Offer result lines do not match calculation lines.",
         )
-    expected_offer_gross = sum((line.gross_amount for line in ordered_lines), ZERO)
+    expected_offer_gross = sum(
+        (line.gross_amount for line in ordered_lines),
+        ZERO,
+    )
     expected_offer_net = sum(
         (offer_result.line_net_amounts[line_id] for line_id in line_ids),
         ZERO,
@@ -150,7 +196,8 @@ def calculate_document(
     if (
         offer_result.gross_amount != expected_offer_gross
         or offer_result.net_amount != expected_offer_net
-        or offer_result.discount_amount != expected_offer_gross - expected_offer_net
+        or offer_result.discount_amount
+        != expected_offer_gross - expected_offer_net
         or adjustment_discount != offer_result.discount_amount
     ):
         raise CalculationError(
@@ -167,23 +214,21 @@ def calculate_document(
             context={"missing": missing_tax, "unexpected": foreign_tax},
         )
 
-    if (
-        set(price_publication_revisions) != set(product_ids)
-        or set(assignment_revisions) != set(product_ids)
-    ):
-        raise CalculationError(
-            "CALCULATION_PRICE_EVIDENCE_MISMATCH",
-            "Price revision evidence does not match calculation products.",
-        )
-
     valid_line_ids = set(line_ids)
-    for evidence in (*offer_result.adjustments, *offer_result.rewards, *offer_result.applied_offers):
+    for evidence in (
+        *offer_result.adjustments,
+        *offer_result.rewards,
+        *offer_result.applied_offers,
+    ):
         revision = int(evidence.offer_revision)
         if revision <= 0 or revision > offer_revision_ceiling:
             raise CalculationError(
                 "CALCULATION_OFFER_REVISION_OUT_OF_LOCK",
                 "Applied offer evidence exceeds the locked offer revision ceiling.",
-                context={"offer_revision": revision, "offer_revision_ceiling": offer_revision_ceiling},
+                context={
+                    "offer_revision": revision,
+                    "offer_revision_ceiling": offer_revision_ceiling,
+                },
             )
     for adjustment in offer_result.adjustments:
         if int(adjustment.line_id) not in valid_line_ids:
@@ -193,9 +238,6 @@ def calculate_document(
                 context={"line_id": int(adjustment.line_id)},
             )
 
-    # Free-goods rewards remain typed evidence with zero consideration here.
-    # We do not invent a deemed tax base. A jurisdiction needing deemed-value
-    # taxation requires an explicit future typed tax rule, never a silent fallback.
     if (
         offer_result.calculated_at.tzinfo is None
         or offer_result.calculated_at.utcoffset() is None
@@ -209,37 +251,6 @@ def calculate_document(
     raw_document_final = ZERO
 
     for line in ordered_lines:
-        if line.quantity <= 0 or line.unit_price < 0:
-            raise CalculationError(
-                "CALCULATION_LINE_INVALID",
-                "Line quantity must be positive and price must be non-negative.",
-                status_code=422,
-                context={"line_id": line.line_id},
-            )
-
-        publication_revision = int(price_publication_revisions[line.product_variant_id])
-        assignment_revision = int(assignment_revisions[line.product_variant_id])
-        if publication_revision <= 0 or publication_revision > price_publication_revision_ceiling:
-            raise CalculationError(
-                "CALCULATION_PRICE_REVISION_OUT_OF_LOCK",
-                "Selected price revision exceeds the locked publication ceiling.",
-                context={
-                    "line_id": line.line_id,
-                    "price_publication_revision": publication_revision,
-                    "price_publication_revision_ceiling": price_publication_revision_ceiling,
-                },
-            )
-        if assignment_revision <= 0 or assignment_revision > assignment_revision_ceiling:
-            raise CalculationError(
-                "CALCULATION_ASSIGNMENT_REVISION_OUT_OF_LOCK",
-                "Selected price assignment revision exceeds the locked assignment ceiling.",
-                context={
-                    "line_id": line.line_id,
-                    "assignment_revision": assignment_revision,
-                    "assignment_revision_ceiling": assignment_revision_ceiling,
-                },
-            )
-
         tax_resolution = tax_resolutions[line.product_variant_id]
         if tax_resolution.product_variant_id != line.product_variant_id:
             raise CalculationError(
@@ -253,7 +264,10 @@ def calculate_document(
                 "Tax and offer authorities were not resolved at the same commercial timestamp.",
                 context={"line_id": line.line_id},
             )
-        if tax_resolution.tax_revision <= 0 or tax_resolution.tax_revision > tax_revision_ceiling:
+        if (
+            tax_resolution.tax_revision <= 0
+            or tax_resolution.tax_revision > tax_revision_ceiling
+        ):
             raise CalculationError(
                 "CALCULATION_TAX_REVISION_OUT_OF_LOCK",
                 "Resolved tax revision exceeds the locked tax ceiling.",
@@ -299,11 +313,13 @@ def calculate_document(
             )
 
         component_amounts = reconcile_components(
-            raw_amounts=tuple(item.tax_amount for item in tax_calc.components),
+            raw_amounts=tuple(
+                item.tax_amount for item in tax_calc.components
+            ),
             target_total=tax_amount,
             policy=policy,
         )
-        rounded_components = tuple(
+        rounded_tax_components = tuple(
             RoundedTaxComponent(
                 tax_component_id=item.component_id,
                 component_code=item.component_code,
@@ -319,7 +335,13 @@ def calculate_document(
             for index, item in enumerate(tax_calc.components)
         )
 
-        if sum((item.tax_amount for item in rounded_components), ZERO) != tax_amount:
+        if (
+            sum(
+                (item.tax_amount for item in rounded_tax_components),
+                ZERO,
+            )
+            != tax_amount
+        ):
             raise CalculationError(
                 "CALCULATION_TAX_RECONCILIATION_FAILED",
                 "Rounded component taxes do not equal rounded line tax.",
@@ -335,6 +357,38 @@ def calculate_document(
             raise CalculationError(
                 "CALCULATION_LINE_RECONCILIATION_FAILED",
                 "Rounded taxable amount plus tax does not equal line final amount.",
+                context={"line_id": line.line_id},
+            )
+
+        calculated_price_components = tuple(
+            CalculatedPriceComponent(
+                sequence=index,
+                uom_id=int(component.uom_id),
+                quantity=component.quantity,
+                base_quantity=component.base_quantity,
+                price_entry_id=int(component.price_entry_id),
+                price_publication_revision=int(
+                    component.price_publication_revision
+                ),
+                assignment_revision=int(component.assignment_revision),
+                unit_price=component.unit_price,
+                gross_amount=component.gross_amount,
+            )
+            for index, component in enumerate(
+                line.price_components,
+                start=1,
+            )
+        )
+        if (
+            sum(
+                (row.gross_amount for row in calculated_price_components),
+                ZERO,
+            )
+            != gross_raw
+        ):
+            raise CalculationError(
+                "CALCULATION_PRICE_COMPONENT_RECONCILIATION_FAILED",
+                "Calculated price components do not reconcile to raw line gross.",
                 context={"line_id": line.line_id},
             )
 
@@ -354,10 +408,7 @@ def calculate_document(
                 product_variant_id=int(line.product_variant_id),
                 base_uom_id=int(line.base_uom_id),
                 quantity=line.quantity,
-                price_entry_id=int(line.price_entry_id),
-                price_publication_revision=publication_revision,
-                assignment_revision=assignment_revision,
-                unit_price=line.unit_price,
+                price_components=calculated_price_components,
                 gross_amount=gross,
                 discount_amount=discount,
                 post_offer_amount=post_offer,
@@ -369,16 +420,34 @@ def calculate_document(
                 tax_rule_set_version_id=tax_resolution.tax_rule_set_version_id,
                 tax_revision=tax_resolution.tax_revision,
                 tax_price_mode=tax_resolution.price_mode,
-                tax_components=rounded_components,
+                tax_components=rounded_tax_components,
             )
         )
 
-    gross_total = sum((row.gross_amount for row in calculated_lines), ZERO)
-    discount_total = sum((row.discount_amount for row in calculated_lines), ZERO)
-    post_offer_total = sum((row.post_offer_amount for row in calculated_lines), ZERO)
-    taxable_total = sum((row.taxable_amount for row in calculated_lines), ZERO)
-    tax_total = sum((row.tax_amount for row in calculated_lines), ZERO)
-    line_total = sum((row.final_amount for row in calculated_lines), ZERO)
+    gross_total = sum(
+        (row.gross_amount for row in calculated_lines),
+        ZERO,
+    )
+    discount_total = sum(
+        (row.discount_amount for row in calculated_lines),
+        ZERO,
+    )
+    post_offer_total = sum(
+        (row.post_offer_amount for row in calculated_lines),
+        ZERO,
+    )
+    taxable_total = sum(
+        (row.taxable_amount for row in calculated_lines),
+        ZERO,
+    )
+    tax_total = sum(
+        (row.tax_amount for row in calculated_lines),
+        ZERO,
+    )
+    line_total = sum(
+        (row.final_amount for row in calculated_lines),
+        ZERO,
+    )
 
     if gross_total - discount_total != post_offer_total:
         raise CalculationError(
@@ -391,7 +460,10 @@ def calculate_document(
             "Header taxable amount plus tax does not equal sum of rounded lines.",
         )
 
-    desired_document_total = round_currency(raw_document_final, policy)
+    desired_document_total = round_currency(
+        raw_document_final,
+        policy,
+    )
     rounding_adjustment = desired_document_total - line_total
     final_total = line_total + rounding_adjustment
 
@@ -435,5 +507,5 @@ def calculate_document(
         adjustments=offer_result.adjustments,
         rewards=offer_result.rewards,
         applied_offers=offer_result.applied_offers,
-        tax_resolutions=dict(tax_resolutions),
+        tax_resolutions=tax_resolutions,
     )

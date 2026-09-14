@@ -7,7 +7,7 @@ from typing import Any
 from domains.sales_calculation.core import normalize_currency_code
 
 
-EVIDENCE_SCHEMA_VERSION = 2
+EVIDENCE_SCHEMA_VERSION = 3
 
 
 class SalesEvidenceError(Exception):

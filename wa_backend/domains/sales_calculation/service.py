@@ -4,7 +4,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Sequence
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.offers.contracts import (
@@ -27,38 +26,10 @@ from domains.sales_calculation.pipeline import calculate_document
 from domains.sales_calculation.rounding import validate_rounding_policy
 from domains.taxation.core import TaxError
 from domains.taxation.resolver import resolve_tax_rules_bulk
-from models import ProductVariant
-from quantity import QuantityError, validate_variant_quantity
-
-
-async def _variants(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    ids: set[int],
-) -> dict[int, ProductVariant]:
-    if not ids:
-        return {}
-    rows = list(
-        (
-            await db.scalars(
-                select(ProductVariant).where(
-                    ProductVariant.company_id == int(company_id),
-                    ProductVariant.id.in_(sorted(ids)),
-                )
-            )
-        ).all()
-    )
-    result = {int(row.id): row for row in rows}
-    missing = sorted(ids - set(result))
-    if missing:
-        raise CalculationError(
-            "CALCULATION_PRODUCT_NOT_FOUND",
-            "One or more product variants are not available inside this company.",
-            status_code=404,
-            context={"product_variant_ids": missing},
-        )
-    return result
+from domains.uom_authority import (
+    UomAuthorityError,
+    load_variant_uom_authorities,
+)
 
 
 def _validate_lock(
@@ -83,6 +54,15 @@ def _validate_lock(
             "Calculation requires explicit valid commercial revision ceilings.",
             status_code=422,
         )
+
+
+def _uom_error(exc: UomAuthorityError) -> CalculationError:
+    return CalculationError(
+        exc.code,
+        exc.message,
+        status_code=422,
+        context=exc.context,
+    )
 
 
 async def resolve_and_calculate_document(
@@ -118,6 +98,7 @@ async def resolve_and_calculate_document(
             "A commercial calculation requires at least one line.",
             status_code=422,
         )
+
     line_ids = [int(row.line_id) for row in ordered_inputs]
     product_ids = [int(row.product_variant_id) for row in ordered_inputs]
     if any(value <= 0 for value in line_ids + product_ids):
@@ -135,39 +116,65 @@ async def resolve_and_calculate_document(
     if len(product_ids) != len(set(product_ids)):
         raise CalculationError(
             "CALCULATION_DUPLICATE_VARIANT",
-            "Calculation requires one canonical line per product variant.",
+            "Calculation requires one logical line per product variant.",
             status_code=422,
         )
+    if any(not row.components for row in ordered_inputs):
+        raise CalculationError(
+            "CALCULATION_UOM_COMPONENT_REQUIRED",
+            "Every calculation line requires at least one sold UOM component.",
+            status_code=422,
+        )
+    for row in ordered_inputs:
+        uoms = [int(component.uom_id) for component in row.components]
+        if len(uoms) != len(set(uoms)) or any(value <= 0 for value in uoms):
+            raise CalculationError(
+                "CALCULATION_UOM_COMPONENT_INVALID",
+                "A calculation line cannot repeat or use an invalid UOM.",
+                status_code=422,
+                context={"line_id": int(row.line_id)},
+            )
 
-    variant_map = await _variants(
-        db,
-        company_id=company_id,
-        ids=set(product_ids),
-    )
+    try:
+        authorities = await load_variant_uom_authorities(
+            db,
+            company_id=company_id,
+            variant_ids=product_ids,
+        )
+    except UomAuthorityError as exc:
+        raise _uom_error(exc) from exc
+
+    base_by_pair: dict[tuple[int, int], Decimal] = {}
     canonical_quantities: dict[int, Decimal] = {}
-    price_pairs: list[tuple[int, int]] = []
+    requested_pairs: set[tuple[int, int]] = set()
     try:
         for row in ordered_inputs:
-            variant = variant_map[int(row.product_variant_id)]
-            canonical_quantities[int(row.product_variant_id)] = validate_variant_quantity(
-                row.quantity,
-                quantity_scale=int(variant.quantity_scale),
-                quantity_step=variant.quantity_step,
-                field_name=f"quantity[{variant.id}]",
+            variant_id = int(row.product_variant_id)
+            authority = authorities[variant_id]
+            total = Decimal("0")
+            for component in row.components:
+                uom_id = int(component.uom_id)
+                pair = (variant_id, uom_id)
+                base = authority.to_base(
+                    component.quantity,
+                    uom_id=uom_id,
+                    field_name=f"quantity[{variant_id}:{uom_id}]",
+                )
+                base_by_pair[pair] = base
+                total += base
+                requested_pairs.add(pair)
+            canonical_quantities[variant_id] = authority.validate_canonical_total(
+                total,
+                field_name=f"canonical_quantity[{variant_id}]",
             )
-            price_pairs.append((int(variant.id), int(variant.base_uom_id)))
-    except QuantityError as exc:
-        raise CalculationError(
-            "CALCULATION_QUANTITY_INVALID",
-            str(exc),
-            status_code=422,
-        ) from exc
+    except UomAuthorityError as exc:
+        raise _uom_error(exc) from exc
 
     try:
         price_rows = await resolve_prices_bulk(
             db,
             company_id=company_id,
-            pairs=price_pairs,
+            pairs=sorted(requested_pairs),
             customer_id=customer_id,
             branch_id=branch_id,
             as_of=when,
@@ -182,11 +189,13 @@ async def resolve_and_calculate_document(
             context=exc.context,
         ) from exc
 
-    currencies = {str(row.currency_code).upper() for row in price_rows.values()}
+    currencies = {
+        str(row.currency_code).upper() for row in price_rows.values()
+    }
     if len(currencies) != 1:
         raise CalculationError(
             "CALCULATION_CURRENCY_CONFLICT",
-            "Base prices resolve to more than one transaction currency.",
+            "Sold UOM prices resolve to more than one transaction currency.",
         )
     currency = next(iter(currencies))
     if currency != policy.currency_code:
@@ -224,36 +233,39 @@ async def resolve_and_calculate_document(
         )
 
     reward_pairs = {
-        (
-            int(product.product_variant_id),
-            int(product.uom_id),
-        )
+        (int(product.product_variant_id), int(product.uom_id))
         for candidate in offer_candidates
         for product in candidate.products
         if product.role == "REWARD"
     }
-    all_product_ids = set(product_ids) | {
-        variant_id
-        for variant_id, _uom_id in reward_pairs
+    all_variant_ids = set(product_ids) | {
+        variant_id for variant_id, _uom_id in reward_pairs
     }
-    await _variants(
-        db,
-        company_id=company_id,
-        ids=all_product_ids,
-    )
+    try:
+        all_authorities = await load_variant_uom_authorities(
+            db,
+            company_id=company_id,
+            variant_ids=all_variant_ids,
+        )
+        for variant_id, uom_id in reward_pairs:
+            all_authorities[variant_id].factor_to_base(uom_id)
+    except UomAuthorityError as exc:
+        raise _uom_error(exc) from exc
 
     missing_pairs = reward_pairs - set(price_rows)
     if missing_pairs:
         try:
-            reward_prices = await resolve_prices_bulk(
-                db,
-                company_id=company_id,
-                pairs=sorted(missing_pairs),
-                customer_id=customer_id,
-                branch_id=branch_id,
-                as_of=when,
-                publication_revision_ceiling=price_publication_revision_ceiling,
-                assignment_revision_ceiling=assignment_revision_ceiling,
+            price_rows.update(
+                await resolve_prices_bulk(
+                    db,
+                    company_id=company_id,
+                    pairs=sorted(missing_pairs),
+                    customer_id=customer_id,
+                    branch_id=branch_id,
+                    as_of=when,
+                    publication_revision_ceiling=price_publication_revision_ceiling,
+                    assignment_revision_ceiling=assignment_revision_ceiling,
+                )
             )
         except PricingError as exc:
             raise CalculationError(
@@ -262,17 +274,16 @@ async def resolve_and_calculate_document(
                 status_code=exc.status_code,
                 context=exc.context,
             ) from exc
-        price_rows.update(reward_prices)
 
     resolved_currencies = {
-        str(row.currency_code).upper()
-        for row in price_rows.values()
+        str(row.currency_code).upper() for row in price_rows.values()
     }
     if resolved_currencies != {currency}:
         raise CalculationError(
             "CALCULATION_CURRENCY_CONFLICT",
-            "Reward/base price evidence does not share one transaction currency.",
+            "Reward and sold-UOM price evidence must share one transaction currency.",
         )
+
     for pair, price in price_rows.items():
         if (
             int(price.price_publication_revision) <= 0
@@ -310,32 +321,40 @@ async def resolve_and_calculate_document(
         )
         for pair, price in price_rows.items()
     }
-    basket_lines = []
-    for row in ordered_inputs:
-        variant_id = int(row.product_variant_id)
-        variant = variant_map[variant_id]
-        base_uom_id = int(variant.base_uom_id)
-        pair = (variant_id, base_uom_id)
-        price = price_rows[pair]
-        canonical_quantity = canonical_quantities[
-            variant_id
-        ]
+
+    input_by_variant = {
+        int(row.product_variant_id): row for row in ordered_inputs
+    }
+    basket_lines: list[BasketLine] = []
+    for variant_id in product_ids:
+        row = input_by_variant[variant_id]
+        authority = authorities[variant_id]
+        components = []
+        for component in row.components:
+            uom_id = int(component.uom_id)
+            pair = (variant_id, uom_id)
+            price = price_rows[pair]
+            components.append(
+                BasketPriceComponent(
+                    uom_id=uom_id,
+                    quantity=component.quantity,
+                    base_quantity=base_by_pair[pair],
+                    unit_price=price.amount,
+                    price_entry_id=int(price.price_entry_id),
+                    price_publication_revision=int(
+                        price.price_publication_revision
+                    ),
+                    assignment_revision=int(price.assignment_revision),
+                )
+            )
         basket_lines.append(
             BasketLine(
                 line_id=int(row.line_id),
                 product_variant_id=variant_id,
-                base_uom_id=base_uom_id,
-                quantity=canonical_quantity,
-                price_components=(
-                    BasketPriceComponent(
-                        uom_id=base_uom_id,
-                        quantity=canonical_quantity,
-                        base_quantity=canonical_quantity,
-                        unit_price=price.amount,
-                        price_entry_id=int(
-                            price.price_entry_id
-                        ),
-                    ),
+                base_uom_id=int(authority.base_uom_id),
+                quantity=canonical_quantities[variant_id],
+                price_components=tuple(
+                    sorted(components, key=lambda item: item.uom_id)
                 ),
             )
         )
@@ -389,22 +408,12 @@ async def resolve_and_calculate_document(
             "Tax resolver did not honor the locked tax revision ceiling.",
         )
 
-    publication_revisions: dict[int, int] = {}
-    assignment_revisions: dict[int, int] = {}
-    for product_id in product_ids:
-        pair = (product_id, int(variant_map[product_id].base_uom_id))
-        price = price_rows[pair]
-        publication_revisions[product_id] = int(price.price_publication_revision)
-        assignment_revisions[product_id] = int(price.assignment_revision)
-
     return calculate_document(
         basket_lines=basket_lines,
         offer_result=offer_result,
         tax_resolutions=tax_resolutions,
         transaction_currency_code=currency,
         rounding_policy=policy,
-        price_publication_revisions=publication_revisions,
-        assignment_revisions=assignment_revisions,
         price_publication_revision_ceiling=price_publication_revision_ceiling,
         assignment_revision_ceiling=assignment_revision_ceiling,
         offer_revision_ceiling=offer_revision_ceiling,

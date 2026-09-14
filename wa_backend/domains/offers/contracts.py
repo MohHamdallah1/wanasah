@@ -26,6 +26,8 @@ class BasketPriceComponent:
     base_quantity: Decimal
     unit_price: Decimal
     price_entry_id: int
+    price_publication_revision: int
+    assignment_revision: int
 
     @property
     def gross_amount(self) -> Decimal:

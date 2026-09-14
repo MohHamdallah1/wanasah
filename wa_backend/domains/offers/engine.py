@@ -450,6 +450,24 @@ def _validate_line(
             )
             or component.price_entry_id <= 0
             or not isinstance(
+                component.price_publication_revision,
+                int,
+            )
+            or isinstance(
+                component.price_publication_revision,
+                bool,
+            )
+            or component.price_publication_revision <= 0
+            or not isinstance(
+                component.assignment_revision,
+                int,
+            )
+            or isinstance(
+                component.assignment_revision,
+                bool,
+            )
+            or component.assignment_revision <= 0
+            or not isinstance(
                 component.quantity,
                 Decimal,
             )

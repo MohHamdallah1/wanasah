@@ -24,6 +24,110 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class SalesLinePriceComponent(Base):
+    __tablename__ = "sales_line_price_components"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "id",
+            name="uq_sales_line_price_components_company_id",
+        ),
+        UniqueConstraint(
+            "company_id",
+            "visit_item_id",
+            "sequence",
+            name="uq_sales_line_price_component_sequence",
+        ),
+        UniqueConstraint(
+            "company_id",
+            "visit_item_id",
+            "uom_id",
+            name="uq_sales_line_price_component_uom",
+        ),
+        ForeignKeyConstraint(
+            ["company_id"],
+            ["companies.id"],
+            ondelete="CASCADE",
+            name="fk_sales_line_price_component_company",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "visit_item_id"],
+            ["visit_items.company_id", "visit_items.id"],
+            ondelete="RESTRICT",
+            name="fk_sales_line_price_component_tenant_line",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "price_entry_id"],
+            ["price_book_entries.company_id", "price_book_entries.id"],
+            ondelete="RESTRICT",
+            name="fk_sales_line_price_component_tenant_price_entry",
+        ),
+        ForeignKeyConstraint(
+            ["uom_id"],
+            ["uom.id"],
+            ondelete="RESTRICT",
+            name="fk_sales_line_price_component_uom",
+        ),
+        CheckConstraint(
+            "sequence > 0",
+            name="sales_line_price_component_sequence_positive",
+        ),
+        CheckConstraint(
+            "quantity > 0",
+            name="sales_line_price_component_quantity_positive",
+        ),
+        CheckConstraint(
+            "base_quantity > 0",
+            name="sales_line_price_component_base_quantity_positive",
+        ),
+        CheckConstraint(
+            "price_publication_revision > 0",
+            name="sales_line_price_component_publication_revision_positive",
+        ),
+        CheckConstraint(
+            "assignment_revision > 0",
+            name="sales_line_price_component_assignment_revision_positive",
+        ),
+        CheckConstraint(
+            "unit_price >= 0",
+            name="sales_line_price_component_unit_price_nonnegative",
+        ),
+        CheckConstraint(
+            "gross_amount >= 0",
+            name="sales_line_price_component_gross_nonnegative",
+        ),
+        CheckConstraint(
+            "gross_amount = round(quantity * unit_price, 6)",
+            name="sales_line_price_component_gross_exact",
+        ),
+        Index(
+            "ix_sales_line_price_component_line",
+            "company_id",
+            "visit_item_id",
+            "sequence",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, nullable=False, index=True)
+    visit_item_id = Column(Integer, nullable=False, index=True)
+    sequence = Column(Integer, nullable=False)
+    uom_id = Column(Integer, nullable=False)
+    quantity = Column(Numeric(20, 6), nullable=False)
+    base_quantity = Column(Numeric(20, 6), nullable=False)
+    price_entry_id = Column(Integer, nullable=False)
+    price_publication_revision = Column(Integer, nullable=False)
+    assignment_revision = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(20, 6), nullable=False)
+    gross_amount = Column(Numeric(20, 6), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utc_now,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
 class SalesLineAdjustment(Base):
     __tablename__ = "sales_line_adjustments"
     __table_args__ = (
@@ -32,8 +136,8 @@ class SalesLineAdjustment(Base):
             name="uq_sales_line_adjustments_company_id",
         ),
         UniqueConstraint(
-            "company_id", "visit_item_id", "sequence",
-            name="uq_sales_line_adjustment_sequence",
+            "company_id", "visit_item_id", "sequence", "uom_id",
+            name="uq_sales_line_adjustment_sequence_uom",
         ),
         ForeignKeyConstraint(
             ["company_id"],
@@ -56,6 +160,12 @@ class SalesLineAdjustment(Base):
             ],
             ondelete="RESTRICT",
             name="fk_sales_line_adjustment_tenant_offer",
+        ),
+        ForeignKeyConstraint(
+            ["uom_id"],
+            ["uom.id"],
+            ondelete="RESTRICT",
+            name="fk_sales_line_adjustment_uom",
         ),
         CheckConstraint(
             "sequence > 0",
@@ -93,6 +203,7 @@ class SalesLineAdjustment(Base):
     company_id = Column(Integer, nullable=False, index=True)
     visit_item_id = Column(Integer, nullable=False, index=True)
     sequence = Column(Integer, nullable=False)
+    uom_id = Column(Integer, nullable=False)
     offer_version_id = Column(Integer, nullable=False)
     rule_type = Column(String(40), nullable=False)
     rule_id = Column(Integer, nullable=False)

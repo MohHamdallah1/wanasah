@@ -20,6 +20,7 @@ from domains.sales_evidence.core import (
 )
 from domains.sales_evidence.models import (
     SalesLineAdjustment,
+    SalesLinePriceComponent,
     SalesLineTaxComponent,
 )
 from models import RouteCommercialContext, Visit, VisitItem
@@ -353,6 +354,53 @@ async def freeze_sales_evidence(
                 "Functional currency does not match the locked route context.",
             )
 
+    # Persist exact sold-UOM pricing evidence before freezing the parent.
+    # The parent VisitItem intentionally carries no single price authority in
+    # schema v3; sales_line_price_components is the only immutable price SSOT.
+    for line in calculation.lines:
+        item_id = mapping[int(line.line_id)]
+        if not line.price_components:
+            raise SalesEvidenceError(
+                "SALES_EVIDENCE_PRICE_COMPONENT_REQUIRED",
+                "Every frozen sales line requires at least one typed price component.",
+                context={"line_id": int(line.line_id)},
+            )
+        expected_sequence = 1
+        seen_uoms: set[int] = set()
+        for component in line.price_components:
+            if int(component.sequence) != expected_sequence:
+                raise SalesEvidenceError(
+                    "SALES_EVIDENCE_PRICE_SEQUENCE_INVALID",
+                    "Price component sequence must be contiguous from 1.",
+                    context={"line_id": int(line.line_id)},
+                )
+            expected_sequence += 1
+            uom_id = int(component.uom_id)
+            if uom_id in seen_uoms:
+                raise SalesEvidenceError(
+                    "SALES_EVIDENCE_PRICE_UOM_DUPLICATE",
+                    "A frozen sales line cannot repeat the same price UOM.",
+                    context={"line_id": int(line.line_id), "uom_id": uom_id},
+                )
+            seen_uoms.add(uom_id)
+            db.add(
+                SalesLinePriceComponent(
+                    company_id=int(company_id),
+                    visit_item_id=item_id,
+                    sequence=int(component.sequence),
+                    uom_id=uom_id,
+                    quantity=component.quantity,
+                    base_quantity=component.base_quantity,
+                    price_entry_id=int(component.price_entry_id),
+                    price_publication_revision=int(
+                        component.price_publication_revision
+                    ),
+                    assignment_revision=int(component.assignment_revision),
+                    unit_price=component.unit_price,
+                    gross_amount=component.gross_amount,
+                )
+            )
+
     applied_by_sequence = {
         int(row.sequence): row for row in calculation.applied_offers
     }
@@ -380,7 +428,11 @@ async def freeze_sales_evidence(
     for line_id, line in calc_lines.items():
         line_adjustments = sorted(
             adjustments_by_line.get(line_id, []),
-            key=lambda row: (int(row.sequence), int(row.offer_version_id)),
+            key=lambda row: (
+                int(row.sequence),
+                int(row.offer_version_id),
+                int(row.uom_id),
+            ),
         )
         if not line_adjustments:
             if line.discount_amount != ZERO:
@@ -416,6 +468,7 @@ async def freeze_sales_evidence(
                     company_id=int(company_id),
                     visit_item_id=item_id,
                     sequence=int(adjustment.sequence),
+                    uom_id=int(adjustment.uom_id),
                     offer_version_id=int(adjustment.offer_version_id),
                     rule_type=str(adjustment.offer_type),
                     rule_id=int(adjustment.offer_definition_id),
@@ -484,10 +537,16 @@ async def freeze_sales_evidence(
         item.commercial_context_id = commercial_context_id
         item.base_uom_id = int(line.base_uom_id)
         item.canonical_quantity = line.quantity
-        item.selected_price_entry_id = int(line.price_entry_id)
-        item.price_publication_revision = int(line.price_publication_revision)
-        item.assignment_revision = int(line.assignment_revision)
-        item.price_per_unit_at_sale = line.unit_price
+        # Schema v3 removes the misleading single-price parent authority.
+        # Keep the legacy display field only as a projection for single-UOM lines.
+        item.selected_price_entry_id = None
+        item.price_publication_revision = None
+        item.assignment_revision = None
+        item.price_per_unit_at_sale = (
+            line.price_components[0].unit_price
+            if len(line.price_components) == 1
+            else ZERO
+        )
         item.total_price = line.final_amount
         item.gross_amount = line.gross_amount
         item.discount_amount = line.discount_amount
