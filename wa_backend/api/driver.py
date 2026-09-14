@@ -52,8 +52,8 @@ from domains.pricing.context import (
     commercial_context_payload,
     require_route_commercial_context,
 )
-from domains.pricing.driver_authority import (
-    resolve_legacy_driver_prices_bulk,
+from domains.pricing.driver_display import (
+    resolve_driver_display_prices_bulk,
 )
 from domains.sales_calculation.core import CalculationError
 from domains.sales_calculation.driver_sale import (
@@ -1290,13 +1290,8 @@ async def update_visit(
                 await db.delete(existing_return)
             visit.items.clear()
             visit.returns.clear()
-        else:
-            for existing_item in visit.items:
-                if not getattr(existing_item, "is_cancelled", False):
-                    existing_item.is_cancelled = True
-            for existing_return in visit.returns:
-                if not getattr(existing_return, "is_cancelled", False):
-                    existing_return.is_cancelled = True
+        # Completed corrections were already cancelled under row locks by
+        # reverse_previous_visit_state(); do not touch lazy='raise' relationships again.
 
         item_contexts = []
         return_contexts = []
@@ -3434,7 +3429,7 @@ async def get_products(
             )
         ).scalars().all()
 
-        prices = await resolve_legacy_driver_prices_bulk(
+        prices = await resolve_driver_display_prices_bulk(
             db,
             company_id=company_id,
             dispatch_route_id=int(route.id),
@@ -3584,7 +3579,7 @@ async def get_driver_visits(
         )
 
         try:
-            inventory_prices = await resolve_legacy_driver_prices_bulk(
+            inventory_prices = await resolve_driver_display_prices_bulk(
                 db,
                 company_id=company_id,
                 dispatch_route_id=int(active_route.id),

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from uuid import UUID, uuid4
-from sqlalchemy import select, func, and_, or_, tuple_, update, text
+from sqlalchemy import select, func, and_, or_, tuple_, update, text, null
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from models import (
     SystemSetting,
@@ -6181,7 +6181,9 @@ async def reverse_previous_visit_state(
     locked_visit.taxable_amount = None
     locked_visit.line_total_amount = None
     locked_visit.rounding_adjustment = None
-    locked_visit.offer_snapshot = None
+    # The open Visit evidence shape requires SQL NULL. SQLAlchemy JSONB
+    # otherwise serializes Python None as JSON 'null', which violates IS NULL.
+    locked_visit.offer_snapshot = null()
 
     locked_visit.amount_before_tax_and_discount = Decimal("0.0")
     locked_visit.discount_applied = Decimal("0.0")
