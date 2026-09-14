@@ -34,6 +34,85 @@ const assertPage = <T>(value: unknown, label: string): CursorPage<T> => {
   return page as CursorPage<T>;
 };
 
+const isPositiveInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0;
+
+const isPositiveDecimalString = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) return false;
+  return !/^0+(?:\.0+)?$/.test(value);
+};
+
+const isCatalogUom = (value: unknown): value is OfferCatalogVariant["base_uom"] => {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return (
+    isPositiveInteger(row.id) &&
+    isNonEmptyString(row.code) &&
+    isNonEmptyString(row.name)
+  );
+};
+
+const assertOfferCatalogVariant = (
+  value: unknown,
+  label: string
+): OfferCatalogVariant => {
+  if (!value || typeof value !== "object") {
+    throw new Error(`عقد ${label} غير صالح.`);
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    !isPositiveInteger(row.id) ||
+    !isPositiveInteger(row.product_id) ||
+    !isNonEmptyString(row.sku) ||
+    !isNonEmptyString(row.name) ||
+    !isCatalogUom(row.base_uom) ||
+    !Array.isArray(row.uoms) ||
+    row.uoms.length === 0 ||
+    !row.uoms.every(isCatalogUom) ||
+    typeof row.quantity_scale !== "number" ||
+    !Number.isInteger(row.quantity_scale) ||
+    row.quantity_scale < 0 ||
+    row.quantity_scale > 6 ||
+    !isPositiveDecimalString(row.quantity_step) ||
+    !isNonEmptyString(row.lifecycle_status) ||
+    !isNonEmptyString(row.operational_hold) ||
+    !isPositiveInteger(row.version)
+  ) {
+    throw new Error(`عقد ${label} غير صالح.`);
+  }
+
+  const baseUom = row.base_uom as OfferCatalogVariant["base_uom"];
+  const uoms = row.uoms as OfferCatalogVariant["uoms"];
+  const uomIds = uoms.map((uom) => uom.id);
+  if (new Set(uomIds).size !== uomIds.length) {
+    throw new Error(`عقد ${label} يحتوي وحدات قياس مكررة.`);
+  }
+  const matchingBase = uoms.filter(
+    (uom) =>
+      uom.id === baseUom.id &&
+      uom.code === baseUom.code &&
+      uom.name === baseUom.name
+  );
+  if (matchingBase.length !== 1) {
+    throw new Error(`عقد ${label} لا يطابق وحدة القياس الأساسية.`);
+  }
+
+  return row as OfferCatalogVariant;
+};
+
+const assertOfferCatalogPage = (value: unknown, label: string): CursorPage<OfferCatalogVariant> => {
+  const page = assertPage<unknown>(value, label);
+  return {
+    ...page,
+    items: page.items.map((item, index) =>
+      assertOfferCatalogVariant(item, `${label} — الصنف ${index + 1}`)
+    ),
+  };
+};
+
 export const pagePath = (base: string, cursor: string | null, limit = 50) => {
   const separator = base.includes("?") ? "&" : "?";
   return `${base}${separator}limit=${limit}${
@@ -72,7 +151,7 @@ export async function fetchOfferCatalogVariants(
   cursor: string | null,
   signal?: AbortSignal
 ) {
-  return assertPage<OfferCatalogVariant>(
+  return assertOfferCatalogPage(
     await authFetch(pagePath("/offers/references/variants", cursor, 100), { signal }),
     "مراجع أصناف العروض"
   );
@@ -83,7 +162,7 @@ export async function resolveOfferCatalogVariants(
   ids: number[],
   signal?: AbortSignal
 ) {
-  return assertPage<OfferCatalogVariant>(
+  return assertOfferCatalogPage(
     await authFetch("/offers/references/variants/resolve", {
       method: "POST",
       signal,
