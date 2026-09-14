@@ -8,16 +8,14 @@ from database import get_db
 from typing import List, Optional
 from api.dependencies import get_current_driver
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from quantity import QUANTITY_MAX
 from services import (
     reverse_previous_visit_state,
     InventoryReversalError,
     InventoryMutationError,
-    get_setting,
-    calculate_invoice,
     check_debt_limits,
-    check_inventory_lock,
+    check_inventory_locks_batch,
     acquire_inventory_location_guard,
     get_company_local_date,
     allocate_fefo_inventory_batch,
@@ -32,7 +30,7 @@ import logging
 
 from models import (
     Driver, WorkSession, DispatchRoute, Visit,
-    WorkBreakLog, VisitItem, Shop, ProductVariant, VisitReturn, OfferRule, Zone,
+    WorkBreakLog, VisitItem, Shop, ProductVariant, VisitReturn, Zone,
     ShortageRequest, SystemAuditLog,
     InventoryLocation, InventoryBalance, InventoryMovement, ProductBatch,
     InventoryTransferHeader, InventoryTransferLine,
@@ -57,12 +55,84 @@ from domains.pricing.context import (
 from domains.pricing.driver_authority import (
     resolve_legacy_driver_prices_bulk,
 )
+from domains.sales_calculation.core import CalculationError
+from domains.sales_calculation.driver_sale import (
+    DriverSaleInput,
+    mobile_quantity_to_base,
+    resolve_driver_mobile_uom_contracts,
+    resolve_driver_sale,
+)
+from domains.sales_evidence.core import SalesEvidenceError
+from domains.sales_evidence.service import freeze_sales_evidence
 
 logger = logging.getLogger("wanasah_logger")
 
+VISIT_OUTBOUND_INVENTORY_REFERENCE_TYPES = (
+    "VISIT_ITEM_OUT",
+    "VISIT_EXCHANGE_OUT",
+    "VISIT_REWARD_OUT",
+)
+
 def get_utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
-    
+
+
+def _require_driver_mobile_integral_quantity(
+    value,
+    *,
+    field_name: str,
+    allow_negative: bool = False,
+) -> int:
+    """Fail closed when the integer carton/pack mobile contract cannot represent a quantity."""
+    try:
+        quantity = Decimal("0") if value is None else Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DRIVER_MOBILE_QUANTITY_INVALID",
+                "message": "تم اكتشاف كمية مخزنية غير صالحة في عهدة المندوب.",
+                "context": {"field": field_name},
+            },
+        ) from exc
+
+    if (
+        not quantity.is_finite()
+        or abs(quantity) > QUANTITY_MAX
+        or (quantity < 0 and not allow_negative)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DRIVER_MOBILE_QUANTITY_INVALID",
+                "message": "تم اكتشاف كمية مخزنية خارج النطاق المسموح في عهدة المندوب.",
+                "context": {
+                    "field": field_name,
+                    "quantity": format(quantity, "f") if quantity.is_finite() else str(quantity),
+                },
+            },
+        )
+
+    integral = quantity.to_integral_value()
+    if quantity != integral:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DRIVER_MOBILE_QUANTITY_PRECISION_UNSUPPORTED",
+                "message": (
+                    "واجهة المندوب الحالية تمثل عهدة السيارة بوحدات base صحيحة فقط؛ "
+                    "تم اكتشاف كمية كسرية ولا يجوز قصها أو تقريبها."
+                ),
+                "context": {
+                    "field": field_name,
+                    "quantity": format(quantity, "f"),
+                },
+            },
+        )
+
+    return int(integral)
+
+
 router = APIRouter(tags=["Driver Operations"])
 # =========================================
 # 1. بدء جلسة العمل (مربوطة بالتوزيع والجرد)
@@ -288,6 +358,11 @@ async def start_work_session(
             if qty < Decimal("0") or qty > QUANTITY_MAX:
                 raise RuntimeError(
                     "Vehicle opening inventory exceeds NUMERIC(20,6) quantity bounds."
+                )
+            if normalized_status == "AVAILABLE":
+                _require_driver_mobile_integral_quantity(
+                    qty,
+                    field_name=f"opening_inventory[{int(product_variant_id)}]",
                 )
 
             db.add(
@@ -738,30 +813,22 @@ async def update_visit(
                 detail="السيارة الحالية لا تملك موقع مخزون VEHICLE فعالاً داخل الشركة.",
             )
 
+        touched_variants = sorted(
+            {item.product_variant_id for item in payload.cart_items}
+            | {ret.product_variant_id for ret in payload.returns}
+        )
         try:
-            await check_inventory_lock(db, company_id, veh_loc_id)
-
-            touched_variants = sorted(
-                {item.product_variant_id for item in payload.cart_items}
-                | {ret.product_variant_id for ret in payload.returns}
+            await check_inventory_locks_batch(
+                db,
+                company_id,
+                veh_loc_id,
+                variant_ids=touched_variants,
+                # المرتجع يدخل Batch بعينه، لذلك يبقى قفل Batch المحدد جزءاً من الحارس.
+                batch_keys=[
+                    (ret.product_variant_id, ret.batch_id)
+                    for ret in payload.returns
+                ],
             )
-            for variant_id in touched_variants:
-                await check_inventory_lock(
-                    db,
-                    company_id,
-                    veh_loc_id,
-                    variant_id=variant_id,
-                )
-
-            # المرتجع يدخل Batch بعينه، لذلك لا يجوز تجاوز قفل Batch محدد.
-            for ret in payload.returns:
-                await check_inventory_lock(
-                    db,
-                    company_id,
-                    veh_loc_id,
-                    variant_id=ret.product_variant_id,
-                    batch_id=ret.batch_id,
-                )
         except ValueError as exc:
             raise HTTPException(
                 status_code=403,
@@ -805,12 +872,61 @@ async def update_visit(
             )
 
         if visit.status == "Completed":
+            correction_audit_before = {
+                "request_id": str(payload.request_id),
+                "previous_outcome": str(visit.outcome),
+                "previous_sales_revision_id": (
+                    int(visit.current_sales_revision_id)
+                    if visit.current_sales_revision_id is not None
+                    else None
+                ),
+                "final_amount_due": str(visit.final_amount_due or "0.000"),
+                "cash_collected": str(visit.cash_collected or "0.000"),
+                "debt_paid": str(visit.debt_paid or "0.000"),
+                "shop_balance_before": (
+                    str(visit.shop_balance_before)
+                    if visit.shop_balance_before is not None
+                    else None
+                ),
+                "shop_balance_after": (
+                    str(visit.shop_balance_after)
+                    if visit.shop_balance_after is not None
+                    else None
+                ),
+                "current_shop_balance": str(shop.current_balance or "0.000"),
+            }
             await reverse_previous_visit_state(
                 db,
                 visit,
                 active_session,
                 shop,
                 admin_id=driver_id,
+            )
+            db.add(
+                SystemAuditLog(
+                    company_id=company_id,
+                    admin_id=driver_id,
+                    target_id=f"Visit_{visit.id}",
+                    action_type="VISIT_CORRECTION_REVERSAL",
+                    old_value=json.dumps(
+                        correction_audit_before,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    new_value=json.dumps(
+                        {
+                            "request_id": str(payload.request_id),
+                            "replacement_outcome": str(payload.outcome),
+                            "restored_shop_balance": str(
+                                shop.current_balance or "0.000"
+                            ),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                )
             )
 
         debt_paid_input = Decimal(str(payload.debt_paid))
@@ -897,12 +1013,88 @@ async def update_visit(
                 detail="مرفوض أمنياً: لا يمكن تسجيل حالة (بيع) دون وجود منتجات فعلية في السلة.",
             )
 
-        all_var_ids = sorted(
+        sold_items = [
+            item
+            for item in payload.cart_items
+            if item.quantity > 0 or item.packs_quantity > 0
+        ]
+        resolved_sale = None
+        reward_variant_ids: set[int] = set()
+
+        if payload.outcome == "Sale":
+            if not sold_items:
+                raise HTTPException(
+                    status_code=400,
+                    detail="مرفوض: حالة البيع تتطلب كمية مباعة فعلية واحدة على الأقل.",
+                )
+            if active_session.commercial_context_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "COMMERCIAL_CONTEXT_REQUIRED",
+                        "message": "جلسة العمل لا تحمل سياقاً تجارياً مقفلاً للبيع.",
+                    },
+                )
+            if shop.tax_jurisdiction_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "TAX_JURISDICTION_REQUIRED",
+                        "message": "المحل لا يملك نطاقاً ضريبياً صريحاً؛ لا يجوز استنتاج الضريبة من الموقع.",
+                    },
+                )
+
+            resolved_sale = await resolve_driver_sale(
+                db,
+                company_id=company_id,
+                dispatch_route_id=int(current_route.id),
+                expected_commercial_context_id=int(
+                    active_session.commercial_context_id
+                ),
+                customer_id=int(shop.id),
+                jurisdiction_id=int(shop.tax_jurisdiction_id),
+                inputs=tuple(
+                    DriverSaleInput(
+                        product_variant_id=int(item.product_variant_id),
+                        carton_quantity=int(item.quantity),
+                        pack_quantity=int(item.packs_quantity),
+                    )
+                    for item in sold_items
+                ),
+            )
+            reward_variant_ids = {
+                int(reward.product_variant_id)
+                for reward in resolved_sale.calculation.rewards
+            }
+
+            reward_lock_ids = sorted(
+                reward_variant_ids - set(touched_variants)
+            )
+            if reward_lock_ids:
+                try:
+                    await check_inventory_locks_batch(
+                        db,
+                        company_id,
+                        veh_loc_id,
+                        variant_ids=reward_lock_ids,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=(
+                            "تم تجميد مبيعات سيارتك مؤقتاً لمراجعة العهدة: "
+                            f"{str(exc)}"
+                        ),
+                    ) from exc
+
+        mobile_variant_ids = sorted(
             set(cart_pids + [ret.product_variant_id for ret in payload.returns])
         )
+        all_var_ids = sorted(set(mobile_variant_ids) | reward_variant_ids)
         await acquire_product_lifecycle_guards(
             db, company_id, all_var_ids, exclusive=False,
         )
+
         variants_map = {}
         if all_var_ids:
             variant_rows = (
@@ -915,7 +1107,7 @@ async def update_visit(
                     .order_by(ProductVariant.id.asc())
                 )
             ).scalars().all()
-            variants_map = {variant.id: variant for variant in variant_rows}
+            variants_map = {int(variant.id): variant for variant in variant_rows}
             missing_variants = sorted(set(all_var_ids) - set(variants_map))
             if missing_variants:
                 raise HTTPException(
@@ -958,25 +1150,61 @@ async def update_visit(
                         ),
                     )
 
-        for variant in variants_map.values():
+        for variant_id in mobile_variant_ids:
+            variant = variants_map[variant_id]
             if variant.packs_per_carton is None or int(variant.packs_per_carton) <= 0:
                 raise HTTPException(
                     status_code=409,
                     detail=f"إعداد عدد الحبات في الكرتونة غير صالح للصنف ({variant.variant_name}).",
                 )
 
-        sale_prices = await resolve_legacy_driver_prices_bulk(
-            db,
-            company_id=company_id,
-            dispatch_route_id=int(current_route.id),
-            variant_ids=sorted(set(cart_pids)),
-            customer_id=int(shop.id),
-            expected_commercial_context_id=(
-                int(active_session.commercial_context_id)
-                if active_session.commercial_context_id is not None
-                else None
-            ),
+        mobile_uom_contracts = (
+            dict(resolved_sale.uom_contracts)
+            if resolved_sale is not None
+            else {}
         )
+        missing_mobile_contract_ids = sorted(
+            set(mobile_variant_ids) - set(mobile_uom_contracts)
+        )
+        if missing_mobile_contract_ids:
+            mobile_uom_contracts.update(
+                await resolve_driver_mobile_uom_contracts(
+                    db,
+                    company_id=company_id,
+                    variant_ids=missing_mobile_contract_ids,
+                )
+            )
+
+        for reward_variant_id in sorted(reward_variant_ids):
+            reward_variant = variants_map[reward_variant_id]
+            reward_capability = evaluate_product_capability(
+                reward_variant.lifecycle_status,
+                reward_variant.operational_hold,
+                ROUTE_SALE_OPEN,
+            )
+            if not reward_capability.allowed:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": reward_capability.code,
+                        "message": (
+                            "مرفوض: لا يمكن صرف منتج المكافأة "
+                            f"({reward_variant.variant_name}) في حالته الحالية."
+                        ),
+                    },
+                )
+
+        if resolved_sale is not None:
+            totals = resolved_sale.calculation.totals
+            total_final_amount = Decimal(str(totals.final_amount))
+            total_base_amount = Decimal(str(totals.gross_amount))
+            total_discount = Decimal(str(totals.discount_amount))
+            total_tax = Decimal(str(totals.tax_amount))
+        else:
+            total_final_amount = Decimal("0.000")
+            total_base_amount = Decimal("0.000")
+            total_discount = Decimal("0.000")
+            total_tax = Decimal("0.000")
 
         company_local_date = await get_company_local_date(db, company_id)
 
@@ -1070,32 +1298,22 @@ async def update_visit(
                 if not getattr(existing_return, "is_cancelled", False):
                     existing_return.is_cancelled = True
 
-        total_final_amount = Decimal("0.000")
-        total_base_amount = Decimal("0.000")
-        total_discount = Decimal("0.000")
-        total_tax = Decimal("0.000")
-
-        current_tax_pct = await get_setting(
-            db,
-            company_id,
-            "tax_percentage",
-            Decimal("0.000"),
-            Decimal,
-            strict_conversion=True,
-        )
-        active_offers = (
-            await db.execute(
-                select(OfferRule)
-                .filter_by(company_id=company_id, is_active=True)
-                .order_by(OfferRule.threshold_quantity.desc(), OfferRule.id.asc())
-            )
-        ).scalars().all()
-
         item_contexts = []
         return_contexts = []
-        outgoing_requests = {}
+        reward_contexts = []
+        outgoing_requests: dict[int, Decimal] = {}
 
-        # Pass 1: نحسب الفاتورة والبونص أولاً ثم نجمع طلب FEFO لكل صنف.
+        calculated_lines_by_variant = (
+            {
+                int(line.product_variant_id): line
+                for line in resolved_sale.calculation.lines
+            }
+            if resolved_sale is not None
+            else {}
+        )
+
+        # البيع والعينات يشتركان في عقد الموبايل فقط عند الـboundary؛
+        # كل الكميات التي تصل للمخزون هنا أصبحت canonical base quantities.
         for line_index, item in enumerate(payload.cart_items):
             variant = variants_map[item.product_variant_id]
             sale_capability = evaluate_product_capability(
@@ -1112,30 +1330,47 @@ async def update_visit(
                     },
                 )
 
-            ppc = int(variant.packs_per_carton)
-            price_authority = sale_prices[item.product_variant_id]
-            invoice = calculate_invoice(
-                item.quantity,
-                item.packs_quantity,
-                price_authority.price_per_carton,
-                price_authority.price_per_pack,
-                current_tax_pct,
-                active_offers,
-                company_id=company_id,
-                packs_per_carton=ppc,
-                variant_id=item.product_variant_id,
+            contract = mobile_uom_contracts[item.product_variant_id]
+            calculated_line = None
+            sale_base_quantity = Decimal("0")
+            if item.quantity > 0 or item.packs_quantity > 0:
+                calculated_line = calculated_lines_by_variant.get(
+                    int(item.product_variant_id)
+                )
+                if calculated_line is None:
+                    raise RuntimeError(
+                        "Commercial calculation is missing a sold driver line."
+                    )
+                requested_sale_base = mobile_quantity_to_base(
+                    contract,
+                    carton_quantity=int(item.quantity),
+                    pack_quantity=int(item.packs_quantity),
+                    field_name=f"sale_quantity[{item.product_variant_id}]",
+                    allow_zero=False,
+                )
+                if requested_sale_base != Decimal(str(calculated_line.quantity)):
+                    raise RuntimeError(
+                        "Driver sale boundary quantity does not match commercial calculation."
+                    )
+                sale_base_quantity = requested_sale_base
+
+            sample_base_quantity = mobile_quantity_to_base(
+                contract,
+                carton_quantity=int(item.sample_quantity),
+                pack_quantity=int(item.sample_packs_quantity),
+                field_name=f"sample_quantity[{item.product_variant_id}]",
+                allow_zero=True,
             )
-            final_bonus_cartons = int(invoice["bonus_units"])
-            total_issue_packs = (
-                item.quantity * ppc
-                + item.packs_quantity
-                + final_bonus_cartons * ppc
-                + item.sample_quantity * ppc
-                + item.sample_packs_quantity
+            total_issue_base_quantity = (
+                sale_base_quantity + sample_base_quantity
             )
-            if total_issue_packs > 0:
+            if total_issue_base_quantity > 0:
                 outgoing_requests[item.product_variant_id] = (
-                    outgoing_requests.get(item.product_variant_id, 0) + total_issue_packs
+                    outgoing_requests.get(
+                        item.product_variant_id,
+                        Decimal("0"),
+                    )
+                    + total_issue_base_quantity
                 )
 
             item_contexts.append(
@@ -1143,35 +1378,93 @@ async def update_visit(
                     "line_index": line_index,
                     "item": item,
                     "variant": variant,
-                    "price_authority": price_authority,
-                    "invoice": invoice,
-                    "bonus_cartons": final_bonus_cartons,
-                    "total_issue_packs": total_issue_packs,
+                    "calculated_line": calculated_line,
+                    "sale_base_quantity": sale_base_quantity,
+                    "sample_base_quantity": sample_base_quantity,
+                    "total_issue_base_quantity": total_issue_base_quantity,
                 }
             )
-            total_final_amount += Decimal(str(invoice["final_amount"]))
-            total_base_amount += Decimal(str(invoice["base_amount"]))
-            total_discount += Decimal(str(invoice["discount_applied"]))
-            total_tax += Decimal(str(invoice["tax_amount"]))
 
-        # Workflow المرتجع محفوظ: استبدال 1:1، لكن الوارد التالف يحمل Batch صريحاً.
+        if resolved_sale is not None:
+            for reward_index, reward in enumerate(
+                resolved_sale.calculation.rewards
+            ):
+                reward_base_quantity = Decimal(str(reward.base_quantity))
+                _require_driver_mobile_integral_quantity(
+                    reward_base_quantity,
+                    field_name=(
+                        "reward_base_quantity["
+                        f"{int(reward.product_variant_id)}:{int(reward.uom_id)}"
+                        "]"
+                    ),
+                )
+                if reward_base_quantity <= 0:
+                    raise RuntimeError(
+                        "Commercial calculation produced a non-positive reward quantity."
+                    )
+                outgoing_requests[int(reward.product_variant_id)] = (
+                    outgoing_requests.get(
+                        int(reward.product_variant_id),
+                        Decimal("0"),
+                    )
+                    + reward_base_quantity
+                )
+                reward_contexts.append(
+                    {
+                        "reward_index": reward_index,
+                        "reward": reward,
+                        "base_quantity": reward_base_quantity,
+                    }
+                )
+
+        # Workflow المرتجع محفوظ: استبدال 1:1، لكن صرف البديل يبقى Outbound تجارياً
+        # ويخضع لنفس Lifecycle/Hold gate قبل تخصيص أي مخزون.
         for return_index, ret in enumerate(payload.returns):
             variant = variants_map[ret.product_variant_id]
-            ppc = int(variant.packs_per_carton)
-            total_return_packs = ret.quantity * ppc + ret.packs_quantity
+            replacement_capability = evaluate_product_capability(
+                variant.lifecycle_status,
+                variant.operational_hold,
+                ROUTE_SALE_OPEN,
+            )
+            if not replacement_capability.allowed:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "RETURN_REPLACEMENT_PRODUCT_BLOCKED",
+                        "message": (
+                            "لا يمكن صرف بديل للمنتج في حالته التشغيلية الحالية."
+                        ),
+                        "context": {
+                            "product_variant_id": int(ret.product_variant_id),
+                            "lifecycle_code": replacement_capability.code,
+                        },
+                    },
+                )
+            contract = mobile_uom_contracts[ret.product_variant_id]
+            total_return_base_quantity = mobile_quantity_to_base(
+                contract,
+                carton_quantity=int(ret.quantity),
+                pack_quantity=int(ret.packs_quantity),
+                field_name=f"return_quantity[{ret.product_variant_id}]",
+                allow_zero=False,
+            )
             outgoing_requests[ret.product_variant_id] = (
-                outgoing_requests.get(ret.product_variant_id, 0) + total_return_packs
+                outgoing_requests.get(
+                    ret.product_variant_id,
+                    Decimal("0"),
+                )
+                + total_return_base_quantity
             )
             return_contexts.append(
                 {
                     "return_index": return_index,
                     "ret": ret,
                     "variant": variant,
-                    "total_return_packs": total_return_packs,
+                    "total_return_base_quantity": total_return_base_quantity,
                 }
             )
 
-        # كل سطر مالي آمن منفرداً في calculate_invoice؛ هنا نحمي مجموع مئات الأسطر قبل PostgreSQL.
+        # نحمي حدود دفتر الذمم الحالي صراحة؛ لا نسمح لـPostgreSQL بالتقريب الصامت.
         money_limit = Decimal("999999999.999")
         for money_label, money_value in (
             ("amount_before_tax_and_discount", total_base_amount),
@@ -1183,6 +1476,20 @@ async def update_visit(
                 raise HTTPException(
                     status_code=400,
                     detail=f"القيمة المجمعة ({money_label}) تتجاوز السعة المالية المسموحة.",
+                )
+
+        if payload.outcome == "Sale":
+            ledger_total = total_final_amount.quantize(Decimal("0.001"))
+            if ledger_total != total_final_amount:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "DRIVER_LEDGER_PRECISION_UNSUPPORTED",
+                        "message": (
+                            "قيمة الفاتورة النهائية لا تتوافق مع دقة دفتر ذمم المندوب "
+                            "الحالي (3 منازل عشرية). عدّل سياسة التقريب التجارية قبل البيع."
+                        ),
+                    },
                 )
 
         fefo_allocations = {}
@@ -1197,27 +1504,41 @@ async def update_visit(
             )
 
         allocation_state = {
-            variant_id: [[int(batch_id), int(quantity)] for batch_id, quantity in allocations]
+            variant_id: [
+                [int(batch_id), Decimal(str(quantity))]
+                for batch_id, quantity in allocations
+            ]
             for variant_id, allocations in fefo_allocations.items()
         }
+        # Monotonic cursor per variant: every exhausted FEFO bucket is skipped once,
+        # so repeated rewards/returns for the same SKU cannot rescan from index zero.
+        allocation_positions = {
+            variant_id: 0
+            for variant_id in allocation_state
+        }
 
-        def consume_fefo(variant_id: int, quantity: int):
-            if quantity <= 0:
+        def consume_fefo(variant_id: int, quantity: Decimal):
+            requested = Decimal(str(quantity))
+            if requested <= 0:
                 return []
             buckets = allocation_state.get(variant_id, [])
-            remaining = quantity
+            remaining = requested
             consumed = []
-            for bucket in buckets:
-                if remaining <= 0:
-                    break
+            position = allocation_positions.get(variant_id, 0)
+            while position < len(buckets) and remaining > 0:
+                bucket = buckets[position]
                 batch_id, available = bucket
                 if available <= 0:
+                    position += 1
                     continue
                 take = min(available, remaining)
                 consumed.append((batch_id, take))
                 bucket[1] -= take
                 remaining -= take
-            if remaining != 0:
+                if bucket[1] <= 0:
+                    position += 1
+            allocation_positions[variant_id] = position
+            if remaining != Decimal("0"):
                 raise RuntimeError(
                     f"FEFO allocation invariant violated for variant {variant_id}."
                 )
@@ -1226,12 +1547,15 @@ async def update_visit(
         movement_specs = []
         request_token = str(payload.request_id)
 
-        # البيع/البونص/العينات: شاشة المندوب لا ترى Batch؛ الخادم يستهلك FEFO تلقائياً.
+        # البيع والعينات يبقيان على VISIT_ITEM_OUT؛ المكافآت مستقلة تجارياً ومخزنياً.
+        sale_items_by_line: dict[int, VisitItem] = {}
         for ctx in item_contexts:
             item = ctx["item"]
-            variant = ctx["variant"]
             for segment_index, (batch_id, qty) in enumerate(
-                consume_fefo(item.product_variant_id, ctx["total_issue_packs"])
+                consume_fefo(
+                    item.product_variant_id,
+                    ctx["total_issue_base_quantity"],
+                )
             ):
                 movement_specs.append(
                     {
@@ -1253,36 +1577,102 @@ async def update_visit(
                         "notes": (
                             f"صرف زيارة للمحل {shop.name}: "
                             f"بيع={item.quantity} كرتونة + {item.packs_quantity} حبة، "
-                            f"بونص={ctx['bonus_cartons']} كرتونة، "
-                            f"عينات={item.sample_quantity} كرتونة + {item.sample_packs_quantity} حبة."
+                            f"عينات={item.sample_quantity} كرتونة + "
+                            f"{item.sample_packs_quantity} حبة."
                         ),
                     }
                 )
 
-            db.add(
-                VisitItem(
-                    company_id=company_id,
-                    visit_id=visit.id,
-                    product_variant_id=item.product_variant_id,
-                    quantity=item.quantity,
-                    packs_quantity=item.packs_quantity,
-                    bonus_quantity=ctx["bonus_cartons"],
-                    sample_quantity=item.sample_quantity,
-                    sample_packs_quantity=item.sample_packs_quantity,
-                    sample_reason=item.sample_reason,
-                    price_per_unit_at_sale=ctx[
-                        "price_authority"
-                    ].price_per_carton,
-                    total_price=Decimal(str(ctx["invoice"]["final_amount"])),
-                )
+            visit_item = VisitItem(
+                company_id=company_id,
+                visit_id=visit.id,
+                product_variant_id=item.product_variant_id,
+                quantity=item.quantity,
+                packs_quantity=item.packs_quantity,
+                bonus_quantity=0,
+                sample_quantity=item.sample_quantity,
+                sample_packs_quantity=item.sample_packs_quantity,
+                sample_reason=item.sample_reason,
+                price_per_unit_at_sale=Decimal("0.000000"),
+                total_price=Decimal("0.000000"),
             )
+            db.add(visit_item)
+
+            calculated_line = ctx["calculated_line"]
+            if calculated_line is not None:
+                line_id = int(calculated_line.line_id)
+                if line_id in sale_items_by_line:
+                    raise RuntimeError(
+                        "Duplicate commercial line mapping for driver sale evidence."
+                    )
+                sale_items_by_line[line_id] = visit_item
+
+        if resolved_sale is not None:
+            # IDs are required for immutable evidence. This flush remains inside
+            # the same transaction; any later failure rolls back items/evidence/movements together.
+            await db.flush()
+            line_item_ids = {
+                line_id: int(item.id)
+                for line_id, item in sale_items_by_line.items()
+            }
+            await freeze_sales_evidence(
+                db,
+                company_id=company_id,
+                visit_id=int(visit.id),
+                line_item_ids=line_item_ids,
+                calculation=resolved_sale.calculation,
+                commercial_context_id=int(
+                    resolved_sale.commercial_context_id
+                ),
+                functional_currency_code=(
+                    resolved_sale.functional_currency_code
+                ),
+            )
+
+        for reward_ctx in reward_contexts:
+            reward = reward_ctx["reward"]
+            for segment_index, (batch_id, qty) in enumerate(
+                consume_fefo(
+                    int(reward.product_variant_id),
+                    reward_ctx["base_quantity"],
+                )
+            ):
+                movement_specs.append(
+                    {
+                        "product_variant_id": int(reward.product_variant_id),
+                        "batch_id": batch_id,
+                        "quantity": qty,
+                        "movement_kind": "PHYSICAL",
+                        "reference_type": "VISIT_REWARD_OUT",
+                        "reference_id": str(visit.id),
+                        "idempotency_key": (
+                            f"VIS-{visit.id}-{request_token}-W{reward_ctx['reward_index']}-"
+                            f"P{int(reward.product_variant_id)}-U{int(reward.uom_id)}-"
+                            f"B{batch_id}-S{segment_index}"
+                        ),
+                        "source_location_id": veh_loc_id,
+                        "destination_location_id": None,
+                        "source_stock_status": "AVAILABLE",
+                        "destination_stock_status": None,
+                        "work_session_id": active_session.id,
+                        "notes": (
+                            f"صرف مكافأة عرض للمحل {shop.name}; "
+                            f"offer={int(reward.offer_definition_id)}, "
+                            f"variant={int(reward.product_variant_id)}, "
+                            f"uom={int(reward.uom_id)}."
+                        ),
+                    }
+                )
 
         # المرتجع: البديل الصالح يخرج FEFO، والمرتجع نفسه يدخل DAMAGED على Batch الممسوح.
         for ctx in return_contexts:
             ret = ctx["ret"]
-            total_return_packs = ctx["total_return_packs"]
+            total_return_base_quantity = ctx["total_return_base_quantity"]
             for segment_index, (batch_id, qty) in enumerate(
-                consume_fefo(ret.product_variant_id, total_return_packs)
+                consume_fefo(
+                    ret.product_variant_id,
+                    total_return_base_quantity,
+                )
             ):
                 movement_specs.append(
                     {
@@ -1312,7 +1702,7 @@ async def update_visit(
                 {
                     "product_variant_id": ret.product_variant_id,
                     "batch_id": ret.batch_id,
-                    "quantity": total_return_packs,
+                    "quantity": total_return_base_quantity,
                     "movement_kind": "PHYSICAL",
                     "reference_type": "VISIT_RETURN_IN",
                     "reference_id": str(visit.id),
@@ -1346,7 +1736,7 @@ async def update_visit(
             )
 
         if any(
-            remaining_qty != 0
+            remaining_qty != Decimal("0")
             for buckets in allocation_state.values()
             for _, remaining_qty in buckets
         ):
@@ -1390,14 +1780,13 @@ async def update_visit(
             total_base_amount = Decimal("0.000")
             total_discount = Decimal("0.000")
             total_tax = Decimal("0.000")
+            visit.amount_before_tax_and_discount = total_base_amount
+            visit.discount_applied = total_discount
+            visit.tax_amount = total_tax
+            visit.final_amount_due = total_final_amount
 
-        visit.amount_before_tax_and_discount = total_base_amount
-        visit.discount_applied = total_discount
-        visit.tax_percentage_applied = (
-            current_tax_pct if payload.outcome == "Sale" else Decimal("0.000")
-        )
-        visit.tax_amount = total_tax
-        visit.final_amount_due = total_final_amount
+        # هذا الحقل Legacy ولا يستطيع تمثيل ضرائب مركبة/متعددة؛ Evidence v4 هي السلطة.
+        visit.tax_percentage_applied = Decimal("0.000")
         visit.cash_collected = (
             cash_collected if payload.outcome == "Sale" else Decimal("0.000")
         )
@@ -1504,6 +1893,18 @@ async def update_visit(
             status_code=exc.status_code,
             detail=exc.as_detail(),
         ) from exc
+    except CalculationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
+    except SalesEvidenceError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
     except InventoryReversalError as exc:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1585,7 +1986,10 @@ async def _load_vehicle_inventory_projection(
         )
     ).all()
     current_map = {
-        int(product_variant_id): int(quantity or 0)
+        int(product_variant_id): _require_driver_mobile_integral_quantity(
+            quantity,
+            field_name=f"vehicle_current_quantity[{int(product_variant_id)}]",
+        )
         for product_variant_id, quantity in current_rows
     }
 
@@ -1617,7 +2021,12 @@ async def _load_vehicle_inventory_projection(
                     detail="لقطة بداية الجلسة لا تطابق موقع مخزون السيارة الحالية.",
                 )
             starting_map = {
-                int(row.product_variant_id): int(row.starting_quantity or 0)
+                int(row.product_variant_id): _require_driver_mobile_integral_quantity(
+                    row.starting_quantity,
+                    field_name=(
+                        f"vehicle_starting_quantity[{int(row.product_variant_id)}]"
+                    ),
+                )
                 for row in snapshot_rows
             }
 
@@ -1627,10 +2036,9 @@ async def _load_vehicle_inventory_projection(
                 and_(
                     InventoryMovement.source_location_id == vehicle_location_id,
                     InventoryMovement.source_stock_status == "AVAILABLE",
-                    InventoryMovement.reference_type.in_([
-                        "VISIT_ITEM_OUT",
-                        "VISIT_EXCHANGE_OUT",
-                    ]),
+                    InventoryMovement.reference_type.in_(
+                        VISIT_OUTBOUND_INVENTORY_REFERENCE_TYPES
+                    ),
                 ),
                 InventoryMovement.quantity,
             ),
@@ -1658,10 +2066,9 @@ async def _load_vehicle_inventory_projection(
                         and_(
                             InventoryMovement.source_location_id == vehicle_location_id,
                             InventoryMovement.source_stock_status == "AVAILABLE",
-                            InventoryMovement.reference_type.in_([
-                                "VISIT_ITEM_OUT",
-                                "VISIT_EXCHANGE_OUT",
-                            ]),
+                            InventoryMovement.reference_type.in_(
+                                VISIT_OUTBOUND_INVENTORY_REFERENCE_TYPES
+                            ),
                         ),
                         and_(
                             InventoryMovement.destination_location_id == vehicle_location_id,
@@ -1675,7 +2082,11 @@ async def _load_vehicle_inventory_projection(
             )
         ).all()
         for product_variant_id, quantity in issued_rows:
-            net_quantity = int(quantity or 0)
+            net_quantity = _require_driver_mobile_integral_quantity(
+                quantity,
+                field_name=f"vehicle_issued_quantity[{int(product_variant_id)}]",
+                allow_negative=True,
+            )
             if net_quantity < 0:
                 raise HTTPException(
                     status_code=409,
@@ -1775,7 +2186,12 @@ async def _load_handshake_product_totals(
     for header_id, product_variant_id, quantity, variant_name, packs_per_carton in rows:
         by_header.setdefault(int(header_id), []).append({
             "product_variant_id": int(product_variant_id),
-            "quantity": int(quantity or 0),
+            "quantity": _require_driver_mobile_integral_quantity(
+                quantity,
+                field_name=(
+                    f"handshake_quantity[{int(header_id)}:{int(product_variant_id)}]"
+                ),
+            ),
             "variant_name": str(variant_name),
             "packs_per_carton": int(packs_per_carton or 0),
         })
@@ -1921,10 +2337,16 @@ def _handshake_signed_quantity(
     vehicle_location_id: int,
     quantity: int,
 ) -> int:
+    normalized_quantity = _require_driver_mobile_integral_quantity(
+        quantity,
+        field_name=f"handshake_signed_quantity[{int(header.id)}]",
+    )
+    if normalized_quantity <= 0:
+        raise RuntimeError("Handshake quantity must be positive before applying direction.")
     if int(header.destination_location_id) == vehicle_location_id:
-        return int(quantity)
+        return normalized_quantity
     if int(header.source_location_id) == vehicle_location_id:
-        return -int(quantity)
+        return -normalized_quantity
     raise RuntimeError("Handshake header is not connected to the driver vehicle location.")
 
 

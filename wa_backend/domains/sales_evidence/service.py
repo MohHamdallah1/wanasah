@@ -194,21 +194,15 @@ def _document_offer_snapshot(calculation: CommercialCalculation) -> dict:
 
 
 def _line_offer_snapshot(
-    calculation: CommercialCalculation,
     *,
-    line_id: int,
+    offer_revision_ceiling: int,
+    applied_by_sequence: Mapping[int, object],
+    adjustments,
 ) -> dict:
-    applied_by_sequence = {
-        int(row.sequence): row for row in calculation.applied_offers
-    }
-    adjustments = [
-        row for row in calculation.adjustments
-        if int(row.line_id) == int(line_id)
-    ]
     return json_value(
         {
             "schema_version": EVIDENCE_SCHEMA_VERSION,
-            "offer_revision_ceiling": calculation.offer_revision_ceiling,
+            "offer_revision_ceiling": offer_revision_ceiling,
             "adjustments": [
                 {
                     "sequence": row.sequence,
@@ -698,8 +692,9 @@ async def freeze_sales_evidence(
         item.transaction_currency_code = transaction_currency
         item.functional_currency_code = functional_currency
         item.offer_snapshot = _line_offer_snapshot(
-            calculation,
-            line_id=line_id,
+            offer_revision_ceiling=calculation.offer_revision_ceiling,
+            applied_by_sequence=applied_by_sequence,
+            adjustments=adjustments_by_line.get(line_id, ()),
         )
         item.tax_snapshot = _line_tax_snapshot(calculation, line)
 
