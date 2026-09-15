@@ -1,7 +1,7 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { TabInventoryAccess } from "./TabInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft, Boxes } from "lucide-react";
+import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { Tab2Inbound } from "./Tab2Inbound";
@@ -9,7 +9,6 @@ import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
 import { TabWarehouseLocations } from "./TabWarehouseLocations";
 import { TabTransfers } from "./TabTransfers";
-import { TabProductCatalog } from "./TabProductCatalog";
 import "./inventory.css";
 import {
   parseLiveStockPage,
@@ -21,7 +20,6 @@ import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء ال�
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
   { id: "live", label: "الرصيد الحي", icon: Package },
-  { id: "catalog", label: "كتالوج المنتجات", icon: Boxes },
   { id: "inbound", label: "توريد بضاعة", icon: FilePlus },
   { id: "transfers", label: "الحوالات", icon: ArrowRightLeft },
   { id: "ledger", label: "سجل الحركات", icon: History },
@@ -32,7 +30,7 @@ const TABS = [
 
 type TabId = typeof TABS[number]["id"];
 const TAB_PERMISSION: Record<TabId, string> = {
-  live: 'inventory.read', catalog: 'catalog.read', inbound: 'inbound.create', transfers: 'transfer.read',
+  live: 'inventory.read', inbound: 'inbound.create', transfers: 'transfer.read',
   ledger: 'ledger.read', stocktake: 'stocktake.read', warehouses: 'location.read', permissions: '',
 };
 
@@ -159,7 +157,6 @@ export default function MainInventory() {
   const { can: canAtLocation } = locationAccess;
   const tabAllowed = useCallback((id: TabId) => {
     if (id === 'permissions') return isCompanyAdmin;
-    if (id === 'catalog') return canAny('catalog.read');
     if (id === 'warehouses' || selectedLocationId === null) return canAny(TAB_PERMISSION[id]);
     if (id === 'inbound') return canAtLocation('inbound.create') && canAtLocation('catalog.read');
     return canAtLocation(TAB_PERMISSION[id]);
@@ -595,7 +592,7 @@ export default function MainInventory() {
       {locationAccess.isError && selectedLocationId !== null && <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">الموقع غير متاح أو تغيرت صلاحياتك. <button type="button" className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800" onClick={() => { void fetchLocations(); void locationAccess.refetch(); }}>تحديث المواقع والصلاحيات</button></p>}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
-        {selectedLocationId === null && activeTab !== "catalog" && activeTab !== "warehouses" && activeTab !== "permissions" && (
+        {selectedLocationId === null && activeTab !== "warehouses" && activeTab !== "permissions" && (
           <div className="inventory-empty-state flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center font-bold">
             <p>
               {warehouseSetup?.warehouse_ready === false
@@ -612,15 +609,6 @@ export default function MainInventory() {
           </div>
         )}
 
-        {activeTab === "catalog" && tabAllowed("catalog") && (
-          <TabProductCatalog
-            locations={locations}
-            onCatalogChanged={async () => {
-              if (canAny('location.read')) await fetchLocations();
-              refreshStock();
-            }}
-          />
-        )}
         {activeTab === "live" && tabAllowed("live") && selectedLocationId !== null && (
           <Tab1LiveStock
             locationId={selectedLocationId}

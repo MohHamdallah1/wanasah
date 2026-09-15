@@ -348,6 +348,7 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                     price_book_id=price_book.id,
                     scope_type="COMPANY_DEFAULT",
                     scope_id=None,
+                    allow_offers=True,
                     priority=0,
                     effective_from=effective_at,
                     effective_to=None,

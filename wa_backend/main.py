@@ -26,7 +26,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
-from api import auth, branches, catalog, commercial_policy, driver, dispatch, offers, pricing, taxation, product_locations, tenant, warehouse, reconciliation, platform_manager, sales_returns
+from api import auth, branches, catalog, commercial_policy, driver, dispatch, offers, pricing, taxation, product_locations, tenant, warehouse, reconciliation, platform_manager, sales_returns, simple_products
 from config import Config
 from database import engine, get_db
 from ws_manager import dispatch_manager
@@ -300,6 +300,7 @@ app.include_router(dispatch.router, tags=["Dispatch & Routing"])
 app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 app.include_router(branches.router)
 app.include_router(catalog.router)
+app.include_router(simple_products.router)
 app.include_router(pricing.router)
 app.include_router(commercial_policy.router)
 app.include_router(offers.router)

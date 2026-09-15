@@ -1,6 +1,7 @@
 """Central product lifecycle capabilities, guards, blockers and domain evidence."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Iterable
 from uuid import UUID
 
@@ -56,6 +57,54 @@ DEFAULT_PRODUCT_LOCATION_FLAGS = {"inbound_enabled": True, "outbound_enabled": T
 class CapabilityDecision:
     allowed: bool
     code: str
+
+
+class ProductLifecycleTransitionError(ValueError):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 409,
+    ):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+
+def apply_variant_publish_transition(
+    row: ProductVariant,
+    now: datetime,
+) -> tuple[str, str]:
+    if row.lifecycle_status != "DRAFT" or row.operational_hold != "NONE":
+        raise ProductLifecycleTransitionError(
+            "PRODUCT_PUBLISH_TRANSITION_INVALID",
+            "النشر مسموح لمسودة غير موقوفة فقط.",
+        )
+    if (
+        not str(row.sku or "").strip()
+        or not str(row.name or "").strip()
+        or row.base_uom_id is None
+    ):
+        raise ProductLifecycleTransitionError(
+            "PRODUCT_PUBLISH_READINESS_FAILED",
+            "هوية الصنف ووحدة الأساس غير مكتملة.",
+        )
+    if (
+        row.lot_control_mode not in {"NONE", "OPTIONAL", "REQUIRED"}
+        or row.expiry_control_mode not in {"NONE", "OPTIONAL", "REQUIRED"}
+    ):
+        raise ProductLifecycleTransitionError(
+            "PRODUCT_PUBLISH_READINESS_FAILED",
+            "سياسة الدفعة أو الصلاحية غير صالحة.",
+        )
+    row.lifecycle_status = "ACTIVE"
+    row.published_at = now
+    return (
+        "ProductPublished",
+        "تم نشر الصنف وأصبحت بنيته ثابتة.",
+    )
 
 
 def evaluate_product_capability(

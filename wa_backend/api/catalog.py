@@ -31,7 +31,9 @@ from models import (
 )
 from quantity import QuantityError, canonical_quantity, parse_quantity, validate_variant_quantity
 from product_lifecycle import (
+    ProductLifecycleTransitionError,
     acquire_product_lifecycle_guards,
+    apply_variant_publish_transition,
     archive_blockers,
     record_domain_event,
     variant_snapshot,
@@ -852,15 +854,14 @@ async def _run_variant_state_command(
         message: str
 
         if command == "publish":
-            if row.lifecycle_status != "DRAFT" or row.operational_hold != "NONE":
-                raise _error(409, "PRODUCT_PUBLISH_TRANSITION_INVALID", "النشر مسموح لمسودة غير موقوفة فقط.")
-            if not row.sku.strip() or not row.name.strip() or row.base_uom_id is None:
-                raise _error(409, "PRODUCT_PUBLISH_READINESS_FAILED", "هوية الصنف ووحدة الأساس غير مكتملة.")
-            if row.lot_control_mode not in _CONTROL_MODES or row.expiry_control_mode not in _CONTROL_MODES:
-                raise _error(409, "PRODUCT_PUBLISH_READINESS_FAILED", "سياسة الدفعة أو الصلاحية غير صالحة.")
-            row.lifecycle_status = "ACTIVE"
-            row.published_at = now
-            event_type, message = "ProductPublished", "تم نشر الصنف وأصبحت بنيته ثابتة."
+            try:
+                event_type, message = apply_variant_publish_transition(row, now)
+            except ProductLifecycleTransitionError as exc:
+                raise _error(
+                    exc.status_code,
+                    exc.code,
+                    exc.message,
+                ) from exc
         elif command == "retire":
             if row.lifecycle_status != "ACTIVE":
                 raise _error(409, "PRODUCT_RETIRE_TRANSITION_INVALID", "التقاعد مسموح للصنف الفعال فقط.")
