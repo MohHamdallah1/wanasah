@@ -1053,6 +1053,7 @@ class PriceBookAssignment(Base):
         Computed("COALESCE(scope_id, 0)", persisted=True),
         nullable=False,
     )
+    allow_offers = Column(Boolean, nullable=False, default=True, server_default="true")
     priority = Column(Integer, nullable=False, default=0, server_default="0")
     effectivity = Column(TSTZRANGE, nullable=False)
     revision = Column(Integer, nullable=False)

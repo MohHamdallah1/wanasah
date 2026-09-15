@@ -198,6 +198,7 @@ def _assignment_row(row: PriceBookAssignment) -> dict[str, Any]:
         "price_book_id": int(row.price_book_id),
         "scope_type": row.scope_type,
         "scope_id": int(row.scope_id) if row.scope_id is not None else None,
+        "allow_offers": bool(row.allow_offers),
         "priority": int(row.priority),
         "effective_from": row.effectivity.lower.isoformat(),
         "effective_to": row.effectivity.upper.isoformat()
@@ -290,6 +291,7 @@ class AssignmentCreate(StrictRequest):
         "CHANNEL",
     ]
     scope_id: Optional[int] = Field(None, gt=0)
+    allow_offers: bool = True
     priority: int = Field(default=0, ge=0)
     effective_from: datetime
     effective_to: Optional[datetime] = None
@@ -956,6 +958,7 @@ async def add_assignment(
             price_book_id=payload.price_book_id,
             scope_type=payload.scope_type,
             scope_id=payload.scope_id,
+            allow_offers=payload.allow_offers,
             priority=payload.priority,
             effective_from=payload.effective_from,
             effective_to=payload.effective_to,
@@ -1014,6 +1017,7 @@ async def resolve_preview(
                 "revision": row.assignment_revision,
                 "scope_type": row.assignment_scope_type,
                 "priority": row.assignment_priority,
+                "allow_offers": bool(row.allow_offers),
             },
             "price": {
                 "entry_id": row.price_entry_id,

@@ -116,8 +116,22 @@ async def database_checks() -> None:
         if "(head)" in line and line.split()
     }
     check(
-        heads_cp.returncode == 0 and cli_heads == {"d2a6c8e4f1b7"},
-        "Sales Return migration is the single Alembic head",
+        heads_cp.returncode == 0 and len(cli_heads) == 1,
+        "Alembic exposes exactly one current head",
+    )
+
+    history_cp = subprocess.run(
+        [sys.executable, "-m", "alembic", "history", "--verbose"],
+        cwd=BACKEND,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+    check(
+        history_cp.returncode == 0
+        and "d2a6c8e4f1b7" in history_cp.stdout,
+        "Sales Return migration remains present in the current Alembic lineage",
     )
 
     tables = (
@@ -137,8 +151,8 @@ async def database_checks() -> None:
             ).scalars().all()
         )
         check(
-            db_heads == cli_heads,
-            "Database is upgraded to the exact Sales Return head",
+            bool(cli_heads) and db_heads == cli_heads,
+            "Database is upgraded to the exact current Alembic head",
         )
 
         rls_rows = (

@@ -128,6 +128,10 @@ def main() -> int:
                 "gate_stage6_return_reversal.py",
                 "STAGE6_RETURN_REVERSAL_GATE=PASS",
             ),
+            (
+                "gate_pricing_offer_interaction.py",
+                "PRICING_OFFER_INTERACTION_GATE=PASS",
+            ),
         )
         for filename, marker in gates:
             run_gate(filename, marker)

@@ -34,6 +34,26 @@ from domains.uom_authority import (
 )
 
 
+def _offers_allowed_by_price_rows(price_rows) -> bool:
+    authorities = {
+        (
+            int(row.assignment_id),
+            int(row.assignment_revision),
+            bool(row.allow_offers),
+        )
+        for row in price_rows.values()
+    }
+    if len(authorities) != 1:
+        raise CalculationError(
+            "CALCULATION_PRICE_OFFER_POLICY_CONFLICT",
+            "Resolved price rows do not share one coherent pricing assignment and offer policy.",
+            context={
+                "authorities": [list(row) for row in sorted(authorities)]
+            },
+        )
+    return next(iter(authorities))[2]
+
+
 def _validate_lock(
     *,
     publication_revision_ceiling: int,
@@ -210,24 +230,30 @@ async def resolve_and_calculate_document(
             },
         )
 
-    try:
-        offer_candidates, used_offer_ceiling = await resolve_offer_candidates(
-            db,
-            company_id=company_id,
-            as_of=when,
-            currency_code=currency,
-            customer_id=customer_id,
-            branch_id=branch_id,
-            channel_code=channel_code,
-            revision_ceiling=offer_revision_ceiling,
-        )
-    except OfferError as exc:
-        raise CalculationError(
-            exc.code,
-            exc.message,
-            status_code=exc.status_code,
-            context=exc.context,
-        ) from exc
+    offers_allowed = _offers_allowed_by_price_rows(price_rows)
+    if offers_allowed:
+        try:
+            offer_candidates, used_offer_ceiling = await resolve_offer_candidates(
+                db,
+                company_id=company_id,
+                as_of=when,
+                currency_code=currency,
+                customer_id=customer_id,
+                branch_id=branch_id,
+                channel_code=channel_code,
+                revision_ceiling=offer_revision_ceiling,
+            )
+        except OfferError as exc:
+            raise CalculationError(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+                context=exc.context,
+            ) from exc
+    else:
+        offer_candidates = []
+        used_offer_ceiling = int(offer_revision_ceiling)
+
     if int(used_offer_ceiling) != int(offer_revision_ceiling):
         raise CalculationError(
             "CALCULATION_OFFER_CEILING_MISMATCH",

@@ -42,6 +42,7 @@ class PriceResolution:
     assignment_revision: int
     assignment_scope_type: str
     assignment_priority: int
+    allow_offers: bool
     price_entry_id: int
     price_publication_id: int
     price_publication_revision: int
@@ -306,6 +307,7 @@ async def resolve_prices_bulk(
             assignment_revision=int(assignment.revision),
             assignment_scope_type=str(assignment.scope_type),
             assignment_priority=int(assignment.priority),
+            allow_offers=bool(assignment.allow_offers),
             price_entry_id=int(entry.id),
             price_publication_id=int(publication.id),
             price_publication_revision=int(publication.revision),
