@@ -1,6 +1,6 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useRef, useEffect } from "react";
-import { Radar, Truck, Package, BadgeDollarSign, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin, BadgePercent } from "lucide-react";
+import { Radar, Truck, Package, BadgeDollarSign, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin, BadgePercent, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatTenantDate } from "@/features/tenantIdentity/contracts";
@@ -17,6 +17,7 @@ const navItems = [
   { label: "المخزون والمستودع", icon: Package, path: "/inventory" },
   { label: "التسعير التجاري", icon: BadgeDollarSign, path: "/pricing" },
   { label: "العروض والضرائب", icon: BadgePercent, path: "/commercial-rules" },
+  { label: "مرتجعات البيع", icon: RotateCcw, path: "/sales-returns" },
   { label: "الأرشيف والتقارير", icon: FileText, path: "/reports" },
   { label: "الإعدادات", icon: Settings, path: "/settings" },
 ];
@@ -49,7 +50,7 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
   }, []);
 
   const handleNav = (item: typeof navItems[0]) => {
-    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/pricing" || item.path === "/commercial-rules") {
+    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/pricing" || item.path === "/commercial-rules" || item.path === "/sales-returns") {
       navigate(item.path);
       onClose(); 
     } else {

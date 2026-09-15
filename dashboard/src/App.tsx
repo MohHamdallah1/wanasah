@@ -14,6 +14,7 @@ const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
 const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
 const PricingDashboard = lazy(() => import("./pages/PricingDashboard"));
 const CommercialRulesDashboard = lazy(() => import("./pages/CommercialRulesDashboard"));
+const SalesReturnsDashboard = lazy(() => import("./pages/SalesReturnsDashboard"));
 const Login = lazy(() => import("./pages/Login"));
 const PlatformLogin = lazy(() => import("./pages/PlatformLogin"));
 const PlatformDashboard = lazy(() => import("./pages/PlatformDashboard"));
@@ -187,6 +188,7 @@ const App = () => (
                 <Route path="/inventory" element={<MainInventory />} />
                 <Route path="/pricing" element={<PricingDashboard />} />
                 <Route path="/commercial-rules" element={<CommercialRulesDashboard />} />
+                <Route path="/sales-returns" element={<SalesReturnsDashboard />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />
