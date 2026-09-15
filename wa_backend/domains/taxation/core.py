@@ -3,14 +3,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from domains.taxation.models import TaxJurisdiction, TaxRuleSetVersion
 from models import Company, SystemSetting
 
 
 TAX_MAKER_CHECKER_SETTING = "tax_maker_checker_enabled"
+TAX_JURISDICTION_MAX_DEPTH = 64
 
 
 def utc_now() -> datetime:
@@ -123,6 +125,97 @@ async def require_active_jurisdictions(
             context={"tax_jurisdiction_ids": missing},
         )
     return found
+
+
+async def jurisdiction_chain(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    jurisdiction_id: int,
+) -> dict[int, int]:
+    if int(company_id) <= 0 or int(jurisdiction_id) <= 0:
+        raise TaxError(
+            "TAX_JURISDICTION_INVALID",
+            "Tax jurisdiction context must use positive identifiers.",
+            status_code=422,
+        )
+
+    anchor = (
+        select(
+            TaxJurisdiction.id.label("id"),
+            TaxJurisdiction.parent_jurisdiction_id.label("parent_id"),
+            literal(0).label("distance"),
+        )
+        .where(
+            TaxJurisdiction.company_id == int(company_id),
+            TaxJurisdiction.id == int(jurisdiction_id),
+        )
+    )
+    chain = anchor.cte(
+        "tax_jurisdiction_chain",
+        recursive=True,
+    )
+    parent = aliased(TaxJurisdiction)
+    chain = chain.union_all(
+        select(
+            parent.id,
+            parent.parent_jurisdiction_id,
+            (chain.c.distance + 1).label("distance"),
+        )
+        .select_from(parent)
+        .join(
+            chain,
+            parent.id == chain.c.parent_id,
+        )
+        .where(
+            parent.company_id == int(company_id),
+            chain.c.distance
+            < TAX_JURISDICTION_MAX_DEPTH - 1,
+        )
+    )
+
+    rows = (
+        await db.execute(
+            select(
+                chain.c.id,
+                chain.c.parent_id,
+                chain.c.distance,
+            ).order_by(chain.c.distance)
+        )
+    ).all()
+    if not rows:
+        raise TaxError(
+            "TAX_JURISDICTION_NOT_FOUND",
+            "Tax jurisdiction is not available inside this company.",
+            status_code=404,
+        )
+
+    ids = [int(row.id) for row in rows]
+    if len(ids) != len(set(ids)):
+        raise TaxError(
+            "TAX_JURISDICTION_CYCLE",
+            "Tax jurisdiction hierarchy contains a cycle.",
+            status_code=422,
+        )
+
+    last = rows[-1]
+    if (
+        int(last.distance)
+        >= TAX_JURISDICTION_MAX_DEPTH - 1
+        and last.parent_id is not None
+    ):
+        raise TaxError(
+            "TAX_JURISDICTION_DEPTH_EXCEEDED",
+            "Tax jurisdiction hierarchy exceeds the supported depth.",
+            status_code=422,
+            context={
+                "max_depth": TAX_JURISDICTION_MAX_DEPTH,
+            },
+        )
+    return {
+        int(row.id): int(row.distance)
+        for row in rows
+    }
 
 
 async def current_tax_revision_ceiling(

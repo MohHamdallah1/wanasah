@@ -41,6 +41,25 @@ def _name(value: Any, field: str, maximum: int) -> str:
     return clean
 
 
+def _optional_text(value: Any, field: str) -> Any:
+    if value is None:
+        return None
+    if not isinstance(value, str) or "\x00" in value:
+        raise ValueError(f"Invalid {field}.")
+    return value
+
+
+def _reason(value: Any) -> str:
+    if not isinstance(value, str) or "\x00" in value:
+        raise ValueError("Invalid reason.")
+    clean = value.strip()
+    if not 3 <= len(clean) <= 1000:
+        raise ValueError(
+            "reason must contain 3-1000 non-whitespace characters."
+        )
+    return clean
+
+
 def validate_jurisdiction_shape(
     jurisdiction_type: str,
     parent_jurisdiction_id: int | None,
@@ -174,12 +193,22 @@ class DeleteCommand(StrictModel):
     expected_version: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=1000)
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_value(cls, value: Any) -> str:
+        return _reason(value)
+
 
 class RuleSetCreate(StrictModel):
     request_id: UUID
     code: str = Field(max_length=100)
     name: str = Field(max_length=150)
     description: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def description_value(cls, value: Any):
+        return _optional_text(value, "description")
 
     @field_validator("code", mode="before")
     @classmethod
@@ -198,6 +227,11 @@ class RuleSetUpdate(StrictModel):
     code: Optional[str] = Field(None, max_length=100)
     name: Optional[str] = Field(None, max_length=150)
     description: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def description_value(cls, value: Any):
+        return _optional_text(value, "description")
 
     @field_validator("code", mode="before")
     @classmethod
@@ -329,6 +363,11 @@ class VersionCommand(StrictModel):
     request_id: UUID
     expected_version: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_value(cls, value: Any) -> str:
+        return _reason(value)
 
 
 class TaxPreviewLine(StrictModel):

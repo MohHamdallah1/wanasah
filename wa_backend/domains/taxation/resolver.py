@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import exists, func, literal, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -14,6 +14,7 @@ from domains.taxation.contracts import TaxComponentSnapshot, TaxResolution
 from domains.taxation.core import (
     TaxError,
     current_tax_revision_ceiling,
+    jurisdiction_chain,
     require_aware_datetime,
     utc_now,
 )
@@ -27,7 +28,6 @@ from models import ProductVariant, Shop
 
 
 _DOCUMENT_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_.:-]{0,79}$")
-_MAX_JURISDICTION_DEPTH = 64
 
 
 def _normalize_document_type(value: Optional[str]) -> Optional[str]:
@@ -88,61 +88,6 @@ async def _validate_context(
             status_code=404,
             context={"product_variant_ids": missing},
         )
-
-
-async def _jurisdiction_chain(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    jurisdiction_id: int,
-) -> dict[int, int]:
-    anchor = (
-        select(
-            TaxJurisdiction.id.label("id"),
-            TaxJurisdiction.parent_jurisdiction_id.label("parent_id"),
-            literal(0).label("distance"),
-        )
-        .where(
-            TaxJurisdiction.company_id == company_id,
-            TaxJurisdiction.id == int(jurisdiction_id),
-        )
-    )
-    chain = anchor.cte("tax_jurisdiction_chain", recursive=True)
-    parent = aliased(TaxJurisdiction)
-    chain = chain.union_all(
-        select(
-            parent.id,
-            parent.parent_jurisdiction_id,
-            (chain.c.distance + 1).label("distance"),
-        )
-        .select_from(parent)
-        .join(chain, parent.id == chain.c.parent_id)
-        .where(
-            parent.company_id == company_id,
-            chain.c.distance < _MAX_JURISDICTION_DEPTH - 1,
-        )
-    )
-
-    rows = (
-        await db.execute(
-            select(chain.c.id, chain.c.parent_id, chain.c.distance)
-            .order_by(chain.c.distance)
-        )
-    ).all()
-    if not rows:
-        raise TaxError(
-            "TAX_JURISDICTION_NOT_FOUND",
-            "Tax jurisdiction is not available inside this company.",
-            status_code=404,
-        )
-
-    last = rows[-1]
-    if int(last.distance) >= _MAX_JURISDICTION_DEPTH - 1 and last.parent_id is not None:
-        raise TaxError(
-            "TAX_JURISDICTION_DEPTH_EXCEEDED",
-            "Tax jurisdiction hierarchy exceeds the supported depth.",
-        )
-    return {int(row.id): int(row.distance) for row in rows}
 
 
 def _scope_exists(alias, *, company_id: int, scope_type: str, extra=None):
@@ -267,7 +212,7 @@ async def resolve_tax_rules_bulk(
             "No published tax revision exists for this company.",
         )
 
-    ancestor_distance = await _jurisdiction_chain(
+    ancestor_distance = await jurisdiction_chain(
         db,
         company_id=company_id,
         jurisdiction_id=int(jurisdiction_id),

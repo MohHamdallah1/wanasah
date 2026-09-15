@@ -8,7 +8,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.taxation.core import (
+    TAX_JURISDICTION_MAX_DEPTH,
     TaxError,
+    jurisdiction_chain,
     lock_company,
     maker_checker_enabled,
     next_tenant_revision,
@@ -137,6 +139,97 @@ async def _validate_parent(
         )
 
 
+async def _validate_prospective_parent_chain(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    parent_id: int | None,
+    jurisdiction_id: int | None = None,
+) -> set[int]:
+    if parent_id is None:
+        return set()
+
+    distances = await jurisdiction_chain(
+        db,
+        company_id=company_id,
+        jurisdiction_id=parent_id,
+    )
+    if (
+        jurisdiction_id is not None
+        and int(jurisdiction_id) in distances
+    ):
+        raise TaxError(
+            "TAX_JURISDICTION_CYCLE",
+            "A jurisdiction cannot be moved below its own descendant.",
+            status_code=422,
+        )
+
+    if (
+        max(distances.values(), default=-1)
+        >= TAX_JURISDICTION_MAX_DEPTH - 1
+    ):
+        raise TaxError(
+            "TAX_JURISDICTION_DEPTH_EXCEEDED",
+            "The requested parent would exceed the supported jurisdiction depth.",
+            status_code=422,
+            context={
+                "max_depth": TAX_JURISDICTION_MAX_DEPTH,
+            },
+        )
+    return set(distances)
+
+
+async def _ensure_topology_move_safe(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    old_ancestors: set[int],
+    new_ancestors: set[int],
+) -> None:
+    affected = sorted(
+        old_ancestors ^ new_ancestors
+    )
+    if not affected:
+        return
+
+    referenced = await db.scalar(
+        select(TaxRuleScope.id)
+        .join(
+            TaxRuleSetVersion,
+            (
+                TaxRuleSetVersion.company_id
+                == TaxRuleScope.company_id
+            )
+            & (
+                TaxRuleSetVersion.id
+                == TaxRuleScope.tax_rule_set_version_id
+            ),
+        )
+        .where(
+            TaxRuleScope.company_id
+            == int(company_id),
+            TaxRuleScope.scope_type
+            == "JURISDICTION",
+            TaxRuleScope.jurisdiction_id.in_(
+                affected
+            ),
+            TaxRuleSetVersion.status.in_(
+                (
+                    "PENDING_APPROVAL",
+                    "PUBLISHED",
+                    "SUPERSEDED",
+                )
+            ),
+        )
+        .limit(1)
+    )
+    if referenced is not None:
+        raise TaxError(
+            "TAX_JURISDICTION_TOPOLOGY_IN_USE",
+            "Moving this jurisdiction would change immutable tax-version applicability.",
+        )
+
+
 async def create_jurisdiction(
     db: AsyncSession,
     *,
@@ -150,6 +243,7 @@ async def create_jurisdiction(
     locality_code: str | None,
     parent_jurisdiction_id: int | None,
 ) -> TaxJurisdiction:
+    await lock_company(db, company_id)
     try:
         validate_jurisdiction_shape(
             jurisdiction_type,
@@ -168,6 +262,11 @@ async def create_jurisdiction(
         company_id,
         parent_jurisdiction_id,
         country_code=country_code,
+    )
+    await _validate_prospective_parent_chain(
+        db,
+        company_id=company_id,
+        parent_id=parent_jurisdiction_id,
     )
     row = TaxJurisdiction(
         company_id=company_id,
@@ -193,6 +292,7 @@ async def update_jurisdiction(
     expected_version: int,
     values: dict[str, Any],
 ) -> TaxJurisdiction:
+    await lock_company(db, company_id)
     row = await _jurisdiction(db, company_id, jurisdiction_id, lock=True)
     _expect_version(row, expected_version)
 
@@ -255,6 +355,53 @@ async def update_jurisdiction(
         country_code=merged_country,
     )
 
+    new_ancestors = (
+        await _validate_prospective_parent_chain(
+            db,
+            company_id=company_id,
+            parent_id=merged_parent,
+            jurisdiction_id=jurisdiction_id,
+        )
+    )
+    if (
+        merged_parent
+        != row.parent_jurisdiction_id
+    ):
+        old_ancestors = (
+            await _validate_prospective_parent_chain(
+                db,
+                company_id=company_id,
+                parent_id=row.parent_jurisdiction_id,
+                jurisdiction_id=jurisdiction_id,
+            )
+        )
+        await _ensure_topology_move_safe(
+            db,
+            company_id=company_id,
+            old_ancestors=old_ancestors,
+            new_ancestors=new_ancestors,
+        )
+
+    if merged_country != row.country_code:
+        mismatched_child = await db.scalar(
+            select(TaxJurisdiction.id)
+            .where(
+                TaxJurisdiction.company_id
+                == company_id,
+                TaxJurisdiction.parent_jurisdiction_id
+                == jurisdiction_id,
+                TaxJurisdiction.country_code
+                != merged_country,
+            )
+            .limit(1)
+        )
+        if mismatched_child is not None:
+            raise TaxError(
+                "TAX_JURISDICTION_CHILD_COUNTRY_MISMATCH",
+                "Country cannot change while child jurisdictions belong to another country.",
+                status_code=422,
+            )
+
     if values.get("is_active") is False:
         active_child = await db.scalar(
             select(TaxJurisdiction.id)
@@ -305,6 +452,7 @@ async def delete_jurisdiction(
     jurisdiction_id: int,
     expected_version: int,
 ) -> None:
+    await lock_company(db, company_id)
     row = await _jurisdiction(db, company_id, jurisdiction_id, lock=True)
     _expect_version(row, expected_version)
     child = await db.scalar(

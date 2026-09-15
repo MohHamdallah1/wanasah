@@ -37,6 +37,25 @@ def _money(value: Any, field_name: str) -> Decimal:
     return parse_quantity(value, field_name)
 
 
+def _optional_text(value: Any, field_name: str) -> Any:
+    if value is None:
+        return None
+    if not isinstance(value, str) or "\x00" in value:
+        raise ValueError(f"Invalid {field_name}.")
+    return value
+
+
+def _reason(value: Any) -> str:
+    if not isinstance(value, str) or "\x00" in value:
+        raise ValueError("Invalid reason.")
+    clean = value.strip()
+    if not 3 <= len(clean) <= 1000:
+        raise ValueError(
+            "reason must contain 3-1000 non-whitespace characters."
+        )
+    return clean
+
+
 class OfferCaps(StrictModel):
     max_applications_per_document: Optional[int] = Field(None, gt=0)
     max_discount_amount: Optional[Decimal] = Field(None, gt=0)
@@ -200,6 +219,11 @@ class DefinitionCreate(StrictModel):
     name: str = Field(min_length=1, max_length=150)
     description: Optional[str] = Field(None, max_length=2000)
 
+    @field_validator("description", mode="before")
+    @classmethod
+    def description_value(cls, value: Any):
+        return _optional_text(value, "description")
+
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: Any):
@@ -227,6 +251,11 @@ class DefinitionUpdate(StrictModel):
     code: Optional[str] = Field(None, min_length=1, max_length=100)
     name: Optional[str] = Field(None, min_length=1, max_length=150)
     description: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def description_value(cls, value: Any):
+        return _optional_text(value, "description")
 
     @field_validator("code", mode="before")
     @classmethod
@@ -263,6 +292,11 @@ class DefinitionDelete(StrictModel):
     request_id: UUID
     expected_version: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_value(cls, value: Any) -> str:
+        return _reason(value)
 
 
 class VersionConfigMixin(StrictModel):
@@ -317,11 +351,21 @@ class VersionDelete(StrictModel):
     expected_version: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=1000)
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_value(cls, value: Any) -> str:
+        return _reason(value)
+
 
 class VersionCommand(StrictModel):
     request_id: UUID
     expected_version: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def reason_value(cls, value: Any) -> str:
+        return _reason(value)
 
 
 class PreviewComponent(StrictModel):
