@@ -184,6 +184,11 @@ class SalesVisitRevision(Base):
             name="sales_visit_revision_number_positive",
         ),
         CheckConstraint(
+            "(revision_number = 1 AND supersedes_revision_id IS NULL) OR "
+            "(revision_number > 1 AND supersedes_revision_id IS NOT NULL)",
+            name="sales_visit_revision_chain_shape",
+        ),
+        CheckConstraint(
             "evidence_schema_version = 4",
             name="sales_visit_revision_schema_v4",
         ),
@@ -604,6 +609,11 @@ class SalesLineTaxComponent(Base):
         CheckConstraint(
             "jurisdiction_distance IS NULL OR jurisdiction_distance >= 0",
             name="sales_line_tax_component_jurisdiction_distance",
+        ),
+        CheckConstraint(
+            "(matched_jurisdiction_id IS NULL AND jurisdiction_distance IS NULL) OR "
+            "(matched_jurisdiction_id IS NOT NULL AND jurisdiction_distance IS NOT NULL)",
+            name="sales_line_tax_component_jurisdiction_shape",
         ),
         CheckConstraint(
             "jsonb_typeof(metadata_snapshot) = 'object'",
