@@ -578,24 +578,34 @@ def calculate_offers(
         int(line.line_id): line
         for line in lines
     }
-    current: dict[
-        ComponentKey,
-        Decimal,
-    ] = {
-        (
-            int(line.line_id),
-            int(component.uom_id),
-        ): component.gross_amount
-        for line in lines
-        for component
-        in line.price_components
-    }
-    gross = money(
-        sum(
-            current.values(),
-            ZERO,
+    try:
+        current: dict[
+            ComponentKey,
+            Decimal,
+        ] = {
+            (
+                int(line.line_id),
+                int(component.uom_id),
+            ): component.gross_amount
+            for line in lines
+            for component
+            in line.price_components
+        }
+        gross = money(
+            sum(
+                current.values(),
+                ZERO,
+            )
         )
-    )
+    except (
+        ValueError,
+        ArithmeticError,
+    ) as exc:
+        raise OfferError(
+            "OFFER_MONETARY_OVERFLOW",
+            "Basket monetary evidence exceeds the exact NUMERIC(20,6) contract.",
+            status_code=422,
+        ) from exc
 
     by_priority: dict[
         int,

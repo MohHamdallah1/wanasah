@@ -180,23 +180,6 @@ async def preview_offer_basket(
         for product in candidate.products
         if product.role == "REWARD"
     }
-    all_variant_ids = basket_ids | {
-        variant_id
-        for variant_id, _uom_id in reward_pairs
-    }
-    try:
-        all_authorities = await load_variant_uom_authorities(
-            db,
-            company_id=company_id,
-            variant_ids=all_variant_ids,
-        )
-        for variant_id, uom_id in reward_pairs:
-            all_authorities[
-                variant_id
-            ].factor_to_base(uom_id)
-    except UomAuthorityError as exc:
-        raise _uom_error(exc) from exc
-
     missing_pairs = reward_pairs - set(price_rows)
     if missing_pairs:
         try:
@@ -213,6 +196,7 @@ async def preview_offer_basket(
                 assignment_revision_ceiling=(
                     assignment_ceiling
                 ),
+                allow_unresolved_pairs=True,
             )
         except PricingError as exc:
             raise OfferError(
@@ -319,6 +303,48 @@ async def preview_offer_basket(
         catalog_prices=catalog_prices,
         calculated_at=when,
     )
+
+    applied_reward_variant_ids = {
+        int(reward.product_variant_id)
+        for reward in result.rewards
+    }
+    reward_authorities = dict(
+        basket_authorities
+    )
+    missing_reward_variant_ids = (
+        applied_reward_variant_ids
+        - set(reward_authorities)
+    )
+    if missing_reward_variant_ids:
+        try:
+            reward_authorities.update(
+                await load_variant_uom_authorities(
+                    db,
+                    company_id=company_id,
+                    variant_ids=(
+                        missing_reward_variant_ids
+                    ),
+                )
+            )
+        except UomAuthorityError as exc:
+            raise _uom_error(exc) from exc
+    try:
+        for reward in result.rewards:
+            reward_authorities[
+                int(reward.product_variant_id)
+            ].to_base(
+                reward.quantity,
+                uom_id=int(reward.uom_id),
+                field_name=(
+                    "reward_quantity["
+                    f"{int(reward.product_variant_id)}:"
+                    f"{int(reward.uom_id)}]"
+                ),
+                validate_step=True,
+            )
+    except UomAuthorityError as exc:
+        raise _uom_error(exc) from exc
+
     return {
         "calculated_at": (
             result.calculated_at.isoformat()

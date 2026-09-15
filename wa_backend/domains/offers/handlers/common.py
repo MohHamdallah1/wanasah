@@ -15,6 +15,8 @@ from domains.offers.contracts import (
     ZERO,
     money,
 )
+from domains.offers.core import OfferError
+from quantity import QuantityError, parse_quantity
 
 
 def caps(candidate: OfferCandidate) -> Mapping:
@@ -37,6 +39,28 @@ def application_limit(
     )
 
 
+def _reward_quantity(
+    candidate: OfferCandidate,
+    quantity: Decimal,
+) -> Decimal:
+    try:
+        return parse_quantity(
+            quantity,
+            "reward_quantity",
+        )
+    except QuantityError as exc:
+        raise OfferError(
+            "OFFER_REWARD_QUANTITY_INVALID",
+            "Calculated reward quantity exceeds the exact NUMERIC(20,6) contract.",
+            status_code=422,
+            context={
+                "offer_version_id": int(
+                    candidate.version_id
+                ),
+            },
+        ) from exc
+
+
 def reward_limit(
     candidate: OfferCandidate,
     quantity: Decimal,
@@ -44,13 +68,17 @@ def reward_limit(
     configured = caps(candidate).get(
         "max_reward_quantity"
     )
-    if configured is None:
-        return money(quantity)
-    return money(
-        min(
+    limited = (
+        quantity
+        if configured is None
+        else min(
             quantity,
             Decimal(str(configured)),
         )
+    )
+    return _reward_quantity(
+        candidate,
+        limited,
     )
 
 
@@ -292,15 +320,27 @@ def proposal(
     )
     reward_value = ZERO
     for reward in rewards:
+        _reward_quantity(
+            candidate,
+            reward.quantity,
+        )
         key = (
             int(reward.product_variant_id),
             int(reward.uom_id),
         )
         price = catalog_prices.get(key)
         if price is None:
-            raise ValueError(
-                "Missing price for reward "
-                f"product/UOM {key}."
+            raise OfferError(
+                "OFFER_REWARD_PRICE_REQUIRED",
+                "Reward product/UOM price is required for deterministic offer comparison.",
+                context={
+                    "product_variant_id": int(
+                        reward.product_variant_id
+                    ),
+                    "uom_id": int(
+                        reward.uom_id
+                    ),
+                },
             )
         reward_value = money(
             reward_value

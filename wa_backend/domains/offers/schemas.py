@@ -32,10 +32,25 @@ def _quantity(value: Any, field_name: str) -> Decimal:
     return parse_quantity(value, field_name)
 
 
+def _money(value: Any, field_name: str) -> Decimal:
+    # Money and quantity share the exact NUMERIC(20,6) storage contract.
+    return parse_quantity(value, field_name)
+
+
 class OfferCaps(StrictModel):
     max_applications_per_document: Optional[int] = Field(None, gt=0)
     max_discount_amount: Optional[Decimal] = Field(None, gt=0)
     max_reward_quantity: Optional[Decimal] = Field(None, gt=0)
+
+    @field_validator("max_discount_amount", mode="before")
+    @classmethod
+    def normalize_discount_cap(cls, value: Any) -> Optional[Decimal]:
+        return None if value is None else _money(value, "max_discount_amount")
+
+    @field_validator("max_reward_quantity", mode="before")
+    @classmethod
+    def normalize_reward_cap(cls, value: Any) -> Optional[Decimal]:
+        return None if value is None else _quantity(value, "max_reward_quantity")
 
 
 class PercentageDiscountPayload(StrictModel):
@@ -46,6 +61,11 @@ class PercentageDiscountPayload(StrictModel):
 class FixedDiscountPayload(StrictModel):
     amount: Decimal = Field(gt=0)
     caps: Optional[OfferCaps] = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def normalize_amount(cls, value: Any) -> Decimal:
+        return _money(value, "amount")
 
 
 class BuyXGetYPayload(StrictModel):
@@ -112,8 +132,11 @@ class BundlePayload(StrictModel):
 
     @model_validator(mode="after")
     def validate_percentage(self):
-        if self.reward_type == "PERCENTAGE_DISCOUNT" and self.reward_value > 100:
-            raise ValueError("Bundle percentage reward cannot exceed 100.")
+        if self.reward_type == "PERCENTAGE_DISCOUNT":
+            if self.reward_value > 100:
+                raise ValueError("Bundle percentage reward cannot exceed 100.")
+        else:
+            _money(self.reward_value, "reward_value")
         return self
 
 

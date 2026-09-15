@@ -101,7 +101,21 @@ class VariantUomAuthority:
         field_name: str = "quantity",
         validate_step: bool = False,
     ) -> Decimal:
-        parsed = parse_quantity(quantity, field_name)
+        try:
+            parsed = parse_quantity(
+                quantity,
+                field_name,
+            )
+        except QuantityError as exc:
+            raise UomAuthorityError(
+                "UOM_QUANTITY_INVALID",
+                str(exc),
+                context={
+                    "product_variant_id": self.product_variant_id,
+                    "uom_id": int(uom_id),
+                    "field": field_name,
+                },
+            ) from exc
         converted = _decimal_exact(
             Fraction(parsed) * self.factor_to_base(uom_id),
             scale=self.quantity_scale,

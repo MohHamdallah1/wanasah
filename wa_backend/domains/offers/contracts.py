@@ -2,21 +2,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Mapping
 
 
 MONEY_QUANT = Decimal("0.000001")
+MONEY_MAX = Decimal("99999999999999.999999")
 ZERO = Decimal("0.000000")
 ComponentKey = tuple[int, int]
 
 
 def money(value: Decimal) -> Decimal:
-    if not isinstance(value, Decimal):
-        value = Decimal(str(value))
-    if not value.is_finite():
-        raise ValueError("Offer monetary value must be finite.")
-    return value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+    try:
+        if not isinstance(value, Decimal):
+            value = Decimal(str(value))
+        if not value.is_finite():
+            raise ValueError("Offer monetary value must be finite.")
+        result = value.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, TypeError) as exc:
+        raise ValueError(
+            "Offer monetary value cannot be represented as NUMERIC(20,6)."
+        ) from exc
+    if abs(result) > MONEY_MAX:
+        raise ValueError("Offer monetary value exceeds NUMERIC(20,6) capacity.")
+    return result
 
 
 @dataclass(frozen=True)

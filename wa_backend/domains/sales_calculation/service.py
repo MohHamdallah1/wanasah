@@ -240,20 +240,6 @@ async def resolve_and_calculate_document(
         for product in candidate.products
         if product.role == "REWARD"
     }
-    all_variant_ids = set(product_ids) | {
-        variant_id for variant_id, _uom_id in reward_pairs
-    }
-    try:
-        all_authorities = await load_variant_uom_authorities(
-            db,
-            company_id=company_id,
-            variant_ids=all_variant_ids,
-        )
-        for variant_id, uom_id in reward_pairs:
-            all_authorities[variant_id].factor_to_base(uom_id)
-    except UomAuthorityError as exc:
-        raise _uom_error(exc) from exc
-
     missing_pairs = reward_pairs - set(price_rows)
     if missing_pairs:
         try:
@@ -267,6 +253,7 @@ async def resolve_and_calculate_document(
                     as_of=when,
                     publication_revision_ceiling=price_publication_revision_ceiling,
                     assignment_revision_ceiling=assignment_revision_ceiling,
+                    allow_unresolved_pairs=True,
                 )
             )
         except PricingError as exc:
@@ -389,6 +376,31 @@ async def resolve_and_calculate_document(
             status_code=exc.status_code,
             context=exc.context,
         ) from exc
+
+    all_authorities = dict(
+        authorities
+    )
+    applied_reward_variant_ids = {
+        int(reward.product_variant_id)
+        for reward in offer_result.rewards
+    }
+    missing_reward_variant_ids = (
+        applied_reward_variant_ids
+        - set(all_authorities)
+    )
+    if missing_reward_variant_ids:
+        try:
+            all_authorities.update(
+                await load_variant_uom_authorities(
+                    db,
+                    company_id=company_id,
+                    variant_ids=(
+                        missing_reward_variant_ids
+                    ),
+                )
+            )
+        except UomAuthorityError as exc:
+            raise _uom_error(exc) from exc
 
     calculated_rewards: list[CalculatedReward] = []
     try:

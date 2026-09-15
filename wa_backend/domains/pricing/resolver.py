@@ -188,6 +188,7 @@ async def resolve_prices_bulk(
     as_of: Optional[datetime] = None,
     publication_revision_ceiling: Optional[int] = None,
     assignment_revision_ceiling: Optional[int] = None,
+    allow_unresolved_pairs: bool = False,
 ) -> dict[tuple[int, int], PriceResolution]:
     if not pairs:
         return {}
@@ -287,6 +288,8 @@ async def resolve_prices_bulk(
             )
             continue
         if len(candidates) > 1:
+            if allow_unresolved_pairs:
+                continue
             raise PricingError(
                 "PRICE_EFFECTIVITY_CONFLICT",
                 "أكثر من سعر منشور فعال لنفس SKU/UOM.",
@@ -313,7 +316,7 @@ async def resolve_prices_bulk(
             resolved_at=when,
         )
 
-    if missing:
+    if missing and not allow_unresolved_pairs:
         raise PricingError(
             "PRICE_NOT_RESOLVED",
             "تعذر حل سعر منشور لكل SKU/UOM مطلوب.",
