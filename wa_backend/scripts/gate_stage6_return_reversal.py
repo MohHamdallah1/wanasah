@@ -86,10 +86,16 @@ def static_checks() -> None:
     dashboard_page = (ROOT / "dashboard/src/pages/SalesReturnsDashboard.tsx").read_text(
         encoding="utf-8"
     )
+    dashboard_semantics = " ".join(dashboard_page.split())
     check(
-        "إشعار دائن" in dashboard_page
-        and "لا ينفذ رد نقدي تلقائي" in dashboard_page,
-        "Dashboard communicates credit-note versus refund settlement semantics",
+        (
+            "الإشعار الدائن" in dashboard_semantics
+            or "إشعار دائن" in dashboard_semantics
+        )
+        and "لا يتم دفع كاش" in dashboard_semantics
+        and "تحويل بنكي" in dashboard_semantics
+        and "اختيار عملية بيع" in dashboard_semantics,
+        "Dashboard clearly explains return credit versus later refund settlement",
     )
 
 

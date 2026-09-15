@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,7 @@ from domains.sales_returns.schemas import SalesReturnCreate
 from domains.sales_returns.service import (
     create_sales_return,
     get_sales_return,
+    list_returnable_sales,
     list_sales_returns,
     source_summary,
 )
@@ -39,6 +42,30 @@ async def list_returns(
             company_id=int(current_admin.company_id),
             limit=limit,
             before_id=before_id,
+        )
+    except SalesReturnError as exc:
+        raise _http(exc) from exc
+
+
+@router.get("/sources")
+async def returnable_sales(
+    search: str | None = Query(None, max_length=100),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    before_revision_id: int | None = Query(None, gt=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_admin),
+):
+    try:
+        return await list_returnable_sales(
+            db,
+            company_id=int(current_admin.company_id),
+            search=search,
+            date_from=date_from,
+            date_to=date_to,
+            before_revision_id=before_revision_id,
+            limit=limit,
         )
     except SalesReturnError as exc:
         raise _http(exc) from exc

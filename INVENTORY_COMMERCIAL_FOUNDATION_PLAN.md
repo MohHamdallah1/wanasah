@@ -1702,11 +1702,11 @@ Gate:
 - [x] Calculation order.
 - [x] SalesLineAdjustment/TaxComponent.
 - [x] Financial snapshots.
-- [] Return reversal from original lines.
+- [x] Return reversal from original lines.
 
 Gate:
 
-- OFFER_TAX_SNAPSHOT_GATE=PASS
+- [x] OFFER_TAX_SNAPSHOT_GATE=PASS
 
 ### Stage 7 — Valuation, Penalty and Currency
 

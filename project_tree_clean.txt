@@ -2,10 +2,90 @@
 │   └── rules
 │       └── business-workflow-protection.mdc
 ├── .gitignore
+├── .patch_backups
+│   ├── STAGE4D1_HARDENING
+│   │   ├── wa_backend__alembic__versions__19c740dc40e8_stage4d_batch_disposition_and_portion_.py
+│   │   ├── wa_backend__api__driver.py
+│   │   ├── wa_backend__api__reconciliation.py
+│   │   ├── wa_backend__api__warehouse.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4D_BATCH_DISPOSITION_PORTION_STATUS
+│   │   ├── migration__19c740dc40e8_stage4d_batch_disposition_and_portion_.py.before
+│   │   ├── wa_backend__api__driver.py
+│   │   ├── wa_backend__api__reconciliation.py
+│   │   ├── wa_backend__api__warehouse.py
+│   │   ├── wa_backend__inventory_access.py
+│   │   ├── wa_backend__models.py
+│   │   ├── wa_backend__schemas.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4E2A1_POLICY_HARDENING
+│   │   ├── migration__9c820e89ea24_stage4e2a_harden_transfer_policy_.py.before
+│   │   ├── wa_backend__api__warehouse.py
+│   │   ├── wa_backend__models.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4E2A_TRANSFER_POLICY_GUARD
+│   │   ├── migration__dfe93e142cea_stage4e2a_tenant_transfer_destination_.py.before
+│   │   ├── wa_backend__api__warehouse.py
+│   │   ├── wa_backend__models.py
+│   │   ├── wa_backend__schemas.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4E2B1_SPECIAL_TRANSFER_CONTRACT
+│   │   ├── migration__b48467088c16_stage4e2b1_special_transfer_policy_.py.before
+│   │   ├── wa_backend__inventory_access.py
+│   │   ├── wa_backend__models.py
+│   │   ├── wa_backend__schemas.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4E2B2_SPECIAL_TRANSFER_EXECUTION
+│   │   ├── wa_backend__api__warehouse.py
+│   │   ├── wa_backend__schemas.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4E2B3_SPECIAL_TRANSFER_TERMINAL_MATRIX
+│   │   ├── wa_backend__api__warehouse.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4E2B4_RETIRING_BALANCING_OVERRIDE_V3
+│   │   ├── wa_backend__api__warehouse.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4E_CORE_PURPOSE_INFLIGHT
+│   │   ├── migration__07210d8e524e_stage4e_explicit_transfer_purpose_and_.py.before
+│   │   ├── wa_backend__api__dispatch.py
+│   │   ├── wa_backend__api__driver.py
+│   │   ├── wa_backend__api__warehouse.py
+│   │   ├── wa_backend__models.py
+│   │   ├── wa_backend__schemas.py
+│   │   └── wa_backend__services.py
+│   ├── STAGE4_FINAL_GATE_FIX_V2
+│   │   └── gate_stage4_final.py
+│   ├── STAGE5B1_TEMPORAL_PRICING_FOUNDATION
+│   │   ├── inventory_access.py
+│   │   └── models.py
+│   ├── STAGE5B2_PRICING_WORKFLOW_RESOLVER_V2
+│   │   ├── inventory_access.py
+│   │   └── main.py
+│   ├── STAGE5C1_LOCKED_HISTORY
+│   │   └── publishing.py
+│   ├── STAGE5C_ROUTE_COMMERCIAL_CONTEXT
+│   │   ├── dispatch.py
+│   │   ├── driver.py
+│   │   └── models.py
+│   ├── STAGE5D_DRIVER_PRICING_AUTHORITY
+│   │   ├── driver.py
+│   │   └── services.py
+│   ├── STAGE5E_LEGACY_PRICE_REMOVAL
+│   │   └── wa_backend
+│   │       ├── api
+│   │       │   └── catalog.py
+│   │       ├── db_manager.py
+│   │       └── models.py
+│   └── STAGE5F_DASHBOARD_PRICING
+│       └── dashboard
+│           └── src
+│               ├── App.tsx
+│               └── components
 ├── .rules
 ├── .vscode
 │   └── settings.json
 ├── AGENTS.md
+├── INVENTORY_COMMERCIAL_FOUNDATION_PLAN.md
 ├── RUN.txt
 ├── dashboard
 │   ├── .env
@@ -16,12 +96,20 @@
 │   ├── components.json
 │   ├── dashboard_structure.txt
 │   ├── dist
+│   │   ├── favicon.ico
+│   │   ├── index.html
+│   │   ├── placeholder.svg
+│   │   └── robots.txt
 │   ├── eslint.config.js
 │   ├── index.html
+│   ├── offer_ui_current_diff.txt
 │   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
 │   ├── public
+│   │   ├── favicon.ico
+│   │   ├── placeholder.svg
+│   │   └── robots.txt
 │   ├── src
 │   │   ├── App.css
 │   │   ├── App.tsx
@@ -52,6 +140,7 @@
 │   │   │   │   ├── PulseBar.tsx
 │   │   │   │   ├── SettlementModal.tsx
 │   │   │   │   ├── TopBar.tsx
+│   │   │   │   ├── commercial-rules.css
 │   │   │   │   └── dashboard.css
 │   │   │   └── ui
 │   │   │       ├── accordion.tsx
@@ -110,10 +199,25 @@
 │   │   ├── data
 │   │   │   └── operations-data.ts
 │   │   ├── features
+│   │   │   ├── commercialRules
+│   │   │   │   ├── CommercialRulesWorkspace.tsx
+│   │   │   │   ├── DeleteDialog.tsx
+│   │   │   │   ├── EditorDialog.tsx
+│   │   │   │   ├── OfferManagement.tsx
+│   │   │   │   ├── PreviewLab.tsx
+│   │   │   │   ├── TaxManagement.tsx
+│   │   │   │   ├── api.ts
+│   │   │   │   ├── contracts.ts
+│   │   │   │   ├── editors
+│   │   │   │   ├── formUtils.ts
+│   │   │   │   └── hooks.ts
 │   │   │   ├── platform
 │   │   │   │   ├── api.ts
 │   │   │   │   ├── contracts.ts
 │   │   │   │   └── session.ts
+│   │   │   ├── salesReturns
+│   │   │   │   ├── api.ts
+│   │   │   │   └── contracts.ts
 │   │   │   └── tenantIdentity
 │   │   │       ├── contracts.ts
 │   │   │       └── useTenantIdentity.ts
@@ -128,12 +232,15 @@
 │   │   │   └── utils.ts
 │   │   ├── main.tsx
 │   │   ├── pages
+│   │   │   ├── CommercialRulesDashboard.tsx
 │   │   │   ├── DispatchBoard.tsx
 │   │   │   ├── Login.tsx
 │   │   │   ├── NotFound.tsx
 │   │   │   ├── OperationsDashboard.tsx
 │   │   │   ├── PlatformDashboard.tsx
 │   │   │   ├── PlatformLogin.tsx
+│   │   │   ├── PricingDashboard.tsx
+│   │   │   ├── SalesReturnsDashboard.tsx
 │   │   │   ├── inventory
 │   │   │   │   ├── MainInventory.tsx
 │   │   │   │   ├── Tab1LiveStock.tsx
@@ -151,11 +258,13 @@
 │   │   │   │   ├── inventoryUtils.ts
 │   │   │   │   ├── ledger
 │   │   │   │   ├── liveStock
+│   │   │   │   ├── quantity.ts
 │   │   │   │   ├── stocktake
 │   │   │   │   ├── transfers
 │   │   │   │   └── warehouse-locations
 │   │   │   └── login.css
 │   │   ├── test
+│   │   │   ├── commercial-rules-offers.test.ts
 │   │   │   ├── example.test.ts
 │   │   │   ├── inventory-access.test.ts
 │   │   │   └── setup.ts
@@ -173,6 +282,10 @@
 ├── wa_backend
 │   ├── .concurrency_audit_baseline.json
 │   ├── .env
+│   ├── .patch_backups
+│   │   └── STAGE4C_SYNCHRONOUS_BATCH_ELIGIBILITY
+│   │       ├── services.py.before
+│   │       └── warehouse.py.before
 │   ├── .pytest_cache
 │   │   ├── .gitignore
 │   │   ├── CACHEDIR.TAG
@@ -186,16 +299,49 @@
 │   │   ├── env.py
 │   │   ├── script.py.mako
 │   │   └── versions
+│   │       ├── 07210d8e524e_stage4e_explicit_transfer_purpose_and_.py
+│   │       ├── 19c740dc40e8_stage4d_batch_disposition_and_portion_.py
+│   │       ├── 57e120ab83c1_stage4_batch_expiry.py
+│   │       ├── 6a1f9c2e4d70_stage6a_offers_foundation.py
+│   │       ├── 6f0b8d3c2a91_fix_visit_item_currency_regex.py
+│   │       ├── 7c2a8b4d6e91_stage6c_tax_foundation.py
+│   │       ├── 8d4c6a2f1b90_stage6f_immutable_sales_evidence.py
+│   │       ├── 91e6b4c8d2f0_stage6h1_commercial_authority_lock.py
+│   │       ├── 9b1a6d4c2e70_stage4_contract_correction.py
+│   │       ├── 9c820e89ea24_stage4e2a_harden_transfer_policy_.py
+│   │       ├── a31c7e5d9b42_stage5c_route_commercial_context_lock.py
+│   │       ├── a7d3e5f1c9b2_stage6_tax_rule_version_hardening.py
+│   │       ├── b48467088c16_stage4e2b1_special_transfer_policy_.py
+│   │       ├── b8e4c6d2f1a3_stage6_sales_line_evidence_semantics.py
+│   │       ├── c3f4e5a6b7d8_stage4_batch_metadata.py
+│   │       ├── c3f8a1d6e2b4_stage6h2a_mixed_uom_flexible_rewards.py
+│   │       ├── c74f1a2e6d90_stage5c1_preserve_locked_commercial_history.py
+│   │       ├── c9f5a7b3d2e4_stage6_financial_snapshot_authority.py
+│   │       ├── d2a6c8e4f1b7_stage6_return_reversal_original_lines.py
+│   │       ├── d7e4b2c9a6f1_stage6h2b1_immutable_mixed_uom_price_evidence.py
+│   │       ├── dfe93e142cea_stage4e2a_tenant_transfer_destination_.py
+│   │       ├── e42b7c9d5a13_stage5e_remove_legacy_variant_prices.py
+│   │       ├── e5a1c9d4b7f2_stage5_temporal_pricing_foundation.py
+│   │       ├── e9a7c4d1b5f2_stage6h2b2a_reward_evidence_auxiliary_freeze.py
+│   │       ├── f2a9c4e7d1b6_stage5b2_pricing_workflow_guards.py
+│   │       └── f4c8d2a7b6e3_stage6h2b2b1_correction_safe_sales_revisions.py
 │   ├── alembic.ini
 │   ├── api
 │   │   ├── auth.py
 │   │   ├── branches.py
+│   │   ├── catalog.py
+│   │   ├── commercial_policy.py
 │   │   ├── dependencies.py
 │   │   ├── dispatch.py
 │   │   ├── driver.py
 │   │   ├── inventory_permissions.py
-│   │   ├── platform.py
+│   │   ├── offers.py
+│   │   ├── platform_manager.py
+│   │   ├── pricing.py
+│   │   ├── product_locations.py
 │   │   ├── reconciliation.py
+│   │   ├── sales_returns.py
+│   │   ├── taxation.py
 │   │   ├── tenant.py
 │   │   └── warehouse.py
 │   ├── audit_concurrency.py
@@ -204,13 +350,76 @@
 │   ├── database.py
 │   ├── db_manager.py
 │   ├── dispatch_access.py
+│   ├── domains
+│   │   ├── __init__.py
+│   │   ├── offers
+│   │   │   ├── __init__.py
+│   │   │   ├── contracts.py
+│   │   │   ├── core.py
+│   │   │   ├── eligibility.py
+│   │   │   ├── engine.py
+│   │   │   ├── handlers
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── bundle.py
+│   │   │   │   ├── common.py
+│   │   │   │   ├── cross_product.py
+│   │   │   │   ├── quantity.py
+│   │   │   │   └── simple.py
+│   │   │   ├── models.py
+│   │   │   ├── publishing.py
+│   │   │   ├── schemas.py
+│   │   │   ├── service.py
+│   │   │   └── validation.py
+│   │   ├── pricing
+│   │   │   ├── __init__.py
+│   │   │   ├── context.py
+│   │   │   ├── core.py
+│   │   │   ├── driver_authority.py
+│   │   │   ├── driver_display.py
+│   │   │   ├── publishing.py
+│   │   │   └── resolver.py
+│   │   ├── sales_calculation
+│   │   │   ├── __init__.py
+│   │   │   ├── contracts.py
+│   │   │   ├── core.py
+│   │   │   ├── driver_sale.py
+│   │   │   ├── pipeline.py
+│   │   │   ├── policy.py
+│   │   │   ├── rounding.py
+│   │   │   └── service.py
+│   │   ├── sales_evidence
+│   │   │   ├── __init__.py
+│   │   │   ├── core.py
+│   │   │   ├── models.py
+│   │   │   └── service.py
+│   │   ├── sales_returns
+│   │   │   ├── __init__.py
+│   │   │   ├── core.py
+│   │   │   ├── models.py
+│   │   │   ├── schemas.py
+│   │   │   └── service.py
+│   │   ├── taxation
+│   │   │   ├── __init__.py
+│   │   │   ├── calculator.py
+│   │   │   ├── contracts.py
+│   │   │   ├── core.py
+│   │   │   ├── models.py
+│   │   │   ├── publishing.py
+│   │   │   ├── resolver.py
+│   │   │   ├── schemas.py
+│   │   │   ├── service.py
+│   │   │   └── validation.py
+│   │   └── uom_authority.py
 │   ├── error.log
+│   ├── gs1.py
 │   ├── inventory_access.py
 │   ├── locustfile.py
 │   ├── main.py
 │   ├── models.py
+│   ├── product_lifecycle.py
 │   ├── pytest.ini
 │   ├── pytest_report.txt
+│   ├── quantity.py
 │   ├── realtime
 │   │   ├── __init__.py
 │   │   ├── auth.py
@@ -218,10 +427,74 @@
 │   ├── requirements.txt
 │   ├── schemas.py
 │   ├── scripts
+│   │   ├── backup_db.sh
+│   │   ├── error.log
+│   │   ├── error.log.1
+│   │   ├── gate_stage3_lifecycle.py
+│   │   ├── gate_stage4_batch_expiry.py
+│   │   ├── gate_stage4_final.py
+│   │   ├── gate_stage4e2a_policy.py
+│   │   ├── gate_stage5_commercial_pricing.py
+│   │   ├── gate_stage6_financial_snapshots.py
+│   │   ├── gate_stage6_offer_tax_snapshot.py
+│   │   ├── gate_stage6_return_reversal.py
+│   │   ├── gate_stage6_sales_line_evidence.py
+│   │   ├── gate_stage6_tax_rule_versions.py
+│   │   ├── gate_stage6_typed_offer_engine.py
+│   │   ├── generate_migration.sh
+│   │   ├── nuclear_stress_test.js
+│   │   ├── nuclear_summary.json
+│   │   ├── rls_stage3.sql
+│   │   ├── run_migration.sh
+│   │   ├── smoke_report.txt
+│   │   ├── stage4d_database.py
+│   │   ├── stage4d_model_ddl_audit.py
+│   │   ├── stage4d_rls_audit.py
+│   │   ├── stage4d_role_permissions.sql
+│   │   ├── test_e2e_report.txt
+│   │   ├── test_e2e_stress_simulation.py
+│   │   ├── test_rls_security.py
+│   │   ├── test_smoke.py
+│   │   ├── test_stage4d_api.py
+│   │   ├── test_stage4d_postgres.py
+│   │   └── test_stage4d_security.py
 │   ├── seed_dashboard_dev_login.py
 │   ├── services.py
 │   ├── token_identity.py
 │   ├── venv_wsl
+│   │   ├── bin
+│   │   │   ├── Activate.ps1
+│   │   │   ├── activate
+│   │   │   ├── activate.csh
+│   │   │   ├── activate.fish
+│   │   │   ├── dotenv
+│   │   │   ├── email_validator
+│   │   │   ├── httpx
+│   │   │   ├── idna
+│   │   │   ├── markdown-it
+│   │   │   ├── pip
+│   │   │   ├── pip3
+│   │   │   ├── pip3.12
+│   │   │   ├── py.test
+│   │   │   ├── pygmentize
+│   │   │   ├── pytest
+│   │   │   ├── python
+│   │   │   ├── python3
+│   │   │   ├── python3.12
+│   │   │   ├── typer
+│   │   │   ├── uvicorn
+│   │   │   ├── watchfiles
+│   │   │   └── websockets
+│   │   ├── include
+│   │   │   ├── python3.12
+│   │   │   └── site
+│   │   │       └── python3.12
+│   │   ├── lib
+│   │   │   └── python3.12
+│   │   │       └── site-packages
+│   │   ├── lib64
+│   │   │   └── python3.12
+│   │   │       └── site-packages
 │   │   └── pyvenv.cfg
 │   ├── workers
 │   │   ├── README.md

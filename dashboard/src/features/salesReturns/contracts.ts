@@ -74,3 +74,19 @@ export interface SalesReturnDetail extends SalesReturnListItem {
     }>;
   }>;
 }
+export interface SalesReturnEligibleSource {
+  visit_id: number;
+  sales_revision_id: number;
+  shop_id: number;
+  shop_name: string;
+  transaction_currency_code: string;
+  final_amount: string;
+  sold_at: string;
+  operational_date: string;
+}
+
+export interface SalesReturnEligibleSourcePage {
+  items: SalesReturnEligibleSource[];
+  has_more: boolean;
+  next_cursor: number | null;
+}

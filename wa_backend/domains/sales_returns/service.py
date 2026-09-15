@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, ROUND_HALF_UP
 from typing import Iterable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
@@ -1208,4 +1209,155 @@ async def get_sales_return(
             }
             for line, product_name in lines
         ],
+    }
+
+
+async def list_returnable_sales(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    search: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    before_revision_id: int | None = None,
+    limit: int = 50,
+) -> dict:
+    safe_limit = max(1, min(int(limit), 100))
+
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise SalesReturnError(
+            "SALES_RETURN_DATE_RANGE_INVALID",
+            "Start date cannot be after end date.",
+            status_code=422,
+        )
+
+    returned_quantity = (
+        select(
+            func.coalesce(
+                func.sum(SalesReturnQuantityComponent.quantity),
+                0,
+            )
+        )
+        .where(
+            SalesReturnQuantityComponent.company_id
+            == SalesLinePriceComponent.company_id,
+            SalesReturnQuantityComponent.original_price_component_id
+            == SalesLinePriceComponent.id,
+        )
+        .correlate(SalesLinePriceComponent)
+        .scalar_subquery()
+    )
+
+    has_returnable_component = (
+        select(SalesLinePriceComponent.id)
+        .select_from(VisitItem)
+        .join(
+            SalesLinePriceComponent,
+            (SalesLinePriceComponent.company_id == VisitItem.company_id)
+            & (SalesLinePriceComponent.visit_item_id == VisitItem.id),
+        )
+        .where(
+            VisitItem.company_id == Visit.company_id,
+            VisitItem.visit_id == Visit.id,
+            VisitItem.sales_revision_id == SalesVisitRevision.id,
+            VisitItem.financial_evidence_version == 4,
+            VisitItem.is_cancelled.is_(False),
+            SalesLinePriceComponent.quantity > returned_quantity,
+        )
+        .correlate(Visit, SalesVisitRevision)
+        .exists()
+    )
+
+    stmt = (
+        select(
+            Visit.id.label("visit_id"),
+            Visit.shop_id,
+            Visit.operational_date,
+            SalesVisitRevision.id.label("sales_revision_id"),
+            SalesVisitRevision.transaction_currency_code,
+            SalesVisitRevision.final_amount,
+            SalesVisitRevision.frozen_at,
+            Shop.name.label("shop_name"),
+        )
+        .join(
+            SalesVisitRevision,
+            (SalesVisitRevision.company_id == Visit.company_id)
+            & (SalesVisitRevision.visit_id == Visit.id)
+            & (SalesVisitRevision.id == Visit.current_sales_revision_id),
+        )
+        .join(
+            Shop,
+            (Shop.company_id == Visit.company_id)
+            & (Shop.id == Visit.shop_id),
+        )
+        .where(
+            Visit.company_id == int(company_id),
+            Visit.status == "Completed",
+            Visit.outcome == "Sale",
+            Visit.current_sales_revision_id.is_not(None),
+            SalesVisitRevision.frozen_at.is_not(None),
+            has_returnable_component,
+        )
+    )
+
+    if before_revision_id is not None:
+        stmt = stmt.where(
+            SalesVisitRevision.id < int(before_revision_id)
+        )
+
+    if date_from is not None:
+        stmt = stmt.where(Visit.operational_date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(Visit.operational_date <= date_to)
+
+    clean_search = (search or "").strip()
+    if clean_search:
+        escaped = (
+            clean_search
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        filters = [
+            Shop.name.ilike(f"%{escaped}%", escape="\\"),
+        ]
+        if clean_search.isdigit():
+            filters.append(Visit.id == int(clean_search))
+        stmt = stmt.where(or_(*filters))
+
+    rows = (
+        await db.execute(
+            stmt
+            .order_by(SalesVisitRevision.id.desc())
+            .limit(safe_limit + 1)
+        )
+    ).all()
+
+    has_more = len(rows) > safe_limit
+    rows = rows[:safe_limit]
+
+    items = [
+        {
+            "visit_id": int(row.visit_id),
+            "sales_revision_id": int(row.sales_revision_id),
+            "shop_id": int(row.shop_id),
+            "shop_name": str(row.shop_name),
+            "transaction_currency_code": str(
+                row.transaction_currency_code
+            ),
+            "final_amount": format(_d(row.final_amount), "f"),
+            "sold_at": row.frozen_at.isoformat(),
+            "operational_date": row.operational_date.isoformat(),
+        }
+        for row in rows
+    ]
+
+    return {
+        "items": items,
+        "has_more": has_more,
+        "next_cursor": (
+            int(rows[-1].sales_revision_id)
+            if has_more and rows
+            else None
+        ),
     }
