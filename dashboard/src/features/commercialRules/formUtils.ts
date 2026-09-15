@@ -48,9 +48,10 @@ const decimal = (value: string, label: string, allowZero: boolean) => {
 const positiveDecimal = (value: string, label: string) => decimal(value, label, false);
 const nonNegativeDecimal = (value: string, label: string) => decimal(value, label, true);
 const taxRate = (value: string, label: string) => {
-  const clean = nonNegativeDecimal(value, label);
-  const fraction = clean.split(".")[1] ?? "";
+  const clean = nonNegativeDecimal(value, label); const [wholeRaw, fractionRaw = ""] = clean.split(".");
+  const whole = wholeRaw.replace(/^0+/, "") || "0"; const fraction = fractionRaw.replace(/0+$/, "");
   if (fraction.length > 8) throw new Error(`${label} يقبل 8 منازل عشرية كحد أقصى.`);
+  if (whole.length > 12) throw new Error(`${label} يتجاوز سعة NUMERIC(20,8).`);
   return clean;
 };
 const percentage = (value: string, label: string) => {
@@ -74,6 +75,24 @@ const decimalCompare = (left: string, right: string) => {
   const af = a.fraction.padEnd(size, "0"); const bf = b.fraction.padEnd(size, "0");
   if (af === bf) return 0;
   return af > bf ? 1 : -1;
+};
+const positiveQuantity = (value: string, label: string) => {
+  const clean = positiveDecimal(value, label); const [wholeRaw, fractionRaw = ""] = clean.split(".");
+  const whole = wholeRaw.replace(/^0+/, "") || "0"; const fraction = fractionRaw.replace(/0+$/, "");
+  if (fraction.length > 6) throw new Error(`${label} لا يقبل أكثر من 6 منازل عشرية.`);
+  if (whole.length > 14) throw new Error(`${label} يتجاوز سعة NUMERIC(20,6).`);
+  return clean;
+};
+const quantityPercentage = (value: string, label: string) => percentage(positiveQuantity(value, label), label);
+const offerChannelCode = (value: string) => {
+  const clean = value.trim().toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9_.:-]{0,49}$/.test(clean)) throw new Error("رمز القناة غير صالح.");
+  return clean;
+};
+const offerCurrencyCode = (value: string) => {
+  const clean = value.trim().toUpperCase();
+  if (clean && !/^[A-Z][A-Z0-9]{2,9}$/.test(clean)) throw new Error("رمز العملة غير صالح.");
+  return clean;
 };
 
 const buildCaps = (form: OfferVersionForm) => {
@@ -114,7 +133,7 @@ export const offerVersionToForm = (version: OfferVersion): OfferVersionForm => {
 
 const offerScopePayload = (scope: EditableOfferScope) => {
   const target = scope.target.trim(); if (!target) throw new Error("كل نطاق عرض يحتاج قيمة هدف.");
-  if (scope.scope_type === "CHANNEL") return { scope_type: scope.scope_type, channel_code: target.toUpperCase() };
+  if (scope.scope_type === "CHANNEL") return { scope_type: scope.scope_type, channel_code: offerChannelCode(target) };
   const id = positiveInteger(target, "معرّف نطاق العرض");
   if (scope.scope_type === "PRODUCT_VARIANT") return { scope_type: scope.scope_type, product_variant_id: id, uom_id: scope.uom_id.trim() ? positiveInteger(scope.uom_id, "وحدة نطاق المنتج") : null };
   if (scope.scope_type === "CUSTOMER") return { scope_type: scope.scope_type, customer_id: id };
@@ -127,16 +146,16 @@ export const buildOfferVersionPayload = (form: OfferVersionForm) => {
   switch (form.offer_type) {
     case "PERCENTAGE_DISCOUNT": payload = { percentage: percentage(form.percentage, "نسبة الخصم") }; break;
     case "FIXED_DISCOUNT": payload = { amount: positiveDecimal(form.fixed_amount, "الخصم الثابت") }; break;
-    case "BUY_X_GET_Y": payload = { buy_quantity: positiveDecimal(form.buy_quantity, "كمية الشراء") }; break;
-    case "FREE_GOODS": payload = { qualifying_quantity: positiveDecimal(form.qualifying_quantity, "الكمية المؤهلة") }; break;
+    case "BUY_X_GET_Y": payload = { buy_quantity: positiveQuantity(form.buy_quantity, "كمية الشراء") }; break;
+    case "FREE_GOODS": payload = { qualifying_quantity: positiveQuantity(form.qualifying_quantity, "الكمية المؤهلة") }; break;
     case "QUANTITY_TIERS": {
       if (!form.tiers.length) throw new Error("أضف شريحة كمية واحدة على الأقل.");
       let previous: string | null = null;
       const tiers = form.tiers.map((tier, index) => {
-        const minimum = positiveDecimal(tier.minimum_quantity, `حد الشريحة ${index + 1}`);
+        const minimum = positiveQuantity(tier.minimum_quantity, `حد الشريحة ${index + 1}`);
         if (previous !== null && decimalCompare(minimum, previous) <= 0) throw new Error("شرائح الكمية يجب أن تكون تصاعدية بدون تكرار.");
         previous = minimum;
-        return { minimum_quantity: minimum, reward_type: tier.reward_type, reward_value: tier.reward_type === "PERCENTAGE_DISCOUNT" ? percentage(tier.reward_value, `قيمة الشريحة ${index + 1}`) : positiveDecimal(tier.reward_value, `قيمة الشريحة ${index + 1}`) };
+        return { minimum_quantity: minimum, reward_type: tier.reward_type, reward_value: tier.reward_type === "PERCENTAGE_DISCOUNT" ? quantityPercentage(tier.reward_value, `قيمة الشريحة ${index + 1}`) : positiveQuantity(tier.reward_value, `قيمة الشريحة ${index + 1}`) };
       });
       payload = { tiers }; break;
     }
@@ -145,9 +164,10 @@ export const buildOfferVersionPayload = (form: OfferVersionForm) => {
   if (caps) payload.caps = caps;
   const scopes = form.scopes.map(offerScopePayload);
   const scopeKeys = scopes.map((row) => JSON.stringify(row)); if (new Set(scopeKeys).size !== scopeKeys.length) throw new Error("يوجد نطاق عرض مكرر.");
-  const products = form.products.map((row, index) => ({ role: row.role, product_variant_id: positiveInteger(row.product_variant_id, `منتج العرض ${index + 1}`), uom_id: positiveInteger(row.uom_id, `وحدة منتج العرض ${index + 1}`), quantity_per_application: row.quantity_per_application.trim() ? positiveDecimal(row.quantity_per_application, `كمية منتج العرض ${index + 1}`) : null }));
+  const products = form.products.map((row, index) => ({ role: row.role, product_variant_id: positiveInteger(row.product_variant_id, `منتج العرض ${index + 1}`), uom_id: positiveInteger(row.uom_id, `وحدة منتج العرض ${index + 1}`), quantity_per_application: row.quantity_per_application.trim() ? positiveQuantity(row.quantity_per_application, `كمية منتج العرض ${index + 1}`) : null }));
   const productKeys = products.map((row) => `${row.role}:${row.product_variant_id}:${row.uom_id}`); if (new Set(productKeys).size !== productKeys.length) throw new Error("يوجد منتج/وحدة/دور مكرر في العرض.");
   const productScopes = scopes.filter((row) => row.scope_type === "PRODUCT_VARIANT");
+  if (productScopes.some((row, index) => row.uom_id == null && productScopes.some((other, otherIndex) => otherIndex !== index && other.product_variant_id === row.product_variant_id))) throw new Error("لا يمكن الجمع بين كل الوحدات ووحدة محددة لنفس المنتج.");
   if (["PERCENTAGE_DISCOUNT", "FIXED_DISCOUNT"].includes(form.offer_type) && products.length) throw new Error("هذا النوع يستخدم نطاق المنتج ولا يقبل أدوار منتجات.");
   if (form.offer_type === "QUANTITY_TIERS" && (products.length || productScopes.length !== 1 || productScopes[0].uom_id == null)) throw new Error("عرض الشرائح يحتاج منتجاً واحداً ووحدة قياس صريحة ولا يقبل أدوار منتجات.");
   if (["BUY_X_GET_Y", "FREE_GOODS"].includes(form.offer_type)) {
@@ -163,10 +183,21 @@ export const buildOfferVersionPayload = (form: OfferVersionForm) => {
     if (productScopes.length || components.length < 2 || new Set(components.map((row) => row.product_variant_id)).size < 2 || components.length !== products.length || components.some((row) => row.quantity_per_application === null)) throw new Error("الحزمة تحتاج منتجين مختلفين على الأقل، ولكل مكوّن وحدة وكمية صريحتان، وبدون نطاق منتج.");
   }
   const usesMoney = form.offer_type === "FIXED_DISCOUNT" || (form.offer_type === "QUANTITY_TIERS" && form.tiers.some((tier) => tier.reward_type === "FIXED_DISCOUNT")) || (form.offer_type === "BUNDLE" && ["FIXED_DISCOUNT", "FIXED_PRICE"].includes(form.bundle_reward_type)) || Boolean(form.max_discount_amount.trim());
-  const currency = form.currency_code.trim().toUpperCase(); if (usesMoney && !currency) throw new Error("رمز العملة مطلوب لهذا العرض.");
+  const currency = offerCurrencyCode(form.currency_code); if (usesMoney && !currency) throw new Error("رمز العملة مطلوب لهذا العرض.");
   const effectiveFrom = toIso(form.effective_from, "بداية العرض"); const effectiveTo = form.effective_to ? toIso(form.effective_to, "نهاية العرض") : null;
   if (effectiveTo && new Date(effectiveTo) <= new Date(effectiveFrom)) throw new Error("نهاية العرض يجب أن تكون بعد بدايته.");
   return { offer_type: form.offer_type, payload, currency_code: currency || null, priority: nonNegativeInteger(form.priority, "الأولوية"), stacking_mode: form.stacking_mode, effective_from: effectiveFrom, effective_to: effectiveTo, scopes, products };
+};
+
+const taxStableCode = (value: string, label: string, maximum: number) => {
+  const clean = value.trim().toUpperCase();
+  if (!clean || clean.length > maximum || !/^[A-Z0-9][A-Z0-9_.:-]*$/.test(clean)) throw new Error(`${label} غير صالح.`);
+  return clean;
+};
+const taxRequiredText = (value: string, label: string, maximum: number) => {
+  const clean = value.trim();
+  if (!clean || clean.length > maximum) throw new Error(`${label} غير صالح.`);
+  return clean;
 };
 
 export const emptyTaxVersionForm = (): TaxVersionForm => ({ priority: "0", price_mode: "EXCLUSIVE", effective_from: localInput(), effective_to: "", components: [{ component_code: "VAT", name: "VAT", rate: "0", basis_mode: "TAXABLE_BASE", reporting_code: "" }], scopes: [] });
@@ -177,7 +208,7 @@ export const taxVersionToForm = (version: TaxVersion): TaxVersionForm => ({
 });
 const taxScopePayload = (scope: EditableTaxScope) => {
   const target = scope.target.trim(); if (!target) throw new Error("كل نطاق ضريبي يحتاج قيمة هدف.");
-  if (scope.scope_type === "DOCUMENT_TYPE") return { scope_type: scope.scope_type, document_type_code: target.toUpperCase() };
+  if (scope.scope_type === "DOCUMENT_TYPE") return { scope_type: scope.scope_type, document_type_code: taxStableCode(target, "نوع المستند", 80) };
   const id = positiveInteger(target, "معرّف النطاق الضريبي");
   if (scope.scope_type === "JURISDICTION") return { scope_type: scope.scope_type, jurisdiction_id: id };
   if (scope.scope_type === "PRODUCT_VARIANT") return { scope_type: scope.scope_type, product_variant_id: id };
@@ -185,11 +216,14 @@ const taxScopePayload = (scope: EditableTaxScope) => {
 };
 export const buildTaxVersionPayload = (form: TaxVersionForm) => {
   if (!form.components.length) throw new Error("يلزم مكوّن ضريبي واحد على الأقل.");
+  if (form.components.length > 100) throw new Error("النسخة الضريبية لا تقبل أكثر من 100 مكوّن.");
+  if (form.scopes.length > 500) throw new Error("النسخة الضريبية لا تقبل أكثر من 500 نطاق.");
   const codes = new Set<string>();
   const components = form.components.map((row, index) => {
-    const code = row.component_code.trim().toUpperCase(); const name = row.name.trim();
-    if (!code || !name) throw new Error("كود واسم المكوّن الضريبي مطلوبان."); if (codes.has(code)) throw new Error("كود المكوّن الضريبي مكرر."); codes.add(code);
-    return { component_code: code, name, sequence: index + 1, rate: taxRate(row.rate, `نسبة ${name}`), basis_mode: index === 0 ? "TAXABLE_BASE" : row.basis_mode, reporting_code: row.reporting_code.trim().toUpperCase() || null };
+    const code = taxStableCode(row.component_code, `كود المكوّن ${index + 1}`, 100); const name = taxRequiredText(row.name, `اسم المكوّن ${index + 1}`, 150);
+    if (codes.has(code)) throw new Error("كود المكوّن الضريبي مكرر."); codes.add(code);
+    const reportingCode = row.reporting_code.trim() ? taxStableCode(row.reporting_code, `Reporting code للمكوّن ${index + 1}`, 100) : null;
+    return { component_code: code, name, sequence: index + 1, rate: taxRate(row.rate, `نسبة ${name}`), basis_mode: index === 0 ? "TAXABLE_BASE" : row.basis_mode, reporting_code: reportingCode };
   });
   const scopes = form.scopes.map(taxScopePayload); const keys = scopes.map((row) => JSON.stringify(row)); if (new Set(keys).size !== keys.length) throw new Error("يوجد نطاق ضريبي مكرر.");
   const effectiveFrom = toIso(form.effective_from, "بداية القاعدة"); const effectiveTo = form.effective_to ? toIso(form.effective_to, "نهاية القاعدة") : null;

@@ -151,11 +151,17 @@ export type OfferPreview = {
     line_id: number;
     product_variant_id: number;
     base_uom_id: number;
-    quantity: string;
-    unit_price: string;
-    price_entry_id: number;
+    canonical_quantity: string;
     gross_amount: string;
     net_amount: string;
+    price_components: Array<{
+      uom_id: number;
+      quantity: string;
+      base_quantity: string;
+      unit_price: string;
+      price_entry_id: number;
+      gross_amount: string;
+    }>;
   }>;
   adjustments: Array<{
     sequence: number;
@@ -165,6 +171,7 @@ export type OfferPreview = {
     offer_type: string;
     line_id: number | null;
     product_variant_id: number | null;
+    uom_id: number | null;
     basis_amount: string;
     discount_amount: string;
   }>;
@@ -175,7 +182,7 @@ export type OfferPreview = {
     offer_revision: number;
     offer_type: string;
     product_variant_id: number;
-    base_uom_id: number;
+    uom_id: number;
     quantity: string;
   }>;
   applied_offers: Array<{

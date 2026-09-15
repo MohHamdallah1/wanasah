@@ -24,7 +24,7 @@ function VariantTarget({ value, onChange, variants, catalogAvailable }: { value:
 }
 
 function UomTarget({ variantId, value, onChange, variants, catalogAvailable, allowAny = false }: { variantId: string; value: string; onChange: (value: string) => void; variants: OfferCatalogVariant[]; catalogAvailable: boolean; allowAny?: boolean }) {
-  if (!catalogAvailable) return <input className={editorInputClass} value={value} onChange={(e) => onChange(e.target.value)} inputMode="numeric" placeholder={allowAny ? "UOM ID — فارغ = كل الوحدات" : "UOM ID"} dir="ltr" />;
+  if (!catalogAvailable) return <input className={editorInputClass} value={value} readOnly disabled placeholder={allowAny ? "كل الوحدات" : "اختيار الوحدة يتطلب صلاحية قراءة الكتالوج"} aria-label="وحدة القياس" dir="ltr" />;
   const variant = variants.find((row) => String(row.id) === variantId);
   return <select className={editorSelectClass} value={value} onChange={(e) => onChange(e.target.value)} disabled={!variantId || !variant}><option value="">{allowAny ? "كل الوحدات" : variantId ? "اختر الوحدة" : "اختر الصنف أولاً"}</option>{variant?.uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.name} — {uom.code}</option>)}</select>;
 }
@@ -100,6 +100,22 @@ const benefitSummary = (form: OfferVersionForm) => {
   }
 };
 
+const validateOfferReferences = (form: OfferVersionForm, variantById: Map<string, OfferCatalogVariant>, catalogAvailable: boolean): string | null => {
+  if (!catalogAvailable) return null;
+  for (const product of form.products) {
+    const variant = variantById.get(product.product_variant_id);
+    if (!variant) return `تعذر تحميل مرجع الصنف #${product.product_variant_id}.`;
+    if (!variant.uoms.some((uom) => String(uom.id) === product.uom_id)) return `وحدة القياس المحددة للصنف ${variant.name} لم تعد صالحة لهذا الصنف.`;
+  }
+  for (const scope of form.scopes) {
+    if (scope.scope_type !== "PRODUCT_VARIANT") continue;
+    const variant = variantById.get(scope.target);
+    if (!variant) return `تعذر تحميل مرجع الصنف #${scope.target}.`;
+    if (scope.uom_id && !variant.uoms.some((uom) => String(uom.id) === scope.uom_id)) return `وحدة القياس المحددة لنطاق الصنف ${variant.name} لم تعد صالحة لهذا الصنف.`;
+  }
+  return null;
+};
+
 export function OfferVersionEditor({ open, definition, version, variants, catalogAvailable, hasMoreVariants, loadingMoreVariants, onLoadMoreVariants, pending, onClose, onSave }: {
   open: boolean; definition: OfferDefinition | null; version: OfferVersion | null; variants: OfferCatalogVariant[]; catalogAvailable: boolean;
   hasMoreVariants: boolean; loadingMoreVariants: boolean; onLoadMoreVariants: () => void; pending: boolean; onClose: () => void; onSave: (payload: Record<string, unknown>) => void;
@@ -126,12 +142,14 @@ export function OfferVersionEditor({ open, definition, version, variants, catalo
   const selectedType = offerTypeOptions.find((option) => option.value === form.offer_type) ?? offerTypeOptions[0];
 
   const reviewValidation = useMemo(() => {
-    try {
-      return { payload: buildOfferVersionPayload(form), error: null as string | null };
-    } catch (error) {
-      return { payload: null, error: error instanceof Error ? error.message : "إعدادات العرض غير صالحة." };
-    }
-  }, [form]);
+  try {
+    const payload = buildOfferVersionPayload(form);
+    const referenceError = validateOfferReferences(form, variantById, catalogAvailable);
+    return referenceError ? { payload: null, error: referenceError } : { payload, error: null as string | null };
+  } catch (error) {
+    return { payload: null, error: error instanceof Error ? error.message : "إعدادات العرض غير صالحة." };
+  }
+}, [catalogAvailable, form, variantById]);
 
   const changeOfferType = (offerType: OfferType) => {
     if (offerType === form.offer_type) return;
@@ -268,7 +286,7 @@ export function OfferVersionEditor({ open, definition, version, variants, catalo
 
   const renderReviewStep = () => <div className="space-y-4">
     <div className={`rounded-2xl border p-4 ${reviewValidation.error ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
-      <div className="flex items-start gap-3"><CheckCircle2 className={`mt-0.5 h-5 w-5 shrink-0 ${reviewValidation.error ? "text-rose-600" : "text-emerald-600"}`} /><div><strong className={`text-sm font-black ${reviewValidation.error ? "text-rose-800" : "text-emerald-800"}`}>{reviewValidation.error ? "الإعداد يحتاج تصحيحًا قبل الحفظ" : "الإعداد اجتاز التحقق المركزي"}</strong><p className={`mt-1 text-xs font-semibold leading-6 ${reviewValidation.error ? "text-rose-700" : "text-emerald-700"}`}>{reviewValidation.error ?? "تم التحقق من نفس عقد الحفظ المركزي، ولن يجري الـWizard أي تحويل مالي أو تجاري إضافي."}</p></div></div>
+    <div className="flex items-start gap-3"><CheckCircle2 className={`mt-0.5 h-5 w-5 shrink-0 ${reviewValidation.error ? "text-rose-600" : "text-emerald-600"}`} /><div><strong className={`text-sm font-black ${reviewValidation.error ? "text-rose-800" : "text-emerald-800"}`}>{reviewValidation.error ? "الإعداد يحتاج تصحيحًا قبل الحفظ" : "الإعداد جاهز للإرسال للتحقق النهائي"}</strong><p className={`mt-1 text-xs font-semibold leading-6 ${reviewValidation.error ? "text-rose-700" : "text-emerald-700"}`}>{reviewValidation.error ?? (catalogAvailable ? "تم التحقق من بنية العقد ومن مراجع الصنف/الوحدة المحمّلة من السيرفر. يبقى الـBackend السلطة النهائية عند الحفظ." : "تم التحقق من بنية العقد محليًا. التحقق المرجعي النهائي يتم في الـBackend عند الحفظ.")}</p></div></div>
     </div>
 
     <div className="grid gap-3 lg:grid-cols-2">

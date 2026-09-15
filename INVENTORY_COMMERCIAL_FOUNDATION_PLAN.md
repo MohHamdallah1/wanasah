@@ -1697,12 +1697,12 @@ Gate:
 
 ### Stage 6 — Offers, Taxes and Immutable Sales Evidence
 
-- Typed offer engine.
-- Tax rule versions.
-- Calculation order.
-- SalesLineAdjustment/TaxComponent.
-- Financial snapshots.
-- Return reversal from original lines.
+- [x] Typed offer engine.
+- [x] Tax rule versions.
+- [x] Calculation order.
+- [x] SalesLineAdjustment/TaxComponent.
+- [x] Financial snapshots.
+- [] Return reversal from original lines.
 
 Gate:
 

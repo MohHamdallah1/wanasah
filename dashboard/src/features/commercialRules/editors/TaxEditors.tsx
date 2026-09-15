@@ -11,6 +11,21 @@ const positiveOptionalId = (value: string, label: string) => {
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${label} غير صالح.`);
   return parsed;
 };
+const stableTaxCode = (value: string, label: string, maximum: number) => {
+  const clean = value.trim().toUpperCase();
+  if (!clean || clean.length > maximum || !/^[A-Z0-9][A-Z0-9_.:-]*$/.test(clean)) throw new Error(`${label} غير صالح.`);
+  return clean;
+};
+const requiredTaxText = (value: string, label: string, maximum: number) => {
+  const clean = value.trim();
+  if (!clean || clean.length > maximum) throw new Error(`${label} غير صالح.`);
+  return clean;
+};
+const countryTaxCode = (value: string) => {
+  const clean = value.trim().toUpperCase();
+  if (!/^[A-Z]{2,3}$/.test(clean)) throw new Error("كود الدولة يجب أن يكون حرفين أو 3 أحرف إنجليزية.");
+  return clean;
+};
 
 export function TaxJurisdictionEditor({ open, jurisdiction, jurisdictions, pending, onClose, onSave }: {
   open: boolean; jurisdiction: TaxJurisdiction | null; jurisdictions: TaxJurisdiction[]; pending: boolean; onClose: () => void; onSave: (input: Record<string, unknown>) => void;
@@ -18,9 +33,25 @@ export function TaxJurisdictionEditor({ open, jurisdiction, jurisdictions, pendi
   const [form, setForm] = useState({ code: "", name: "", jurisdiction_type: "COUNTRY" as TaxJurisdiction["jurisdiction_type"], country_code: "", subdivision_code: "", locality_code: "", parent_jurisdiction_id: "", is_active: true });
   useEffect(() => { if (open) setForm({ code: jurisdiction?.code ?? "", name: jurisdiction?.name ?? "", jurisdiction_type: jurisdiction?.jurisdiction_type ?? "COUNTRY", country_code: jurisdiction?.country_code ?? "", subdivision_code: jurisdiction?.subdivision_code ?? "", locality_code: jurisdiction?.locality_code ?? "", parent_jurisdiction_id: jurisdiction?.parent_jurisdiction_id == null ? "" : String(jurisdiction.parent_jurisdiction_id), is_active: jurisdiction?.is_active ?? true }); }, [jurisdiction, open]);
   const submit = () => {
-    const input: Record<string, unknown> = { code: form.code.trim().toUpperCase(), name: form.name.trim(), jurisdiction_type: form.jurisdiction_type, country_code: form.country_code.trim().toUpperCase(), subdivision_code: form.subdivision_code.trim().toUpperCase() || null, locality_code: form.locality_code.trim().toUpperCase() || null, parent_jurisdiction_id: positiveOptionalId(form.parent_jurisdiction_id, "النطاق الأب") };
-    if (!input.code || !input.name || !input.country_code) throw new Error("الكود والاسم وكود الدولة مطلوبة.");
-    if (jurisdiction) input.is_active = form.is_active;
+    const code = stableTaxCode(form.code, "كود النطاق", 100); const name = requiredTaxText(form.name, "اسم النطاق", 150); const countryCode = countryTaxCode(form.country_code);
+    const subdivisionCode = form.subdivision_code.trim() ? stableTaxCode(form.subdivision_code, "كود التقسيم الإداري", 50) : null;
+    const localityCode = form.locality_code.trim() ? stableTaxCode(form.locality_code, "كود المنطقة المحلية", 100) : null;
+    const parentId = positiveOptionalId(form.parent_jurisdiction_id, "النطاق الأب");
+    if (form.jurisdiction_type === "COUNTRY" && (parentId !== null || subdivisionCode !== null || localityCode !== null)) throw new Error("نطاق الدولة لا يقبل نطاقاً أب أو أكواد تقسيم/منطقة.");
+    if (form.jurisdiction_type === "SUBDIVISION" && (parentId === null || subdivisionCode === null || localityCode !== null)) throw new Error("التقسيم الإداري يحتاج نطاقاً أب وكود تقسيم فقط.");
+    if (form.jurisdiction_type === "LOCALITY" && (parentId === null || localityCode === null)) throw new Error("المنطقة المحلية تحتاج نطاقاً أب وكود منطقة.");
+    const normalized = { code, name, jurisdiction_type: form.jurisdiction_type, country_code: countryCode, subdivision_code: subdivisionCode, locality_code: localityCode, parent_jurisdiction_id: parentId };
+    if (!jurisdiction) { onSave(normalized); return; }
+    const input: Record<string, unknown> = {};
+    if (code !== jurisdiction.code) input.code = code;
+    if (name !== jurisdiction.name) input.name = name;
+    if (form.jurisdiction_type !== jurisdiction.jurisdiction_type) input.jurisdiction_type = form.jurisdiction_type;
+    if (countryCode !== jurisdiction.country_code) input.country_code = countryCode;
+    if (subdivisionCode !== jurisdiction.subdivision_code) input.subdivision_code = subdivisionCode;
+    if (localityCode !== jurisdiction.locality_code) input.locality_code = localityCode;
+    if (parentId !== jurisdiction.parent_jurisdiction_id) input.parent_jurisdiction_id = parentId;
+    if (form.is_active !== jurisdiction.is_active) input.is_active = form.is_active;
+    if (!Object.keys(input).length) throw new Error("لا توجد تغييرات للحفظ.");
     onSave(input);
   };
   return <EditorDialog open={open} onClose={onClose} title={jurisdiction ? "تعديل النطاق الضريبي" : "نطاق ضريبي جديد"} subtitle="العلاقات الهرمية tenant-scoped ويتحقق منها السيرفر وقاعدة البيانات."
@@ -36,7 +67,7 @@ export function TaxRuleSetEditor({ open, ruleSet, pending, onClose, onSave }: { 
   const [code, setCode] = useState(""); const [name, setName] = useState(""); const [description, setDescription] = useState("");
   useEffect(() => { if (open) { setCode(ruleSet?.code ?? ""); setName(ruleSet?.name ?? ""); setDescription(ruleSet?.description ?? ""); } }, [open, ruleSet]);
   return <EditorDialog open={open} onClose={onClose} title={ruleSet ? "تعديل مجموعة القواعد" : "مجموعة ضريبية جديدة"} subtitle="المجموعة هوية ثابتة، والتغييرات الفعلية تتم عبر نسخ مؤرخة."
-    footer={<><button className="commercial-editor-button commercial-editor-button--ghost" onClick={onClose}>إلغاء</button><button className="commercial-editor-button commercial-editor-button--primary" disabled={pending} onClick={() => { try { if (!code.trim() || !name.trim()) throw new Error("الكود والاسم مطلوبان."); onSave({ code: code.trim().toUpperCase(), name: name.trim(), description: description.trim() || null }); } catch (error) { toast.error(error instanceof Error ? error.message : "بيانات المجموعة غير صالحة."); } }}>{pending ? "جاري الحفظ..." : "حفظ المجموعة"}</button></>}>
+    footer={<><button className="commercial-editor-button commercial-editor-button--ghost" onClick={onClose}>إلغاء</button><button className="commercial-editor-button commercial-editor-button--primary" disabled={pending} onClick={() => { try { const cleanCode = stableTaxCode(code, "كود المجموعة", 100); const cleanName = requiredTaxText(name, "اسم المجموعة", 150); const cleanDescription = description.trim(); if (cleanDescription.length > 2000) throw new Error("الوصف يتجاوز 2000 حرف."); onSave({ code: cleanCode, name: cleanName, description: cleanDescription || null }); } catch (error) { toast.error(error instanceof Error ? error.message : "بيانات المجموعة غير صالحة."); } }}>{pending ? "جاري الحفظ..." : "حفظ المجموعة"}</button></>}>
     <div className="commercial-editor-grid commercial-editor-grid--2"><EditorField label="الكود"><input className={editorInputClass} value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" /></EditorField><EditorField label="الاسم"><input className={editorInputClass} value={name} onChange={(e) => setName(e.target.value)} /></EditorField></div><EditorField label="الوصف"><textarea className={`${editorInputClass} min-h-24 resize-y`} value={description} onChange={(e) => setDescription(e.target.value)} /></EditorField>
   </EditorDialog>;
 }

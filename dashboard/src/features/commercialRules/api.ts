@@ -233,7 +233,7 @@ export async function offerPreview(
     channel_code?: string;
     as_of?: string;
     offer_revision_ceiling?: number;
-    lines: Array<{ product_variant_id: number; quantity: string }>;
+    lines: Array<{ product_variant_id: number; components: Array<{ uom_id: number; quantity: string }> }>;
   }
 ) {
   return (await authFetch("/offers/preview", {
@@ -267,12 +267,14 @@ export async function lifecycleCommand(
   expectedVersion: number,
   reason: string
 ) {
+  const cleanReason = reason.trim();
+  if (cleanReason.length < 3 || cleanReason.length > 1000) throw new Error("سبب الإجراء يجب أن يكون بين 3 و1000 حرف.");
   return authFetch(`/${family}/versions/${versionId}/${action}`, {
     method: "POST",
     body: JSON.stringify({
       request_id: crypto.randomUUID(),
       expected_version: expectedVersion,
-      reason,
+      reason: cleanReason,
     }),
   });
 }
