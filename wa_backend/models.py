@@ -320,6 +320,7 @@ class ProductVariant(Base):
     # Carton shape remains only as quantity/UOM compatibility.
     # Commercial prices are authoritative only in temporal PriceBook publications.
     packs_per_carton = Column(Integer, nullable=False, default=50, server_default='50')
+    package_uses_base_barcode = Column(Boolean, nullable=False, default=False, server_default='false')
     default_max_samples_per_day = Column(Integer, nullable=False, default=0, server_default='0')
 
     @property

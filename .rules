@@ -43,3 +43,27 @@ Look beyond the superficial bug. Identify and warn me about potential side effec
 8. Technical Honesty & Directness:
 If my request leads to a bad practice or security flaw, DO NOT agree with me. Challenge my approach, explain the technical flaw, and provide the superior engineering solution.
 Be direct. Get straight to the point. No apologies, no repetitive phrasing, and no useless introductions.
+
+9. Internationalization & Localization (MANDATORY, repository-wide):
+- Every new frontend file and every frontend file modified from now on must be i18n-ready.
+- Never introduce new hardcoded user-facing strings in React/TypeScript UI. Use translation keys and locale resources.
+- Arabic is the current default; architecture must support more languages without rewriting business logic.
+- Direction must be locale-driven (RTL/LTR); never hardcode `dir="rtl"` in new or modified UI.
+- Use `Intl` / locale-aware formatting for numbers, currencies, dates, and times.
+- Stable backend contracts use language-neutral codes/enums/identifiers. Translate labels at the presentation layer.
+- Backend error contracts must expose stable `code` + structured `context`; localized/fallback message text must never be used as program logic.
+- UOM/status/business codes remain language-neutral in storage and APIs.
+- Import/export templates may be localized, but parsers must map localized aliases to canonical language-neutral fields.
+- When touching an existing frontend file with hardcoded strings, migrate the touched user-facing area to translation keys rather than adding more hardcoded copy.
+
+10. Network Failure, Idempotency & Durable Commands (MANDATORY):
+- Assume every mutating HTTP response can be lost after the server has committed.
+- Every new or modified mutating command must be idempotent or state-idempotent on the server.
+- Generate one operation/request id per logical mutation and preserve it across retry, timeout, disconnect, refresh, and lost-response recovery until the operation is known to have completed or is explicitly abandoned safely.
+- Reusing an operation id with different input must fail closed.
+- Never generate a fresh id automatically merely because a request timed out.
+- Do not silently queue administrative mutations in the browser for execution when connectivity returns. Preserve the user's draft and require an explicit retry.
+- Treat timeout, transport failure, and 5xx-after-send as potentially ambiguous outcomes; retry/reconcile with the same operation identity.
+- Background jobs must persist independently of the browser, be resumable/idempotent, use bounded batches, re-check authorization, and establish tenant/RLS context explicitly.
+- Browser drafts that would otherwise be lost during connectivity failure or refresh must be stored with an appropriate company/user scope and cleared only after success or explicit cancellation.
+- Global transport code must distinguish offline/network/timeout from deterministic API rejection without relying on localized message text.

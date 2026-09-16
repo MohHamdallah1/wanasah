@@ -1,10 +1,30 @@
-import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { useState, useRef, useEffect } from "react";
-import { Radar, Truck, Package, PackagePlus, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin, BadgePercent, RotateCcw, LockKeyhole } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  BadgePercent,
+  Calendar,
+  ChevronDown,
+  FileText,
+  LogOut,
+  MapPin,
+  Package,
+  PackagePlus,
+  Radar,
+  RotateCcw,
+  Settings,
+  Truck,
+  User,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { useNavigate, useLocation } from "react-router-dom";
-import { formatTenantDate } from "@/features/tenantIdentity/contracts";
-import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
+
+import {
+  formatTenantDate,
+} from "@/features/tenantIdentity/contracts";
+import {
+  useTenantIdentity,
+} from "@/features/tenantIdentity/useTenantIdentity";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 
 interface OperationsSidebarProps {
   open: boolean;
@@ -12,169 +32,413 @@ interface OperationsSidebarProps {
 }
 
 const navItems = [
-  { label: "الصفحة الرئيسية", icon: Radar, path: "/", disabled: false },
-  { label: "التوزيع والمناطق", icon: Truck, path: "/dispatch", disabled: false },
-  { label: "المخزون والمستودع", icon: Package, path: "/inventory", disabled: false },
-  { label: "المنتجات", icon: PackagePlus, path: "/products", disabled: false },
-  { label: "التسعير المتقدم", icon: LockKeyhole, path: "/pricing", disabled: true },
-  { label: "العروض والضرائب", icon: BadgePercent, path: "/commercial-rules", disabled: false },
-  { label: "مرتجعات البيع", icon: RotateCcw, path: "/sales-returns", disabled: false },
-  { label: "الأرشيف والتقارير", icon: FileText, path: "/reports", disabled: false },
-  { label: "الإعدادات", icon: Settings, path: "/settings", disabled: false },
-];
+  {
+    labelKey: "nav.home",
+    icon: Radar,
+    path: "/",
+  },
+  {
+    labelKey: "nav.dispatch",
+    icon: Truck,
+    path: "/dispatch",
+  },
+  {
+    labelKey: "nav.inventory",
+    icon: Package,
+    path: "/inventory",
+  },
+  {
+    labelKey: "nav.products",
+    icon: PackagePlus,
+    path: "/products",
+  },
+  {
+    labelKey: "nav.commercialRules",
+    icon: BadgePercent,
+    path: "/commercial-rules",
+  },
+  {
+    labelKey: "nav.salesReturns",
+    icon: RotateCcw,
+    path: "/sales-returns",
+  },
+  {
+    labelKey: "nav.reports",
+    icon: FileText,
+    path: "/reports",
+  },
+  {
+    labelKey: "nav.settings",
+    icon: Settings,
+    path: "/settings",
+  },
+] as const;
 
-export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
+export function OperationsSidebar({
+  open,
+  onClose,
+}: OperationsSidebarProps) {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const access = useInventoryAccess();
-  const tenantIdentity = useTenantIdentity();
+  const tenantIdentity =
+    useTenantIdentity();
   const location = useLocation();
-  const companyName = tenantIdentity.data?.company_name || "لوحة الشركة";
-  const companyCode = tenantIdentity.data?.company_code || "مركز إدارة العمليات";
-  const companyMark = companyName.trim().charAt(0).toUpperCase() || "W";
-  const displayLocation = tenantIdentity.data?.display_location || "الموقع غير محدد";
-  const currentDate = formatTenantDate(tenantIdentity.data?.timezone);
-  
-  // +++ حالات نظام الملف الشخصي +++
-  const adminName = localStorage.getItem('admin_name') || 'المدير';
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // إغلاق القائمة المنسدلة عند النقر خارجها
+  const companyName =
+    tenantIdentity.data?.company_name ||
+    t("nav.companyPanel");
+  const companyCode =
+    tenantIdentity.data?.company_code ||
+    t("nav.operationsCenter");
+  const companyMark =
+    companyName
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "W";
+  const displayLocation =
+    tenantIdentity.data?.display_location ||
+    t("nav.locationUnknown");
+  const locale =
+    i18n.language.startsWith("ar")
+      ? "ar-JO"
+      : "en-US";
+  const currentDate = formatTenantDate(
+    tenantIdentity.data?.timezone,
+    locale
+  );
+
+  const adminName =
+    localStorage.getItem(
+      "admin_name"
+    ) || t("nav.administrator");
+  const [
+    isDropdownOpen,
+    setIsDropdownOpen,
+  ] = useState(false);
+  const dropdownRef =
+    useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+    const handleClickOutside = (
+      event: MouseEvent
+    ) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(
+          event.target as Node
+        )
+      ) {
         setIsDropdownOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
+    return () =>
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
   }, []);
 
-  const handleNav = (item: typeof navItems[0]) => {
-    if (item.disabled) return;
-    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/products" || item.path === "/pricing" || item.path === "/commercial-rules" || item.path === "/sales-returns") {
+  const handleNav = (
+    item: (typeof navItems)[number]
+  ) => {
+    if (
+      item.path === "/" ||
+      item.path === "/dispatch" ||
+      item.path === "/inventory" ||
+      item.path === "/products" ||
+      item.path === "/commercial-rules" ||
+      item.path === "/sales-returns"
+    ) {
       navigate(item.path);
-      onClose(); 
-    } else {
-      toast("قريباً", { description: `صفحة "${item.label}" قيد التطوير`, duration: 2000 });
+      onClose();
+      return;
     }
+
+    toast(
+      t("common.comingSoon"),
+      {
+        description: t(
+          "nav.pageInDevelopment",
+          {
+            page: t(
+              item.labelKey
+            ),
+          }
+        ),
+        duration: 2000,
+      }
+    );
   };
 
-  // +++ منطق تسجيل الخروج المنسوخ من التوب بار +++
   const handleLogout = async () => {
-    const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
-    const adminToken = localStorage.getItem('admin_token');
-    const refreshToken = localStorage.getItem('refresh_token');
-    if (API_URL && adminToken) {
+    const API_URL = (
+      import.meta.env.VITE_API_URL ||
+      ""
+    ).replace(/\/$/, "");
+    const adminToken =
+      localStorage.getItem(
+        "admin_token"
+      );
+    const refreshToken =
+      localStorage.getItem(
+        "refresh_token"
+      );
+
+    if (
+      API_URL &&
+      adminToken &&
+      navigator.onLine
+    ) {
       try {
         await Promise.race([
-          fetch(`${API_URL}/logout`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${adminToken}`,
-              ...(refreshToken ? { 'X-Refresh-Token': refreshToken } : {}),
-            },
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('logout timeout')), 1500)),
+          fetch(
+            `${API_URL}/logout`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+                Authorization:
+                  `Bearer ${adminToken}`,
+                ...(refreshToken
+                  ? {
+                      "X-Refresh-Token":
+                        refreshToken,
+                    }
+                  : {}),
+              },
+            }
+          ),
+          new Promise(
+            (_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      "logout timeout"
+                    )
+                  ),
+                1500
+              )
+          ),
         ]);
-      } catch { /* صمت */ }
+      } catch {
+        // Logout is best-effort.
+      }
     }
+
     localStorage.clear();
     sessionStorage.clear();
-    window.location.replace('/login');
+    window.location.replace(
+      "/login"
+    );
   };
 
   return (
     <>
-      {open && (
-        <div className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm lg:hidden" onClick={onClose} />
-      )}
+      {open ? (
+        <div
+          className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm lg:hidden"
+          onClick={onClose}
+        />
+      ) : null}
 
       <aside
         className={`
           operations-sidebar fixed inset-y-0 end-0 z-50 w-[280px] glass-sidebar p-5 flex flex-col transition-transform duration-300
           lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:translate-x-0 lg:rounded-2xl lg:border lg:z-auto
-          ${open ? "translate-x-0" : "translate-x-full lg:translate-x-0"}
+          ${
+            open
+              ? "translate-x-0"
+              : "translate-x-full lg:translate-x-0"
+          }
         `}
       >
-        <div className="operations-brand" aria-label={companyName}>
-          <span className="operations-brand-mark">{companyMark}</span>
+        <div
+          className="operations-brand"
+          aria-label={companyName}
+        >
+          <span className="operations-brand-mark">
+            {companyMark}
+          </span>
           <span>
-            <strong>{companyName}</strong>
-            <small>{companyCode}</small>
+            <strong>
+              {companyName}
+            </strong>
+            <small>
+              {companyCode}
+            </small>
           </span>
           <i aria-hidden="true" />
         </div>
 
-        {/* +++ رأس القائمة الجديد: نظام الملف الشخصي الأنيق بدل اللوجو التقليدي +++ */}
-        <div className="sidebar-profile relative mb-6" ref={dropdownRef}>
+        <div
+          className="sidebar-profile relative mb-6"
+          ref={dropdownRef}
+        >
           <button
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="flex items-center justify-between w-full p-2.5 bg-white/40 hover:bg-white/60 rounded-2xl transition-all border border-white/50 shadow-sm"
+            type="button"
+            onClick={() =>
+              setIsDropdownOpen(
+                (current) =>
+                  !current
+              )
+            }
+            className="flex w-full items-center justify-between rounded-2xl border border-white/50 bg-white/40 p-2.5 shadow-sm transition-all hover:bg-white/60"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-warning flex items-center justify-center shadow-command">
-                <User className="w-5 h-5 text-primary-foreground" strokeWidth={1.5} />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-warning shadow-command">
+                <User
+                  className="h-5 w-5 text-primary-foreground"
+                  strokeWidth={1.5}
+                />
               </div>
               <div className="flex flex-col items-start">
-                <span className="text-sm font-extrabold text-foreground tracking-tight">{adminName}</span>
-                <span className="text-[10px] font-bold text-muted-foreground">{access.isCompanyAdmin ? "مدير النظام" : "مستخدم مخزون"}</span>
+                <span className="text-sm font-extrabold tracking-tight text-foreground">
+                  {adminName}
+                </span>
+                <span className="text-[10px] font-bold text-muted-foreground">
+                  {access.isCompanyAdmin
+                    ? t(
+                        "nav.systemAdmin"
+                      )
+                    : t(
+                        "nav.inventoryUser"
+                      )}
+                </span>
               </div>
             </div>
-            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isDropdownOpen ? "rotate-180" : ""}`} />
+
+            <ChevronDown
+              className={`h-4 w-4 text-muted-foreground transition-transform duration-300 ${
+                isDropdownOpen
+                  ? "rotate-180"
+                  : ""
+              }`}
+            />
           </button>
 
-          {/* القائمة المنسدلة للتسجيل الخروج */}
-          {isDropdownOpen && (
-            <div className="absolute top-full end-0 mt-2 w-full bg-white border border-border rounded-xl shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
+          {isDropdownOpen ? (
+            <div className="absolute end-0 top-full z-50 mt-2 w-full overflow-hidden rounded-xl border border-border bg-white shadow-lg animate-in fade-in slide-in-from-top-2">
               <div className="p-2">
-                <button className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors">
-                  <Settings className="w-4 h-4" /> إعدادات الحساب
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Settings className="h-4 w-4" />
+                  {t(
+                    "nav.accountSettings"
+                  )}
                 </button>
-                <div className="h-px bg-border my-1" />
-                <button onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-bold text-destructive hover:bg-destructive/10 rounded-lg transition-colors">
-                  <LogOut className="w-4 h-4" strokeWidth={2} /> تسجيل خروج
+                <div className="my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  onClick={
+                    handleLogout
+                  }
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <LogOut
+                    className="h-4 w-4"
+                    strokeWidth={2}
+                  />
+                  {t("nav.logout")}
                 </button>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
 
-        {/* روابط التنقل (كما هي بدون تغيير بالألوان) */}
-        <nav className="operations-nav flex flex-col gap-1" aria-label="التنقل الرئيسي">
-          {navItems.filter(item => access.isCompanyAdmin || item.path === '/inventory' || (item.path === '/dispatch' && access.canAny('dispatch.read')) || (item.path === '/products' && access.canAny('catalog.read') && access.canAny('pricing.view')) || (item.path === '/pricing' && access.canAny('pricing.view')) || (item.path === '/commercial-rules' && (access.canAny('offers.view') || access.canAny('tax.view')))).map((item) => (
-            <button
-              key={item.label}
-              disabled={item.disabled}
-              aria-disabled={item.disabled}
-              onClick={() => handleNav(item)}
-              data-active={!item.disabled && location.pathname === item.path}
-              className={`operations-nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${item.disabled ? "opacity-45 cursor-not-allowed" : ""} ${item.path !== "/pricing" && location.pathname === item.path
-                ? "bg-primary/15 text-primary-foreground font-bold shadow-sm"
-                : "text-muted-foreground hover:bg-white/60 hover:text-foreground"
-                }`}
-            >
-              <item.icon className="w-[18px] h-[18px]" strokeWidth={1.5} />
-              {item.label}
-            </button>
-          ))}
+        <nav
+          className="operations-nav flex flex-col gap-1"
+          aria-label={t(
+            "nav.mainNavigation"
+          )}
+        >
+          {navItems
+            .filter(
+              (item) =>
+                access.isCompanyAdmin ||
+                item.path ===
+                  "/inventory" ||
+                (item.path ===
+                  "/dispatch" &&
+                  access.canAny(
+                    "dispatch.read"
+                  )) ||
+                (item.path ===
+                  "/products" &&
+                  access.canAny(
+                    "catalog.read"
+                  ) &&
+                  access.canAny(
+                    "pricing.view"
+                  )) ||
+                (item.path ===
+                  "/commercial-rules" &&
+                  (access.canAny(
+                    "offers.view"
+                  ) ||
+                    access.canAny(
+                      "tax.view"
+                    )))
+            )
+            .map((item) => {
+              const active =
+                location.pathname ===
+                item.path;
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  onClick={() =>
+                    handleNav(item)
+                  }
+                  data-active={
+                    active
+                  }
+                  className={`operations-nav-item flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ${
+                    active
+                      ? "bg-primary/15 text-primary-foreground font-bold shadow-sm"
+                      : "text-muted-foreground hover:bg-white/60 hover:text-foreground"
+                  }`}
+                >
+                  <item.icon
+                    className="h-[18px] w-[18px]"
+                    strokeWidth={1.5}
+                  />
+                  {t(item.labelKey)}
+                </button>
+              );
+            })}
         </nav>
 
-        {/* +++ ذيل القائمة الجديد: التاريخ والمكان بتصميم زجاجي احترافي بدلاً من التنبيهات المزعجة +++ */}
         <div className="sidebar-context mt-auto pt-6">
-          <div className="flex flex-col gap-3 p-4 rounded-2xl bg-white/40 border border-white/50 shadow-sm backdrop-blur-md">
+          <div className="flex flex-col gap-3 rounded-2xl border border-white/50 bg-white/40 p-4 shadow-sm backdrop-blur-md">
             <div className="flex items-center gap-2.5 text-sm font-bold text-slate-700">
-              <div className="p-1.5 bg-primary/10 rounded-lg">
-                <Calendar className="w-4 h-4 text-primary" strokeWidth={2} />
+              <div className="rounded-lg bg-primary/10 p-1.5">
+                <Calendar
+                  className="h-4 w-4 text-primary"
+                  strokeWidth={2}
+                />
               </div>
               <span className="tracking-tight">
                 {currentDate}
               </span>
             </div>
+
             <div className="flex items-center gap-2.5 text-xs font-bold text-slate-500">
-              <div className="p-1.5 bg-warning/10 rounded-lg">
-                <MapPin className="w-4 h-4 text-warning" strokeWidth={2} />
+              <div className="rounded-lg bg-warning/10 p-1.5">
+                <MapPin
+                  className="h-4 w-4 text-warning"
+                  strokeWidth={2}
+                />
               </div>
               {displayLocation}
             </div>

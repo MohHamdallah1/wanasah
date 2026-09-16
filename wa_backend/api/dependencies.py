@@ -58,7 +58,14 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
         raise HTTPException(status_code=401, detail="الحساب غير موجود في قاعدة البيانات. يرجى تسجيل الدخول مجدداً.")
         
     if not getattr(driver, 'is_active', False):
-        raise HTTPException(status_code=403, detail="مرفوض أمنياً: تم إيقاف حسابك من قبل الإدارة. التوكن ملغي.")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "ACCOUNT_DISABLED",
+                "message": "Account is disabled.",
+                "context": {},
+            },
+        )
         
     return driver
 

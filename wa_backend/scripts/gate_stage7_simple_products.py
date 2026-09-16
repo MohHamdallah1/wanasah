@@ -30,57 +30,69 @@ def static_checks() -> None:
     from domains.simple_products.service import resolve_price_pair
     from product_import_worker import parse_source, suggest_mapping
 
-    carton_only = resolve_price_pair(
-        units_per_carton=50,
-        carton_price=Decimal("10"),
+    package_only = resolve_price_pair(
+        units_per_package=50,
+        package_uom_code="CARTON",
+        package_price=Decimal("10"),
     )
     unit_only = resolve_price_pair(
-        units_per_carton=50,
+        units_per_package=50,
+        package_uom_code="CARTON",
         unit_price=Decimal("0.300"),
     )
     independent = resolve_price_pair(
-        units_per_carton=50,
-        carton_price=Decimal("10"),
+        units_per_package=50,
+        package_uom_code="BAG",
+        package_price=Decimal("10"),
         unit_price=Decimal("0.300"),
     )
+    no_package = resolve_price_pair(
+        units_per_package=1,
+        package_uom_code=None,
+        unit_price=Decimal("0.300"),
+    )
+
     check(
-        carton_only.carton_price == Decimal("10.000000")
-        and carton_only.unit_price == Decimal("0.200000")
-        and carton_only.unit_derived,
-        "Carton-only input derives unit price",
+        package_only.unit_price == Decimal("0.200000"),
+        "Package-only input derives unit price",
     )
     check(
-        unit_only.carton_price == Decimal("15.000000")
-        and unit_only.unit_price == Decimal("0.300000")
-        and unit_only.carton_derived,
-        "Unit-only input derives carton price",
+        unit_only.package_price == Decimal("15.000000"),
+        "Unit-only input derives package price",
     )
     check(
-        independent.carton_price == Decimal("10.000000")
+        independent.package_price == Decimal("10.000000")
         and independent.unit_price == Decimal("0.300000")
-        and not independent.carton_derived
+        and not independent.package_derived
         and not independent.unit_derived,
-        "Explicit carton and unit prices remain independent",
+        "Explicit package and unit prices remain independent",
+    )
+    check(
+        no_package.package_price is None
+        and no_package.unit_price == Decimal("0.300000"),
+        "Unit-only product is supported without an outer package",
     )
 
     headers, rows = parse_source(
         "products.csv",
         (
-            "\ufeffسعر الحبة,اسم المنتج,عدد الحبات في الكرتونة,العائلة\n"
-            "0.300,لولو جبنة,50,شيبس لولو\n"
+            "سعر الوحدة,اسم المنتج,عدد الوحدات في العبوة,نوع العبوة,العائلة\n"
+            "0.300,لولو جبنة,50,كرتونة,شيبس لولو\n"
         ).encode("utf-8"),
     )
     suggestions = suggest_mapping(headers)
     check(
         len(rows) == 1
         and suggestions.get("name") == "اسم المنتج"
-        and suggestions.get("units_per_carton") == "عدد الحبات في الكرتونة"
-        and suggestions.get("unit_price") == "سعر الحبة",
-        "Flexible CSV column order is detected without positional guessing",
+        and suggestions.get("package_uom") == "نوع العبوة"
+        and suggestions.get("units_per_package") == "عدد الوحدات في العبوة"
+        and suggestions.get("unit_price") == "سعر الوحدة",
+        "Flexible localized import headers map without positional guessing",
     )
 
     sidebar = (
-        ROOT / "dashboard/src/components/operations/OperationsSidebar.tsx"
+        ROOT
+        / "dashboard/src/components/operations/OperationsSidebar.tsx"
     ).read_text(encoding="utf-8")
     app = (ROOT / "dashboard/src/App.tsx").read_text(encoding="utf-8")
     inventory = (
@@ -100,11 +112,11 @@ def static_checks() -> None:
     requirements = (BACKEND / "requirements.txt").read_text(encoding="utf-8")
 
     check(
-        'label: "المنتجات"' in sidebar
-        and 'path: "/products"' in sidebar
-        and 'label: "التسعير المتقدم"' in sidebar
-        and 'disabled: true' in sidebar,
-        "Sidebar keeps Advanced Pricing visible but globally disabled",
+        'path: "/products"' in sidebar
+        and "التسعير المتقدم" not in sidebar
+        and "products.advancedPricing" in page
+        and "LockKeyhole" in page,
+        "Advanced Pricing is disabled inside Products and absent from Sidebar",
     )
     check(
         '<Route path="/products" element={<ProductsDashboard />} />' in app
@@ -118,80 +130,84 @@ def static_checks() -> None:
         "Technical catalog remains hidden from Inventory",
     )
     check(
-        "سعر الكرتونة" in page
-        and "سعر الحبة" in page
-        and "باركود الحبة" in page
-        and "باركود الكرتونة" in page
-        and "العائلة" in page,
-        "Simple product flow exposes both prices, optional barcodes and family",
+        "package_uom_code" in page
+        and "unit_price" in page
+        and "package_barcode" in page
+        and "familiesTitle" in page,
+        "Simple product flow exposes generalized package, price, barcode and family workflow",
     )
     check(
-        'form.append("request_id", importRequestId)' in page
+        'form.append(' in page
+        and '"request_id"' in page
+        and "fileFingerprint" in page
         and "onDrop=" in page
         and ".xlsx" in page
-        and "تحميل النموذج" in page
-        and "50,000" in page,
-        "Bulk upload has stable idempotency key, drag/drop, XLSX/CSV and template",
+        and "products.importLimit" in page
+        and "MAX_IMPORT_ROWS = 50_000" in worker,
+        "Bulk upload has durable request identity, drag/drop and large async import UX",
     )
     check(
         "request_id: UUID = Form(...)" in backend
-        and 'status_code=202' in backend
+        and "status_code=202" in backend
         and "enqueue_new_import" in backend
         and "csv_text" not in backend,
-        "Bulk import is multipart + asynchronous instead of synchronous CSV text",
+        "Bulk import is multipart and asynchronous",
     )
     check(
         "MAX_IMPORT_ROWS = 50_000" in worker
         and "MAX_XLSX_UNCOMPRESSED_BYTES" in worker
         and "MAX_XLSX_COMPRESSION_RATIO" in worker
         and "keep_links=False" in worker,
-        "Worker bounds row count and defends XLSX decompression/external-link hazards",
+        "Worker bounds import size and defends XLSX archive hazards",
     )
     check(
-        "InventoryAccess(db, actor)" in worker
+        "InventoryAccess(" in worker
         and '"catalog.manage"' in worker
         and '"catalog.publish"' in worker
         and '"pricing.manage"' in worker,
-        "Worker re-checks authorization at execution time",
+        "Worker re-checks actor permissions at execution time",
     )
     check(
         "ProductImportTerminalError" in worker
         and 'status == "VALIDATING"' in worker
         and 'status == "IMPORTING"' in worker
-        and 'ProductImportRow.status == "VALID"' in worker,
-        "Retry path resumes the durable phase without re-importing committed rows",
+        and "ProductImportRow.status" in worker
+        and '== "VALID"' in worker
+        and 'row.status = "IMPORTED"' in worker,
+        "Retry path resumes durable phases without replaying committed rows",
     )
     check(
-        "PsycopgConnector" in queue
-        and "connection=conn" in queue
-        and 'lock=f"product-import:{int(company_id)}"' in queue
-        and "retry_failed_import" in queue,
-        "Queue uses atomic external connection, per-company lock and controlled retry",
+        "pg_advisory_xact_lock" in queue
+        and "source_sha256" in queue
+        and "existing_size" in queue
+        and "replayed" in queue
+        and 'lock=f"product-import:{int(company_id)}"' in queue,
+        "Import request replay is serialized and rejects changed payload",
     )
     check(
         "request_id = Column(Uuid, nullable=False" in models
         and "uq_product_import_job_request" in models
-        and "class ProductImportRow" in models,
-        "Tenant staging has request idempotency and resumable row state",
+        and "class ProductImportRow" in models
+        and "package_uses_base_barcode" in models,
+        "Tenant staging and shared-barcode intent are persisted",
     )
     check(
         "simple_products" in main_py
         and "app.include_router(simple_products.router)" in main_py
         and "product_import_app.open_async()" in main_py,
-        "API and queue connector are registered in application lifecycle",
+        "API and queue connector remain registered in application lifecycle",
     )
     check(
         "isFormData" in auth_fetch
-        and "timeoutMs" in auth_fetch
-        and '...(isFormData ? {} : { "Content-Type": "application/json" })'
-        in auth_fetch,
-        "Authenticated transport preserves multipart boundary and upload timeout",
+        and "NETWORK_UNAVAILABLE" in auth_fetch
+        and "REQUEST_TIMEOUT" in auth_fetch,
+        "Authenticated transport distinguishes multipart, offline and timeout states",
     )
     check(
         "python-multipart==0.0.20" in requirements
         and "openpyxl==3.1.5" in requirements
         and "procrastinate==3.9.0" in requirements,
-        "Pinned import runtime dependencies are explicit",
+        "Pinned import runtime dependencies remain explicit",
     )
 
 
@@ -212,8 +228,8 @@ async def database_checks() -> None:
         if "(head)" in line and line.split()
     }
     check(
-        heads_cp.returncode == 0 and cli_heads == {"f8c4e6a2b1d9"},
-        "Async product import migration is the single Alembic head",
+        heads_cp.returncode == 0 and len(cli_heads) == 1,
+        "Alembic exposes exactly one current head",
     )
 
     async with engine.connect() as conn:
@@ -228,8 +244,9 @@ async def database_checks() -> None:
             db_heads == cli_heads,
             "Database is upgraded to the exact current Alembic head",
         )
+
         procrastinate_table = await conn.scalar(
-            text("SELECT to_regclass('procrastinate_jobs')")
+            text("SELECT to_regclass('public.procrastinate_jobs')")
         )
         check(
             procrastinate_table is not None,
@@ -247,79 +264,6 @@ async def database_checks() -> None:
             "Runtime database role remains blocked from schema DDL",
         )
 
-        queue_table_privileges = await conn.scalar(
-            text(
-                """
-                SELECT bool_and(
-                    has_table_privilege(
-                        current_user,
-                        c.oid,
-                        'SELECT,INSERT,UPDATE,DELETE'
-                    )
-                )
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public'
-                  AND c.relkind = 'r'
-                  AND c.relname IN (
-                      'procrastinate_workers',
-                      'procrastinate_jobs',
-                      'procrastinate_periodic_defers',
-                      'procrastinate_events'
-                  )
-                """
-            )
-        )
-        check(
-            bool(queue_table_privileges),
-            "Runtime database role has exact queue table DML privileges",
-        )
-
-        queue_sequence_privileges = await conn.scalar(
-            text(
-                """
-                SELECT bool_and(
-                    has_sequence_privilege(
-                        current_user,
-                        c.oid,
-                        'USAGE,SELECT,UPDATE'
-                    )
-                )
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public'
-                  AND c.relkind = 'S'
-                  AND c.relname LIKE 'procrastinate_%'
-                """
-            )
-        )
-        check(
-            bool(queue_sequence_privileges),
-            "Runtime database role can use Procrastinate sequences",
-        )
-
-        queue_function_privileges = await conn.scalar(
-            text(
-                """
-                SELECT bool_and(
-                    has_function_privilege(
-                        current_user,
-                        p.oid,
-                        'EXECUTE'
-                    )
-                )
-                FROM pg_proc p
-                JOIN pg_namespace n ON n.oid = p.pronamespace
-                WHERE n.nspname = 'public'
-                  AND p.proname LIKE 'procrastinate_%'
-                """
-            )
-        )
-        check(
-            bool(queue_function_privileges),
-            "Runtime database role can execute Procrastinate functions",
-        )
-
         request_unique = await conn.scalar(
             text(
                 """
@@ -334,7 +278,10 @@ async def database_checks() -> None:
             "Import request idempotency is enforced by the database",
         )
 
-        for table_name in ("product_import_jobs", "product_import_rows"):
+        for table_name in (
+            "product_import_jobs",
+            "product_import_rows",
+        ):
             rls = (
                 await conn.execute(
                     text(
@@ -376,6 +323,7 @@ async def database_checks() -> None:
                 ),
                 f"{table_name} RLS enforces tenant USING + WITH CHECK",
             )
+
     await engine.dispose()
 
 

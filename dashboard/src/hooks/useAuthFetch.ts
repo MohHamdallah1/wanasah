@@ -1,224 +1,492 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
-const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+import i18n from "@/i18n";
+
+const API = (
+  import.meta.env.VITE_API_URL || ""
+).replace(/\/$/, "");
+
 if (!API) {
-    throw new Error("VITE_API_URL is not set.");
+  throw new Error(
+    "VITE_API_URL is not set."
+  );
 }
 
-// +++ العقل المدبر لـ (Silent Refresh) بمنع التكرار (Race Condition) +++
 let isRefreshing = false;
-let failedQueue: Array<{ resolve: (token: string) => void, reject: (err: unknown) => void }> = [];
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+}> = [];
 
-const processQueue = (error: Error | null, token: string | null = null) => {
-    failedQueue.forEach(prom => {
-        if (error) prom.reject(error);
-        else prom.resolve(token!);
-    });
-    failedQueue = [];
+const processQueue = (
+  error: Error | null,
+  token: string | null = null
+) => {
+  failedQueue.forEach((promise) => {
+    if (error) {
+      promise.reject(error);
+    } else {
+      promise.resolve(token!);
+    }
+  });
+  failedQueue = [];
 };
 
-type HttpError = Error & {
-    status: number;
-    data: unknown;
-    code?: string;
+export type HttpError = Error & {
+  status: number;
+  data: unknown;
+  code?: string;
 };
 
 const makeHttpError = (
-    message: string,
-    status: number,
-    data: unknown = null
+  message: string,
+  status: number,
+  data: unknown = null,
+  code?: string
 ): HttpError => {
-    const error = new Error(message) as HttpError;
-    error.status = status;
-    error.data = data;
-    return error;
+  const error = new Error(
+    message
+  ) as HttpError;
+  error.status = status;
+  error.data = data;
+  if (code) error.code = code;
+  return error;
 };
 
-const getErrorStatus = (error: unknown): number | undefined => {
-    if (typeof error !== "object" || error === null || !("status" in error)) {
-        return undefined;
-    }
-    const status = (error as { status?: unknown }).status;
-    return typeof status === "number" ? status : undefined;
+const extractCode = (
+  data: unknown
+): string | undefined => {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    !("detail" in data)
+  ) {
+    return undefined;
+  }
+  const detail = (
+    data as { detail?: unknown }
+  ).detail;
+  if (
+    detail &&
+    typeof detail === "object" &&
+    "code" in detail &&
+    typeof detail.code === "string"
+  ) {
+    return detail.code;
+  }
+  return undefined;
+};
+
+const networkError = () =>
+  makeHttpError(
+    i18n.t("network.offline"),
+    0,
+    null,
+    "NETWORK_UNAVAILABLE"
+  );
+
+const timeoutError = () =>
+  makeHttpError(
+    i18n.t("network.timeout"),
+    408,
+    null,
+    "REQUEST_TIMEOUT"
+  );
+
+const requestSignal = (
+  supplied: AbortSignal | null | undefined,
+  timeoutMs: number
+) => {
+  const controller =
+    new AbortController();
+  const timer = window.setTimeout(
+    () => controller.abort(),
+    timeoutMs
+  );
+  return {
+    signal: supplied
+      ? AbortSignal.any([
+          supplied,
+          controller.signal,
+        ])
+      : controller.signal,
+    timer,
+    controller,
+  };
 };
 
 export function useAuthFetch() {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
 
-    const forceLogout = useCallback((message: string) => {
-        // +++ الكي الجراحي (Security): إبلاغ السيرفر بحرق التوكنات (Blacklist & Revoke) قبل مسحها محلياً +++
-        const currentToken = localStorage.getItem("admin_token");
-        const currentRefresh = localStorage.getItem("refresh_token");
-        if (currentToken) {
-            fetch(`${API}/logout`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${currentToken}`,
-                    'X-Refresh-Token': currentRefresh || ''
-                }
-            }).catch(() => {}); // Fire and forget: لا ننتظر الرد لكي لا نؤخر خروج المدير
-        }
+  const forceLogout = useCallback(() => {
+    const currentToken =
+      localStorage.getItem(
+        "admin_token"
+      );
+    const currentRefresh =
+      localStorage.getItem(
+        "refresh_token"
+      );
 
-        localStorage.removeItem("admin_token");
-        localStorage.removeItem("refresh_token");
-        navigate("/login", { replace: true });
-    }, [navigate]);
+    if (
+      API &&
+      currentToken &&
+      navigator.onLine
+    ) {
+      void fetch(`${API}/logout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          "X-Refresh-Token":
+            currentRefresh || "",
+        },
+      }).catch(() => undefined);
+    }
 
-    return useCallback(async (path: string, opts: RequestInit = {}) => {
-        const token = localStorage.getItem("admin_token");
-        if (!token) {
-            forceLogout("انتهت الجلسة");
-            throw makeHttpError("انتهت الجلسة", 401);
-        }
+    localStorage.removeItem(
+      "admin_token"
+    );
+    localStorage.removeItem(
+      "refresh_token"
+    );
+    navigate(
+      "/login",
+      { replace: true }
+    );
+  }, [navigate]);
 
-        const cleanPath = path.startsWith("/") ? path : `/${path}`;
-        const isFormData = typeof FormData !== "undefined" && opts.body instanceof FormData;
-        const timeoutMs = isFormData ? 120_000 : 15_000;
-        const timeoutController = new AbortController();
-        const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+  return useCallback(
+    async (
+      path: string,
+      opts: RequestInit = {}
+    ) => {
+      const token =
+        localStorage.getItem(
+          "admin_token"
+        );
+      if (!token) {
+        forceLogout();
+        throw makeHttpError(
+          i18n.t(
+            "network.sessionExpired"
+          ),
+          401
+        );
+      }
 
+      if (
+        typeof navigator !==
+          "undefined" &&
+        navigator.onLine === false
+      ) {
+        throw networkError();
+      }
+
+      const cleanPath =
+        path.startsWith("/")
+          ? path
+          : `/${path}`;
+      const isFormData =
+        typeof FormData !==
+          "undefined" &&
+        opts.body instanceof FormData;
+      const timeoutMs =
+        isFormData
+          ? 120_000
+          : 15_000;
+
+      const perform = async (
+        accessToken: string,
+        signal: AbortSignal
+      ) =>
+        fetch(
+          `${API}${cleanPath}`,
+          {
+            ...opts,
+            signal,
+            headers: {
+              ...(isFormData
+                ? {}
+                : {
+                    "Content-Type":
+                      "application/json",
+                  }),
+              Authorization:
+                `Bearer ${accessToken}`,
+              ...(opts.headers ?? {}),
+            },
+          }
+        );
+
+      const first = requestSignal(
+        opts.signal,
+        timeoutMs
+      );
+
+      try {
+        let res: Response;
         try {
-            let res = await fetch(`${API}${cleanPath}`, {
-                ...opts,
-                signal: opts.signal
-                    ? AbortSignal.any([opts.signal, timeoutController.signal])
-                    : timeoutController.signal,
-                headers: {
-                    ...(isFormData ? {} : { "Content-Type": "application/json" }),
-                    Authorization: `Bearer ${token}`,
-                    ...(opts.headers ?? {})
-                },
-            });
-
-            // +++ محرك التجديد التلقائي (Silent Refresh) +++
-            if (res.status === 401) {
-                const refreshToken = localStorage.getItem("refresh_token");
-                if (!refreshToken) {
-                    forceLogout("جلسة منتهية تماماً");
-                    throw makeHttpError("جلسة منتهية", 401);
-                }
-
-                // +++   حجز مكان في الطابور *قبل* التجديد لجميع الطلبات +++
-                const newTokenPromise = new Promise<string>((resolve, reject) => {
-                    failedQueue.push({ resolve, reject });
-                });
-
-                if (!isRefreshing) {
-                    isRefreshing = true;
-                    try {
-                        const refreshRes = await fetch(`${API}/refresh`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ refresh_token: refreshToken })
-                        });
-
-                        if (!refreshRes.ok) {
-                            throw makeHttpError("فشل تجديد الجلسة", refreshRes.status);
-                        }
-                        const data = await refreshRes.json();
-                        
-                        localStorage.setItem("admin_token", data.token);
-                        // +++ إغلاق حلقة الـ RTR: حفظ الـ refresh_token الجديد المُدار فوراً (الباكند يبطل القديم — عدم الحفظ هنا = طرد قسري كل 30 دقيقة) +++
-                        if (data.refresh_token) {
-                            localStorage.setItem("refresh_token", data.refresh_token);
-                        }
-                        isRefreshing = false;
-                        // سيقوم هذا السطر بفك تعليق جميع الطلبات بما فيها الطلب الحالي
-                        processQueue(null, data.token); 
-                    } catch (refreshErr) {
-                        isRefreshing = false;
-                        processQueue(refreshErr as Error, null);
-                        forceLogout("فشل التجديد");
-                        throw makeHttpError(
-                            "تم تسجيل خروجك بسبب انتهاء الصلاحية الكلية",
-                            getErrorStatus(refreshErr) || 401
-                        );
-                    }
-                }
-
-                // انتظار الحصول على التوكن الجديد من الطابور
-                const newToken = await newTokenPromise;
-
-                // +++ الكي الجراحي (UX): إيقاف العداد القديم وبناء عداد جديد للطلب المعوّض لمنع الانقطاع التعسفي +++
-                clearTimeout(timeoutId); 
-                const retryTimeoutController = new AbortController();
-                const retryTimeoutId = setTimeout(() => retryTimeoutController.abort(), timeoutMs);
-
-                try {
-                    res = await fetch(`${API}${cleanPath}`, {
-                        ...opts,
-                        signal: opts.signal
-                            ? AbortSignal.any([opts.signal, retryTimeoutController.signal])
-                            : retryTimeoutController.signal,
-                        headers: {
-                            ...(isFormData ? {} : { "Content-Type": "application/json" }),
-                            Authorization: `Bearer ${newToken}`,
-                            ...(opts.headers ?? {})
-                        },
-                    });
-
-                    if (res.status === 401) {
-                        forceLogout("فشل التحقق بعد تجديد الجلسة");
-                    }
-                } finally {
-                    clearTimeout(retryTimeoutId);
-                }
-            } else {
-                // +++ تنظيف العداد للطلب السليم الذي لم يمر بمسار التجديد +++
-                clearTimeout(timeoutId);
+          res = await perform(
+            token,
+            first.signal
+          );
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.name === "AbortError"
+          ) {
+            if (opts.signal?.aborted) {
+              throw error;
             }
-
-            
-            // Endpoint payload shape varies by route; keep this transport boundary dynamic.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let data: any = null;
-            const text = await res.text();
-            if (text) {
-                try {
-                    data = JSON.parse(text);
-                } catch {
-                    throw new Error("استجابة غير صالحة من السيرفر.");
-                }
-            }
-
-            if (!res.ok) {
-                if (res.status === 403 && !cleanPath.startsWith('/inventory/access/me')) {
-                    window.dispatchEvent(new Event('inventory-permission-denied'));
-                }
-                const detail = data?.detail;
-                const serverMessage =
-                    (typeof data?.message === "string" && data.message) ||
-                    (typeof detail === "string" && detail) ||
-                    (typeof detail?.message === "string" && detail.message) ||
-                    `خطأ سيرفر (${res.status})`;
-
-                if (
-                    res.status === 403 &&
-                    typeof serverMessage === "string" &&
-                    serverMessage.includes("تم إيقاف حسابك")
-                ) {
-                    forceLogout("تم إيقاف حسابك من قبل الإدارة");
-                }
-
-                const httpError = makeHttpError(serverMessage, res.status, data);
-                if (typeof detail?.code === "string") httpError.code = detail.code;
-                throw httpError;
-            }
-
-            return data;
-        } catch (err: unknown) {
-            clearTimeout(timeoutId);
-            if (err instanceof Error && err.name === 'AbortError') {
-                if (opts.signal?.aborted) {
-                    throw err;
-                }
-                throw makeHttpError(
-                    "انتهت مهلة الاتصال بالسيرفر. يرجى المحاولة مرة أخرى.",
-                    408
-                );
-            }
-            throw err;
+            throw timeoutError();
+          }
+          if (
+            error instanceof TypeError
+          ) {
+            throw networkError();
+          }
+          throw error;
+        } finally {
+          clearTimeout(first.timer);
         }
-    }, [forceLogout]);
+
+        if (res.status === 401) {
+          const refreshToken =
+            localStorage.getItem(
+              "refresh_token"
+            );
+          if (!refreshToken) {
+            forceLogout();
+            throw makeHttpError(
+              i18n.t(
+                "network.sessionExpired"
+              ),
+              401
+            );
+          }
+
+          const newTokenPromise =
+            new Promise<string>(
+              (resolve, reject) => {
+                failedQueue.push({
+                  resolve,
+                  reject,
+                });
+              }
+            );
+
+          if (!isRefreshing) {
+            isRefreshing = true;
+            try {
+              if (
+                typeof navigator !==
+                  "undefined" &&
+                navigator.onLine ===
+                  false
+              ) {
+                throw networkError();
+              }
+
+              let refreshRes: Response;
+              try {
+                refreshRes =
+                  await fetch(
+                    `${API}/refresh`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type":
+                          "application/json",
+                      },
+                      body: JSON.stringify({
+                        refresh_token:
+                          refreshToken,
+                      }),
+                    }
+                  );
+              } catch (error) {
+                if (
+                  error instanceof
+                  TypeError
+                ) {
+                  throw networkError();
+                }
+                throw error;
+              }
+
+              if (!refreshRes.ok) {
+                const authError =
+                  makeHttpError(
+                    i18n.t(
+                      "network.refreshFailed"
+                    ),
+                    refreshRes.status
+                  );
+                processQueue(
+                  authError,
+                  null
+                );
+                if (
+                  [400, 401, 403].includes(
+                    refreshRes.status
+                  )
+                ) {
+                  forceLogout();
+                }
+                throw authError;
+              }
+
+              const data =
+                await refreshRes.json();
+              localStorage.setItem(
+                "admin_token",
+                data.token
+              );
+              if (
+                data.refresh_token
+              ) {
+                localStorage.setItem(
+                  "refresh_token",
+                  data.refresh_token
+                );
+              }
+              processQueue(
+                null,
+                data.token
+              );
+            } catch (error) {
+              const normalized =
+                error instanceof Error
+                  ? error
+                  : networkError();
+              processQueue(
+                normalized,
+                null
+              );
+              if (
+                (
+                  normalized as HttpError
+                ).status === 401 ||
+                (
+                  normalized as HttpError
+                ).status === 403
+              ) {
+                forceLogout();
+              }
+              throw normalized;
+            } finally {
+              isRefreshing = false;
+            }
+          }
+
+          const newToken =
+            await newTokenPromise;
+          const retry =
+            requestSignal(
+              opts.signal,
+              timeoutMs
+            );
+          try {
+            try {
+              res = await perform(
+                newToken,
+                retry.signal
+              );
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                error.name ===
+                  "AbortError"
+              ) {
+                if (
+                  opts.signal
+                    ?.aborted
+                ) {
+                  throw error;
+                }
+                throw timeoutError();
+              }
+              if (
+                error instanceof
+                TypeError
+              ) {
+                throw networkError();
+              }
+              throw error;
+            }
+          } finally {
+            clearTimeout(
+              retry.timer
+            );
+          }
+        }
+
+        let data: unknown = null;
+        const raw =
+          await res.text();
+        if (raw) {
+          try {
+            data =
+              JSON.parse(raw);
+          } catch {
+            throw makeHttpError(
+              i18n.t(
+                "network.invalidResponse"
+              ),
+              502,
+              null,
+              "INVALID_SERVER_RESPONSE"
+            );
+          }
+        }
+
+        if (!res.ok) {
+          const code =
+            extractCode(data);
+
+          if (
+            res.status === 403 &&
+            !cleanPath.startsWith(
+              "/inventory/access/me"
+            )
+          ) {
+            window.dispatchEvent(
+              new Event(
+                "inventory-permission-denied"
+              )
+            );
+          }
+
+          if (
+            res.status === 403 &&
+            code ===
+              "ACCOUNT_DISABLED"
+          ) {
+            forceLogout();
+          }
+
+          throw makeHttpError(
+            i18n.t(
+              "network.serverError"
+            ),
+            res.status,
+            data,
+            code
+          );
+        }
+
+        return data;
+      } catch (error) {
+        if (
+          error instanceof
+            TypeError
+        ) {
+          throw networkError();
+        }
+        throw error;
+      }
+    },
+    [forceLogout]
+  );
 }
