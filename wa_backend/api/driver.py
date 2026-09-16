@@ -69,6 +69,7 @@ logger = logging.getLogger("wanasah_logger")
 
 VISIT_OUTBOUND_INVENTORY_REFERENCE_TYPES = (
     "VISIT_ITEM_OUT",
+    "VISIT_SAMPLE_OUT",
     "VISIT_EXCHANGE_OUT",
     "VISIT_REWARD_OUT",
 )
@@ -1542,14 +1543,16 @@ async def update_visit(
         movement_specs = []
         request_token = str(payload.request_id)
 
-        # البيع والعينات يبقيان على VISIT_ITEM_OUT؛ المكافآت مستقلة تجارياً ومخزنياً.
+        # البيع والعينات منفصلان محاسبياً ومخزنياً، لكن المندوب لا يختار Batch.
+        # FEFO يبقى سلطة الـBackend ويقسم كل كمية داخلياً على الدفعات المتاحة.
         sale_items_by_line: dict[int, VisitItem] = {}
         for ctx in item_contexts:
             item = ctx["item"]
+
             for segment_index, (batch_id, qty) in enumerate(
                 consume_fefo(
                     item.product_variant_id,
-                    ctx["total_issue_base_quantity"],
+                    ctx["sale_base_quantity"],
                 )
             ):
                 movement_specs.append(
@@ -1562,7 +1565,7 @@ async def update_visit(
                         "reference_id": str(visit.id),
                         "idempotency_key": (
                             f"VIS-{visit.id}-{request_token}-I{ctx['line_index']}-"
-                            f"B{batch_id}-S{segment_index}"
+                            f"SALE-B{batch_id}-S{segment_index}"
                         ),
                         "source_location_id": veh_loc_id,
                         "destination_location_id": None,
@@ -1570,10 +1573,40 @@ async def update_visit(
                         "destination_stock_status": None,
                         "work_session_id": active_session.id,
                         "notes": (
-                            f"صرف زيارة للمحل {shop.name}: "
-                            f"بيع={item.quantity} كرتونة + {item.packs_quantity} حبة، "
-                            f"عينات={item.sample_quantity} كرتونة + "
-                            f"{item.sample_packs_quantity} حبة."
+                            f"صرف بيع للمحل {shop.name}: "
+                            f"{item.quantity} كرتونة + {item.packs_quantity} حبة."
+                        ),
+                    }
+                )
+
+            for segment_index, (batch_id, qty) in enumerate(
+                consume_fefo(
+                    item.product_variant_id,
+                    ctx["sample_base_quantity"],
+                )
+            ):
+                movement_specs.append(
+                    {
+                        "product_variant_id": item.product_variant_id,
+                        "batch_id": batch_id,
+                        "quantity": qty,
+                        "movement_kind": "PHYSICAL",
+                        "reference_type": "VISIT_SAMPLE_OUT",
+                        "reference_id": str(visit.id),
+                        "idempotency_key": (
+                            f"VIS-{visit.id}-{request_token}-I{ctx['line_index']}-"
+                            f"SAMPLE-B{batch_id}-S{segment_index}"
+                        ),
+                        "source_location_id": veh_loc_id,
+                        "destination_location_id": None,
+                        "source_stock_status": "AVAILABLE",
+                        "destination_stock_status": None,
+                        "work_session_id": active_session.id,
+                        "notes": (
+                            f"صرف عينات للمحل {shop.name}: "
+                            f"{item.sample_quantity} كرتونة + "
+                            f"{item.sample_packs_quantity} حبة؛ "
+                            f"reason={item.sample_reason or ''}."
                         ),
                     }
                 )

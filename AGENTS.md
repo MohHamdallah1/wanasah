@@ -26,3 +26,12 @@ Network failure is also a permanent architecture requirement. Every new or modif
 - reconcile or safely replay after an ambiguous network result before creating a duplicate business operation.
 
 Read the full requirements in `.rules` before editing.
+
+## Stage 7.4 inventory costing authority
+- Physical batch allocation and financial cost flow are separate authorities. Physical FEFO stays inside the backend and never requires the driver to choose a batch.
+- Without per-carton serial/scan or enforced physical segregation, never claim the exact physical carton identity. Batch allocation is deterministic book allocation.
+- Supplier receipts require actual purchase unit cost and purchase UOM. Preserve every receipt cost as immutable history; never overwrite an older cost.
+- The company selects MOVING_AVERAGE or FIFO before its first costed supplier receipt; the method locks on that first receipt.
+- Financial FIFO consumes acquisition cost layers by product/company acquisition order and must never be coupled to the physical FEFO batch selected for a sale.
+- Internal warehouse/vehicle transfers move physical stock only and never create COGS or change company inventory value.
+- Sale, sample, reward, exchange, and other external stock exits remain invisible to the driver at batch level but must create financial cost evidence when costing is active. Samples use VISIT_SAMPLE_OUT, not VISIT_ITEM_OUT.

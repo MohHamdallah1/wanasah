@@ -324,6 +324,7 @@ async def _dispatch_session_inventory_projection(
                 InventoryMovement.movement_kind == "PHYSICAL",
                 InventoryMovement.reference_type.in_([
                     "VISIT_ITEM_OUT",
+                    "VISIT_SAMPLE_OUT",
                     "VISIT_EXCHANGE_OUT",
                     "VISIT_REVERSAL",
                     "HANDSHAKE_POST",
@@ -353,7 +354,7 @@ async def _dispatch_session_inventory_projection(
         if vehicle_location_id is None:
             continue
 
-        if reference_type in {"VISIT_ITEM_OUT", "VISIT_EXCHANGE_OUT"}:
+        if reference_type in {"VISIT_ITEM_OUT", "VISIT_SAMPLE_OUT", "VISIT_EXCHANGE_OUT"}:
             if (
                 source_location_id == vehicle_location_id
                 and source_status == "AVAILABLE"

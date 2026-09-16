@@ -13,6 +13,8 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from models import Branch, Company, Driver, LoginAttempt, PlatformAdmin, utc_now
 from config import Config
+from domains.pricing.publishing import create_assignment, create_price_book
+from domains.inventory_costing.service import provision_default_cost_policy
 import jwt
 
 router = APIRouter(prefix="/platform", tags=["Platform Sovereign Admin"])
@@ -226,6 +228,35 @@ async def create_new_tenant(
             is_active=True
         )
         db.add(admin_driver)
+        await db.flush()
+
+        # Provision empty authorities only; no fake prices or fake costs.
+        effective_from = datetime.now(timezone.utc)
+        default_book = await create_price_book(
+            db,
+            company_id=company.id,
+            actor_id=admin_driver.id,
+            code="DEFAULT",
+            name="Default selling prices",
+            currency_code=company.currency_code,
+        )
+        await create_assignment(
+            db,
+            company_id=company.id,
+            actor_id=admin_driver.id,
+            price_book_id=default_book.id,
+            scope_type="COMPANY_DEFAULT",
+            scope_id=None,
+            allow_offers=True,
+            priority=0,
+            effective_from=effective_from,
+            effective_to=None,
+        )
+        await provision_default_cost_policy(
+            db,
+            company_id=company.id,
+            actor_id=admin_driver.id,
+        )
 
         await db.commit()
         return {

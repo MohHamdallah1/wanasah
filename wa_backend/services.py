@@ -46,6 +46,11 @@ from product_lifecycle import (
     record_domain_event,
 )
 from domains.pricing.core import PricingError
+from domains.inventory_costing.service import (
+    CostingError,
+    apply_inventory_costing_for_movements,
+    validate_inventory_costing_replays,
+)
 from domains.pricing.driver_authority import (
     resolve_work_session_pack_prices_bulk,
 )
@@ -3030,6 +3035,17 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 "السعر المالي المثبت غير مسموح لحركة غير DRIVER_SHORTAGE."
             )
 
+    inventory_cost_input = spec.get("inventory_cost_input")
+    if inventory_cost_input is not None and not isinstance(inventory_cost_input, dict):
+        raise InventoryMutationError("inventory_cost_input must be a dict or None.")
+    try:
+        cost_reversal_of_movement_id = _optional_positive_int(
+            spec.get("cost_reversal_of_movement_id"),
+            "cost_reversal_of_movement_id",
+        )
+    except ValueError as exc:
+        raise InventoryMutationError(str(exc)) from exc
+
     source_stock_status = spec.get("source_stock_status")
     destination_stock_status = spec.get("destination_stock_status")
     reservation_action = spec.get("reservation_action")
@@ -3132,6 +3148,8 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         "destination_stock_status": destination_stock_status,
         "reservation_action": reservation_action,
         "financial_unit_price_snapshot": financial_unit_price_snapshot,
+        "inventory_cost_input": inventory_cost_input,
+        "cost_reversal_of_movement_id": cost_reversal_of_movement_id,
         "notes": notes,
     })
     return normalized
@@ -3372,6 +3390,7 @@ async def apply_inventory_movements_batch(
 
     results_by_key: Dict[str, InventoryMovement] = {}
     new_specs: List[Dict[str, Any]] = []
+    existing_cost_pairs = []
 
     for spec in specs:
         existing = existing_map.get(spec["idempotency_key"])
@@ -3383,6 +3402,19 @@ async def apply_inventory_movements_batch(
                 "مفتاح idempotency مستخدم مسبقاً لحركة مختلفة؛ تم رفض إعادة الاستخدام."
             )
         results_by_key[spec["idempotency_key"]] = existing
+        existing_cost_pairs.append((existing, spec))
+
+    if existing_cost_pairs:
+        try:
+            await validate_inventory_costing_replays(
+                db_session,
+                company_id=company_id,
+                movement_specs=existing_cost_pairs,
+            )
+        except CostingError as exc:
+            raise InventoryRuleError(
+                exc.code, exc.message, context=exc.context
+            ) from exc
 
     if not new_specs:
         return [
@@ -3929,6 +3961,17 @@ async def apply_inventory_movements_batch(
                 reserved_after=after_reserved,
             ))
         results_by_key[movement.idempotency_key] = movement
+
+    try:
+        await apply_inventory_costing_for_movements(
+            db_session,
+            company_id=company_id,
+            movement_specs=list(zip(movement_records, new_specs)),
+        )
+    except CostingError as exc:
+        raise InventoryRuleError(
+            exc.code, exc.message, context=exc.context
+        ) from exc
 
     return [
         results_by_key[spec["idempotency_key"]]
@@ -5715,6 +5758,7 @@ async def reverse_inventory_movements_batch(
 
     results_by_key: Dict[str, InventoryMovement] = {}
     new_specs: List[Dict[str, Any]] = []
+    existing_cost_pairs = []
     for original_id in original_ids:
         persisted = persisted_map[original_id]
         if (
@@ -5771,6 +5815,7 @@ async def reverse_inventory_movements_batch(
             "transfer_header_id": persisted.transfer_header_id,
             "stocktake_session_id": persisted.stocktake_session_id,
             "stocktake_count_attempt_id": persisted.stocktake_count_attempt_id,
+            "cost_reversal_of_movement_id": int(persisted.id),
             "notes": notes,
         }
 
@@ -5810,6 +5855,19 @@ async def reverse_inventory_movements_batch(
                 "تم اكتشاف تعارض أو فساد في سجل الحركة العكسية الموجود."
             )
         results_by_key[reversal_key] = existing
+        existing_cost_pairs.append((existing, spec))
+
+    if existing_cost_pairs:
+        try:
+            await validate_inventory_costing_replays(
+                db_session,
+                company_id=company_id,
+                movement_specs=existing_cost_pairs,
+            )
+        except CostingError as exc:
+            raise InventoryRuleError(
+                exc.code, exc.message, context=exc.context
+            ) from exc
 
     if new_specs:
         applied = await apply_inventory_movements_batch(

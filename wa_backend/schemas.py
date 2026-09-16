@@ -232,6 +232,33 @@ MoneyInput = Annotated[Decimal, BeforeValidator(safe_decimal_input)]
 RequiredMoneyInput = Annotated[Decimal, BeforeValidator(required_money_input)]
 OptionalMoneyInput = Annotated[Optional[Decimal], BeforeValidator(safe_optional_decimal)]
 
+# Inventory cost uses the same six-decimal internal precision as pricing.
+_INVENTORY_COST_MONEY_MAX = Decimal("99999999999999.999999")
+_INVENTORY_COST_QUANT = Decimal("0.000001")
+
+def inventory_cost_money_input(v: Any) -> Decimal:
+    if v is None or (isinstance(v, str) and not v.strip()):
+        raise ValueError("inventory unit cost is required")
+    try:
+        dec = Decimal(str(v).strip())
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError("inventory unit cost is invalid") from exc
+    if not dec.is_finite() or dec < 0 or dec > _INVENTORY_COST_MONEY_MAX:
+        raise ValueError("inventory unit cost is outside the supported range")
+    try:
+        quantized = dec.quantize(_INVENTORY_COST_QUANT, rounding=ROUND_HALF_UP)
+    except InvalidOperation as exc:
+        raise ValueError("inventory unit cost cannot be represented") from exc
+    if dec != quantized:
+        raise ValueError("inventory unit cost supports at most 6 decimal places")
+    return quantized
+
+InventoryCostMoneyInput = Annotated[
+    Decimal,
+    BeforeValidator(inventory_cost_money_input),
+    PlainSerializer(lambda value: format(value, "f"), return_type=str),
+]
+
 
 def positive_quantity_input(v: Any) -> Decimal:
     return parse_quantity(v, "quantity")
@@ -1632,6 +1659,7 @@ class InboundBatchItem(RequestModel):
     product_variant_id: PositiveDbInt
     quantity: PositiveQuantity
     uom_id: PositiveDbInt
+    unit_cost: InventoryCostMoneyInput
     batch_number: str = Field(..., min_length=1, max_length=100)
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
@@ -1652,6 +1680,22 @@ class InboundBatchItem(RequestModel):
                 "تاريخ الإنتاج لا يجوز أن يكون بعد تاريخ الصلاحية."
             )
         return self
+
+
+class InboundOptionsRequest(RequestModel):
+    ids: List[PositiveDbInt] = Field(..., min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def unique_ids(self) -> "InboundOptionsRequest":
+        if len(self.ids) != len(set(self.ids)):
+            raise ValueError("duplicate product ids are not allowed")
+        return self
+
+
+class InventoryCostPolicyUpdateRequest(RequestModel):
+    request_id: UUID
+    method: Literal["MOVING_AVERAGE", "FIFO"]
+    expected_version: NonNegativeDbInt
 
 
 class UpgradedInboundRequest(RequestModel):

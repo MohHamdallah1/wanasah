@@ -30,6 +30,7 @@ engine = create_async_engine(DB_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 from models import *
+from domains.inventory_costing.service import provision_default_cost_policy
 from domains.pricing.publishing import (
     create_assignment,
     create_draft_entry,
@@ -156,6 +157,34 @@ async def rebuild_schema():
             f"GRANT SELECT, INSERT ON TABLE "
             f"public.domain_audit_events TO {quoted_app_user}"
         ))
+        await conn.execute(text("""
+            CREATE OR REPLACE FUNCTION public.prevent_inventory_cost_history_mutation()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                RAISE EXCEPTION 'inventory cost history is append-only'
+                    USING ERRCODE = '55000';
+            END;
+            $$;
+        """))
+        for table_name in ("inventory_cost_events", "inventory_cost_allocations"):
+            await conn.execute(text(
+                f"DROP TRIGGER IF EXISTS trg_{table_name}_append_only ON public.{table_name}"
+            ))
+            await conn.execute(text(f"""
+                CREATE TRIGGER trg_{table_name}_append_only
+                BEFORE UPDATE OR DELETE OR TRUNCATE
+                ON public.{table_name}
+                FOR EACH STATEMENT
+                EXECUTE FUNCTION public.prevent_inventory_cost_history_mutation()
+            """))
+            await conn.execute(text(
+                f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.{table_name} FROM {quoted_app_user}"
+            ))
+            await conn.execute(text(
+                f"GRANT SELECT, INSERT ON TABLE public.{table_name} TO {quoted_app_user}"
+            ))
         print(f"[3/3] Grants applied to app user '{app_user}'.")
 
 # ====================================================================
@@ -211,6 +240,11 @@ async def mass_seed(num_companies: int = 2, inject_heavy: bool = False):
                 driver = Driver(company_id=cid, username=f"driver_{i}", full_name=f"مندوب {c_name}", password_hash=hashed_pw, is_admin=False, is_active=True, max_debt_limit=Decimal("2000.0"))
                 session.add_all([admin, driver])
                 await session.flush()
+                await provision_default_cost_policy(
+                    session,
+                    company_id=cid,
+                    actor_id=admin.id,
+                )
 
                 prod = Product(company_id=cid, code=f"PROD-{cid}", name=f"منتج أساسي {cid}")
                 session.add(prod)

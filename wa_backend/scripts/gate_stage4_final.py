@@ -629,9 +629,25 @@ async def db_catalog_tests() -> None:
                 await su.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar_one()
         )
+        lineage_cp = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "alembic",
+                "history",
+                "-r",
+                f"base:{head}",
+            ],
+            cwd=_backend_dir,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
         record(
-            "Alembic is at Stage4 expected head",
-            head == EXPECTED_ALEMBIC_HEAD,
+            "Stage4 migration remains in current Alembic lineage",
+            lineage_cp.returncode == 0
+            and EXPECTED_ALEMBIC_HEAD in lineage_cp.stdout,
             f"head={head}",
         )
 

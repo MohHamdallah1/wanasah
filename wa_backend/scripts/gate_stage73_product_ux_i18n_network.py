@@ -188,10 +188,33 @@ async def database_checks() -> None:
         for line in heads_cp.stdout.splitlines()
         if "(head)" in line and line.split()
     }
+    current_head = next(iter(cli_heads)) if len(cli_heads) == 1 else ""
+    lineage_cp = (
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "alembic",
+                "history",
+                "-r",
+                f"base:{current_head}",
+            ],
+            cwd=BACKEND,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
+        if current_head
+        else None
+    )
     check(
         heads_cp.returncode == 0
-        and cli_heads == {"f9d2b4c6a8e1"},
-        "Stage 7.3 migration is the single Alembic head",
+        and len(cli_heads) == 1
+        and lineage_cp is not None
+        and lineage_cp.returncode == 0
+        and "f9d2b4c6a8e1" in lineage_cp.stdout,
+        "Stage 7.3 migration remains in current Alembic lineage",
     )
 
     async with engine.connect() as conn:
@@ -204,7 +227,7 @@ async def database_checks() -> None:
         )
         check(
             db_heads == cli_heads,
-            "Database is upgraded to the exact Stage 7.3 head",
+            "Database is upgraded to the exact current Alembic head",
         )
 
         codes = set(

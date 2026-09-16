@@ -391,6 +391,269 @@ class ProductBarcode(Base):
     updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
+class InventoryCostPolicy(Base):
+    """Company costing method; immutable after the first costed receipt."""
+    __tablename__ = 'inventory_cost_policies'
+    __table_args__ = (
+        UniqueConstraint('company_id', name='uq_inventory_cost_policy_company'),
+        UniqueConstraint('company_id', 'id', name='uq_inventory_cost_policies_company_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'created_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_policy_tenant_creator',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'updated_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_policy_tenant_updater',
+        ),
+        CheckConstraint(
+            "method IN ('MOVING_AVERAGE','FIFO')",
+            name='chk_inventory_cost_policy_method',
+        ),
+        CheckConstraint(
+            "((is_active IS FALSE AND locked_at IS NULL) OR "
+            "(is_active IS TRUE AND locked_at IS NOT NULL))",
+            name='chk_inventory_cost_policy_lock_pair',
+        ),
+        CheckConstraint('version > 0', name='chk_inventory_cost_policy_version'),
+    )
+
+    id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    method     = Column(String(30), nullable=False, default='MOVING_AVERAGE', server_default='MOVING_AVERAGE')
+    is_active  = Column(Boolean, nullable=False, default=False, server_default='false')
+    locked_at  = Column(DateTime, nullable=True)
+    version    = Column(Integer, nullable=False, default=1, server_default='1')
+    created_by = Column(Integer, nullable=False, index=True)
+    updated_by = Column(Integer, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class InventoryCostState(Base):
+    """Company-wide live financial valuation per product variant."""
+    __tablename__ = 'inventory_cost_states'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'product_variant_id', name='uq_inventory_cost_state_variant'),
+        UniqueConstraint('company_id', 'id', name='uq_inventory_cost_states_company_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_state_tenant_variant',
+        ),
+        CheckConstraint('quantity >= 0', name='chk_inventory_cost_state_quantity'),
+        CheckConstraint('inventory_value >= 0', name='chk_inventory_cost_state_value'),
+        CheckConstraint('average_unit_cost >= 0', name='chk_inventory_cost_state_average'),
+        CheckConstraint(
+            '(quantity <> 0) OR (inventory_value = 0 AND average_unit_cost = 0)',
+            name='chk_inventory_cost_state_zero_pair',
+        ),
+        CheckConstraint('version > 0', name='chk_inventory_cost_state_version'),
+        Index('ix_inventory_cost_state_company_variant', 'company_id', 'product_variant_id'),
+    )
+
+    id                 = Column(Integer, primary_key=True)
+    company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    product_variant_id = Column(Integer, nullable=False, index=True)
+    quantity           = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    inventory_value    = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    average_unit_cost  = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    version            = Column(Integer, nullable=False, default=1, server_default='1')
+    created_at         = Column(DateTime, nullable=False, default=utc_now)
+    updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class InventoryCostEvent(Base):
+    """Immutable cost evidence for one external physical inventory movement."""
+    __tablename__ = 'inventory_cost_events'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_inventory_cost_events_company_id'),
+        UniqueConstraint('company_id', 'inventory_movement_id', name='uq_inventory_cost_event_movement'),
+        ForeignKeyConstraint(
+            ['company_id', 'inventory_movement_id'],
+            ['inventory_movements.company_id', 'inventory_movements.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_event_tenant_movement',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_event_tenant_variant',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id', 'batch_id'],
+            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_event_tenant_batch',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'reversal_of_cost_event_id'],
+            ['inventory_cost_events.company_id', 'inventory_cost_events.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_event_tenant_reversal',
+        ),
+        CheckConstraint(
+            "method IN ('MOVING_AVERAGE','FIFO')",
+            name='chk_inventory_cost_event_method',
+        ),
+        CheckConstraint(
+            "event_type IN ('PURCHASE_IN','OUTBOUND','REVERSAL_IN','REVERSAL_OUT','ADJUSTMENT_IN')",
+            name='chk_inventory_cost_event_type',
+        ),
+        CheckConstraint(
+            "cost_basis IN ('PURCHASE_ACTUAL','MOVING_AVERAGE','FIFO_LAYER',"
+            "'ORIGINAL_REVERSAL','CURRENT_AVERAGE_ESTIMATE')",
+            name='chk_inventory_cost_event_basis',
+        ),
+        CheckConstraint('quantity > 0', name='chk_inventory_cost_event_quantity'),
+        CheckConstraint('unit_cost >= 0', name='chk_inventory_cost_event_unit_cost'),
+        CheckConstraint('total_cost >= 0', name='chk_inventory_cost_event_total_cost'),
+        CheckConstraint('quantity_before >= 0 AND quantity_after >= 0', name='chk_inventory_cost_event_quantities'),
+        CheckConstraint('value_before >= 0 AND value_after >= 0', name='chk_inventory_cost_event_values'),
+        CheckConstraint(
+            "((event_type = 'PURCHASE_IN' AND input_uom_id IS NOT NULL "
+            "AND input_quantity IS NOT NULL AND input_unit_cost IS NOT NULL "
+            "AND cost_basis = 'PURCHASE_ACTUAL') "
+            "OR (event_type <> 'PURCHASE_IN' AND input_uom_id IS NULL "
+            "AND input_quantity IS NULL AND input_unit_cost IS NULL))",
+            name='chk_inventory_cost_event_purchase_input_scope',
+        ),
+        CheckConstraint(
+            "((event_type IN ('REVERSAL_IN','REVERSAL_OUT') "
+            "AND reversal_of_cost_event_id IS NOT NULL AND cost_basis = 'ORIGINAL_REVERSAL') "
+            "OR (event_type NOT IN ('REVERSAL_IN','REVERSAL_OUT') "
+            "AND reversal_of_cost_event_id IS NULL))",
+            name='chk_inventory_cost_event_reversal_scope',
+        ),
+        Index('ix_inventory_cost_event_variant_time', 'company_id', 'product_variant_id', 'created_at', 'id'),
+        Index('ix_inventory_cost_event_batch_time', 'company_id', 'product_variant_id', 'batch_id', 'created_at', 'id'),
+    )
+
+    id                        = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id                = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    inventory_movement_id     = Column(Integer, nullable=False, index=True)
+    product_variant_id        = Column(Integer, nullable=False, index=True)
+    batch_id                  = Column(Integer, nullable=False, index=True)
+    method                    = Column(String(30), nullable=False)
+    event_type                = Column(String(30), nullable=False, index=True)
+    cost_basis                = Column(String(40), nullable=False, index=True)
+    quantity                  = Column(Numeric(20, 6), nullable=False)
+    unit_cost                 = Column(Numeric(20, 6), nullable=False)
+    total_cost                = Column(Numeric(20, 6), nullable=False)
+    quantity_before           = Column(Numeric(20, 6), nullable=False)
+    quantity_after            = Column(Numeric(20, 6), nullable=False)
+    value_before              = Column(Numeric(20, 6), nullable=False)
+    value_after               = Column(Numeric(20, 6), nullable=False)
+    input_uom_id              = Column(Integer, ForeignKey('uom.id', ondelete='RESTRICT'), nullable=True)
+    input_quantity            = Column(Numeric(20, 6), nullable=True)
+    input_unit_cost           = Column(Numeric(20, 6), nullable=True)
+    reversal_of_cost_event_id = Column(BigInteger, nullable=True, index=True)
+    created_at                = Column(DateTime, nullable=False, default=utc_now, index=True)
+
+
+class InventoryCostLayer(Base):
+    """FIFO acquisition layer. Batch is provenance; financial FIFO is product-wide."""
+    __tablename__ = 'inventory_cost_layers'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_inventory_cost_layers_company_id'),
+        UniqueConstraint('company_id', 'source_cost_event_id', name='uq_inventory_cost_layer_source_event'),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_layer_tenant_variant',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id', 'batch_id'],
+            ['product_batches.company_id', 'product_batches.product_variant_id', 'product_batches.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_layer_tenant_batch',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'source_cost_event_id'],
+            ['inventory_cost_events.company_id', 'inventory_cost_events.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_layer_tenant_event',
+        ),
+        CheckConstraint('original_quantity > 0', name='chk_inventory_cost_layer_original_qty'),
+        CheckConstraint(
+            'remaining_quantity >= 0 AND remaining_quantity <= original_quantity',
+            name='chk_inventory_cost_layer_remaining_qty',
+        ),
+        CheckConstraint('unit_cost >= 0', name='chk_inventory_cost_layer_unit_cost'),
+        CheckConstraint('original_value >= 0', name='chk_inventory_cost_layer_original_value'),
+        CheckConstraint(
+            'remaining_value >= 0 AND remaining_value <= original_value',
+            name='chk_inventory_cost_layer_remaining_value',
+        ),
+        CheckConstraint('version > 0', name='chk_inventory_cost_layer_version'),
+        Index(
+            'ix_inventory_cost_layer_fifo',
+            'company_id', 'product_variant_id', 'created_at', 'id',
+            postgresql_where=text('remaining_quantity > 0'),
+        ),
+    )
+
+    id                   = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id           = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    product_variant_id   = Column(Integer, nullable=False, index=True)
+    batch_id             = Column(Integer, nullable=False, index=True)
+    source_cost_event_id = Column(BigInteger, nullable=False, index=True)
+    original_quantity    = Column(Numeric(20, 6), nullable=False)
+    remaining_quantity   = Column(Numeric(20, 6), nullable=False)
+    unit_cost            = Column(Numeric(20, 6), nullable=False)
+    original_value       = Column(Numeric(20, 6), nullable=False)
+    remaining_value      = Column(Numeric(20, 6), nullable=False)
+    version              = Column(Integer, nullable=False, default=1, server_default='1')
+    created_at           = Column(DateTime, nullable=False, default=utc_now, index=True)
+    updated_at           = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class InventoryCostAllocation(Base):
+    """Immutable FIFO consume/restore/unwind evidence."""
+    __tablename__ = 'inventory_cost_allocations'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_inventory_cost_allocations_company_id'),
+        UniqueConstraint(
+            'company_id', 'cost_event_id', 'cost_layer_id', 'allocation_type',
+            name='uq_inventory_cost_allocation_event_layer_type',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'cost_event_id'],
+            ['inventory_cost_events.company_id', 'inventory_cost_events.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_allocation_tenant_event',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'cost_layer_id'],
+            ['inventory_cost_layers.company_id', 'inventory_cost_layers.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_allocation_tenant_layer',
+        ),
+        CheckConstraint(
+            "allocation_type IN ('CONSUME','RESTORE','UNWIND')",
+            name='chk_inventory_cost_allocation_type',
+        ),
+        CheckConstraint('quantity > 0', name='chk_inventory_cost_allocation_quantity'),
+        CheckConstraint('amount >= 0', name='chk_inventory_cost_allocation_amount'),
+        Index('ix_inventory_cost_allocation_event', 'company_id', 'cost_event_id', 'id'),
+    )
+
+    id              = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id      = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    cost_event_id   = Column(BigInteger, nullable=False, index=True)
+    cost_layer_id   = Column(BigInteger, nullable=False, index=True)
+    allocation_type = Column(String(20), nullable=False)
+    quantity        = Column(Numeric(20, 6), nullable=False)
+    amount          = Column(Numeric(20, 6), nullable=False)
+    created_at      = Column(DateTime, nullable=False, default=utc_now, index=True)
+
+
 class ProductImportJob(Base):
     """Tenant-owned durable staging job; source payload is cleared after parsing."""
     __tablename__ = 'product_import_jobs'

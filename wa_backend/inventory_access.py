@@ -15,7 +15,7 @@ PERMISSIONS = frozenset({
     'location.read', 'location.create', 'location.update', 'location.state',
     'inventory.read', 'inbound.create', 'ledger.read', 'ledger.adjust',
     'batch.disposition', 'inventory.status_change',
-    'inventory.transfer_policy.manage',
+    'inventory.transfer_policy.manage', 'inventory.costing.manage',
     'catalog.read', 'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
     'product_location.read', 'product_location.manage',
@@ -34,7 +34,7 @@ PERMISSIONS = frozenset({
 COMPANY_ONLY = frozenset({
     'location.create', 'catalog.manage', 'catalog.publish', 'catalog.retire',
     'catalog.restore', 'catalog.archive', 'catalog.hold',
-    'batch.disposition', 'inventory.transfer_policy.manage',
+    'batch.disposition', 'inventory.transfer_policy.manage', 'inventory.costing.manage',
     'transfer.special.quarantine', 'transfer.special.recall_return',
     'transfer.special.return_to_vendor', 'transfer.special.disposal',
     'transfer.warehouse_balancing_override',

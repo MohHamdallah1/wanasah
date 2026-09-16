@@ -87,15 +87,41 @@ async def make_product(conn, company_id: int) -> int:
     ), {"c": company_id, "code": code})).fetchone()
     return row[0]
 
-async def make_variant(conn, company_id: int, product_id: int, min_shelf_life: int = 0) -> int:
+async def make_variant(conn, company_id: int, product_id: int) -> int:
     sku = f"SKU-{uuid4().hex[:6]}"
     row = (await conn.execute(text(
         "INSERT INTO product_variants "
         "(company_id, product_id, sku, name, base_uom_id, quantity_scale, quantity_step, "
-        " lot_control_mode, expiry_control_mode, lifecycle_status, operational_hold, lifecycle_revision, version, created_at, updated_at, min_shelf_life_days) "
-        "VALUES (:c, :p, :sku, 'SKU', 1, 0, '1', 'NONE', 'NONE', 'DRAFT', 'NONE', 1, 1, NOW(), NOW(), :msl) RETURNING id"
-    ), {"c": company_id, "p": product_id, "sku": sku, "msl": min_shelf_life})).fetchone()
+        " lot_control_mode, expiry_control_mode, lifecycle_status, operational_hold, "
+        "lifecycle_revision, version, published_at, created_at, updated_at) "
+        "VALUES (:c, :p, :sku, 'SKU', 1, 0, '1', 'REQUIRED', 'REQUIRED', "
+        "'ACTIVE', 'NONE', 1, 1, NOW(), NOW(), NOW()) RETURNING id"
+    ), {"c": company_id, "p": product_id, "sku": sku})).fetchone()
     return row[0]
+
+
+async def make_stock_policy(
+    conn,
+    company_id: int,
+    location_id: int,
+    variant_id: int,
+    min_shelf_life: int,
+) -> None:
+    await conn.execute(
+        text(
+            "INSERT INTO inventory_stock_policies "
+            "(company_id, location_id, product_variant_id, minimum_quantity, "
+            "target_quantity, minimum_remaining_shelf_life_days, is_active, "
+            "created_at, updated_at) "
+            "VALUES (:c, :l, :v, 0, NULL, :days, true, NOW(), NOW())"
+        ),
+        {
+            "c": company_id,
+            "l": location_id,
+            "v": variant_id,
+            "days": min_shelf_life,
+        },
+    )
 
 async def make_driver(conn, company_id: int) -> int:
     uname = f"d{uuid4().hex[:8]}"
@@ -109,8 +135,8 @@ async def make_batch(conn, company_id: int, variant_id: int, expiry_date: date, 
     bn = f"BN-{uuid4().hex[:6]}"
     row = (await conn.execute(text(
         "INSERT INTO product_batches "
-        "(company_id, product_variant_id, batch_number, expiry_date, disposition, is_active, created_at) "
-        "VALUES (:c, :v, :bn, :exp, :disp, true, NOW()) RETURNING id"
+        "(company_id, product_variant_id, batch_number, expiry_date, disposition, is_active, created_at, updated_at) "
+        "VALUES (:c, :v, :bn, :exp, :disp, true, NOW(), NOW()) RETURNING id"
     ), {"c": company_id, "v": variant_id, "bn": bn, "exp": expiry_date, "disp": disposition})).fetchone()
     return row[0]
 
@@ -143,8 +169,10 @@ async def test_transfer_purpose() -> None:
                 await su.execute(text(
                     "INSERT INTO inventory_transfer_headers "
                     "(company_id, reference_number, source_location_id, destination_location_id, "
-                    "workflow_type, status, transfer_purpose, dispatched_by, created_at, posted_at, updated_at) "
-                    "VALUES (:c, 'REF1', :l1, :l2, 'DIRECT', 'POSTED', 'QUARANTINE', :d, NOW(), NOW(), NOW())"
+                    "workflow_type, status, transfer_purpose, commercial_context, dispatched_by, "
+                    "created_at, posted_at, updated_at) "
+                    "VALUES (:c, 'REF1', :l1, :l2, 'DIRECT', 'POSTED', 'REPLENISHMENT', "
+                    "CAST('{}' AS jsonb), :d, NOW(), NOW(), NOW())"
                 ), {"c": co, "l1": loc1, "l2": loc2, "d": drv})
                 await su.commit()
                 record("TransferPurpose valid insert", True)
@@ -159,8 +187,10 @@ async def test_transfer_purpose() -> None:
                 await su.execute(text(
                     "INSERT INTO inventory_transfer_headers "
                     "(company_id, reference_number, source_location_id, destination_location_id, "
-                    "workflow_type, status, transfer_purpose, dispatched_by, created_at, posted_at) "
-                    "VALUES (:c, 'REF2', :l1, :l2, 'DIRECT', 'POSTED', 'INVALID_PURPOSE', :d, NOW(), NOW())"
+                    "workflow_type, status, transfer_purpose, commercial_context, dispatched_by, "
+                    "created_at, posted_at) "
+                    "VALUES (:c, 'REF2', :l1, :l2, 'DIRECT', 'POSTED', 'INVALID_PURPOSE', "
+                    "CAST('{}' AS jsonb), :d, NOW(), NOW())"
                 ), {"c": co, "l1": loc1, "l2": loc2, "d": drv})
                 await su.rollback()
                 record("TransferPurpose invalid insert blocked", False, "Succeeded!")
@@ -239,8 +269,15 @@ async def test_fefo_expiry_shelf_life() -> None:
             br = await make_branch(su, co)
             loc = await make_location(su, co, br)
             prd = await make_product(su, co)
-            # Variant requires 10 days shelf life minimum
-            var = await make_variant(su, co, prd, min_shelf_life=10)
+            # Shelf-life is a location/product inventory policy, not ProductVariant master data.
+            var = await make_variant(su, co, prd)
+            await make_stock_policy(
+                su,
+                company_id=co,
+                location_id=loc,
+                variant_id=var,
+                min_shelf_life=10,
+            )
             
             # Batch 1: Expired
             b1 = await make_batch(su, co, var, date(2026, 9, 1))
