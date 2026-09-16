@@ -73,8 +73,10 @@ export function useAuthFetch() {
         }
 
         const cleanPath = path.startsWith("/") ? path : `/${path}`;
+        const isFormData = typeof FormData !== "undefined" && opts.body instanceof FormData;
+        const timeoutMs = isFormData ? 120_000 : 15_000;
         const timeoutController = new AbortController();
-        const timeoutId = setTimeout(() => timeoutController.abort(), 15_000);
+        const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
         try {
             let res = await fetch(`${API}${cleanPath}`, {
@@ -83,7 +85,7 @@ export function useAuthFetch() {
                     ? AbortSignal.any([opts.signal, timeoutController.signal])
                     : timeoutController.signal,
                 headers: {
-                    "Content-Type": "application/json",
+                    ...(isFormData ? {} : { "Content-Type": "application/json" }),
                     Authorization: `Bearer ${token}`,
                     ...(opts.headers ?? {})
                 },
@@ -141,7 +143,7 @@ export function useAuthFetch() {
                 // +++ الكي الجراحي (UX): إيقاف العداد القديم وبناء عداد جديد للطلب المعوّض لمنع الانقطاع التعسفي +++
                 clearTimeout(timeoutId); 
                 const retryTimeoutController = new AbortController();
-                const retryTimeoutId = setTimeout(() => retryTimeoutController.abort(), 15_000);
+                const retryTimeoutId = setTimeout(() => retryTimeoutController.abort(), timeoutMs);
 
                 try {
                     res = await fetch(`${API}${cleanPath}`, {
@@ -150,7 +152,7 @@ export function useAuthFetch() {
                             ? AbortSignal.any([opts.signal, retryTimeoutController.signal])
                             : retryTimeoutController.signal,
                         headers: {
-                            "Content-Type": "application/json",
+                            ...(isFormData ? {} : { "Content-Type": "application/json" }),
                             Authorization: `Bearer ${newToken}`,
                             ...(opts.headers ?? {})
                         },

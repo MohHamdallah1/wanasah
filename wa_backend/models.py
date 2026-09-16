@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, Uuid, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint, Computed
+from sqlalchemy import BigInteger, Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, Uuid, LargeBinary, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint, Computed
 from sqlalchemy.dialects.postgresql import JSONB, TSTZRANGE, ExcludeConstraint
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
@@ -388,6 +388,71 @@ class ProductBarcode(Base):
     version            = Column(Integer, nullable=False, default=1, server_default='1')
     created_at         = Column(DateTime, nullable=False, default=utc_now)
     updated_at         = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class ProductImportJob(Base):
+    """Tenant-owned durable staging job; source payload is cleared after parsing."""
+    __tablename__ = 'product_import_jobs'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_product_import_jobs_company_id'),
+        UniqueConstraint('company_id', 'request_id', name='uq_product_import_job_request'),
+        ForeignKeyConstraint(['company_id', 'created_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_product_import_job_tenant_creator'),
+        CheckConstraint("status IN ('QUEUED','PARSING','NEEDS_MAPPING','VALIDATING','VALIDATION_FAILED','IMPORTING','RETRYING','COMPLETED','FAILED')", name='chk_product_import_job_status'),
+        CheckConstraint('file_size > 0', name='chk_product_import_job_file_size'),
+        CheckConstraint('total_rows >= 0 AND processed_rows >= 0 AND valid_rows >= 0 AND failed_rows >= 0', name='chk_product_import_job_counts_nonnegative'),
+        CheckConstraint('version > 0', name='chk_product_import_job_version'),
+        Index('ix_product_import_job_company_status', 'company_id', 'status', 'created_at'),
+    )
+    id = Column(Uuid, primary_key=True, default=uuid4)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    request_id = Column(Uuid, nullable=False, index=True)
+    created_by = Column(Integer, nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    content_type = Column(String(150), nullable=False)
+    source_payload = Column(LargeBinary, nullable=True)
+    source_sha256 = Column(String(64), nullable=False)
+    file_size = Column(Integer, nullable=False)
+    status = Column(String(30), nullable=False, default='QUEUED', server_default='QUEUED', index=True)
+    detected_headers = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    suggested_mapping = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    column_mapping = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    error_summary = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    total_rows = Column(Integer, nullable=False, default=0, server_default='0')
+    processed_rows = Column(Integer, nullable=False, default=0, server_default='0')
+    valid_rows = Column(Integer, nullable=False, default=0, server_default='0')
+    failed_rows = Column(Integer, nullable=False, default=0, server_default='0')
+    version = Column(Integer, nullable=False, default=1, server_default='1')
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class ProductImportRow(Base):
+    """Tenant-owned staged source row with resumable validation/import status."""
+    __tablename__ = 'product_import_rows'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'job_id', 'row_number', name='uq_product_import_row_job_number'),
+        ForeignKeyConstraint(['company_id', 'job_id'], ['product_import_jobs.company_id', 'product_import_jobs.id'], ondelete='CASCADE', name='fk_product_import_row_tenant_job'),
+        ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'], ondelete='RESTRICT', name='fk_product_import_row_tenant_variant'),
+        CheckConstraint('row_number >= 2', name='chk_product_import_row_number'),
+        CheckConstraint("status IN ('STAGED','VALID','FAILED','IMPORTED')", name='chk_product_import_row_status'),
+        CheckConstraint('version > 0', name='chk_product_import_row_version'),
+        Index('ix_product_import_row_job_status', 'company_id', 'job_id', 'status', 'row_number'),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    job_id = Column(Uuid, nullable=False, index=True)
+    row_number = Column(Integer, nullable=False)
+    raw_data = Column(JSONB, nullable=False)
+    normalized_data = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    status = Column(String(20), nullable=False, default='STAGED', server_default='STAGED', index=True)
+    error_code = Column(String(100), nullable=True)
+    error_message = Column(String(1000), nullable=True)
+    product_variant_id = Column(Integer, nullable=True, index=True)
+    version = Column(Integer, nullable=False, default=1, server_default='1')
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
 class ProductLocation(Base):

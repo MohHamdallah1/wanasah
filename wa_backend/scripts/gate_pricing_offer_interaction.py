@@ -124,8 +124,21 @@ async def database_checks() -> None:
         if "(head)" in line and line.split()
     }
     check(
-        heads_cp.returncode == 0 and cli_heads == {"e3b7a9c1d4f6"},
-        "Alembic exposes the pricing-offer policy migration as the single head",
+        heads_cp.returncode == 0 and len(cli_heads) == 1,
+        "Alembic exposes exactly one current head",
+    )
+    history_cp = subprocess.run(
+        [sys.executable, "-m", "alembic", "history", "--verbose"],
+        cwd=BACKEND,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
+    check(
+        history_cp.returncode == 0
+        and "e3b7a9c1d4f6" in history_cp.stdout,
+        "Pricing-offer policy migration remains in the current Alembic lineage",
     )
 
     async with engine.connect() as conn:
@@ -135,8 +148,8 @@ async def database_checks() -> None:
             ).scalars().all()
         )
         check(
-            db_heads == {"e3b7a9c1d4f6"},
-            "Database is upgraded to the exact pricing-offer policy head",
+            bool(cli_heads) and db_heads == cli_heads,
+            "Database is upgraded to the exact current Alembic head",
         )
 
         column = (

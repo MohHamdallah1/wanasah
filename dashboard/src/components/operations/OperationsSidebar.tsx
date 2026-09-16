@@ -1,6 +1,6 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useRef, useEffect } from "react";
-import { Radar, Truck, Package, PackagePlus, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin, BadgePercent, RotateCcw } from "lucide-react";
+import { Radar, Truck, Package, PackagePlus, FileText, Settings, X, User, ChevronDown, LogOut, Calendar, MapPin, BadgePercent, RotateCcw, LockKeyhole } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, useLocation } from "react-router-dom";
 import { formatTenantDate } from "@/features/tenantIdentity/contracts";
@@ -12,14 +12,15 @@ interface OperationsSidebarProps {
 }
 
 const navItems = [
-  { label: "الصفحة الرئيسية", icon: Radar, path: "/" },
-  { label: "التوزيع والمناطق", icon: Truck, path: "/dispatch" },
-  { label: "المخزون والمستودع", icon: Package, path: "/inventory" },
-  { label: "المنتجات", icon: PackagePlus, path: "/products" },
-  { label: "العروض والضرائب", icon: BadgePercent, path: "/commercial-rules" },
-  { label: "مرتجعات البيع", icon: RotateCcw, path: "/sales-returns" },
-  { label: "الأرشيف والتقارير", icon: FileText, path: "/reports" },
-  { label: "الإعدادات", icon: Settings, path: "/settings" },
+  { label: "الصفحة الرئيسية", icon: Radar, path: "/", disabled: false },
+  { label: "التوزيع والمناطق", icon: Truck, path: "/dispatch", disabled: false },
+  { label: "المخزون والمستودع", icon: Package, path: "/inventory", disabled: false },
+  { label: "المنتجات", icon: PackagePlus, path: "/products", disabled: false },
+  { label: "التسعير المتقدم", icon: LockKeyhole, path: "/pricing", disabled: true },
+  { label: "العروض والضرائب", icon: BadgePercent, path: "/commercial-rules", disabled: false },
+  { label: "مرتجعات البيع", icon: RotateCcw, path: "/sales-returns", disabled: false },
+  { label: "الأرشيف والتقارير", icon: FileText, path: "/reports", disabled: false },
+  { label: "الإعدادات", icon: Settings, path: "/settings", disabled: false },
 ];
 
 export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
@@ -50,7 +51,8 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
   }, []);
 
   const handleNav = (item: typeof navItems[0]) => {
-    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/products" || item.path === "/commercial-rules" || item.path === "/sales-returns") {
+    if (item.disabled) return;
+    if (item.path === "/" || item.path === "/dispatch" || item.path === "/inventory" || item.path === "/products" || item.path === "/pricing" || item.path === "/commercial-rules" || item.path === "/sales-returns") {
       navigate(item.path);
       onClose(); 
     } else {
@@ -141,12 +143,14 @@ export function OperationsSidebar({ open, onClose }: OperationsSidebarProps) {
 
         {/* روابط التنقل (كما هي بدون تغيير بالألوان) */}
         <nav className="operations-nav flex flex-col gap-1" aria-label="التنقل الرئيسي">
-          {navItems.filter(item => access.isCompanyAdmin || item.path === '/inventory' || (item.path === '/dispatch' && access.canAny('dispatch.read')) || (item.path === '/products' && access.canAny('catalog.read') && access.canAny('pricing.view')) || (item.path === '/commercial-rules' && (access.canAny('offers.view') || access.canAny('tax.view')))).map((item) => (
+          {navItems.filter(item => access.isCompanyAdmin || item.path === '/inventory' || (item.path === '/dispatch' && access.canAny('dispatch.read')) || (item.path === '/products' && access.canAny('catalog.read') && access.canAny('pricing.view')) || (item.path === '/pricing' && access.canAny('pricing.view')) || (item.path === '/commercial-rules' && (access.canAny('offers.view') || access.canAny('tax.view')))).map((item) => (
             <button
               key={item.label}
+              disabled={item.disabled}
+              aria-disabled={item.disabled}
               onClick={() => handleNav(item)}
-              data-active={location.pathname === item.path}
-              className={`operations-nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${location.pathname === item.path
+              data-active={!item.disabled && location.pathname === item.path}
+              className={`operations-nav-item flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${item.disabled ? "opacity-45 cursor-not-allowed" : ""} ${item.path !== "/pricing" && location.pathname === item.path
                 ? "bg-primary/15 text-primary-foreground font-bold shadow-sm"
                 : "text-muted-foreground hover:bg-white/60 hover:text-foreground"
                 }`}

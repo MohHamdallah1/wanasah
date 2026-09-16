@@ -1,0 +1,1 @@
+"""Simple products application facade."""

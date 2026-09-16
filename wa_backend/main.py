@@ -32,6 +32,7 @@ from database import engine, get_db
 from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
+from product_import_queue import app as product_import_app
 
 # ═══ S-01: Hardened IP extraction (trusted proxy CIDRs) ═══
 TRUSTED_PROXY_CIDRS = [
@@ -98,13 +99,14 @@ import os
 # +++ ISSUE-26: الإغلاق النظيف لموارد قاعدة البيانات لمنع تسريب الاتصالات (Connection Leaks) +++
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # STALE_HANDSHAKE_MONITOR_V1: managed PostgreSQL LISTEN -> WebSocket relay.
-    await worker_event_relay.start()
-    try:
-        yield
-    finally:
-        await worker_event_relay.stop()
-        await engine.dispose()
+    # Queue connector is opened for atomic defer only; the heavy worker is a separate process.
+    async with product_import_app.open_async():
+        await worker_event_relay.start()
+        try:
+            yield
+        finally:
+            await worker_event_relay.stop()
+            await engine.dispose()
 
 # S-05: Default to safe (production), enable docs only via explicit opt-in
 ENV = os.getenv("ENVIRONMENT", "production")
