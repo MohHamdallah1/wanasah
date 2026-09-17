@@ -282,6 +282,8 @@ export const resources = {
           "{{fallback}} — رمز الخطأ: {{code}}",
         fallbackWithReference:
           "{{fallback}} — رقم التتبع: {{requestId}}",
+        unexpected:
+          "حدث خطأ غير متوقع في الخادم.",
         unexpectedWithReference:
           "حدث خطأ غير متوقع في الخادم. رقم التتبع: {{requestId}}",
         codes: {
@@ -650,6 +652,8 @@ export const resources = {
           "{{fallback}} — error code: {{code}}",
         fallbackWithReference:
           "{{fallback}} — reference: {{requestId}}",
+        unexpected:
+          "An unexpected server error occurred.",
         unexpectedWithReference:
           "An unexpected server error occurred. Reference: {{requestId}}",
         codes: {

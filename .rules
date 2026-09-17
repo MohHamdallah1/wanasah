@@ -78,3 +78,9 @@ Be direct. Get straight to the point. No apologies, no repetitive phrasing, and 
 - Financial FIFO consumes acquisition cost layers by product/company acquisition order and must never be coupled to the physical FEFO batch selected for a sale.
 - Internal warehouse/vehicle transfers move physical stock only and never create COGS or change company inventory value.
 - Sale, sample, reward, exchange, and other external stock exits remain invisible to the driver at batch level but must create financial cost evidence when costing is active. Samples use VISIT_SAMPLE_OUT, not VISIT_ITEM_OUT.
+## Product/location first-inbound authority
+- Product catalog identity is company-wide and must never require a warehouse during product creation.
+- Never mass-provision every product into every warehouse. A missing ProductLocation may be created only inside the same transaction as the first successful supplier inbound for the explicitly selected ordinary warehouse.
+- Before that lazy assignment, the backend must authorize `inbound.create` on the exact location and validate every requested variant under the same `company_id`; tenant and warehouse isolation remain fail-closed.
+- Existing ProductLocation rows and their `inbound_enabled` / `outbound_enabled` flags are authoritative and must never be overwritten by the lazy path.
+- Lazy assignment must use the logical unique constraint, be concurrency-safe, audited with the same request id, and roll back if the inbound transaction fails.

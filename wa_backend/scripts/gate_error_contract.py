@@ -21,6 +21,8 @@ check('"code": "VALIDATION_ERROR"' in main, "validation error code")
 check('"code": "RATE_LIMITED"' in main, "rate limit error code")
 check('"code": "REQUEST_TOO_LARGE"' in main, "request-too-large error code")
 check('"code": "INTERNAL_SERVER_ERROR"' in main, "internal error code")
+check("from starlette.exceptions import HTTPException as StarletteHTTPException" in main, "Starlette HTTP exception base imported")
+check("@app.exception_handler(StarletteHTTPException)" in main, "404/405 use canonical HTTP handler")
 check("await custom_send({" in main and '"status": 413' in main, "413 uses request-id middleware path")
 
 check("normalizeApiErrorResponse" in fetch, "dashboard centralized response normalization")
@@ -32,7 +34,12 @@ check("root.error" in api, "canonical frontend envelope")
 check("root.message" in api, "legacy message frontend envelope")
 check("root.detail" in api, "legacy detail frontend envelope")
 check("status >= 500" in api, "5xx detail redaction")
+status_pos = api.find("status >= 500")
+translation_pos = api.find("if (code) {")
+check(status_pos != -1 and translation_pos != -1 and status_pos < translation_pos, "5xx redaction precedes code translation")
 check("serverReasonWithCodeAndReference" in api, "unknown 4xx diagnostic fallback")
+check(resources.count("unexpectedWithReference") >= 2, "localized referenced 5xx message")
+check(resources.count("unexpected:") >= 2, "localized generic 5xx message")
 
 for code in (
     "VALIDATION_ERROR",

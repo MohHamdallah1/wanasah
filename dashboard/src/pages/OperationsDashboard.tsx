@@ -376,9 +376,7 @@ const Index = () => {
 
       <header className="operations-overview-header">
         <div>
-          <p className="operations-eyebrow">غرفة العمليات المباشرة</p>
           <h1>لوحة المتابعة اليومية</h1>
-          <p>مؤشرات التحصيل والتنفيذ وحالة المناديب في مساحة تشغيل واحدة.</p>
         </div>
         <span className="operations-live-indicator"><i aria-hidden="true" /> متابعة مباشرة</span>
       </header>

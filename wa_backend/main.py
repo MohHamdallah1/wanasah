@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 # Step 5.2: Sentry error tracking
@@ -347,8 +348,12 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Database connection failed")
 
 # عقد HTTP موحد مع إبقاء message القديم للتوافق مع العملاء الحاليين.
-@app.exception_handler(HTTPException)
-async def custom_http_exception_handler(request: Request, exc: HTTPException):
+# نسجل المعالج على StarletteHTTPException حتى تشمل التغطية أيضاً 404/405 التلقائية.
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(
+    request: Request,
+    exc: StarletteHTTPException,
+):
     request_id = _request_id(request)
     return JSONResponse(
         status_code=exc.status_code,

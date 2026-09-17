@@ -65,6 +65,7 @@ from domains.inventory_costing.service import (
     set_cost_policy,
 )
 from product_lifecycle import (
+    DEFAULT_PRODUCT_LOCATION_FLAGS,
     INBOUND_NEW,
     REPLENISHMENT_NEW,
     WAREHOUSE_BALANCING,
@@ -72,6 +73,7 @@ from product_lifecycle import (
     evaluate_product_capability,
     product_capability_predicate,
     product_location_allows,
+    record_domain_event,
 )
 
 from schemas import (UnifiedStocktakeStartRequest,
@@ -1530,6 +1532,80 @@ async def _resolve_inbound_uom_options(
     return base_by_variant, factors, uom_map
 
 
+async def _ensure_first_inbound_product_locations(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+    variant_ids,
+    actor_id: int,
+    request_id: uuid.UUID,
+) -> set[int]:
+    """Create only missing product/location assignments for the selected inbound warehouse.
+
+    The caller must already have validated exact-warehouse inbound permission and
+    company-scoped product lifecycle eligibility. Existing assignments are never
+    overwritten, so explicit inbound/outbound flags remain authoritative.
+    """
+    normalized_ids = sorted({int(value) for value in variant_ids})
+    if not normalized_ids:
+        return set()
+
+    rows = [
+        {
+            "company_id": int(company_id),
+            "location_id": int(location_id),
+            "product_variant_id": int(variant_id),
+            "operational_flags": dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
+            "created_by": int(actor_id),
+        }
+        for variant_id in normalized_ids
+    ]
+    created_rows = list(
+        (
+            await db.execute(
+                pg_insert(ProductLocation)
+                .values(rows)
+                .on_conflict_do_nothing(
+                    constraint="uq_product_location_assignment"
+                )
+                .returning(
+                    ProductLocation.id,
+                    ProductLocation.product_variant_id,
+                )
+            )
+        ).all()
+    )
+
+    for product_location_id, product_variant_id in created_rows:
+        snapshot = {
+            "id": int(product_location_id),
+            "company_id": int(company_id),
+            "location_id": int(location_id),
+            "product_variant_id": int(product_variant_id),
+            "operational_flags": dict(DEFAULT_PRODUCT_LOCATION_FLAGS),
+            "version": 1,
+            "created_by": int(actor_id),
+        }
+        record_domain_event(
+            db,
+            company_id=int(company_id),
+            actor_id=int(actor_id),
+            request_id=request_id,
+            event_type="ProductLocationAssigned",
+            entity_type="ProductLocation",
+            entity_id=int(product_location_id),
+            reason="AUTO_FIRST_INBOUND",
+            before=None,
+            after=snapshot,
+        )
+
+    return {
+        int(product_variant_id)
+        for _, product_variant_id in created_rows
+    }
+
+
 @router.post("/warehouse/inbound/options", status_code=200)
 async def warehouse_inbound_options(
     payload: InboundOptionsRequest,
@@ -1725,6 +1801,7 @@ async def warehouse_inbound(
                     id=payload.location_id,
                     company_id=company_id,
                     location_type='WAREHOUSE',
+                    is_system_managed=False,
                     is_active=True
                 )
             )
@@ -1753,7 +1830,7 @@ async def warehouse_inbound(
                     ProductVariant.lifecycle_status,
                     ProductVariant.operational_hold,
                     ProductLocation.operational_flags,
-                ).join(
+                ).outerjoin(
                     ProductLocation,
                     and_(
                         ProductLocation.company_id == ProductVariant.company_id,
@@ -1766,6 +1843,36 @@ async def warehouse_inbound(
                 )
             )
         ).all()
+        found_variant_ids = {int(row.id) for row in variant_rows}
+        if found_variant_ids != requested_var_ids:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "INBOUND_VARIANT_UNAVAILABLE",
+                    "One or more products are unavailable for inbound.",
+                    context={
+                        "missing_product_variant_ids": sorted(
+                            requested_var_ids - found_variant_ids
+                        ),
+                    },
+                ),
+            )
+
+        missing_location_variant_ids = sorted(
+            int(row.id)
+            for row in variant_rows
+            if row.operational_flags is None
+        )
+        if missing_location_variant_ids:
+            await _ensure_first_inbound_product_locations(
+                db,
+                company_id=company_id,
+                location_id=payload.location_id,
+                variant_ids=missing_location_variant_ids,
+                actor_id=current_admin.id,
+                request_id=payload.request_id,
+            )
+
         variant_rules = {}
         for row in variant_rows:
             decision = evaluate_product_capability(
@@ -1782,7 +1889,13 @@ async def warehouse_inbound(
                         context={"product_variant_id": int(row.id)},
                     ),
                 )
-            if not product_location_allows(row.operational_flags, INBOUND_NEW):
+            if (
+                row.operational_flags is not None
+                and not product_location_allows(
+                    row.operational_flags,
+                    INBOUND_NEW,
+                )
+            ):
                 raise HTTPException(
                     status_code=409,
                     detail=inventory_business_error(
@@ -1800,20 +1913,6 @@ async def warehouse_inbound(
                 "quantity_step": row.quantity_step,
                 "expiry_control_mode": str(row.expiry_control_mode),
             }
-        if set(variant_rules) != requested_var_ids:
-            raise HTTPException(
-                status_code=409,
-                detail=inventory_business_error(
-                    "PRODUCT_LOCATION_REQUIRED",
-                    "Every product must be assigned to the warehouse before inbound.",
-                    context={
-                        "location_id": payload.location_id,
-                        "missing_product_variant_ids": sorted(
-                            requested_var_ids - set(variant_rules)
-                        ),
-                    },
-                ),
-            )
 
         _, uom_factors, _ = await _resolve_inbound_uom_options(
             db,

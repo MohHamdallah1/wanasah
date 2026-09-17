@@ -179,15 +179,8 @@ export function apiErrorMessage(
   const status =
     apiErrorStatus(error);
 
-  if (code) {
-    const key =
-      `errors.codes.${code}`;
-    if (i18n.exists(key)) {
-      return i18n.t(key, context);
-    }
-  }
-
-  // Never expose an unexpected 5xx implementation message to the user.
+  // All 5xx responses are redacted before code translation.
+  // This prevents a translated server code from bypassing the incident reference.
   if (
     typeof status === "number" &&
     status >= 500
@@ -197,7 +190,17 @@ export function apiErrorMessage(
           "errors.unexpectedWithReference",
           { requestId }
         )
-      : fallback;
+      : i18n.t(
+          "errors.unexpected"
+        );
+  }
+
+  if (code) {
+    const key =
+      `errors.codes.${code}`;
+    if (i18n.exists(key)) {
+      return i18n.t(key, context);
+    }
   }
 
   const serverMessage =

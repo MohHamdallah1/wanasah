@@ -115,6 +115,52 @@ describe("apiErrorMessage", () => {
     );
   });
 
+  it("keeps the request reference for a translated 5xx code", () => {
+    const error = Object.assign(
+      new Error("transport fallback"),
+      {
+        status: 500,
+        code: "INTERNAL_SERVER_ERROR",
+        serverMessage:
+          "database password and stack trace",
+        requestId: "req-translated-500",
+      }
+    );
+
+    const shown = apiErrorMessage(
+      error,
+      "fallback"
+    );
+    expect(shown).toContain(
+      "req-translated-500"
+    );
+    expect(shown).not.toContain(
+      "database password"
+    );
+  });
+
+  it("uses the localized safe 5xx message even without a request reference", () => {
+    const error = Object.assign(
+      new Error("transport fallback"),
+      {
+        status: 503,
+        code: "INTERNAL_SERVER_ERROR",
+        serverMessage: "internal implementation detail",
+      }
+    );
+
+    const shown = apiErrorMessage(
+      error,
+      "fallback"
+    );
+    expect(shown).toContain(
+      "خطأ غير متوقع"
+    );
+    expect(shown).not.toContain(
+      "internal implementation detail"
+    );
+  });
+
   it("keeps an unknown deterministic 4xx reason and diagnostics", () => {
     const error = Object.assign(
       new Error("transport fallback"),
