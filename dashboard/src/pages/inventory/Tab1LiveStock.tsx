@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { AlertTriangle, RefreshCcw, Search, Info, FilterX, ChevronRight, ChevronLeft } from "lucide-react";
 import type { WarehouseProduct } from "./liveStock/contracts";
-import { compareQuantity, formatQuantity } from "./quantity";
+import { compareQuantity, formatCommercialQuantity } from "./quantity";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   locationId: number;
@@ -40,7 +41,26 @@ export function Tab1LiveStock({
   onPrevious,
   onRefresh,
 }: Props) {
+  const { t, i18n } = useTranslation();
   const [searchInput, setSearchInput] = useState("");
+
+  const formatMoney = (value: string, currency: string) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return value;
+    try {
+      return new Intl.NumberFormat(
+        i18n.language.startsWith("ar") ? "ar-JO" : "en-US",
+        {
+          style: "currency",
+          currency,
+          minimumFractionDigits: 3,
+          maximumFractionDigits: 6,
+        },
+      ).format(numeric);
+    } catch {
+      return value;
+    }
+  };
 
   useEffect(() => {
     setSearchInput("");
@@ -130,7 +150,7 @@ export function Tab1LiveStock({
                   </div>
                 </th>
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">رمز الصنف (SKU)</th>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">في المستودع</th>
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">{t("inventoryLive.inWarehouse")}</th>
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
                   <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
                     قيد التحويل <Info className="w-3 h-3" />
@@ -149,6 +169,14 @@ export function Tab1LiveStock({
                 </th>
                 <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
                   <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
+                    {t("inventoryLive.averageCost")} <Info className="w-3 h-3" />
+                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[240px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
+                      {t("inventoryLive.averageCostHint")}
+                    </div>
+                  </div>
+                </th>
+                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
+                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
                     التوالف بالفرع <Info className="w-3 h-3" />
                     <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
                       التوالف والمرتجعات المعزولة في المستودع بانتظار الإتلاف
@@ -160,7 +188,7 @@ export function Tab1LiveStock({
             <tbody>
               {products.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-slate-400 text-sm">
+                  <td colSpan={7} className="text-center py-12 text-slate-400 text-sm">
                     {loading ? "جارٍ التحميل..." : "لا توجد بيانات مطابقة"}
                   </td>
                 </tr>
@@ -168,6 +196,19 @@ export function Tab1LiveStock({
 
               {products.map((p) => {
                 const isAlert = compareQuantity(p.minimum_quantity, "0") > 0 && compareQuantity(p.available_quantity, p.minimum_quantity) <= 0;
+                const displayName = t(`uom.${p.display_uom_code}`, {
+                  defaultValue: t("inventoryCommon.unit"),
+                });
+                const baseName = t(`uom.${p.base_uom_code}`, {
+                  defaultValue: t("inventoryCommon.unit"),
+                });
+                const renderQuantity = (value: typeof p.available_quantity) =>
+                  formatCommercialQuantity(
+                    value,
+                    displayName,
+                    baseName,
+                    p.display_factor_to_base,
+                  );
                 return (
                   <tr
                     key={p.id}
@@ -185,21 +226,31 @@ export function Tab1LiveStock({
                     </td>
                     <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku || "—"}</td>
                     <td className="px-4 py-3 text-emerald-700 font-semibold">
-                      {formatQuantity(p.available_quantity, p.base_uom_name)}
+                      <div>{renderQuantity(p.available_quantity).primary}</div>
+                      {renderQuantity(p.available_quantity).secondary && (
+                        <div className="mt-0.5 text-[10px] text-slate-400">
+                          {renderQuantity(p.available_quantity).secondary}
+                        </div>
+                      )}
                       {compareQuantity(p.blocked_quantity, "0") > 0 && (
                         <div className="text-[10px] font-bold text-amber-600 mt-0.5">
-                          محجوب عن الصرف: {formatQuantity(p.blocked_quantity, p.base_uom_name)}
+                          {t("inventoryLive.blocked")}: {renderQuantity(p.blocked_quantity).primary}
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-violet-600 font-semibold">
-                      {formatQuantity(p.reserved_quantity, p.base_uom_name)}
+                      {renderQuantity(p.reserved_quantity).primary}
                     </td>
                     <td className="px-4 py-3 text-slate-700 font-bold border-l border-slate-100">
-                      {formatQuantity(p.total_quantity, p.base_uom_name)}
+                      {renderQuantity(p.total_quantity).primary}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 font-black tabular-nums">
+                      {p.average_cost_display
+                        ? `${formatMoney(p.average_cost_display, p.currency_code)} / ${displayName}`
+                        : "—"}
                     </td>
                     <td className="px-4 py-3 text-red-600 font-bold bg-red-50/30">
-                      {formatQuantity(p.damaged_quantity, p.base_uom_name)}
+                      {renderQuantity(p.damaged_quantity).primary}
                     </td>
                   </tr>
                 );

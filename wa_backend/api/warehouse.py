@@ -53,6 +53,7 @@ from services import (
 from models import (Company, Driver, Product, ProductVariant, ProductLocation, ProductUomConversion, Branch,
 DispatchRoute, SystemAuditLog,
 InventoryLocation, TenantOperationalPolicy, InventoryStockPolicy, InventoryBalance, InventoryMovement, InventoryMovementImpact, ProductBatch,
+InventoryCostEvent, InventoryCostState,
 InventoryTransferHeader, InventoryTransferLine, OverrideReason, SystemSetting,
 WorkSession, StocktakeSession, StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine, InventoryLock)
 from models import UOM
@@ -1606,6 +1607,189 @@ async def _ensure_first_inbound_product_locations(
     }
 
 
+async def _load_inventory_display_uoms(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    variant_ids: list[int] | set[int],
+) -> dict[int, dict]:
+    ids = sorted({int(value) for value in variant_ids})
+    if not ids:
+        return {}
+
+    rows = (
+        await db.execute(
+            select(ProductUomConversion, UOM)
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == ProductUomConversion.company_id,
+                    ProductVariant.id == ProductUomConversion.product_variant_id,
+                ),
+            )
+            .join(UOM, UOM.id == ProductUomConversion.from_uom_id)
+            .filter(
+                ProductUomConversion.company_id == int(company_id),
+                ProductUomConversion.product_variant_id.in_(ids),
+                ProductUomConversion.to_uom_id == ProductVariant.base_uom_id,
+            )
+            .order_by(
+                ProductUomConversion.product_variant_id.asc(),
+                ProductUomConversion.id.asc(),
+            )
+        )
+    ).all()
+
+    candidates: dict[int, list[dict]] = {}
+    for conversion, uom in rows:
+        numerator = Decimal(conversion.numerator)
+        denominator = Decimal(conversion.denominator)
+        if numerator <= 0 or denominator <= 0:
+            raise RuntimeError("Invalid product UOM conversion.")
+        factor = numerator / denominator
+        if factor <= 1:
+            continue
+        candidates.setdefault(int(conversion.product_variant_id), []).append({
+            "uom_id": int(uom.id),
+            "uom_code": str(uom.code),
+            "uom_name": str(uom.name),
+            "factor_to_base": factor,
+        })
+
+    # Never guess between multiple commercial units.  One exact direct conversion
+    # is safe to use as the default display; otherwise the caller falls back to base.
+    return {
+        variant_id: rows[0]
+        for variant_id, rows in candidates.items()
+        if len(rows) == 1
+    }
+
+
+async def _ledger_product_location_snapshots(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+    product_variant_ids: list[int] | set[int],
+    movement_ids: list[int],
+) -> dict[int, tuple[Decimal, Decimal]]:
+    variant_ids = sorted({int(value) for value in product_variant_ids})
+    page_movement_ids = sorted({int(value) for value in movement_ids})
+    if not variant_ids or not page_movement_ids:
+        return {}
+
+    movement_delta_subq = (
+        select(
+            InventoryMovement.id.label("movement_id"),
+            InventoryMovement.product_variant_id.label("product_variant_id"),
+            InventoryMovement.created_at.label("created_at"),
+            func.sum(
+                InventoryMovementImpact.on_hand_after
+                - InventoryMovementImpact.on_hand_before
+            ).label("location_delta"),
+        )
+        .join(
+            InventoryMovementImpact,
+            and_(
+                InventoryMovementImpact.company_id == InventoryMovement.company_id,
+                InventoryMovementImpact.movement_id == InventoryMovement.id,
+            ),
+        )
+        .join(
+            InventoryBalance,
+            and_(
+                InventoryBalance.company_id == InventoryMovementImpact.company_id,
+                InventoryBalance.id == InventoryMovementImpact.inventory_balance_id,
+            ),
+        )
+        .filter(
+            InventoryMovement.company_id == int(company_id),
+            InventoryMovement.product_variant_id.in_(variant_ids),
+            InventoryMovementImpact.company_id == int(company_id),
+            InventoryBalance.company_id == int(company_id),
+            InventoryBalance.location_id == int(location_id),
+        )
+        .group_by(
+            InventoryMovement.id,
+            InventoryMovement.product_variant_id,
+            InventoryMovement.created_at,
+        )
+        .subquery()
+    )
+
+    history_subq = (
+        select(
+            movement_delta_subq.c.movement_id,
+            movement_delta_subq.c.product_variant_id,
+            movement_delta_subq.c.location_delta,
+            func.sum(movement_delta_subq.c.location_delta)
+            .over(
+                partition_by=movement_delta_subq.c.product_variant_id,
+                order_by=(
+                    movement_delta_subq.c.created_at.asc(),
+                    movement_delta_subq.c.movement_id.asc(),
+                ),
+                rows=(None, 0),
+            )
+            .label("cumulative_delta"),
+            func.sum(movement_delta_subq.c.location_delta)
+            .over(partition_by=movement_delta_subq.c.product_variant_id)
+            .label("total_delta"),
+        )
+        .subquery()
+    )
+
+    current_balance_subq = (
+        select(
+            InventoryBalance.product_variant_id.label("product_variant_id"),
+            func.sum(InventoryBalance.on_hand_quantity).label("current_total"),
+        )
+        .filter(
+            InventoryBalance.company_id == int(company_id),
+            InventoryBalance.location_id == int(location_id),
+            InventoryBalance.product_variant_id.in_(variant_ids),
+        )
+        .group_by(InventoryBalance.product_variant_id)
+        .subquery()
+    )
+
+    snapshot_rows = (
+        await db.execute(
+            select(
+                history_subq.c.movement_id,
+                history_subq.c.location_delta,
+                history_subq.c.cumulative_delta,
+                history_subq.c.total_delta,
+                func.coalesce(current_balance_subq.c.current_total, 0).label(
+                    "current_total"
+                ),
+            )
+            .outerjoin(
+                current_balance_subq,
+                current_balance_subq.c.product_variant_id
+                == history_subq.c.product_variant_id,
+            )
+            .filter(history_subq.c.movement_id.in_(page_movement_ids))
+        )
+    ).all()
+
+    result: dict[int, tuple[Decimal, Decimal]] = {}
+    for row in snapshot_rows:
+        delta = Decimal(row.location_delta or 0)
+        cumulative = Decimal(row.cumulative_delta or 0)
+        total_delta = Decimal(row.total_delta or 0)
+        current_total = Decimal(row.current_total or 0)
+        opening_total = current_total - total_delta
+        after = opening_total + cumulative
+        before = after - delta
+        if before < 0 or after < 0:
+            raise RuntimeError(
+                "Ledger product/location balance reconstruction became negative."
+            )
+        result[int(row.movement_id)] = (before, after)
+    return result
+
+
 @router.post("/warehouse/inbound/options", status_code=200)
 async def warehouse_inbound_options(
     payload: InboundOptionsRequest,
@@ -1920,18 +2104,22 @@ async def warehouse_inbound(
             variant_ids=sorted(requested_var_ids),
         )
         as_of_date = await get_company_local_date(db, company_id)
-        requested_batches = {}
-        base_quantities: dict[tuple[int, str], Decimal] = {}
-        cost_inputs = {}
+        requested_batches: dict[
+            tuple[int, str],
+            tuple[Optional[date], Optional[date]],
+        ] = {}
+        inbound_lines: list[dict] = []
+        seen_batch_uoms: set[tuple[int, str, int]] = set()
 
         for item in payload.items:
-            key = (int(item.product_variant_id), str(item.batch_number))
-            if key in requested_batches:
+            batch_key = (int(item.product_variant_id), str(item.batch_number))
+            metadata = (item.production_date, item.expiry_date)
+            if batch_key in requested_batches and requested_batches[batch_key] != metadata:
                 raise HTTPException(
                     status_code=422,
                     detail=inventory_business_error(
-                        "INBOUND_DUPLICATE_BATCH_LINE",
-                        "A product batch may appear only once in one inbound request.",
+                        "INBOUND_BATCH_METADATA_CONFLICT",
+                        "The same product batch cannot carry conflicting dates in one receipt.",
                         context={
                             "product_variant_id": int(item.product_variant_id),
                             "batch_number": str(item.batch_number),
@@ -1939,7 +2127,29 @@ async def warehouse_inbound(
                     ),
                 )
 
-            factor = uom_factors.get((int(item.product_variant_id), int(item.uom_id)))
+            line_key = (
+                int(item.product_variant_id),
+                str(item.batch_number),
+                int(item.uom_id),
+            )
+            if line_key in seen_batch_uoms:
+                raise HTTPException(
+                    status_code=422,
+                    detail=inventory_business_error(
+                        "INBOUND_DUPLICATE_BATCH_UOM_LINE",
+                        "The same product, batch and purchasing unit may appear only once per receipt.",
+                        context={
+                            "product_variant_id": int(item.product_variant_id),
+                            "batch_number": str(item.batch_number),
+                            "uom_id": int(item.uom_id),
+                        },
+                    ),
+                )
+            seen_batch_uoms.add(line_key)
+
+            factor = uom_factors.get(
+                (int(item.product_variant_id), int(item.uom_id))
+            )
             if factor is None:
                 raise HTTPException(
                     status_code=422,
@@ -2021,14 +2231,19 @@ async def warehouse_inbound(
                     ),
                 )
 
-            requested_batches[key] = (item.production_date, item.expiry_date)
-            base_quantities[key] = base_quantity
-            cost_inputs[key] = build_purchase_cost_input(
-                input_uom_id=int(item.uom_id),
-                input_quantity=Decimal(item.quantity),
-                input_unit_cost=Decimal(item.unit_cost),
-                base_quantity=base_quantity,
-            )
+            if batch_key not in requested_batches:
+                requested_batches[batch_key] = metadata
+            inbound_lines.append({
+                "batch_key": batch_key,
+                "uom_id": int(item.uom_id),
+                "base_quantity": base_quantity,
+                "cost_input": build_purchase_cost_input(
+                    input_uom_id=int(item.uom_id),
+                    input_quantity=Decimal(item.quantity),
+                    input_unit_cost=Decimal(item.unit_cost),
+                    base_quantity=base_quantity,
+                ),
+            })
 
         await db.execute(
             pg_insert(ProductBatch).values([
@@ -2120,25 +2335,37 @@ async def warehouse_inbound(
         )
 
         movement_specs = []
-        for key in sorted(requested_batches):
-            product_variant_id, batch_number = key
-            batch = batch_map[key]
+        for line in sorted(
+            inbound_lines,
+            key=lambda value: (
+                value["batch_key"][0],
+                value["batch_key"][1],
+                value["uom_id"],
+            ),
+        ):
+            batch_key = line["batch_key"]
+            product_variant_id, batch_number = batch_key
+            batch = batch_map[batch_key]
             movement_raw_key = (
-                f"{company_id}|{normalized_ref}|{main_loc.id}|{product_variant_id}|{batch.id}"
+                f"{company_id}|{normalized_ref}|{main_loc.id}|"
+                f"{product_variant_id}|{batch.id}|{line['uom_id']}"
             )
             movement_specs.append({
                 "product_variant_id": product_variant_id,
                 "batch_id": int(batch.id),
-                "quantity": base_quantities[key],
+                "quantity": line["base_quantity"],
                 "movement_kind": 'PHYSICAL',
                 "reference_type": 'INBOUND_SUPPLIER',
                 "reference_id": reference_id,
-                "idempotency_key": "INB-" + hashlib.sha256(movement_raw_key.encode("utf-8")).hexdigest(),
+                "idempotency_key": (
+                    "INB-"
+                    + hashlib.sha256(movement_raw_key.encode("utf-8")).hexdigest()
+                ),
                 "source_location_id": None,
                 "destination_location_id": main_loc.id,
                 "source_stock_status": None,
                 "destination_stock_status": 'AVAILABLE',
-                "inventory_cost_input": cost_inputs[key],
+                "inventory_cost_input": line["cost_input"],
                 "notes": payload.notes,
             })
 
@@ -2750,6 +2977,30 @@ async def get_warehouse_inventory(
 
         rows = (await db.execute(stmt)).all()
 
+        display_uoms = await _load_inventory_display_uoms(
+            db,
+            company_id=company_id,
+            variant_ids=page_variant_ids,
+        )
+        cost_state_rows = list(
+            (
+                await db.scalars(
+                    select(InventoryCostState).filter(
+                        InventoryCostState.company_id == company_id,
+                        InventoryCostState.product_variant_id.in_(page_variant_ids),
+                    )
+                )
+            ).all()
+        )
+        cost_state_by_variant = {
+            int(row.product_variant_id): row for row in cost_state_rows
+        }
+        currency_code = await db.scalar(
+            select(Company.currency_code).where(Company.id == company_id)
+        )
+        if not currency_code:
+            raise RuntimeError("Company currency is unavailable.")
+
         result = []
         for (
             variant,
@@ -2798,6 +3049,25 @@ async def get_warehouse_inventory(
 
             total_physical_available = on_hand + explicit_blocked + vehicle_total
 
+            display = display_uoms.get(int(variant.id))
+            if display is None:
+                display_uom_id = int(base_uom.id)
+                display_uom_code = str(base_uom.code)
+                display_uom_name = str(base_uom.name)
+                display_factor = Decimal("1")
+            else:
+                display_uom_id = int(display["uom_id"])
+                display_uom_code = str(display["uom_code"])
+                display_uom_name = str(display["uom_name"])
+                display_factor = Decimal(display["factor_to_base"])
+
+            cost_state = cost_state_by_variant.get(int(variant.id))
+            average_cost_display = None
+            if cost_state is not None:
+                average_cost_display = (
+                    Decimal(cost_state.average_unit_cost) * display_factor
+                ).quantize(Decimal("0.000001"))
+
             result.append({
                 "id": variant.id,
                 "name": variant.variant_name,
@@ -2805,6 +3075,16 @@ async def get_warehouse_inventory(
                 "base_uom_id": variant.base_uom_id,
                 "base_uom_code": base_uom.code,
                 "base_uom_name": base_uom.name,
+                "display_uom_id": display_uom_id,
+                "display_uom_code": display_uom_code,
+                "display_uom_name": display_uom_name,
+                "display_factor_to_base": canonical_quantity(display_factor),
+                "currency_code": str(currency_code).upper(),
+                "average_cost_display": (
+                    format(average_cost_display, "f")
+                    if average_cost_display is not None
+                    else None
+                ),
                 "quantity_scale": variant.quantity_scale,
                 "quantity_step": canonical_quantity(variant.quantity_step),
                 "available_quantity": canonical_quantity(free_quantity),
@@ -3041,6 +3321,75 @@ async def get_warehouse_ledger_cursor(
             }
 
         movement_ids = [row[0].id for row in rows]
+        page_variant_ids = sorted({int(row[0].product_variant_id) for row in rows})
+
+        aggregate_snapshots = (
+            await _ledger_product_location_snapshots(
+                db,
+                company_id=company_id,
+                location_id=location_id,
+                product_variant_ids=page_variant_ids,
+                movement_ids=movement_ids,
+            )
+            if location_id is not None
+            else {}
+        )
+        display_uoms = await _load_inventory_display_uoms(
+            db,
+            company_id=company_id,
+            variant_ids=page_variant_ids,
+        )
+
+        batch_ids = sorted({
+            int(row[0].batch_id)
+            for row in rows
+            if row[0].batch_id is not None
+        })
+        batch_number_by_id: dict[int, str] = {}
+        if batch_ids:
+            batch_number_by_id = {
+                int(batch_id): str(batch_number)
+                for batch_id, batch_number in (
+                    await db.execute(
+                        select(ProductBatch.id, ProductBatch.batch_number).filter(
+                            ProductBatch.company_id == company_id,
+                            ProductBatch.id.in_(batch_ids),
+                        )
+                    )
+                ).all()
+            }
+
+        cost_events = list(
+            (
+                await db.scalars(
+                    select(InventoryCostEvent).filter(
+                        InventoryCostEvent.company_id == company_id,
+                        InventoryCostEvent.inventory_movement_id.in_(movement_ids),
+                    )
+                )
+            ).all()
+        )
+        cost_event_by_movement = {
+            int(event.inventory_movement_id): event for event in cost_events
+        }
+        cost_uom_ids = sorted({
+            int(event.input_uom_id)
+            for event in cost_events
+            if event.input_uom_id is not None
+        })
+        cost_uom_by_id: dict[int, UOM] = {}
+        if cost_uom_ids:
+            cost_uom_by_id = {
+                int(row.id): row
+                for row in (
+                    await db.scalars(select(UOM).where(UOM.id.in_(cost_uom_ids)))
+                ).all()
+            }
+        ledger_currency_code = await db.scalar(
+            select(Company.currency_code).where(Company.id == company_id)
+        )
+        if not ledger_currency_code:
+            raise RuntimeError("Company currency is unavailable.")
 
         stmt_impacts = select(
             InventoryMovementImpact,
@@ -3186,6 +3535,63 @@ async def get_warehouse_ledger_cursor(
             else:
                 response_created_at = None
 
+            aggregate_snapshot = aggregate_snapshots.get(int(movement.id))
+            total_balance_before = (
+                aggregate_snapshot[0] if aggregate_snapshot is not None else None
+            )
+            total_balance_after = (
+                aggregate_snapshot[1] if aggregate_snapshot is not None else None
+            )
+
+            display = display_uoms.get(int(movement.product_variant_id))
+            if display is None:
+                display_uom_id = int(base_uom.id)
+                display_uom_code = str(base_uom.code)
+                display_uom_name = str(base_uom.name)
+                display_factor = Decimal("1")
+            else:
+                display_uom_id = int(display["uom_id"])
+                display_uom_code = str(display["uom_code"])
+                display_uom_name = str(display["uom_name"])
+                display_factor = Decimal(display["factor_to_base"])
+
+            cost_event = cost_event_by_movement.get(int(movement.id))
+            input_uom = (
+                cost_uom_by_id.get(int(cost_event.input_uom_id))
+                if cost_event is not None and cost_event.input_uom_id is not None
+                else None
+            )
+            average_cost_after = None
+            average_cost_uom_code = None
+            average_cost_uom_name = None
+            if cost_event is not None:
+                cost_quantity_after = Decimal(cost_event.quantity_after)
+                cost_value_after = Decimal(cost_event.value_after)
+                average_base_after = (
+                    Decimal("0")
+                    if cost_quantity_after == 0
+                    else cost_value_after / cost_quantity_after
+                )
+                if (
+                    cost_event.input_quantity is not None
+                    and Decimal(cost_event.input_quantity) > 0
+                    and input_uom is not None
+                ):
+                    event_factor = (
+                        Decimal(movement.quantity)
+                        / Decimal(cost_event.input_quantity)
+                    )
+                    average_cost_after = average_base_after * event_factor
+                    average_cost_uom_code = str(input_uom.code)
+                    average_cost_uom_name = str(input_uom.name)
+                else:
+                    average_cost_after = average_base_after * display_factor
+                    average_cost_uom_code = display_uom_code
+                    average_cost_uom_name = display_uom_name
+                average_cost_after = average_cost_after.quantize(
+                    Decimal("0.000001")
+                )
+
             result.append({
                 "id": movement.id,
                 "product_variant_id": movement.product_variant_id,
@@ -3196,8 +3602,66 @@ async def get_warehouse_ledger_cursor(
                 "quantity_step": canonical_quantity(quantity_step),
                 "type": movement.reference_type,
                 "quantity": canonical_quantity(quantity_packs),
-                "balance_before": balance_before,
-                "balance_after": balance_after,
+                "balance_before": total_balance_before,
+                "balance_after": total_balance_after,
+                "balance_scope": (
+                    "PRODUCT_LOCATION"
+                    if aggregate_snapshot is not None
+                    else None
+                ),
+                "batch_number": (
+                    batch_number_by_id.get(int(movement.batch_id))
+                    if movement.batch_id is not None
+                    else None
+                ),
+                "display_uom_id": display_uom_id,
+                "display_uom_code": display_uom_code,
+                "display_uom_name": display_uom_name,
+                "display_factor_to_base": canonical_quantity(display_factor),
+                "currency_code": str(ledger_currency_code).upper(),
+                "cost_method": (
+                    str(cost_event.method) if cost_event is not None else None
+                ),
+                "input_quantity": (
+                    canonical_quantity(cost_event.input_quantity)
+                    if cost_event is not None
+                    and cost_event.input_quantity is not None
+                    else None
+                ),
+                "input_uom_code": (
+                    str(input_uom.code) if input_uom is not None else None
+                ),
+                "input_uom_name": (
+                    str(input_uom.name) if input_uom is not None else None
+                ),
+                "input_unit_cost": (
+                    format(
+                        Decimal(cost_event.input_unit_cost).quantize(
+                            Decimal("0.000001")
+                        ),
+                        "f",
+                    )
+                    if cost_event is not None
+                    and cost_event.input_unit_cost is not None
+                    else None
+                ),
+                "total_cost": (
+                    format(
+                        Decimal(cost_event.total_cost).quantize(
+                            Decimal("0.000001")
+                        ),
+                        "f",
+                    )
+                    if cost_event is not None
+                    else None
+                ),
+                "average_cost_after": (
+                    format(average_cost_after, "f")
+                    if average_cost_after is not None
+                    else None
+                ),
+                "average_cost_uom_code": average_cost_uom_code,
+                "average_cost_uom_name": average_cost_uom_name,
                 "admin_name": admin_name or "غير معروف",
                 "reference": movement.reference_id,
                 "notes": movement.notes,

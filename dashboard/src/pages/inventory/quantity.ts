@@ -78,3 +78,36 @@ export const isZeroQuantity = (value: Quantity): boolean => scaled(value) === 0n
 
 export const formatQuantity = (value: Quantity, uomName: string): string =>
   `${canonicalFromScaled(scaled(value))} ${uomName}`;
+
+export function formatCommercialQuantity(
+  value: Quantity,
+  displayUomName: string,
+  baseUomName: string,
+  factorToBase: Quantity,
+): { primary: string; secondary: string | null } {
+  const valueScaled = scaled(value);
+  const factorScaled = scaled(factorToBase);
+
+  if (
+    factorScaled <= 1_000_000n ||
+    factorScaled % 1_000_000n !== 0n
+  ) {
+    return { primary: formatQuantity(value, baseUomName), secondary: null };
+  }
+
+  if (valueScaled < factorScaled) {
+    return { primary: formatQuantity(value, baseUomName), secondary: null };
+  }
+
+  const whole = valueScaled / factorScaled;
+  const remainder = valueScaled % factorScaled;
+  const primary =
+    remainder === 0n
+      ? `${whole.toString()} ${displayUomName}`
+      : `${whole.toString()} ${displayUomName} + ${canonicalFromScaled(remainder)} ${baseUomName}`;
+
+  return {
+    primary,
+    secondary: `${canonicalFromScaled(valueScaled)} ${baseUomName}`,
+  };
+}

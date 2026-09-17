@@ -5,6 +5,7 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import {
   FINANCIAL_SETTLEMENT_READY_STATUS,
   getFleetStats,
+  parseDriverDataList,
   parseSessionSettlementReport,
 } from "@/data/operations-data";
 import type {
@@ -131,7 +132,7 @@ const Index = () => {
       const data = await authFetch("/admin/sessions/today");
       if (data && isMounted) {
         // +++ الكي الجراحي: تمرير الـ ISO الزمني الخام لمنع كراش مكونات الـ UI التي تحلله بنفسها +++
-        setDrivers(data);
+        setDrivers(parseDriverDataList(data));
       }
     } catch (error: unknown) {
       console.error("فشل الاتصال بالسيرفر:", error);

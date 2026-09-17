@@ -34,6 +34,7 @@ import {
   parseInboundResponse,
   type CostPolicy,
   type InboundBatchDraft,
+  type InboundDocumentDefaults,
   type InboundDraftMap,
   type InboundVariantOptions,
 } from "./inbound/contracts";
@@ -89,6 +90,10 @@ export function Tab2Inbound({
   const [notes, setNotes] = useState(
     () => localStorage.getItem(keys.notes) || ""
   );
+  const [documentDefaults, setDocumentDefaults] =
+    useState<InboundDocumentDefaults>(() => ({
+      batch_number: localStorage.getItem(keys.batchDefault) || "",
+    }));
   const request = useRef(0);
   const optionsRequest = useRef(0);
 
@@ -101,6 +106,13 @@ export function Tab2Inbound({
   useEffect(() => {
     localStorage.setItem(keys.notes, notes);
   }, [notes, keys]);
+  useEffect(() => {
+    if (documentDefaults.batch_number) {
+      localStorage.setItem(keys.batchDefault, documentDefaults.batch_number);
+    } else {
+      localStorage.removeItem(keys.batchDefault);
+    }
+  }, [documentDefaults.batch_number, keys]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -213,8 +225,15 @@ export function Tab2Inbound({
   ) =>
     setDrafts((current) => {
       const key = String(variant.id);
+      const variantOptions = uomOptions.get(variant.id);
+      const commercialUoms =
+        variantOptions?.uoms.filter(
+          (uom) => uom.id !== variantOptions.base_uom_id
+        ) ?? [];
       const defaultUom = String(
-        uomOptions.get(variant.id)?.base_uom_id ?? variant.base_uom.id
+        commercialUoms.length === 1
+          ? commercialUoms[0].id
+          : variantOptions?.base_uom_id ?? variant.base_uom.id
       );
       const rows = current[key]?.length
         ? [...current[key]]
@@ -237,6 +256,8 @@ export function Tab2Inbound({
     localStorage.removeItem(keys.notes);
     localStorage.removeItem(keys.requestId);
     localStorage.removeItem(keys.fingerprint);
+    localStorage.removeItem(keys.batchDefault);
+    setDocumentDefaults({ batch_number: "" });
     setClearOpen(false);
   };
 
@@ -305,7 +326,8 @@ export function Tab2Inbound({
       const items = buildInboundItems(
         drafts,
         new Map(variants.map((item) => [String(item.id), item])),
-        uomOptions
+        uomOptions,
+        documentDefaults
       );
       const businessPayload = {
         location_id: locationId,
@@ -346,8 +368,8 @@ export function Tab2Inbound({
     }).format(numeric);
   };
 
-  const uomLabel = (code: string, fallback: string) =>
-    t(`uom.${code}`, { defaultValue: fallback });
+  const uomLabel = (code: string, _fallback: string) =>
+    t(`uom.${code}`, { defaultValue: t("inventoryCommon.unit") });
 
   return (
     <div
@@ -360,7 +382,24 @@ export function Tab2Inbound({
           {t("inventoryInbound.title")}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto mt-5">
+        <div className="mx-4 mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+          <label className="block text-xs font-black text-slate-700">
+            {t("inventoryInbound.defaultBatchTitle")}
+            <input
+              value={documentDefaults.batch_number}
+              onChange={(event) =>
+                setDocumentDefaults({ batch_number: event.target.value })
+              }
+              placeholder={t("inventoryInbound.defaultBatchPlaceholder")}
+              className="mt-1.5 w-full max-w-md rounded-xl border bg-white p-2.5"
+            />
+          </label>
+          <p className="mt-2 text-xs font-semibold text-emerald-800/80">
+            {t("inventoryInbound.defaultBatchHint")}
+          </p>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-auto mt-3">
           <table className="w-full text-sm min-w-[1120px]">
             <thead className="sticky top-0 bg-slate-50 border-b z-10">
               <tr>
@@ -405,8 +444,12 @@ export function Tab2Inbound({
               )}
               {catalog.flatMap((variant) => {
                 const option = uomOptions.get(variant.id);
+                const commercialUoms =
+                  option?.uoms.filter((uom) => uom.id !== option.base_uom_id) ?? [];
                 const defaultUom = String(
-                  option?.base_uom_id ?? variant.base_uom.id
+                  commercialUoms.length === 1
+                    ? commercialUoms[0].id
+                    : option?.base_uom_id ?? variant.base_uom.id
                 );
                 const rows = drafts[String(variant.id)]?.length
                   ? drafts[String(variant.id)]
@@ -429,7 +472,14 @@ export function Tab2Inbound({
                                 batch_number: event.target.value,
                               })
                             }
-                            placeholder={t("inventoryInbound.batchNumber")}
+                            placeholder={
+                              documentDefaults.batch_number
+                                ? t("inventoryInbound.overrideBatchPlaceholder", {
+                                    batch: documentDefaults.batch_number,
+                                  })
+                                : t("inventoryInbound.batchNumber")
+                            }
+                            title={t("inventoryInbound.rowBatchOverrideHint")}
                             className="rounded-lg border p-2"
                           />
                           <input
@@ -509,6 +559,9 @@ export function Tab2Inbound({
                           />
                           <span className="text-xs font-bold text-slate-500">
                             {costPolicy?.currency_code ?? ""}
+                            {selectedOption
+                              ? ` / ${uomLabel(selectedOption.code, selectedOption.name)}`
+                              : ""}
                           </span>
                         </div>
                       </td>
@@ -516,16 +569,31 @@ export function Tab2Inbound({
                         <div className="flex gap-2">
                           <button
                             type="button"
-                            title={t("inventoryInbound.addBatch")}
-                            onClick={() =>
+                            title={t("inventoryInbound.addReceiptLine")}
+                            onClick={() => {
+                              const baseUom = String(
+                                option?.base_uom_id ?? variant.base_uom.id
+                              );
+                              const nextUom =
+                                selectedUom !== baseUom
+                                  ? baseUom
+                                  : commercialUoms.length === 1
+                                    ? String(commercialUoms[0].id)
+                                    : defaultUom;
+                              const nextRow = {
+                                ...emptyInboundBatch(freshRowId(), nextUom),
+                                batch_number: row.batch_number,
+                                production_date: row.production_date,
+                                expiry_date: row.expiry_date,
+                              };
                               setDrafts((current) => ({
                                 ...current,
                                 [String(variant.id)]: [
                                   ...(current[String(variant.id)] ?? [row]),
-                                  emptyInboundBatch(freshRowId(), defaultUom),
+                                  nextRow,
                                 ],
-                              }))
-                            }
+                              }));
+                            }}
                           >
                             <Plus className="w-4 h-4" />
                           </button>

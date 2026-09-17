@@ -124,6 +124,44 @@ export interface DriverData {
   avatar?: string; // اختياري لأنه لا يأتي من الخادم حالياً
 }
 
+const driverDataSchema = z.object({
+  session: z.object({
+    session_id: z.number().int().positive(),
+    driver_name: z.string(),
+    start_time: z.string().nullable(),
+    is_authorized_to_sell: z.boolean(),
+    is_on_break: z.boolean(),
+    vehicle_label: z.string().nullable(),
+  }),
+  settlement: z.object({
+    driver_name: z.string(),
+    status: z.string(),
+    financials: z.object({
+      expected_cash_in_hand: z.string(),
+      cash_from_sales: z.string(),
+      cash_from_debts: z.string(),
+      inventory_shortage_cash: z.string(),
+    }),
+    visits: z.object({
+      completed_total: z.number().int().nonnegative(),
+      successful_sales: z.number().int().nonnegative(),
+      pending_remaining: z.number().int().nonnegative(),
+    }),
+    inventory: z.array(inventoryItemSchema),
+  }),
+  avatar: z.string().optional(),
+});
+
+export function parseDriverDataList(raw: unknown): DriverData[] {
+  const result = z.array(driverDataSchema).safeParse(raw);
+  if (!result.success) {
+    const error = new Error("OPERATIONS_RESPONSE_INVALID") as Error & { code: string };
+    error.code = "OPERATIONS_RESPONSE_INVALID";
+    throw error;
+  }
+  return result.data as DriverData[];
+}
+
 export const systemAlerts = [
   { id: 1, text: "أحمد تجاوز وقت الاستراحة بـ 15 دقيقة", type: "warning" as const },
   { id: 2, text: "سامي - كاش عالي يحتاج تسوية فورية", type: "danger" as const },

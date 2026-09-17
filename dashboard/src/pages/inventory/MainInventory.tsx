@@ -1,6 +1,7 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { TabInventoryAccess } from "./TabInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Tab1LiveStock } from "./Tab1LiveStock";
@@ -126,6 +127,7 @@ const getErrorMessage = (error: unknown): string =>
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function MainInventory() {
   const authFetch = useAuthFetch();
+  const { t } = useTranslation();
 
   // UI preference only. Server token + RLS remain the security authority.
   const companyId = localStorage.getItem("company_id") || "";
@@ -592,6 +594,12 @@ export default function MainInventory() {
       {locationAccess.isError && selectedLocationId !== null && <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">الموقع غير متاح أو تغيرت صلاحياتك. <button type="button" className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800" onClick={() => { void fetchLocations(); void locationAccess.refetch(); }}>تحديث المواقع والصلاحيات</button></p>}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
+        {selectedLocationId !== null && locationAccess.isPending && (
+          <div className="inventory-empty-state flex flex-1 items-center justify-center gap-2 px-6 text-center font-bold text-slate-500">
+            <RefreshCcw className="h-5 w-5 animate-spin" />
+            {t("common.loading")}
+          </div>
+        )}
         {selectedLocationId === null && activeTab !== "warehouses" && activeTab !== "permissions" && (
           <div className="inventory-empty-state flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center font-bold">
             <p>
@@ -609,7 +617,7 @@ export default function MainInventory() {
           </div>
         )}
 
-        {activeTab === "live" && tabAllowed("live") && selectedLocationId !== null && (
+        {!locationAccess.isPending && activeTab === "live" && tabAllowed("live") && selectedLocationId !== null && (
           <Tab1LiveStock
             locationId={selectedLocationId}
             products={stockItems}
@@ -629,7 +637,7 @@ export default function MainInventory() {
             onRefresh={refreshStock}
           />
         )}
-        {activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
+        {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
           <Tab2Inbound
             key={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}:${selectedLocationId}`}
             companyId={locationAccess.data.company_id}
@@ -643,7 +651,7 @@ export default function MainInventory() {
             }}
           />
         )}
-        {activeTab === "stocktake" && tabAllowed("stocktake") && selectedLocationId !== null && locationAccess.data && (
+        {!locationAccess.isPending && activeTab === "stocktake" && tabAllowed("stocktake") && selectedLocationId !== null && locationAccess.data && (
           <Tab3Stocktake
             key={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}:${selectedLocationId}`}
             locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
@@ -657,7 +665,7 @@ export default function MainInventory() {
             }}
           />
         )}
-        {activeTab === "ledger" && tabAllowed("ledger") && selectedLocationId !== null && (
+        {!locationAccess.isPending && activeTab === "ledger" && tabAllowed("ledger") && selectedLocationId !== null && (
           <Tab4Ledger
             key={selectedLocationId}
             locationId={selectedLocationId}
@@ -669,7 +677,7 @@ export default function MainInventory() {
           />
         )}
 
-        {activeTab === "transfers" && tabAllowed("transfers") && selectedLocationId !== null && (
+        {!locationAccess.isPending && activeTab === "transfers" && tabAllowed("transfers") && selectedLocationId !== null && (
           <TabTransfers
             locationId={selectedLocationId}
             onInventoryChanged={async () => {

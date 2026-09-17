@@ -1406,6 +1406,12 @@ class WarehouseInventoryItem(BaseModel):
     base_uom_id: PositiveDbInt
     base_uom_code: str
     base_uom_name: str
+    display_uom_id: PositiveDbInt
+    display_uom_code: str = Field(..., min_length=1, max_length=20)
+    display_uom_name: str = Field(..., min_length=1, max_length=50)
+    display_factor_to_base: PositiveQuantity
+    currency_code: str = Field(..., min_length=1, max_length=10)
+    average_cost_display: Optional[InventoryCostMoneyInput] = None
     quantity_scale: int = Field(..., ge=0, le=6)
     quantity_step: PositiveQuantity
     available_quantity: NonNegativeQuantity
@@ -1436,6 +1442,22 @@ class WarehouseLedgerItem(BaseModel):
     quantity: SignedQuantity
     balance_before: Optional[NonNegativeQuantity] = None
     balance_after: Optional[NonNegativeQuantity] = None
+    balance_scope: Optional[Literal["PRODUCT_LOCATION"]] = None
+    batch_number: Optional[str] = Field(None, max_length=100)
+    display_uom_id: PositiveDbInt
+    display_uom_code: str = Field(..., min_length=1, max_length=20)
+    display_uom_name: str = Field(..., min_length=1, max_length=50)
+    display_factor_to_base: PositiveQuantity
+    currency_code: str = Field(..., min_length=1, max_length=10)
+    cost_method: Optional[Literal["MOVING_AVERAGE", "FIFO"]] = None
+    input_quantity: Optional[PositiveQuantity] = None
+    input_uom_code: Optional[str] = Field(None, max_length=20)
+    input_uom_name: Optional[str] = Field(None, max_length=50)
+    input_unit_cost: Optional[InventoryCostMoneyInput] = None
+    total_cost: Optional[InventoryCostMoneyInput] = None
+    average_cost_after: Optional[InventoryCostMoneyInput] = None
+    average_cost_uom_code: Optional[str] = Field(None, max_length=20)
+    average_cost_uom_name: Optional[str] = Field(None, max_length=50)
     admin_name: str = Field(..., min_length=1, max_length=120)
     reference: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
@@ -1712,24 +1734,35 @@ class UpgradedInboundRequest(RequestModel):
 
     @model_validator(mode="after")
     def validate_duplicate_batch_metadata(self) -> "UpgradedInboundRequest":
-        seen: Dict[
+        seen_batches: Dict[
             tuple[int, str],
             tuple[Optional[date], Optional[date]],
         ] = {}
+        seen_batch_uoms: set[tuple[int, str, int]] = set()
         for item in self.items:
-            key = (item.product_variant_id, item.batch_number)
+            batch_key = (item.product_variant_id, item.batch_number)
             metadata = (item.production_date, item.expiry_date)
-            if key in seen:
-                if seen[key] != metadata:
-                    raise ValueError(
-                        "نفس رقم الدفعة للصنف لا يجوز أن يظهر ببيانات إنتاج/صلاحية متعارضة."
-                    )
+            if batch_key in seen_batches and seen_batches[batch_key] != metadata:
                 raise ValueError(
-                    "لا يجوز تكرار نفس الصنف ورقم الدفعة في فاتورة الاستلام؛ اجمع الكمية في سطر واحد."
+                    "The same product batch cannot carry conflicting dates."
                 )
-            seen[key] = metadata
+            seen_batches[batch_key] = metadata
+
+            line_key = (
+                item.product_variant_id,
+                item.batch_number,
+                item.uom_id,
+            )
+            if line_key in seen_batch_uoms:
+                raise ValueError(
+                    "The same product, batch and purchasing unit may appear only once."
+                )
+            seen_batch_uoms.add(line_key)
         return self
 
+
+
+# PATCH: STAGE4D_BATCH_DISPOSITION_PORTION_STATUS
 
 
 # PATCH: STAGE4D_BATCH_DISPOSITION_PORTION_STATUS

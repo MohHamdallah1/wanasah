@@ -20,6 +20,10 @@ export interface InboundBatchDraft {
 
 export type InboundDraftMap = Record<string, InboundBatchDraft[]>;
 
+export interface InboundDocumentDefaults {
+  batch_number: string;
+}
+
 export interface InboundUomOption {
   id: number;
   code: string;
@@ -126,6 +130,7 @@ export const inboundStorageKeys = (
     notes: `${prefix}:notes`,
     requestId: `${prefix}:request-id`,
     fingerprint: `${prefix}:fingerprint`,
+    batchDefault: `${prefix}:batch-default`,
   } as const;
 };
 
@@ -205,10 +210,12 @@ export const inboundProductIds = (drafts: InboundDraftMap): number[] =>
 export const buildInboundItems = (
   drafts: InboundDraftMap,
   variants: Map<string, CatalogVariant>,
-  options: Map<number, InboundVariantOptions>
+  options: Map<number, InboundVariantOptions>,
+  defaults: InboundDocumentDefaults = { batch_number: "" }
 ): InboundItemPayload[] => {
   const items: InboundItemPayload[] = [];
-  const seen = new Set<string>();
+  const seenBatchMetadata = new Map<string, string>();
+  const seenBatchUoms = new Set<string>();
 
   for (const productId of inboundProductIds(drafts)) {
     const variant = variants.get(String(productId));
@@ -236,7 +243,7 @@ export const buildInboundItems = (
       }
 
       const unitCost = validMoney(row.unit_cost);
-      const batch = row.batch_number.trim();
+      const batch = row.batch_number.trim() || defaults.batch_number.trim();
       if (!batch || batch.length > 100) {
         throw codedError("INBOUND_BATCH_INVALID");
       }
@@ -254,9 +261,19 @@ export const buildInboundItems = (
         throw codedError("INBOUND_EXPIRY_NOT_ALLOWED");
       }
 
-      const key = `${variant.id}|${batch}`;
-      if (seen.has(key)) throw codedError("INBOUND_DUPLICATE_BATCH_LINE");
-      seen.add(key);
+      const batchKey = `${variant.id}|${batch}`;
+      const metadataKey = `${row.production_date}|${row.expiry_date}`;
+      const existingMetadata = seenBatchMetadata.get(batchKey);
+      if (existingMetadata !== undefined && existingMetadata !== metadataKey) {
+        throw codedError("INBOUND_BATCH_METADATA_CONFLICT");
+      }
+      seenBatchMetadata.set(batchKey, metadataKey);
+
+      const uomKey = `${batchKey}|${uomId}`;
+      if (seenBatchUoms.has(uomKey)) {
+        throw codedError("INBOUND_DUPLICATE_BATCH_UOM_LINE");
+      }
+      seenBatchUoms.add(uomKey);
       items.push({
         product_variant_id: variant.id,
         quantity: rawQuantity,
@@ -275,7 +292,8 @@ export const buildInboundItems = (
   return items.sort(
     (a, b) =>
       a.product_variant_id - b.product_variant_id ||
-      a.batch_number.localeCompare(b.batch_number)
+      a.batch_number.localeCompare(b.batch_number) ||
+      a.uom_id - b.uom_id
   );
 };
 

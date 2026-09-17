@@ -242,6 +242,14 @@ export const resources = {
         clearTitle: "تأكيد تصفير المسودة",
         clearConfirm: "تصفير",
         clearBody: "سيتم مسح مسودة التوريد المحلية الحالية فقط.",
+        defaultBatchTitle: "بيانات دفعة افتراضية للسند",
+        defaultBatchHint:
+          "أدخلها مرة واحدة لتُطبّق على كل الأصناف التي لم تضع لها بيانات دفعة خاصة. يمكنك تجاوزها لأي صنف عند الحاجة.",
+        defaultBatchPlaceholder: "مثال: LOT-2026-09",
+        overrideBatchPlaceholder: "الافتراضي: {{batch}}",
+        rowBatchOverrideHint:
+          "اترك الحقل فارغاً لاستخدام دفعة السند الافتراضية، أو أدخل دفعة مختلفة لهذا الصنف فقط.",
+        addReceiptLine: "إضافة كمية/وحدة أخرى لنفس المنتج",
         policySaved: "تم حفظ طريقة احتساب التكلفة.",
         received: "تم توثيق التوريد والتكلفة بنجاح.",
         errors: {
@@ -255,6 +263,26 @@ export const resources = {
           optionsNotReady: "وحدات الشراء لم تجهز بعد.",
           submit: "فشل توثيق التوريد.",
         },
+      },
+      inventoryCommon: {
+        unit: "وحدة",
+      },
+      inventoryLive: {
+        inWarehouse: "في المستودع",
+        averageCost: "متوسط التكلفة",
+        averageCostHint:
+          "متوسط تكلفة الشركة الحالي لهذا المنتج، معروض بوحدة العرض التجارية عند توفر تحويل واحد واضح.",
+        blocked: "محجوب عن الصرف",
+      },
+      inventoryLedger: {
+        batch: "الدفعة",
+        balanceBefore: "الرصيد قبل",
+        quantity: "الكمية",
+        balanceAfter: "الرصيد بعد",
+        purchaseCost: "تكلفة الشراء",
+        averageAfter: "متوسط التكلفة بعد الحركة",
+        supervisor: "المشرف",
+        totalCost: "إجمالي التكلفة",
       },
       uom: {
         CARTON: "كرتونة",
@@ -287,6 +315,8 @@ export const resources = {
         unexpectedWithReference:
           "حدث خطأ غير متوقع في الخادم. رقم التتبع: {{requestId}}",
         codes: {
+          OPERATIONS_RESPONSE_INVALID: "استجابة غرفة العمليات غير صالحة أو غير مكتملة.",
+          INBOUND_DUPLICATE_BATCH_UOM_LINE: "لا تكرر نفس المنتج ونفس الدفعة ونفس وحدة الشراء في أكثر من سطر. استخدم سطراً إضافياً فقط لوحدة شراء مختلفة.",
           VALIDATION_ERROR: "بيانات الطلب غير صالحة. راجع الحقول المدخلة.",
           RATE_LIMITED: "تم تجاوز الحد المسموح من الطلبات. حاول مرة أخرى لاحقاً.",
           REQUEST_TOO_LARGE: "حجم الطلب يتجاوز الحد المسموح.",
@@ -612,6 +642,14 @@ export const resources = {
         clearTitle: "Clear draft?",
         clearConfirm: "Clear",
         clearBody: "Only the current local inbound draft will be cleared.",
+        defaultBatchTitle: "Default batch details for this receipt",
+        defaultBatchHint:
+          "Enter them once and they will apply to every item without its own batch override. Override any item when needed.",
+        defaultBatchPlaceholder: "Example: LOT-2026-09",
+        overrideBatchPlaceholder: "Default: {{batch}}",
+        rowBatchOverrideHint:
+          "Leave this empty to use the receipt default, or enter a different batch for this item only.",
+        addReceiptLine: "Add another quantity/unit for this product",
         policySaved: "Costing method saved.",
         received: "Receipt and purchase cost posted successfully.",
         errors: {
@@ -625,6 +663,26 @@ export const resources = {
           optionsNotReady: "Purchase units are not ready yet.",
           submit: "Could not post the receipt.",
         },
+      },
+      inventoryCommon: {
+        unit: "Unit",
+      },
+      inventoryLive: {
+        inWarehouse: "In warehouse",
+        averageCost: "Average cost",
+        averageCostHint:
+          "The company's current average cost for this product, shown in the commercial display unit when one unambiguous conversion is configured.",
+        blocked: "Blocked from issue",
+      },
+      inventoryLedger: {
+        batch: "Batch",
+        balanceBefore: "Balance before",
+        quantity: "Quantity",
+        balanceAfter: "Balance after",
+        purchaseCost: "Purchase cost",
+        averageAfter: "Average cost after movement",
+        supervisor: "Supervisor",
+        totalCost: "Total cost",
       },
       uom: {
         CARTON: "Carton",
@@ -657,6 +715,8 @@ export const resources = {
         unexpectedWithReference:
           "An unexpected server error occurred. Reference: {{requestId}}",
         codes: {
+          OPERATIONS_RESPONSE_INVALID: "The operations response is invalid or incomplete.",
+          INBOUND_DUPLICATE_BATCH_UOM_LINE: "Do not repeat the same product, batch, and purchasing unit on multiple lines. Add another line only for a different purchasing unit.",
           VALIDATION_ERROR: "The request data is invalid. Review the entered fields.",
           RATE_LIMITED: "The request limit was exceeded. Try again later.",
           REQUEST_TOO_LARGE: "The request is larger than the allowed limit.",

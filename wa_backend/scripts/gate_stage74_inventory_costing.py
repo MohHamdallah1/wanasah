@@ -75,7 +75,12 @@ check("/warehouse/inbound/options" in warehouse, "inbound UOM options endpoint")
 check("/warehouse/costing-policy" in warehouse, "cost policy endpoints")
 check("build_purchase_cost_input" in warehouse, "receipt cost normalization")
 check("activate_costing_for_first_receipt" in warehouse, "first receipt locks method")
-check("INBOUND_DUPLICATE_BATCH_LINE" in warehouse, "no silent duplicate batch aggregation")
+check(
+    "seen_batch_uoms" in warehouse
+    and "INBOUND_DUPLICATE_BATCH_UOM_LINE" in warehouse
+    and "seen_batch_uoms.add(line_key)" in warehouse,
+    "no silent duplicate batch/UOM aggregation",
+)
 check("ProductUomConversion" in warehouse, "purchase UOM conversion authority")
 
 check('"VISIT_SAMPLE_OUT"' in driver, "sample movement type")

@@ -1,9 +1,10 @@
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { History, Search, ChevronRight, ChevronLeft, Eye, FileText, Package, RefreshCcw } from "lucide-react";
 import { getLedgerBadge } from "./inventoryUtils";
-import { absoluteQuantity, addQuantity, compareQuantity, formatQuantity } from "./quantity";
+import { absoluteQuantity, addQuantity, compareQuantity, formatCommercialQuantity, formatQuantity } from "./quantity";
 import {
   buildLedgerAdjustmentPayload,
   formatLedgerDate,
@@ -25,7 +26,31 @@ const PAGE_SIZE = 20;
 
 export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
+  const { t, i18n } = useTranslation();
   const access = useInventoryAccess(locationId);
+
+  const uomLabel = (code: string | null) =>
+    code
+      ? t(`uom.${code}`, { defaultValue: t("inventoryCommon.unit") })
+      : t("inventoryCommon.unit");
+
+  const formatMoney = (value: string, currency: string) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return value;
+    try {
+      return new Intl.NumberFormat(
+        i18n.language.startsWith("ar") ? "ar-JO" : "en-US",
+        {
+          style: "currency",
+          currency,
+          minimumFractionDigits: 3,
+          maximumFractionDigits: 6,
+        },
+      ).format(numeric);
+    } catch {
+      return value;
+    }
+  };
 
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [search, setSearch] = useState("");
@@ -299,10 +324,13 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
               <tr>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">نوع العملية</th>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">المنتج</th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500">الرصيد قبل</th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500">الكمية</th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500">الرصيد بعد</th>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500">المشرف</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500">{t("inventoryLedger.batch")}</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500">{t("inventoryLedger.balanceBefore")}</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500">{t("inventoryLedger.quantity")}</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500">{t("inventoryLedger.balanceAfter")}</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500">{t("inventoryLedger.purchaseCost")}</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500">{t("inventoryLedger.averageAfter")}</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500">{t("inventoryLedger.supervisor")}</th>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">المرجع</th>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">الملاحظات</th>
                 <th className="px-4 py-3 text-xs font-bold text-slate-500">التاريخ</th>
@@ -310,23 +338,65 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading && (
-                <tr><td colSpan={9} className="text-center py-12 text-slate-400 font-bold">جارٍ التحميل...</td></tr>
+                <tr><td colSpan={12} className="text-center py-12 text-slate-400 font-bold">جارٍ التحميل...</td></tr>
               )}
               {!loading && entries.length === 0 && (
-                <tr><td colSpan={9} className="text-center py-12 text-slate-400">لا توجد حركات مطابقة</td></tr>
+                <tr><td colSpan={12} className="text-center py-12 text-slate-400">لا توجد حركات مطابقة</td></tr>
               )}
               {!loading && entries.map((entry) => {
                 const badge = getLedgerBadge(entry.type);
                 const isNeg = compareQuantity(entry.quantity, "0") < 0;
                 const reference = entry.reference || "";
+                const displayName = uomLabel(entry.display_uom_code);
+                const baseName = uomLabel(entry.base_uom_code);
+                const renderBaseQuantity = (value: typeof entry.quantity) =>
+                  formatCommercialQuantity(
+                    value,
+                    displayName,
+                    baseName,
+                    entry.display_factor_to_base,
+                  ).primary;
+                const movementQuantity =
+                  entry.input_quantity && entry.input_uom_code
+                    ? formatQuantity(
+                        entry.input_quantity,
+                        uomLabel(entry.input_uom_code),
+                      )
+                    : renderBaseQuantity(absoluteQuantity(entry.quantity));
 
                 return (
                   <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-lg text-[11px] font-black ${badge.bg} ${badge.text}`}>{badge.label}</span></td>
                     <td className="px-4 py-3 font-bold text-slate-800">{entry.product_name}</td>
-                    <td className="px-4 py-3 text-slate-500 font-semibold text-xs">{entry.balance_before === null ? "—" : formatQuantity(entry.balance_before, entry.base_uom_code)}</td>
-                    <td className={`px-4 py-3 font-bold text-xs ${isNeg ? "text-red-600" : "text-emerald-600"}`}>{isNeg ? "-" : "+"}{formatQuantity(absoluteQuantity(entry.quantity), entry.base_uom_code)}</td>
-                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50">{entry.balance_after === null ? "—" : formatQuantity(entry.balance_after, entry.base_uom_code)}</td>
+                    <td className="px-4 py-3 text-xs font-black text-slate-600">{entry.batch_number || "—"}</td>
+                    <td className="px-4 py-3 text-slate-500 font-semibold text-xs">
+                      {entry.balance_before === null
+                        ? "—"
+                        : renderBaseQuantity(entry.balance_before)}
+                    </td>
+                    <td className={`px-4 py-3 font-bold text-xs ${isNeg ? "text-red-600" : "text-emerald-600"}`}>
+                      {isNeg ? "-" : "+"}{movementQuantity}
+                    </td>
+                    <td className="px-4 py-3 text-slate-800 font-bold text-xs bg-slate-50/50">{entry.balance_after === null ? "—" : renderBaseQuantity(entry.balance_after)}</td>
+                    <td className="px-4 py-3 text-slate-700 font-black text-xs">
+                      {entry.input_unit_cost && entry.input_uom_code ? (
+                        <>
+                          <div>
+                            {formatMoney(entry.input_unit_cost, entry.currency_code)} / {uomLabel(entry.input_uom_code)}
+                          </div>
+                          {entry.total_cost ? (
+                            <div className="mt-0.5 text-[10px] font-semibold text-slate-400">
+                              {t("inventoryLedger.totalCost")}: {formatMoney(entry.total_cost, entry.currency_code)}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 font-black text-xs">
+                      {entry.average_cost_after && entry.average_cost_uom_code
+                        ? `${formatMoney(entry.average_cost_after, entry.currency_code)} / ${uomLabel(entry.average_cost_uom_code)}`
+                        : "—"}
+                    </td>
                     <td className="px-4 py-3 text-slate-600 text-xs font-bold">{entry.admin_name || "—"}</td>
                     <td className="px-4 py-3">
                       {reference ? (
@@ -356,7 +426,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-500 text-[11px] font-semibold whitespace-nowrap" dir="ltr">
-                      {formatLedgerDate(entry.date)}
+                      {formatLedgerDate(entry.date, i18n.resolvedLanguage || i18n.language)}
                     </td>
                   </tr>
                 );
