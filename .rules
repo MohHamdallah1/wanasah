@@ -52,6 +52,8 @@ Be direct. Get straight to the point. No apologies, no repetitive phrasing, and 
 - Use `Intl` / locale-aware formatting for numbers, currencies, dates, and times.
 - Stable backend contracts use language-neutral codes/enums/identifiers. Translate labels at the presentation layer.
 - Backend error contracts must expose stable `code` + structured `context`; localized/fallback message text must never be used as program logic.
+- Every API failure must also carry a correlation/request id in the canonical error contract so production incidents are traceable directly to server logs.
+- Updated dashboard transport must preserve `code`, `context`, safe server reason, and request id. A known translated error must show its translation; an unknown deterministic 4xx must never collapse into a generic message when a safe server reason exists; unexpected 5xx details must stay hidden while the request id is shown.
 - UOM/status/business codes remain language-neutral in storage and APIs.
 - Import/export templates may be localized, but parsers must map localized aliases to canonical language-neutral fields.
 - When touching an existing frontend file with hardcoded strings, migrate the touched user-facing area to translation keys rather than adding more hardcoded copy.

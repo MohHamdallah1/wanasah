@@ -270,7 +270,27 @@ export const resources = {
         EACH: "حبة",
       },
       errors: {
+        serverReasonWithCodeAndReference:
+          "{{message}} — رمز الخطأ: {{code}} — رقم التتبع: {{requestId}}",
+        serverReasonWithCode:
+          "{{message}} — رمز الخطأ: {{code}}",
+        serverReasonWithReference:
+          "{{message}} — رقم التتبع: {{requestId}}",
+        fallbackWithCodeAndReference:
+          "{{fallback}} — رمز الخطأ: {{code}} — رقم التتبع: {{requestId}}",
+        fallbackWithCode:
+          "{{fallback}} — رمز الخطأ: {{code}}",
+        fallbackWithReference:
+          "{{fallback}} — رقم التتبع: {{requestId}}",
+        unexpectedWithReference:
+          "حدث خطأ غير متوقع في الخادم. رقم التتبع: {{requestId}}",
         codes: {
+          VALIDATION_ERROR: "بيانات الطلب غير صالحة. راجع الحقول المدخلة.",
+          RATE_LIMITED: "تم تجاوز الحد المسموح من الطلبات. حاول مرة أخرى لاحقاً.",
+          REQUEST_TOO_LARGE: "حجم الطلب يتجاوز الحد المسموح.",
+          INTERNAL_SERVER_ERROR: "حدث خطأ داخلي في الخادم.",
+          PRODUCT_LOCATION_REQUIRED: "هذا المنتج غير مربوط بالمستودع المحدد.",
+          PRODUCT_LOCATION_INBOUND_DISABLED: "التوريد لهذا المنتج معطّل في المستودع المحدد.",
           INBOUND_UNIT_COST_INVALID: "أدخل تكلفة شراء صحيحة حتى 6 منازل عشرية.",
           INBOUND_VARIANT_UNAVAILABLE: "أحد المنتجات لم يعد فعالاً أو لا يتبع شركتك.",
           INBOUND_UOM_REQUIRED: "اختر وحدة الشراء.",
@@ -618,7 +638,27 @@ export const resources = {
         EACH: "Unit",
       },
       errors: {
+        serverReasonWithCodeAndReference:
+          "{{message}} — error code: {{code}} — reference: {{requestId}}",
+        serverReasonWithCode:
+          "{{message}} — error code: {{code}}",
+        serverReasonWithReference:
+          "{{message}} — reference: {{requestId}}",
+        fallbackWithCodeAndReference:
+          "{{fallback}} — error code: {{code}} — reference: {{requestId}}",
+        fallbackWithCode:
+          "{{fallback}} — error code: {{code}}",
+        fallbackWithReference:
+          "{{fallback}} — reference: {{requestId}}",
+        unexpectedWithReference:
+          "An unexpected server error occurred. Reference: {{requestId}}",
         codes: {
+          VALIDATION_ERROR: "The request data is invalid. Review the entered fields.",
+          RATE_LIMITED: "The request limit was exceeded. Try again later.",
+          REQUEST_TOO_LARGE: "The request is larger than the allowed limit.",
+          INTERNAL_SERVER_ERROR: "An internal server error occurred.",
+          PRODUCT_LOCATION_REQUIRED: "This product is not assigned to the selected warehouse.",
+          PRODUCT_LOCATION_INBOUND_DISABLED: "Inbound is disabled for this product at the selected warehouse.",
           INBOUND_UNIT_COST_INVALID: "Enter a valid purchase cost with at most 6 decimal places.",
           INBOUND_VARIANT_UNAVAILABLE: "A product is no longer active or does not belong to your company.",
           INBOUND_UOM_REQUIRED: "Select the purchase unit.",

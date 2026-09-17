@@ -1,68 +1,237 @@
 import i18n from "@/i18n";
 
-export function apiErrorCode(
-  error: unknown
-): string | undefined {
+export type NormalizedApiErrorPayload = {
+  code?: string;
+  message?: string;
+  context?: Record<string, unknown>;
+  requestId?: string;
+};
+
+const asRecord = (
+  value: unknown
+): Record<string, unknown> | undefined =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+
+const readStructuredError = (
+  value: unknown
+): NormalizedApiErrorPayload | undefined => {
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  const code =
+    typeof record.code === "string" &&
+    record.code.trim()
+      ? record.code.trim()
+      : undefined;
+  const message =
+    typeof record.message === "string" &&
+    record.message.trim()
+      ? record.message.trim()
+      : undefined;
+  const context =
+    asRecord(record.context);
+  const requestIdValue =
+    record.request_id ??
+    record.requestId;
+  const requestId =
+    typeof requestIdValue === "string" &&
+    requestIdValue.trim()
+      ? requestIdValue.trim()
+      : undefined;
+
   if (
-    !error ||
-    typeof error !== "object"
+    !code &&
+    !message &&
+    !context &&
+    !requestId
   ) {
     return undefined;
   }
 
+  return {
+    code,
+    message,
+    context,
+    requestId,
+  };
+};
+
+export function normalizeApiErrorResponse(
+  data: unknown
+): NormalizedApiErrorPayload {
+  const root = asRecord(data);
+  if (!root) {
+    return {};
+  }
+
+  // Canonical contract first, then all supported legacy envelopes.
+  for (const candidate of [
+    root.error,
+    root.message,
+    root.detail,
+    root,
+  ]) {
+    const parsed =
+      readStructuredError(candidate);
+    if (parsed) return parsed;
+  }
+
+  const legacyMessage =
+    typeof root.message === "string" &&
+    root.message.trim()
+      ? root.message.trim()
+      : typeof root.detail === "string" &&
+          root.detail.trim()
+        ? root.detail.trim()
+        : undefined;
+
+  return legacyMessage
+    ? { message: legacyMessage }
+    : {};
+}
+
+export function apiErrorCode(
+  error: unknown
+): string | undefined {
+  const record = asRecord(error);
+  if (!record) return undefined;
+
   if (
-    "code" in error &&
-    typeof error.code ===
-      "string"
+    typeof record.code === "string" &&
+    record.code.trim()
   ) {
-    return error.code;
+    return record.code.trim();
   }
 
-  if ("data" in error) {
-    const data = (
-      error as {
-        data?: unknown;
-      }
-    ).data;
-    if (
-      data &&
-      typeof data ===
-        "object" &&
-      "detail" in data
-    ) {
-      const detail = (
-        data as {
-          detail?: unknown;
-        }
-      ).detail;
-      if (
-        detail &&
-        typeof detail ===
-          "object" &&
-        "code" in detail &&
-        typeof detail.code ===
-          "string"
-      ) {
-        return detail.code;
-      }
-    }
+  return normalizeApiErrorResponse(
+    record.data
+  ).code;
+}
+
+export function apiErrorContext(
+  error: unknown
+): Record<string, unknown> | undefined {
+  const record = asRecord(error);
+  if (!record) return undefined;
+
+  const direct =
+    asRecord(record.context);
+  if (direct) return direct;
+
+  return normalizeApiErrorResponse(
+    record.data
+  ).context;
+}
+
+export function apiErrorRequestId(
+  error: unknown
+): string | undefined {
+  const record = asRecord(error);
+  if (!record) return undefined;
+
+  const direct =
+    record.requestId ??
+    record.request_id;
+  if (
+    typeof direct === "string" &&
+    direct.trim()
+  ) {
+    return direct.trim();
   }
 
-  return undefined;
+  return normalizeApiErrorResponse(
+    record.data
+  ).requestId;
+}
+
+export function apiErrorServerMessage(
+  error: unknown
+): string | undefined {
+  const record = asRecord(error);
+  if (!record) return undefined;
+
+  if (
+    typeof record.serverMessage ===
+      "string" &&
+    record.serverMessage.trim()
+  ) {
+    return record.serverMessage.trim();
+  }
+
+  return normalizeApiErrorResponse(
+    record.data
+  ).message;
 }
 
 export function apiErrorMessage(
   error: unknown,
   fallback: string
 ): string {
-  const code =
-    apiErrorCode(error);
+  const code = apiErrorCode(error);
+  const context =
+    apiErrorContext(error) ?? {};
+  const requestId =
+    apiErrorRequestId(error);
+  const status =
+    apiErrorStatus(error);
+
   if (code) {
     const key =
       `errors.codes.${code}`;
     if (i18n.exists(key)) {
-      return i18n.t(key);
+      return i18n.t(key, context);
     }
+  }
+
+  // Never expose an unexpected 5xx implementation message to the user.
+  if (
+    typeof status === "number" &&
+    status >= 500
+  ) {
+    return requestId
+      ? i18n.t(
+          "errors.unexpectedWithReference",
+          { requestId }
+        )
+      : fallback;
+  }
+
+  const serverMessage =
+    apiErrorServerMessage(error);
+  if (serverMessage) {
+    if (code && requestId) {
+      return i18n.t(
+        "errors.serverReasonWithCodeAndReference",
+        {
+          message: serverMessage,
+          code,
+          requestId,
+        }
+      );
+    }
+    if (code) {
+      return i18n.t(
+        "errors.serverReasonWithCode",
+        {
+          message: serverMessage,
+          code,
+        }
+      );
+    }
+    if (requestId) {
+      return i18n.t(
+        "errors.serverReasonWithReference",
+        {
+          message: serverMessage,
+          requestId,
+        }
+      );
+    }
+    return serverMessage;
   }
 
   if (
@@ -76,22 +245,48 @@ export function apiErrorMessage(
     return error.message;
   }
 
+  if (code && requestId) {
+    return i18n.t(
+      "errors.fallbackWithCodeAndReference",
+      {
+        fallback,
+        code,
+        requestId,
+      }
+    );
+  }
+  if (code) {
+    return i18n.t(
+      "errors.fallbackWithCode",
+      {
+        fallback,
+        code,
+      }
+    );
+  }
+  if (requestId) {
+    return i18n.t(
+      "errors.fallbackWithReference",
+      {
+        fallback,
+        requestId,
+      }
+    );
+  }
+
   return fallback;
 }
 
 export function apiErrorStatus(
   error: unknown
 ): number | undefined {
-  if (
-    error &&
-    typeof error === "object" &&
-    "status" in error &&
-    typeof error.status ===
-      "number"
-  ) {
-    return error.status;
-  }
-  return undefined;
+  const record = asRecord(error);
+  return (
+    record &&
+    typeof record.status === "number"
+  )
+    ? record.status
+    : undefined;
 }
 
 export function isAmbiguousRequestError(

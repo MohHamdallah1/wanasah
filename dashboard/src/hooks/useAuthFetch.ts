@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 import i18n from "@/i18n";
+import { normalizeApiErrorResponse } from "@/lib/apiErrors";
 
 const API = (
   import.meta.env.VITE_API_URL || ""
@@ -37,13 +38,19 @@ export type HttpError = Error & {
   status: number;
   data: unknown;
   code?: string;
+  context?: Record<string, unknown>;
+  requestId?: string;
+  serverMessage?: string;
 };
 
 const makeHttpError = (
   message: string,
   status: number,
   data: unknown = null,
-  code?: string
+  code?: string,
+  context?: Record<string, unknown>,
+  requestId?: string,
+  serverMessage?: string
 ): HttpError => {
   const error = new Error(
     message
@@ -51,31 +58,12 @@ const makeHttpError = (
   error.status = status;
   error.data = data;
   if (code) error.code = code;
+  if (context) error.context = context;
+  if (requestId) error.requestId = requestId;
+  if (serverMessage) {
+    error.serverMessage = serverMessage;
+  }
   return error;
-};
-
-const extractCode = (
-  data: unknown
-): string | undefined => {
-  if (
-    !data ||
-    typeof data !== "object" ||
-    !("detail" in data)
-  ) {
-    return undefined;
-  }
-  const detail = (
-    data as { detail?: unknown }
-  ).detail;
-  if (
-    detail &&
-    typeof detail === "object" &&
-    "code" in detail &&
-    typeof detail.code === "string"
-  ) {
-    return detail.code;
-  }
-  return undefined;
 };
 
 const networkError = () =>
@@ -436,14 +424,26 @@ export function useAuthFetch() {
               ),
               502,
               null,
-              "INVALID_SERVER_RESPONSE"
+              "INVALID_SERVER_RESPONSE",
+              undefined,
+              res.headers.get(
+                "X-Request-Id"
+              ) || undefined
             );
           }
         }
 
         if (!res.ok) {
-          const code =
-            extractCode(data);
+          const normalized =
+            normalizeApiErrorResponse(
+              data
+            );
+          const requestId =
+            normalized.requestId ||
+            res.headers.get(
+              "X-Request-Id"
+            ) ||
+            undefined;
 
           if (
             res.status === 403 &&
@@ -460,7 +460,7 @@ export function useAuthFetch() {
 
           if (
             res.status === 403 &&
-            code ===
+            normalized.code ===
               "ACCOUNT_DISABLED"
           ) {
             forceLogout();
@@ -472,7 +472,10 @@ export function useAuthFetch() {
             ),
             res.status,
             data,
-            code
+            normalized.code,
+            normalized.context,
+            requestId,
+            normalized.message
           );
         }
 

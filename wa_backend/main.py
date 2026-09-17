@@ -155,14 +155,89 @@ if ENV == "production" and not ALLOWED_ORIGINS:
 
 # ملاحظة: تم إزالة إضافة CORSMiddleware من هنا لنقلها للأسفل في الخطوة القادمة
 
+# عقد الأخطاء المركزي: يحافظ على message القديم ويضيف error موحداً لكل العملاء الجدد.
+def _request_id(request: Request) -> str:
+    value = getattr(request.state, "request_id", None)
+    return str(value) if value else "N/A"
+
+
+def _error_contract(
+    *,
+    status_code: int,
+    detail,
+    request_id: str,
+) -> dict:
+    code = f"HTTP_{int(status_code)}"
+    message = "Request failed."
+    context: dict = {}
+
+    if isinstance(detail, dict):
+        raw_code = detail.get("code")
+        raw_message = detail.get("message")
+        raw_context = detail.get("context")
+
+        if isinstance(raw_code, str) and raw_code.strip():
+            code = raw_code.strip()
+        if isinstance(raw_message, str) and raw_message.strip():
+            message = raw_message.strip()
+        if isinstance(raw_context, dict):
+            context = raw_context
+    elif isinstance(detail, str) and detail.strip():
+        message = detail.strip()
+
+    return {
+        "code": code,
+        "message": message,
+        "context": context,
+        "request_id": request_id,
+    }
+
+
+def _error_response_payload(
+    *,
+    status_code: int,
+    legacy_message,
+    request_id: str,
+    canonical_detail=None,
+) -> dict:
+    detail = legacy_message if canonical_detail is None else canonical_detail
+    return {
+        # Backward compatibility for current mobile/dashboard consumers.
+        "message": legacy_message,
+        # Preserve the existing top-level incident reference as well.
+        "request_id": request_id,
+        # Canonical contract for all new/updated clients.
+        "error": _error_contract(
+            status_code=status_code,
+            detail=detail,
+            request_id=request_id,
+        ),
+    }
+
+
 # S-02: Global rate limiter (1000 req/min default per IP)
 # +++ رفع السقف هندسياً لمنع تداخل اختبارات الضغط (180 طلب) مع اختبارات المصادقة اللاحقة +++
 limiter = Limiter(key_func=get_real_ip, default_limits=["1000/minute"])
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, lambda req, exc: JSONResponse(
-    status_code=429,
-    content={"message": "تم تجاوز الحد المسموح من الطلبات. يرجى المحاولة لاحقاً."},
-))
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded):
+    legacy_message = "تم تجاوز الحد المسموح من الطلبات. يرجى المحاولة لاحقاً."
+    request_id = _request_id(request)
+    return JSONResponse(
+        status_code=429,
+        content=_error_response_payload(
+            status_code=429,
+            legacy_message=legacy_message,
+            request_id=request_id,
+            canonical_detail={
+                "code": "RATE_LIMITED",
+                "message": legacy_message,
+                "context": {},
+            },
+        ),
+    )
 
 # +++   إضافة نقطة التفتيش (Middleware) التي كانت مفقودة لتفعيل الحارس فعلياً +++
 from slowapi.middleware import SlowAPIMiddleware
@@ -175,8 +250,8 @@ class WanasahRawASGIMiddleware:
     def __init__(self, app):
         self.app = app
         self.max_body_size = 10 * 1024 * 1024
-        self.limit_body = json.dumps({"message": "حجم الطلب يتجاوز الحد المسموح (10MB)."}).encode('utf-8')
-        
+        self.limit_message = "حجم الطلب يتجاوز الحد المسموح (10MB)."
+
         # تجهيز الهيدرز مسبقاً لعدم استهلاك الـ CPU مع كل طلب
         self.sec_headers = [
             (b"strict-transport-security", b"max-age=31536000; includeSubDomains; preload"),
@@ -192,29 +267,50 @@ class WanasahRawASGIMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # 1. فحص الحجم المباشر (Fast Path)
-        if scope["type"] == "http":
-            headers = dict(scope.get("headers", []))
-            content_length = headers.get(b"content-length")
-            if content_length and int(content_length) > self.max_body_size:
-                await send({"type": "http.response.start", "status": 413, "headers": [(b"content-type", b"application/json")]})
-                await send({"type": "http.response.body", "body": self.limit_body})
-                return
-
-        # 2. حقن Request ID بذاكرة النطاق
+        # أنشئ رقم التتبع قبل أي رفض، بما في ذلك 413.
         req_id_str = str(uuid.uuid4())
         req_id_bytes = req_id_str.encode("ascii")
         if "state" not in scope:
             scope["state"] = {}
         scope["state"]["request_id"] = req_id_str
 
-        # 3. اعتراض الـ send لحقن الهيدرز دون استنساخ كائنات Starlette
         async def custom_send(message):
             if message["type"] == "http.response.start":
                 headers = message.setdefault("headers", [])
                 headers.extend(self.sec_headers)
                 headers.append((b"x-request-id", req_id_bytes))
             await send(message)
+
+        # فحص الحجم المباشر مع نفس عقد الأخطاء ورقم التتبع.
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            content_length = headers.get(b"content-length")
+            if content_length and int(content_length) > self.max_body_size:
+                payload = _error_response_payload(
+                    status_code=413,
+                    legacy_message=self.limit_message,
+                    request_id=req_id_str,
+                    canonical_detail={
+                        "code": "REQUEST_TOO_LARGE",
+                        "message": self.limit_message,
+                        "context": {"max_bytes": self.max_body_size},
+                    },
+                )
+                body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                await custom_send({
+                    "type": "http.response.start",
+                    "status": 413,
+                    "headers": [(b"content-type", b"application/json; charset=utf-8")],
+                })
+                await custom_send({
+                    "type": "http.response.body",
+                    "body": body,
+                })
+                return
 
         try:
             await self.app(scope, receive, custom_send)
@@ -250,20 +346,50 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
     except Exception:
         raise HTTPException(status_code=503, detail="Database connection failed")
 
-# +++ المترجم العسكري: تحويل detail الخاصة بـ FastAPI إلى message مع الحفاظ على الترويسات +++
+# عقد HTTP موحد مع إبقاء message القديم للتوافق مع العملاء الحاليين.
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    request_id = _request_id(request)
     return JSONResponse(
-        status_code=exc.status_code, 
-        content={"message": exc.detail},
-        headers=exc.headers
+        status_code=exc.status_code,
+        content=_error_response_payload(
+            status_code=exc.status_code,
+            legacy_message=exc.detail,
+            request_id=request_id,
+        ),
+        headers=exc.headers,
     )
+
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    # +++ سحب أول خطأ من Pydantic لحماية تطبيق الموبايل من الانهيار بـ Array +++
-    error_msg = exc.errors()[0].get("msg", "بيانات غير صالحة")
-    return JSONResponse(status_code=422, content={"message": f"خطأ إدخال: {error_msg}"})
+    # لا نعيد input الخام حتى لا نسرب أسراراً أو بيانات حساسة.
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    error_msg = first.get("msg", "بيانات غير صالحة")
+    location = [
+        str(part)
+        for part in first.get("loc", ())
+        if part not in ("body", "query", "path", "header", "cookie")
+    ]
+    context = {
+        "field": ".".join(location) if location else None,
+        "type": first.get("type"),
+    }
+    legacy_message = f"خطأ إدخال: {error_msg}"
+    return JSONResponse(
+        status_code=422,
+        content=_error_response_payload(
+            status_code=422,
+            legacy_message=legacy_message,
+            request_id=_request_id(request),
+            canonical_detail={
+                "code": "VALIDATION_ERROR",
+                "message": legacy_message,
+                "context": context,
+            },
+        ),
+    )
 
 # +++ المعالج الشامل للأخطاء (Global Exception Handler) +++
 # S-01/S-10/Issue#13/S-12: Hardened IP extraction, log sanitization, request ID
@@ -286,12 +412,19 @@ async def global_exception_handler(request: Request, exc: Exception):
     # +++ إرسال اللوج لـ Thread خارجي لمنع الاختناق (Blocking IO) وشلل الـ Event Loop +++
     await async_log_error(error_msg)
     
+    legacy_message = "خطأ داخلي في الخادم. يرجى مراجعة سجلات النظام."
     return JSONResponse(
         status_code=500,
-        content={
-            "message": "خطأ داخلي في الخادم. يرجى مراجعة سجلات النظام.",
-            "request_id": request_id
-        },
+        content=_error_response_payload(
+            status_code=500,
+            legacy_message=legacy_message,
+            request_id=request_id,
+            canonical_detail={
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": legacy_message,
+                "context": {},
+            },
+        ),
     )
 
 # +++ تفعيل الروترز لتتطابق مع طلبات React و Flutter الحقيقية +++

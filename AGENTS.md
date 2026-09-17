@@ -14,6 +14,7 @@ Internationalization is a permanent project requirement. For every new frontend 
 - format numbers, money, dates, and times with locale-aware APIs;
 - keep backend/API/UOM/status identifiers language-neutral and translate labels only at presentation boundaries;
 - rely on backend error `code` + structured `context`, never localized message text, for program logic;
+- require every API failure to expose a correlation/request id in the canonical error contract; dashboard transport must preserve code/context/safe reason/request id, show deterministic 4xx reasons instead of generic failures, and hide unexpected 5xx internals while surfacing the request id;
 - localized CSV/XLSX headers must map to canonical language-neutral import fields.
 
 Network failure is also a permanent architecture requirement. Every new or modified mutating workflow must:
