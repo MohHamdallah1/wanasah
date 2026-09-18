@@ -123,6 +123,397 @@
   min-width: 0;
 }
 
+.inventory-location-field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.inventory-location-label {
+  color: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* Live stock: a quiet, full-width workspace. Other inventory tabs retain their skin. */
+.inventory-workspace[data-live-view="true"] {
+  min-width: 0;
+  padding: 0;
+  gap: 1.25rem;
+  background: transparent;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-command-bar {
+  overflow: visible;
+  padding: 0.5rem 0 0;
+  border: 0;
+  border-radius: 0;
+  color: #172536;
+  background: transparent;
+  box-shadow: none;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-command-bar::after {
+  content: none;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-command-row {
+  gap: 1rem;
+  padding: 0 0.25rem 1.25rem;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-command-title-mark {
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid #dbe2e7;
+  border-radius: 1rem;
+  color: #243b42;
+  background: #fff;
+}
+
+.inventory-workspace[data-live-view="true"] h1 {
+  color: #15262d;
+  font-size: clamp(1.25rem, 1.7vw, 1.75rem);
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.inventory-workspace[data-live-view="true"] h1 + p {
+  color: #647178;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-context-bar {
+  gap: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-location-label {
+  color: #596971;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-location-select {
+  min-width: 12rem;
+  min-height: 2.75rem;
+  border-color: #d3dde1;
+  border-radius: 0.8rem;
+  color: #172c35;
+  background: #fff;
+  font-weight: 700;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-sync {
+  gap: 0.15rem;
+  border: 0;
+  padding: 0;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-sync .text-white {
+  color: #314a50;
+  font-weight: 600;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-sync .text-amber-300 {
+  display: inline-block;
+  padding-inline: 0.35rem;
+  color: #176b58;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-sync .text-slate-400 {
+  color: #65767d;
+  font-weight: 500;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-sync .text-amber-200 {
+  color: #92400e;
+  border-color: #fcd79c;
+  background: #fff6e7;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-sync button {
+  width: 2rem;
+  height: 2rem;
+  border-color: #d7e1e5;
+  color: #48646d;
+  background: #fff;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-tab-strip {
+  margin-top: 0;
+  gap: 0.2rem;
+  padding: 0.35rem;
+  border: 1px solid #dce3e7;
+  border-radius: 1rem;
+  background: #e9eef1;
+  scrollbar-color: #bccbd1 transparent;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-tab {
+  justify-content: center;
+  flex: 1 0 auto;
+  min-height: 2.65rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.7rem;
+  color: #58676e;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-tab:hover {
+  border-color: transparent;
+  color: #172d35;
+  background: #f6f8fa;
+}
+
+.inventory-workspace[data-live-view="true"] .inventory-tab[data-active="true"] {
+  color: #fff;
+  background: #203d42;
+  box-shadow: 0 3px 6px rgb(22 49 55 / 0.12);
+}
+
+.inventory-live-stock {
+  min-width: 0;
+}
+
+.inventory-live-stock .inventory-data-panel {
+  border: 1px solid #dce4e7 !important;
+  border-radius: 1.25rem;
+  background: #fff;
+  box-shadow: 0 5px 24px rgb(29 49 58 / 0.035) !important;
+  backdrop-filter: none;
+}
+
+.live-stock-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-bottom: 1px solid #e5ebed;
+}
+
+.live-stock-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.live-stock-heading h2 {
+  color: #1d343c;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.live-stock-result {
+  padding: 0.3rem 0.65rem;
+  border-radius: 0.5rem;
+  color: #5b7078;
+  background: #eff4f5;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.live-stock-search {
+  position: relative;
+  width: min(100%, 22rem);
+}
+
+.live-stock-search input {
+  min-height: 2.75rem;
+  border-color: #dbe4e7;
+  border-radius: 0.8rem;
+  background: #f6f8f9;
+  font-size: 0.85rem;
+  box-shadow: none;
+}
+
+.live-stock-search input::placeholder {
+  color: #6a7c85;
+}
+
+.live-stock-table {
+  width: 100%;
+  min-width: 980px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.live-stock-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f8fafb;
+}
+
+.inventory-workspace .live-stock-table th {
+  padding: 0.65rem 0.55rem;
+  border-bottom: 1px solid #e3e9ec;
+  color: #586c75;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.live-stock-groups > th > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.live-stock-table .live-product-heading {
+  width: 19%;
+  text-align: start;
+  padding-inline-start: 1.25rem;
+}
+
+.live-stock-table .live-vehicle-heading {
+  width: 11%;
+  border-inline: 1px solid #e3e9ec;
+}
+
+.live-stock-table .live-cost-group {
+  width: 26%;
+  background: #f0f4f6;
+}
+
+.live-stock-columns > th:nth-last-child(-n+2) {
+  background: #f0f4f6;
+}
+
+.inventory-workspace .live-stock-row > td {
+  padding: 1.3rem 0.6rem;
+  border-bottom: 1px solid #e9eef0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.live-stock-row > td:first-child {
+  padding-inline-start: 1rem;
+}
+
+.live-product-name {
+  overflow-wrap: anywhere;
+  text-align: start;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.live-stock-row > td:nth-child(4) {
+  color: #08715a;
+  background: #f0f9f5;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.live-stock-row > td:nth-child(3) {
+  color: #566b76;
+}
+
+.live-stock-row > td:nth-child(6) {
+  border-inline: 1px solid #e7edef;
+}
+
+.live-stock-row > td:nth-last-child(-n+2) {
+  background: rgb(246 248 250 / 0.6);
+}
+
+.live-stock-row [class*="text-[10px]"],
+.live-batch-panel [class*="text-[10px]"],
+.live-batch-panel [class*="text-[9px]"] {
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.live-stock-row .text-slate-400,
+.live-batch-panel .text-slate-400 {
+  color: #687b84;
+}
+
+.live-stock-row .text-slate-300 {
+  color: #70838b;
+}
+
+.live-header-help {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  place-items: center;
+  border-radius: 50%;
+  color: #7a8c94;
+}
+
+.live-header-help:hover,
+.live-header-help:focus-visible {
+  color: #176b58;
+  background: #e3eee9;
+}
+
+.live-help-content {
+  z-index: 100;
+  max-width: min(21rem, calc(100vw - 2rem));
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  color: #fff;
+  background: #0f172a;
+  font-size: 0.8rem;
+  line-height: 1.8;
+  text-align: start;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 0.16);
+}
+
+@media (max-width: 1100px) {
+  .inventory-workspace[data-live-view="true"] .inventory-context-bar {
+    width: auto;
+  }
+
+  .live-stock-table .live-product-heading,
+  .live-stock-row > td:first-child {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 2;
+    background: #fff;
+    border-inline-end: 1px solid #e3e9ec;
+  }
+}
+
+@media (max-width: 639px) {
+  .inventory-workspace[data-live-view="true"] .inventory-command-row {
+    align-items: flex-start;
+    padding-top: 2.5rem;
+  }
+
+  .inventory-workspace[data-live-view="true"] .inventory-context-bar {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.65rem;
+  }
+
+  .inventory-workspace[data-live-view="true"] .inventory-location-select {
+    min-width: 8rem;
+    max-width: 100%;
+  }
+
+  .live-stock-toolbar {
+    padding: 1rem;
+    gap: 0.8rem;
+  }
+
+  .live-stock-search {
+    width: 100%;
+  }
+}
+
 .inventory-view {
   animation: inventory-view-enter 180ms ease-out;
 }

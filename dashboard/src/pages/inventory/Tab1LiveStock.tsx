@@ -1,8 +1,40 @@
-import { useState, useEffect } from "react";
-import { AlertTriangle, RefreshCcw, Search, Info, FilterX, ChevronRight, ChevronLeft } from "lucide-react";
-import type { WarehouseProduct } from "./liveStock/contracts";
-import { compareQuantity, formatCommercialQuantity } from "./quantity";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  FilterX,
+  Info,
+  PackageOpen,
+  RefreshCcw,
+  Search,
+  ShieldAlert,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import * as Tooltip from "@radix-ui/react-tooltip";
+import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { apiErrorMessage } from "@/lib/apiErrors";
+import { formatMoneyExact } from "@/lib/money";
+import {
+  parseBatchDetailResponse,
+  type WarehouseBatchDetailResponse,
+  type WarehouseBatchInventoryItem,
+  type WarehouseProduct,
+} from "./liveStock/contracts";
+import {
+  compareQuantity,
+  formatCommercialQuantity,
+} from "./quantity";
 
 interface Props {
   locationId: number;
@@ -15,12 +47,49 @@ interface Props {
   hasMore: boolean;
   hasPrevious: boolean;
   onlyAlerts: boolean;
-  lastSync: Date | null;
   onSearchChange: (search: string) => void;
   onOnlyAlertsChange: (onlyAlerts: boolean) => void;
   onNext: () => void;
   onPrevious: () => void;
-  onRefresh: () => void;
+}
+
+const statusTone = (
+  status: WarehouseBatchInventoryItem["disposition"],
+): string => {
+  switch (status) {
+    case "RECALLED":
+      return "border-red-200 bg-red-50 text-red-700";
+    case "BLOCKED":
+      return "border-orange-200 bg-orange-50 text-orange-700";
+    case "QUARANTINED":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+};
+
+function HeaderHelp({
+  text,
+}: {
+  text: string;
+}) {
+  return (
+    <Tooltip.Provider delayDuration={150}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <button type="button" className="live-header-help" aria-label={text}>
+            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content sideOffset={8} collisionPadding={16} className="live-help-content">
+            {text}
+            <Tooltip.Arrow className="fill-slate-900" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
 }
 
 export function Tab1LiveStock({
@@ -34,36 +103,44 @@ export function Tab1LiveStock({
   hasMore,
   hasPrevious,
   onlyAlerts,
-  lastSync,
   onSearchChange,
   onOnlyAlertsChange,
   onNext,
   onPrevious,
-  onRefresh,
 }: Props) {
+  const authFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
-  const [searchInput, setSearchInput] = useState("");
+  const locale = i18n.resolvedLanguage || i18n.language || "en";
 
-  const formatMoney = (value: string, currency: string) => {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return value;
-    try {
-      return new Intl.NumberFormat(
-        i18n.language.startsWith("ar") ? "ar-JO" : "en-US",
-        {
-          style: "currency",
-          currency,
-          minimumFractionDigits: 3,
-          maximumFractionDigits: 6,
-        },
-      ).format(numeric);
-    } catch {
-      return value;
-    }
-  };
+  const [searchInput, setSearchInput] = useState("");
+  const [expandedProductId, setExpandedProductId] =
+    useState<number | null>(null);
+  const [batchDetails, setBatchDetails] = useState<
+    Record<number, WarehouseBatchDetailResponse>
+  >({});
+  const [batchLoadingId, setBatchLoadingId] =
+    useState<number | null>(null);
+  const [batchErrorId, setBatchErrorId] =
+    useState<number | null>(null);
+
+  const batchRequestSeq = useRef(0);
+  const batchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setSearchInput("");
+    setExpandedProductId(null);
+    setBatchDetails({});
+    setBatchLoadingId(null);
+    setBatchErrorId(null);
+    batchRequestSeq.current += 1;
+    batchAbortRef.current?.abort();
+    batchAbortRef.current = null;
+
+    return () => {
+      batchRequestSeq.current += 1;
+      batchAbortRef.current?.abort();
+      batchAbortRef.current = null;
+    };
   }, [locationId]);
 
   useEffect(() => {
@@ -80,179 +157,952 @@ export function Tab1LiveStock({
     }
   }, [alertCount, onlyAlerts, onOnlyAlertsChange]);
 
+  const alertPreview = useMemo(
+    () => alertSamples.join(" • "),
+    [alertSamples],
+  );
+
+  const formatDate = useCallback(
+    (value: string | null): string => {
+      if (!value) return "—";
+      try {
+        return new Intl.DateTimeFormat(locale, {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          numberingSystem: "latn",
+          timeZone: "UTC",
+        }).format(new Date(`${value}T00:00:00Z`));
+      } catch {
+        return value;
+      }
+    },
+    [locale],
+  );
+
+  const loadBatchDetails = useCallback(
+    async (product: WarehouseProduct) => {
+      if (expandedProductId === product.id) {
+        batchRequestSeq.current += 1;
+        batchAbortRef.current?.abort();
+        batchAbortRef.current = null;
+        setExpandedProductId(null);
+        setBatchLoadingId(null);
+        setBatchErrorId(null);
+        return;
+      }
+
+      setExpandedProductId(product.id);
+      setBatchErrorId(null);
+
+      if (batchDetails[product.id]) {
+        return;
+      }
+
+      const requestSeq = ++batchRequestSeq.current;
+      batchAbortRef.current?.abort();
+      const controller = new AbortController();
+      batchAbortRef.current = controller;
+      setBatchLoadingId(product.id);
+
+      try {
+        const raw = await authFetch(
+          `/warehouse/inventory/${encodeURIComponent(
+            String(product.id),
+          )}/batches?location_id=${encodeURIComponent(
+            String(locationId),
+          )}`,
+          { signal: controller.signal },
+        );
+
+        if (requestSeq !== batchRequestSeq.current) return;
+
+        const parsed = parseBatchDetailResponse(raw);
+        if (
+          parsed.location_id !== locationId ||
+          parsed.product_variant_id !== product.id ||
+          parsed.currency_code.toUpperCase() !==
+            product.currency_code.toUpperCase()
+        ) {
+          const error = new Error(
+            "LIVE_STOCK_BATCH_RESPONSE_INVALID",
+          ) as Error & { code: string };
+          error.code = "LIVE_STOCK_BATCH_RESPONSE_INVALID";
+          throw error;
+        }
+
+        setBatchDetails((current) => ({
+          ...current,
+          [product.id]: parsed,
+        }));
+      } catch (error: unknown) {
+        if (requestSeq !== batchRequestSeq.current) return;
+        if (
+          error instanceof Error &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        setBatchErrorId(product.id);
+        toast.error(
+          apiErrorMessage(
+            error,
+            t("inventoryLive.errors.batchLoadFailed"),
+          ),
+        );
+      } finally {
+        if (batchAbortRef.current === controller) {
+          batchAbortRef.current = null;
+        }
+        if (requestSeq === batchRequestSeq.current) {
+          setBatchLoadingId(null);
+        }
+      }
+    },
+    [
+      authFetch,
+      batchDetails,
+      expandedProductId,
+      locationId,
+      t,
+    ],
+  );
+
+  const retryBatchDetails = useCallback(
+    (product: WarehouseProduct) => {
+      setBatchDetails((current) => {
+        const next = { ...current };
+        delete next[product.id];
+        return next;
+      });
+      setExpandedProductId(null);
+      queueMicrotask(() => {
+        void loadBatchDetails(product);
+      });
+    },
+    [loadBatchDetails],
+  );
+
   return (
-    <div className="inventory-view inventory-live-stock flex flex-col gap-3 h-full flex-1 min-h-0">
+    <div className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-3">
       {alertCount > 0 && (
-        <div
+        <button
+          type="button"
           onClick={() => onOnlyAlertsChange(!onlyAlerts)}
-          className={`flex flex-col sm:flex-row items-start gap-3 border rounded-2xl px-4 py-3 w-full cursor-pointer transition-all shadow-sm ${
+          className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-start shadow-sm transition-all ${
             onlyAlerts
-              ? "bg-red-100 border-red-400"
-              : "bg-red-50 border-red-200 hover:bg-red-100 pulse-border-red"
+              ? "border-red-400 bg-red-100"
+              : "border-red-200 bg-red-50 hover:bg-red-100 pulse-border-red"
           }`}
-          title="اضغط هنا لفلترة الجدول وعرض النواقص فقط"
+          title={t("inventoryLive.alertFilterTitle")}
         >
-          <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${onlyAlerts ? "text-red-600" : "text-red-500"}`} />
-          <div className="flex-1 min-w-0 flex justify-between items-center">
-            <div>
-              <p className="text-sm font-bold text-red-700">
-                تحذير: {alertCount} صنف وصل للحد الأدنى
-              </p>
-              <p className="text-xs text-red-500 mt-0.5">
-                {onlyAlerts
-                  ? "تمت تصفية الجدول لعرض هذه الأصناف بالأسفل ↓"
-                  : `(اضغط هنا لعرضها بالجدول) منها: ${alertSamples.join(" • ")}${alertCount > alertSamples.length ? "..." : ""}`}
-              </p>
-            </div>
-            {onlyAlerts && <FilterX className="w-5 h-5 text-red-500 opacity-70" />}
-          </div>
-        </div>
+          <AlertTriangle
+            className={`mt-0.5 h-5 w-5 shrink-0 ${
+              onlyAlerts ? "text-red-600" : "text-red-500"
+            }`}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-black text-red-700">
+              {t("inventoryLive.alertTitle", {
+                count: alertCount,
+              })}
+            </span>
+            <span className="mt-0.5 block text-xs font-semibold text-red-500">
+              {onlyAlerts
+                ? t("inventoryLive.alertFiltered")
+                : t("inventoryLive.alertPreview", {
+                    items: alertPreview,
+                    more:
+                      alertCount > alertSamples.length
+                        ? "…"
+                        : "",
+                  })}
+            </span>
+          </span>
+          {onlyAlerts && (
+            <FilterX className="h-5 w-5 shrink-0 text-red-500 opacity-70" />
+          )}
+        </button>
       )}
 
-      <div className="glass-card inventory-data-panel overflow-hidden pt-0 flex flex-col flex-1 min-h-0">
-        <div className="inventory-panel-toolbar flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-white/70">
-          <div className="text-[11px] font-bold text-slate-400">
-            {matchingTotal !== null ? `النتائج: ${matchingTotal}` : `صفحة ${pageNumber}`}
-            <span className="mx-2">•</span>
-            آخر تحديث: {lastSync ? lastSync.toLocaleTimeString("ar-EG") : "—"}
+      <div className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
+        <div className="live-stock-toolbar">
+          <div className="live-stock-heading">
+            <h2>{t("inventoryShell.tabs.live")}</h2>
+            <span className="live-stock-result" aria-live="polite">
+              {matchingTotal !== null
+                ? t("inventoryLive.resultCount", { total: new Intl.NumberFormat(locale).format(matchingTotal) })
+                : t("inventoryLive.page", { page: new Intl.NumberFormat(locale).format(pageNumber) })}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#1e87bb] disabled:opacity-40"
-          >
-            <RefreshCcw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            تحديث
-          </button>
-        </div>
-
-        <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar transition-all duration-300 ${
-          loading ? "opacity-50 pointer-events-none select-none grayscale-[20%]" : "opacity-100"
-        }`}>
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur shadow-sm border-b border-slate-200 text-right">
-              <tr>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 w-1/3 min-w-[250px] align-middle">
-                  <div className="flex items-center gap-3">
-                    <span>المنتج</span>
-                    <div className="relative font-normal flex-1">
-                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <div className="live-stock-search">
+                      <Search className="absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                       <input
                         type="search"
-                        placeholder="ابحث عن صنف أو SKU..."
+                        aria-label={t("inventoryLive.searchPlaceholder")}
+                        placeholder={t(
+                          "inventoryLive.searchPlaceholder",
+                        )}
                         value={searchInput}
-                        onChange={(e) => setSearchInput(e.target.value)}
+                        onChange={(event) =>
+                          setSearchInput(event.target.value)
+                        }
                         maxLength={100}
-                        className="w-full pl-4 pr-9 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-[#1e87bb] bg-white transition-all shadow-sm"
+                        className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none transition-all focus:border-[#1e87bb]"
                       />
                     </div>
+        </div>
+
+        <div
+          className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto transition-all duration-300 ${
+            loading
+              ? "pointer-events-none select-none opacity-50 grayscale-[20%]"
+              : "opacity-100"
+          }`}
+        >
+          <table className="live-stock-table" aria-label={t("inventoryShell.tabs.live")} aria-busy={loading}>
+            <thead>
+              <tr className="live-stock-groups">
+                <th scope="col" rowSpan={2} className="live-product-heading">{t("inventoryLive.product")}</th>
+                <th scope="colgroup" colSpan={4}><span>{t("inventoryLive.warehouseBalance")}<HeaderHelp text={t("inventoryLive.warehouseBalanceHint")} /></span></th>
+                <th scope="col" rowSpan={2} className="live-vehicle-heading"><span>{t("inventoryLive.withVehicles")}<HeaderHelp text={t("inventoryLive.withVehiclesHint")} /></span></th>
+                <th scope="colgroup" colSpan={2} className="live-cost-group"><span>{t("inventoryLive.companyCosts")}<HeaderHelp text={t("inventoryLive.costsHint")} /></span></th>
+              </tr>
+              <tr className="live-stock-columns">
+
+
+                <th scope="col">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>{t("inventoryLive.onHand")}</span>
+                    <HeaderHelp
+                      text={t("inventoryLive.onHandHint")}
+                    />
                   </div>
                 </th>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">رمز الصنف (SKU)</th>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">{t("inventoryLive.inWarehouse")}</th>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
-                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
-                    قيد التحويل <Info className="w-3 h-3" />
-                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
-                      البضاعة المحجوزة داخل الرصيد الفيزيائي وغير المتاحة حالياً للصرف
-                    </div>
+
+                <th scope="col">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>{t("inventoryLive.reserved")}</span>
+                    <HeaderHelp
+                      text={t("inventoryLive.reservedHint")}
+                    />
                   </div>
                 </th>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
-                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
-                    إجمالي البضاعة <Info className="w-3 h-3" />
-                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
-                      الرصيد الفيزيائي في المستودع والسيارات المرتبطة بهذا المستودع
-                    </div>
+
+                <th scope="col">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>{t("inventoryLive.availableForSale")}</span>
+                    <HeaderHelp
+                      text={t(
+                        "inventoryLive.availableForSaleHint",
+                      )}
+                    />
                   </div>
                 </th>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
-                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
-                    {t("inventoryLive.averageCost")} <Info className="w-3 h-3" />
-                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[240px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
-                      {t("inventoryLive.averageCostHint")}
-                    </div>
+
+                <th scope="col">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>{t("inventoryLive.unavailable")}</span>
+                    <HeaderHelp
+                      text={t(
+                        "inventoryLive.unavailableHint",
+                      )}
+                    />
                   </div>
                 </th>
-                <th className="px-4 pt-3.5 pb-2 text-xs font-bold text-slate-500 align-middle">
-                  <div className="relative group flex items-center gap-1 border-b border-dashed border-slate-400 w-max cursor-help">
-                    التوالف بالفرع <Info className="w-3 h-3" />
-                    <div className="absolute top-full right-1/2 translate-x-1/2 mt-2 w-max max-w-[200px] text-center bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-lg hidden group-hover:block z-50 whitespace-normal shadow-xl">
-                      التوالف والمرتجعات المعزولة في المستودع بانتظار الإتلاف
-                    </div>
+
+
+
+                <th scope="col">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>{t("inventoryLive.lastCompanyPurchase")}</span>
+                    <HeaderHelp
+                      text={t(
+                        "inventoryLive.lastCompanyPurchaseHint",
+                      )}
+                    />
                   </div>
                 </th>
+
+                <th scope="col">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>{t("inventoryLive.companyAverage")}</span>
+                    <HeaderHelp
+                      text={t(
+                        "inventoryLive.companyAverageHint",
+                      )}
+                    />
+                  </div>
+                </th>
+
+
               </tr>
             </thead>
+
             <tbody>
               {products.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-slate-400 text-sm">
-                    {loading ? "جارٍ التحميل..." : "لا توجد بيانات مطابقة"}
+                  <td
+                    colSpan={8}
+                    className="py-14 text-center text-sm font-bold text-slate-400"
+                  >
+                    {loading
+                      ? t("common.loading")
+                      : t("inventoryLive.noMatches")}
                   </td>
                 </tr>
               )}
 
-              {products.map((p) => {
-                const isAlert = compareQuantity(p.minimum_quantity, "0") > 0 && compareQuantity(p.available_quantity, p.minimum_quantity) <= 0;
-                const displayName = t(`uom.${p.display_uom_code}`, {
-                  defaultValue: t("inventoryCommon.unit"),
-                });
-                const baseName = t(`uom.${p.base_uom_code}`, {
-                  defaultValue: t("inventoryCommon.unit"),
-                });
-                const renderQuantity = (value: typeof p.available_quantity) =>
+              {products.map((product) => {
+                const isAlert =
+                  compareQuantity(
+                    product.minimum_quantity,
+                    "0",
+                  ) > 0 &&
+                  compareQuantity(
+                    product.available_for_sale_quantity,
+                    product.minimum_quantity,
+                  ) <= 0;
+
+                const displayName = t(
+                  `uom.${product.display_uom_code}`,
+                  {
+                    defaultValue: t(
+                      "inventoryCommon.unit",
+                    ),
+                  },
+                );
+                const baseName = t(
+                  `uom.${product.base_uom_code}`,
+                  {
+                    defaultValue: t(
+                      "inventoryCommon.unit",
+                    ),
+                  },
+                );
+                const renderQuantity = (
+                  value: typeof product.on_hand_quantity,
+                ) =>
                   formatCommercialQuantity(
                     value,
                     displayName,
                     baseName,
-                    p.display_factor_to_base,
+                    product.display_factor_to_base,
                   );
+
+                const onHand = renderQuantity(
+                  product.on_hand_quantity,
+                );
+                const reserved = renderQuantity(
+                  product.reserved_quantity,
+                );
+                const available = renderQuantity(
+                  product.available_for_sale_quantity,
+                );
+                const vehicles = renderQuantity(
+                  product.vehicle_quantity,
+                );
+                const unavailable = renderQuantity(
+                  product.unavailable_quantity,
+                );
+                const lastPurchaseUom =
+                  product.last_purchase_uom_code
+                    ? t(
+                        `uom.${product.last_purchase_uom_code}`,
+                        {
+                          defaultValue: t(
+                            "inventoryCommon.unit",
+                          ),
+                        },
+                      )
+                    : null;
+
+                const expanded =
+                  expandedProductId === product.id;
+                const details =
+                  batchDetails[product.id];
+                const loadingBatches =
+                  batchLoadingId === product.id;
+                const batchFailed =
+                  batchErrorId === product.id;
+
                 return (
-                  <tr
-                    key={p.id}
-                    className={`border-b border-slate-100/80 transition-all duration-200 ${
-                      isAlert ? "bg-red-50/50 hover:bg-red-50/80" : "bg-white hover:bg-slate-50/60"
-                    }`}
-                  >
-                    <td className="px-4 py-3 font-semibold text-slate-800 flex items-center gap-2">
-                      {isAlert && (
-                        <span title="وصل للحد الأدنى">
-                          <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                        </span>
-                      )}
-                      {p.name}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">{p.sku || "—"}</td>
-                    <td className="px-4 py-3 text-emerald-700 font-semibold">
-                      <div>{renderQuantity(p.available_quantity).primary}</div>
-                      {renderQuantity(p.available_quantity).secondary && (
-                        <div className="mt-0.5 text-[10px] text-slate-400">
-                          {renderQuantity(p.available_quantity).secondary}
+                  <Fragment key={product.id}>
+                    <tr
+                      className={`live-stock-row border-b border-slate-100/80 transition-colors ${
+                        expanded
+                          ? "bg-sky-50/45"
+                          : isAlert
+                            ? "bg-red-50/45 hover:bg-red-50/75"
+                            : "bg-white hover:bg-slate-50/65"
+                      }`}
+                    >
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void loadBatchDetails(product)
+                            }
+                            className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition-all ${
+                              expanded
+                                ? "border-sky-200 bg-sky-100 text-sky-700"
+                                : "border-slate-200 bg-white text-slate-500 hover:border-sky-200 hover:text-sky-700"
+                            }`}
+                            aria-expanded={expanded}
+                            aria-label={t(
+                              expanded
+                                ? "inventoryLive.closeBatchDetails"
+                                : "inventoryLive.openBatchDetails",
+                            )}
+                            title={t(
+                              expanded
+                                ? "inventoryLive.closeBatchDetails"
+                                : "inventoryLive.openBatchDetails",
+                            )}
+                          >
+                            <ChevronDown
+                              className={`h-4 w-4 transition-transform ${
+                                expanded
+                                  ? "rotate-180"
+                                  : ""
+                              }`}
+                            />
+                          </button>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 font-black text-slate-800">
+                              {isAlert && (
+                                <span
+                                  title={t(
+                                    "inventoryLive.atMinimum",
+                                  )}
+                                >
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                                </span>
+                              )}
+                              <span className="live-product-name">
+                                {product.name}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 text-[10px] font-bold text-slate-400">
+                              {t(
+                                "inventoryLive.batchDetailsHint",
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      {compareQuantity(p.blocked_quantity, "0") > 0 && (
-                        <div className="text-[10px] font-bold text-amber-600 mt-0.5">
-                          {t("inventoryLive.blocked")}: {renderQuantity(p.blocked_quantity).primary}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-slate-800">
+                        {onHand.primary}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-violet-700">
+                        {reserved.primary}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-emerald-700">
+                        {available.primary}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-center font-black tabular-nums">
+                        {compareQuantity(
+                          product.unavailable_quantity,
+                          "0",
+                        ) > 0 ? (
+                          <span className="text-amber-700">
+                            {unavailable.primary}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">
+                            —
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-center font-black tabular-nums text-sky-700">
+                        {compareQuantity(
+                          product.vehicle_quantity,
+                          "0",
+                        ) > 0
+                          ? vehicles.primary
+                          : "—"}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-center">
+                        <div className="font-black tabular-nums text-slate-900">
+                          {product.last_purchase_cost &&
+                          lastPurchaseUom
+                            ? formatMoneyExact(
+                                product.last_purchase_cost,
+                                product.currency_code,
+                                locale,
+                              )
+                            : "—"}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-violet-600 font-semibold">
-                      {renderQuantity(p.reserved_quantity).primary}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 font-bold border-l border-slate-100">
-                      {renderQuantity(p.total_quantity).primary}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 font-black tabular-nums">
-                      {p.average_cost_display
-                        ? `${formatMoney(p.average_cost_display, p.currency_code)} / ${displayName}`
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-red-600 font-bold bg-red-50/30">
-                      {renderQuantity(p.damaged_quantity).primary}
-                    </td>
-                  </tr>
+                        {product.last_purchase_cost &&
+                          lastPurchaseUom && (
+                            <div className="mt-0.5 text-[10px] font-bold text-slate-500">
+                              {t(
+                                "inventoryLive.perUnit",
+                                {
+                                  unit: lastPurchaseUom,
+                                },
+                              )}
+                              {product.last_purchase_date
+                                ? ` · ${formatDate(
+                                    product.last_purchase_date,
+                                  )}`
+                                : ""}
+                            </div>
+                          )}
+                      </td>
+
+                      <td className="px-4 py-3.5 text-center">
+                        <div className="font-black tabular-nums text-slate-900">
+                          {product.average_cost_display
+                            ? formatMoneyExact(
+                                product.average_cost_display,
+                                product.currency_code,
+                                locale,
+                              )
+                            : "—"}
+                        </div>
+                        {product.average_cost_display && (
+                          <div className="mt-0.5 text-[10px] font-bold text-slate-500">
+                            {t(
+                              "inventoryLive.perUnit",
+                              {
+                                unit: displayName,
+                              },
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+
+                    </tr>
+
+                    {expanded && (
+                      <tr className="border-b border-sky-100 bg-[linear-gradient(135deg,rgba(240,249,255,0.92),rgba(248,250,252,0.96))]">
+                        <td colSpan={8} className="live-batch-panel p-0">
+                          <div className="px-5 py-4">
+                            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2 text-sm font-black text-slate-800">
+                                  <PackageOpen className="h-4 w-4 text-sky-700" />
+                                  {t(
+                                    "inventoryLive.batchPanelTitle",
+                                  )}
+                                </div>
+                                <p className="mt-1 max-w-3xl text-[11px] font-semibold leading-5 text-slate-500">
+                                  {t(
+                                    "inventoryLive.batchPanelHint",
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+
+                            {loadingBatches && (
+                              <div className="flex min-h-28 items-center justify-center gap-2 rounded-2xl border border-sky-100 bg-white/75 text-sm font-bold text-slate-500">
+                                <RefreshCcw className="h-4 w-4 animate-spin" />
+                                {t(
+                                  "inventoryLive.loadingBatches",
+                                )}
+                              </div>
+                            )}
+
+                            {!loadingBatches &&
+                              batchFailed && (
+                                <div className="flex min-h-28 flex-col items-center justify-center gap-3 rounded-2xl border border-red-100 bg-red-50/60 px-4 text-center">
+                                  <span className="text-sm font-black text-red-700">
+                                    {t(
+                                      "inventoryLive.errors.batchLoadFailed",
+                                    )}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      retryBatchDetails(
+                                        product,
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-black text-red-700"
+                                  >
+                                    <RefreshCcw className="h-3.5 w-3.5" />
+                                    {t("common.retry")}
+                                  </button>
+                                </div>
+                              )}
+
+                            {!loadingBatches &&
+                              !batchFailed &&
+                              details &&
+                              details.batches.length ===
+                                0 && (
+                                <div className="flex min-h-28 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70 text-sm font-bold text-slate-400">
+                                  {t(
+                                    "inventoryLive.noBatchesInWarehouse",
+                                  )}
+                                </div>
+                              )}
+
+                            {!loadingBatches &&
+                              !batchFailed &&
+                              details &&
+                              details.batches.length >
+                                0 && (
+                                <div className="grid gap-3 xl:grid-cols-2">
+                                  {details.batches.map(
+                                    (batch) => {
+                                      const batchOnHand =
+                                        renderQuantity(
+                                          batch.on_hand_quantity,
+                                        );
+                                      const batchReserved =
+                                        renderQuantity(
+                                          batch.reserved_quantity,
+                                        );
+                                      const batchAvailable =
+                                        renderQuantity(
+                                          batch.available_for_sale_quantity,
+                                        );
+                                      const batchUnavailable =
+                                        renderQuantity(
+                                          batch.unavailable_quantity,
+                                        );
+
+                                      const statusChips = [
+                                        {
+                                          key: "restricted",
+                                          value:
+                                            batch.restricted_quantity,
+                                          label: t(
+                                            "inventoryLive.restricted",
+                                          ),
+                                          tone: "border-amber-200 bg-amber-50 text-amber-700",
+                                        },
+                                        {
+                                          key: "quarantined",
+                                          value:
+                                            batch.quarantined_quantity,
+                                          label: t(
+                                            "inventoryLive.quarantined",
+                                          ),
+                                          tone: "border-yellow-200 bg-yellow-50 text-yellow-700",
+                                        },
+                                        {
+                                          key: "blocked",
+                                          value:
+                                            batch.blocked_quantity,
+                                          label: t(
+                                            "inventoryLive.blocked",
+                                          ),
+                                          tone: "border-orange-200 bg-orange-50 text-orange-700",
+                                        },
+                                        {
+                                          key: "recalled",
+                                          value:
+                                            batch.recalled_quantity,
+                                          label: t(
+                                            "inventoryLive.recalled",
+                                          ),
+                                          tone: "border-red-200 bg-red-50 text-red-700",
+                                        },
+                                        {
+                                          key: "damaged",
+                                          value:
+                                            batch.damaged_quantity,
+                                          label: t(
+                                            "inventoryLive.damaged",
+                                          ),
+                                          tone: "border-rose-200 bg-rose-50 text-rose-700",
+                                        },
+                                        {
+                                          key: "disposal",
+                                          value:
+                                            batch.disposal_pending_quantity,
+                                          label: t(
+                                            "inventoryLive.disposalPending",
+                                          ),
+                                          tone: "border-slate-300 bg-slate-100 text-slate-700",
+                                        },
+                                      ].filter(
+                                        (item) =>
+                                          compareQuantity(
+                                            item.value,
+                                            "0",
+                                          ) > 0,
+                                      );
+
+                                      const batchCostUom =
+                                        batch.latest_purchase_uom_code
+                                          ? t(
+                                              `uom.${batch.latest_purchase_uom_code}`,
+                                              {
+                                                defaultValue:
+                                                  t(
+                                                    "inventoryCommon.unit",
+                                                  ),
+                                              },
+                                            )
+                                          : null;
+
+                                      return (
+                                        <article
+                                          key={
+                                            batch.batch_id
+                                          }
+                                          className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-[0_14px_32px_-28px_rgba(15,31,54,0.75)]"
+                                        >
+                                          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                                            <div>
+                                              <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
+                                                {t(
+                                                  "inventoryLive.batchNumber",
+                                                )}
+                                              </div>
+                                              <div className="mt-0.5 font-black text-slate-900">
+                                                {
+                                                  batch.batch_number
+                                                }
+                                              </div>
+                                            </div>
+
+                                            <span
+                                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${statusTone(
+                                                batch.disposition,
+                                              )}`}
+                                            >
+                                              {t(
+                                                `inventoryLive.batchDisposition.${batch.disposition}`,
+                                              )}
+                                            </span>
+                                          </div>
+
+                                          <div className="grid gap-3 px-4 py-3 md:grid-cols-[1.05fr_1fr]">
+                                            <div className="space-y-3">
+                                              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                                                  <div className="flex items-center gap-1 font-black text-slate-500">
+                                                    <CalendarDays className="h-3.5 w-3.5" />
+                                                    {t(
+                                                      "inventoryLive.productionDate",
+                                                    )}
+                                                  </div>
+                                                  <div className="mt-1 font-black tabular-nums text-slate-800">
+                                                    {formatDate(
+                                                      batch.production_date,
+                                                    )}
+                                                  </div>
+                                                </div>
+
+                                                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                                                  <div className="flex items-center gap-1 font-black text-slate-500">
+                                                    <CalendarDays className="h-3.5 w-3.5" />
+                                                    {t(
+                                                      "inventoryLive.expiryDate",
+                                                    )}
+                                                  </div>
+                                                  <div className="mt-1 font-black tabular-nums text-slate-800">
+                                                    {formatDate(
+                                                      batch.expiry_date,
+                                                    )}
+                                                  </div>
+                                                  {batch.days_to_expiry !==
+                                                    null && (
+                                                    <div
+                                                      className={`mt-1 text-[10px] font-black ${
+                                                        batch.days_to_expiry <
+                                                        0
+                                                          ? "text-red-600"
+                                                          : batch.days_to_expiry ===
+                                                              0
+                                                            ? "text-orange-600"
+                                                            : "text-slate-400"
+                                                      }`}
+                                                    >
+                                                      {batch.days_to_expiry <
+                                                      0
+                                                        ? t(
+                                                            "inventoryLive.expiredSince",
+                                                            {
+                                                              count:
+                                                                Math.abs(
+                                                                  batch.days_to_expiry,
+                                                                ),
+                                                            },
+                                                          )
+                                                        : batch.days_to_expiry ===
+                                                            0
+                                                          ? t(
+                                                              "inventoryLive.expiresToday",
+                                                            )
+                                                          : t(
+                                                              "inventoryLive.daysRemaining",
+                                                              {
+                                                                count:
+                                                                  batch.days_to_expiry,
+                                                              },
+                                                            )}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80 text-center">
+                                                <div className="border-e border-slate-200 px-2 py-2">
+                                                  <div className="text-[9px] font-black text-slate-400">
+                                                    {t(
+                                                      "inventoryLive.onHand",
+                                                    )}
+                                                  </div>
+                                                  <div className="mt-0.5 text-xs font-black text-slate-800">
+                                                    {
+                                                      batchOnHand.primary
+                                                    }
+                                                  </div>
+                                                </div>
+                                                <div className="border-e border-slate-200 px-2 py-2">
+                                                  <div className="text-[9px] font-black text-slate-400">
+                                                    {t(
+                                                      "inventoryLive.reserved",
+                                                    )}
+                                                  </div>
+                                                  <div className="mt-0.5 text-xs font-black text-violet-700">
+                                                    {
+                                                      batchReserved.primary
+                                                    }
+                                                  </div>
+                                                </div>
+                                                <div className="px-2 py-2">
+                                                  <div className="text-[9px] font-black text-slate-400">
+                                                    {t(
+                                                      "inventoryLive.availableForSale",
+                                                    )}
+                                                  </div>
+                                                  <div className="mt-0.5 text-xs font-black text-emerald-700">
+                                                    {
+                                                      batchAvailable.primary
+                                                    }
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            <div className="flex flex-col gap-3">
+                                              <div className="rounded-xl border border-cyan-100 bg-cyan-50/55 px-3 py-2.5">
+                                                <div className="text-[10px] font-black text-cyan-700">
+                                                  {t(
+                                                    "inventoryLive.latestBatchPurchase",
+                                                  )}
+                                                </div>
+                                                <div className="mt-1 font-black tabular-nums text-slate-900">
+                                                  {batch.latest_purchase_cost &&
+                                                  batchCostUom
+                                                    ? formatMoneyExact(
+                                                        batch.latest_purchase_cost,
+                                                        details.currency_code,
+                                                        locale,
+                                                      )
+                                                    : "—"}
+                                                </div>
+                                                {batch.latest_purchase_cost &&
+                                                  batchCostUom && (
+                                                    <div className="mt-0.5 text-[10px] font-bold text-slate-500">
+                                                      {t(
+                                                        "inventoryLive.perUnit",
+                                                        {
+                                                          unit: batchCostUom,
+                                                        },
+                                                      )}
+                                                      {batch.latest_purchase_date
+                                                        ? ` · ${formatDate(
+                                                            batch.latest_purchase_date,
+                                                          )}`
+                                                        : ""}
+                                                    </div>
+                                                  )}
+                                                <div className="mt-1 text-[10px] font-bold text-slate-400">
+                                                  {batch.purchase_event_count >
+                                                  0
+                                                    ? t(
+                                                        "inventoryLive.batchPurchaseEvents",
+                                                        {
+                                                          count:
+                                                            batch.purchase_event_count,
+                                                        },
+                                                      )
+                                                    : t(
+                                                        "inventoryLive.noBatchPurchaseEvidence",
+                                                      )}
+                                                </div>
+                                              </div>
+
+                                              <div className="rounded-xl border border-slate-200 bg-slate-50/75 px-3 py-2.5">
+                                                <div className="flex items-center justify-between gap-2">
+                                                  <span className="text-[10px] font-black text-slate-500">
+                                                    {t(
+                                                      "inventoryLive.unavailable",
+                                                    )}
+                                                  </span>
+                                                  <span className="text-xs font-black tabular-nums text-amber-700">
+                                                    {
+                                                      batchUnavailable.primary
+                                                    }
+                                                  </span>
+                                                </div>
+
+                                                {statusChips.length >
+                                                0 ? (
+                                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                                    {statusChips.map(
+                                                      (
+                                                        item,
+                                                      ) => (
+                                                        <span
+                                                          key={
+                                                            item.key
+                                                          }
+                                                          className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${item.tone}`}
+                                                        >
+                                                          {
+                                                            item.label
+                                                          }
+                                                          :{" "}
+                                                          {
+                                                            renderQuantity(
+                                                              item.value,
+                                                            )
+                                                              .primary
+                                                          }
+                                                        </span>
+                                                      ),
+                                                    )}
+                                                  </div>
+                                                ) : (
+                                                  <div className="mt-2 text-[10px] font-bold text-slate-400">
+                                                    {t(
+                                                      "inventoryLive.noRestrictedStock",
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </article>
+                                      );
+                                    },
+                                  )}
+                                </div>
+                              )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -260,26 +1110,38 @@ export function Tab1LiveStock({
         </div>
 
         {(hasPrevious || hasMore) && (
-          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50">
-            <span className="text-xs font-bold text-slate-500">صفحة {pageNumber}</span>
+          <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3">
+            <span className="text-xs font-black text-slate-500">
+              {t("inventoryLive.page", {
+                page: pageNumber,
+              })}
+            </span>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={onPrevious}
                 disabled={!hasPrevious || loading}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
-                title="الصفحة السابقة"
+                className="rounded-lg border border-slate-200 p-1.5 text-slate-600 shadow-sm transition-all hover:bg-white disabled:opacity-30"
+                title={t("inventoryLive.previousPage")}
+                aria-label={t(
+                  "inventoryLive.previousPage",
+                )}
               >
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="h-4 w-4 rtl:block ltr:hidden" />
+                <ChevronLeft className="hidden h-4 w-4 ltr:block" />
               </button>
               <button
                 type="button"
                 onClick={onNext}
                 disabled={!hasMore || loading}
-                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
-                title="الصفحة التالية"
+                className="rounded-lg border border-slate-200 p-1.5 text-slate-600 shadow-sm transition-all hover:bg-white disabled:opacity-30"
+                title={t("inventoryLive.nextPage")}
+                aria-label={t(
+                  "inventoryLive.nextPage",
+                )}
               >
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="h-4 w-4 rtl:block ltr:hidden" />
+                <ChevronRight className="hidden h-4 w-4 ltr:block" />
               </button>
             </div>
           </div>

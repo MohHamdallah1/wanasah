@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { Tab2Inbound } from "./Tab2Inbound";
 import { Tab3Stocktake } from "./Tab3Stocktake";
@@ -20,13 +21,13 @@ import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء ال�
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
-  { id: "live", label: "الرصيد الحي", icon: Package },
-  { id: "inbound", label: "توريد بضاعة", icon: FilePlus },
-  { id: "transfers", label: "الحوالات", icon: ArrowRightLeft },
-  { id: "ledger", label: "سجل الحركات", icon: History },
-  { id: "stocktake", label: "جرد وتسوية", icon: Lock },
-  { id: "warehouses", label: "إدارة المستودعات", icon: Building2 },
-  { id: "permissions", label: "الصلاحيات", icon: Lock },
+  { id: "live", labelKey: "inventoryShell.tabs.live", icon: Package },
+  { id: "inbound", labelKey: "inventoryShell.tabs.inbound", icon: FilePlus },
+  { id: "transfers", labelKey: "inventoryShell.tabs.transfers", icon: ArrowRightLeft },
+  { id: "ledger", labelKey: "inventoryShell.tabs.ledger", icon: History },
+  { id: "stocktake", labelKey: "inventoryShell.tabs.stocktake", icon: Lock },
+  { id: "warehouses", labelKey: "inventoryShell.tabs.warehouses", icon: Building2 },
+  { id: "permissions", labelKey: "inventoryShell.tabs.permissions", icon: Lock },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -127,7 +128,7 @@ const getErrorMessage = (error: unknown): string =>
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function MainInventory() {
   const authFetch = useAuthFetch();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   // UI preference only. Server token + RLS remain the security authority.
   const companyId = localStorage.getItem("company_id") || "";
@@ -332,7 +333,12 @@ export default function MainInventory() {
     } catch (error: unknown) {
       if (requestSeq !== stockRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      toast.error(getErrorMessage(error));
+      toast.error(
+        apiErrorMessage(
+          error,
+          t("inventoryLive.errors.loadFailed"),
+        ),
+      );
       setStockItems([]);
       setStockNextCursor(null);
       setStockMatchingTotal(null);
@@ -351,6 +357,7 @@ export default function MainInventory() {
     stockSearch,
     stockOnlyAlerts,
     canReadStock,
+    t,
   ]);
 
   const resetStockPagination = useCallback(() => {
@@ -508,30 +515,32 @@ export default function MainInventory() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0 animate-in fade-in duration-200">
+    <div data-live-view={activeTab === "live"} className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0 animate-in fade-in duration-200">
 
-      <nav className="inventory-command-bar px-4 py-4 md:px-5 md:py-5" aria-label="أقسام إدارة المخزون">
+      <nav className="inventory-command-bar px-4 py-4 md:px-5 md:py-5" aria-label={t("inventoryShell.navigationLabel")}>
         <div className="inventory-command-row flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <span className="inventory-command-title-mark" aria-hidden="true">
               <Package className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <h1 className="text-base font-black text-white md:text-lg">إدارة المخزون</h1>
-              <p className="mt-0.5 text-xs font-bold text-slate-300">الأرصدة والحركات والعمليات المخزنية</p>
+              <h1 className="text-base font-black text-white md:text-lg">{t("inventoryShell.title")}</h1>
+              <p className="mt-0.5 text-xs font-bold text-slate-300">{t("inventoryShell.subtitle")}</p>
             </div>
           </div>
 
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
             {locations.length > 0 && (
+              <label className="inventory-location-field">
+                <span className="inventory-location-label">{t("inventoryShell.warehouseSelectLabel")}</span>
               <select
-                aria-label="المستودع المحدد"
+                aria-label={t("inventoryShell.warehouseSelectLabel")}
                 className="inventory-location-select px-3 py-2 text-sm font-bold"
                 value={selectedLocationId ?? ""}
                 onChange={(e) => handleLocationChange(e.target.value)}
               >
                 <option value="" disabled>
-                  اختر المستودع
+                  {t("inventoryShell.chooseWarehouse")}
                 </option>
                 {locations.map(loc => (
                   <option key={loc.id} value={loc.id}>
@@ -539,38 +548,41 @@ export default function MainInventory() {
                   </option>
                 ))}
               </select>
+              </label>
             )}
 
-            <div className="flex min-w-fit flex-col items-start justify-center border-r border-white/15 pr-3">
+            <div className="flex min-w-fit flex-col items-start justify-center inventory-sync border-e border-white/15 pe-3">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-black text-white">
-                  الرصيد الحي <span className="text-amber-300">{stockTotal ?? "—"}</span>
+                  {t("inventoryShell.liveStockCount")} <span className="text-amber-300">{stockTotal === null ? "—" : new Intl.NumberFormat(i18n.resolvedLanguage || i18n.language).format(stockTotal)}</span>
                 </span>
                 {isAuditLocked && (
                   <span className="rounded-md border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-bold text-amber-200">
-                    مقفل
+                    {t("inventoryShell.locked")}
                   </span>
                 )}
               </div>
-              <span className="mt-0.5 text-xs font-bold text-slate-400">
-                آخر تحديث: {lastSync ? lastSync.toLocaleTimeString("ar-EG") : "—"}
-              </span>
+              <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold text-slate-400">
+                <span>
+                  {t("inventoryShell.lastUpdated")}: {lastSync ? new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language || "en", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, numberingSystem: "latn" }).format(lastSync) : "—"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { refreshStock(); fetchStatus(); }}
+                  disabled={loadingStock}
+                  className="inline-grid h-7 w-7 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
+                  title={t("inventoryShell.refreshNow")}
+                  aria-label={t("inventoryShell.refreshNow")}
+                >
+                  <RefreshCcw className={`h-3.5 w-3.5 ${loadingStock ? "animate-spin" : ""}`} />
+                </button>
+              </div>
             </div>
-
-            <button
-              type="button"
-              onClick={() => { refreshStock(); fetchStatus(); }}
-              disabled={loadingStock}
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 text-sm font-bold text-white transition-colors hover:bg-white/15 disabled:opacity-50"
-            >
-              <RefreshCcw className={`h-4 w-4 ${loadingStock ? "animate-spin" : ""}`} />
-              تحديث
-            </button>
           </div>
         </div>
 
-        <div className="inventory-tab-strip mt-4" role="tablist" aria-label="شاشات المخزون">
-          {TABS.filter(tab => tabAllowed(tab.id)).map(({ id, label, icon: Icon }) => {
+        <div className="inventory-tab-strip mt-4" role="tablist" aria-label={t("inventoryShell.tabsLabel")}>
+          {TABS.filter(tab => tabAllowed(tab.id)).map(({ id, labelKey, icon: Icon }) => {
             const active = activeTab === id;
             return (
               <button
@@ -583,7 +595,7 @@ export default function MainInventory() {
                 aria-selected={active}
               >
                 <Icon className="w-4 h-4" />
-                <span>{label}</span>
+                <span>{t(labelKey)}</span>
               </button>
             );
           })}
@@ -629,12 +641,10 @@ export default function MainInventory() {
             hasMore={!!stockNextCursor}
             hasPrevious={stockCursorHistory.length > 0}
             onlyAlerts={stockOnlyAlerts}
-            lastSync={lastSync}
             onSearchChange={handleStockSearchChange}
             onOnlyAlertsChange={handleStockAlertsChange}
             onNext={handleStockNext}
             onPrevious={handleStockPrevious}
-            onRefresh={refreshStock}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (

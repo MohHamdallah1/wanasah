@@ -78,7 +78,7 @@ from product_lifecycle import (
 )
 
 from schemas import (UnifiedStocktakeStartRequest,
-WarehouseInventoryItem, WarehouseInventoryCursorPage, WarehouseLedgerItem, WarehouseLedgerCursorPage,
+WarehouseInventoryItem, WarehouseInventoryCursorPage, WarehouseInventoryBatchDetailResponse, WarehouseLedgerItem, WarehouseLedgerCursorPage,
 WarehouseStatusResponse, WarehouseLocationCreateRequest, WarehouseLocationUpdateRequest,
 WarehouseLocationStateRequest, WarehouseLocationCursorPage, WarehouseLocationMutationResponse,
 WarehouseSetupStatusResponse,
@@ -2828,6 +2828,15 @@ async def get_warehouse_inventory(
                 func.sum(
                     InventoryBalance.on_hand_quantity
                 ).label('blocked_status_packs'),
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == 'RECALLED',
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label('recalled_packs'),
             )
             .filter(
                 InventoryBalance.company_id == company_id,
@@ -2935,6 +2944,7 @@ async def get_warehouse_inventory(
                 warehouse_available_subq.c.warehouse_sellable_on_hand,
                 warehouse_available_subq.c.warehouse_sellable_reserved,
                 warehouse_blocked_status_subq.c.blocked_status_packs,
+                warehouse_blocked_status_subq.c.recalled_packs,
                 warehouse_damaged_subq.c.damaged_packs,
                 vehicle_inventory_subq.c.vehicle_packs,
                 policy_subq.c.minimum_quantity,
@@ -2995,6 +3005,43 @@ async def get_warehouse_inventory(
         cost_state_by_variant = {
             int(row.product_variant_id): row for row in cost_state_rows
         }
+
+        latest_purchase_rows = (
+            await db.execute(
+                select(
+                    InventoryCostEvent.product_variant_id.label(
+                        "product_variant_id"
+                    ),
+                    InventoryCostEvent.input_unit_cost.label(
+                        "input_unit_cost"
+                    ),
+                    UOM.code.label("input_uom_code"),
+                    InventoryCostEvent.created_at.label("created_at"),
+                )
+                .join(
+                    UOM,
+                    UOM.id == InventoryCostEvent.input_uom_id,
+                )
+                .filter(
+                    InventoryCostEvent.company_id == company_id,
+                    InventoryCostEvent.product_variant_id.in_(
+                        page_variant_ids
+                    ),
+                    InventoryCostEvent.event_type == "PURCHASE_IN",
+                )
+                .distinct(InventoryCostEvent.product_variant_id)
+                .order_by(
+                    InventoryCostEvent.product_variant_id,
+                    InventoryCostEvent.created_at.desc(),
+                    InventoryCostEvent.id.desc(),
+                )
+            )
+        ).all()
+        latest_purchase_by_variant = {
+            int(row.product_variant_id): row
+            for row in latest_purchase_rows
+        }
+
         currency_code = await db.scalar(
             select(Company.currency_code).where(Company.id == company_id)
         )
@@ -3010,6 +3057,7 @@ async def get_warehouse_inventory(
             warehouse_sellable_on_hand,
             warehouse_sellable_reserved,
             blocked_status_packs,
+            recalled_packs,
             damaged_packs,
             vehicle_packs,
             minimum_quantity,
@@ -3031,8 +3079,14 @@ async def get_warehouse_inventory(
             free_quantity = sellable_on_hand - sellable_reserved
             explicit_blocked = Decimal(blocked_status_packs or 0)
             blocked_quantity = (on_hand - sellable_on_hand) + explicit_blocked
+            recalled = Decimal(recalled_packs or 0)
             vehicle_total = Decimal(vehicle_packs or 0)
             damaged = Decimal(damaged_packs or 0)
+
+            warehouse_on_hand_total = on_hand + explicit_blocked + damaged
+            unavailable_quantity = (
+                warehouse_on_hand_total - reserved - free_quantity
+            )
 
             if free_quantity < 0:
                 raise RuntimeError(
@@ -3045,6 +3099,12 @@ async def get_warehouse_inventory(
                     f"Inventory invariant violated for "
                     f"product_variant_id={variant.id}: "
                     "sellable stock exceeds physical AVAILABLE stock."
+                )
+            if unavailable_quantity < 0:
+                raise RuntimeError(
+                    f"Inventory business partition violated for "
+                    f"product_variant_id={variant.id}: "
+                    "on-hand is smaller than reserved plus sellable stock."
                 )
 
             total_physical_available = on_hand + explicit_blocked + vehicle_total
@@ -3061,12 +3121,39 @@ async def get_warehouse_inventory(
                 display_uom_name = str(display["uom_name"])
                 display_factor = Decimal(display["factor_to_base"])
 
-            cost_state = cost_state_by_variant.get(int(variant.id))
+            has_location_inventory = (
+                warehouse_on_hand_total > 0 or vehicle_total > 0
+            )
+
+            cost_state = (
+                cost_state_by_variant.get(int(variant.id))
+                if has_location_inventory
+                else None
+            )
             average_cost_display = None
             if cost_state is not None:
                 average_cost_display = (
                     Decimal(cost_state.average_unit_cost) * display_factor
                 ).quantize(Decimal("0.000001"))
+
+            last_purchase = (
+                latest_purchase_by_variant.get(int(variant.id))
+                if has_location_inventory
+                else None
+            )
+            last_purchase_cost = None
+            last_purchase_uom_code = None
+            last_purchase_date = None
+            if last_purchase is not None:
+                last_purchase_cost = Decimal(
+                    last_purchase.input_unit_cost
+                )
+                last_purchase_uom_code = str(
+                    last_purchase.input_uom_code
+                )
+                last_purchase_date = (
+                    last_purchase.created_at.date()
+                )
 
             result.append({
                 "id": variant.id,
@@ -3085,10 +3172,26 @@ async def get_warehouse_inventory(
                     if average_cost_display is not None
                     else None
                 ),
+                "last_purchase_cost": (
+                    format(last_purchase_cost, "f")
+                    if last_purchase_cost is not None
+                    else None
+                ),
+                "last_purchase_uom_code":
+                    last_purchase_uom_code,
+                "last_purchase_date":
+                    last_purchase_date,
                 "quantity_scale": variant.quantity_scale,
                 "quantity_step": canonical_quantity(variant.quantity_step),
-                "available_quantity": canonical_quantity(free_quantity),
+
+                "on_hand_quantity": canonical_quantity(warehouse_on_hand_total),
                 "reserved_quantity": canonical_quantity(reserved),
+                "available_for_sale_quantity": canonical_quantity(free_quantity),
+                "unavailable_quantity": canonical_quantity(unavailable_quantity),
+                "vehicle_quantity": canonical_quantity(vehicle_total),
+                "recalled_quantity": canonical_quantity(recalled),
+
+                "available_quantity": canonical_quantity(free_quantity),
                 "blocked_quantity": canonical_quantity(blocked_quantity),
                 "total_quantity": canonical_quantity(total_physical_available),
                 "damaged_quantity": canonical_quantity(damaged),
@@ -3130,6 +3233,425 @@ async def get_warehouse_inventory(
             status_code=500,
             detail="حدث خطأ داخلي أثناء جلب صفحة المخزون.",
         )
+
+
+@router.get(
+    "/warehouse/inventory/{product_variant_id}/batches",
+    response_model=WarehouseInventoryBatchDetailResponse,
+    status_code=200,
+)
+async def get_warehouse_inventory_batches(
+    product_variant_id: int,
+    location_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require("inventory.read", location_id)
+
+    company_id = current_admin.company_id
+
+    try:
+        location_exists = await db.scalar(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.id == location_id,
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.location_type == "WAREHOUSE",
+                InventoryLocation.is_active.is_(True),
+            )
+        )
+        if location_exists is None:
+            raise HTTPException(
+                status_code=404,
+                detail=inventory_business_error(
+                    "LIVE_STOCK_LOCATION_NOT_FOUND",
+                    "The selected warehouse is unavailable.",
+                ),
+            )
+
+        variant_exists = await db.scalar(
+            select(ProductVariant.id).filter(
+                ProductVariant.id == product_variant_id,
+                ProductVariant.company_id == company_id,
+            )
+        )
+        if variant_exists is None:
+            raise HTTPException(
+                status_code=404,
+                detail=inventory_business_error(
+                    "LIVE_STOCK_PRODUCT_NOT_FOUND",
+                    "The selected product is unavailable.",
+                ),
+            )
+
+        as_of_date = await get_company_local_date(db, company_id)
+
+        batch_is_sellable = batch_sellability_predicate(
+            as_of_date,
+            expiry_control_mode=ProductVariant.expiry_control_mode,
+            minimum_remaining_shelf_life_days=(
+                InventoryStockPolicy.minimum_remaining_shelf_life_days
+            ),
+        )
+
+        batch_stmt = (
+            select(
+                ProductBatch.id.label("batch_id"),
+                ProductBatch.batch_number,
+                ProductBatch.production_date,
+                ProductBatch.expiry_date,
+                ProductBatch.disposition,
+                func.sum(
+                    InventoryBalance.on_hand_quantity
+                ).label("on_hand_total"),
+                func.sum(
+                    InventoryBalance.reserved_quantity
+                ).label("reserved_total"),
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                InventoryBalance.stock_status == "AVAILABLE",
+                                batch_is_sellable,
+                            ),
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("sellable_on_hand"),
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                InventoryBalance.stock_status == "AVAILABLE",
+                                batch_is_sellable,
+                            ),
+                            InventoryBalance.reserved_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("sellable_reserved"),
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "QUARANTINED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("quarantined_quantity"),
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "BLOCKED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("blocked_quantity"),
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "RECALLED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("recalled_quantity"),
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "DAMAGED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("damaged_quantity"),
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status
+                            == "DISPOSAL_PENDING",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label("disposal_pending_quantity"),
+            )
+            .join(
+                ProductBatch,
+                and_(
+                    ProductBatch.company_id
+                    == InventoryBalance.company_id,
+                    ProductBatch.product_variant_id
+                    == InventoryBalance.product_variant_id,
+                    ProductBatch.id == InventoryBalance.batch_id,
+                ),
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id
+                    == InventoryBalance.company_id,
+                    ProductVariant.id
+                    == InventoryBalance.product_variant_id,
+                ),
+            )
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id
+                    == InventoryBalance.company_id,
+                    InventoryStockPolicy.location_id == location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == InventoryBalance.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                ),
+            )
+            .filter(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.product_variant_id
+                == product_variant_id,
+                InventoryBalance.on_hand_quantity > 0,
+            )
+            .group_by(
+                ProductBatch.id,
+                ProductBatch.batch_number,
+                ProductBatch.production_date,
+                ProductBatch.expiry_date,
+                ProductBatch.disposition,
+            )
+            .order_by(
+                ProductBatch.expiry_date.asc().nulls_last(),
+                ProductBatch.id.asc(),
+            )
+        )
+
+        batch_rows = (await db.execute(batch_stmt)).all()
+        batch_ids = [int(row.batch_id) for row in batch_rows]
+
+        latest_purchase_by_batch = {}
+        purchase_count_by_batch = {}
+
+        if batch_ids:
+            latest_purchase_rows = (
+                await db.execute(
+                    select(
+                        InventoryCostEvent.batch_id.label("batch_id"),
+                        InventoryCostEvent.input_unit_cost.label(
+                            "input_unit_cost"
+                        ),
+                        UOM.code.label("input_uom_code"),
+                        InventoryCostEvent.created_at.label(
+                            "created_at"
+                        ),
+                    )
+                    .join(
+                        UOM,
+                        UOM.id == InventoryCostEvent.input_uom_id,
+                    )
+                    .filter(
+                        InventoryCostEvent.company_id == company_id,
+                        InventoryCostEvent.product_variant_id
+                        == product_variant_id,
+                        InventoryCostEvent.batch_id.in_(batch_ids),
+                        InventoryCostEvent.event_type == "PURCHASE_IN",
+                    )
+                    .distinct(InventoryCostEvent.batch_id)
+                    .order_by(
+                        InventoryCostEvent.batch_id,
+                        InventoryCostEvent.created_at.desc(),
+                        InventoryCostEvent.id.desc(),
+                    )
+                )
+            ).all()
+            latest_purchase_by_batch = {
+                int(row.batch_id): row
+                for row in latest_purchase_rows
+            }
+
+            purchase_count_rows = (
+                await db.execute(
+                    select(
+                        InventoryCostEvent.batch_id.label("batch_id"),
+                        func.count(InventoryCostEvent.id).label(
+                            "event_count"
+                        ),
+                    )
+                    .filter(
+                        InventoryCostEvent.company_id == company_id,
+                        InventoryCostEvent.product_variant_id
+                        == product_variant_id,
+                        InventoryCostEvent.batch_id.in_(batch_ids),
+                        InventoryCostEvent.event_type == "PURCHASE_IN",
+                    )
+                    .group_by(InventoryCostEvent.batch_id)
+                )
+            ).all()
+            purchase_count_by_batch = {
+                int(row.batch_id): int(row.event_count)
+                for row in purchase_count_rows
+            }
+
+        currency_code = await db.scalar(
+            select(Company.currency_code).where(
+                Company.id == company_id
+            )
+        )
+        if not currency_code:
+            raise RuntimeError(
+                "Company currency is unavailable."
+            )
+
+        batches = []
+        for row in batch_rows:
+            on_hand_total = Decimal(row.on_hand_total or 0)
+            reserved_total = Decimal(row.reserved_total or 0)
+            sellable_on_hand = Decimal(
+                row.sellable_on_hand or 0
+            )
+            sellable_reserved = Decimal(
+                row.sellable_reserved or 0
+            )
+
+            available_for_sale = (
+                sellable_on_hand - sellable_reserved
+            )
+            unavailable = (
+                on_hand_total
+                - reserved_total
+                - available_for_sale
+            )
+
+            if available_for_sale < 0 or unavailable < 0:
+                raise RuntimeError(
+                    "Inventory batch partition invariant failed "
+                    f"for product_variant_id={product_variant_id}, "
+                    f"batch_id={row.batch_id}."
+                )
+
+            quarantined = Decimal(
+                row.quarantined_quantity or 0
+            )
+            blocked = Decimal(row.blocked_quantity or 0)
+            recalled = Decimal(row.recalled_quantity or 0)
+            damaged = Decimal(row.damaged_quantity or 0)
+            disposal_pending = Decimal(
+                row.disposal_pending_quantity or 0
+            )
+
+            explicit_unavailable = (
+                quarantined
+                + blocked
+                + recalled
+                + damaged
+                + disposal_pending
+            )
+            restricted = unavailable - explicit_unavailable
+            if restricted < 0:
+                raise RuntimeError(
+                    "Inventory batch unavailable breakdown "
+                    f"exceeded the partition for batch_id={row.batch_id}."
+                )
+
+            latest_purchase = latest_purchase_by_batch.get(
+                int(row.batch_id)
+            )
+            latest_purchase_cost = None
+            latest_purchase_uom_code = None
+            latest_purchase_date = None
+            if latest_purchase is not None:
+                latest_purchase_cost = Decimal(
+                    latest_purchase.input_unit_cost
+                )
+                latest_purchase_uom_code = str(
+                    latest_purchase.input_uom_code
+                )
+                latest_purchase_date = (
+                    latest_purchase.created_at.date()
+                )
+
+            batches.append(
+                {
+                    "batch_id": int(row.batch_id),
+                    "batch_number": str(row.batch_number),
+                    "production_date": row.production_date,
+                    "expiry_date": row.expiry_date,
+                    "disposition": str(row.disposition),
+                    "days_to_expiry": (
+                        (row.expiry_date - as_of_date).days
+                        if row.expiry_date is not None
+                        else None
+                    ),
+                    "on_hand_quantity": canonical_quantity(
+                        on_hand_total
+                    ),
+                    "reserved_quantity": canonical_quantity(
+                        reserved_total
+                    ),
+                    "available_for_sale_quantity":
+                        canonical_quantity(
+                            available_for_sale
+                        ),
+                    "unavailable_quantity":
+                        canonical_quantity(unavailable),
+                    "restricted_quantity":
+                        canonical_quantity(restricted),
+                    "quarantined_quantity":
+                        canonical_quantity(quarantined),
+                    "blocked_quantity":
+                        canonical_quantity(blocked),
+                    "recalled_quantity":
+                        canonical_quantity(recalled),
+                    "damaged_quantity":
+                        canonical_quantity(damaged),
+                    "disposal_pending_quantity":
+                        canonical_quantity(disposal_pending),
+                    "latest_purchase_cost": (
+                        format(
+                            latest_purchase_cost,
+                            "f",
+                        )
+                        if latest_purchase_cost is not None
+                        else None
+                    ),
+                    "latest_purchase_uom_code":
+                        latest_purchase_uom_code,
+                    "latest_purchase_date":
+                        latest_purchase_date,
+                    "purchase_event_count":
+                        purchase_count_by_batch.get(
+                            int(row.batch_id),
+                            0,
+                        ),
+                }
+            )
+
+        return {
+            "location_id": location_id,
+            "product_variant_id": product_variant_id,
+            "currency_code": str(currency_code).upper(),
+            "batches": batches,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to load live-stock batch details "
+            f"for company_id={company_id}, "
+            f"location_id={location_id}, "
+            f"product_variant_id={product_variant_id}: {exc}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=inventory_business_error(
+                "LIVE_STOCK_BATCH_DETAILS_FAILED",
+                "Live-stock batch details could not be loaded.",
+            ),
+        ) from exc
 
 
 # =================================================================================

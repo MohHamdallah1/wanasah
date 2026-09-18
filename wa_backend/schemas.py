@@ -1412,10 +1412,22 @@ class WarehouseInventoryItem(BaseModel):
     display_factor_to_base: PositiveQuantity
     currency_code: str = Field(..., min_length=1, max_length=10)
     average_cost_display: Optional[InventoryCostMoneyInput] = None
+    last_purchase_cost: Optional[InventoryCostMoneyInput] = None
+    last_purchase_uom_code: Optional[str] = Field(None, max_length=20)
+    last_purchase_date: Optional[date] = None
     quantity_scale: int = Field(..., ge=0, le=6)
     quantity_step: PositiveQuantity
-    available_quantity: NonNegativeQuantity
+
+    # Explicit live-stock business view.
+    on_hand_quantity: NonNegativeQuantity
     reserved_quantity: NonNegativeQuantity
+    available_for_sale_quantity: NonNegativeQuantity
+    unavailable_quantity: NonNegativeQuantity
+    vehicle_quantity: NonNegativeQuantity
+    recalled_quantity: NonNegativeQuantity
+
+    # Backward-compatible fields used by existing consumers.
+    available_quantity: NonNegativeQuantity
     blocked_quantity: NonNegativeQuantity
     total_quantity: NonNegativeQuantity
     damaged_quantity: NonNegativeQuantity
@@ -1428,6 +1440,39 @@ class WarehouseInventoryCursorPage(BaseModel):
     total: Optional[int] = Field(None, ge=0)
     alert_count: Optional[int] = Field(None, ge=0)
     alert_samples: List[str] = Field(default_factory=list, max_length=3)
+
+
+class WarehouseInventoryBatchItem(BaseModel):
+    batch_id: PositiveDbInt
+    batch_number: str = Field(..., min_length=1, max_length=100)
+    production_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    disposition: Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
+    days_to_expiry: Optional[int] = None
+    on_hand_quantity: NonNegativeQuantity
+    reserved_quantity: NonNegativeQuantity
+    available_for_sale_quantity: NonNegativeQuantity
+    unavailable_quantity: NonNegativeQuantity
+    restricted_quantity: NonNegativeQuantity
+    quarantined_quantity: NonNegativeQuantity
+    blocked_quantity: NonNegativeQuantity
+    recalled_quantity: NonNegativeQuantity
+    damaged_quantity: NonNegativeQuantity
+    disposal_pending_quantity: NonNegativeQuantity
+    latest_purchase_cost: Optional[InventoryCostMoneyInput] = None
+    latest_purchase_uom_code: Optional[str] = Field(None, max_length=20)
+    latest_purchase_date: Optional[date] = None
+    purchase_event_count: int = Field(..., ge=0)
+
+
+class WarehouseInventoryBatchDetailResponse(BaseModel):
+    location_id: PositiveDbInt
+    product_variant_id: PositiveDbInt
+    currency_code: str = Field(..., min_length=1, max_length=10)
+    batches: List[WarehouseInventoryBatchItem] = Field(
+        default_factory=list,
+        max_length=500,
+    )
 
 
 class WarehouseLedgerItem(BaseModel):
