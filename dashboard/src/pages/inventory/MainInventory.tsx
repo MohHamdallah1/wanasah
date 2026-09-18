@@ -518,68 +518,88 @@ export default function MainInventory() {
     <div data-live-view={activeTab === "live"} className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0 animate-in fade-in duration-200">
 
       <nav className="inventory-command-bar px-4 py-4 md:px-5 md:py-5" aria-label={t("inventoryShell.navigationLabel")}>
-        <div className="inventory-command-row flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="inventory-command-title-mark" aria-hidden="true">
-              <Package className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <h1 className="text-base font-black text-white md:text-lg">{t("inventoryShell.title")}</h1>
-              <p className="mt-0.5 text-xs font-bold text-slate-300">{t("inventoryShell.subtitle")}</p>
-            </div>
-          </div>
-
-          <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
-            {locations.length > 0 && (
-              <label className="inventory-location-field">
-                <span className="inventory-location-label">{t("inventoryShell.warehouseSelectLabel")}</span>
-              <select
-                aria-label={t("inventoryShell.warehouseSelectLabel")}
-                className="inventory-location-select px-3 py-2 text-sm font-bold"
-                value={selectedLocationId ?? ""}
-                onChange={(e) => handleLocationChange(e.target.value)}
-              >
-                <option value="" disabled>
-                  {t("inventoryShell.chooseWarehouse")}
-                </option>
-                {locations.map(loc => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-              </label>
-            )}
-
-            <div className="flex min-w-fit flex-col items-start justify-center inventory-sync border-e border-white/15 pe-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-black text-white">
-                  {t("inventoryShell.liveStockCount")} <span className="text-amber-300">{stockTotal === null ? "—" : new Intl.NumberFormat(i18n.resolvedLanguage || i18n.language).format(stockTotal)}</span>
-                </span>
-                {isAuditLocked && (
-                  <span className="rounded-md border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-bold text-amber-200">
-                    {t("inventoryShell.locked")}
+        {activeTab !== "live" && (
+          <div className="inventory-command-row flex flex-wrap items-center justify-end gap-4">
+            <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
+              {locations.length > 0 && (
+                <label className="inventory-location-field">
+                  <span className="inventory-location-label">
+                    {t("inventoryShell.warehouseSelectLabel")}
                   </span>
-                )}
-              </div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold text-slate-400">
-                <span>
-                  {t("inventoryShell.lastUpdated")}: {lastSync ? new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language || "en", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, numberingSystem: "latn" }).format(lastSync) : "—"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => { refreshStock(); fetchStatus(); }}
-                  disabled={loadingStock}
-                  className="inline-grid h-7 w-7 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
-                  title={t("inventoryShell.refreshNow")}
-                  aria-label={t("inventoryShell.refreshNow")}
-                >
-                  <RefreshCcw className={`h-3.5 w-3.5 ${loadingStock ? "animate-spin" : ""}`} />
-                </button>
+                  <select
+                    aria-label={t("inventoryShell.warehouseSelectLabel")}
+                    className="inventory-location-select px-3 py-2 text-sm font-bold"
+                    value={selectedLocationId ?? ""}
+                    onChange={(e) => handleLocationChange(e.target.value)}
+                  >
+                    <option value="" disabled>
+                      {t("inventoryShell.chooseWarehouse")}
+                    </option>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <div className="inventory-sync flex min-w-fit flex-col items-start justify-center border-e border-white/15 pe-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-black text-white">
+                    {t("inventoryShell.liveStockCount")}{" "}
+                    <span className="text-amber-300">
+                      {stockTotal === null
+                        ? "—"
+                        : new Intl.NumberFormat(
+                            i18n.resolvedLanguage || i18n.language,
+                          ).format(stockTotal)}
+                    </span>
+                  </span>
+                  {isAuditLocked && (
+                    <span className="rounded-md border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-bold text-amber-200">
+                      {t("inventoryShell.locked")}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold text-slate-400">
+                  <span>
+                    {t("inventoryShell.lastUpdated")}:{" "}
+                    {lastSync
+                      ? new Intl.DateTimeFormat(
+                          i18n.resolvedLanguage || i18n.language || "en",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                            hour12: false,
+                            numberingSystem: "latn",
+                          },
+                        ).format(lastSync)
+                      : "—"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      refreshStock();
+                      void fetchStatus();
+                    }}
+                    disabled={loadingStock}
+                    className="inline-grid h-7 w-7 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-40"
+                    title={t("inventoryShell.refreshNow")}
+                    aria-label={t("inventoryShell.refreshNow")}
+                  >
+                    <RefreshCcw
+                      className={`h-3.5 w-3.5 ${
+                        loadingStock ? "animate-spin" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="inventory-tab-strip mt-4" role="tablist" aria-label={t("inventoryShell.tabsLabel")}>
           {TABS.filter(tab => tabAllowed(tab.id)).map(({ id, labelKey, icon: Icon }) => {
@@ -632,8 +652,17 @@ export default function MainInventory() {
         {!locationAccess.isPending && activeTab === "live" && tabAllowed("live") && selectedLocationId !== null && (
           <Tab1LiveStock
             locationId={selectedLocationId}
+            locations={locations}
+            stockTotal={stockTotal}
+            lastSync={lastSync}
+            isAuditLocked={isAuditLocked}
             products={stockItems}
             loading={loadingStock}
+            onLocationChange={handleLocationChange}
+            onRefresh={() => {
+              refreshStock();
+              void fetchStatus();
+            }}
             alertCount={stockAlertCount}
             alertSamples={stockAlertSamples}
             matchingTotal={stockMatchingTotal}

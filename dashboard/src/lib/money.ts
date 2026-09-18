@@ -26,18 +26,22 @@ const decimalSeparator = (locale: string): string => {
   }
 };
 
-export function formatMoneyExact(
-  value: string,
+const formatLocalizedCurrencyAmount = (
+  amount: string,
   currencyCode: string,
   locale: string,
-): string {
-  const amount = canonicalMoney(value);
+): string => {
   const currency = currencyCode.trim().toUpperCase();
   const resolvedLocale = locale.trim() || "en";
-  const localizedAmount = amount.replace(".", decimalSeparator(resolvedLocale));
+  const localizedAmount = amount.replace(
+    ".",
+    decimalSeparator(resolvedLocale),
+  );
 
   if (!/^[A-Z]{3}$/.test(currency)) {
-    return currency ? `${localizedAmount} ${currency}` : localizedAmount;
+    return currency
+      ? `${localizedAmount} ${currency}`
+      : localizedAmount;
   }
 
   try {
@@ -51,9 +55,14 @@ export function formatMoneyExact(
       maximumFractionDigits: 0,
     }).formatToParts(0);
 
-    const currencyIndex = parts.findIndex((part) => part.type === "currency");
-    const integerIndex = parts.findIndex((part) => part.type === "integer");
-    const currencyPart = parts[currencyIndex]?.value || currency;
+    const currencyIndex = parts.findIndex(
+      (part) => part.type === "currency",
+    );
+    const integerIndex = parts.findIndex(
+      (part) => part.type === "integer",
+    );
+    const currencyPart =
+      parts[currencyIndex]?.value || currency;
 
     if (currencyIndex < 0 || integerIndex < 0) {
       return `${localizedAmount} ${currency}`;
@@ -61,11 +70,12 @@ export function formatMoneyExact(
 
     const start = Math.min(currencyIndex, integerIndex) + 1;
     const end = Math.max(currencyIndex, integerIndex);
-    const between = parts
-      .slice(start, end)
-      .filter((part) => part.type === "literal")
-      .map((part) => part.value)
-      .join("") || " ";
+    const between =
+      parts
+        .slice(start, end)
+        .filter((part) => part.type === "literal")
+        .map((part) => part.value)
+        .join("") || " ";
 
     return currencyIndex < integerIndex
       ? `${currencyPart}${between}${localizedAmount}`
@@ -73,4 +83,94 @@ export function formatMoneyExact(
   } catch {
     return `${localizedAmount} ${currency}`;
   }
+};
+
+const currencyDisplayFractionDigits = (
+  currencyCode: string,
+  locale: string,
+): number => {
+  const currency = currencyCode.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) return 2;
+
+  try {
+    return new Intl.NumberFormat(locale.trim() || "en", {
+      style: "currency",
+      currency,
+      numberingSystem: "latn",
+    }).resolvedOptions().maximumFractionDigits;
+  } catch {
+    return 2;
+  }
+};
+
+const roundMoneyForDisplay = (
+  value: string,
+  fractionDigits: number,
+): string => {
+  const amount = canonicalMoney(value);
+  const [whole, fraction = ""] = amount.split(".");
+  const digits = Math.max(0, Math.min(6, fractionDigits));
+
+  if (digits === 0) {
+    const shouldRoundUp =
+      (fraction[0] ?? "0") >= "5";
+    return (
+      BigInt(whole) + (shouldRoundUp ? 1n : 0n)
+    ).toString();
+  }
+
+  const padded = fraction.padEnd(digits + 1, "0");
+  const kept = padded.slice(0, digits);
+  const shouldRoundUp =
+    (padded[digits] ?? "0") >= "5";
+  const scale = 10n ** BigInt(digits);
+
+  let scaled =
+    BigInt(whole) * scale + BigInt(kept || "0");
+  if (shouldRoundUp) scaled += 1n;
+
+  const raw = scaled
+    .toString()
+    .padStart(digits + 1, "0");
+  const roundedWhole =
+    raw.slice(0, -digits) || "0";
+  const roundedFraction = raw.slice(-digits);
+
+  if (/^0+$/.test(roundedFraction)) {
+    return roundedWhole;
+  }
+
+  return `${roundedWhole}.${roundedFraction}`;
+};
+
+export function formatMoneyExact(
+  value: string,
+  currencyCode: string,
+  locale: string,
+): string {
+  return formatLocalizedCurrencyAmount(
+    canonicalMoney(value),
+    currencyCode,
+    locale,
+  );
+}
+
+export function formatMoneyDisplay(
+  value: string,
+  currencyCode: string,
+  locale: string,
+): string {
+  const rounded = roundMoneyForDisplay(
+    value,
+    currencyDisplayFractionDigits(
+      currencyCode,
+      locale,
+    ),
+  );
+
+  return formatLocalizedCurrencyAmount(
+    rounded,
+    currencyCode,
+    locale,
+  );
 }

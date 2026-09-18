@@ -42,7 +42,17 @@ check("LIVE_STOCK_BATCH_RESPONSE_INVALID" in contracts, "language-neutral contra
 check("product.sku" not in live, "SKU hidden from live table")
 check("lastCompanyPurchase" in live and "companyAverage" in live, "two main cost concepts")
 check("latestBatchPurchase" in live, "batch cost concept")
-check("HeaderHelp" in live and "warehouseBalanceHint" in live, "header business tooltips")
+check(
+    "HeaderHelp" in live
+    and "onHandHint" in live
+    and "reservedHint" in live
+    and "availableForSaleHint" in live
+    and "unavailableHint" in live
+    and "withVehiclesHint" in live
+    and "lastCompanyPurchaseHint" in live
+    and "companyAverageHint" in live,
+    "header business tooltips",
+)
 check("onHandHint" in resources and "reservedHint" in resources, "warehouse balance terminology hints")
 check("batch.recalled_quantity" in live and "batch.damaged_quantity" in live, "exceptional stock details")
 check('numberingSystem: "latn"' in money, "latin-number money display")

@@ -17,7 +17,7 @@ cd C:\Users\admin\AppData\Local\Android\Sdk\platform-tools
 .\adb pair 192.168.0.192:
 
 git add .
-git commit -m "stage 7.7"
+git commit -m "stage 7.8"
 git push
 
 

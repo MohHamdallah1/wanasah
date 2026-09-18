@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
-import { formatMoneyExact } from "@/lib/money";
+import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import {
   parseBatchDetailResponse,
   type WarehouseBatchDetailResponse,
@@ -38,6 +38,10 @@ import {
 
 interface Props {
   locationId: number;
+  locations: Array<{ id: number; name: string }>;
+  stockTotal: number | null;
+  lastSync: Date | null;
+  isAuditLocked: boolean;
   products: WarehouseProduct[];
   loading: boolean;
   alertCount: number;
@@ -47,6 +51,8 @@ interface Props {
   hasMore: boolean;
   hasPrevious: boolean;
   onlyAlerts: boolean;
+  onLocationChange: (value: string) => void;
+  onRefresh: () => void;
   onSearchChange: (search: string) => void;
   onOnlyAlertsChange: (onlyAlerts: boolean) => void;
   onNext: () => void;
@@ -94,15 +100,20 @@ function HeaderHelp({
 
 export function Tab1LiveStock({
   locationId,
+  locations,
+  stockTotal,
+  lastSync,
+  isAuditLocked,
   products,
   loading,
   alertCount,
   alertSamples,
-  matchingTotal,
   pageNumber,
   hasMore,
   hasPrevious,
   onlyAlerts,
+  onLocationChange,
+  onRefresh,
   onSearchChange,
   onOnlyAlertsChange,
   onNext,
@@ -328,30 +339,94 @@ export function Tab1LiveStock({
 
       <div className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
         <div className="live-stock-toolbar">
-          <div className="live-stock-heading">
-            <h2>{t("inventoryShell.tabs.live")}</h2>
-            <span className="live-stock-result" aria-live="polite">
-              {matchingTotal !== null
-                ? t("inventoryLive.resultCount", { total: new Intl.NumberFormat(locale).format(matchingTotal) })
-                : t("inventoryLive.page", { page: new Intl.NumberFormat(locale).format(pageNumber) })}
-            </span>
+          <div className="live-stock-context-panel">
+            <label className="live-stock-context-location">
+              <span className="live-stock-context-label">
+                {t("inventoryShell.warehouseSelectLabel")}
+              </span>
+              <select
+                aria-label={t("inventoryShell.warehouseSelectLabel")}
+                value={locationId}
+                onChange={(event) =>
+                  onLocationChange(event.target.value)
+                }
+                className="live-stock-context-select"
+              >
+                {locations.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div
+              className="live-stock-context-separator"
+              aria-hidden="true"
+            />
+
+            <div className="live-stock-context-status">
+              <div className="live-stock-context-count">
+                <span>{t("inventoryShell.liveStockCount")}</span>
+                <strong>
+                  {stockTotal === null
+                    ? "—"
+                    : new Intl.NumberFormat(locale, {
+                        numberingSystem: "latn",
+                      }).format(stockTotal)}
+                </strong>
+                {isAuditLocked && (
+                  <span className="live-stock-lock-chip">
+                    {t("inventoryShell.locked")}
+                  </span>
+                )}
+              </div>
+
+              <div className="live-stock-context-sync">
+                <span>
+                  {t("inventoryShell.lastUpdated")}:{" "}
+                  {lastSync
+                    ? new Intl.DateTimeFormat(locale, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                        hour12: false,
+                        numberingSystem: "latn",
+                      }).format(lastSync)
+                    : "—"}
+                </span>
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={loading}
+                  className="live-stock-context-refresh"
+                  title={t("inventoryShell.refreshNow")}
+                  aria-label={t("inventoryShell.refreshNow")}
+                >
+                  <RefreshCcw
+                    className={`h-3.5 w-3.5 ${
+                      loading ? "animate-spin" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
           </div>
-                    <div className="live-stock-search">
-                      <Search className="absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type="search"
-                        aria-label={t("inventoryLive.searchPlaceholder")}
-                        placeholder={t(
-                          "inventoryLive.searchPlaceholder",
-                        )}
-                        value={searchInput}
-                        onChange={(event) =>
-                          setSearchInput(event.target.value)
-                        }
-                        maxLength={100}
-                        className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none transition-all focus:border-[#1e87bb]"
-                      />
-                    </div>
+
+          <div className="live-stock-search">
+            <Search className="absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              aria-label={t("inventoryLive.searchPlaceholder")}
+              placeholder={t("inventoryLive.searchPlaceholder")}
+              value={searchInput}
+              onChange={(event) =>
+                setSearchInput(event.target.value)
+              }
+              maxLength={100}
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none transition-all"
+            />
+          </div>
         </div>
 
         <div
@@ -363,30 +438,22 @@ export function Tab1LiveStock({
         >
           <table className="live-stock-table" aria-label={t("inventoryShell.tabs.live")} aria-busy={loading}>
             <thead>
-              <tr className="live-stock-groups">
-                <th scope="col" rowSpan={2} className="live-product-heading">{t("inventoryLive.product")}</th>
-                <th scope="colgroup" colSpan={4}><span>{t("inventoryLive.warehouseBalance")}<HeaderHelp text={t("inventoryLive.warehouseBalanceHint")} /></span></th>
-                <th scope="col" rowSpan={2} className="live-vehicle-heading"><span>{t("inventoryLive.withVehicles")}<HeaderHelp text={t("inventoryLive.withVehiclesHint")} /></span></th>
-                <th scope="colgroup" colSpan={2} className="live-cost-group"><span>{t("inventoryLive.companyCosts")}<HeaderHelp text={t("inventoryLive.costsHint")} /></span></th>
-              </tr>
               <tr className="live-stock-columns">
-
+                <th scope="col" className="live-product-heading">
+                  {t("inventoryLive.product")}
+                </th>
 
                 <th scope="col">
                   <div className="flex items-center justify-center gap-1.5">
                     <span>{t("inventoryLive.onHand")}</span>
-                    <HeaderHelp
-                      text={t("inventoryLive.onHandHint")}
-                    />
+                    <HeaderHelp text={t("inventoryLive.onHandHint")} />
                   </div>
                 </th>
 
                 <th scope="col">
                   <div className="flex items-center justify-center gap-1.5">
                     <span>{t("inventoryLive.reserved")}</span>
-                    <HeaderHelp
-                      text={t("inventoryLive.reservedHint")}
-                    />
+                    <HeaderHelp text={t("inventoryLive.reservedHint")} />
                   </div>
                 </th>
 
@@ -394,9 +461,7 @@ export function Tab1LiveStock({
                   <div className="flex items-center justify-center gap-1.5">
                     <span>{t("inventoryLive.availableForSale")}</span>
                     <HeaderHelp
-                      text={t(
-                        "inventoryLive.availableForSaleHint",
-                      )}
+                      text={t("inventoryLive.availableForSaleHint")}
                     />
                   </div>
                 </th>
@@ -404,23 +469,22 @@ export function Tab1LiveStock({
                 <th scope="col">
                   <div className="flex items-center justify-center gap-1.5">
                     <span>{t("inventoryLive.unavailable")}</span>
-                    <HeaderHelp
-                      text={t(
-                        "inventoryLive.unavailableHint",
-                      )}
-                    />
+                    <HeaderHelp text={t("inventoryLive.unavailableHint")} />
                   </div>
                 </th>
 
-
+                <th scope="col">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>{t("inventoryLive.withVehicles")}</span>
+                    <HeaderHelp text={t("inventoryLive.withVehiclesHint")} />
+                  </div>
+                </th>
 
                 <th scope="col">
                   <div className="flex items-center justify-center gap-1.5">
                     <span>{t("inventoryLive.lastCompanyPurchase")}</span>
                     <HeaderHelp
-                      text={t(
-                        "inventoryLive.lastCompanyPurchaseHint",
-                      )}
+                      text={t("inventoryLive.lastCompanyPurchaseHint")}
                     />
                   </div>
                 </th>
@@ -429,14 +493,10 @@ export function Tab1LiveStock({
                   <div className="flex items-center justify-center gap-1.5">
                     <span>{t("inventoryLive.companyAverage")}</span>
                     <HeaderHelp
-                      text={t(
-                        "inventoryLive.companyAverageHint",
-                      )}
+                      text={t("inventoryLive.companyAverageHint")}
                     />
                   </div>
                 </th>
-
-
               </tr>
             </thead>
 
@@ -632,54 +692,62 @@ export function Tab1LiveStock({
                       </td>
 
                       <td className="px-4 py-3.5 text-center">
-                        <div className="font-black tabular-nums text-slate-900">
-                          {product.last_purchase_cost &&
-                          lastPurchaseUom
-                            ? formatMoneyExact(
+                        <div
+                          className="font-black tabular-nums text-slate-900"
+                          title={
+                            product.last_purchase_cost &&
+                            lastPurchaseUom
+                              ? `${formatMoneyExact(
+                                  product.last_purchase_cost,
+                                  product.currency_code,
+                                  locale,
+                                )} · ${t(
+                                  "inventoryLive.perUnit",
+                                  { unit: lastPurchaseUom },
+                                )}${
+                                  product.last_purchase_date
+                                    ? ` · ${formatDate(
+                                        product.last_purchase_date,
+                                      )}`
+                                    : ""
+                                }`
+                              : undefined
+                          }
+                        >
+                          {product.last_purchase_cost
+                            ? formatMoneyDisplay(
                                 product.last_purchase_cost,
                                 product.currency_code,
                                 locale,
                               )
                             : "—"}
                         </div>
-                        {product.last_purchase_cost &&
-                          lastPurchaseUom && (
-                            <div className="mt-0.5 text-[10px] font-bold text-slate-500">
-                              {t(
-                                "inventoryLive.perUnit",
-                                {
-                                  unit: lastPurchaseUom,
-                                },
-                              )}
-                              {product.last_purchase_date
-                                ? ` · ${formatDate(
-                                    product.last_purchase_date,
-                                  )}`
-                                : ""}
-                            </div>
-                          )}
                       </td>
 
                       <td className="px-4 py-3.5 text-center">
-                        <div className="font-black tabular-nums text-slate-900">
+                        <div
+                          className="font-black tabular-nums text-slate-900"
+                          title={
+                            product.average_cost_display
+                              ? `${formatMoneyExact(
+                                  product.average_cost_display,
+                                  product.currency_code,
+                                  locale,
+                                )} · ${t(
+                                  "inventoryLive.perUnit",
+                                  { unit: displayName },
+                                )}`
+                              : undefined
+                          }
+                        >
                           {product.average_cost_display
-                            ? formatMoneyExact(
+                            ? formatMoneyDisplay(
                                 product.average_cost_display,
                                 product.currency_code,
                                 locale,
                               )
                             : "—"}
                         </div>
-                        {product.average_cost_display && (
-                          <div className="mt-0.5 text-[10px] font-bold text-slate-500">
-                            {t(
-                              "inventoryLive.perUnit",
-                              {
-                                unit: displayName,
-                              },
-                            )}
-                          </div>
-                        )}
                       </td>
 
 
