@@ -85,17 +85,6 @@ export function OperationsSidebar({
     useTenantIdentity();
   const location = useLocation();
 
-  const companyName =
-    tenantIdentity.data?.company_name ||
-    t("nav.companyPanel");
-  const companyCode =
-    tenantIdentity.data?.company_code ||
-    t("nav.operationsCenter");
-  const companyMark =
-    companyName
-      .trim()
-      .charAt(0)
-      .toUpperCase() || "W";
   const displayLocation =
     tenantIdentity.data?.display_location ||
     t("nav.locationUnknown");
@@ -260,24 +249,6 @@ export function OperationsSidebar({
           }
         `}
       >
-        <div
-          className="operations-brand"
-          aria-label={companyName}
-        >
-          <span className="operations-brand-mark">
-            {companyMark}
-          </span>
-          <span>
-            <strong>
-              {companyName}
-            </strong>
-            <small>
-              {companyCode}
-            </small>
-          </span>
-          <i aria-hidden="true" />
-        </div>
-
         <div
           className="sidebar-profile relative mb-6"
           ref={dropdownRef}

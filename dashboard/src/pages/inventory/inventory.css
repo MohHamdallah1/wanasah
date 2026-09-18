@@ -7,7 +7,10 @@
   --inventory-gold: #f5bd34;
   position: relative;
   isolation: isolate;
-  padding: clamp(0.25rem, 0.7vw, 0.75rem);
+  padding:
+    0
+    clamp(0.25rem, 0.7vw, 0.75rem)
+    clamp(0.25rem, 0.7vw, 0.75rem);
   border-radius: 1.75rem;
   background:
     radial-gradient(circle at 12% 0%, rgb(30 135 187 / 0.08), transparent 28rem),
@@ -1101,8 +1104,8 @@
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 4.45rem;
-  align-items: center;
+  min-height: 3.75rem;
+  align-items: flex-start;
   justify-content: center;
   overflow: visible;
   container-type: inline-size;
@@ -1115,43 +1118,39 @@
   pointer-events: none;
   background:
     radial-gradient(
-      46% 70% at 24% 30%,
-      rgb(58 95 125 / 0.12),
-      transparent 70%
-    ),
-    radial-gradient(
-      38% 64% at 78% 18%,
-      rgb(106 83 138 / 0.09),
+      52% 78% at 50% 0%,
+      rgb(45 170 220 / 0.14),
       transparent 72%
-    ),
-    radial-gradient(
-      32% 52% at 50% 8%,
-      rgb(57 126 118 / 0.08),
-      transparent 74%
     );
-  filter: blur(10px);
+  filter: blur(12px);
 }
 
 .inventory-top-dock__bar {
   position: relative;
   z-index: 1;
   display: flex;
-  width: max-content;
-  max-width: calc(100% - 1rem);
+  width: min(1120px, calc(100% - 1rem));
+  max-width: none;
   align-items: center;
   justify-content: center;
   padding: clamp(5px, 0.42cqw, 8px);
-  border: 1px solid rgb(255 255 255 / 0.045);
-  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 1.1rem;
   background:
+    radial-gradient(
+      circle at 8% 0%,
+      rgb(45 170 220 / 0.18),
+      transparent 18rem
+    ),
     linear-gradient(
-      180deg,
-      rgb(25 27 36 / 0.92),
-      rgb(12 13 18 / 0.9)
+      135deg,
+      #142844 0%,
+      #0d1b30 58%,
+      #10243d 100%
     );
   box-shadow:
-    0 22px 52px -24px rgb(0 0 0 / 0.72),
-    inset 0 1px rgb(255 255 255 / 0.045);
+    0 18px 45px -28px rgb(15 31 54 / 0.9),
+    inset 0 1px rgb(255 255 255 / 0.08);
   backdrop-filter: blur(22px) saturate(150%);
   -webkit-backdrop-filter: blur(22px) saturate(150%);
 }
@@ -1178,7 +1177,7 @@
   border: 1px solid transparent;
   border-radius: 999px;
   outline: none;
-  color: #9b9fae;
+  color: #c9d6e5;
   background: transparent;
   font-size: clamp(0.75rem, 0.78cqw, 0.86rem);
   font-weight: 600;
@@ -1199,24 +1198,23 @@
 .inventory-top-dock__item[data-dock-near="true"],
 .inventory-top-dock__item:hover,
 .inventory-top-dock__item:focus-visible {
-  color: #f4f5f9;
-  border-color: rgb(255 255 255 / 0.055);
-  background: rgb(255 255 255 / 0.055);
+  color: #fff;
+  border-color: rgb(255 255 255 / 0.12);
+  background: rgb(255 255 255 / 0.08);
   box-shadow:
-    0 8px 20px -14px rgb(0 0 0 / 0.9),
-    inset 0 1px rgb(255 255 255 / 0.05);
-  backdrop-filter: blur(18px) saturate(170%);
-  -webkit-backdrop-filter: blur(18px) saturate(170%);
+    0 8px 20px -14px rgb(0 0 0 / 0.6),
+    inset 0 1px rgb(255 255 255 / 0.08);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
 }
 
 .inventory-top-dock__item[aria-selected="true"] {
-  color: #0a0b10;
+  color: #13233a;
   border-color: transparent;
-  background:
-    linear-gradient(180deg, #fff, #dfe3ef);
+  background: var(--inventory-gold);
   box-shadow:
-    0 10px 24px -12px rgb(120 150 255 / 0.58),
-    inset 0 -1px rgb(0 0 0 / 0.14);
+    0 8px 22px -14px rgb(245 189 52 / 0.95),
+    inset 0 -1px rgb(0 0 0 / 0.12);
 }
 
 .inventory-top-dock__icon {
@@ -1254,6 +1252,7 @@
     overflow-x: auto;
     overflow-y: visible;
     scrollbar-width: none;
+    width: max-content;
   }
 
   .inventory-top-dock-component::-webkit-scrollbar {

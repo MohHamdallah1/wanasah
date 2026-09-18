@@ -606,3 +606,28 @@
     transform: rotate(360deg);
   }
 }
+
+@media (min-width: 1024px) {
+  .dashboard-shell {
+    /* RTL: inline-start هو جهة اليمين */
+    padding-block: 0 !important;
+    padding-inline-start: 0 !important;
+    column-gap: 0.75rem;
+  }
+
+  .operations-sidebar {
+    top: 0 !important;
+    height: 100vh !important;
+
+    /* الحافة اليمنى ملتصقة، واليسرى فقط مدورة */
+    border-radius: 0rem 0 0 0rem !important;
+
+    border-top: 0 !important;
+    border-right: 0 !important;
+    border-bottom: 0 !important;
+  }
+
+  .dashboard-main-stage {
+    padding-block: 1rem;
+  }
+}
