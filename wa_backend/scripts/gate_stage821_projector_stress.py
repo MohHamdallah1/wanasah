@@ -31,10 +31,26 @@ NOISE_COMPANY_PREFIX = "PERFNOISE-"
 APP_URL = os.environ["DATABASE_URL"]
 MIGRATION_URL = os.environ["DATABASE_URL_MIGRATION"]
 
+# Aggregate production-equivalent DB budget:
+# 4 workers × (8 steady + 2 overflow) = 40 maximum PostgreSQL connections.
+STRESS_POOL_SIZE = int(os.environ.get("STAGE821_STRESS_POOL_SIZE", "32"))
+STRESS_MAX_OVERFLOW = int(
+    os.environ.get("STAGE821_STRESS_MAX_OVERFLOW", "8")
+)
+STRESS_DB_CONNECTION_CAP = STRESS_POOL_SIZE + STRESS_MAX_OVERFLOW
+if STRESS_DB_CONNECTION_CAP != 40:
+    raise RuntimeError(
+        "Stage 8.2.1 hard stress gate requires an aggregate DB cap of 40 "
+        f"connections; got {STRESS_DB_CONNECTION_CAP}."
+    )
+
 engine_app = create_async_engine(
     APP_URL,
-    pool_size=40,
-    max_overflow=40,
+    pool_size=STRESS_POOL_SIZE,
+    max_overflow=STRESS_MAX_OVERFLOW,
+    pool_timeout=3,
+    pool_recycle=1800,
+    pool_use_lifo=True,
     pool_pre_ping=True,
 )
 engine_su = create_async_engine(
@@ -320,6 +336,16 @@ async def load_balance_impact_metadata(
     }
 
 
+async def _acquire_profiled_connection(session) -> None:
+    started = time.perf_counter()
+    await session.connection()
+    bucket = SQL_BUCKET.get()
+    if bucket is not None:
+        bucket.append(
+            ("pool_wait", (time.perf_counter() - started) * 1000)
+        )
+
+
 async def refresh_once(
     company_id: int,
     location_id: int,
@@ -328,6 +354,7 @@ async def refresh_once(
     started = time.perf_counter()
     async with SessionApp() as app:
         await app.begin()
+        await _acquire_profiled_connection(app)
         await set_tenant(app, company_id)
         await refresh_live_stock_keys(
             app,
@@ -601,6 +628,7 @@ async def timed_mutation_pressure(
             try:
                 async with SessionApp() as app:
                     await app.begin()
+                    await _acquire_profiled_connection(app)
                     await set_tenant(app, company_id)
                     after = (
                         await app.execute(
@@ -681,6 +709,7 @@ async def hot_key_contention(
         try:
             async with SessionApp() as app:
                 await app.begin()
+                await _acquire_profiled_connection(app)
                 await set_tenant(app, company_id)
                 after = (
                     await app.execute(
