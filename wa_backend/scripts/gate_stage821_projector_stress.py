@@ -360,7 +360,7 @@ async def hot_key_contention(
     async with SessionApp() as app:
         await app.begin()
         await set_tenant(app, company_id)
-        truth = int(
+        balance_truth = int(
             (
                 await app.execute(
                     text(
@@ -374,6 +374,27 @@ async def hot_key_contention(
                     {
                         "company_id": company_id,
                         "balance_id": balance_id,
+                    },
+                )
+            ).scalar_one()
+        )
+        aggregate_truth = int(
+            (
+                await app.execute(
+                    text(
+                        """
+                        SELECT COALESCE(SUM(on_hand_quantity), 0)
+                        FROM inventory_balances
+                        WHERE company_id=:company_id
+                          AND location_id=:location_id
+                          AND product_variant_id=:variant_id
+                          AND stock_status='AVAILABLE'
+                        """
+                    ),
+                    {
+                        "company_id": company_id,
+                        "location_id": location_id,
+                        "variant_id": variant_id,
                     },
                 )
             ).scalar_one()
@@ -399,13 +420,13 @@ async def hot_key_contention(
             ).scalar_one()
         )
         await app.rollback()
-    if truth != original + workers:
+    if balance_truth != original + workers:
         errors.append(
-            f"HOT_KEY_TRUTH_MISMATCH:{truth}!={original + workers}"
+            f"HOT_KEY_TRUTH_MISMATCH:{balance_truth}!={original + workers}"
         )
-    if projected < truth:
+    if projected != aggregate_truth:
         errors.append(
-            f"HOT_KEY_PROJECTION_STALE:{projected}<{truth}"
+            f"HOT_KEY_PROJECTION_MISMATCH:{projected}!={aggregate_truth}"
         )
     return Metric("hot_key_contention", latencies), errors
 
@@ -827,9 +848,22 @@ async def run(args: argparse.Namespace) -> None:
                 location_id=args.location_id,
                 originals=originals,
             )
+            post_restore_mismatch = await projection_truth_mismatches(
+                company_id=args.company_id,
+                location_id=args.location_id,
+                variant_ids=[
+                    variant_id
+                    for variant_id, _quantity in originals.values()
+                ],
+            ) if originals else 0
             print(
-                f"RESTORE_OK balances={len(originals)}"
+                f"RESTORE_OK balances={len(originals)} "
+                f"mismatches={post_restore_mismatch}"
             )
+            if post_restore_mismatch:
+                failures.append(
+                    f"POST_RESTORE_PROJECTION_MISMATCHES:{post_restore_mismatch}"
+                )
         finally:
             await engine_app.dispose()
             await engine_su.dispose()
