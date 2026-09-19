@@ -112,7 +112,7 @@ def main() -> None:
         failures.append("SERVICES_SHARED_SELLABILITY_IMPORT_MISSING")
 
     expected_hooks = (
-        ("services", "apply_inventory_movements_batch", "refresh_live_stock_from_movement_specs", "INVENTORY_MOVEMENT_PROJECTOR_HOOK_MISSING"),
+        ("services", "apply_inventory_movements_batch", "apply_live_stock_balance_impacts", "INVENTORY_MOVEMENT_DELTA_PROJECTOR_HOOK_MISSING"),
         ("services", "change_product_batch_disposition", "refresh_live_stock_variants", "BATCH_DISPOSITION_PROJECTOR_HOOK_MISSING"),
         ("catalog", "_run_variant_state_command", "refresh_live_stock_variants", "LIFECYCLE_PROJECTOR_HOOK_MISSING"),
         ("catalog", "_run_variant_state_command", "apply_live_stock_active_variant_delta", "ACTIVE_VARIANT_SUMMARY_HOOK_MISSING"),
@@ -178,6 +178,7 @@ def main() -> None:
     required_projector_functions = {
         "refresh_live_stock_keys",
         "refresh_live_stock_variants",
+        "apply_live_stock_balance_impacts",
         "refresh_live_stock_from_movement_specs",
         "refresh_live_stock_vehicle_attribution",
         "refresh_due_live_stock_transitions",
@@ -245,17 +246,35 @@ def main() -> None:
 
     checks += 1
     movement_source = sources["projector"]
-    movement_start = movement_source.find(
-        "async def refresh_live_stock_from_movement_specs"
+    delta_start = movement_source.find(
+        "async def apply_live_stock_balance_impacts"
     )
-    movement_end = movement_source.find(
-        "async def refresh_live_stock_vehicle_attribution", movement_start
+    delta_end = movement_source.find(
+        "async def refresh_live_stock_from_movement_specs",
+        delta_start,
     )
-    movement_block = movement_source[movement_start:movement_end]
-    if "_acquire_variant_guards(" in movement_block:
+    delta_block = movement_source[delta_start:delta_end]
+    if "_acquire_variant_guards(" in delta_block:
         failures.append("REDUNDANT_MOVEMENT_VARIANT_GUARD_PRESENT")
-    if "acquire_live_stock_vehicle_guards(" not in movement_block:
+    if "acquire_live_stock_vehicle_guards(" not in delta_block:
         failures.append("MOVEMENT_VEHICLE_GUARD_MISSING")
+    if (
+        "batch_metadata_is_sellable(" not in delta_block
+        or "batch_next_transition_date(" not in delta_block
+        or "fallback_keys" not in delta_block
+        or "_apply_warehouse_summary_deltas(" not in delta_block
+    ):
+        failures.append("MOVEMENT_DELTA_CORRECTNESS_FALLBACK_MISSING")
+
+    checks += 1
+    services_movement = sources["services"][
+        sources["services"].find("async def apply_inventory_movements_batch"):
+        sources["services"].find("async def apply_inventory_movement")
+    ]
+    if "refresh_live_stock_from_movement_specs(" in services_movement:
+        failures.append("MOVEMENT_HOT_PATH_STILL_REAGGREGATES")
+    if "projection_impacts" not in services_movement:
+        failures.append("MOVEMENT_IMPACT_SNAPSHOTS_NOT_PROJECTED")
 
     checks += 1
     attribution_source = movement_source[
@@ -270,7 +289,7 @@ def main() -> None:
     checks += 1
     variant_refresh_source = projector_source[
         projector_source.find("async def refresh_live_stock_variants"):
-        projector_source.find("async def refresh_live_stock_from_movement_specs")
+        projector_source.find("async def apply_live_stock_balance_impacts")
     ]
     if "_acquire_variant_guards(" not in variant_refresh_source:
         failures.append("VARIANT_DISCOVERY_GUARD_MISSING")
