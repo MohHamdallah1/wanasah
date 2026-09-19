@@ -1446,6 +1446,7 @@ class WarehouseInventoryCursorPage(BaseModel):
 
 class WarehouseInventorySummaryResponse(BaseModel):
     stock_total: int = Field(ge=0)
+    alert_count: int = Field(ge=0)
 
 
 class WarehouseInventoryAlertSummaryResponse(BaseModel):

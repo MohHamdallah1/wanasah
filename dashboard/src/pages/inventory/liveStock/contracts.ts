@@ -132,6 +132,11 @@ export interface WarehouseInventoryCursorPage {
   alert_samples: string[];
 }
 
+export interface WarehouseInventorySummary {
+  stock_total: number;
+  alert_count: number;
+}
+
 export interface WarehouseInventoryAlertSummary {
   alert_count: number;
 }
@@ -325,10 +330,15 @@ export function parseLiveStockPage(
   };
 }
 
-export function parseLiveStockSummary(raw: unknown): { stock_total: number } {
+export function parseLiveStockSummary(
+  raw: unknown,
+): WarehouseInventorySummary {
   const code = "LIVE_STOCK_RESPONSE_INVALID";
   const payload = record(raw, code);
-  return { stock_total: int(payload.stock_total, code) };
+  return {
+    stock_total: int(payload.stock_total, code),
+    alert_count: int(payload.alert_count, code),
+  };
 }
 
 export function parseLiveStockAlertSummary(

@@ -40,6 +40,7 @@ from models import Driver  # noqa: E402
 from api.warehouse import (  # noqa: E402
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
+    get_warehouse_inventory_summary,
 )
 
 CAPTURE: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
@@ -162,6 +163,12 @@ async def run_scenario(
         )
     if scenario == "alerts":
         return await get_warehouse_inventory_alert_summary(
+            location_id=location_id,
+            db=db,
+            current_admin=driver,
+        )
+    if scenario == "summary":
+        return await get_warehouse_inventory_summary(
             location_id=location_id,
             db=db,
             current_admin=driver,
@@ -426,7 +433,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--location-id", type=int, required=True)
     parser.add_argument(
         "--scenario",
-        choices=("live", "alerts", "only-alerts", "search"),
+        choices=("live", "alerts", "summary", "only-alerts", "search"),
         default="live",
     )
     parser.add_argument("--limit", type=int, choices=(50, 100, 200), default=50)
@@ -436,8 +443,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if not 1 <= args.top <= 8:
         parser.error("--top must be between 1 and 8")
-    if args.scenario == "alerts" and args.cursor_page != 1:
-        parser.error("alerts summary has no cursor pages")
+    if args.scenario in {"alerts", "summary"} and args.cursor_page != 1:
+        parser.error("summary scenarios have no cursor pages")
     return args
 
 

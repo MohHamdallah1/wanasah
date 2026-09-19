@@ -124,9 +124,13 @@ async def main():
             expected={v.id for v in variants}|{active.id,stored.id,carried.id}
             assert len(all_ids)==len(set(all_ids)) and set(all_ids)==expected
             checks+=6
-            assert (await w.get_warehouse_inventory_summary(wh.id,db,actor))["stock_total"]==len(expected)
-            assert (await w.get_warehouse_inventory_summary(wh.id,db,admin))["stock_total"]==len(expected)+1
-            checks+=2
+            actor_summary=await w.get_warehouse_inventory_summary(wh.id,db,actor)
+            admin_summary=await w.get_warehouse_inventory_summary(wh.id,db,admin)
+            assert actor_summary["stock_total"]==len(expected)
+            assert admin_summary["stock_total"]==len(expected)+1
+            assert actor_summary["alert_count"]==0
+            assert admin_summary["alert_count"]==0
+            checks+=4
             other_page,_=await page(location=other,search="retired")
             assert {x["id"] for x in other_page["items"]}=={elsewhere.id};checks+=1
             for endpoint in [w.get_warehouse_inventory_summary,w.get_warehouse_inventory_alert_summary]:
@@ -149,12 +153,14 @@ async def main():
                     if not data["has_more"]:break
                     cursor=data["next_cursor"]
                 assert ids==[variants[i].id for i in sorted(selected)],name
-                summary=await w.get_warehouse_inventory_alert_summary(wh.id,db,actor)
+                summary=await w.get_warehouse_inventory_summary(wh.id,db,actor)
+                legacy_summary=await w.get_warehouse_inventory_alert_summary(wh.id,db,actor)
                 assert summary["alert_count"]==len(selected),name
+                assert legacy_summary["alert_count"]==summary["alert_count"],name
                 # Verify SKU search semantics as well as names and cursor paging.
                 data,_=await page(alerts=True,search="Fixture 0239")
                 assert len(data["items"])==int(239 in selected)
-                checks+=3
+                checks+=4
             await db.rollback()
             tenant_context.reset(token)
         print(f"CORRECTNESS_EQUIVALENCE=PASS CHECKS={checks} SQL_COUNTS={counts} FIXTURES=ROLLED_BACK")

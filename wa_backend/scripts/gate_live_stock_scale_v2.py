@@ -55,7 +55,7 @@ from models import Company, Driver, InventoryBalance, InventoryStockPolicy, Prod
 from api.auth import create_access_token  # noqa: E402
 from api.warehouse import (  # noqa: E402
     get_warehouse_inventory,
-    get_warehouse_inventory_alert_summary,
+    get_warehouse_inventory_summary,
 )
 from main import app  # noqa: E402
 
@@ -203,9 +203,9 @@ async def main_page_call(location_id: int, limit: int):
         )
     return _call
 
-async def alert_summary_call(location_id: int):
+async def inventory_summary_call(location_id: int):
     async def _call(db, driver):
-        return await get_warehouse_inventory_alert_summary(
+        return await get_warehouse_inventory_summary(
             location_id=location_id,
             db=db,
             current_admin=driver,
@@ -387,22 +387,31 @@ async def http_load(
         headers=headers,
         timeout=30.0,
     ) as client:
-        async def one(index: int):
+        async def one_refresh(index: int):
             async with sem:
-                path = (
-                    f"/warehouse/inventory/alerts/summary?location_id={location_id}"
-                    if index % 5 == 0
-                    else f"/warehouse/inventory/cursor?location_id={location_id}&limit=50"
+                list_path = (
+                    f"/warehouse/inventory/cursor?"
+                    f"location_id={location_id}&limit=50"
+                )
+                summary_path = (
+                    f"/warehouse/inventory/summary?"
+                    f"location_id={location_id}"
                 )
                 started = time.perf_counter()
-                response = await client.get(path)
+                list_response, summary_response = await asyncio.gather(
+                    client.get(list_path),
+                    client.get(summary_path),
+                )
                 latencies.append((time.perf_counter() - started) * 1000)
-                statuses.append(response.status_code)
+                statuses.extend(
+                    [list_response.status_code, summary_response.status_code]
+                )
 
-        await asyncio.gather(*(one(i) for i in range(requests)))
+        await asyncio.gather(*(one_refresh(i) for i in range(requests)))
 
     return {
-        "requests": requests,
+        "refreshes": requests,
+        "http_requests": requests * 2,
         "concurrency": concurrency,
         "p50_ms": percentile(latencies, 0.50),
         "p95_ms": percentile(latencies, 0.95),
@@ -444,7 +453,7 @@ async def async_main(args: argparse.Namespace) -> None:
     scenarios: list[tuple[str, Callable[[Any, Driver], Awaitable[dict[str, Any]]], float]] = []
     scenarios.append(("live_50", await main_page_call(args.location_id, 50), args.max_live_p95))
     scenarios.append(("live_200", await main_page_call(args.location_id, 200), args.max_live_p95))
-    scenarios.append(("alerts_summary", await alert_summary_call(args.location_id), args.max_alert_p95))
+    scenarios.append(("inventory_summary", await inventory_summary_call(args.location_id), args.max_summary_p95))
     scenarios.append(("only_alerts_50", await only_alerts_call(args.location_id, 50), args.max_alert_p95))
     scenarios.append(("search_50", await search_call(args.location_id, 50, args.search), args.max_search_p95))
     page_2_cursor = await get_first_cursor(
@@ -536,6 +545,7 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--max-live-p95", type=float, default=150.0)
     parser.add_argument("--max-alert-p95", type=float, default=200.0)
+    parser.add_argument("--max-summary-p95", type=float, default=200.0)
     parser.add_argument("--max-search-p95", type=float, default=250.0)
     parser.add_argument("--max-http-p95", type=float, default=500.0)
 
