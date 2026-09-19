@@ -538,18 +538,6 @@ async def create_variant(
         )
         db.add(row)
         await db.flush()
-        is_active_now = row.lifecycle_status == "ACTIVE"
-        if was_active != is_active_now:
-            await apply_live_stock_active_variant_delta(
-                db,
-                company_id=actor.company_id,
-                delta=1 if is_active_now else -1,
-            )
-        await refresh_live_stock_variants(
-            db,
-            company_id=actor.company_id,
-            variant_ids=[row.id],
-        )
         uom = await db.get(UOM, row.base_uom_id)
         response = {"message": "تم إنشاء SKU بحالة مسودة دون سعر أو ربط مستودع.", "variant": _variant_row(row, uom)}
         _audit(db, actor, f"ProductVariant_{row.id}", "CATALOG_VARIANT_CREATED", None, response["variant"])
@@ -974,6 +962,18 @@ async def _run_variant_state_command(
             after=after,
         )
         await db.flush()
+        is_active_now = row.lifecycle_status == "ACTIVE"
+        if was_active != is_active_now:
+            await apply_live_stock_active_variant_delta(
+                db,
+                company_id=actor.company_id,
+                delta=1 if is_active_now else -1,
+            )
+        await refresh_live_stock_variants(
+            db,
+            company_id=actor.company_id,
+            variant_ids=[row.id],
+        )
         uom = await db.get(UOM, row.base_uom_id)
         response = {"message": message, "variant": _variant_row(row, uom)}
         complete_idempotent_operation(idem, response)
