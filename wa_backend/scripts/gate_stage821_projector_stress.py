@@ -216,6 +216,38 @@ async def refresh_once(
     return (time.perf_counter() - started) * 1000
 
 
+async def bulk_refresh_with_lock_count(
+    company_id: int,
+    location_id: int,
+    variant_ids: list[int],
+) -> tuple[float, int]:
+    started = time.perf_counter()
+    async with SessionApp() as app:
+        await app.begin()
+        await set_tenant(app, company_id)
+        await refresh_live_stock_keys(
+            app,
+            company_id=company_id,
+            keys=[(location_id, variant_id) for variant_id in variant_ids],
+        )
+        advisory_locks = int(
+            (
+                await app.execute(
+                    text(
+                        """
+                        SELECT count(*)
+                        FROM pg_locks
+                        WHERE pid = pg_backend_pid()
+                          AND locktype = 'advisory'
+                        """
+                    )
+                )
+            ).scalar_one()
+        )
+        await app.commit()
+    return (time.perf_counter() - started) * 1000, advisory_locks
+
+
 async def timed_parallel_refreshes(
     *,
     company_id: int,
@@ -670,15 +702,23 @@ async def run(args: argparse.Namespace) -> None:
 
     try:
         # Cold-ish 10k-key materialization / refresh.
-        bulk_ms = await refresh_once(
+        bulk_ms, bulk_advisory_locks = await bulk_refresh_with_lock_count(
             args.company_id,
             args.location_id,
             variants,
         )
-        print(f"bulk_{len(variants)}={bulk_ms:.1f}ms")
+        print(
+            f"bulk_{len(variants)}={bulk_ms:.1f}ms "
+            f"advisory_locks={bulk_advisory_locks}"
+        )
         if bulk_ms > args.max_bulk_ms:
             failures.append(
                 f"BULK_REFRESH:{bulk_ms:.1f}>{args.max_bulk_ms:.1f}"
+            )
+        if bulk_advisory_locks > args.max_bulk_advisory_locks:
+            failures.append(
+                f"BULK_ADVISORY_LOCKS:{bulk_advisory_locks}"
+                f">{args.max_bulk_advisory_locks}"
             )
 
         # Warm the exact paths before collecting percentiles.
@@ -868,7 +908,7 @@ async def run(args: argparse.Namespace) -> None:
             await engine_app.dispose()
             await engine_su.dispose()
 
-    print("CHECKS=12")
+    print("CHECKS=13")
     print(f"FAILURES={len(failures)}")
     for failure in failures:
         print("FAIL: " + failure)
@@ -903,6 +943,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--correctness-samples", type=int, default=500)
 
     parser.add_argument("--max-bulk-ms", type=float, default=8000.0)
+    parser.add_argument("--max-bulk-advisory-locks", type=int, default=4)
     parser.add_argument("--max-single-p95", type=float, default=75.0)
     parser.add_argument("--max-batch100-p95", type=float, default=350.0)
     parser.add_argument("--max-parallel-p95", type=float, default=900.0)
