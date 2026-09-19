@@ -24,6 +24,9 @@ from domains.pricing.publishing import (
     publish_publication,
 )
 from domains.pricing.resolver import resolve_prices_bulk
+from domains.live_stock_projection.service import (
+    apply_live_stock_active_variant_delta,
+)
 from models import (
     Company,
     Driver,
@@ -1014,6 +1017,12 @@ async def create_product_structures(
         result.append((variant, spec, prices, shape))
 
     await db.flush()
+    if result:
+        await apply_live_stock_active_variant_delta(
+            db,
+            company_id=int(actor.company_id),
+            delta=len(result),
+        )
     return result
 
 
