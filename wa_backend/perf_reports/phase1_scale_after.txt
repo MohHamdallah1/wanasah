@@ -1,0 +1,17 @@
+DATASET={"companies": 115, "company_variants": 10121, "global_variants": 110187, "location_balances": 14938, "location_policies": 10120, "noise_variants": 100000}
+live_50: p50=722.3ms p95=791.0ms p99=816.7ms max=826.8ms sql_p95=778.2ms sql_statements=11..11 samples=30
+live_200: p50=200.4ms p95=237.5ms p99=266.4ms max=277.9ms sql_p95=207.9ms sql_statements=11..11 samples=30
+alerts_summary: p50=78.0ms p95=93.4ms p99=97.2ms max=98.3ms sql_p95=90.0ms sql_statements=6..6 samples=30
+only_alerts_50: p50=785.8ms p95=973.4ms p99=992.9ms max=993.5ms sql_p95=948.9ms sql_statements=11..11 samples=30
+search_50: p50=738.2ms p95=851.3ms p99=888.5ms max=902.3ms sql_p95=827.0ms sql_statements=11..11 samples=30
+cursor_page_2: p50=705.5ms p95=831.7ms p99=1034.1ms max=1112.7ms sql_p95=814.7ms sql_statements=11..11 samples=30
+HTTP_LOAD={"concurrency": 20, "errors": 0, "max_ms": 1370.954999991227, "p50_ms": 529.7967499936931, "p95_ms": 1337.2720750048757, "p99_ms": 1357.9693679977208, "requests": 100}
+CHECKS=19
+FAILURES=6
+FAIL: live_50:P95:791.0>150.0
+FAIL: live_200:P95:237.5>150.0
+FAIL: only_alerts_50:P95:973.4>200.0
+FAIL: search_50:P95:851.3>250.0
+FAIL: cursor_page_2:P95:831.7>150.0
+FAIL: HTTP_LOAD_P95:1337.3>500.0
+LIVE_STOCK_SCALE_GATE=FAIL
