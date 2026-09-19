@@ -18,6 +18,7 @@ engine = create_async_engine(
     max_overflow=Config.SQLALCHEMY_ENGINE_OPTIONS.get("max_overflow", 20),
     pool_recycle=Config.SQLALCHEMY_ENGINE_OPTIONS["pool_recycle"],
     pool_timeout=Config.SQLALCHEMY_ENGINE_OPTIONS["pool_timeout"],
+    pool_use_lifo=Config.SQLALCHEMY_ENGINE_OPTIONS.get("pool_use_lifo", True),
     pool_pre_ping=True, # +++ الدرع المعماري (الحارس الآلي): فحص نبض الاتصال قبل سحبه لمنع كراش (Connection is closed) +++
     echo=False # غيرها لـ True فقط إذا أردت رؤية استعلامات SQL في التيرمنال
 )
