@@ -462,7 +462,9 @@ async def bulk_refresh_with_lock_count(
     return (time.perf_counter() - started) * 1000, advisory_locks
 
 
-async def load_noise_keys(limit: int) -> list[tuple[int, int, int]]:
+async def load_noise_mutation_samples(
+    limit: int,
+) -> list[dict[str, object]]:
     async with SessionSU() as su:
         await su.begin()
         rows = (
@@ -472,7 +474,22 @@ async def load_noise_keys(limit: int) -> list[tuple[int, int, int]]:
                     SELECT DISTINCT ON (c.id)
                         c.id AS company_id,
                         l.id AS location_id,
-                        v.id AS variant_id
+                        l.location_type,
+                        l.vehicle_id,
+                        v.id AS product_variant_id,
+                        v.name AS variant_name,
+                        v.lifecycle_status,
+                        v.operational_hold,
+                        v.expiry_control_mode,
+                        b.id AS balance_id,
+                        b.batch_id,
+                        b.stock_status,
+                        b.on_hand_quantity,
+                        b.reserved_quantity,
+                        pb.is_active AS batch_is_active,
+                        pb.disposition AS batch_disposition,
+                        pb.production_date,
+                        pb.expiry_date
                     FROM companies c
                     JOIN inventory_locations l
                       ON l.company_id=c.id
@@ -481,8 +498,17 @@ async def load_noise_keys(limit: int) -> list[tuple[int, int, int]]:
                      AND l.is_active IS TRUE
                     JOIN product_variants v
                       ON v.company_id=c.id
+                    JOIN inventory_balances b
+                      ON b.company_id=c.id
+                     AND b.location_id=l.id
+                     AND b.product_variant_id=v.id
+                     AND b.stock_status='AVAILABLE'
+                    JOIN product_batches pb
+                      ON pb.company_id=b.company_id
+                     AND pb.product_variant_id=b.product_variant_id
+                     AND pb.id=b.batch_id
                     WHERE c.company_code LIKE :prefix
-                    ORDER BY c.id, v.id
+                    ORDER BY c.id, v.id, b.id
                     LIMIT :limit
                     """
                 ),
@@ -491,71 +517,293 @@ async def load_noise_keys(limit: int) -> list[tuple[int, int, int]]:
                     "limit": limit,
                 },
             )
-        ).all()
+        ).mappings().all()
         await su.rollback()
-    return [
-        (
-            int(row.company_id),
-            int(row.location_id),
-            int(row.variant_id),
-        )
-        for row in rows
-    ]
+    return [dict(row) for row in rows]
 
 
-async def timed_cross_tenant_refreshes(
+def _impact_from_noise_sample(
+    sample: dict[str, object],
     *,
-    samples: list[tuple[int, int, int]],
+    on_hand_before: int,
+    on_hand_after: int,
+) -> dict[str, object]:
+    return {
+        "inventory_balance_id": int(sample["balance_id"]),
+        "location_id": int(sample["location_id"]),
+        "location_type": str(sample["location_type"]),
+        "vehicle_id": sample["vehicle_id"],
+        "product_variant_id": int(sample["product_variant_id"]),
+        "batch_id": int(sample["batch_id"]),
+        "stock_status": str(sample["stock_status"]),
+        "on_hand_before": on_hand_before,
+        "on_hand_after": on_hand_after,
+        "reserved_before": sample["reserved_quantity"],
+        "reserved_after": sample["reserved_quantity"],
+        "variant_name": str(sample["variant_name"]),
+        "lifecycle_status": str(sample["lifecycle_status"]),
+        "operational_hold": str(sample["operational_hold"]),
+        "expiry_control_mode": str(sample["expiry_control_mode"]),
+        "batch_is_active": bool(sample["batch_is_active"]),
+        "batch_disposition": str(sample["batch_disposition"]),
+        "production_date": sample["production_date"],
+        "expiry_date": sample["expiry_date"],
+    }
+
+
+async def _cross_tenant_projection_mismatches(
+    samples: list[dict[str, object]],
+) -> int:
+    if not samples:
+        return 0
+    company_ids = [int(sample["company_id"]) for sample in samples]
+    location_ids = [int(sample["location_id"]) for sample in samples]
+    variant_ids = [
+        int(sample["product_variant_id"]) for sample in samples
+    ]
+    async with SessionSU() as su:
+        await su.begin()
+        mismatches = int(
+            (
+                await su.execute(
+                    text(
+                        """
+                        WITH sample AS (
+                            SELECT *
+                            FROM unnest(
+                                CAST(:company_ids AS integer[]),
+                                CAST(:location_ids AS integer[]),
+                                CAST(:variant_ids AS integer[])
+                            ) AS s(
+                                company_id,
+                                location_id,
+                                product_variant_id
+                            )
+                        ),
+                        truth AS (
+                            SELECT
+                                s.company_id,
+                                s.location_id,
+                                s.product_variant_id,
+                                COALESCE(
+                                    SUM(b.on_hand_quantity)
+                                        FILTER (
+                                            WHERE b.stock_status='AVAILABLE'
+                                        ),
+                                    0
+                                ) AS on_hand,
+                                COALESCE(
+                                    SUM(b.reserved_quantity)
+                                        FILTER (
+                                            WHERE b.stock_status='AVAILABLE'
+                                        ),
+                                    0
+                                ) AS reserved
+                            FROM sample s
+                            LEFT JOIN inventory_balances b
+                              ON b.company_id=s.company_id
+                             AND b.location_id=s.location_id
+                             AND b.product_variant_id=s.product_variant_id
+                            GROUP BY
+                                s.company_id,
+                                s.location_id,
+                                s.product_variant_id
+                        )
+                        SELECT count(*)
+                        FROM truth t
+                        LEFT JOIN inventory_live_stock_projection p
+                          ON p.company_id=t.company_id
+                         AND p.warehouse_location_id=t.location_id
+                         AND p.product_variant_id=t.product_variant_id
+                        WHERE p.product_variant_id IS NULL
+                           OR p.warehouse_on_hand <> t.on_hand
+                           OR p.warehouse_reserved <> t.reserved
+                           OR p.warehouse_sellable_on_hand <> t.on_hand
+                           OR p.warehouse_sellable_reserved <> t.reserved
+                        """
+                    ),
+                    {
+                        "company_ids": company_ids,
+                        "location_ids": location_ids,
+                        "variant_ids": variant_ids,
+                    },
+                )
+            ).scalar_one()
+        )
+        await su.rollback()
+    return mismatches
+
+
+async def timed_cross_tenant_mutations(
+    *,
+    samples: list[dict[str, object]],
     concurrency: int,
     operations: int,
 ) -> tuple[Metric, float, list[str]]:
-    if not samples:
-        raise RuntimeError("Cross-tenant refresh samples are empty.")
+    if len(samples) < operations:
+        raise RuntimeError(
+            "Cross-tenant mutation samples must be unique per operation."
+        )
 
+    work = samples[:operations]
     warm_sem = asyncio.Semaphore(min(20, concurrency))
 
-    async def warm(sample: tuple[int, int, int]) -> None:
-        company_id, location_id, variant_id = sample
+    async def warm(sample: dict[str, object]) -> None:
         async with warm_sem:
             await refresh_once(
-                company_id,
-                location_id,
-                [variant_id],
+                int(sample["company_id"]),
+                int(sample["location_id"]),
+                [int(sample["product_variant_id"])],
             )
 
-    warm_samples = samples[: min(len(samples), operations)]
-    await asyncio.gather(*(warm(sample) for sample in warm_samples))
+    await asyncio.gather(*(warm(sample) for sample in work))
 
     sem = asyncio.Semaphore(concurrency)
     latencies: list[float] = []
     errors: list[str] = []
     profiles: list[tuple[dict[str, float], float]] = []
+    committed: list[dict[str, object]] = []
 
-    async def one(index: int) -> None:
-        company_id, location_id, variant_id = samples[index % len(samples)]
+    async def mutate(sample: dict[str, object]) -> None:
         async with sem:
             bucket: list[tuple[str, float]] = []
             token = SQL_BUCKET.set(bucket)
+            started = time.perf_counter()
             try:
-                elapsed = await refresh_once(
-                    company_id,
-                    location_id,
-                    [variant_id],
-                )
+                async with SessionApp() as app:
+                    await app.begin()
+                    await _acquire_profiled_connection(app)
+                    company_id = int(sample["company_id"])
+                    await set_tenant(app, company_id)
+                    after = (
+                        await app.execute(
+                            text(
+                                """
+                                UPDATE inventory_balances
+                                SET on_hand_quantity=on_hand_quantity + 1,
+                                    last_updated=NOW()
+                                WHERE company_id=:company_id
+                                  AND id=:balance_id
+                                RETURNING on_hand_quantity,
+                                          reserved_quantity
+                                """
+                            ),
+                            {
+                                "company_id": company_id,
+                                "balance_id": int(sample["balance_id"]),
+                            },
+                        )
+                    ).one()
+                    await apply_live_stock_balance_impacts(
+                        app,
+                        company_id=company_id,
+                        impacts=[
+                            _impact_from_noise_sample(
+                                sample,
+                                on_hand_before=(
+                                    int(after.on_hand_quantity) - 1
+                                ),
+                                on_hand_after=int(after.on_hand_quantity),
+                            )
+                        ],
+                    )
+                    await app.commit()
+                elapsed = (time.perf_counter() - started) * 1000
                 latencies.append(elapsed)
                 profiles.append(_profile_operation(elapsed, bucket))
+                committed.append(sample)
             except Exception as exc:
                 errors.append(f"{type(exc).__name__}:{exc}")
             finally:
                 SQL_BUCKET.reset(token)
 
     started = time.perf_counter()
-    await asyncio.gather(*(one(i) for i in range(operations)))
+    await asyncio.gather(*(mutate(sample) for sample in work))
     total_s = time.perf_counter() - started
     throughput = operations / total_s if total_s > 0 else 0.0
-    _print_concurrent_profile("CROSS_TENANT_SQL_PROFILE", profiles)
+    _print_concurrent_profile(
+        "CROSS_TENANT_MUTATION_SQL_PROFILE",
+        profiles,
+    )
+
+    reaggregation_ops = sum(
+        1 for per_label, _outside in profiles if "facts" in per_label
+    )
+    if reaggregation_ops:
+        errors.append(
+            f"CROSS_TENANT_HOT_PATH_REAGGREGATION:{reaggregation_ops}"
+        )
+
+    mismatch = await _cross_tenant_projection_mismatches(committed)
+    if mismatch:
+        errors.append(
+            f"CROSS_TENANT_PROJECTION_MISMATCHES:{mismatch}"
+        )
+
+    restore_sem = asyncio.Semaphore(min(20, concurrency))
+
+    async def restore(sample: dict[str, object]) -> None:
+        async with restore_sem:
+            async with SessionApp() as app:
+                await app.begin()
+                company_id = int(sample["company_id"])
+                await set_tenant(app, company_id)
+                original = int(sample["on_hand_quantity"])
+                await app.execute(
+                    text(
+                        """
+                        UPDATE inventory_balances
+                        SET on_hand_quantity=:original,
+                            last_updated=NOW()
+                        WHERE company_id=:company_id
+                          AND id=:balance_id
+                        """
+                    ),
+                    {
+                        "original": original,
+                        "company_id": company_id,
+                        "balance_id": int(sample["balance_id"]),
+                    },
+                )
+                await apply_live_stock_balance_impacts(
+                    app,
+                    company_id=company_id,
+                    impacts=[
+                        _impact_from_noise_sample(
+                            sample,
+                            on_hand_before=original + 1,
+                            on_hand_after=original,
+                        )
+                    ],
+                )
+                await app.commit()
+
+    restore_results = await asyncio.gather(
+        *(restore(sample) for sample in committed),
+        return_exceptions=True,
+    )
+    restore_errors = [
+        result
+        for result in restore_results
+        if isinstance(result, Exception)
+    ]
+    if restore_errors:
+        errors.append(
+            f"CROSS_TENANT_RESTORE_ERRORS:{len(restore_errors)}:"
+            f"{restore_errors[0]}"
+        )
+
+    post_restore_mismatch = await _cross_tenant_projection_mismatches(
+        committed
+    )
+    if post_restore_mismatch:
+        errors.append(
+            "CROSS_TENANT_POST_RESTORE_MISMATCHES:"
+            f"{post_restore_mismatch}"
+        )
+
     return (
-        Metric("cross_tenant_refresh", latencies),
+        Metric("cross_tenant_mutation", latencies),
         throughput,
         errors,
     )
