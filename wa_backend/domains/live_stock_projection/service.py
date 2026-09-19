@@ -5,8 +5,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from sqlalchemy import and_, case, func, or_, select, text, tuple_, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.inventory_rules import batch_sellability_predicate
@@ -77,6 +77,52 @@ def _normalize_keys(
             f"projection key scope exceeds the safe limit of {_MAX_PROJECTOR_KEYS}."
         )
     return normalized
+
+
+def _array_membership(column, values: Sequence[int], bind_name: str):
+    if not values:
+        raise LiveStockProjectionError(
+            f"{bind_name} cannot be empty for array membership."
+        )
+    return column == any_(
+        bindparam(
+            bind_name,
+            value=list(values),
+            type_=ARRAY(Integer),
+        )
+    )
+
+
+def _projection_key_scope(
+    keys: Sequence[tuple[int, int]],
+    *,
+    name: str,
+):
+    if not keys:
+        raise LiveStockProjectionError(
+            f"{name} cannot be empty for projection key scope."
+        )
+    warehouse_ids = [warehouse_id for warehouse_id, _variant_id in keys]
+    variant_ids = [variant_id for _warehouse_id, variant_id in keys]
+    return (
+        func.unnest(
+            bindparam(
+                f"{name}_warehouse_ids",
+                value=warehouse_ids,
+                type_=ARRAY(Integer),
+            ),
+            bindparam(
+                f"{name}_variant_ids",
+                value=variant_ids,
+                type_=ARRAY(Integer),
+            ),
+        )
+        .table_valued(
+            "warehouse_location_id",
+            "product_variant_id",
+        )
+        .render_derived(name=f"{name}_keys")
+    )
 
 
 async def _acquire_text_guards(
@@ -205,7 +251,11 @@ async def get_live_stock_vehicle_sources(
             )
             .where(
                 DispatchRoute.company_id == company_id,
-                DispatchRoute.vehicle_id.in_(ids),
+                _array_membership(
+                    DispatchRoute.vehicle_id,
+                    ids,
+                    "live_stock_vehicle_source_ids",
+                ),
             )
             .distinct(DispatchRoute.vehicle_id)
             .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
@@ -398,7 +448,11 @@ async def refresh_live_stock_keys(
             await db.execute(
                 select(InventoryLocation.id).where(
                     InventoryLocation.company_id == company_id,
-                    InventoryLocation.id.in_(warehouse_ids),
+                    _array_membership(
+                        InventoryLocation.id,
+                        warehouse_ids,
+                        "live_stock_warehouse_ids",
+                    ),
                     InventoryLocation.location_type == "WAREHOUSE",
                 )
             )
@@ -412,7 +466,11 @@ async def refresh_live_stock_keys(
             await db.execute(
                 select(ProductVariant).where(
                     ProductVariant.company_id == company_id,
-                    ProductVariant.id.in_(variant_ids),
+                    _array_membership(
+                        ProductVariant.id,
+                        variant_ids,
+                        "live_stock_variant_ids",
+                    ),
                 )
             )
         ).scalars().all()
@@ -423,6 +481,15 @@ async def refresh_live_stock_keys(
         for key in normalized_keys
         if key[0] in warehouses and key[1] in variants
     ]
+    active_key_scope = (
+        _projection_key_scope(active_keys, name="live_stock_active")
+        if active_keys
+        else None
+    )
+    normalized_key_scope = _projection_key_scope(
+        normalized_keys,
+        name="live_stock_requested",
+    )
     await _ensure_warehouse_summaries(
         db,
         company_id=company_id,
@@ -436,13 +503,20 @@ async def refresh_live_stock_keys(
                 InventoryStockPolicy.product_variant_id,
                 InventoryStockPolicy.minimum_quantity,
                 InventoryStockPolicy.minimum_remaining_shelf_life_days,
-            ).where(
+            )
+            .select_from(InventoryStockPolicy)
+            .join(
+                active_key_scope,
+                and_(
+                    active_key_scope.c.warehouse_location_id
+                    == InventoryStockPolicy.location_id,
+                    active_key_scope.c.product_variant_id
+                    == InventoryStockPolicy.product_variant_id,
+                ),
+            )
+            .where(
                 InventoryStockPolicy.company_id == company_id,
                 InventoryStockPolicy.is_active.is_(True),
-                tuple_(
-                    InventoryStockPolicy.location_id,
-                    InventoryStockPolicy.product_variant_id,
-                ).in_(active_keys),
             )
         )
     ).all() if active_keys else []
@@ -602,6 +676,15 @@ async def refresh_live_stock_keys(
             )
             .select_from(InventoryBalance)
             .join(
+                active_key_scope,
+                and_(
+                    active_key_scope.c.warehouse_location_id
+                    == InventoryBalance.location_id,
+                    active_key_scope.c.product_variant_id
+                    == InventoryBalance.product_variant_id,
+                ),
+            )
+            .join(
                 ProductBatch,
                 and_(
                     ProductBatch.company_id == InventoryBalance.company_id,
@@ -631,10 +714,6 @@ async def refresh_live_stock_keys(
             )
             .where(
                 InventoryBalance.company_id == company_id,
-                tuple_(
-                    InventoryBalance.location_id,
-                    InventoryBalance.product_variant_id,
-                ).in_(active_keys),
             )
             .group_by(
                 InventoryBalance.location_id,
@@ -686,13 +765,18 @@ async def refresh_live_stock_keys(
                 latest_route,
                 latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
             )
+            .join(
+                active_key_scope,
+                and_(
+                    active_key_scope.c.warehouse_location_id
+                    == latest_route.c.source_location_id,
+                    active_key_scope.c.product_variant_id
+                    == InventoryBalance.product_variant_id,
+                ),
+            )
             .where(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.stock_status != "DAMAGED",
-                tuple_(
-                    latest_route.c.source_location_id,
-                    InventoryBalance.product_variant_id,
-                ).in_(active_keys),
             )
             .group_by(
                 latest_route.c.source_location_id,
@@ -710,12 +794,18 @@ async def refresh_live_stock_keys(
     existing_rows = (
         await db.execute(
             select(InventoryLiveStockProjection)
+            .select_from(InventoryLiveStockProjection)
+            .join(
+                normalized_key_scope,
+                and_(
+                    normalized_key_scope.c.warehouse_location_id
+                    == InventoryLiveStockProjection.warehouse_location_id,
+                    normalized_key_scope.c.product_variant_id
+                    == InventoryLiveStockProjection.product_variant_id,
+                ),
+            )
             .where(
                 InventoryLiveStockProjection.company_id == company_id,
-                tuple_(
-                    InventoryLiveStockProjection.warehouse_location_id,
-                    InventoryLiveStockProjection.product_variant_id,
-                ).in_(normalized_keys),
             )
             .order_by(
                 InventoryLiveStockProjection.warehouse_location_id,
@@ -981,7 +1071,11 @@ async def _candidate_keys_for_variants(
             )
             .where(
                 InventoryStockPolicy.company_id == company_id,
-                InventoryStockPolicy.product_variant_id.in_(variant_ids),
+                _array_membership(
+                    InventoryStockPolicy.product_variant_id,
+                    variant_ids,
+                    "live_stock_candidate_policy_variant_ids",
+                ),
                 InventoryStockPolicy.is_active.is_(True),
             )
         )
@@ -1007,7 +1101,11 @@ async def _candidate_keys_for_variants(
             )
             .where(
                 InventoryBalance.company_id == company_id,
-                InventoryBalance.product_variant_id.in_(variant_ids),
+                _array_membership(
+                    InventoryBalance.product_variant_id,
+                    variant_ids,
+                    "live_stock_candidate_balance_variant_ids",
+                ),
                 or_(
                     InventoryBalance.on_hand_quantity > 0,
                     InventoryBalance.reserved_quantity > 0,
@@ -1057,7 +1155,11 @@ async def _candidate_keys_for_variants(
             )
             .where(
                 InventoryBalance.company_id == company_id,
-                InventoryBalance.product_variant_id.in_(variant_ids),
+                _array_membership(
+                    InventoryBalance.product_variant_id,
+                    variant_ids,
+                    "live_stock_candidate_vehicle_variant_ids",
+                ),
                 InventoryBalance.stock_status != "DAMAGED",
                 InventoryBalance.on_hand_quantity > 0,
             )
@@ -1254,7 +1356,11 @@ async def refresh_live_stock_vehicle_attribution(
             ).where(
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.location_type == "VEHICLE",
-                InventoryLocation.vehicle_id.in_(ids),
+                _array_membership(
+                    InventoryLocation.vehicle_id,
+                    ids,
+                    "live_stock_attribution_vehicle_ids",
+                ),
                 InventoryLocation.is_active.is_(True),
             )
         )
