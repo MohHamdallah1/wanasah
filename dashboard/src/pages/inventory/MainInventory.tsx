@@ -15,6 +15,7 @@ import { InventoryTopDock } from "./InventoryTopDock";
 import "./inventory.css";
 import {
   parseLiveStockAlertSummary,
+  parseLiveStockSummary,
   parseLiveStockPage,
   type WarehouseProduct,
 } from "./liveStock/contracts";
@@ -198,6 +199,8 @@ export default function MainInventory() {
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
   const stockRequestSeq = useRef(0);
   const stockAbortRef = useRef<AbortController | null>(null);
+  const stockSummaryRequestSeq = useRef(0);
+  const stockSummaryAbortRef = useRef<AbortController | null>(null);
   const stockAlertRequestSeq = useRef(0);
   const stockAlertAbortRef = useRef<AbortController | null>(null);
   const locationRequestSeq = useRef(0);
@@ -341,9 +344,6 @@ export default function MainInventory() {
       if (typeof data.total === "number") {
         setStockMatchingTotal(data.total);
 
-        if (!stockSearch && !stockOnlyAlerts && stockCursor === null) {
-          setStockTotal(data.total);
-        }
       }
 
       setLastSync(new Date());
@@ -412,6 +412,50 @@ export default function MainInventory() {
     } finally {
       if (stockAlertAbortRef.current === requestController) {
         stockAlertAbortRef.current = null;
+      }
+    }
+  }, [
+    authFetch,
+    selectedLocationId,
+    canReadStock,
+    t,
+  ]);
+
+  const fetchStockSummary = useCallback(async () => {
+    if (selectedLocationId === null || !canReadStock) {
+      setStockTotal(null);
+      return;
+    }
+
+    const requestSeq = ++stockSummaryRequestSeq.current;
+    stockSummaryAbortRef.current?.abort();
+    const requestController = new AbortController();
+    stockSummaryAbortRef.current = requestController;
+
+    try {
+      const raw = await authFetch(
+        `/warehouse/inventory/summary?location_id=${encodeURIComponent(
+          String(selectedLocationId),
+        )}`,
+        { signal: requestController.signal },
+      );
+
+      if (requestSeq !== stockSummaryRequestSeq.current) return;
+      const data = parseLiveStockSummary(raw);
+      setStockTotal(data.stock_total);
+    } catch (error: unknown) {
+      if (requestSeq !== stockSummaryRequestSeq.current) return;
+      if (error instanceof Error && error.name === "AbortError") return;
+      setStockTotal(null);
+      toast.error(
+        apiErrorMessage(
+          error,
+          t("inventoryLive.errors.loadFailed"),
+        ),
+      );
+    } finally {
+      if (stockSummaryAbortRef.current === requestController) {
+        stockSummaryAbortRef.current = null;
       }
     }
   }, [
@@ -513,6 +557,9 @@ export default function MainInventory() {
     stockAlertRequestSeq.current += 1;
     stockAlertAbortRef.current?.abort();
     stockAlertAbortRef.current = null;
+    stockSummaryRequestSeq.current += 1;
+    stockSummaryAbortRef.current?.abort();
+    stockSummaryAbortRef.current = null;
     setStockSearch("");
     setStockOnlyAlerts(false);
     setStockCursor(null);
@@ -527,6 +574,9 @@ export default function MainInventory() {
       stockAlertRequestSeq.current += 1;
       stockAlertAbortRef.current?.abort();
       stockAlertAbortRef.current = null;
+      stockSummaryRequestSeq.current += 1;
+      stockSummaryAbortRef.current?.abort();
+      stockSummaryAbortRef.current = null;
     };
   }, [selectedLocationId, canReadStock]);
 
@@ -541,6 +591,12 @@ export default function MainInventory() {
       void fetchStockAlerts();
     }
   }, [selectedLocationId, fetchStockAlerts, stockRefreshKey]);
+
+  useEffect(() => {
+    if (selectedLocationId !== null) {
+      void fetchStockSummary();
+    }
+  }, [selectedLocationId, fetchStockSummary, stockRefreshKey]);
 
   useEffect(() => {
     if (

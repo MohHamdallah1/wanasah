@@ -325,6 +325,12 @@ export function parseLiveStockPage(
   };
 }
 
+export function parseLiveStockSummary(raw: unknown): { stock_total: number } {
+  const code = "LIVE_STOCK_RESPONSE_INVALID";
+  const payload = record(raw, code);
+  return { stock_total: int(payload.stock_total, code) };
+}
+
 export function parseLiveStockAlertSummary(
   raw: unknown,
 ): WarehouseInventoryAlertSummary {
