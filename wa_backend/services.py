@@ -54,6 +54,12 @@ from domains.inventory_costing.service import (
 from domains.pricing.driver_authority import (
     resolve_work_session_pack_prices_bulk,
 )
+from domains.inventory_rules import batch_sellability_predicate
+from domains.live_stock_projection.service import (
+    refresh_live_stock_from_movement_specs,
+    refresh_live_stock_variants,
+)
+
 
 
 # حدود الأنواع الفعلية في PostgreSQL المستخدمة في models.py.
@@ -747,6 +753,11 @@ async def change_product_batch_disposition(
         emit_outbox=True,
     )
     await db_session.flush()
+    await refresh_live_stock_variants(
+        db_session,
+        company_id=company_id,
+        variant_ids=[variant_id],
+    )
     return batch
 
 
@@ -771,54 +782,9 @@ def warehouse_setup_required_detail() -> Dict[str, Any]:
     )
 
 
-# PATCH: STAGE4C_SYNCHRONOUS_BATCH_ELIGIBILITY
-def batch_sellability_predicate(
-    as_of_date: date,
-    *,
-    expiry_control_mode,
-    minimum_remaining_shelf_life_days=None,
-):
-    """SQL predicate موحد لصلاحية Batch للبيع/التحميل/الحوالة العادية."""
-    if type(as_of_date) is not date:
-        raise ValueError("as_of_date يجب أن يكون date صريحاً.")
-
-    min_days = (
-        func.coalesce(minimum_remaining_shelf_life_days, 0)
-        if minimum_remaining_shelf_life_days is not None
-        else 0
-    )
-    expiry_meets_policy = and_(
-        ProductBatch.expiry_date.is_not(None),
-        (ProductBatch.expiry_date - as_of_date) >= min_days,
-    )
-    no_expiry_allowed = and_(
-        ProductBatch.expiry_date.is_(None),
-        min_days == 0,
-    )
-
-    return and_(
-        ProductBatch.is_active.is_(True),
-        ProductBatch.disposition == "RELEASED",
-        or_(
-            ProductBatch.production_date.is_(None),
-            ProductBatch.production_date <= as_of_date,
-        ),
-        or_(
-            and_(
-                expiry_control_mode == "NONE",
-                no_expiry_allowed,
-            ),
-            and_(
-                expiry_control_mode == "OPTIONAL",
-                or_(no_expiry_allowed, expiry_meets_policy),
-            ),
-            and_(
-                expiry_control_mode == "REQUIRED",
-                expiry_meets_policy,
-            ),
-        ),
-    )
-
+# STAGE4C_SYNCHRONOUS_BATCH_ELIGIBILITY
+# SQL sellability authority lives in domains.inventory_rules so the live projection
+# and operational paths cannot drift apart.
 
 def _batch_metadata_is_sellable(
     *,
@@ -3972,6 +3938,14 @@ async def apply_inventory_movements_batch(
         raise InventoryRuleError(
             exc.code, exc.message, context=exc.context
         ) from exc
+
+    # Live Stock projection is part of the same transaction as the inventory truth.
+    # Recompute from SSOT instead of applying arithmetic deltas, so retries stay idempotent.
+    await refresh_live_stock_from_movement_specs(
+        db_session,
+        company_id=company_id,
+        movement_specs=new_specs,
+    )
 
     return [
         results_by_key[spec["idempotency_key"]]
