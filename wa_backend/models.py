@@ -2529,6 +2529,173 @@ class InventoryBalance(Base):
     reserved_quantity  = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
     last_updated       = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
+
+class InventoryLiveStockCompanySummary(Base):
+    """Transactional company-level Live Stock projection summary."""
+    __tablename__ = 'inventory_live_stock_company_summaries'
+    __table_args__ = (
+        CheckConstraint('active_variant_count >= 0', name='chk_live_stock_company_active_count'),
+        CheckConstraint("projection_state IN ('BUILDING', 'READY', 'DEGRADED')", name='chk_live_stock_company_state'),
+        CheckConstraint('projection_version > 0', name='chk_live_stock_company_projection_version'),
+        CheckConstraint('revision > 0', name='chk_live_stock_company_revision'),
+    )
+    company_id           = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), primary_key=True)
+    active_variant_count = Column(BigInteger, nullable=False, default=0, server_default='0')
+    projection_state     = Column(String(20), nullable=False, default='BUILDING', server_default='BUILDING')
+    projection_version   = Column(Integer, nullable=False, default=1, server_default='1')
+    revision             = Column(BigInteger, nullable=False, default=1, server_default='1')
+    last_rebuilt_at      = Column(DateTime, nullable=True)
+    last_verified_at     = Column(DateTime, nullable=True)
+    updated_at           = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class InventoryLiveStockWarehouseSummary(Base):
+    """O(1) warehouse summary; exact counters are maintained transactionally."""
+    __tablename__ = 'inventory_live_stock_warehouse_summaries'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['company_id', 'warehouse_location_id'],
+            ['inventory_locations.company_id', 'inventory_locations.id'],
+            ondelete='CASCADE',
+            name='fk_live_stock_warehouse_summary_location',
+        ),
+        CheckConstraint('alert_count >= 0', name='chk_live_stock_warehouse_alert_count'),
+        CheckConstraint('nonactive_visible_count >= 0', name='chk_live_stock_warehouse_nonactive_count'),
+        CheckConstraint('projected_row_count >= 0', name='chk_live_stock_warehouse_row_count'),
+        CheckConstraint('alert_count <= projected_row_count', name='chk_live_stock_warehouse_alert_within_rows'),
+        CheckConstraint('nonactive_visible_count <= projected_row_count', name='chk_live_stock_warehouse_nonactive_within_rows'),
+        CheckConstraint("projection_state IN ('BUILDING', 'READY', 'DEGRADED')", name='chk_live_stock_warehouse_state'),
+        CheckConstraint('projection_version > 0', name='chk_live_stock_warehouse_projection_version'),
+        CheckConstraint('revision > 0', name='chk_live_stock_warehouse_revision'),
+    )
+    company_id             = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), primary_key=True)
+    warehouse_location_id  = Column(Integer, primary_key=True)
+    alert_count             = Column(BigInteger, nullable=False, default=0, server_default='0')
+    nonactive_visible_count = Column(BigInteger, nullable=False, default=0, server_default='0')
+    projected_row_count     = Column(BigInteger, nullable=False, default=0, server_default='0')
+    projection_state        = Column(String(20), nullable=False, default='BUILDING', server_default='BUILDING')
+    projection_version      = Column(Integer, nullable=False, default=1, server_default='1')
+    revision                = Column(BigInteger, nullable=False, default=1, server_default='1')
+    last_rebuilt_at         = Column(DateTime, nullable=True)
+    last_verified_at        = Column(DateTime, nullable=True)
+    updated_at              = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class InventoryLiveStockProjection(Base):
+    """Sparse derived Live Stock facts; InventoryBalance remains physical SSOT."""
+    __tablename__ = 'inventory_live_stock_projection'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['company_id', 'warehouse_location_id'],
+            ['inventory_locations.company_id', 'inventory_locations.id'],
+            ondelete='CASCADE',
+            name='fk_live_stock_projection_location',
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'product_variant_id'],
+            ['product_variants.company_id', 'product_variants.id'],
+            ondelete='CASCADE',
+            name='fk_live_stock_projection_variant',
+        ),
+        CheckConstraint(
+            "lifecycle_status IN ('DRAFT', 'ACTIVE', 'RETIRING', 'ARCHIVED')",
+            name='chk_live_stock_projection_lifecycle',
+        ),
+        CheckConstraint(
+            "operational_hold IN ('NONE', 'SALES_HOLD', 'RECALL')",
+            name='chk_live_stock_projection_hold',
+        ),
+        CheckConstraint("length(trim(variant_name)) > 0", name='chk_live_stock_projection_name'),
+        CheckConstraint('warehouse_on_hand >= 0', name='chk_live_stock_projection_warehouse_on_hand'),
+        CheckConstraint('warehouse_reserved >= 0', name='chk_live_stock_projection_warehouse_reserved'),
+        CheckConstraint('warehouse_reserved <= warehouse_on_hand', name='chk_live_stock_projection_reserved_within_on_hand'),
+        CheckConstraint('warehouse_sellable_on_hand >= 0', name='chk_live_stock_projection_sellable_on_hand'),
+        CheckConstraint('warehouse_sellable_reserved >= 0', name='chk_live_stock_projection_sellable_reserved'),
+        CheckConstraint('warehouse_sellable_on_hand <= warehouse_on_hand', name='chk_live_stock_projection_sellable_within_on_hand'),
+        CheckConstraint('warehouse_sellable_reserved <= warehouse_reserved', name='chk_live_stock_projection_sellable_reserved_within_reserved'),
+        CheckConstraint('warehouse_sellable_reserved <= warehouse_sellable_on_hand', name='chk_live_stock_projection_sellable_reserved_within_sellable'),
+        CheckConstraint('blocked_status_packs >= 0', name='chk_live_stock_projection_blocked'),
+        CheckConstraint('recalled_packs >= 0', name='chk_live_stock_projection_recalled'),
+        CheckConstraint('recalled_packs <= blocked_status_packs', name='chk_live_stock_projection_recalled_within_blocked'),
+        CheckConstraint('damaged_packs >= 0', name='chk_live_stock_projection_damaged'),
+        CheckConstraint('vehicle_packs >= 0', name='chk_live_stock_projection_vehicle'),
+        CheckConstraint('minimum_quantity >= 0', name='chk_live_stock_projection_minimum'),
+        CheckConstraint(
+            "has_active_policy IS TRUE OR minimum_quantity = 0",
+            name='chk_live_stock_projection_policy_minimum_consistency',
+        ),
+        CheckConstraint(
+            "has_warehouse_presence = "
+            "(warehouse_on_hand > 0 OR blocked_status_packs > 0 OR damaged_packs > 0)",
+            name='chk_live_stock_projection_warehouse_presence',
+        ),
+        CheckConstraint(
+            "has_vehicle_presence = (vehicle_packs > 0)",
+            name='chk_live_stock_projection_vehicle_presence',
+        ),
+        CheckConstraint(
+            "has_active_policy IS TRUE OR has_warehouse_presence IS TRUE OR has_vehicle_presence IS TRUE",
+            name='chk_live_stock_projection_sparse_reason',
+        ),
+        CheckConstraint(
+            "is_low_stock = "
+            "(has_active_policy IS TRUE AND minimum_quantity > 0 "
+            "AND lifecycle_status = 'ACTIVE' AND operational_hold = 'NONE' "
+            "AND (warehouse_sellable_on_hand - warehouse_sellable_reserved) <= minimum_quantity)",
+            name='chk_live_stock_projection_alert_exact',
+        ),
+        CheckConstraint(
+            "next_transition_date IS NULL OR next_transition_date > computed_for_date",
+            name='chk_live_stock_projection_transition_after_compute',
+        ),
+        CheckConstraint('revision > 0', name='chk_live_stock_projection_revision'),
+        Index(
+            'ix_live_stock_projection_alert_seek',
+            'company_id', 'warehouse_location_id', 'variant_name', 'product_variant_id',
+            postgresql_where=text('is_low_stock IS TRUE'),
+        ),
+        Index(
+            'ix_live_stock_projection_nonactive_seek',
+            'company_id', 'warehouse_location_id', 'variant_name', 'product_variant_id',
+            postgresql_where=text(
+                "lifecycle_status <> 'ACTIVE' AND "
+                "(has_warehouse_presence IS TRUE OR has_vehicle_presence IS TRUE)"
+            ),
+        ),
+        Index(
+            'ix_live_stock_projection_transition',
+            'company_id', 'next_transition_date', 'warehouse_location_id', 'product_variant_id',
+            postgresql_where=text('next_transition_date IS NOT NULL'),
+        ),
+        Index(
+            'ix_live_stock_projection_variant',
+            'company_id', 'product_variant_id', 'warehouse_location_id',
+        ),
+    )
+    company_id                  = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), primary_key=True)
+    warehouse_location_id       = Column(Integer, primary_key=True)
+    product_variant_id          = Column(Integer, primary_key=True)
+    variant_name                = Column(String(200), nullable=False)
+    lifecycle_status            = Column(String(20), nullable=False)
+    operational_hold            = Column(String(20), nullable=False)
+    warehouse_on_hand           = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    warehouse_reserved          = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    warehouse_sellable_on_hand  = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    warehouse_sellable_reserved = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    blocked_status_packs        = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    recalled_packs              = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    damaged_packs               = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    vehicle_packs               = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    minimum_quantity            = Column(Numeric(20, 6), nullable=False, default=Decimal('0'), server_default='0')
+    has_active_policy           = Column(Boolean, nullable=False, default=False, server_default='false')
+    is_low_stock                = Column(Boolean, nullable=False, default=False, server_default='false')
+    has_warehouse_presence      = Column(Boolean, nullable=False, default=False, server_default='false')
+    has_vehicle_presence        = Column(Boolean, nullable=False, default=False, server_default='false')
+    next_transition_date        = Column(Date, nullable=True)
+    computed_for_date           = Column(Date, nullable=False)
+    revision                    = Column(BigInteger, nullable=False, default=1, server_default='1')
+    updated_at                  = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
 class InventoryMovement(Base):
     # دفتر حركة موحد وصريح: PHYSICAL / RESERVATION / STATUS_CHANGE.
     __tablename__ = 'inventory_movements'
