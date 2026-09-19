@@ -1307,13 +1307,13 @@ async def run(args: argparse.Namespace) -> None:
             f"IMPACT_METADATA:{len(impact_metadata)}<{len(rows)}"
         )
 
-    noise_samples = await load_noise_keys(
-        max(args.parallel_ops, args.concurrency * 4)
+    noise_samples = await load_noise_mutation_samples(
+        args.parallel_ops
     )
-    if len(noise_samples) < min(args.parallel_ops, args.min_noise_companies):
+    if len(noise_samples) < args.parallel_ops:
         failures.append(
-            f"NOISE_SAMPLES:{len(noise_samples)}"
-            f"<{min(args.parallel_ops, args.min_noise_companies)}"
+            f"NOISE_MUTATION_SAMPLES:{len(noise_samples)}"
+            f"<{args.parallel_ops}"
         )
 
     if failures:
@@ -1328,7 +1328,8 @@ async def run(args: argparse.Namespace) -> None:
         f"concurrency={args.concurrency} "
         f"parallel_ops={args.parallel_ops} "
         f"mutation_ops={args.mutation_ops} "
-        f"hot_key_workers={args.hot_key_workers}"
+        f"hot_key_workers={args.hot_key_workers} "
+        f"db_connection_cap={STRESS_DB_CONNECTION_CAP}"
     )
 
     try:
@@ -1451,17 +1452,17 @@ async def run(args: argparse.Namespace) -> None:
             )
 
         parallel, parallel_tps, parallel_errors = (
-            await timed_cross_tenant_refreshes(
+            await timed_cross_tenant_mutations(
                 samples=noise_samples,
                 concurrency=args.concurrency,
                 operations=args.parallel_ops,
             )
         )
         print_metric(parallel)
-        print(f"cross_tenant_refresh_throughput={parallel_tps:.1f}/s")
+        print(f"cross_tenant_mutation_throughput={parallel_tps:.1f}/s")
         if parallel_errors:
             failures.append(
-                f"CROSS_TENANT_REFRESH_ERRORS:{len(parallel_errors)}:"
+                f"CROSS_TENANT_MUTATION_ERRORS:{len(parallel_errors)}:"
                 + parallel_errors[0]
             )
         if parallel.p95 > args.max_parallel_p95:
