@@ -1340,6 +1340,626 @@ async def refresh_live_stock_variants(
         )
 
 
+def _impact_decimal(value: object) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except Exception as exc:
+        raise LiveStockProjectionError(
+            "Live Stock balance impact contains an invalid quantity."
+        ) from exc
+
+
+def _projection_quantities_are_valid(values: Mapping[str, object]) -> bool:
+    on_hand = _impact_decimal(values["warehouse_on_hand"])
+    reserved = _impact_decimal(values["warehouse_reserved"])
+    sellable = _impact_decimal(values["warehouse_sellable_on_hand"])
+    sellable_reserved = _impact_decimal(
+        values["warehouse_sellable_reserved"]
+    )
+    blocked = _impact_decimal(values["blocked_status_packs"])
+    recalled = _impact_decimal(values["recalled_packs"])
+    damaged = _impact_decimal(values["damaged_packs"])
+    vehicle = _impact_decimal(values["vehicle_packs"])
+    minimum = _impact_decimal(values["minimum_quantity"])
+    return (
+        on_hand >= 0
+        and reserved >= 0
+        and reserved <= on_hand
+        and sellable >= 0
+        and sellable <= on_hand
+        and sellable_reserved >= 0
+        and sellable_reserved <= sellable
+        and blocked >= 0
+        and recalled >= 0
+        and recalled <= blocked
+        and damaged >= 0
+        and vehicle >= 0
+        and minimum >= 0
+    )
+
+
+async def apply_live_stock_balance_impacts(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    impacts: Sequence[Mapping[str, object]],
+) -> None:
+    """Apply already-locked InventoryBalance before/after deltas transactionally.
+
+    This is the hot mutation path. Full SSOT aggregation remains the authority
+    for rebuilds, lifecycle/batch changes, stale-date repair and drift recovery.
+    """
+    company_id = _positive_int(company_id, "company_id")
+    if not impacts:
+        return
+
+    normalized_impacts: list[dict[str, object]] = []
+    vehicle_ids: set[int] = set()
+    for raw in impacts:
+        location_id = _positive_int(raw.get("location_id"), "location_id")
+        variant_id = _positive_int(
+            raw.get("product_variant_id"),
+            "product_variant_id",
+        )
+        location_type = str(raw.get("location_type") or "").upper()
+        if location_type not in {"WAREHOUSE", "VEHICLE", "IN_TRANSIT"}:
+            raise LiveStockProjectionError(
+                f"Unsupported inventory location type: {location_type}"
+            )
+        vehicle_id = raw.get("vehicle_id")
+        if vehicle_id is not None:
+            vehicle_id = _positive_int(vehicle_id, "vehicle_id")
+        if location_type == "VEHICLE":
+            if vehicle_id is None:
+                raise LiveStockProjectionError(
+                    "Vehicle inventory impact is missing vehicle_id."
+                )
+            vehicle_ids.add(int(vehicle_id))
+
+        normalized = dict(raw)
+        normalized["location_id"] = location_id
+        normalized["product_variant_id"] = variant_id
+        normalized["location_type"] = location_type
+        normalized["vehicle_id"] = vehicle_id
+        normalized["stock_status"] = str(
+            raw.get("stock_status") or ""
+        ).upper()
+        normalized_impacts.append(normalized)
+
+    if vehicle_ids:
+        await acquire_live_stock_vehicle_guards(
+            db,
+            company_id=company_id,
+            vehicle_ids=sorted(vehicle_ids),
+        )
+    vehicle_sources = await get_live_stock_vehicle_sources(
+        db,
+        company_id=company_id,
+        vehicle_ids=sorted(vehicle_ids),
+    )
+
+    impacts_by_key: dict[
+        tuple[int, int],
+        list[dict[str, object]],
+    ] = defaultdict(list)
+    for impact in normalized_impacts:
+        location_type = str(impact["location_type"])
+        variant_id = int(impact["product_variant_id"])
+        if location_type == "WAREHOUSE":
+            key = (int(impact["location_id"]), variant_id)
+        elif location_type == "VEHICLE":
+            source = vehicle_sources.get(int(impact["vehicle_id"]))
+            if source is None:
+                continue
+            key = (int(source), variant_id)
+        else:
+            continue
+        impacts_by_key[key].append(impact)
+
+    keys = _normalize_keys(impacts_by_key)
+    if not keys:
+        return
+
+    coarse_guard = len(keys) >= _COARSE_GUARD_THRESHOLD
+    await _acquire_company_projection_guard(
+        db,
+        company_id=company_id,
+        exclusive=coarse_guard,
+    )
+    if not coarse_guard:
+        await _acquire_projection_key_guards(
+            db,
+            company_id=company_id,
+            keys=keys,
+        )
+
+    key_scope = _projection_key_scope(
+        keys,
+        name="live_stock_delta",
+    )
+    company_date_expr = cast(
+        func.timezone(Company.timezone, func.current_timestamp()),
+        Date,
+    )
+    rows = (
+        await db.execute(
+            select(
+                key_scope.c.warehouse_location_id,
+                key_scope.c.product_variant_id,
+                InventoryStockPolicy.minimum_quantity,
+                InventoryStockPolicy.minimum_remaining_shelf_life_days,
+                company_date_expr.label("company_local_date"),
+                InventoryLiveStockWarehouseSummary.warehouse_location_id.label(
+                    "summary_warehouse_id"
+                ),
+                InventoryLiveStockProjection,
+            )
+            .select_from(key_scope)
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id
+                    == key_scope.c.warehouse_location_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                ),
+            )
+            .join(Company, Company.id == company_id)
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id == company_id,
+                    InventoryStockPolicy.location_id
+                    == key_scope.c.warehouse_location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == key_scope.c.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                ),
+            )
+            .outerjoin(
+                InventoryLiveStockWarehouseSummary,
+                and_(
+                    InventoryLiveStockWarehouseSummary.company_id
+                    == company_id,
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                    == key_scope.c.warehouse_location_id,
+                ),
+            )
+            .outerjoin(
+                InventoryLiveStockProjection,
+                and_(
+                    InventoryLiveStockProjection.company_id == company_id,
+                    InventoryLiveStockProjection.warehouse_location_id
+                    == key_scope.c.warehouse_location_id,
+                    InventoryLiveStockProjection.product_variant_id
+                    == key_scope.c.product_variant_id,
+                ),
+            )
+        )
+    ).all()
+    metadata = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row
+        for row in rows
+    }
+    if set(metadata) != set(keys):
+        raise LiveStockProjectionError(
+            "A Live Stock impact references an invalid warehouse key."
+        )
+
+    dates = {
+        row.company_local_date
+        for row in rows
+        if row.company_local_date is not None
+    }
+    if len(dates) != 1:
+        raise LiveStockProjectionError(
+            "Could not resolve one company-local operational date."
+        )
+    as_of_date = next(iter(dates))
+    if type(as_of_date) is not date:
+        raise LiveStockProjectionError(
+            "Company-local operational date is invalid."
+        )
+
+    missing_summaries = sorted(
+        {
+            int(row.warehouse_location_id)
+            for row in rows
+            if row.summary_warehouse_id is None
+        }
+    )
+    if missing_summaries:
+        await _ensure_warehouse_summaries(
+            db,
+            company_id=company_id,
+            warehouse_ids=missing_summaries,
+        )
+
+    fallback_keys: set[tuple[int, int]] = set()
+    for key, row in metadata.items():
+        old = row[-1]
+        minimum_days = int(
+            row.minimum_remaining_shelf_life_days or 0
+        )
+        has_policy = row.minimum_quantity is not None
+
+        if old is not None and (
+            old.computed_for_date != as_of_date
+            or (
+                old.next_transition_date is not None
+                and old.next_transition_date <= as_of_date
+            )
+        ):
+            fallback_keys.add(key)
+            continue
+
+        had_presence_before = False
+        for impact in impacts_by_key[key]:
+            before_on_hand = _impact_decimal(
+                impact.get("on_hand_before")
+            )
+            before_reserved = _impact_decimal(
+                impact.get("reserved_before")
+            )
+            location_type = str(impact["location_type"])
+            status = str(impact["stock_status"])
+            if location_type == "WAREHOUSE":
+                if before_on_hand > 0 or before_reserved > 0:
+                    had_presence_before = True
+            elif (
+                location_type == "VEHICLE"
+                and status != "DAMAGED"
+                and before_on_hand > 0
+            ):
+                had_presence_before = True
+
+            if (
+                old is not None
+                and location_type == "WAREHOUSE"
+                and status == "AVAILABLE"
+                and before_on_hand > 0
+                and _impact_decimal(impact.get("on_hand_after")) == 0
+            ):
+                candidate = batch_next_transition_date(
+                    as_of_date=as_of_date,
+                    expiry_control_mode=str(
+                        impact.get("expiry_control_mode") or ""
+                    ),
+                    production_date=impact.get("production_date"),
+                    expiry_date=impact.get("expiry_date"),
+                    minimum_remaining_shelf_life_days=minimum_days,
+                    is_active=bool(impact.get("batch_is_active")),
+                    disposition=str(
+                        impact.get("batch_disposition") or ""
+                    ),
+                )
+                if (
+                    candidate is not None
+                    and candidate == old.next_transition_date
+                ):
+                    fallback_keys.add(key)
+
+        if old is None and (has_policy or had_presence_before):
+            fallback_keys.add(key)
+
+    summary_deltas: dict[int, list[int]] = defaultdict(
+        lambda: [0, 0, 0]
+    )
+    projection_fields = (
+        "variant_name",
+        "lifecycle_status",
+        "operational_hold",
+        "warehouse_on_hand",
+        "warehouse_reserved",
+        "warehouse_sellable_on_hand",
+        "warehouse_sellable_reserved",
+        "blocked_status_packs",
+        "recalled_packs",
+        "damaged_packs",
+        "vehicle_packs",
+        "minimum_quantity",
+        "has_active_policy",
+        "is_low_stock",
+        "has_warehouse_presence",
+        "has_vehicle_presence",
+        "next_transition_date",
+        "computed_for_date",
+    )
+
+    for key in keys:
+        if key in fallback_keys:
+            continue
+
+        warehouse_id, variant_id = key
+        row = metadata[key]
+        old = row[-1]
+        minimum_quantity = (
+            _impact_decimal(row.minimum_quantity)
+            if row.minimum_quantity is not None
+            else _ZERO
+        )
+        minimum_days = int(
+            row.minimum_remaining_shelf_life_days or 0
+        )
+
+        first = impacts_by_key[key][0]
+        values: dict[str, object] = {
+            "variant_name": (
+                str(old.variant_name)
+                if old is not None
+                else str(first.get("variant_name") or "").strip()
+            ),
+            "lifecycle_status": (
+                str(old.lifecycle_status)
+                if old is not None
+                else str(first.get("lifecycle_status") or "")
+            ),
+            "operational_hold": (
+                str(old.operational_hold)
+                if old is not None
+                else str(first.get("operational_hold") or "")
+            ),
+            "warehouse_on_hand": (
+                _impact_decimal(old.warehouse_on_hand)
+                if old is not None
+                else _ZERO
+            ),
+            "warehouse_reserved": (
+                _impact_decimal(old.warehouse_reserved)
+                if old is not None
+                else _ZERO
+            ),
+            "warehouse_sellable_on_hand": (
+                _impact_decimal(old.warehouse_sellable_on_hand)
+                if old is not None
+                else _ZERO
+            ),
+            "warehouse_sellable_reserved": (
+                _impact_decimal(old.warehouse_sellable_reserved)
+                if old is not None
+                else _ZERO
+            ),
+            "blocked_status_packs": (
+                _impact_decimal(old.blocked_status_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "recalled_packs": (
+                _impact_decimal(old.recalled_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "damaged_packs": (
+                _impact_decimal(old.damaged_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "vehicle_packs": (
+                _impact_decimal(old.vehicle_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "minimum_quantity": minimum_quantity,
+            "has_active_policy": row.minimum_quantity is not None,
+            "next_transition_date": (
+                old.next_transition_date if old is not None else None
+            ),
+            "computed_for_date": as_of_date,
+        }
+
+        for impact in impacts_by_key[key]:
+            delta_on_hand = (
+                _impact_decimal(impact.get("on_hand_after"))
+                - _impact_decimal(impact.get("on_hand_before"))
+            )
+            delta_reserved = (
+                _impact_decimal(impact.get("reserved_after"))
+                - _impact_decimal(impact.get("reserved_before"))
+            )
+            location_type = str(impact["location_type"])
+            status = str(impact["stock_status"])
+
+            if location_type == "VEHICLE":
+                if status != "DAMAGED":
+                    values["vehicle_packs"] = (
+                        _impact_decimal(values["vehicle_packs"])
+                        + delta_on_hand
+                    )
+                continue
+
+            if status == "AVAILABLE":
+                values["warehouse_on_hand"] = (
+                    _impact_decimal(values["warehouse_on_hand"])
+                    + delta_on_hand
+                )
+                values["warehouse_reserved"] = (
+                    _impact_decimal(values["warehouse_reserved"])
+                    + delta_reserved
+                )
+                sellable = batch_metadata_is_sellable(
+                    as_of_date=as_of_date,
+                    expiry_control_mode=str(
+                        impact.get("expiry_control_mode") or ""
+                    ),
+                    production_date=impact.get("production_date"),
+                    expiry_date=impact.get("expiry_date"),
+                    minimum_remaining_shelf_life_days=minimum_days,
+                    is_active=bool(impact.get("batch_is_active")),
+                    disposition=str(
+                        impact.get("batch_disposition") or ""
+                    ),
+                )
+                if sellable:
+                    values["warehouse_sellable_on_hand"] = (
+                        _impact_decimal(
+                            values["warehouse_sellable_on_hand"]
+                        )
+                        + delta_on_hand
+                    )
+                    values["warehouse_sellable_reserved"] = (
+                        _impact_decimal(
+                            values["warehouse_sellable_reserved"]
+                        )
+                        + delta_reserved
+                    )
+
+                if _impact_decimal(impact.get("on_hand_after")) > 0:
+                    candidate = batch_next_transition_date(
+                        as_of_date=as_of_date,
+                        expiry_control_mode=str(
+                            impact.get("expiry_control_mode") or ""
+                        ),
+                        production_date=impact.get("production_date"),
+                        expiry_date=impact.get("expiry_date"),
+                        minimum_remaining_shelf_life_days=minimum_days,
+                        is_active=bool(impact.get("batch_is_active")),
+                        disposition=str(
+                            impact.get("batch_disposition") or ""
+                        ),
+                    )
+                    current = values["next_transition_date"]
+                    if candidate is not None and (
+                        current is None or candidate < current
+                    ):
+                        values["next_transition_date"] = candidate
+
+            elif status in {
+                "QUARANTINED",
+                "BLOCKED",
+                "RECALLED",
+                "DISPOSAL_PENDING",
+            }:
+                values["blocked_status_packs"] = (
+                    _impact_decimal(values["blocked_status_packs"])
+                    + delta_on_hand
+                )
+                if status == "RECALLED":
+                    values["recalled_packs"] = (
+                        _impact_decimal(values["recalled_packs"])
+                        + delta_on_hand
+                    )
+            elif status == "DAMAGED":
+                values["damaged_packs"] = (
+                    _impact_decimal(values["damaged_packs"])
+                    + delta_on_hand
+                )
+            else:
+                raise LiveStockProjectionError(
+                    f"Unsupported inventory stock status: {status}"
+                )
+
+        if not str(values["variant_name"]).strip():
+            raise LiveStockProjectionError(
+                "Live Stock impact is missing variant_name."
+            )
+
+        if not _projection_quantities_are_valid(values):
+            fallback_keys.add(key)
+            continue
+
+        values["has_warehouse_presence"] = (
+            _impact_decimal(values["warehouse_on_hand"]) > 0
+            or _impact_decimal(values["blocked_status_packs"]) > 0
+            or _impact_decimal(values["damaged_packs"]) > 0
+        )
+        values["has_vehicle_presence"] = (
+            _impact_decimal(values["vehicle_packs"]) > 0
+        )
+        values["is_low_stock"] = (
+            bool(values["has_active_policy"])
+            and minimum_quantity > 0
+            and str(values["lifecycle_status"]) == "ACTIVE"
+            and str(values["operational_hold"]) == "NONE"
+            and (
+                _impact_decimal(values["warehouse_sellable_on_hand"])
+                - _impact_decimal(
+                    values["warehouse_sellable_reserved"]
+                )
+            )
+            <= minimum_quantity
+        )
+
+        sparse = (
+            bool(values["has_active_policy"])
+            or bool(values["has_warehouse_presence"])
+            or bool(values["has_vehicle_presence"])
+        )
+        new_values = values if sparse else None
+
+        old_alert = bool(old.is_low_stock) if old is not None else False
+        old_nonactive = (
+            _nonactive_visible_from_row(old) if old is not None else False
+        )
+        old_present = old is not None
+        new_alert = (
+            bool(new_values["is_low_stock"])
+            if new_values is not None
+            else False
+        )
+        new_nonactive = (
+            _nonactive_visible_from_values(new_values)
+            if new_values is not None
+            else False
+        )
+        new_present = new_values is not None
+        if (
+            old_alert != new_alert
+            or old_nonactive != new_nonactive
+            or old_present != new_present
+        ):
+            delta = summary_deltas[warehouse_id]
+            delta[0] += int(new_alert) - int(old_alert)
+            delta[1] += int(new_nonactive) - int(old_nonactive)
+            delta[2] += int(new_present) - int(old_present)
+
+        if new_values is None:
+            if old is not None:
+                await db.delete(old)
+            continue
+
+        if old is None:
+            db.add(
+                InventoryLiveStockProjection(
+                    company_id=company_id,
+                    warehouse_location_id=warehouse_id,
+                    product_variant_id=variant_id,
+                    revision=1,
+                    **new_values,
+                )
+            )
+            continue
+
+        changed = any(
+            getattr(old, field) != new_values[field]
+            for field in projection_fields
+        )
+        if not changed:
+            continue
+        for field in projection_fields:
+            setattr(old, field, new_values[field])
+        old.revision = int(old.revision) + 1
+        old.updated_at = utc_now()
+
+    await db.flush()
+    await _apply_warehouse_summary_deltas(
+        db,
+        company_id=company_id,
+        summary_deltas=summary_deltas,
+    )
+
+    if fallback_keys:
+        await refresh_live_stock_keys(
+            db,
+            company_id=company_id,
+            keys=sorted(fallback_keys),
+            _company_guard_held=True,
+            _force_coarse_guard=coarse_guard,
+        )
+
+
 async def refresh_live_stock_from_movement_specs(
     db: AsyncSession,
     *,
