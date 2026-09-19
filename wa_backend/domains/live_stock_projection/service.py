@@ -593,189 +593,182 @@ async def refresh_live_stock_keys(
     )
     expiry_transition = ProductBatch.expiry_date - min_shelf_life + 1
 
-    direct_rows = (
-        await db.execute(
-            select(
-                InventoryBalance.location_id,
-                InventoryBalance.product_variant_id,
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_on_hand"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                InventoryBalance.reserved_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_reserved"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    InventoryBalance.stock_status == "AVAILABLE",
-                                    sellable_batch,
-                                ),
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_sellable_on_hand"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    InventoryBalance.stock_status == "AVAILABLE",
-                                    sellable_batch,
-                                ),
-                                InventoryBalance.reserved_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_sellable_reserved"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status.in_(
-                                    [
-                                        "QUARANTINED",
-                                        "BLOCKED",
-                                        "RECALLED",
-                                        "DISPOSAL_PENDING",
-                                    ]
-                                ),
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("blocked_status_packs"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "RECALLED",
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("recalled_packs"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "DAMAGED",
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("damaged_packs"),
-                func.min(
+    direct_agg = (
+        select(
+            InventoryBalance.location_id.label("warehouse_location_id"),
+            InventoryBalance.product_variant_id.label("product_variant_id"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "AVAILABLE",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
+                ),
+                _ZERO,
+            ).label("warehouse_on_hand"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "AVAILABLE",
+                            InventoryBalance.reserved_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
+                ),
+                _ZERO,
+            ).label("warehouse_reserved"),
+            func.coalesce(
+                func.sum(
                     case(
                         (
                             and_(
-                                transition_scope,
-                                ProductBatch.production_date.is_not(None),
-                                ProductBatch.production_date > computed_for_date,
+                                InventoryBalance.stock_status == "AVAILABLE",
+                                sellable_batch,
                             ),
-                            ProductBatch.production_date,
+                            InventoryBalance.on_hand_quantity,
                         ),
-                        else_=None,
+                        else_=_ZERO,
                     )
-                ).label("next_production_transition"),
-                func.min(
+                ),
+                _ZERO,
+            ).label("warehouse_sellable_on_hand"),
+            func.coalesce(
+                func.sum(
                     case(
                         (
                             and_(
-                                transition_scope,
-                                ProductVariant.expiry_control_mode.in_(
-                                    ["OPTIONAL", "REQUIRED"]
-                                ),
-                                ProductBatch.expiry_date.is_not(None),
-                                expiry_transition > computed_for_date,
+                                InventoryBalance.stock_status == "AVAILABLE",
+                                sellable_batch,
                             ),
-                            expiry_transition,
+                            InventoryBalance.reserved_quantity,
                         ),
-                        else_=None,
+                        else_=_ZERO,
                     )
-                ).label("next_expiry_transition"),
-            )
-            .select_from(InventoryBalance)
-            .join(
-                active_key_scope,
-                and_(
-                    active_key_scope.c.warehouse_location_id
-                    == InventoryBalance.location_id,
-                    active_key_scope.c.product_variant_id
-                    == InventoryBalance.product_variant_id,
                 ),
-            )
-            .join(
-                ProductBatch,
-                and_(
-                    ProductBatch.company_id == InventoryBalance.company_id,
-                    ProductBatch.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    ProductBatch.id == InventoryBalance.batch_id,
+                _ZERO,
+            ).label("warehouse_sellable_reserved"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status.in_(
+                                [
+                                    "QUARANTINED",
+                                    "BLOCKED",
+                                    "RECALLED",
+                                    "DISPOSAL_PENDING",
+                                ]
+                            ),
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
                 ),
-            )
-            .join(
-                ProductVariant,
-                and_(
-                    ProductVariant.company_id == InventoryBalance.company_id,
-                    ProductVariant.id == InventoryBalance.product_variant_id,
+                _ZERO,
+            ).label("blocked_status_packs"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "RECALLED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
                 ),
-            )
-            .outerjoin(
-                InventoryStockPolicy,
-                and_(
-                    InventoryStockPolicy.company_id
-                    == InventoryBalance.company_id,
-                    InventoryStockPolicy.location_id
-                    == InventoryBalance.location_id,
-                    InventoryStockPolicy.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    InventoryStockPolicy.is_active.is_(True),
+                _ZERO,
+            ).label("recalled_packs"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "DAMAGED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
                 ),
-            )
-            .where(
-                InventoryBalance.company_id == company_id,
-            )
-            .group_by(
-                InventoryBalance.location_id,
-                InventoryBalance.product_variant_id,
-            )
+                _ZERO,
+            ).label("damaged_packs"),
+            func.min(
+                case(
+                    (
+                        and_(
+                            transition_scope,
+                            ProductBatch.production_date.is_not(None),
+                            ProductBatch.production_date > computed_for_date,
+                        ),
+                        ProductBatch.production_date,
+                    ),
+                    else_=None,
+                )
+            ).label("next_production_transition"),
+            func.min(
+                case(
+                    (
+                        and_(
+                            transition_scope,
+                            ProductVariant.expiry_control_mode.in_(
+                                ["OPTIONAL", "REQUIRED"]
+                            ),
+                            ProductBatch.expiry_date.is_not(None),
+                            expiry_transition > computed_for_date,
+                        ),
+                        expiry_transition,
+                    ),
+                    else_=None,
+                )
+            ).label("next_expiry_transition"),
         )
-    ).all() if active_keys else []
-    direct = {
-        (int(row.location_id), int(row.product_variant_id)): row
-        for row in direct_rows
-    }
+        .select_from(InventoryBalance)
+        .join(
+            active_key_scope,
+            and_(
+                active_key_scope.c.warehouse_location_id
+                == InventoryBalance.location_id,
+                active_key_scope.c.product_variant_id
+                == InventoryBalance.product_variant_id,
+            ),
+        )
+        .join(
+            ProductBatch,
+            and_(
+                ProductBatch.company_id == InventoryBalance.company_id,
+                ProductBatch.product_variant_id
+                == InventoryBalance.product_variant_id,
+                ProductBatch.id == InventoryBalance.batch_id,
+            ),
+        )
+        .join(
+            ProductVariant,
+            and_(
+                ProductVariant.company_id == InventoryBalance.company_id,
+                ProductVariant.id == InventoryBalance.product_variant_id,
+            ),
+        )
+        .outerjoin(
+            InventoryStockPolicy,
+            and_(
+                InventoryStockPolicy.company_id
+                == InventoryBalance.company_id,
+                InventoryStockPolicy.location_id
+                == InventoryBalance.location_id,
+                InventoryStockPolicy.product_variant_id
+                == InventoryBalance.product_variant_id,
+                InventoryStockPolicy.is_active.is_(True),
+            ),
+        )
+        .where(InventoryBalance.company_id == company_id)
+        .group_by(
+            InventoryBalance.location_id,
+            InventoryBalance.product_variant_id,
+        )
+        .subquery("live_stock_direct_agg")
+    )
 
     latest_route = (
         select(
@@ -791,55 +784,113 @@ async def refresh_live_stock_keys(
         .subquery("live_stock_latest_vehicle_route")
     )
 
-    vehicle_rows = (
+    vehicle_agg = (
+        select(
+            latest_route.c.source_location_id.label(
+                "warehouse_location_id"
+            ),
+            InventoryBalance.product_variant_id.label(
+                "product_variant_id"
+            ),
+            func.coalesce(
+                func.sum(InventoryBalance.on_hand_quantity),
+                _ZERO,
+            ).label("vehicle_packs"),
+        )
+        .select_from(InventoryBalance)
+        .join(
+            InventoryLocation,
+            and_(
+                InventoryLocation.company_id == InventoryBalance.company_id,
+                InventoryLocation.id == InventoryBalance.location_id,
+                InventoryLocation.location_type == "VEHICLE",
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.vehicle_id.is_not(None),
+            ),
+        )
+        .join(
+            latest_route,
+            latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
+        )
+        .join(
+            active_key_scope,
+            and_(
+                active_key_scope.c.warehouse_location_id
+                == latest_route.c.source_location_id,
+                active_key_scope.c.product_variant_id
+                == InventoryBalance.product_variant_id,
+            ),
+        )
+        .where(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.stock_status != "DAMAGED",
+        )
+        .group_by(
+            latest_route.c.source_location_id,
+            InventoryBalance.product_variant_id,
+        )
+        .subquery("live_stock_vehicle_agg")
+    )
+
+    fact_rows = (
         await db.execute(
             select(
-                latest_route.c.source_location_id.label("warehouse_location_id"),
-                InventoryBalance.product_variant_id,
+                active_key_scope.c.warehouse_location_id,
+                active_key_scope.c.product_variant_id,
                 func.coalesce(
-                    func.sum(InventoryBalance.on_hand_quantity),
-                    _ZERO,
+                    direct_agg.c.warehouse_on_hand, _ZERO
+                ).label("warehouse_on_hand"),
+                func.coalesce(
+                    direct_agg.c.warehouse_reserved, _ZERO
+                ).label("warehouse_reserved"),
+                func.coalesce(
+                    direct_agg.c.warehouse_sellable_on_hand, _ZERO
+                ).label("warehouse_sellable_on_hand"),
+                func.coalesce(
+                    direct_agg.c.warehouse_sellable_reserved, _ZERO
+                ).label("warehouse_sellable_reserved"),
+                func.coalesce(
+                    direct_agg.c.blocked_status_packs, _ZERO
+                ).label("blocked_status_packs"),
+                func.coalesce(
+                    direct_agg.c.recalled_packs, _ZERO
+                ).label("recalled_packs"),
+                func.coalesce(
+                    direct_agg.c.damaged_packs, _ZERO
+                ).label("damaged_packs"),
+                func.coalesce(
+                    vehicle_agg.c.vehicle_packs, _ZERO
                 ).label("vehicle_packs"),
+                direct_agg.c.next_production_transition,
+                direct_agg.c.next_expiry_transition,
             )
-            .select_from(InventoryBalance)
-            .join(
-                InventoryLocation,
+            .select_from(active_key_scope)
+            .outerjoin(
+                direct_agg,
                 and_(
-                    InventoryLocation.company_id == InventoryBalance.company_id,
-                    InventoryLocation.id == InventoryBalance.location_id,
-                    InventoryLocation.location_type == "VEHICLE",
-                    InventoryLocation.is_active.is_(True),
-                    InventoryLocation.vehicle_id.is_not(None),
+                    direct_agg.c.warehouse_location_id
+                    == active_key_scope.c.warehouse_location_id,
+                    direct_agg.c.product_variant_id
+                    == active_key_scope.c.product_variant_id,
                 ),
             )
-            .join(
-                latest_route,
-                latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
-            )
-            .join(
-                active_key_scope,
+            .outerjoin(
+                vehicle_agg,
                 and_(
-                    active_key_scope.c.warehouse_location_id
-                    == latest_route.c.source_location_id,
-                    active_key_scope.c.product_variant_id
-                    == InventoryBalance.product_variant_id,
+                    vehicle_agg.c.warehouse_location_id
+                    == active_key_scope.c.warehouse_location_id,
+                    vehicle_agg.c.product_variant_id
+                    == active_key_scope.c.product_variant_id,
                 ),
-            )
-            .where(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.stock_status != "DAMAGED",
-            )
-            .group_by(
-                latest_route.c.source_location_id,
-                InventoryBalance.product_variant_id,
             )
         )
     ).all() if active_keys else []
-    vehicle = {
-        (int(row.warehouse_location_id), int(row.product_variant_id)): Decimal(
-            row.vehicle_packs or 0
-        )
-        for row in vehicle_rows
+    facts = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row
+        for row in fact_rows
     }
 
     existing_rows = (
@@ -899,7 +950,7 @@ async def refresh_live_stock_keys(
         if variant is None:
             new_values = None
         else:
-            aggregate = direct.get(key)
+            aggregate = facts.get(key)
             policy = policies.get(key)
             warehouse_on_hand = Decimal(
                 getattr(aggregate, "warehouse_on_hand", 0) or 0
@@ -922,7 +973,9 @@ async def refresh_live_stock_keys(
             damaged_packs = Decimal(
                 getattr(aggregate, "damaged_packs", 0) or 0
             )
-            vehicle_packs = vehicle.get(key, _ZERO)
+            vehicle_packs = Decimal(
+                getattr(aggregate, "vehicle_packs", 0) or 0
+            )
             minimum_quantity = (
                 Decimal(policy.minimum_quantity or 0)
                 if policy is not None
