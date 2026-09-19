@@ -20,7 +20,10 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 load_dotenv(BACKEND / ".env", override=False)
 
-from domains.live_stock_projection.service import refresh_live_stock_keys
+from domains.live_stock_projection.service import (
+    apply_live_stock_balance_impacts,
+    refresh_live_stock_keys,
+)
 
 HOT_PRODUCT_CODE = "__PERF_LIVE_STOCK_SCALE__"
 NOISE_COMPANY_PREFIX = "PERFNOISE-"
@@ -262,6 +265,61 @@ async def load_hot_rows(
     ]
 
 
+async def load_balance_impact_metadata(
+    company_id: int,
+    balance_ids: list[int],
+) -> dict[int, dict[str, object]]:
+    async with SessionSU() as su:
+        await su.begin()
+        rows = (
+            await su.execute(
+                text(
+                    """
+                    SELECT
+                        b.id AS balance_id,
+                        b.location_id,
+                        l.location_type,
+                        l.vehicle_id,
+                        b.product_variant_id,
+                        b.batch_id,
+                        b.stock_status,
+                        b.reserved_quantity,
+                        v.name AS variant_name,
+                        v.lifecycle_status,
+                        v.operational_hold,
+                        v.expiry_control_mode,
+                        pb.is_active AS batch_is_active,
+                        pb.disposition AS batch_disposition,
+                        pb.production_date,
+                        pb.expiry_date
+                    FROM inventory_balances b
+                    JOIN inventory_locations l
+                      ON l.company_id=b.company_id
+                     AND l.id=b.location_id
+                    JOIN product_variants v
+                      ON v.company_id=b.company_id
+                     AND v.id=b.product_variant_id
+                    JOIN product_batches pb
+                      ON pb.company_id=b.company_id
+                     AND pb.product_variant_id=b.product_variant_id
+                     AND pb.id=b.batch_id
+                    WHERE b.company_id=:company_id
+                      AND b.id = ANY(:balance_ids)
+                    """
+                ),
+                {
+                    "company_id": company_id,
+                    "balance_ids": balance_ids,
+                },
+            )
+        ).mappings().all()
+        await su.rollback()
+    return {
+        int(row["balance_id"]): dict(row)
+        for row in rows
+    }
+
+
 async def refresh_once(
     company_id: int,
     location_id: int,
@@ -421,6 +479,7 @@ async def timed_mutation_pressure(
     company_id: int,
     location_id: int,
     rows: list[tuple[int, int, int]],
+    impact_metadata: dict[int, dict[str, object]],
     concurrency: int,
     operations: int,
 ) -> tuple[Metric, float, list[str], dict[int, int]]:
@@ -444,25 +503,38 @@ async def timed_mutation_pressure(
                 async with SessionApp() as app:
                     await app.begin()
                     await set_tenant(app, company_id)
-                    await app.execute(
-                        text(
-                            """
-                            UPDATE inventory_balances
-                            SET on_hand_quantity=on_hand_quantity + 1,
-                                last_updated=NOW()
-                            WHERE company_id=:company_id
-                              AND id=:balance_id
-                            """
-                        ),
+                    after = (
+                        await app.execute(
+                            text(
+                                """
+                                UPDATE inventory_balances
+                                SET on_hand_quantity=on_hand_quantity + 1,
+                                    last_updated=NOW()
+                                WHERE company_id=:company_id
+                                  AND id=:balance_id
+                                RETURNING on_hand_quantity,
+                                          reserved_quantity
+                                """
+                            ),
+                            {
+                                "company_id": company_id,
+                                "balance_id": balance_id,
+                            },
+                        )
+                    ).one()
+                    metadata = dict(impact_metadata[balance_id])
+                    metadata.update(
                         {
-                            "company_id": company_id,
-                            "balance_id": balance_id,
-                        },
+                            "on_hand_before": int(after.on_hand_quantity) - 1,
+                            "on_hand_after": after.on_hand_quantity,
+                            "reserved_before": after.reserved_quantity,
+                            "reserved_after": after.reserved_quantity,
+                        }
                     )
-                    await refresh_live_stock_keys(
+                    await apply_live_stock_balance_impacts(
                         app,
                         company_id=company_id,
-                        keys=[(location_id, variant_id)],
+                        impacts=[metadata],
                     )
                     await app.commit()
                 elapsed = (time.perf_counter() - started) * 1000
@@ -491,6 +563,7 @@ async def hot_key_contention(
     company_id: int,
     location_id: int,
     row: tuple[int, int, int],
+    impact_metadata: dict[int, dict[str, object]],
     workers: int,
 ) -> tuple[Metric, list[str]]:
     variant_id, balance_id, original = row
@@ -503,25 +576,38 @@ async def hot_key_contention(
             async with SessionApp() as app:
                 await app.begin()
                 await set_tenant(app, company_id)
-                await app.execute(
-                    text(
-                        """
-                        UPDATE inventory_balances
-                        SET on_hand_quantity=on_hand_quantity + 1,
-                            last_updated=NOW()
-                        WHERE company_id=:company_id
-                          AND id=:balance_id
-                        """
-                    ),
+                after = (
+                    await app.execute(
+                        text(
+                            """
+                            UPDATE inventory_balances
+                            SET on_hand_quantity=on_hand_quantity + 1,
+                                last_updated=NOW()
+                            WHERE company_id=:company_id
+                              AND id=:balance_id
+                            RETURNING on_hand_quantity,
+                                      reserved_quantity
+                            """
+                        ),
+                        {
+                            "company_id": company_id,
+                            "balance_id": balance_id,
+                        },
+                    )
+                ).one()
+                metadata = dict(impact_metadata[balance_id])
+                metadata.update(
                     {
-                        "company_id": company_id,
-                        "balance_id": balance_id,
-                    },
+                        "on_hand_before": int(after.on_hand_quantity) - 1,
+                        "on_hand_after": after.on_hand_quantity,
+                        "reserved_before": after.reserved_quantity,
+                        "reserved_after": after.reserved_quantity,
+                    }
                 )
-                await refresh_live_stock_keys(
+                await apply_live_stock_balance_impacts(
                     app,
                     company_id=company_id,
-                    keys=[(location_id, variant_id)],
+                    impacts=[metadata],
                 )
                 await app.commit()
             latencies.append((time.perf_counter() - started) * 1000)
@@ -829,6 +915,15 @@ async def run(args: argparse.Namespace) -> None:
             f"HOT_ROWS:{len(rows)}<{args.bulk_keys}"
         )
 
+    impact_metadata = await load_balance_impact_metadata(
+        args.company_id,
+        [balance_id for _variant_id, balance_id, _qty in rows],
+    )
+    if len(impact_metadata) != len(rows):
+        failures.append(
+            f"IMPACT_METADATA:{len(impact_metadata)}<{len(rows)}"
+        )
+
     if failures:
         for failure in failures:
             print("FAIL: " + failure)
@@ -999,6 +1094,7 @@ async def run(args: argparse.Namespace) -> None:
                 company_id=args.company_id,
                 location_id=args.location_id,
                 rows=mutation_rows,
+                impact_metadata=impact_metadata,
                 concurrency=args.concurrency,
                 operations=args.mutation_ops,
             )
@@ -1027,6 +1123,7 @@ async def run(args: argparse.Namespace) -> None:
             company_id=args.company_id,
             location_id=args.location_id,
             row=(hot_variant, hot_balance, hot_original),
+            impact_metadata=impact_metadata,
             workers=args.hot_key_workers,
         )
         print_metric(hot_metric)
