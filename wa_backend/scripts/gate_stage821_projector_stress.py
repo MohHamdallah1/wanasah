@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 BACKEND = Path(__file__).resolve().parent.parent
@@ -975,4 +976,26 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    asyncio.run(run(parse_args()))
+    try:
+        asyncio.run(run(parse_args()))
+    except DBAPIError as exc:
+        original = getattr(exc, "orig", exc)
+        message = str(original).replace("\n", " ")
+        if len(message) > 1200:
+            message = message[:1200] + "...<truncated>"
+        print(
+            "STAGE821_PROJECTOR_STRESS_DB_ERROR="
+            f"{type(original).__name__}: {message}"
+        )
+        print("STAGE821_PROJECTOR_STRESS_GATE=FAIL")
+        raise SystemExit(1)
+    except Exception as exc:
+        message = str(exc).replace("\n", " ")
+        if len(message) > 1200:
+            message = message[:1200] + "...<truncated>"
+        print(
+            "STAGE821_PROJECTOR_STRESS_ERROR="
+            f"{type(exc).__name__}: {message}"
+        )
+        print("STAGE821_PROJECTOR_STRESS_GATE=FAIL")
+        raise SystemExit(1)
