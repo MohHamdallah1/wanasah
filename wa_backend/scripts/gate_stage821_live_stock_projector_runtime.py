@@ -19,6 +19,7 @@ load_dotenv(BACKEND / ".env", override=False)
 
 from domains.live_stock_projection.service import (
     apply_live_stock_active_variant_delta,
+    apply_live_stock_balance_impacts,
     refresh_due_live_stock_transitions,
     refresh_live_stock_keys,
     refresh_live_stock_variants,
@@ -414,6 +415,56 @@ async def seed() -> dict[str, int]:
         }
 
 
+async def balance_impact_metadata(
+    session,
+    *,
+    company_id: int,
+    balance_id: int,
+) -> dict[str, object]:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    b.id AS inventory_balance_id,
+                    b.location_id,
+                    l.location_type,
+                    l.vehicle_id,
+                    b.product_variant_id,
+                    b.batch_id,
+                    b.stock_status,
+                    v.name AS variant_name,
+                    v.lifecycle_status,
+                    v.operational_hold,
+                    v.expiry_control_mode,
+                    pb.is_active AS batch_is_active,
+                    pb.disposition AS batch_disposition,
+                    pb.production_date,
+                    pb.expiry_date
+                FROM inventory_balances b
+                JOIN inventory_locations l
+                  ON l.company_id=b.company_id
+                 AND l.id=b.location_id
+                JOIN product_variants v
+                  ON v.company_id=b.company_id
+                 AND v.id=b.product_variant_id
+                JOIN product_batches pb
+                  ON pb.company_id=b.company_id
+                 AND pb.product_variant_id=b.product_variant_id
+                 AND pb.id=b.batch_id
+                WHERE b.company_id=:company_id
+                  AND b.id=:balance_id
+                """
+            ),
+            {
+                "company_id": company_id,
+                "balance_id": balance_id,
+            },
+        )
+    ).mappings().one()
+    return dict(row)
+
+
 async def projection_row(session, company_id: int, warehouse_id: int, variant_id: int):
     return (
         await session.execute(
@@ -740,22 +791,37 @@ async def main() -> None:
         async with SessionApp() as app:
             await app.begin()
             await set_tenant(app, a)
-            await app.execute(
-                text(
-                    """
-                    UPDATE inventory_balances
-                    SET on_hand_quantity=on_hand_quantity + 5,
-                        last_updated=NOW()
-                    WHERE company_id=:c AND id=:id
-                    """
-                ),
-                {"c": a, "id": ids["a_bal1"]},
-            )
-            await refresh_live_stock_keys(
+            meta = await balance_impact_metadata(
                 app,
                 company_id=a,
-                keys=[(a_wh, a_variant)],
-                computed_for_date=as_of,
+                balance_id=ids["a_bal1"],
+            )
+            after = (
+                await app.execute(
+                    text(
+                        """
+                        UPDATE inventory_balances
+                        SET on_hand_quantity=on_hand_quantity + 5,
+                            last_updated=NOW()
+                        WHERE company_id=:c AND id=:id
+                        RETURNING on_hand_quantity, reserved_quantity
+                        """
+                    ),
+                    {"c": a, "id": ids["a_bal1"]},
+                )
+            ).one()
+            meta.update(
+                {
+                    "on_hand_before": int(after.on_hand_quantity) - 5,
+                    "on_hand_after": after.on_hand_quantity,
+                    "reserved_before": after.reserved_quantity,
+                    "reserved_after": after.reserved_quantity,
+                }
+            )
+            await apply_live_stock_balance_impacts(
+                app,
+                company_id=a,
+                impacts=[meta],
             )
             changed_in_tx = await projection_row(app, a, a_wh, a_variant)
             await app.rollback()
@@ -888,26 +954,55 @@ async def main() -> None:
             async with SessionApp() as app:
                 await app.begin()
                 await set_tenant(app, a)
-                await app.execute(
-                    text(
-                        """
-                        UPDATE inventory_balances
-                        SET on_hand_quantity=:qty, last_updated=NOW()
-                        WHERE company_id=:c AND id=:id
-                        """
-                    ),
-                    {"qty": new_on_hand, "c": a, "id": balance_id},
+                meta = await balance_impact_metadata(
+                    app,
+                    company_id=a,
+                    balance_id=balance_id,
+                )
+                before = int(
+                    (
+                        await app.execute(
+                            text(
+                                """
+                                SELECT on_hand_quantity
+                                FROM inventory_balances
+                                WHERE company_id=:c AND id=:id
+                                """
+                            ),
+                            {"c": a, "id": balance_id},
+                        )
+                    ).scalar_one()
+                )
+                after = (
+                    await app.execute(
+                        text(
+                            """
+                            UPDATE inventory_balances
+                            SET on_hand_quantity=:qty, last_updated=NOW()
+                            WHERE company_id=:c AND id=:id
+                            RETURNING on_hand_quantity, reserved_quantity
+                            """
+                        ),
+                        {"qty": new_on_hand, "c": a, "id": balance_id},
+                    )
+                ).one()
+                meta.update(
+                    {
+                        "on_hand_before": before,
+                        "on_hand_after": after.on_hand_quantity,
+                        "reserved_before": after.reserved_quantity,
+                        "reserved_after": after.reserved_quantity,
+                    }
                 )
                 async with ready_lock:
                     ready += 1
                     if ready == 2:
                         both_ready.set()
                 await both_ready.wait()
-                await refresh_live_stock_keys(
+                await apply_live_stock_balance_impacts(
                     app,
                     company_id=a,
-                    keys=[(a_wh, a_variant)],
-                    computed_for_date=as_of,
+                    impacts=[meta],
                 )
                 await app.commit()
 
