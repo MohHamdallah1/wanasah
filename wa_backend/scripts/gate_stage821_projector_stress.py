@@ -307,6 +307,44 @@ async def profile_refresh_once(
     )
 
 
+def _profile_operation(
+    elapsed_ms: float,
+    bucket: list[tuple[str, float]],
+) -> tuple[dict[str, float], float]:
+    per_label: dict[str, float] = {}
+    for label, ms in bucket:
+        per_label[label] = per_label.get(label, 0.0) + ms
+    sql_ms = sum(per_label.values())
+    return per_label, max(0.0, elapsed_ms - sql_ms)
+
+
+def _print_concurrent_profile(
+    name: str,
+    profiles: list[tuple[dict[str, float], float]],
+) -> None:
+    labels = sorted(
+        {
+            label
+            for per_label, _outside in profiles
+            for label in per_label
+        }
+    )
+    parts = []
+    for label in labels:
+        values = [
+            per_label.get(label, 0.0)
+            for per_label, _outside in profiles
+        ]
+        parts.append(
+            f"{label}_p95={percentile(values, 0.95):.1f}ms"
+        )
+    outside = [outside for _per_label, outside in profiles]
+    parts.append(
+        f"outside_sql_p95={percentile(outside, 0.95):.1f}ms"
+    )
+    print(f"{name} " + " ".join(parts))
+
+
 async def bulk_refresh_with_lock_count(
     company_id: int,
     location_id: int,
@@ -350,10 +388,13 @@ async def timed_parallel_refreshes(
     sem = asyncio.Semaphore(concurrency)
     latencies: list[float] = []
     errors: list[str] = []
+    profiles: list[tuple[dict[str, float], float]] = []
 
     async def one(index: int) -> None:
         async with sem:
             variant_id = variant_ids[index % len(variant_ids)]
+            bucket: list[tuple[str, float]] = []
+            token = SQL_BUCKET.set(bucket)
             try:
                 elapsed = await refresh_once(
                     company_id,
@@ -361,13 +402,17 @@ async def timed_parallel_refreshes(
                     [variant_id],
                 )
                 latencies.append(elapsed)
+                profiles.append(_profile_operation(elapsed, bucket))
             except Exception as exc:
                 errors.append(f"{type(exc).__name__}:{exc}")
+            finally:
+                SQL_BUCKET.reset(token)
 
     started = time.perf_counter()
     await asyncio.gather(*(one(i) for i in range(operations)))
     total_s = time.perf_counter() - started
     throughput = operations / total_s if total_s > 0 else 0.0
+    _print_concurrent_profile("PARALLEL_SQL_PROFILE", profiles)
     return Metric("parallel_refresh", latencies), throughput, errors
 
 
@@ -382,6 +427,7 @@ async def timed_mutation_pressure(
     sem = asyncio.Semaphore(concurrency)
     latencies: list[float] = []
     errors: list[str] = []
+    profiles: list[tuple[dict[str, float], float]] = []
     touched_originals = {
         balance_id: original
         for _variant_id, balance_id, original in rows[:operations]
@@ -392,6 +438,8 @@ async def timed_mutation_pressure(
         variant_id, balance_id, _original = item
         async with sem:
             started = time.perf_counter()
+            bucket: list[tuple[str, float]] = []
+            token = SQL_BUCKET.set(bucket)
             try:
                 async with SessionApp() as app:
                     await app.begin()
@@ -417,14 +465,19 @@ async def timed_mutation_pressure(
                         keys=[(location_id, variant_id)],
                     )
                     await app.commit()
-                latencies.append((time.perf_counter() - started) * 1000)
+                elapsed = (time.perf_counter() - started) * 1000
+                latencies.append(elapsed)
+                profiles.append(_profile_operation(elapsed, bucket))
             except Exception as exc:
                 errors.append(f"{type(exc).__name__}:{exc}")
+            finally:
+                SQL_BUCKET.reset(token)
 
     started = time.perf_counter()
     await asyncio.gather(*(one(item) for item in work))
     total_s = time.perf_counter() - started
     throughput = len(work) / total_s if total_s > 0 else 0.0
+    _print_concurrent_profile("MUTATION_SQL_PROFILE", profiles)
     return (
         Metric("mutation_pressure", latencies),
         throughput,
