@@ -56,6 +56,7 @@ from domains.pricing.driver_authority import (
 )
 from domains.inventory_rules import batch_sellability_predicate
 from domains.live_stock_projection.service import (
+    LiveStockProjectionError,
     refresh_live_stock_from_movement_specs,
     refresh_live_stock_variants,
 )
@@ -753,11 +754,18 @@ async def change_product_batch_disposition(
         emit_outbox=True,
     )
     await db_session.flush()
-    await refresh_live_stock_variants(
-        db_session,
-        company_id=company_id,
-        variant_ids=[variant_id],
-    )
+    try:
+        await refresh_live_stock_variants(
+            db_session,
+            company_id=company_id,
+            variant_ids=[variant_id],
+        )
+    except LiveStockProjectionError as exc:
+        raise InventoryRuleError(
+            "LIVE_STOCK_PROJECTION_FAILED",
+            "تعذر تحديث عرض المخزون الحي بأمان.",
+            context={"product_variant_id": variant_id},
+        ) from exc
     return batch
 
 
@@ -3941,11 +3949,17 @@ async def apply_inventory_movements_batch(
 
     # Live Stock projection is part of the same transaction as the inventory truth.
     # Recompute from SSOT instead of applying arithmetic deltas, so retries stay idempotent.
-    await refresh_live_stock_from_movement_specs(
-        db_session,
-        company_id=company_id,
-        movement_specs=new_specs,
-    )
+    try:
+        await refresh_live_stock_from_movement_specs(
+            db_session,
+            company_id=company_id,
+            movement_specs=new_specs,
+        )
+    except LiveStockProjectionError as exc:
+        raise InventoryRuleError(
+            "LIVE_STOCK_PROJECTION_FAILED",
+            "تعذر تحديث عرض المخزون الحي بأمان.",
+        ) from exc
 
     return [
         results_by_key[spec["idempotency_key"]]
