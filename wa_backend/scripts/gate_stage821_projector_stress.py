@@ -649,6 +649,13 @@ async def timed_mutation_pressure(
     total_s = time.perf_counter() - started
     throughput = len(work) / total_s if total_s > 0 else 0.0
     _print_concurrent_profile("MUTATION_SQL_PROFILE", profiles)
+    reaggregation_ops = sum(
+        1 for per_label, _outside in profiles if "facts" in per_label
+    )
+    if reaggregation_ops:
+        errors.append(
+            f"HOT_PATH_REAGGREGATION:{reaggregation_ops}"
+        )
     return (
         Metric("mutation_pressure", latencies),
         throughput,
