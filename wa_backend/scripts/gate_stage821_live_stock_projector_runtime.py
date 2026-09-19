@@ -37,6 +37,7 @@ SessionApp = async_sessionmaker(
 )
 
 RESULTS: list[tuple[str, bool, str]] = []
+TEST_COMPANY_PREFIX = "S821-"
 
 
 def record(name: str, ok: bool, detail: str = "") -> None:
@@ -54,19 +55,47 @@ async def set_tenant(session, company_id: int) -> None:
     )
 
 
-async def cleanup_company(company_id: int | None) -> None:
-    if not company_id:
-        return
-    try:
-        async with SessionSU() as su:
-            await su.begin()
+async def cleanup_test_companies() -> int:
+    async with SessionSU() as su:
+        await su.begin()
+        company_ids = [
+            int(value)
+            for value in (
+                await su.execute(
+                    text(
+                        "SELECT id FROM companies "
+                        "WHERE company_code LIKE :prefix ORDER BY id"
+                    ),
+                    {"prefix": f"{TEST_COMPANY_PREFIX}%"},
+                )
+            ).scalars().all()
+        ]
+        if company_ids:
             await su.execute(
-                text("DELETE FROM companies WHERE id=:id"),
-                {"id": company_id},
+                text("DELETE FROM companies WHERE id = ANY(:ids)"),
+                {"ids": company_ids},
             )
-            await su.commit()
-    except Exception as exc:
-        print(f"CLEANUP_WARNING company_id={company_id}: {exc}")
+        await su.commit()
+
+    async with SessionSU() as su:
+        await su.begin()
+        remaining = int(
+            (
+                await su.execute(
+                    text(
+                        "SELECT count(*) FROM companies "
+                        "WHERE company_code LIKE :prefix"
+                    ),
+                    {"prefix": f"{TEST_COMPANY_PREFIX}%"},
+                )
+            ).scalar_one()
+        )
+        await su.rollback()
+    if remaining:
+        raise RuntimeError(
+            f"Stage 8.2.1 runtime gate cleanup left {remaining} test companies."
+        )
+    return len(company_ids)
 
 
 async def seed() -> dict[str, int]:
@@ -125,7 +154,7 @@ async def seed() -> dict[str, int]:
                         ),
                         {
                             "name": f"Stage821 {label}",
-                            "code": f"S821-{uuid4().hex[:12]}",
+                            "code": f"{TEST_COMPANY_PREFIX}{uuid4().hex[:12]}",
                         },
                     )
                 ).scalar_one()
@@ -422,7 +451,73 @@ async def projection_row(session, company_id: int, warehouse_id: int, variant_id
 
 async def main() -> None:
     ids: dict[str, int] = {}
+    preclean_ok = False
     try:
+        removed_before = await cleanup_test_companies()
+        preclean_ok = True
+        record(
+            "runtime gate starts from a clean database",
+            True,
+            f"removed_stale_companies={removed_before}",
+        )
+
+        async with SessionSU() as su:
+            await su.begin()
+            trigger_defs = {
+                str(row.name): str(row.definition)
+                for row in (
+                    await su.execute(
+                        text(
+                            """
+                            SELECT t.tgname AS name,
+                                   pg_get_triggerdef(t.oid) AS definition
+                            FROM pg_trigger t
+                            JOIN pg_class c ON c.oid=t.tgrelid
+                            WHERE NOT t.tgisinternal
+                              AND c.relname = ANY(
+                                  CAST(:tables AS text[])
+                              )
+                              AND t.tgname = ANY(
+                                  CAST(:triggers AS text[])
+                              )
+                            """
+                        ),
+                        {
+                            "tables": [
+                                "inventory_cost_events",
+                                "inventory_cost_allocations",
+                            ],
+                            "triggers": [
+                                "trg_inventory_cost_events_append_only",
+                                "trg_inventory_cost_events_truncate_guard",
+                                "trg_inventory_cost_allocations_append_only",
+                                "trg_inventory_cost_allocations_truncate_guard",
+                            ],
+                        },
+                    )
+                ).all()
+            }
+            await su.rollback()
+        guard_ok = (
+            "FOR EACH ROW" in trigger_defs.get(
+                "trg_inventory_cost_events_append_only", ""
+            )
+            and "FOR EACH ROW" in trigger_defs.get(
+                "trg_inventory_cost_allocations_append_only", ""
+            )
+            and "FOR EACH STATEMENT" in trigger_defs.get(
+                "trg_inventory_cost_events_truncate_guard", ""
+            )
+            and "FOR EACH STATEMENT" in trigger_defs.get(
+                "trg_inventory_cost_allocations_truncate_guard", ""
+            )
+        )
+        record(
+            "append-only cost guards are row-exact",
+            guard_ok,
+            f"triggers={sorted(trigger_defs)}",
+        )
+
         ids = await seed()
         a = ids["a"]
         b = ids["b"]
@@ -853,8 +948,20 @@ async def main() -> None:
         )
 
     finally:
-        await cleanup_company(ids.get("a"))
-        await cleanup_company(ids.get("b"))
+        if preclean_ok:
+            try:
+                removed_after = await cleanup_test_companies()
+                record(
+                    "runtime gate leaves zero test data behind",
+                    True,
+                    f"removed_companies={removed_after}",
+                )
+            except Exception as exc:
+                record(
+                    "runtime gate leaves zero test data behind",
+                    False,
+                    str(exc),
+                )
         await engine_app.dispose()
         await engine_su.dispose()
 
