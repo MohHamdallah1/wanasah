@@ -444,7 +444,6 @@ async def refresh_live_stock_keys(
     company_id: int,
     keys: Iterable[tuple[int, int]],
     computed_for_date: date | None = None,
-    variant_guard_exclusive: bool = False,
     _company_guard_held: bool = False,
     _force_coarse_guard: bool = False,
 ) -> None:
@@ -468,12 +467,6 @@ async def refresh_live_stock_keys(
             exclusive=coarse_guard,
         )
     if not coarse_guard:
-        await _acquire_variant_guards(
-            db,
-            company_id=company_id,
-            variant_ids=variant_ids,
-            exclusive=variant_guard_exclusive,
-        )
         await _acquire_projection_key_guards(
             db,
             company_id=company_id,
@@ -501,6 +494,10 @@ async def refresh_live_stock_keys(
                 InventoryStockPolicy.minimum_quantity,
                 InventoryStockPolicy.minimum_remaining_shelf_life_days,
                 company_date_expr.label("company_local_date"),
+                InventoryLiveStockWarehouseSummary.warehouse_location_id.label(
+                    "summary_warehouse_id"
+                ),
+                InventoryLiveStockProjection,
             )
             .select_from(requested_key_scope)
             .join(
@@ -532,6 +529,25 @@ async def refresh_live_stock_keys(
                     InventoryStockPolicy.is_active.is_(True),
                 ),
             )
+            .outerjoin(
+                InventoryLiveStockWarehouseSummary,
+                and_(
+                    InventoryLiveStockWarehouseSummary.company_id
+                    == company_id,
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                    == requested_key_scope.c.warehouse_location_id,
+                ),
+            )
+            .outerjoin(
+                InventoryLiveStockProjection,
+                and_(
+                    InventoryLiveStockProjection.company_id == company_id,
+                    InventoryLiveStockProjection.warehouse_location_id
+                    == requested_key_scope.c.warehouse_location_id,
+                    InventoryLiveStockProjection.product_variant_id
+                    == requested_key_scope.c.product_variant_id,
+                ),
+            )
         )
     ).all()
 
@@ -541,6 +557,14 @@ async def refresh_live_stock_keys(
             int(row.product_variant_id),
         ): row
         for row in metadata_rows
+    }
+    existing = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row[-1]
+        for row in metadata_rows
+        if row[-1] is not None
     }
     active_keys = sorted(metadata)
     if computed_for_date is None:
@@ -564,11 +588,19 @@ async def refresh_live_stock_keys(
     )
     normalized_key_scope = requested_key_scope
 
-    await _ensure_warehouse_summaries(
-        db,
-        company_id=company_id,
-        warehouse_ids=sorted({key[0] for key in active_keys}),
+    missing_summary_warehouses = sorted(
+        {
+            int(row.warehouse_location_id)
+            for row in metadata_rows
+            if row.summary_warehouse_id is None
+        }
     )
+    if missing_summary_warehouses:
+        await _ensure_warehouse_summaries(
+            db,
+            company_id=company_id,
+            warehouse_ids=missing_summary_warehouses,
+        )
 
     policies = {
         key: row
@@ -891,34 +923,6 @@ async def refresh_live_stock_keys(
             int(row.product_variant_id),
         ): row
         for row in fact_rows
-    }
-
-    existing_rows = (
-        await db.execute(
-            select(InventoryLiveStockProjection)
-            .select_from(InventoryLiveStockProjection)
-            .join(
-                normalized_key_scope,
-                and_(
-                    normalized_key_scope.c.warehouse_location_id
-                    == InventoryLiveStockProjection.warehouse_location_id,
-                    normalized_key_scope.c.product_variant_id
-                    == InventoryLiveStockProjection.product_variant_id,
-                ),
-            )
-            .where(
-                InventoryLiveStockProjection.company_id == company_id,
-            )
-            .order_by(
-                InventoryLiveStockProjection.warehouse_location_id,
-                InventoryLiveStockProjection.product_variant_id,
-            )
-            .with_for_update()
-        )
-    ).scalars().all()
-    existing = {
-        (int(row.warehouse_location_id), int(row.product_variant_id)): row
-        for row in existing_rows
     }
 
     summary_deltas: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])
@@ -1314,7 +1318,6 @@ async def refresh_live_stock_variants(
             company_id=company_id,
             keys=keys,
             computed_for_date=computed_for_date,
-            variant_guard_exclusive=True,
             _company_guard_held=coarse_guard,
             _force_coarse_guard=coarse_guard,
         )
@@ -1389,13 +1392,6 @@ async def refresh_live_stock_from_movement_specs(
             db,
             company_id=company_id,
             exclusive=True,
-        )
-    else:
-        await _acquire_variant_guards(
-            db,
-            company_id=company_id,
-            variant_ids=variant_ids,
-            exclusive=False,
         )
     vehicle_sources = await get_live_stock_vehicle_sources(
         db,
@@ -1517,13 +1513,6 @@ async def refresh_live_stock_vehicle_attribution(
             company_id=company_id,
             exclusive=True,
         )
-    else:
-        await _acquire_variant_guards(
-            db,
-            company_id=company_id,
-            variant_ids=variant_ids,
-            exclusive=True,
-        )
     current_sources = await get_live_stock_vehicle_sources(
         db,
         company_id=company_id,
@@ -1549,7 +1538,6 @@ async def refresh_live_stock_vehicle_attribution(
             db,
             company_id=company_id,
             keys=keys,
-            variant_guard_exclusive=True,
             _company_guard_held=coarse_guard,
             _force_coarse_guard=coarse_guard,
         )
