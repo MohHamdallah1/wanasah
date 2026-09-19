@@ -33,14 +33,14 @@ class Config:
     if not SQLALCHEMY_DATABASE_URI:
         raise ValueError("خطأ أمني قاتل: لم يتم العثور على DATABASE_URL في بيئة التشغيل! السيرفر يرفض الإقلاع حمايةً للبيانات.")
     
-    # ميزانية الاتصالات مقاسة من Stage 8.2.1: نقطة التشغيل المثلى الحالية ≈ 24
+    # ميزانية الاتصالات مقاسة من Stage 8.2.1: نقطة التشغيل المثلى الحالية ≈ 20
     # اتصال PostgreSQL متزامناً للتطبيق كله. لا ترفعها عشوائياً؛ أعد تشغيل
     # diagnose_stage821_concurrency_knee.py على نفس طبقة قاعدة بيانات الإنتاج.
     WEB_CONCURRENCY = int(os.environ.get("WEB_CONCURRENCY", "4"))
     DB_APP_CONNECTION_BUDGET = int(
-        os.environ.get("DB_APP_CONNECTION_BUDGET", "24")
+        os.environ.get("DB_APP_CONNECTION_BUDGET", "20")
     )
-    DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
+    DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "4"))
     DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "1"))
     DB_POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "3"))
     DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
