@@ -27,6 +27,7 @@ from models import (
 
 PROJECTION_VERSION = 1
 _MAX_PROJECTOR_KEYS = 10_000
+_COARSE_GUARD_THRESHOLD = 1_000
 _ZERO = Decimal("0")
 
 
@@ -98,6 +99,20 @@ async def _acquire_text_guards(
             """
         ),
         {"lock_keys": sorted(set(keys))},
+    )
+
+
+async def _acquire_company_projection_guard(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    exclusive: bool,
+) -> None:
+    company_id = _positive_int(company_id, "company_id")
+    await _acquire_text_guards(
+        db,
+        [f"live-stock-company:{company_id}"],
+        shared=not exclusive,
     )
 
 
@@ -337,24 +352,40 @@ async def refresh_live_stock_keys(
     keys: Iterable[tuple[int, int]],
     computed_for_date: date | None = None,
     variant_guard_exclusive: bool = False,
+    _company_guard_held: bool = False,
+    _force_coarse_guard: bool = False,
 ) -> None:
     company_id = _positive_int(company_id, "company_id")
     normalized_keys = _normalize_keys(keys)
     if not normalized_keys:
         return
 
-    variant_ids = sorted({variant_id for _warehouse_id, variant_id in normalized_keys})
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=variant_ids,
-        exclusive=variant_guard_exclusive,
+    variant_ids = sorted(
+        {variant_id for _warehouse_id, variant_id in normalized_keys}
     )
-    await _acquire_projection_key_guards(
-        db,
-        company_id=company_id,
-        keys=normalized_keys,
+    coarse_guard = (
+        _force_coarse_guard
+        or len(normalized_keys) >= _COARSE_GUARD_THRESHOLD
+        or len(variant_ids) >= _COARSE_GUARD_THRESHOLD
     )
+    if not _company_guard_held:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=coarse_guard,
+        )
+    if not coarse_guard:
+        await _acquire_variant_guards(
+            db,
+            company_id=company_id,
+            variant_ids=variant_ids,
+            exclusive=variant_guard_exclusive,
+        )
+        await _acquire_projection_key_guards(
+            db,
+            company_id=company_id,
+            keys=normalized_keys,
+        )
 
     if computed_for_date is None:
         computed_for_date = await _company_local_date(db, company_id)
@@ -1052,12 +1083,20 @@ async def refresh_live_stock_variants(
     ids = _normalize_ids(variant_ids, "product_variant_id")
     if not ids:
         return
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=ids,
-        exclusive=True,
-    )
+    coarse_guard = len(ids) >= _COARSE_GUARD_THRESHOLD
+    if coarse_guard:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=True,
+        )
+    else:
+        await _acquire_variant_guards(
+            db,
+            company_id=company_id,
+            variant_ids=ids,
+            exclusive=True,
+        )
     keys = await _candidate_keys_for_variants(
         db,
         company_id=company_id,
@@ -1070,6 +1109,8 @@ async def refresh_live_stock_variants(
             keys=keys,
             computed_for_date=computed_for_date,
             variant_guard_exclusive=True,
+            _company_guard_held=coarse_guard,
+            _force_coarse_guard=coarse_guard,
         )
 
 
@@ -1136,12 +1177,20 @@ async def refresh_live_stock_from_movement_specs(
             company_id=company_id,
             vehicle_ids=vehicle_ids,
         )
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=variant_ids,
-        exclusive=False,
-    )
+    coarse_guard = len(variant_ids) >= _COARSE_GUARD_THRESHOLD
+    if coarse_guard:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=True,
+        )
+    else:
+        await _acquire_variant_guards(
+            db,
+            company_id=company_id,
+            variant_ids=variant_ids,
+            exclusive=False,
+        )
     vehicle_sources = await get_live_stock_vehicle_sources(
         db,
         company_id=company_id,
@@ -1174,6 +1223,8 @@ async def refresh_live_stock_from_movement_specs(
             db,
             company_id=company_id,
             keys=keys,
+            _company_guard_held=coarse_guard,
+            _force_coarse_guard=coarse_guard,
         )
 
 
@@ -1249,12 +1300,20 @@ async def refresh_live_stock_vehicle_attribution(
     if not variant_ids:
         return
 
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=variant_ids,
-        exclusive=True,
-    )
+    coarse_guard = len(variant_ids) >= _COARSE_GUARD_THRESHOLD
+    if coarse_guard:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=True,
+        )
+    else:
+        await _acquire_variant_guards(
+            db,
+            company_id=company_id,
+            variant_ids=variant_ids,
+            exclusive=True,
+        )
     current_sources = await get_live_stock_vehicle_sources(
         db,
         company_id=company_id,
@@ -1281,6 +1340,8 @@ async def refresh_live_stock_vehicle_attribution(
             company_id=company_id,
             keys=keys,
             variant_guard_exclusive=True,
+            _company_guard_held=coarse_guard,
+            _force_coarse_guard=coarse_guard,
         )
 
 
