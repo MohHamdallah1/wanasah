@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, text, update
+from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -277,30 +277,59 @@ async def _ensure_warehouse_summaries(
     if not warehouse_ids:
         return
 
-    insert_stmt = (
-        pg_insert(InventoryLiveStockWarehouseSummary)
-        .values(
-            [
-                {
-                    "company_id": company_id,
-                    "warehouse_location_id": warehouse_id,
-                    "projection_state": "BUILDING",
-                    "projection_version": PROJECTION_VERSION,
-                    "revision": 1,
-                }
-                for warehouse_id in warehouse_ids
-            ]
-        )
-        .on_conflict_do_nothing(
-            index_elements=["company_id", "warehouse_location_id"]
-        )
-        .returning(InventoryLiveStockWarehouseSummary.warehouse_location_id)
-    )
-    inserted_ids = [
+    requested = sorted(set(int(value) for value in warehouse_ids))
+    existing = {
         int(value)
-        for value in (await db.execute(insert_stmt)).scalars().all()
+        for value in (
+            await db.execute(
+                select(
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                ).where(
+                    InventoryLiveStockWarehouseSummary.company_id == company_id,
+                    _array_membership(
+                        InventoryLiveStockWarehouseSummary.warehouse_location_id,
+                        requested,
+                        "live_stock_summary_warehouse_ids",
+                    ),
+                )
+            )
+        ).scalars().all()
+    }
+    missing = [value for value in requested if value not in existing]
+    if not missing:
+        return
+
+    # Summary creation is rare. Serialize only the missing warehouses instead
+    # of making every hot-path refresh contend on INSERT .. ON CONFLICT.
+    await _acquire_text_guards(
+        db,
+        [
+            f"live-stock-summary:{company_id}:{warehouse_id}"
+            for warehouse_id in missing
+        ],
+        shared=False,
+    )
+    existing_after_lock = {
+        int(value)
+        for value in (
+            await db.execute(
+                select(
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                ).where(
+                    InventoryLiveStockWarehouseSummary.company_id == company_id,
+                    _array_membership(
+                        InventoryLiveStockWarehouseSummary.warehouse_location_id,
+                        missing,
+                        "live_stock_missing_summary_warehouse_ids",
+                    ),
+                )
+            )
+        ).scalars().all()
+    }
+    missing = [
+        value for value in missing if value not in existing_after_lock
     ]
-    if not inserted_ids:
+    if not missing:
         return
 
     aggregate_rows = (
@@ -311,7 +340,10 @@ async def _ensure_warehouse_summaries(
                 func.coalesce(
                     func.sum(
                         case(
-                            (InventoryLiveStockProjection.is_low_stock.is_(True), 1),
+                            (
+                                InventoryLiveStockProjection.is_low_stock.is_(True),
+                                1,
+                            ),
                             else_=0,
                         )
                     ),
@@ -343,11 +375,15 @@ async def _ensure_warehouse_summaries(
             )
             .where(
                 InventoryLiveStockProjection.company_id == company_id,
-                InventoryLiveStockProjection.warehouse_location_id.in_(
-                    inserted_ids
+                _array_membership(
+                    InventoryLiveStockProjection.warehouse_location_id,
+                    missing,
+                    "live_stock_new_summary_warehouse_ids",
                 ),
             )
-            .group_by(InventoryLiveStockProjection.warehouse_location_id)
+            .group_by(
+                InventoryLiveStockProjection.warehouse_location_id
+            )
         )
     ).all()
     aggregates = {
@@ -358,24 +394,31 @@ async def _ensure_warehouse_summaries(
         )
         for row in aggregate_rows
     }
-    for warehouse_id in inserted_ids:
-        alert_count, nonactive_count, row_count = aggregates.get(
-            warehouse_id, (0, 0, 0)
+
+    await db.execute(
+        pg_insert(InventoryLiveStockWarehouseSummary).values(
+            [
+                {
+                    "company_id": company_id,
+                    "warehouse_location_id": warehouse_id,
+                    "projection_state": "BUILDING",
+                    "projection_version": PROJECTION_VERSION,
+                    "revision": 1,
+                    "alert_count": aggregates.get(
+                        warehouse_id, (0, 0, 0)
+                    )[0],
+                    "nonactive_visible_count": aggregates.get(
+                        warehouse_id, (0, 0, 0)
+                    )[1],
+                    "projected_row_count": aggregates.get(
+                        warehouse_id, (0, 0, 0)
+                    )[2],
+                    "updated_at": utc_now(),
+                }
+                for warehouse_id in missing
+            ]
         )
-        await db.execute(
-            update(InventoryLiveStockWarehouseSummary)
-            .where(
-                InventoryLiveStockWarehouseSummary.company_id == company_id,
-                InventoryLiveStockWarehouseSummary.warehouse_location_id
-                == warehouse_id,
-            )
-            .values(
-                alert_count=alert_count,
-                nonactive_visible_count=nonactive_count,
-                projected_row_count=row_count,
-                updated_at=utc_now(),
-            )
-        )
+    )
 
 
 def _nonactive_visible_from_values(values: Mapping[str, object]) -> bool:
@@ -437,92 +480,100 @@ async def refresh_live_stock_keys(
             keys=normalized_keys,
         )
 
+    requested_key_scope = _projection_key_scope(
+        normalized_keys,
+        name="live_stock_requested",
+    )
+    company_date_expr = cast(
+        func.timezone(Company.timezone, func.current_timestamp()),
+        Date,
+    )
+
+    metadata_rows = (
+        await db.execute(
+            select(
+                requested_key_scope.c.warehouse_location_id,
+                requested_key_scope.c.product_variant_id,
+                ProductVariant.name.label("variant_name"),
+                ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
+                ProductVariant.expiry_control_mode,
+                InventoryStockPolicy.minimum_quantity,
+                InventoryStockPolicy.minimum_remaining_shelf_life_days,
+                company_date_expr.label("company_local_date"),
+            )
+            .select_from(requested_key_scope)
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id
+                    == requested_key_scope.c.warehouse_location_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                ),
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id
+                    == requested_key_scope.c.product_variant_id,
+                ),
+            )
+            .join(Company, Company.id == company_id)
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id == company_id,
+                    InventoryStockPolicy.location_id
+                    == requested_key_scope.c.warehouse_location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == requested_key_scope.c.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                ),
+            )
+        )
+    ).all()
+
+    metadata = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row
+        for row in metadata_rows
+    }
+    active_keys = sorted(metadata)
     if computed_for_date is None:
-        computed_for_date = await _company_local_date(db, company_id)
+        dates = {
+            row.company_local_date
+            for row in metadata_rows
+            if row.company_local_date is not None
+        }
+        if len(dates) != 1:
+            raise LiveStockProjectionError(
+                "Could not resolve one company-local operational date."
+            )
+        computed_for_date = next(iter(dates))
     if type(computed_for_date) is not date:
         raise LiveStockProjectionError("computed_for_date must be a date.")
 
-    warehouse_ids = sorted({warehouse_id for warehouse_id, _ in normalized_keys})
-    warehouses = set(
-        (
-            await db.execute(
-                select(InventoryLocation.id).where(
-                    InventoryLocation.company_id == company_id,
-                    _array_membership(
-                        InventoryLocation.id,
-                        warehouse_ids,
-                        "live_stock_warehouse_ids",
-                    ),
-                    InventoryLocation.location_type == "WAREHOUSE",
-                )
-            )
-        ).scalars().all()
-    )
-    warehouses = {int(value) for value in warehouses}
-
-    variants = {
-        int(row.id): row
-        for row in (
-            await db.execute(
-                select(ProductVariant).where(
-                    ProductVariant.company_id == company_id,
-                    _array_membership(
-                        ProductVariant.id,
-                        variant_ids,
-                        "live_stock_variant_ids",
-                    ),
-                )
-            )
-        ).scalars().all()
-    }
-
-    active_keys = [
-        key
-        for key in normalized_keys
-        if key[0] in warehouses and key[1] in variants
-    ]
     active_key_scope = (
         _projection_key_scope(active_keys, name="live_stock_active")
         if active_keys
         else None
     )
-    normalized_key_scope = _projection_key_scope(
-        normalized_keys,
-        name="live_stock_requested",
-    )
+    normalized_key_scope = requested_key_scope
+
     await _ensure_warehouse_summaries(
         db,
         company_id=company_id,
         warehouse_ids=sorted({key[0] for key in active_keys}),
     )
 
-    policy_rows = (
-        await db.execute(
-            select(
-                InventoryStockPolicy.location_id,
-                InventoryStockPolicy.product_variant_id,
-                InventoryStockPolicy.minimum_quantity,
-                InventoryStockPolicy.minimum_remaining_shelf_life_days,
-            )
-            .select_from(InventoryStockPolicy)
-            .join(
-                active_key_scope,
-                and_(
-                    active_key_scope.c.warehouse_location_id
-                    == InventoryStockPolicy.location_id,
-                    active_key_scope.c.product_variant_id
-                    == InventoryStockPolicy.product_variant_id,
-                ),
-            )
-            .where(
-                InventoryStockPolicy.company_id == company_id,
-                InventoryStockPolicy.is_active.is_(True),
-            )
-        )
-    ).all() if active_keys else []
     policies = {
-        (int(row.location_id), int(row.product_variant_id)): row
-        for row in policy_rows
+        key: row
+        for key, row in metadata.items()
+        if row.minimum_quantity is not None
     }
 
     min_shelf_life = func.coalesce(
@@ -844,8 +895,8 @@ async def refresh_live_stock_keys(
     for warehouse_id, variant_id in normalized_keys:
         key = (warehouse_id, variant_id)
         old = existing.get(key)
-        variant = variants.get(variant_id)
-        if warehouse_id not in warehouses or variant is None:
+        variant = metadata.get(key)
+        if variant is None:
             new_values = None
         else:
             aggregate = direct.get(key)
@@ -915,7 +966,7 @@ async def refresh_live_stock_keys(
                     <= minimum_quantity
                 )
                 new_values = {
-                    "variant_name": str(variant.name),
+                    "variant_name": str(variant.variant_name),
                     "lifecycle_status": str(variant.lifecycle_status),
                     "operational_hold": str(variant.operational_hold),
                     "warehouse_on_hand": warehouse_on_hand,
