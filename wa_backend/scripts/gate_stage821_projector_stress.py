@@ -32,15 +32,15 @@ APP_URL = os.environ["DATABASE_URL"]
 MIGRATION_URL = os.environ["DATABASE_URL_MIGRATION"]
 
 # Aggregate production-equivalent DB budget:
-# 4 workers × (8 steady + 2 overflow) = 40 maximum PostgreSQL connections.
-STRESS_POOL_SIZE = int(os.environ.get("STAGE821_STRESS_POOL_SIZE", "32"))
+# 4 workers × (5 steady + 1 overflow) = 24 maximum PostgreSQL connections.
+STRESS_POOL_SIZE = int(os.environ.get("STAGE821_STRESS_POOL_SIZE", "20"))
 STRESS_MAX_OVERFLOW = int(
-    os.environ.get("STAGE821_STRESS_MAX_OVERFLOW", "8")
+    os.environ.get("STAGE821_STRESS_MAX_OVERFLOW", "4")
 )
 STRESS_DB_CONNECTION_CAP = STRESS_POOL_SIZE + STRESS_MAX_OVERFLOW
-if STRESS_DB_CONNECTION_CAP != 40:
+if STRESS_DB_CONNECTION_CAP != 24:
     raise RuntimeError(
-        "Stage 8.2.1 hard stress gate requires an aggregate DB cap of 40 "
+        "Stage 8.2.1 hard stress gate requires an aggregate DB cap of 24 "
         f"connections; got {STRESS_DB_CONNECTION_CAP}."
     )
 
