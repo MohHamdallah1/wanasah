@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextvars
 import math
 import os
 import sys
@@ -10,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -44,6 +45,68 @@ SessionApp = async_sessionmaker(
 )
 SessionSU = async_sessionmaker(
     engine_su, expire_on_commit=False, autobegin=False
+)
+
+
+SQL_BUCKET: contextvars.ContextVar[list[tuple[str, float]] | None] = (
+    contextvars.ContextVar("stage821_projector_sql_bucket", default=None)
+)
+
+
+def _sql_label(statement: str) -> str:
+    normalized = " ".join(statement.lower().split())
+    if "set_config('app.current_tenant'" in normalized:
+        return "tenant"
+    if "pg_advisory_xact_lock" in normalized:
+        return "lock"
+    if "inventory_live_stock_projection" in normalized:
+        if normalized.startswith("update"):
+            return "projection_update"
+        if normalized.startswith("insert"):
+            return "projection_insert"
+        if normalized.startswith("delete"):
+            return "projection_delete"
+        return "projection_read"
+    if "inventory_live_stock_warehouse_summaries" in normalized:
+        return "summary"
+    if "inventory_balances" in normalized:
+        if normalized.startswith("update"):
+            return "balance_update"
+        return "facts"
+    return normalized.split(" ", 1)[0] if normalized else "unknown"
+
+
+def _before_cursor_execute(
+    conn, cursor, statement, parameters, context, executemany
+):
+    bucket = SQL_BUCKET.get()
+    if bucket is not None:
+        context._stage821_sql_started = time.perf_counter()
+
+
+def _after_cursor_execute(
+    conn, cursor, statement, parameters, context, executemany
+):
+    bucket = SQL_BUCKET.get()
+    started = getattr(context, "_stage821_sql_started", None)
+    if bucket is not None and started is not None:
+        bucket.append(
+            (
+                _sql_label(statement),
+                (time.perf_counter() - started) * 1000,
+            )
+        )
+
+
+event.listen(
+    engine_app.sync_engine,
+    "before_cursor_execute",
+    _before_cursor_execute,
+)
+event.listen(
+    engine_app.sync_engine,
+    "after_cursor_execute",
+    _after_cursor_execute,
 )
 
 
@@ -215,6 +278,33 @@ async def refresh_once(
         )
         await app.commit()
     return (time.perf_counter() - started) * 1000
+
+
+async def profile_refresh_once(
+    company_id: int,
+    location_id: int,
+    variant_ids: list[int],
+) -> tuple[float, int, float, dict[str, int]]:
+    bucket: list[tuple[str, float]] = []
+    token = SQL_BUCKET.set(bucket)
+    try:
+        elapsed = await refresh_once(
+            company_id,
+            location_id,
+            variant_ids,
+        )
+    finally:
+        SQL_BUCKET.reset(token)
+
+    labels: dict[str, int] = {}
+    for label, _ms in bucket:
+        labels[label] = labels.get(label, 0) + 1
+    return (
+        elapsed,
+        len(bucket),
+        sum(ms for _label, ms in bucket),
+        labels,
+    )
 
 
 async def bulk_refresh_with_lock_count(
@@ -736,6 +826,55 @@ async def run(args: argparse.Namespace) -> None:
                 variants[offset:offset + 100],
             )
 
+        (
+            single_profile_ms,
+            single_sql_count,
+            single_sql_ms,
+            single_sql_labels,
+        ) = await profile_refresh_once(
+            args.company_id,
+            args.location_id,
+            [variants[0]],
+        )
+        (
+            batch_profile_ms,
+            batch_sql_count,
+            batch_sql_ms,
+            batch_sql_labels,
+        ) = await profile_refresh_once(
+            args.company_id,
+            args.location_id,
+            variants[:100],
+        )
+        print(
+            "SQL_PROFILE_SINGLE "
+            f"elapsed={single_profile_ms:.1f}ms "
+            f"statements={single_sql_count} "
+            f"sql_ms={single_sql_ms:.1f} "
+            f"labels={single_sql_labels}"
+        )
+        print(
+            "SQL_PROFILE_BATCH100 "
+            f"elapsed={batch_profile_ms:.1f}ms "
+            f"statements={batch_sql_count} "
+            f"sql_ms={batch_sql_ms:.1f} "
+            f"labels={batch_sql_labels}"
+        )
+        if single_sql_count > args.max_single_sql_statements:
+            failures.append(
+                f"SINGLE_SQL_STATEMENTS:{single_sql_count}"
+                f">{args.max_single_sql_statements}"
+            )
+        if batch_sql_count > args.max_batch100_sql_statements:
+            failures.append(
+                f"BATCH100_SQL_STATEMENTS:{batch_sql_count}"
+                f">{args.max_batch100_sql_statements}"
+            )
+        if batch_sql_count > single_sql_count + 1:
+            failures.append(
+                f"SQL_AMPLIFICATION:{single_sql_count}->{batch_sql_count}"
+            )
+
         single = Metric(
             "single_key_refresh",
             [
@@ -909,7 +1048,7 @@ async def run(args: argparse.Namespace) -> None:
             await engine_app.dispose()
             await engine_su.dispose()
 
-    print("CHECKS=13")
+    print("CHECKS=16")
     print(f"FAILURES={len(failures)}")
     for failure in failures:
         print("FAIL: " + failure)
@@ -945,6 +1084,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--max-bulk-ms", type=float, default=8000.0)
     parser.add_argument("--max-bulk-advisory-locks", type=int, default=4)
+    parser.add_argument("--max-single-sql-statements", type=int, default=6)
+    parser.add_argument("--max-batch100-sql-statements", type=int, default=6)
     parser.add_argument("--max-single-p95", type=float, default=75.0)
     parser.add_argument("--max-batch100-p95", type=float, default=350.0)
     parser.add_argument("--max-parallel-p95", type=float, default=900.0)
