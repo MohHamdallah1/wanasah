@@ -234,26 +234,54 @@ def main() -> None:
         )
 
     checks += 1
+    refresh_keys_source = projector_source[
+        projector_source.find("async def refresh_live_stock_keys"):
+        projector_source.find("async def _candidate_keys_for_variants")
+    ]
+    if "_acquire_variant_guards(" in refresh_keys_source:
+        failures.append("REDUNDANT_HOT_PATH_VARIANT_GUARD_PRESENT")
+    if "_acquire_projection_key_guards(" not in refresh_keys_source:
+        failures.append("PROJECTION_KEY_GUARD_MISSING")
+
+    checks += 1
     movement_source = sources["projector"]
-    movement_start = movement_source.find("async def refresh_live_stock_from_movement_specs")
+    movement_start = movement_source.find(
+        "async def refresh_live_stock_from_movement_specs"
+    )
     movement_end = movement_source.find(
         "async def refresh_live_stock_vehicle_attribution", movement_start
     )
     movement_block = movement_source[movement_start:movement_end]
-    vehicle_pos = movement_block.find("acquire_live_stock_vehicle_guards")
-    variant_pos = movement_block.find("_acquire_variant_guards")
-    if vehicle_pos < 0 or variant_pos < 0 or vehicle_pos > variant_pos:
-        failures.append("PROJECTOR_LOCK_ORDER_INVALID")
+    if "_acquire_variant_guards(" in movement_block:
+        failures.append("REDUNDANT_MOVEMENT_VARIANT_GUARD_PRESENT")
+    if "acquire_live_stock_vehicle_guards(" not in movement_block:
+        failures.append("MOVEMENT_VEHICLE_GUARD_MISSING")
 
     checks += 1
     attribution_source = movement_source[
         movement_source.find("async def refresh_live_stock_vehicle_attribution"):
         movement_source.find("async def apply_live_stock_active_variant_delta")
     ]
-    vehicle_pos = attribution_source.find("acquire_live_stock_vehicle_guards")
-    variant_pos = attribution_source.find("_acquire_variant_guards")
-    if vehicle_pos < 0 or variant_pos < 0 or vehicle_pos > variant_pos:
-        failures.append("ATTRIBUTION_LOCK_ORDER_INVALID")
+    if "_acquire_variant_guards(" in attribution_source:
+        failures.append("REDUNDANT_ATTRIBUTION_VARIANT_GUARD_PRESENT")
+    if "acquire_live_stock_vehicle_guards(" not in attribution_source:
+        failures.append("ATTRIBUTION_VEHICLE_GUARD_MISSING")
+
+    checks += 1
+    variant_refresh_source = projector_source[
+        projector_source.find("async def refresh_live_stock_variants"):
+        projector_source.find("async def refresh_live_stock_from_movement_specs")
+    ]
+    if "_acquire_variant_guards(" not in variant_refresh_source:
+        failures.append("VARIANT_DISCOVERY_GUARD_MISSING")
+
+    checks += 1
+    if (
+        'summary_warehouse_id' not in refresh_keys_source
+        or "InventoryLiveStockProjection," not in refresh_keys_source
+        or "missing_summary_warehouses" not in refresh_keys_source
+    ):
+        failures.append("HOT_PATH_READ_COLLAPSE_MISSING")
 
     checks += 1
     if "pg_advisory_xact_lock" not in sources["projector"]:
