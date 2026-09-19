@@ -20,6 +20,12 @@ FILES = {
     "simple_products": ROOT / "domains" / "simple_products" / "service.py",
     "rules": ROOT / "domains" / "inventory_rules.py",
     "projector": ROOT / "domains" / "live_stock_projection" / "service.py",
+    "cost_guard_migration": (
+        ROOT
+        / "alembic"
+        / "versions"
+        / "c7d4a91e6f32_cost_history_guard_exactness.py"
+    ),
 }
 
 
@@ -85,6 +91,17 @@ def main() -> None:
             ast.parse(source)
         except SyntaxError as exc:
             failures.append(f"SYNTAX:{name}:{exc.lineno}:{exc.msg}")
+
+    checks += 1
+    migration = sources["cost_guard_migration"]
+    if (
+        'revision = "c7d4a91e6f32"' not in migration
+        or 'down_revision = "b3e91c7a4d20"' not in migration
+        or "FOR EACH ROW" not in migration
+        or "BEFORE TRUNCATE" not in migration
+        or "FOR EACH STATEMENT" not in migration
+    ):
+        failures.append("COST_HISTORY_GUARD_EXACTNESS_MIGRATION_INVALID")
 
     checks += 1
     if "def batch_sellability_predicate(" in sources["services"]:
