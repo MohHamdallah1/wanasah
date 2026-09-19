@@ -9,7 +9,11 @@ from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, func, o
 from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domains.inventory_rules import batch_sellability_predicate
+from domains.inventory_rules import (
+    batch_metadata_is_sellable,
+    batch_next_transition_date,
+    batch_sellability_predicate,
+)
 from models import (
     Company,
     DispatchRoute,
@@ -436,6 +440,46 @@ def _nonactive_visible_from_row(row: InventoryLiveStockProjection) -> bool:
         row.lifecycle_status != "ACTIVE"
         and (bool(row.has_warehouse_presence) or bool(row.has_vehicle_presence))
     )
+
+
+async def _apply_warehouse_summary_deltas(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    summary_deltas: Mapping[int, Sequence[int]],
+) -> None:
+    for warehouse_id in sorted(summary_deltas):
+        alert_delta, nonactive_delta, row_delta = summary_deltas[warehouse_id]
+        if not (alert_delta or nonactive_delta or row_delta):
+            continue
+        result = await db.execute(
+            update(InventoryLiveStockWarehouseSummary)
+            .where(
+                InventoryLiveStockWarehouseSummary.company_id == company_id,
+                InventoryLiveStockWarehouseSummary.warehouse_location_id
+                == warehouse_id,
+            )
+            .values(
+                alert_count=(
+                    InventoryLiveStockWarehouseSummary.alert_count + alert_delta
+                ),
+                nonactive_visible_count=(
+                    InventoryLiveStockWarehouseSummary.nonactive_visible_count
+                    + nonactive_delta
+                ),
+                projected_row_count=(
+                    InventoryLiveStockWarehouseSummary.projected_row_count
+                    + row_delta
+                ),
+                revision=InventoryLiveStockWarehouseSummary.revision + 1,
+                updated_at=utc_now(),
+            )
+        )
+        if result.rowcount != 1:
+            raise LiveStockProjectionError(
+                "Live Stock warehouse summary is missing during projection update."
+            )
+    await db.flush()
 
 
 async def refresh_live_stock_keys(
@@ -1099,38 +1143,11 @@ async def refresh_live_stock_keys(
 
     await db.flush()
 
-    for warehouse_id in sorted(summary_deltas):
-        alert_delta, nonactive_delta, row_delta = summary_deltas[warehouse_id]
-        if not (alert_delta or nonactive_delta or row_delta):
-            continue
-        result = await db.execute(
-            update(InventoryLiveStockWarehouseSummary)
-            .where(
-                InventoryLiveStockWarehouseSummary.company_id == company_id,
-                InventoryLiveStockWarehouseSummary.warehouse_location_id
-                == warehouse_id,
-            )
-            .values(
-                alert_count=(
-                    InventoryLiveStockWarehouseSummary.alert_count + alert_delta
-                ),
-                nonactive_visible_count=(
-                    InventoryLiveStockWarehouseSummary.nonactive_visible_count
-                    + nonactive_delta
-                ),
-                projected_row_count=(
-                    InventoryLiveStockWarehouseSummary.projected_row_count
-                    + row_delta
-                ),
-                revision=InventoryLiveStockWarehouseSummary.revision + 1,
-                updated_at=utc_now(),
-            )
-        )
-        if result.rowcount != 1:
-            raise LiveStockProjectionError(
-                "Live Stock warehouse summary is missing during projection update."
-            )
-    await db.flush()
+    await _apply_warehouse_summary_deltas(
+        db,
+        company_id=company_id,
+        summary_deltas=summary_deltas,
+    )
 
 
 async def _candidate_keys_for_variants(
