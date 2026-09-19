@@ -4,7 +4,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, update, tuple_, case, union
+from sqlalchemy import select, func, or_, and_, update, tuple_, case
 from typing import Optional, List
 from database import get_db
 from api.dependencies import get_current_driver
@@ -78,7 +78,7 @@ from product_lifecycle import (
 )
 
 from schemas import (UnifiedStocktakeStartRequest,
-WarehouseInventoryItem, WarehouseInventoryCursorPage, WarehouseInventoryAlertSummaryResponse, WarehouseInventorySummaryResponse, WarehouseInventoryBatchDetailResponse, WarehouseLedgerItem, WarehouseLedgerCursorPage,
+WarehouseInventoryItem, WarehouseInventoryCursorPage, WarehouseInventoryAlertSummaryResponse, WarehouseInventoryBatchDetailResponse, WarehouseLedgerItem, WarehouseLedgerCursorPage,
 WarehouseStatusResponse, WarehouseLocationCreateRequest, WarehouseLocationUpdateRequest,
 WarehouseLocationStateRequest, WarehouseLocationCursorPage, WarehouseLocationMutationResponse,
 WarehouseSetupStatusResponse,
@@ -2430,113 +2430,15 @@ async def warehouse_inbound(
 # =================================================================================
 # 3. جلب حالة المستودع بالكامل من المحرك الموحد
 # =================================================================================
-def _build_visible_inventory_stmt(
-    *, company_id: int, location_id: int, access: InventoryAccess,
-    candidate_filters=(), limit: Optional[int] = None,
-):
-    """Shared visibility authority for seek pages and the independent total."""
-    candidate_filters = [ProductVariant.company_id == company_id, *candidate_filters]
-    ordering = (ProductVariant.name, ProductVariant.id) if limit is not None else ()
-    active_candidates = (
-        select(ProductVariant.id, ProductVariant.name.label("variant_name"))
-        .where(*candidate_filters, ProductVariant.lifecycle_status == "ACTIVE")
-        .order_by(*ordering)
-        .limit(limit + 1 if limit is not None else None)
-    )
-    warehouse_candidates = (
-        select(ProductVariant.id, ProductVariant.name.label("variant_name"))
-        .join(
-            InventoryBalance,
-            and_(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id == location_id,
-                InventoryBalance.product_variant_id == ProductVariant.id,
-                InventoryBalance.on_hand_quantity > 0,
-            ),
-        )
-        .where(
-            *candidate_filters,
-            ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
-        )
-        .distinct()
-        .order_by(*ordering)
-        .limit(limit + 1 if limit is not None else None)
-    )
-    readable_vehicle_locations = (
-        select(InventoryLocation.id, InventoryLocation.vehicle_id)
-        .where(
-            InventoryLocation.company_id == company_id,
-            InventoryLocation.location_type == "VEHICLE",
-            InventoryLocation.is_active.is_(True),
-            InventoryLocation.vehicle_id.isnot(None),
-            access.location_filter("inventory.read"),
-        )
-        .subquery("readable_vehicle_locations")
-    )
-    latest_vehicle_sources = (
-        select(DispatchRoute.vehicle_id, DispatchRoute.source_location_id)
-        .where(
-            DispatchRoute.company_id == company_id,
-            DispatchRoute.vehicle_id.in_(
-                select(readable_vehicle_locations.c.vehicle_id)
-            ),
-        )
-        .distinct(DispatchRoute.vehicle_id)
-        .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
-        .subquery("latest_vehicle_sources")
-    )
-    vehicle_candidates = (
-        select(ProductVariant.id, ProductVariant.name.label("variant_name"))
-        .join(
-            InventoryBalance,
-            and_(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.product_variant_id == ProductVariant.id,
-                InventoryBalance.stock_status != "DAMAGED",
-                InventoryBalance.on_hand_quantity > 0,
-            ),
-        )
-        .join(
-            readable_vehicle_locations,
-            readable_vehicle_locations.c.id == InventoryBalance.location_id,
-        )
-        .join(
-            latest_vehicle_sources,
-            and_(
-                latest_vehicle_sources.c.vehicle_id
-                == readable_vehicle_locations.c.vehicle_id,
-                latest_vehicle_sources.c.source_location_id == location_id,
-            ),
-        )
-        .where(
-            *candidate_filters,
-            ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
-        )
-        .distinct()
-        .order_by(*ordering)
-        .limit(limit + 1 if limit is not None else None)
-    )
-    visible_candidates = union(
-        active_candidates, warehouse_candidates, vehicle_candidates,
-    ).subquery("visible_inventory_candidates")
-    return (
-        select(visible_candidates.c.id, visible_candidates.c.variant_name)
-        .order_by(*((visible_candidates.c.variant_name, visible_candidates.c.id)
-                    if limit is not None else ()))
-        .limit(limit + 1 if limit is not None else None)
-    )
-
-
 def _build_inventory_alert_variants_stmt(
     *,
     company_id: int,
     location_id: int,
     as_of_date: date,
-    variant_filters=(),
 ):
-    # Only active positive policies can generate low-stock alerts. Variant
-    # search/seek predicates are accepted here so they are applied before the
-    # aggregate instead of after materializing the full alert population.
+    # Only active positive policies can generate low-stock alerts. Starting
+    # from policy rows avoids scanning unrelated products and aggregates free
+    # sellable stock exactly once per variant.
     batch_is_sellable = batch_sellability_predicate(
         as_of_date,
         expiry_control_mode=ProductVariant.expiry_control_mode,
@@ -2606,7 +2508,6 @@ def _build_inventory_alert_variants_stmt(
             InventoryStockPolicy.minimum_quantity > 0,
             ProductVariant.lifecycle_status == "ACTIVE",
             ProductVariant.operational_hold == "NONE",
-            *variant_filters,
         )
         .group_by(
             ProductVariant.id,
@@ -2667,71 +2568,6 @@ async def get_warehouse_inventory_alert_summary(
     return {"alert_count": alert_count}
 
 
-@router.get("/warehouse/inventory/summary", response_model=WarehouseInventorySummaryResponse)
-async def get_warehouse_inventory_summary(
-    location_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_admin: Driver = Depends(get_current_driver),
-):
-    access = InventoryAccess(db, current_admin)
-    await access.require("inventory.read", location_id)
-    company_id = current_admin.company_id
-
-    location = await db.scalar(
-        select(InventoryLocation.id).where(
-            InventoryLocation.id == location_id,
-            InventoryLocation.company_id == company_id,
-            InventoryLocation.location_type == "WAREHOUSE",
-            InventoryLocation.is_active.is_(True),
-        )
-    )
-    if location is None:
-        raise HTTPException(
-            status_code=404,
-            detail="المستودع غير موجود أو لا يتبع شركتك.",
-        )
-
-    as_of_date = await get_company_local_date(db, company_id)
-    visible = (
-        _build_visible_inventory_stmt(
-            company_id=company_id,
-            location_id=location_id,
-            access=access,
-        )
-        .order_by(None)
-        .subquery("summary_visible_inventory")
-    )
-    alerts = (
-        _build_inventory_alert_variants_stmt(
-            company_id=company_id,
-            location_id=location_id,
-            as_of_date=as_of_date,
-        )
-        .order_by(None)
-        .subquery("summary_alert_inventory")
-    )
-
-    counts = (
-        await db.execute(
-            select(
-                select(func.count())
-                .select_from(visible)
-                .scalar_subquery()
-                .label("stock_total"),
-                select(func.count())
-                .select_from(alerts)
-                .scalar_subquery()
-                .label("alert_count"),
-            )
-        )
-    ).one()
-
-    return {
-        "stock_total": int(counts.stock_total),
-        "alert_count": int(counts.alert_count),
-    }
-
-
 @router.get(
     "/warehouse/inventory/cursor",
     response_model=WarehouseInventoryCursorPage,
@@ -2789,23 +2625,64 @@ async def get_warehouse_inventory(
                 ),
             )
 
-        scope = (
-            f"inventory|{company_id}|{location_id}|"
-            f"{clean_search}|{int(only_alerts)}"
+        # الرصيد الفيزيائي في المستودع يجعل الصنف مرئياً حتى لو تم تعطيله،
+        # لأن إخفاء صنف متوقف وله بضاعة فعلية يخرق معنى الجرد الحي.
+        warehouse_stock_exists = (
+            select(InventoryBalance.id)
+            .filter(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.product_variant_id == ProductVariant.id,
+                InventoryBalance.on_hand_quantity > 0,
+            )
+            .correlate(ProductVariant)
+            .exists()
         )
-        candidate_filters = []
-        if search_condition is not None:
-            candidate_filters.append(search_condition)
-        if cursor is not None:
-            cursor_name, cursor_id = _decode_variant_cursor(
-                cursor,
-                expected_kind="warehouse-inventory",
-                expected_scope=scope,
+
+        latest_source_for_candidate_vehicle = (
+            select(DispatchRoute.source_location_id)
+            .filter(
+                DispatchRoute.company_id == company_id,
+                DispatchRoute.vehicle_id == InventoryLocation.vehicle_id,
             )
-            candidate_filters.append(
-                tuple_(ProductVariant.name, ProductVariant.id)
-                > tuple_(cursor_name, cursor_id)
+            .order_by(DispatchRoute.id.desc())
+            .limit(1)
+            .correlate(InventoryLocation)
+            .scalar_subquery()
+        )
+
+        vehicle_stock_exists = (
+            select(InventoryBalance.id)
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id
+                    == InventoryBalance.company_id,
+                    InventoryLocation.id
+                    == InventoryBalance.location_id,
+                ),
             )
+            .filter(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.product_variant_id == ProductVariant.id,
+                InventoryBalance.stock_status != 'DAMAGED',
+                InventoryBalance.on_hand_quantity > 0,
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.location_type == 'VEHICLE',
+                access.location_filter('inventory.read'),
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.vehicle_id.isnot(None),
+                latest_source_for_candidate_vehicle == location_id,
+            )
+            .correlate(ProductVariant)
+            .exists()
+        )
+
+        visible_condition = or_(
+            ProductVariant.lifecycle_status == 'ACTIVE',
+            warehouse_stock_exists,
+            vehicle_stock_exists,
+        )
 
         batch_is_sellable = batch_sellability_predicate(
             as_of_date,
@@ -2816,31 +2693,80 @@ async def get_warehouse_inventory(
         )
 
         if only_alerts:
-            # Search and seek are part of the policy-driven source query so the
-            # database never materializes the full alert population first.
-            alerts = _build_inventory_alert_variants_stmt(
+            candidate_stmt = _build_inventory_alert_variants_stmt(
                 company_id=company_id,
                 location_id=location_id,
                 as_of_date=as_of_date,
-                variant_filters=candidate_filters,
-            ).cte("scoped_alerts").prefix_with("MATERIALIZED")
-            candidate_stmt = (
-                select(alerts.c.id, alerts.c.variant_name)
-                .order_by(alerts.c.variant_name, alerts.c.id)
-                .limit(limit + 1)
             )
         else:
-            candidate_stmt = _build_visible_inventory_stmt(
-                company_id=company_id,
-                location_id=location_id,
-                access=access,
-                candidate_filters=candidate_filters,
-                limit=limit,
+            candidate_stmt = select(
+                ProductVariant.id,
+                ProductVariant.name.label("variant_name"),
+            ).filter(
+                ProductVariant.company_id == company_id,
+                visible_condition,
             )
 
-        # Compatibility fields remain nullable; no exact totals on list reads.
+        if search_condition is not None:
+            candidate_stmt = candidate_stmt.filter(search_condition)
+
         total = None
-        candidate_rows = (await db.execute(candidate_stmt)).all()
+        if cursor is None and not only_alerts:
+            count_source = (
+                candidate_stmt
+                .order_by(None)
+                .subquery()
+            )
+            total = int(
+                (
+                    await db.execute(
+                        select(func.count()).select_from(count_source)
+                    )
+                ).scalar_one()
+            )
+
+        scope = (
+            f"inventory|{company_id}|{location_id}|"
+            f"{clean_search}|{int(only_alerts)}"
+        )
+        if cursor is not None:
+            cursor_name, cursor_id = _decode_variant_cursor(
+                cursor,
+                expected_kind="warehouse-inventory",
+                expected_scope=scope,
+            )
+            candidate_stmt = candidate_stmt.filter(
+                or_(
+                    ProductVariant.name > cursor_name,
+                    and_(
+                        ProductVariant.name == cursor_name,
+                        ProductVariant.id > cursor_id,
+                    ),
+                )
+            )
+
+        if cursor is None and only_alerts:
+            candidate_stmt = candidate_stmt.add_columns(
+                func.count().over().label("_matching_total")
+            )
+
+        candidate_rows = (
+            await db.execute(
+                candidate_stmt
+                .order_by(
+                    ProductVariant.name.asc(),
+                    ProductVariant.id.asc(),
+                )
+                .limit(limit + 1)
+            )
+        ).all()
+
+        if cursor is None and only_alerts:
+            total = (
+                int(candidate_rows[0]._mapping["_matching_total"])
+                if candidate_rows
+                else 0
+            )
 
         has_more = len(candidate_rows) > limit
         page_candidates = candidate_rows[:limit]
@@ -2859,37 +2785,19 @@ async def get_warehouse_inventory(
                 "alert_samples": alert_samples,
             }
 
-        # Aggregate every warehouse stock status in one page-bounded scan.
-        # The page variant IDs are the selective key; status is classified in
-        # CASE expressions instead of causing repeated scans of the location.
-        warehouse_inventory_stmt = (
+        warehouse_available_subq = (
             select(
                 InventoryBalance.product_variant_id,
                 func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == 'AVAILABLE',
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
+                    InventoryBalance.on_hand_quantity
                 ).label('warehouse_on_hand'),
                 func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == 'AVAILABLE',
-                            InventoryBalance.reserved_quantity,
-                        ),
-                        else_=0,
-                    )
+                    InventoryBalance.reserved_quantity
                 ).label('warehouse_reserved'),
                 func.sum(
                     case(
                         (
-                            and_(
-                                InventoryBalance.stock_status == 'AVAILABLE',
-                                batch_is_sellable,
-                            ),
+                            batch_is_sellable,
                             InventoryBalance.on_hand_quantity,
                         ),
                         else_=0,
@@ -2898,47 +2806,12 @@ async def get_warehouse_inventory(
                 func.sum(
                     case(
                         (
-                            and_(
-                                InventoryBalance.stock_status == 'AVAILABLE',
-                                batch_is_sellable,
-                            ),
+                            batch_is_sellable,
                             InventoryBalance.reserved_quantity,
                         ),
                         else_=0,
                     )
                 ).label('warehouse_sellable_reserved'),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status.in_([
-                                'QUARANTINED',
-                                'BLOCKED',
-                                'RECALLED',
-                                'DISPOSAL_PENDING',
-                            ]),
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label('blocked_status_packs'),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == 'RECALLED',
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label('recalled_packs'),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == 'DAMAGED',
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label('damaged_packs'),
             )
             .join(
                 ProductBatch,
@@ -2973,9 +2846,66 @@ async def get_warehouse_inventory(
             .filter(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == location_id,
-                InventoryBalance.product_variant_id.in_(page_variant_ids),
+                InventoryBalance.stock_status == 'AVAILABLE',
+                InventoryBalance.product_variant_id.in_(
+                    page_variant_ids
+                ),
             )
             .group_by(InventoryBalance.product_variant_id)
+            .subquery()
+        )
+
+
+        warehouse_blocked_status_subq = (
+            select(
+                InventoryBalance.product_variant_id,
+                func.sum(
+                    InventoryBalance.on_hand_quantity
+                ).label('blocked_status_packs'),
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == 'RECALLED',
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=0,
+                    )
+                ).label('recalled_packs'),
+            )
+            .filter(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.stock_status.in_([
+                    'QUARANTINED',
+                    'BLOCKED',
+                    'RECALLED',
+                    'DISPOSAL_PENDING',
+                ]),
+                InventoryBalance.product_variant_id.in_(
+                    page_variant_ids
+                ),
+            )
+            .group_by(InventoryBalance.product_variant_id)
+            .subquery()
+        )
+
+        warehouse_damaged_subq = (
+            select(
+                InventoryBalance.product_variant_id,
+                func.sum(
+                    InventoryBalance.on_hand_quantity
+                ).label('damaged_packs'),
+            )
+            .filter(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.stock_status == 'DAMAGED',
+                InventoryBalance.product_variant_id.in_(
+                    page_variant_ids
+                ),
+            )
+            .group_by(InventoryBalance.product_variant_id)
+            .subquery()
         )
 
         latest_source_for_vehicle = (
@@ -2990,7 +2920,7 @@ async def get_warehouse_inventory(
             .scalar_subquery()
         )
 
-        vehicle_inventory_stmt = (
+        vehicle_inventory_subq = (
             select(
                 InventoryBalance.product_variant_id,
                 func.sum(
@@ -3009,7 +2939,9 @@ async def get_warehouse_inventory(
             .filter(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.stock_status != 'DAMAGED',
-                InventoryBalance.product_variant_id.in_(page_variant_ids),
+                InventoryBalance.product_variant_id.in_(
+                    page_variant_ids
+                ),
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.location_type == 'VEHICLE',
                 access.location_filter('inventory.read'),
@@ -3018,6 +2950,7 @@ async def get_warehouse_inventory(
                 latest_source_for_vehicle == location_id,
             )
             .group_by(InventoryBalance.product_variant_id)
+            .subquery()
         )
 
         policy_subq = (
@@ -3029,37 +2962,64 @@ async def get_warehouse_inventory(
                 InventoryStockPolicy.company_id == company_id,
                 InventoryStockPolicy.location_id == location_id,
                 InventoryStockPolicy.is_active.is_(True),
-                InventoryStockPolicy.product_variant_id.in_(page_variant_ids),
+                InventoryStockPolicy.product_variant_id.in_(
+                    page_variant_ids
+                ),
             )
             .subquery()
         )
 
-        warehouse = {
-            int(row[0]): tuple(row[1:])
-            for row in (await db.execute(warehouse_inventory_stmt)).all()
-        }
-        vehicles = {
-            int(row[0]): tuple(row[1:])
-            for row in (await db.execute(vehicle_inventory_stmt)).all()
-        }
-
         stmt = (
-            select(ProductVariant, UOM, policy_subq.c.minimum_quantity)
-            .join(UOM, UOM.id == ProductVariant.base_uom_id)
-            .outerjoin(policy_subq, policy_subq.c.product_variant_id == ProductVariant.id)
-            .where(ProductVariant.company_id == company_id, ProductVariant.id.in_(page_variant_ids))
-            .order_by(ProductVariant.name, ProductVariant.id)
-        )
-        rows = [
-            (
-                variant,
-                uom,
-                *warehouse.get(variant.id, (None,) * 7),
-                *vehicles.get(variant.id, (None,)),
-                minimum,
+            select(
+                ProductVariant,
+                UOM,
+                warehouse_available_subq.c.warehouse_on_hand,
+                warehouse_available_subq.c.warehouse_reserved,
+                warehouse_available_subq.c.warehouse_sellable_on_hand,
+                warehouse_available_subq.c.warehouse_sellable_reserved,
+                warehouse_blocked_status_subq.c.blocked_status_packs,
+                warehouse_blocked_status_subq.c.recalled_packs,
+                warehouse_damaged_subq.c.damaged_packs,
+                vehicle_inventory_subq.c.vehicle_packs,
+                policy_subq.c.minimum_quantity,
             )
-            for variant, uom, minimum in (await db.execute(stmt)).all()
-        ]
+            .join(UOM, UOM.id == ProductVariant.base_uom_id)
+            .outerjoin(
+                warehouse_available_subq,
+                warehouse_available_subq.c.product_variant_id
+                == ProductVariant.id,
+            )
+            .outerjoin(
+                warehouse_blocked_status_subq,
+                warehouse_blocked_status_subq.c.product_variant_id
+                == ProductVariant.id,
+            )
+            .outerjoin(
+                warehouse_damaged_subq,
+                warehouse_damaged_subq.c.product_variant_id
+                == ProductVariant.id,
+            )
+            .outerjoin(
+                vehicle_inventory_subq,
+                vehicle_inventory_subq.c.product_variant_id
+                == ProductVariant.id,
+            )
+            .outerjoin(
+                policy_subq,
+                policy_subq.c.product_variant_id
+                == ProductVariant.id,
+            )
+            .filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id.in_(page_variant_ids),
+            )
+            .order_by(
+                ProductVariant.name.asc(),
+                ProductVariant.id.asc(),
+            )
+        )
+
+        rows = (await db.execute(stmt)).all()
 
         display_uoms = await _load_inventory_display_uoms(
             db,

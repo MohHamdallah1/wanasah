@@ -1,0 +1,155 @@
+SCENARIO live 50 1
+ENDPOINT_MS=105.5
+SQL_STATEMENTS=11
+REPORT=C:\Users\admin\Desktop\wanasah\wa_backend\perf_reports\phase1_after\perf_reports\live_stock_explain_live_limit50_page1.json
+RANK=1 ORIGINAL_MS=22.8 PLAN_MS=1.7 FINDINGS=2
+  CARDINALITY_MISESTIMATE node=Result rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_variants rows=51 loops=1
+RANK=2 ORIGINAL_MS=19.0 PLAN_MS=1.7 FINDINGS=18
+  CARDINALITY_MISESTIMATE node=Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+RANK=3 ORIGINAL_MS=6.0 PLAN_MS=0.2 FINDINGS=5
+  CARDINALITY_MISESTIMATE node=Incremental Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_uom_conversions rows=50 loops=1
+RANK=4 ORIGINAL_MS=5.2 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=5 ORIGINAL_MS=4.7 PLAN_MS=0.0 FINDINGS=0
+RANK=6 ORIGINAL_MS=3.9 PLAN_MS=0.1 FINDINGS=0
+RANK=7 ORIGINAL_MS=2.8 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=companies rows=1 loops=1
+RANK=8 ORIGINAL_MS=0.9 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+SCENARIO live 200 1
+ENDPOINT_MS=80.4
+SQL_STATEMENTS=11
+REPORT=C:\Users\admin\Desktop\wanasah\wa_backend\perf_reports\phase1_after\perf_reports\live_stock_explain_live_limit200_page1.json
+RANK=1 ORIGINAL_MS=28.8 PLAN_MS=12.7 FINDINGS=29
+  CARDINALITY_MISESTIMATE node=Sort rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Hash Join rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Hash Join rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Hash Join rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=200 loops=1
+RANK=2 ORIGINAL_MS=8.5 PLAN_MS=3.9 FINDINGS=2
+  CARDINALITY_MISESTIMATE node=Result rows=201 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_variants rows=201 loops=1
+RANK=3 ORIGINAL_MS=5.9 PLAN_MS=1.6 FINDINGS=5
+  CARDINALITY_MISESTIMATE node=Sort rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=200 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_uom_conversions rows=200 loops=1
+RANK=4 ORIGINAL_MS=2.8 PLAN_MS=0.8 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_cost_states rows=200 loops=1
+RANK=5 ORIGINAL_MS=1.9 PLAN_MS=0.0 FINDINGS=0
+RANK=6 ORIGINAL_MS=0.5 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=7 ORIGINAL_MS=0.4 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=8 ORIGINAL_MS=0.4 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=companies rows=1 loops=1
+SCENARIO only-alerts 50 1
+ENDPOINT_MS=82.5
+SQL_STATEMENTS=11
+REPORT=C:\Users\admin\Desktop\wanasah\wa_backend\perf_reports\phase1_after\perf_reports\live_stock_explain_only-alerts_limit50_page1.json
+RANK=1 ORIGINAL_MS=52.9 PLAN_MS=40.2 FINDINGS=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_variants rows=299 loops=2
+RANK=2 ORIGINAL_MS=7.8 PLAN_MS=1.8 FINDINGS=18
+  CARDINALITY_MISESTIMATE node=Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+RANK=3 ORIGINAL_MS=1.4 PLAN_MS=0.2 FINDINGS=5
+  CARDINALITY_MISESTIMATE node=Incremental Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_uom_conversions rows=50 loops=1
+RANK=4 ORIGINAL_MS=1.0 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=5 ORIGINAL_MS=0.8 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=companies rows=1 loops=1
+RANK=6 ORIGINAL_MS=0.7 PLAN_MS=0.1 FINDINGS=0
+RANK=7 ORIGINAL_MS=0.6 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=8 ORIGINAL_MS=0.6 PLAN_MS=0.1 FINDINGS=0
+SCENARIO search 50 1
+ENDPOINT_MS=43.1
+SQL_STATEMENTS=11
+REPORT=C:\Users\admin\Desktop\wanasah\wa_backend\perf_reports\phase1_after\perf_reports\live_stock_explain_search_limit50_page1.json
+RANK=1 ORIGINAL_MS=15.0 PLAN_MS=12.2 FINDINGS=8
+  CARDINALITY_MISESTIMATE node=Limit rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Sort rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Aggregate rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Append rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Limit rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Sort rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=100 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_variants rows=100 loops=1
+RANK=2 ORIGINAL_MS=6.9 PLAN_MS=1.7 FINDINGS=18
+  CARDINALITY_MISESTIMATE node=Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+RANK=3 ORIGINAL_MS=1.3 PLAN_MS=0.2 FINDINGS=5
+  CARDINALITY_MISESTIMATE node=Incremental Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_uom_conversions rows=50 loops=1
+RANK=4 ORIGINAL_MS=0.8 PLAN_MS=0.1 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=5 ORIGINAL_MS=0.7 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=6 ORIGINAL_MS=0.5 PLAN_MS=0.1 FINDINGS=0
+RANK=7 ORIGINAL_MS=0.4 PLAN_MS=0.0 FINDINGS=0
+RANK=8 ORIGINAL_MS=0.3 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=companies rows=1 loops=1
+SCENARIO live 50 2
+ENDPOINT_MS=34.4
+SQL_STATEMENTS=11
+REPORT=C:\Users\admin\Desktop\wanasah\wa_backend\perf_reports\phase1_after\perf_reports\live_stock_explain_live_limit50_page2.json
+RANK=1 ORIGINAL_MS=8.1 PLAN_MS=1.8 FINDINGS=18
+  CARDINALITY_MISESTIMATE node=Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Merge Join rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+RANK=2 ORIGINAL_MS=5.7 PLAN_MS=1.6 FINDINGS=2
+  CARDINALITY_MISESTIMATE node=Result rows=51 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_variants rows=51 loops=1
+RANK=3 ORIGINAL_MS=1.4 PLAN_MS=0.2 FINDINGS=5
+  CARDINALITY_MISESTIMATE node=Incremental Sort rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Result rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Nested Loop rows=50 loops=1
+  CARDINALITY_MISESTIMATE node=Index Scan relation=product_uom_conversions rows=50 loops=1
+RANK=4 ORIGINAL_MS=0.8 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=5 ORIGINAL_MS=0.6 PLAN_MS=0.1 FINDINGS=0
+RANK=6 ORIGINAL_MS=0.4 PLAN_MS=0.0 FINDINGS=0
+RANK=7 ORIGINAL_MS=0.4 PLAN_MS=0.0 FINDINGS=1
+  SEQ_SCAN node=Seq Scan relation=inventory_locations rows=1 loops=1
+RANK=8 ORIGINAL_MS=0.3 PLAN_MS=0.0 FINDINGS=0

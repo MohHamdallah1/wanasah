@@ -132,11 +132,6 @@ export interface WarehouseInventoryCursorPage {
   alert_samples: string[];
 }
 
-export interface WarehouseInventorySummary {
-  stock_total: number;
-  alert_count: number;
-}
-
 export interface WarehouseInventoryAlertSummary {
   alert_count: number;
 }
@@ -327,17 +322,6 @@ export function parseLiveStockPage(
     total: nullableCount(page.total, code),
     alert_count: nullableCount(page.alert_count, code),
     alert_samples: [...samples] as string[],
-  };
-}
-
-export function parseLiveStockSummary(
-  raw: unknown,
-): WarehouseInventorySummary {
-  const code = "LIVE_STOCK_RESPONSE_INVALID";
-  const payload = record(raw, code);
-  return {
-    stock_total: int(payload.stock_total, code),
-    alert_count: int(payload.alert_count, code),
   };
 }
 

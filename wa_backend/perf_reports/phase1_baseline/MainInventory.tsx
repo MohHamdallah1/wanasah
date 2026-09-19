@@ -14,7 +14,7 @@ import { TabTransfers } from "./TabTransfers";
 import { InventoryTopDock } from "./InventoryTopDock";
 import "./inventory.css";
 import {
-  parseLiveStockSummary,
+  parseLiveStockAlertSummary,
   parseLiveStockPage,
   type WarehouseProduct,
 } from "./liveStock/contracts";
@@ -198,8 +198,8 @@ export default function MainInventory() {
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
   const stockRequestSeq = useRef(0);
   const stockAbortRef = useRef<AbortController | null>(null);
-  const stockSummaryRequestSeq = useRef(0);
-  const stockSummaryAbortRef = useRef<AbortController | null>(null);
+  const stockAlertRequestSeq = useRef(0);
+  const stockAlertAbortRef = useRef<AbortController | null>(null);
   const locationRequestSeq = useRef(0);
   const statusRequestSeq = useRef(0);
 
@@ -341,6 +341,9 @@ export default function MainInventory() {
       if (typeof data.total === "number") {
         setStockMatchingTotal(data.total);
 
+        if (!stockSearch && !stockOnlyAlerts && stockCursor === null) {
+          setStockTotal(data.total);
+        }
       }
 
       setLastSync(new Date());
@@ -374,34 +377,31 @@ export default function MainInventory() {
     t,
   ]);
 
-  const fetchStockSummary = useCallback(async () => {
+  const fetchStockAlerts = useCallback(async () => {
     if (selectedLocationId === null || !canReadStock) {
-      setStockTotal(null);
       setStockAlertCount(null);
       return;
     }
 
-    const requestSeq = ++stockSummaryRequestSeq.current;
-    stockSummaryAbortRef.current?.abort();
+    const requestSeq = ++stockAlertRequestSeq.current;
+    stockAlertAbortRef.current?.abort();
     const requestController = new AbortController();
-    stockSummaryAbortRef.current = requestController;
+    stockAlertAbortRef.current = requestController;
 
     try {
       const raw = await authFetch(
-        `/warehouse/inventory/summary?location_id=${encodeURIComponent(
+        `/warehouse/inventory/alerts/summary?location_id=${encodeURIComponent(
           String(selectedLocationId),
         )}`,
         { signal: requestController.signal },
       );
 
-      if (requestSeq !== stockSummaryRequestSeq.current) return;
-      const data = parseLiveStockSummary(raw);
-      setStockTotal(data.stock_total);
+      if (requestSeq !== stockAlertRequestSeq.current) return;
+      const data = parseLiveStockAlertSummary(raw);
       setStockAlertCount(data.alert_count);
     } catch (error: unknown) {
-      if (requestSeq !== stockSummaryRequestSeq.current) return;
+      if (requestSeq !== stockAlertRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      setStockTotal(null);
       setStockAlertCount(null);
       toast.error(
         apiErrorMessage(
@@ -410,8 +410,8 @@ export default function MainInventory() {
         ),
       );
     } finally {
-      if (stockSummaryAbortRef.current === requestController) {
-        stockSummaryAbortRef.current = null;
+      if (stockAlertAbortRef.current === requestController) {
+        stockAlertAbortRef.current = null;
       }
     }
   }, [
@@ -510,9 +510,9 @@ export default function MainInventory() {
     setStockTotal(null);
     setStockMatchingTotal(null);
     setStockAlertCount(null);
-    stockSummaryRequestSeq.current += 1;
-    stockSummaryAbortRef.current?.abort();
-    stockSummaryAbortRef.current = null;
+    stockAlertRequestSeq.current += 1;
+    stockAlertAbortRef.current?.abort();
+    stockAlertAbortRef.current = null;
     setStockSearch("");
     setStockOnlyAlerts(false);
     setStockCursor(null);
@@ -524,9 +524,9 @@ export default function MainInventory() {
       stockRequestSeq.current += 1;
       stockAbortRef.current?.abort();
       stockAbortRef.current = null;
-      stockSummaryRequestSeq.current += 1;
-      stockSummaryAbortRef.current?.abort();
-      stockSummaryAbortRef.current = null;
+      stockAlertRequestSeq.current += 1;
+      stockAlertAbortRef.current?.abort();
+      stockAlertAbortRef.current = null;
     };
   }, [selectedLocationId, canReadStock]);
 
@@ -538,9 +538,9 @@ export default function MainInventory() {
 
   useEffect(() => {
     if (selectedLocationId !== null) {
-      void fetchStockSummary();
+      void fetchStockAlerts();
     }
-  }, [selectedLocationId, fetchStockSummary, stockRefreshKey]);
+  }, [selectedLocationId, fetchStockAlerts, stockRefreshKey]);
 
   useEffect(() => {
     if (

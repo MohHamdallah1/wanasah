@@ -1444,11 +1444,6 @@ class WarehouseInventoryCursorPage(BaseModel):
     alert_samples: List[str] = Field(default_factory=list, max_length=3)
 
 
-class WarehouseInventorySummaryResponse(BaseModel):
-    stock_total: int = Field(ge=0)
-    alert_count: int = Field(ge=0)
-
-
 class WarehouseInventoryAlertSummaryResponse(BaseModel):
     alert_count: int = Field(..., ge=0)
 
