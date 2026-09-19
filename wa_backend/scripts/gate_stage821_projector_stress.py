@@ -435,6 +435,105 @@ async def bulk_refresh_with_lock_count(
     return (time.perf_counter() - started) * 1000, advisory_locks
 
 
+async def load_noise_keys(limit: int) -> list[tuple[int, int, int]]:
+    async with SessionSU() as su:
+        await su.begin()
+        rows = (
+            await su.execute(
+                text(
+                    """
+                    SELECT DISTINCT ON (c.id)
+                        c.id AS company_id,
+                        l.id AS location_id,
+                        v.id AS variant_id
+                    FROM companies c
+                    JOIN inventory_locations l
+                      ON l.company_id=c.id
+                     AND l.code='PERF-WH'
+                     AND l.location_type='WAREHOUSE'
+                     AND l.is_active IS TRUE
+                    JOIN product_variants v
+                      ON v.company_id=c.id
+                    WHERE c.company_code LIKE :prefix
+                    ORDER BY c.id, v.id
+                    LIMIT :limit
+                    """
+                ),
+                {
+                    "prefix": f"{NOISE_COMPANY_PREFIX}%",
+                    "limit": limit,
+                },
+            )
+        ).all()
+        await su.rollback()
+    return [
+        (
+            int(row.company_id),
+            int(row.location_id),
+            int(row.variant_id),
+        )
+        for row in rows
+    ]
+
+
+async def timed_cross_tenant_refreshes(
+    *,
+    samples: list[tuple[int, int, int]],
+    concurrency: int,
+    operations: int,
+) -> tuple[Metric, float, list[str]]:
+    if not samples:
+        raise RuntimeError("Cross-tenant refresh samples are empty.")
+
+    warm_sem = asyncio.Semaphore(min(20, concurrency))
+
+    async def warm(sample: tuple[int, int, int]) -> None:
+        company_id, location_id, variant_id = sample
+        async with warm_sem:
+            await refresh_once(
+                company_id,
+                location_id,
+                [variant_id],
+            )
+
+    warm_samples = samples[: min(len(samples), operations)]
+    await asyncio.gather(*(warm(sample) for sample in warm_samples))
+
+    sem = asyncio.Semaphore(concurrency)
+    latencies: list[float] = []
+    errors: list[str] = []
+    profiles: list[tuple[dict[str, float], float]] = []
+
+    async def one(index: int) -> None:
+        company_id, location_id, variant_id = samples[index % len(samples)]
+        async with sem:
+            bucket: list[tuple[str, float]] = []
+            token = SQL_BUCKET.set(bucket)
+            try:
+                elapsed = await refresh_once(
+                    company_id,
+                    location_id,
+                    [variant_id],
+                )
+                latencies.append(elapsed)
+                profiles.append(_profile_operation(elapsed, bucket))
+            except Exception as exc:
+                errors.append(f"{type(exc).__name__}:{exc}")
+            finally:
+                SQL_BUCKET.reset(token)
+
+    started = time.perf_counter()
+    await asyncio.gather(*(one(i) for i in range(operations)))
+    total_s = time.perf_counter() - started
+    throughput = operations / total_s if total_s > 0 else 0.0
+    _print_concurrent_profile("CROSS_TENANT_SQL_PROFILE", profiles)
+    return (
+        Metric("cross_tenant_refresh", latencies),
+        throughput,
+        errors,
+    )
+
+
 async def timed_parallel_refreshes(
     *,
     company_id: int,
@@ -924,6 +1023,15 @@ async def run(args: argparse.Namespace) -> None:
             f"IMPACT_METADATA:{len(impact_metadata)}<{len(rows)}"
         )
 
+    noise_samples = await load_noise_keys(
+        max(args.parallel_ops, args.concurrency * 4)
+    )
+    if len(noise_samples) < min(args.parallel_ops, args.min_noise_companies):
+        failures.append(
+            f"NOISE_SAMPLES:{len(noise_samples)}"
+            f"<{min(args.parallel_ops, args.min_noise_companies)}"
+        )
+
     if failures:
         for failure in failures:
             print("FAIL: " + failure)
@@ -1059,29 +1167,27 @@ async def run(args: argparse.Namespace) -> None:
             )
 
         parallel, parallel_tps, parallel_errors = (
-            await timed_parallel_refreshes(
-                company_id=args.company_id,
-                location_id=args.location_id,
-                variant_ids=variants[: max(1000, args.concurrency * 4)],
+            await timed_cross_tenant_refreshes(
+                samples=noise_samples,
                 concurrency=args.concurrency,
                 operations=args.parallel_ops,
             )
         )
         print_metric(parallel)
-        print(f"parallel_refresh_throughput={parallel_tps:.1f}/s")
+        print(f"cross_tenant_refresh_throughput={parallel_tps:.1f}/s")
         if parallel_errors:
             failures.append(
-                f"PARALLEL_REFRESH_ERRORS:{len(parallel_errors)}:"
+                f"CROSS_TENANT_REFRESH_ERRORS:{len(parallel_errors)}:"
                 + parallel_errors[0]
             )
         if parallel.p95 > args.max_parallel_p95:
             failures.append(
-                f"PARALLEL_P95:{parallel.p95:.1f}"
+                f"CROSS_TENANT_P95:{parallel.p95:.1f}"
                 f">{args.max_parallel_p95:.1f}"
             )
         if parallel_tps < args.min_parallel_tps:
             failures.append(
-                f"PARALLEL_TPS:{parallel_tps:.1f}"
+                f"CROSS_TENANT_TPS:{parallel_tps:.1f}"
                 f"<{args.min_parallel_tps:.1f}"
             )
 
