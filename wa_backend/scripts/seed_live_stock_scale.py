@@ -817,8 +817,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--hot-products must be between 0 and 50000")
     if not 0 <= args.alert_ratio <= 1:
         parser.error("--alert-ratio must be between 0 and 1")
-    if not 0 <= args.noise_companies <= 200:
-        parser.error("--noise-companies must be between 0 and 200")
+    if not 0 <= args.noise_companies <= 1000:
+        parser.error("--noise-companies must be between 0 and 1000")
     if not 0 <= args.noise_products <= 10000:
         parser.error("--noise-products must be between 0 and 10000")
     return args
