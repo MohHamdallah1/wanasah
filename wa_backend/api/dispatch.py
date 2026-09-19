@@ -99,7 +99,6 @@ from domains.pricing.context import (
 )
 from domains.taxation.core import TaxError, require_active_jurisdictions
 from domains.live_stock_projection.service import (
-    acquire_live_stock_vehicle_guards,
     get_live_stock_vehicle_sources,
     refresh_live_stock_vehicle_attribution,
 )
@@ -1450,11 +1449,6 @@ async def dispatch_route(
             db,
             company_id=company_id,
             vehicle_id=payload.vehicle_id,
-        )
-        await acquire_live_stock_vehicle_guards(
-            db,
-            company_id=company_id,
-            vehicle_ids=[payload.vehicle_id],
         )
         previous_vehicle_sources = await get_live_stock_vehicle_sources(
             db,
@@ -3851,11 +3845,6 @@ async def update_route_status(
         })
         previous_vehicle_sources = {}
         if vehicle_changed and attribution_vehicle_ids:
-            await acquire_live_stock_vehicle_guards(
-                db,
-                company_id=company_id,
-                vehicle_ids=attribution_vehicle_ids,
-            )
             previous_vehicle_sources = await get_live_stock_vehicle_sources(
                 db,
                 company_id=company_id,
