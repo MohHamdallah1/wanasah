@@ -20,6 +20,10 @@ FILES = {
     "simple_products": ROOT / "domains" / "simple_products" / "service.py",
     "rules": ROOT / "domains" / "inventory_rules.py",
     "projector": ROOT / "domains" / "live_stock_projection" / "service.py",
+    "config": ROOT / "config.py",
+    "database": ROOT / "database.py",
+    "stress": ROOT / "scripts" / "gate_stage821_projector_stress.py",
+    "knee": ROOT / "scripts" / "diagnose_stage821_concurrency_knee.py",
     "cost_guard_migration": (
         ROOT
         / "alembic"
@@ -102,6 +106,54 @@ def main() -> None:
         or "FOR EACH STATEMENT" not in migration
     ):
         failures.append("COST_HISTORY_GUARD_EXACTNESS_MIGRATION_INVALID")
+
+    checks += 1
+    config_source = sources["config"]
+    required_pool_config = (
+        'WEB_CONCURRENCY = int(os.environ.get("WEB_CONCURRENCY", "4"))',
+        'os.environ.get("DB_APP_CONNECTION_BUDGET", "40")',
+        'os.environ.get("DB_POOL_SIZE", "8")',
+        'os.environ.get("DB_MAX_OVERFLOW", "2")',
+        'os.environ.get("DB_POOL_TIMEOUT", "3")',
+        'DB_CONNECTIONS_TOTAL > DB_APP_CONNECTION_BUDGET',
+        '"pool_use_lifo": True',
+    )
+    missing_pool_config = [
+        value for value in required_pool_config
+        if value not in config_source
+    ]
+    if missing_pool_config:
+        failures.append(
+            "PRODUCTION_DB_POOL_BUDGET_INVALID:"
+            + ",".join(missing_pool_config)
+        )
+
+    checks += 1
+    database_source = sources["database"]
+    if (
+        "pool_use_lifo=" not in database_source
+        or "pool_pre_ping=True" not in database_source
+    ):
+        failures.append("PRODUCTION_DB_POOL_ENGINE_GUARDS_MISSING")
+
+    checks += 1
+    stress_source = sources["stress"]
+    if (
+        'STAGE821_STRESS_POOL_SIZE", "32"' not in stress_source
+        or 'STAGE821_STRESS_MAX_OVERFLOW", "8"' not in stress_source
+        or "STRESS_DB_CONNECTION_CAP != 40" not in stress_source
+        or "async def timed_cross_tenant_mutations(" not in stress_source
+        or "pool_wait" not in stress_source
+    ):
+        failures.append("STRESS_GATE_PRODUCTION_BACKPRESSURE_MISMATCH")
+
+    checks += 1
+    knee_source = sources["knee"]
+    if (
+        "load_noise_mutation_samples" not in knee_source
+        or "timed_cross_tenant_mutations" not in knee_source
+    ):
+        failures.append("CONCURRENCY_KNEE_NOT_MEASURING_REAL_MUTATIONS")
 
     checks += 1
     if "def batch_sellability_predicate(" in sources["services"]:
