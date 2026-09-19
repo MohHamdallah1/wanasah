@@ -304,7 +304,7 @@ async def load_balance_impact_metadata(
                      AND pb.product_variant_id=b.product_variant_id
                      AND pb.id=b.batch_id
                     WHERE b.company_id=:company_id
-                      AND b.id = ANY(:balance_ids)
+                      AND b.id = ANY(CAST(:balance_ids AS integer[]))
                     """
                 ),
                 {
