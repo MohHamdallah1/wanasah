@@ -39,6 +39,11 @@ from product_lifecycle import (
     variant_snapshot,
 )
 from services import InventoryMutationError, begin_idempotent_operation, complete_idempotent_operation
+from domains.live_stock_projection.service import (
+    LiveStockProjectionError,
+    apply_live_stock_active_variant_delta,
+    refresh_live_stock_variants,
+)
 
 
 router = APIRouter(prefix="/catalog", tags=["Product Catalog"])
@@ -425,6 +430,9 @@ async def create_product(
     except InventoryMutationError as exc:
         await db.rollback()
         raise _error(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
+    except LiveStockProjectionError as exc:
+        await db.rollback()
+        raise _error(500, "LIVE_STOCK_PROJECTION_FAILED", "تعذر تحديث عرض المخزون الحي بأمان.") from exc
 
 
 @router.patch("/products/{product_id}")
@@ -530,6 +538,18 @@ async def create_variant(
         )
         db.add(row)
         await db.flush()
+        is_active_now = row.lifecycle_status == "ACTIVE"
+        if was_active != is_active_now:
+            await apply_live_stock_active_variant_delta(
+                db,
+                company_id=actor.company_id,
+                delta=1 if is_active_now else -1,
+            )
+        await refresh_live_stock_variants(
+            db,
+            company_id=actor.company_id,
+            variant_ids=[row.id],
+        )
         uom = await db.get(UOM, row.base_uom_id)
         response = {"message": "تم إنشاء SKU بحالة مسودة دون سعر أو ربط مستودع.", "variant": _variant_row(row, uom)}
         _audit(db, actor, f"ProductVariant_{row.id}", "CATALOG_VARIANT_CREATED", None, response["variant"])
@@ -849,6 +869,7 @@ async def _run_variant_state_command(
             )
 
         before = variant_snapshot(row)
+        was_active = before["lifecycle_status"] == "ACTIVE"
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         event_type: str
         message: str
