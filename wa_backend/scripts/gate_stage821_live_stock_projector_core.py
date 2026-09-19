@@ -267,9 +267,15 @@ def main() -> None:
         failures.append("MOVEMENT_DELTA_CORRECTNESS_FALLBACK_MISSING")
 
     checks += 1
+    services_movement_start = sources["services"].find(
+        "async def apply_inventory_movements_batch("
+    )
+    services_movement_end = sources["services"].find(
+        "\nasync def apply_inventory_movement(",
+        services_movement_start + 1,
+    )
     services_movement = sources["services"][
-        sources["services"].find("async def apply_inventory_movements_batch"):
-        sources["services"].find("async def apply_inventory_movement")
+        services_movement_start:services_movement_end
     ]
     if "refresh_live_stock_from_movement_specs(" in services_movement:
         failures.append("MOVEMENT_HOT_PATH_STILL_REAGGREGATES")
