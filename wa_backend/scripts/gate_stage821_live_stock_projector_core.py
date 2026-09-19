@@ -195,6 +195,16 @@ def main() -> None:
         failures.append(f"PROJECTOR_FUNCTIONS_MISSING:{missing}")
 
     checks += 1
+    projector_source = sources["projector"]
+    if (
+        "_COARSE_GUARD_THRESHOLD = 256" not in projector_source
+        or "async def _acquire_company_projection_guard(" not in projector_source
+        or 'f"live-stock-company:{company_id}"' not in projector_source
+        or "_force_coarse_guard" not in projector_source
+    ):
+        failures.append("HIERARCHICAL_PROJECTOR_GUARDS_MISSING")
+
+    checks += 1
     movement_source = sources["projector"]
     movement_start = movement_source.find("async def refresh_live_stock_from_movement_specs")
     movement_end = movement_source.find(
