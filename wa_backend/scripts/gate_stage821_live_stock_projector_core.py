@@ -205,6 +205,35 @@ def main() -> None:
         failures.append("HIERARCHICAL_PROJECTOR_GUARDS_MISSING")
 
     checks += 1
+    if (
+        "def _projection_key_scope(" not in projector_source
+        or "func.unnest(" not in projector_source
+        or "ARRAY(Integer)" not in projector_source
+        or "def _array_membership(" not in projector_source
+        or "any_(" not in projector_source
+    ):
+        failures.append("BOUNDED_PROJECTOR_SQL_PARAMETERIZATION_MISSING")
+
+    checks += 1
+    forbidden_bulk_parameter_patterns = (
+        "tuple_(",
+        ".in_(active_keys)",
+        ".in_(normalized_keys)",
+        ".in_(variant_ids)",
+        ".in_(warehouse_ids)",
+    )
+    found_forbidden = [
+        pattern
+        for pattern in forbidden_bulk_parameter_patterns
+        if pattern in projector_source
+    ]
+    if found_forbidden:
+        failures.append(
+            "UNBOUNDED_PROJECTOR_SQL_PARAMETERS:"
+            + ",".join(found_forbidden)
+        )
+
+    checks += 1
     movement_source = sources["projector"]
     movement_start = movement_source.find("async def refresh_live_stock_from_movement_specs")
     movement_end = movement_source.find(
