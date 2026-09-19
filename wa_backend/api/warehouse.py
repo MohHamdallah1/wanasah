@@ -2620,7 +2620,7 @@ async def get_warehouse_inventory(
             return (
                 select(
                     ProductVariant.id,
-                    ProductVariant.name,
+                    ProductVariant.name.label("variant_name"),
                 )
                 .join(
                     InventoryStockPolicy,
@@ -2653,7 +2653,7 @@ async def get_warehouse_inventory(
         else:
             candidate_stmt = select(
                 ProductVariant.id,
-                ProductVariant.name,
+                ProductVariant.name.label("variant_name"),
             ).filter(
                 ProductVariant.company_id == company_id,
                 visible_condition,

@@ -153,6 +153,8 @@ export default function MainInventory() {
   // +++ حالة اختيار المستودع +++
   const [locations, setLocations] = useState<WarehouseLocationOption[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
+  const selectedLocationIdRef = useRef<number | null>(null);
+  useEffect(() => { selectedLocationIdRef.current = selectedLocationId; }, [selectedLocationId]);
   const access = useInventoryAccess();
   const locationAccess = useInventoryAccess(selectedLocationId);
   const canReadStock = locationAccess.can('inventory.read');
@@ -166,11 +168,18 @@ export default function MainInventory() {
     return canAtLocation(TAB_PERMISSION[id]);
   }, [isCompanyAdmin, canAny, canAtLocation, selectedLocationId]);
   useEffect(() => {
-    if (!access.isPending && !locationAccess.isPending && !tabAllowed(activeTab)) {
-      const first = TABS.find(tab => tabAllowed(tab.id));
+    if (
+      !access.isSuccess ||
+      (selectedLocationId !== null && !locationAccess.isSuccess)
+    ) {
+      return;
+    }
+
+    if (!tabAllowed(activeTab)) {
+      const first = TABS.find((tab) => tabAllowed(tab.id));
       if (first) setActiveTab(first.id);
     }
-  }, [access.isPending, locationAccess.isPending, activeTab, tabAllowed]);
+  }, [access.isSuccess,locationAccess.isSuccess,selectedLocationId,activeTab,tabAllowed,]);
   const [locationError, setLocationError] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(true);
   const [warehouseSetup, setWarehouseSetup] = useState<WarehouseSetupStatus | null>(null);
@@ -222,15 +231,29 @@ export default function MainInventory() {
 
       const savedRaw = localStorage.getItem(selectedLocationStorageKey);
       const savedId = savedRaw ? Number(savedRaw) : null;
+      const currentId = selectedLocationIdRef.current;
       const savedIsValid =
         savedId !== null &&
         Number.isInteger(savedId) &&
         page.items.some((location) => location.id === savedId);
+      const currentIsValid =
+        currentId !== null &&
+        page.items.some((location) => location.id === currentId);
 
       if (savedIsValid) {
         setSelectedLocationId(savedId);
+      } else if (currentIsValid) {
+        localStorage.setItem(selectedLocationStorageKey, String(currentId));
+      } else if (page.items.length === 1) {
+        const onlyLocationId = page.items[0].id;
+
+        setSelectedLocationId(onlyLocationId);
+        localStorage.setItem(
+          selectedLocationStorageKey,
+          String(onlyLocationId),
+        );
       } else {
-        localStorage.removeItem(selectedLocationStorageKey);
+        if (savedRaw !== null) localStorage.removeItem(selectedLocationStorageKey);
         setSelectedLocationId(null);
       }
     } catch (error: unknown) {
@@ -250,7 +273,8 @@ export default function MainInventory() {
   }, [authFetch, selectedLocationStorageKey]);
 
   useEffect(() => {
-    if (access.isPending) return;
+    if (!access.isSuccess) return;
+
     if (!canAny('location.read')) {
       locationRequestSeq.current += 1;
       setLocations([]);
@@ -261,8 +285,9 @@ export default function MainInventory() {
       setLoadingLocations(false);
       return;
     }
+
     void fetchLocations();
-  }, [access.isPending, canAny, fetchLocations]);
+  }, [access.isSuccess, canAny, fetchLocations]);
 
   const handleLocationChange = useCallback(
     (value: string) => {
@@ -272,8 +297,6 @@ export default function MainInventory() {
         !Number.isInteger(nextId) ||
         !locations.some((location) => location.id === nextId)
       ) {
-        setSelectedLocationId(null);
-        localStorage.removeItem(selectedLocationStorageKey);
         return;
       }
 
@@ -478,8 +501,7 @@ export default function MainInventory() {
       locations.length === 0 &&
       warehouseSetup?.warehouse_ready === false &&
       warehouseSetup.can_create &&
-      activeTab !== "warehouses" &&
-      activeTab !== "catalog"
+      activeTab !== "warehouses"
     ) {
       setActiveTab("warehouses");
     }
@@ -641,6 +663,12 @@ export default function MainInventory() {
                   ? "توجد مستودعات فعالة للشركة، لكن حسابك لا يملك وصولاً إلى أي منها."
                   : "لا يوجد مستودع محدد لهذه العملية. اختر مستودعاً فعالاً."}
             </p>
+            {locations.length > 0 && (
+              <select aria-label={t("inventoryShell.warehouseSelectLabel")} className="inventory-location-select px-3 py-2 text-sm font-bold" value="" onChange={(e) => handleLocationChange(e.target.value)}>
+                <option value="" disabled>{t("inventoryShell.chooseWarehouse")}</option>
+                {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+              </select>
+            )}
             {warehouseSetup?.warehouse_ready === false && warehouseSetup.can_create && tabAllowed("warehouses") && (
               <button type="button" onClick={() => setActiveTab("warehouses")} className="rounded-xl bg-blue-600 px-4 py-2 text-white">
                 فتح إدارة المستودعات
