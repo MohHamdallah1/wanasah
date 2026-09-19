@@ -57,7 +57,7 @@ from domains.pricing.driver_authority import (
 from domains.inventory_rules import batch_sellability_predicate
 from domains.live_stock_projection.service import (
     LiveStockProjectionError,
-    refresh_live_stock_from_movement_specs,
+    apply_live_stock_balance_impacts,
     refresh_live_stock_variants,
 )
 
@@ -3429,6 +3429,7 @@ async def apply_inventory_movements_batch(
                 ProductVariant.lifecycle_status,
                 ProductVariant.operational_hold,
                 ProductVariant.expiry_control_mode,
+                ProductVariant.name,
             ).filter(
                 ProductVariant.company_id == company_id,
                 ProductVariant.id.in_(product_variant_ids),
@@ -3442,6 +3443,7 @@ async def apply_inventory_movements_batch(
             row.lifecycle_status,
             row.operational_hold,
             row.expiry_control_mode,
+            row.name,
         )
         for row in variant_rows
     }
@@ -3449,7 +3451,14 @@ async def apply_inventory_movements_batch(
         raise InventoryMutationError("أحد أصناف الحركة غير موجود داخل الشركة.")
     try:
         for spec in new_specs:
-            scale, step, lifecycle_status, _operational_hold, _expiry_mode = variant_rules[spec["product_variant_id"]]
+            (
+                scale,
+                step,
+                lifecycle_status,
+                _operational_hold,
+                _expiry_mode,
+                _variant_name,
+            ) = variant_rules[spec["product_variant_id"]]
             if lifecycle_status == "DRAFT":
                 raise InventoryMutationError(
                     f"الصنف ({spec['product_variant_id']}) بحالة DRAFT ولا يقبل حركة مخزون."
@@ -3478,21 +3487,31 @@ async def apply_inventory_movements_batch(
         location_ids,
     )
 
+    location_rules: Dict[int, Tuple[str, Optional[int]]] = {}
     if location_ids:
-        existing_location_ids = set(
-            (
-                await db_session.execute(
-                    select(InventoryLocation.id).filter(
-                        InventoryLocation.company_id == company_id,
-                        InventoryLocation.id.in_(location_ids),
-                        InventoryLocation.is_active.is_(True),
-                    ).order_by(
-                        InventoryLocation.id.asc()
-                    ).with_for_update(read=True)
-                )
-            ).scalars().all()
-        )
-        if existing_location_ids != set(location_ids):
+        location_rows = (
+            await db_session.execute(
+                select(
+                    InventoryLocation.id,
+                    InventoryLocation.location_type,
+                    InventoryLocation.vehicle_id,
+                ).filter(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id.in_(location_ids),
+                    InventoryLocation.is_active.is_(True),
+                ).order_by(
+                    InventoryLocation.id.asc()
+                ).with_for_update(read=True)
+            )
+        ).all()
+        location_rules = {
+            int(row.id): (
+                str(row.location_type),
+                int(row.vehicle_id) if row.vehicle_id is not None else None,
+            )
+            for row in location_rows
+        }
+        if set(location_rules) != set(location_ids):
             raise InventoryMutationError(
                 "أحد مواقع المخزون غير موجود أو غير فعال."
             )
@@ -3574,6 +3593,7 @@ async def apply_inventory_movements_batch(
                 _lifecycle_status,
                 operational_hold,
                 expiry_control_mode,
+                _variant_name,
             ) = variant_rules[variant_id]
 
             normalized_hold = str(operational_hold or "").upper()
@@ -3947,13 +3967,59 @@ async def apply_inventory_movements_batch(
             exc.code, exc.message, context=exc.context
         ) from exc
 
-    # Live Stock projection is part of the same transaction as the inventory truth.
-    # Recompute from SSOT instead of applying arithmetic deltas, so retries stay idempotent.
+    # Live Stock hot path: the movement engine already owns the exact before/after
+    # balances under row locks, so project those deltas in the same transaction.
+    # Full SSOT aggregation remains the fallback/rebuild authority.
+    projection_impacts = []
+    for _movement, touched in impact_snapshots:
+        for (
+            balance,
+            before_on_hand,
+            before_reserved,
+            after_on_hand,
+            after_reserved,
+        ) in touched:
+            location_type, vehicle_id = location_rules[int(balance.location_id)]
+            (
+                _scale,
+                _step,
+                lifecycle_status,
+                operational_hold,
+                expiry_control_mode,
+                variant_name,
+            ) = variant_rules[int(balance.product_variant_id)]
+            batch = batch_map[
+                (int(balance.product_variant_id), int(balance.batch_id))
+            ]
+            projection_impacts.append(
+                {
+                    "inventory_balance_id": int(balance.id),
+                    "location_id": int(balance.location_id),
+                    "location_type": location_type,
+                    "vehicle_id": vehicle_id,
+                    "product_variant_id": int(balance.product_variant_id),
+                    "batch_id": int(balance.batch_id),
+                    "stock_status": str(balance.stock_status),
+                    "on_hand_before": before_on_hand,
+                    "on_hand_after": after_on_hand,
+                    "reserved_before": before_reserved,
+                    "reserved_after": after_reserved,
+                    "variant_name": str(variant_name),
+                    "lifecycle_status": str(lifecycle_status),
+                    "operational_hold": str(operational_hold),
+                    "expiry_control_mode": str(expiry_control_mode),
+                    "batch_is_active": bool(batch.is_active),
+                    "batch_disposition": str(batch.disposition),
+                    "production_date": batch.production_date,
+                    "expiry_date": batch.expiry_date,
+                }
+            )
+
     try:
-        await refresh_live_stock_from_movement_specs(
+        await apply_live_stock_balance_impacts(
             db_session,
             company_id=company_id,
-            movement_specs=new_specs,
+            impacts=projection_impacts,
         )
     except LiveStockProjectionError as exc:
         raise InventoryRuleError(
