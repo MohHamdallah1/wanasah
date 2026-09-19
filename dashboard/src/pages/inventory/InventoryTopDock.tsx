@@ -24,12 +24,12 @@ interface InventoryTopDockProps {
 }
 
 const OPTIONS: InventoryTopDockOptions = {
-  proximity: 122,
-  spring: 0.19,
-  damping: 0.7,
-  widthGrowth: 17,
-  heightGrowth: 16,
-  drop: 3.5,
+  proximity: 95,
+  spring: 0.16,
+  damping: 0.55,
+  widthGrowth: 0,
+  heightGrowth: 4,
+  drop: 0.7,
   lockTrack: true,
 };
 

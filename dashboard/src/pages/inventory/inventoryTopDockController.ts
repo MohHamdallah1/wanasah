@@ -168,42 +168,25 @@ export function createInventoryTopDockController(
     }
   };
 
-  const setTargets = (
-    clientX: number,
-    clientY: number,
+  const setHoveredItem = (
+    item: HTMLElement | null,
   ) => {
     if (!enabled) return;
 
-    const options = getOptions();
-    const pointer = clientX;
-    const rects = items.map((state) =>
-      state.element.getBoundingClientRect(),
-    );
+    items.forEach((state) => {
+      const hovered = state.element === item;
 
-    for (let index = 0; index < items.length; index += 1) {
-      const rect = rects[index];
-      const center = rect.left + rect.width * 0.5;
-      const proximity = clamp(
-        1 -
-          Math.abs(pointer - center) /
-            Math.max(1, options.proximity),
-        0,
-        1,
-      );
-      const influence =
-        proximity * proximity * (3 - 2 * proximity);
+      state.target = hovered ? 1 : 0;
+      state.element.dataset.dockNear =
+        hovered ? "true" : "false";
+    });
 
-      items[index].target = influence;
-      items[index].element.dataset.dockNear =
-        influence > 0.08 ? "true" : "false";
-    }
-
-    pointerActive = true;
+    pointerActive = item !== null;
     dirty = true;
-    root.dataset.dockState = "active";
-    ensureFrame();
+    root.dataset.dockState =
+      item !== null ? "active" : "idle";
 
-    void clientY;
+    ensureFrame();
   };
 
   const focusItem = (item: HTMLElement) => {
@@ -264,8 +247,19 @@ export function createInventoryTopDockController(
     root.dataset.dockMax = "0.00";
   };
 
-  const onPointerMove = (event: PointerEvent) =>
-    setTargets(event.clientX, event.clientY);
+  const onPointerMove = (event: PointerEvent) => {
+    const item = (
+      event.target as HTMLElement | null
+    )?.closest<HTMLElement>(
+      "[data-inventory-dock-item]",
+    );
+
+    setHoveredItem(
+      item && root.contains(item)
+        ? item
+        : null,
+    );
+  };
 
   const onWindowPointerMove = (event: PointerEvent) => {
     if (!pointerActive) return;
