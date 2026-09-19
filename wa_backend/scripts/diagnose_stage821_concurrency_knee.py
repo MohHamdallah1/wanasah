@@ -24,12 +24,14 @@ async def main(company_id: int, location_id: int) -> None:
         company_id,
         [balance_id for _variant_id, balance_id, _qty in rows],
     )
-    noise_samples = await stress.load_noise_keys(OPS)
+    noise_samples = await stress.load_noise_mutation_samples(OPS)
     if len(noise_samples) < OPS:
-        raise RuntimeError("Not enough noise-company samples for diagnosis.")
+        raise RuntimeError(
+            "Not enough noise-company mutation samples for diagnosis."
+        )
 
     print(
-        "LEVEL | MUT_P95 | MUT_TPS | XT_P95 | XT_TPS | "
+        "LEVEL | MUT_P95 | MUT_TPS | XT_MUT_P95 | XT_MUT_TPS | "
         "MUT_ERRORS | XT_ERRORS"
     )
 
@@ -60,7 +62,7 @@ async def main(company_id: int, location_id: int) -> None:
                 )
 
             cross, cross_tps, cross_errors = (
-                await stress.timed_cross_tenant_refreshes(
+                await stress.timed_cross_tenant_mutations(
                     samples=noise_samples,
                     concurrency=level,
                     operations=OPS,
