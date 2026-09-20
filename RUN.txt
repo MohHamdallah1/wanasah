@@ -52,3 +52,4 @@ OFFER_TAX_SNAPSHOT_GATE=PASS
 بعدها فقط نعمل Final audit يدوي مستقل للكود والـdiff والأداء والأضرار الجانبية. نجاح الاختبارات وحده لا يكفي.
 
 
+التحدي الحقيقي اللي رح يواجهك. الجداول التوثيقية عندك مثل inventory_movements، و inventory_cost_events، و system_audit_logs رح تنفجر وتوصل لملايين الأسطر خلال أشهر قليلة مع الشركات الضخمة. الـ Indexes لحالها ما رح تكفي. لازم تطبق Table Partitioning في PostgreSQL (إما وتقسيم البيانات زمنياً كل شهر، أو تقسيمها حسب الـ company_id) عشان تحافظ على سرعة الـ Ledger واسترجاع التقارير.   

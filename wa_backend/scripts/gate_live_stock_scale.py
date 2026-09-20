@@ -1108,8 +1108,10 @@ async def real_uvicorn_http_load(
         return load
     finally:
         _stop_real_uvicorn(process)
-        # Retain diagnostic evidence, including failed benchmark runs.
-        print(f"HTTP_UVICORN_LOG={log_path}")
+        try:
+            Path(log_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 async def http_load(
