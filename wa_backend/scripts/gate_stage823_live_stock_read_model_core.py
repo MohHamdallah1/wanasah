@@ -11,6 +11,9 @@ PROJECTION_SERVICE = ROOT / "domains" / "live_stock_projection" / "service.py"
 DATABASE = ROOT / "database.py"
 MAIN = ROOT / "main.py"
 SCALE_GATE = ROOT / "scripts" / "gate_live_stock_scale.py"
+READ_MODEL_RUNTIME_GATE = (
+    ROOT / "scripts" / "gate_stage823_live_stock_read_model.py"
+)
 
 
 def function_block(source: str, name: str) -> str:
@@ -414,6 +417,29 @@ def main() -> None:
         or "connections=HTTP_BENCH_POOL_SIZE" not in scale_source
     ):
         failures.append("HTTP_BENCHMARK_STEADY_POOL_PREWARM_MISSING")
+
+    checks += 1
+    runtime_gate_source = READ_MODEL_RUNTIME_GATE.read_text(
+        encoding="utf-8"
+    )
+    runtime_lines = runtime_gate_source.splitlines()
+    auth_call_lines = [
+        index
+        for index, line in enumerate(runtime_lines)
+        if "get_current_driver(" in line
+    ]
+    missing_explicit_begin = []
+    for index in auth_call_lines:
+        window = "\n".join(
+            runtime_lines[max(0, index - 6):index]
+        )
+        if "await app.begin()" not in window:
+            missing_explicit_begin.append(index + 1)
+    if missing_explicit_begin:
+        failures.append(
+            "READ_MODEL_AUTH_GATE_MISSING_EXPLICIT_TRANSACTION:"
+            + ",".join(str(value) for value in missing_explicit_begin)
+        )
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
