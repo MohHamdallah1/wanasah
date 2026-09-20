@@ -2675,75 +2675,49 @@ def _build_visible_inventory_stmt(
         .limit(limit + 1 if limit is not None else None)
     )
 
-    if company_wide_inventory_read:
-        vehicle_candidates = (
-            select(
-                ProductVariant.id,
-                ProductVariant.name.label("variant_name"),
-            )
-            .join(
-                InventoryLiveStockProjection,
-                and_(
-                    InventoryLiveStockProjection.company_id
-                    == ProductVariant.company_id,
-                    InventoryLiveStockProjection.product_variant_id
-                    == ProductVariant.id,
-                    InventoryLiveStockProjection.warehouse_location_id
-                    == location_id,
-                ),
-            )
-            .where(
-                *candidate_filters,
-                ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
-                InventoryLiveStockProjection.has_vehicle_presence.is_(True),
-            )
-            .order_by(*ordering)
-            .limit(limit + 1 if limit is not None else None)
+    readable_vehicle_locations = _readable_vehicle_locations_subquery(
+        company_id=company_id,
+        access=access,
+    )
+    latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
+        company_id=company_id,
+        readable_vehicle_locations=readable_vehicle_locations,
+    )
+    vehicle_candidates = (
+        select(
+            ProductVariant.id,
+            ProductVariant.name.label("variant_name"),
         )
-    else:
-        readable_vehicle_locations = _readable_vehicle_locations_subquery(
-            company_id=company_id,
-            access=access,
+        .join(
+            InventoryBalance,
+            and_(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.product_variant_id == ProductVariant.id,
+                InventoryBalance.stock_status != "DAMAGED",
+                InventoryBalance.on_hand_quantity > 0,
+            ),
         )
-        latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
-            company_id=company_id,
-            readable_vehicle_locations=readable_vehicle_locations,
+        .join(
+            readable_vehicle_locations,
+            readable_vehicle_locations.c.id
+            == InventoryBalance.location_id,
         )
-        vehicle_candidates = (
-            select(
-                ProductVariant.id,
-                ProductVariant.name.label("variant_name"),
-            )
-            .join(
-                InventoryBalance,
-                and_(
-                    InventoryBalance.company_id == company_id,
-                    InventoryBalance.product_variant_id == ProductVariant.id,
-                    InventoryBalance.stock_status != "DAMAGED",
-                    InventoryBalance.on_hand_quantity > 0,
-                ),
-            )
-            .join(
-                readable_vehicle_locations,
-                readable_vehicle_locations.c.id
-                == InventoryBalance.location_id,
-            )
-            .join(
-                latest_vehicle_sources,
-                and_(
-                    latest_vehicle_sources.c.vehicle_id
-                    == readable_vehicle_locations.c.vehicle_id,
-                    latest_vehicle_sources.c.source_location_id == location_id,
-                ),
-            )
-            .where(
-                *candidate_filters,
-                ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
-            )
-            .distinct()
-            .order_by(*ordering)
-            .limit(limit + 1 if limit is not None else None)
+        .join(
+            latest_vehicle_sources,
+            and_(
+                latest_vehicle_sources.c.vehicle_id
+                == readable_vehicle_locations.c.vehicle_id,
+                latest_vehicle_sources.c.source_location_id == location_id,
+            ),
         )
+        .where(
+            *candidate_filters,
+            ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
+        )
+        .distinct()
+        .order_by(*ordering)
+        .limit(limit + 1 if limit is not None else None)
+    )
 
     visible_candidates = union(
         active_candidates,
