@@ -306,20 +306,24 @@ def main() -> None:
         )
 
     checks += 1
-    required_bounded_detail_reads = (
+    required_collapsed_detail_reads = (
         "detail_stmt",
-        "_load_inventory_display_uoms(",
-        "latest_purchase_rows",
+        "latest_purchase_page",
+        '.lateral("latest_purchase_page")',
+        "display_uom_candidates",
+        '.lateral("display_uom_candidates")',
+        "display_uom_unique",
+        "display_factor_to_base",
         "_warehouse_array_membership(",
     )
     missing_detail_reads = [
         token
-        for token in required_bounded_detail_reads
+        for token in required_collapsed_detail_reads
         if token not in cursor
     ]
     if missing_detail_reads:
         failures.append(
-            "BOUNDED_PAGE_DETAIL_READS_MISSING:"
+            "COLLAPSED_PAGE_DETAIL_READS_MISSING:"
             + ",".join(missing_detail_reads)
         )
 
