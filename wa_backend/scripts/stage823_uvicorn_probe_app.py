@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 
@@ -25,6 +26,14 @@ async def _stage823_probe_timing(request, call_next):
 
 @app.get("/__stage823_probe/raw", include_in_schema=False)
 async def _stage823_probe_raw():
+    return {"ok": True}
+
+
+@app.get("/__stage823_probe/hold", include_in_schema=False)
+async def _stage823_probe_hold():
+    # Diagnostic-only endpoint: holding the request open forces HTTPX to
+    # establish the requested number of concurrent loopback connections.
+    await asyncio.sleep(0.05)
     return {"ok": True}
 
 
