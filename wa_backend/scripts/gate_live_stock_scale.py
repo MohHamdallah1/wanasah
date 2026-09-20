@@ -41,7 +41,9 @@ from api.auth import create_access_token  # noqa: E402
 from api.warehouse import (  # noqa: E402
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
+    get_warehouse_inventory_summary,
 )
+from domains.live_stock_projection.service import rebuild_live_stock_company
 from main import app  # noqa: E402
 
 SQL_BUCKET: contextvars.ContextVar[list[float] | None] = contextvars.ContextVar(
@@ -197,6 +199,16 @@ async def alert_summary_call(location_id: int):
         )
     return _call
 
+async def inventory_summary_call(location_id: int):
+    async def _call(db, driver):
+        return await get_warehouse_inventory_summary(
+            location_id=location_id,
+            db=db,
+            current_admin=driver,
+        )
+    return _call
+
+
 async def only_alerts_call(location_id: int, limit: int):
     async def _call(db, driver):
         return await get_warehouse_inventory(
@@ -257,6 +269,66 @@ async def second_page_call(location_id: int, limit: int, company_id: int, driver
     async def _wrapped(db, driver):
         return await _call(db, driver)
     return _wrapped
+
+async def prepare_projection(company_id: int) -> float:
+    token = tenant_context.set(company_id)
+    started = time.perf_counter()
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("SELECT set_config('app.current_tenant', :c, false)"),
+                {"c": str(company_id)},
+            )
+            await rebuild_live_stock_company(
+                db,
+                company_id=company_id,
+                batch_size=10000,
+            )
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+    return (time.perf_counter() - started) * 1000
+
+
+async def resolve_driver_id(company_id: int, requested: int | None) -> int:
+    token = tenant_context.set(company_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("SELECT set_config('app.current_tenant', :c, false)"),
+                {"c": str(company_id)},
+            )
+            if requested is not None:
+                value = await db.scalar(
+                    select(Driver.id).where(
+                        Driver.company_id == company_id,
+                        Driver.id == requested,
+                        Driver.is_active.is_(True),
+                    )
+                )
+                if value is None:
+                    raise RuntimeError("Requested active benchmark driver not found.")
+                return int(value)
+
+            value = await db.scalar(
+                select(Driver.id)
+                .where(
+                    Driver.company_id == company_id,
+                    Driver.is_active.is_(True),
+                    Driver.is_admin.is_(True),
+                )
+                .order_by(Driver.id.asc())
+                .limit(1)
+            )
+            if value is None:
+                raise RuntimeError(
+                    "No active company admin exists for the benchmark; "
+                    "pass --driver-id explicitly."
+                )
+            return int(value)
+    finally:
+        tenant_context.reset(token)
+
 
 async def dataset_snapshot(company_id: int, location_id: int) -> dict[str, int]:
     token = tenant_context.set(company_id)
@@ -379,8 +451,11 @@ def print_stats(stats: Stats) -> None:
     )
 
 async def async_main(args: argparse.Namespace) -> None:
+    driver_id = await resolve_driver_id(args.company_id, args.driver_id)
     snapshot = await dataset_snapshot(args.company_id, args.location_id)
     print("DATASET=" + json.dumps(snapshot, sort_keys=True))
+    rebuild_ms = await prepare_projection(args.company_id)
+    print(f"PROJECTION_PREPARE={rebuild_ms:.1f}ms driver_id={driver_id}")
 
     failures: list[str] = []
     if snapshot["company_variants"] < args.min_company_variants:
@@ -399,6 +474,7 @@ async def async_main(args: argparse.Namespace) -> None:
     scenarios: list[tuple[str, Callable[[Any, Driver], Awaitable[dict[str, Any]]], float]] = []
     scenarios.append(("live_50", await main_page_call(args.location_id, 50), args.max_live_p95))
     scenarios.append(("live_200", await main_page_call(args.location_id, 200), args.max_live_p95))
+    scenarios.append(("summary", await inventory_summary_call(args.location_id), args.max_summary_p95))
     scenarios.append(("alerts_summary", await alert_summary_call(args.location_id), args.max_alert_p95))
     scenarios.append(("only_alerts_50", await only_alerts_call(args.location_id, 50), args.max_alert_p95))
     scenarios.append(("search_50", await search_call(args.location_id, 50, args.search), args.max_search_p95))
@@ -410,7 +486,7 @@ async def async_main(args: argparse.Namespace) -> None:
             name,
             call,
             company_id=args.company_id,
-            driver_id=args.driver_id,
+            driver_id=driver_id,
             runs=args.runs,
             warmup=args.warmup,
         )
@@ -434,7 +510,7 @@ async def async_main(args: argparse.Namespace) -> None:
 
     load = await http_load(
         company_id=args.company_id,
-        driver_id=args.driver_id,
+        driver_id=driver_id,
         location_id=args.location_id,
         concurrency=args.concurrency,
         requests=args.requests,
@@ -465,7 +541,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--company-id", type=int, required=True)
-    parser.add_argument("--driver-id", type=int, required=True)
+    parser.add_argument("--driver-id", type=int)
     parser.add_argument("--location-id", type=int, required=True)
     parser.add_argument("--runs", type=int, default=30)
     parser.add_argument("--warmup", type=int, default=5)
@@ -478,7 +554,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-companies", type=int, default=50)
 
     parser.add_argument("--max-live-p95", type=float, default=150.0)
-    parser.add_argument("--max-alert-p95", type=float, default=200.0)
+    parser.add_argument("--max-summary-p95", type=float, default=75.0)
+    parser.add_argument("--max-alert-p95", type=float, default=75.0)
     parser.add_argument("--max-search-p95", type=float, default=250.0)
     parser.add_argument("--max-http-p95", type=float, default=500.0)
 
