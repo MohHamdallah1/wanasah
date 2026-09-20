@@ -3562,6 +3562,8 @@ async def get_warehouse_inventory(
                 ProductVariant.id.label("variant_id"),
                 ProductVariant.name.label("variant_name"),
                 ProductVariant.sku.label("sku"),
+                ProductVariant.product_id.label("product_id"),
+                Product.name.label("family_name"),
                 ProductVariant.base_uom_id.label("base_uom_id"),
                 ProductVariant.quantity_scale.label("quantity_scale"),
                 ProductVariant.quantity_step.label("quantity_step"),
@@ -3620,6 +3622,13 @@ async def get_warehouse_inventory(
                     ProductVariant.company_id == company_id,
                     ProductVariant.id
                     == detail_key_scope.c.product_variant_id,
+                ),
+            )
+            .join(
+                Product,
+                and_(
+                    Product.company_id == ProductVariant.company_id,
+                    Product.id == ProductVariant.product_id,
                 ),
             )
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
@@ -3779,6 +3788,8 @@ async def get_warehouse_inventory(
                 "id": variant_id,
                 "name": str(row["variant_name"]),
                 "sku": row["sku"],
+                "product_id": int(row["product_id"]),
+                "family_name": str(row["family_name"]),
                 "base_uom_id": int(row["base_uom_id"]),
                 "base_uom_code": str(row["base_uom_code"]),
                 "base_uom_name": str(row["base_uom_name"]),
@@ -3834,6 +3845,15 @@ async def get_warehouse_inventory(
             raise RuntimeError(
                 "Inventory page identity invariant violated."
             )
+
+        result_by_id = {
+            int(item["id"]): item
+            for item in result
+        }
+        result = [
+            result_by_id[variant_id]
+            for variant_id in page_variant_ids
+        ]
 
         next_cursor = None
         if has_more:
