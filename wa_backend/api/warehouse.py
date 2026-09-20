@@ -3185,145 +3185,162 @@ async def get_warehouse_inventory(
                 ).all()
             }
 
+        # Drive the entire detail read from the bounded page keyset.
+        # The two enrichment lookups are indexed LATERAL seeks (max 200 keys),
+        # not tenant-wide DISTINCT/GROUP scans. Only scalar columns are selected
+        # so the hot path avoids ORM hydration of ProductVariant/UOM/Projection.
+        detail_key_scope = (
+            func.unnest(
+                bindparam(
+                    "inventory_detail_page_variant_ids",
+                    value=page_variant_ids,
+                    type_=ARRAY(Integer),
+                )
+            )
+            .table_valued("product_variant_id")
+            .render_derived(name="inventory_detail_keys")
+        )
+
         purchase_uom = aliased(
             UOM,
             name="inventory_latest_purchase_uom",
         )
-        latest_purchase_page = (
+        latest_purchase_one = (
             select(
-                InventoryCostEvent.product_variant_id.label(
-                    "product_variant_id"
-                ),
                 InventoryCostEvent.input_unit_cost.label(
-                    "input_unit_cost"
+                    "last_purchase_cost"
                 ),
-                purchase_uom.code.label("input_uom_code"),
-                InventoryCostEvent.created_at.label("created_at"),
+                purchase_uom.code.label(
+                    "last_purchase_uom_code"
+                ),
+                InventoryCostEvent.created_at.label(
+                    "last_purchase_created_at"
+                ),
             )
+            .select_from(InventoryCostEvent)
             .join(
                 purchase_uom,
                 purchase_uom.id == InventoryCostEvent.input_uom_id,
             )
             .where(
                 InventoryCostEvent.company_id == company_id,
-                _warehouse_array_membership(
-                    InventoryCostEvent.product_variant_id,
-                    page_variant_ids,
-                    "inventory_purchase_page_variant_ids",
-                ),
+                InventoryCostEvent.product_variant_id
+                == ProductVariant.id,
                 InventoryCostEvent.event_type == "PURCHASE_IN",
             )
-            .distinct(InventoryCostEvent.product_variant_id)
             .order_by(
-                InventoryCostEvent.product_variant_id,
                 InventoryCostEvent.created_at.desc(),
                 InventoryCostEvent.id.desc(),
             )
-            .subquery("latest_purchase_page")
+            .limit(1)
+            .lateral("inventory_latest_purchase_one")
         )
 
         display_uom = aliased(
             UOM,
             name="inventory_display_uom",
         )
-        display_variant = aliased(
-            ProductVariant,
-            name="inventory_display_variant",
-        )
         display_factor_expression = (
             ProductUomConversion.numerator
             / ProductUomConversion.denominator
         )
-        display_uom_candidates = (
+        display_uom_one = (
             select(
-                ProductUomConversion.product_variant_id.label(
-                    "product_variant_id"
-                ),
                 func.count(ProductUomConversion.id).label(
                     "candidate_count"
                 ),
-                func.min(display_uom.id).label("uom_id"),
-                func.min(display_uom.code).label("uom_code"),
-                func.min(display_uom.name).label("uom_name"),
+                func.min(display_uom.id).label("display_uom_id_raw"),
+                func.min(display_uom.code).label(
+                    "display_uom_code_raw"
+                ),
+                func.min(display_uom.name).label(
+                    "display_uom_name_raw"
+                ),
                 func.min(display_factor_expression).label(
-                    "factor_to_base"
+                    "display_factor_to_base_raw"
                 ),
             )
+            .select_from(ProductUomConversion)
             .join(
                 display_uom,
-                display_uom.id
-                == ProductUomConversion.from_uom_id,
-            )
-            .join(
-                display_variant,
-                and_(
-                    display_variant.company_id
-                    == ProductUomConversion.company_id,
-                    display_variant.id
-                    == ProductUomConversion.product_variant_id,
-                ),
+                display_uom.id == ProductUomConversion.from_uom_id,
             )
             .where(
                 ProductUomConversion.company_id == company_id,
-                _warehouse_array_membership(
-                    ProductUomConversion.product_variant_id,
-                    page_variant_ids,
-                    "inventory_display_page_variant_ids",
-                ),
+                ProductUomConversion.product_variant_id
+                == ProductVariant.id,
                 ProductUomConversion.to_uom_id
-                == display_variant.base_uom_id,
+                == ProductVariant.base_uom_id,
                 ProductUomConversion.numerator
                 > ProductUomConversion.denominator,
             )
-            .group_by(ProductUomConversion.product_variant_id)
-            .subquery("display_uom_candidates")
+            .lateral("inventory_display_uom_one")
         )
-
-        display_uom_unique = case(
-            (
-                display_uom_candidates.c.candidate_count == 1,
-                display_uom_candidates.c.uom_id,
-            ),
-            else_=None,
-        ).label("display_uom_id")
-        display_uom_code = case(
-            (
-                display_uom_candidates.c.candidate_count == 1,
-                display_uom_candidates.c.uom_code,
-            ),
-            else_=None,
-        ).label("display_uom_code")
-        display_uom_name = case(
-            (
-                display_uom_candidates.c.candidate_count == 1,
-                display_uom_candidates.c.uom_name,
-            ),
-            else_=None,
-        ).label("display_uom_name")
-        display_factor_to_base = case(
-            (
-                display_uom_candidates.c.candidate_count == 1,
-                display_uom_candidates.c.factor_to_base,
-            ),
-            else_=None,
-        ).label("display_factor_to_base")
 
         detail_stmt = (
             select(
-                ProductVariant,
-                UOM,
-                InventoryLiveStockProjection,
+                ProductVariant.id.label("variant_id"),
+                ProductVariant.name.label("variant_name"),
+                ProductVariant.sku.label("sku"),
+                ProductVariant.base_uom_id.label("base_uom_id"),
+                ProductVariant.quantity_scale.label("quantity_scale"),
+                ProductVariant.quantity_step.label("quantity_step"),
+                ProductVariant.lifecycle_status.label(
+                    "lifecycle_status"
+                ),
+                ProductVariant.operational_hold.label(
+                    "operational_hold"
+                ),
+                UOM.code.label("base_uom_code"),
+                UOM.name.label("base_uom_name"),
+                InventoryLiveStockProjection.warehouse_on_hand.label(
+                    "warehouse_on_hand"
+                ),
+                InventoryLiveStockProjection.warehouse_reserved.label(
+                    "warehouse_reserved"
+                ),
+                InventoryLiveStockProjection.warehouse_sellable_on_hand.label(
+                    "warehouse_sellable_on_hand"
+                ),
+                InventoryLiveStockProjection.warehouse_sellable_reserved.label(
+                    "warehouse_sellable_reserved"
+                ),
+                InventoryLiveStockProjection.blocked_status_packs.label(
+                    "blocked_status_packs"
+                ),
+                InventoryLiveStockProjection.recalled_packs.label(
+                    "recalled_packs"
+                ),
+                InventoryLiveStockProjection.damaged_packs.label(
+                    "damaged_packs"
+                ),
+                InventoryLiveStockProjection.vehicle_packs.label(
+                    "projected_vehicle_packs"
+                ),
+                InventoryLiveStockProjection.minimum_quantity.label(
+                    "minimum_quantity"
+                ),
                 InventoryCostState.average_unit_cost.label(
                     "average_unit_cost"
                 ),
                 Company.currency_code.label("currency_code"),
-                latest_purchase_page.c.input_unit_cost,
-                latest_purchase_page.c.input_uom_code,
-                latest_purchase_page.c.created_at,
-                display_uom_unique,
-                display_uom_code,
-                display_uom_name,
-                display_factor_to_base,
+                latest_purchase_one.c.last_purchase_cost,
+                latest_purchase_one.c.last_purchase_uom_code,
+                latest_purchase_one.c.last_purchase_created_at,
+                display_uom_one.c.candidate_count,
+                display_uom_one.c.display_uom_id_raw,
+                display_uom_one.c.display_uom_code_raw,
+                display_uom_one.c.display_uom_name_raw,
+                display_uom_one.c.display_factor_to_base_raw,
+            )
+            .select_from(detail_key_scope)
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id
+                    == detail_key_scope.c.product_variant_id,
+                ),
             )
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
             .join(Company, Company.id == ProductVariant.company_id)
@@ -3347,146 +3364,58 @@ async def get_warehouse_inventory(
                     == ProductVariant.id,
                 ),
             )
-            .outerjoin(
-                latest_purchase_page,
-                latest_purchase_page.c.product_variant_id
-                == ProductVariant.id,
-            )
-            .outerjoin(
-                display_uom_candidates,
-                display_uom_candidates.c.product_variant_id
-                == ProductVariant.id,
-            )
-            .where(
-                ProductVariant.company_id == company_id,
-                _warehouse_array_membership(
-                    ProductVariant.id,
-                    page_variant_ids,
-                    "inventory_detail_page_variant_ids",
-                ),
-            )
+            .outerjoin(latest_purchase_one, true())
+            .outerjoin(display_uom_one, true())
             .order_by(ProductVariant.name, ProductVariant.id)
         )
-        detail_rows = (await db.execute(detail_stmt)).all()
-
-        rows = []
-        for (
-            variant,
-            uom,
-            projection,
-            average_unit_cost,
-            currency_code,
-            last_purchase_cost_raw,
-            last_purchase_uom_code_raw,
-            last_purchase_created_at,
-            display_uom_id_raw,
-            display_uom_code_raw,
-            display_uom_name_raw,
-            display_factor_to_base_raw,
-        ) in detail_rows:
-            rows.append(
-                (
-                    variant,
-                    uom,
-                    projection,
-                    average_unit_cost,
-                    currency_code,
-                    last_purchase_cost_raw,
-                    last_purchase_uom_code_raw,
-                    last_purchase_created_at,
-                    display_uom_id_raw,
-                    display_uom_code_raw,
-                    display_uom_name_raw,
-                    display_factor_to_base_raw,
-                    (
-                        Decimal(projection.vehicle_packs or 0)
-                        if company_wide_inventory_read
-                        and projection is not None
-                        else vehicles.get(
-                            int(variant.id),
-                            Decimal("0"),
-                        )
-                    ),
-                )
-            )
+        detail_rows = (
+            await db.execute(detail_stmt)
+        ).mappings().all()
 
         result = []
-        for (
-            variant,
-            base_uom,
-            projection,
-            average_unit_cost,
-            currency_code,
-            last_purchase_cost_raw,
-            last_purchase_uom_code_raw,
-            last_purchase_created_at,
-            display_uom_id_raw,
-            display_uom_code_raw,
-            display_uom_name_raw,
-            display_factor_to_base_raw,
-            vehicle_total,
-        ) in rows:
-            on_hand = Decimal(
-                projection.warehouse_on_hand
-                if projection is not None
-                else 0
-            )
-            reserved = Decimal(
-                projection.warehouse_reserved
-                if projection is not None
-                else 0
-            )
+        for row in detail_rows:
+            variant_id = int(row["variant_id"])
+            on_hand = Decimal(row["warehouse_on_hand"] or 0)
+            reserved = Decimal(row["warehouse_reserved"] or 0)
             projected_sellable_on_hand = Decimal(
-                projection.warehouse_sellable_on_hand
-                if projection is not None
-                else 0
+                row["warehouse_sellable_on_hand"] or 0
             )
             projected_sellable_reserved = Decimal(
-                projection.warehouse_sellable_reserved
-                if projection is not None
-                else 0
+                row["warehouse_sellable_reserved"] or 0
             )
 
             sellable_on_hand = (
                 projected_sellable_on_hand
-                if variant.lifecycle_status == "ACTIVE"
-                and variant.operational_hold == "NONE"
+                if row["lifecycle_status"] == "ACTIVE"
+                and row["operational_hold"] == "NONE"
                 else Decimal("0")
             )
             sellable_reserved = (
                 projected_sellable_reserved
-                if variant.lifecycle_status == "ACTIVE"
-                and variant.operational_hold == "NONE"
+                if row["lifecycle_status"] == "ACTIVE"
+                and row["operational_hold"] == "NONE"
                 else Decimal("0")
             )
 
             free_quantity = sellable_on_hand - sellable_reserved
             explicit_blocked = Decimal(
-                projection.blocked_status_packs
-                if projection is not None
-                else 0
+                row["blocked_status_packs"] or 0
             )
             blocked_quantity = (
                 on_hand - sellable_on_hand
             ) + explicit_blocked
-            recalled = Decimal(
-                projection.recalled_packs
-                if projection is not None
-                else 0
+            recalled = Decimal(row["recalled_packs"] or 0)
+            vehicle_total = (
+                Decimal(row["projected_vehicle_packs"] or 0)
+                if company_wide_inventory_read
+                else vehicles.get(variant_id, Decimal("0"))
             )
-            vehicle_total = Decimal(vehicle_total or 0)
-            damaged = Decimal(
-                projection.damaged_packs
-                if projection is not None
-                else 0
-            )
-            minimum_quantity = Decimal(
-                projection.minimum_quantity
-                if projection is not None
-                else 0
-            )
+            damaged = Decimal(row["damaged_packs"] or 0)
+            minimum_quantity = Decimal(row["minimum_quantity"] or 0)
 
-            warehouse_on_hand_total = on_hand + explicit_blocked + damaged
+            warehouse_on_hand_total = (
+                on_hand + explicit_blocked + damaged
+            )
             unavailable_quantity = (
                 warehouse_on_hand_total - reserved - free_quantity
             )
@@ -3494,43 +3423,50 @@ async def get_warehouse_inventory(
             if free_quantity < 0:
                 raise RuntimeError(
                     f"Inventory invariant violated for "
-                    f"product_variant_id={variant.id}: "
+                    f"product_variant_id={variant_id}: "
                     "sellable reserved quantity exceeds sellable on-hand."
                 )
             if blocked_quantity < 0:
                 raise RuntimeError(
                     f"Inventory invariant violated for "
-                    f"product_variant_id={variant.id}: "
+                    f"product_variant_id={variant_id}: "
                     "sellable stock exceeds physical AVAILABLE stock."
                 )
             if unavailable_quantity < 0:
                 raise RuntimeError(
                     f"Inventory business partition violated for "
-                    f"product_variant_id={variant.id}: "
+                    f"product_variant_id={variant_id}: "
                     "on-hand is smaller than reserved plus sellable stock."
                 )
 
-            total_physical_available = on_hand + explicit_blocked + vehicle_total
+            total_physical_available = (
+                on_hand + explicit_blocked + vehicle_total
+            )
 
-            if display_uom_id_raw is None:
-                display_uom_id = int(base_uom.id)
-                display_uom_code = str(base_uom.code)
-                display_uom_name = str(base_uom.name)
-                display_factor = Decimal("1")
+            if int(row["candidate_count"] or 0) == 1:
+                display_uom_id = int(row["display_uom_id_raw"])
+                display_uom_code = str(row["display_uom_code_raw"])
+                display_uom_name = str(row["display_uom_name_raw"])
+                display_factor = Decimal(
+                    row["display_factor_to_base_raw"]
+                )
             else:
-                display_uom_id = int(display_uom_id_raw)
-                display_uom_code = str(display_uom_code_raw)
-                display_uom_name = str(display_uom_name_raw)
-                display_factor = Decimal(display_factor_to_base_raw)
+                display_uom_id = int(row["base_uom_id"])
+                display_uom_code = str(row["base_uom_code"])
+                display_uom_name = str(row["base_uom_name"])
+                display_factor = Decimal("1")
 
             has_location_inventory = (
                 warehouse_on_hand_total > 0 or vehicle_total > 0
             )
 
             average_cost_display = None
-            if has_location_inventory and average_unit_cost is not None:
+            if (
+                has_location_inventory
+                and row["average_unit_cost"] is not None
+            ):
                 average_cost_display = (
-                    Decimal(average_unit_cost) * display_factor
+                    Decimal(row["average_unit_cost"]) * display_factor
                 ).quantize(Decimal("0.000001"))
 
             last_purchase_cost = None
@@ -3538,32 +3474,40 @@ async def get_warehouse_inventory(
             last_purchase_date = None
             if (
                 has_location_inventory
-                and last_purchase_cost_raw is not None
+                and row["last_purchase_cost"] is not None
             ):
-                last_purchase_cost = Decimal(last_purchase_cost_raw)
-                last_purchase_uom_code = str(
-                    last_purchase_uom_code_raw
+                last_purchase_cost = Decimal(
+                    row["last_purchase_cost"]
                 )
+                last_purchase_uom_code = str(
+                    row["last_purchase_uom_code"]
+                )
+                last_purchase_created_at = row[
+                    "last_purchase_created_at"
+                ]
                 last_purchase_date = (
                     last_purchase_created_at.date()
                     if last_purchase_created_at is not None
                     else None
                 )
 
+            currency_code = row["currency_code"]
             if not currency_code:
                 raise RuntimeError("Company currency is unavailable.")
 
             result.append({
-                "id": variant.id,
-                "name": variant.variant_name,
-                "sku": variant.sku,
-                "base_uom_id": variant.base_uom_id,
-                "base_uom_code": base_uom.code,
-                "base_uom_name": base_uom.name,
+                "id": variant_id,
+                "name": str(row["variant_name"]),
+                "sku": row["sku"],
+                "base_uom_id": int(row["base_uom_id"]),
+                "base_uom_code": str(row["base_uom_code"]),
+                "base_uom_name": str(row["base_uom_name"]),
                 "display_uom_id": display_uom_id,
                 "display_uom_code": display_uom_code,
                 "display_uom_name": display_uom_name,
-                "display_factor_to_base": canonical_quantity(display_factor),
+                "display_factor_to_base": canonical_quantity(
+                    display_factor
+                ),
                 "currency_code": str(currency_code).upper(),
                 "average_cost_display": (
                     format(average_cost_display, "f")
@@ -3575,25 +3519,35 @@ async def get_warehouse_inventory(
                     if last_purchase_cost is not None
                     else None
                 ),
-                "last_purchase_uom_code":
-                    last_purchase_uom_code,
-                "last_purchase_date":
-                    last_purchase_date,
-                "quantity_scale": variant.quantity_scale,
-                "quantity_step": canonical_quantity(variant.quantity_step),
-
-                "on_hand_quantity": canonical_quantity(warehouse_on_hand_total),
+                "last_purchase_uom_code": last_purchase_uom_code,
+                "last_purchase_date": last_purchase_date,
+                "quantity_scale": int(row["quantity_scale"]),
+                "quantity_step": canonical_quantity(
+                    row["quantity_step"]
+                ),
+                "on_hand_quantity": canonical_quantity(
+                    warehouse_on_hand_total
+                ),
                 "reserved_quantity": canonical_quantity(reserved),
-                "available_for_sale_quantity": canonical_quantity(free_quantity),
-                "unavailable_quantity": canonical_quantity(unavailable_quantity),
+                "available_for_sale_quantity": canonical_quantity(
+                    free_quantity
+                ),
+                "unavailable_quantity": canonical_quantity(
+                    unavailable_quantity
+                ),
                 "vehicle_quantity": canonical_quantity(vehicle_total),
                 "recalled_quantity": canonical_quantity(recalled),
-
                 "available_quantity": canonical_quantity(free_quantity),
-                "blocked_quantity": canonical_quantity(blocked_quantity),
-                "total_quantity": canonical_quantity(total_physical_available),
+                "blocked_quantity": canonical_quantity(
+                    blocked_quantity
+                ),
+                "total_quantity": canonical_quantity(
+                    total_physical_available
+                ),
                 "damaged_quantity": canonical_quantity(damaged),
-                "minimum_quantity": canonical_quantity(minimum_quantity or 0),
+                "minimum_quantity": canonical_quantity(
+                    minimum_quantity
+                ),
             })
 
         if len(result) != len(page_variant_ids):
