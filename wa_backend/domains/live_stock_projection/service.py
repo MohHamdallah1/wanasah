@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, func, or_, select, text, update
+from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, delete, func, or_, select, text, union, update
 from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1171,8 +1172,10 @@ async def _candidate_keys_for_variants(
                     InventoryLiveStockProjection.product_variant_id,
                 ).where(
                     InventoryLiveStockProjection.company_id == company_id,
-                    InventoryLiveStockProjection.product_variant_id.in_(
-                        variant_ids
+                    _array_membership(
+                        InventoryLiveStockProjection.product_variant_id,
+                        variant_ids,
+                        "live_stock_candidate_projection_variant_ids",
                     ),
                 )
             )
@@ -2280,3 +2283,774 @@ async def refresh_due_live_stock_transitions(
             computed_for_date=as_of_date,
         )
     return len(keys)
+
+
+@dataclass(frozen=True)
+class LiveStockWarehouseRebuildReport:
+    company_id: int
+    warehouse_location_id: int
+    candidate_keys: int
+    drifted_keys: int
+    summary_repairs: int
+
+
+@dataclass(frozen=True)
+class LiveStockCompanyRebuildReport:
+    company_id: int
+    warehouse_count: int
+    candidate_keys: int
+    drifted_keys: int
+    summary_repairs: int
+    dropped_inactive_warehouses: int
+
+
+_PROJECTION_SNAPSHOT_FIELDS = (
+    InventoryLiveStockProjection.variant_name,
+    InventoryLiveStockProjection.lifecycle_status,
+    InventoryLiveStockProjection.operational_hold,
+    InventoryLiveStockProjection.warehouse_on_hand,
+    InventoryLiveStockProjection.warehouse_reserved,
+    InventoryLiveStockProjection.warehouse_sellable_on_hand,
+    InventoryLiveStockProjection.warehouse_sellable_reserved,
+    InventoryLiveStockProjection.blocked_status_packs,
+    InventoryLiveStockProjection.recalled_packs,
+    InventoryLiveStockProjection.damaged_packs,
+    InventoryLiveStockProjection.vehicle_packs,
+    InventoryLiveStockProjection.minimum_quantity,
+    InventoryLiveStockProjection.has_active_policy,
+    InventoryLiveStockProjection.is_low_stock,
+    InventoryLiveStockProjection.has_warehouse_presence,
+    InventoryLiveStockProjection.has_vehicle_presence,
+    InventoryLiveStockProjection.next_transition_date,
+    InventoryLiveStockProjection.computed_for_date,
+)
+
+
+async def _projection_snapshot_for_keys(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    keys: Sequence[tuple[int, int]],
+) -> dict[tuple[int, int], tuple[object, ...]]:
+    if not keys:
+        return {}
+    scope = _projection_key_scope(keys, name="live_stock_rebuild_snapshot")
+    rows = (
+        await db.execute(
+            select(
+                InventoryLiveStockProjection.warehouse_location_id,
+                InventoryLiveStockProjection.product_variant_id,
+                *_PROJECTION_SNAPSHOT_FIELDS,
+            )
+            .select_from(scope)
+            .join(
+                InventoryLiveStockProjection,
+                and_(
+                    InventoryLiveStockProjection.company_id == company_id,
+                    InventoryLiveStockProjection.warehouse_location_id
+                    == scope.c.warehouse_location_id,
+                    InventoryLiveStockProjection.product_variant_id
+                    == scope.c.product_variant_id,
+                ),
+            )
+        )
+    ).all()
+    return {
+        (int(row[0]), int(row[1])): tuple(row[2:])
+        for row in rows
+    }
+
+
+def _warehouse_candidate_variant_query(
+    *,
+    company_id: int,
+    warehouse_location_id: int,
+):
+    latest_route = (
+        select(
+            DispatchRoute.vehicle_id.label("vehicle_id"),
+            DispatchRoute.source_location_id.label("source_location_id"),
+        )
+        .where(
+            DispatchRoute.company_id == company_id,
+            DispatchRoute.vehicle_id.is_not(None),
+        )
+        .distinct(DispatchRoute.vehicle_id)
+        .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
+        .subquery("live_stock_rebuild_latest_route")
+    )
+    vehicle_variants = (
+        select(InventoryBalance.product_variant_id)
+        .select_from(InventoryBalance)
+        .join(
+            InventoryLocation,
+            and_(
+                InventoryLocation.company_id == InventoryBalance.company_id,
+                InventoryLocation.id == InventoryBalance.location_id,
+                InventoryLocation.location_type == "VEHICLE",
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.vehicle_id.is_not(None),
+            ),
+        )
+        .join(
+            latest_route,
+            latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
+        )
+        .where(
+            InventoryBalance.company_id == company_id,
+            latest_route.c.source_location_id == warehouse_location_id,
+            InventoryBalance.stock_status != "DAMAGED",
+            InventoryBalance.on_hand_quantity > 0,
+        )
+    )
+    return union(
+        select(InventoryLiveStockProjection.product_variant_id).where(
+            InventoryLiveStockProjection.company_id == company_id,
+            InventoryLiveStockProjection.warehouse_location_id
+            == warehouse_location_id,
+        ),
+        select(InventoryStockPolicy.product_variant_id).where(
+            InventoryStockPolicy.company_id == company_id,
+            InventoryStockPolicy.location_id == warehouse_location_id,
+            InventoryStockPolicy.is_active.is_(True),
+        ),
+        select(InventoryBalance.product_variant_id).where(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.location_id == warehouse_location_id,
+            or_(
+                InventoryBalance.on_hand_quantity > 0,
+                InventoryBalance.reserved_quantity > 0,
+            ),
+        ),
+        vehicle_variants,
+    ).subquery("live_stock_rebuild_candidate_variants")
+
+
+async def _ensure_company_summary_exact(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    state: str,
+    rebuilt: bool,
+    verified: bool,
+) -> int:
+    if state not in {"BUILDING", "READY", "DEGRADED"}:
+        raise LiveStockProjectionError("Invalid Live Stock projection state.")
+
+    await _acquire_text_guards(
+        db,
+        [f"live-stock-company-summary:{company_id}"],
+        shared=False,
+    )
+    active_count = int(
+        (
+            await db.scalar(
+                select(func.count(ProductVariant.id)).where(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.lifecycle_status == "ACTIVE",
+                )
+            )
+        )
+        or 0
+    )
+    summary = await db.scalar(
+        select(InventoryLiveStockCompanySummary)
+        .where(InventoryLiveStockCompanySummary.company_id == company_id)
+        .with_for_update()
+    )
+    now = utc_now()
+    if summary is None:
+        summary = InventoryLiveStockCompanySummary(
+            company_id=company_id,
+            active_variant_count=active_count,
+            projection_state=state,
+            projection_version=PROJECTION_VERSION,
+            revision=1,
+            last_rebuilt_at=now if rebuilt else None,
+            last_verified_at=now if verified else None,
+        )
+        db.add(summary)
+    else:
+        summary.active_variant_count = active_count
+        summary.projection_state = state
+        summary.projection_version = PROJECTION_VERSION
+        summary.revision = int(summary.revision) + 1
+        if rebuilt:
+            summary.last_rebuilt_at = now
+        if verified:
+            summary.last_verified_at = now
+        summary.updated_at = now
+    await db.flush()
+    return active_count
+
+
+async def _set_warehouse_summary_exact(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_location_id: int,
+    state: str,
+    rebuilt: bool,
+    verified: bool,
+) -> int:
+    if state not in {"BUILDING", "READY", "DEGRADED"}:
+        raise LiveStockProjectionError("Invalid Live Stock projection state.")
+
+    await _ensure_warehouse_summaries(
+        db,
+        company_id=company_id,
+        warehouse_ids=[warehouse_location_id],
+    )
+    summary = await db.scalar(
+        select(InventoryLiveStockWarehouseSummary)
+        .where(
+            InventoryLiveStockWarehouseSummary.company_id == company_id,
+            InventoryLiveStockWarehouseSummary.warehouse_location_id
+            == warehouse_location_id,
+        )
+        .with_for_update()
+    )
+    if summary is None:
+        raise LiveStockProjectionError(
+            "Live Stock warehouse summary could not be initialized."
+        )
+
+    aggregate = (
+        await db.execute(
+            select(
+                func.count(InventoryLiveStockProjection.product_variant_id),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                InventoryLiveStockProjection.is_low_stock.is_(
+                                    True
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    InventoryLiveStockProjection.lifecycle_status
+                                    != "ACTIVE",
+                                    or_(
+                                        InventoryLiveStockProjection.has_warehouse_presence.is_(
+                                            True
+                                        ),
+                                        InventoryLiveStockProjection.has_vehicle_presence.is_(
+                                            True
+                                        ),
+                                    ),
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+            ).where(
+                InventoryLiveStockProjection.company_id == company_id,
+                InventoryLiveStockProjection.warehouse_location_id
+                == warehouse_location_id,
+            )
+        )
+    ).one()
+    expected_rows = int(aggregate[0] or 0)
+    expected_alerts = int(aggregate[1] or 0)
+    expected_nonactive = int(aggregate[2] or 0)
+    repaired = int(
+        int(summary.projected_row_count) != expected_rows
+        or int(summary.alert_count) != expected_alerts
+        or int(summary.nonactive_visible_count) != expected_nonactive
+    )
+
+    now = utc_now()
+    summary.projected_row_count = expected_rows
+    summary.alert_count = expected_alerts
+    summary.nonactive_visible_count = expected_nonactive
+    summary.projection_state = state
+    summary.projection_version = PROJECTION_VERSION
+    summary.revision = int(summary.revision) + 1
+    if rebuilt:
+        summary.last_rebuilt_at = now
+    if verified:
+        summary.last_verified_at = now
+    summary.updated_at = now
+    await db.flush()
+    return repaired
+
+
+async def _refresh_company_projection_state(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    rebuilt: bool = False,
+    verified: bool = False,
+) -> None:
+    active_warehouses = int(
+        (
+            await db.scalar(
+                select(func.count(InventoryLocation.id)).where(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                    InventoryLocation.is_active.is_(True),
+                )
+            )
+        )
+        or 0
+    )
+    ready_warehouses = int(
+        (
+            await db.scalar(
+                select(
+                    func.count(
+                        InventoryLiveStockWarehouseSummary.warehouse_location_id
+                    )
+                )
+                .join(
+                    InventoryLocation,
+                    and_(
+                        InventoryLocation.company_id
+                        == InventoryLiveStockWarehouseSummary.company_id,
+                        InventoryLocation.id
+                        == InventoryLiveStockWarehouseSummary.warehouse_location_id,
+                        InventoryLocation.location_type == "WAREHOUSE",
+                        InventoryLocation.is_active.is_(True),
+                    ),
+                )
+                .where(
+                    InventoryLiveStockWarehouseSummary.company_id == company_id,
+                    InventoryLiveStockWarehouseSummary.projection_state
+                    == "READY",
+                    InventoryLiveStockWarehouseSummary.projection_version
+                    == PROJECTION_VERSION,
+                )
+            )
+        )
+        or 0
+    )
+    state = "READY" if ready_warehouses == active_warehouses else "BUILDING"
+    await _ensure_company_summary_exact(
+        db,
+        company_id=company_id,
+        state=state,
+        rebuilt=rebuilt and state == "READY",
+        verified=verified and state == "READY",
+    )
+
+
+async def _rebuild_live_stock_warehouse_locked(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_location_id: int,
+    batch_size: int,
+    computed_for_date: date,
+) -> LiveStockWarehouseRebuildReport:
+    location = await db.scalar(
+        select(InventoryLocation).where(
+            InventoryLocation.company_id == company_id,
+            InventoryLocation.id == warehouse_location_id,
+            InventoryLocation.location_type == "WAREHOUSE",
+        )
+    )
+    if location is None:
+        raise LiveStockProjectionError("Warehouse location does not exist.")
+    if not bool(location.is_active):
+        raise LiveStockProjectionError(
+            "Inactive warehouses cannot be rebuilt; remove their projection instead."
+        )
+
+    await _set_warehouse_summary_exact(
+        db,
+        company_id=company_id,
+        warehouse_location_id=warehouse_location_id,
+        state="BUILDING",
+        rebuilt=False,
+        verified=False,
+    )
+
+    candidate_source = _warehouse_candidate_variant_query(
+        company_id=company_id,
+        warehouse_location_id=warehouse_location_id,
+    )
+    after_variant_id = 0
+    candidate_keys = 0
+    drifted_keys = 0
+
+    while True:
+        variant_ids = [
+            int(value)
+            for value in (
+                await db.execute(
+                    select(candidate_source.c.product_variant_id)
+                    .where(
+                        candidate_source.c.product_variant_id
+                        > after_variant_id
+                    )
+                    .order_by(candidate_source.c.product_variant_id)
+                    .limit(batch_size)
+                )
+            ).scalars().all()
+        ]
+        if not variant_ids:
+            break
+
+        keys = [
+            (warehouse_location_id, variant_id)
+            for variant_id in variant_ids
+        ]
+        before = await _projection_snapshot_for_keys(
+            db,
+            company_id=company_id,
+            keys=keys,
+        )
+        await refresh_live_stock_keys(
+            db,
+            company_id=company_id,
+            keys=keys,
+            computed_for_date=computed_for_date,
+            _company_guard_held=True,
+            _force_coarse_guard=True,
+        )
+        after = await _projection_snapshot_for_keys(
+            db,
+            company_id=company_id,
+            keys=keys,
+        )
+        drifted_keys += sum(
+            1
+            for key in set(before) | set(after)
+            if before.get(key) != after.get(key)
+        )
+        candidate_keys += len(keys)
+        after_variant_id = variant_ids[-1]
+
+    summary_repairs = await _set_warehouse_summary_exact(
+        db,
+        company_id=company_id,
+        warehouse_location_id=warehouse_location_id,
+        state="READY",
+        rebuilt=True,
+        verified=True,
+    )
+    return LiveStockWarehouseRebuildReport(
+        company_id=company_id,
+        warehouse_location_id=warehouse_location_id,
+        candidate_keys=candidate_keys,
+        drifted_keys=drifted_keys,
+        summary_repairs=summary_repairs,
+    )
+
+
+async def rebuild_live_stock_warehouse(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_location_id: int,
+    batch_size: int = _MAX_PROJECTOR_KEYS,
+) -> LiveStockWarehouseRebuildReport:
+    company_id = _positive_int(company_id, "company_id")
+    warehouse_location_id = _positive_int(
+        warehouse_location_id,
+        "warehouse_location_id",
+    )
+    if batch_size <= 0 or batch_size > _MAX_PROJECTOR_KEYS:
+        raise LiveStockProjectionError("Live Stock rebuild batch size is invalid.")
+
+    await _acquire_company_projection_guard(
+        db,
+        company_id=company_id,
+        exclusive=True,
+    )
+    computed_for_date = await _company_local_date(db, company_id)
+    report = await _rebuild_live_stock_warehouse_locked(
+        db,
+        company_id=company_id,
+        warehouse_location_id=warehouse_location_id,
+        batch_size=batch_size,
+        computed_for_date=computed_for_date,
+    )
+    await _refresh_company_projection_state(
+        db,
+        company_id=company_id,
+        rebuilt=False,
+        verified=True,
+    )
+    return report
+
+
+async def remove_live_stock_warehouse_projection(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_location_id: int,
+) -> int:
+    company_id = _positive_int(company_id, "company_id")
+    warehouse_location_id = _positive_int(
+        warehouse_location_id,
+        "warehouse_location_id",
+    )
+    await _acquire_company_projection_guard(
+        db,
+        company_id=company_id,
+        exclusive=True,
+    )
+    result = await db.execute(
+        delete(InventoryLiveStockProjection).where(
+            InventoryLiveStockProjection.company_id == company_id,
+            InventoryLiveStockProjection.warehouse_location_id
+            == warehouse_location_id,
+        )
+    )
+    await db.execute(
+        delete(InventoryLiveStockWarehouseSummary).where(
+            InventoryLiveStockWarehouseSummary.company_id == company_id,
+            InventoryLiveStockWarehouseSummary.warehouse_location_id
+            == warehouse_location_id,
+        )
+    )
+    await db.flush()
+    await _refresh_company_projection_state(
+        db,
+        company_id=company_id,
+        verified=True,
+    )
+    return int(result.rowcount or 0)
+
+
+async def rebuild_live_stock_company(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    batch_size: int = _MAX_PROJECTOR_KEYS,
+) -> LiveStockCompanyRebuildReport:
+    company_id = _positive_int(company_id, "company_id")
+    if batch_size <= 0 or batch_size > _MAX_PROJECTOR_KEYS:
+        raise LiveStockProjectionError("Live Stock rebuild batch size is invalid.")
+
+    await _acquire_company_projection_guard(
+        db,
+        company_id=company_id,
+        exclusive=True,
+    )
+    await _ensure_company_summary_exact(
+        db,
+        company_id=company_id,
+        state="BUILDING",
+        rebuilt=False,
+        verified=False,
+    )
+    computed_for_date = await _company_local_date(db, company_id)
+
+    active_warehouse_ids = [
+        int(value)
+        for value in (
+            await db.execute(
+                select(InventoryLocation.id)
+                .where(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                    InventoryLocation.is_active.is_(True),
+                )
+                .order_by(InventoryLocation.id)
+            )
+        ).scalars().all()
+    ]
+    known_warehouse_ids = {
+        int(value)
+        for value in (
+            await db.execute(
+                union(
+                    select(
+                        InventoryLiveStockWarehouseSummary.warehouse_location_id
+                    ).where(
+                        InventoryLiveStockWarehouseSummary.company_id
+                        == company_id
+                    ),
+                    select(
+                        InventoryLiveStockProjection.warehouse_location_id
+                    ).where(
+                        InventoryLiveStockProjection.company_id == company_id
+                    ),
+                )
+            )
+        ).scalars().all()
+    }
+    inactive_warehouse_ids = sorted(
+        known_warehouse_ids - set(active_warehouse_ids)
+    )
+    dropped_inactive = 0
+    if inactive_warehouse_ids:
+        projection_delete = await db.execute(
+            delete(InventoryLiveStockProjection).where(
+                InventoryLiveStockProjection.company_id == company_id,
+                _array_membership(
+                    InventoryLiveStockProjection.warehouse_location_id,
+                    inactive_warehouse_ids,
+                    "live_stock_rebuild_inactive_warehouses",
+                ),
+            )
+        )
+        dropped_inactive = int(projection_delete.rowcount or 0)
+        await db.execute(
+            delete(InventoryLiveStockWarehouseSummary).where(
+                InventoryLiveStockWarehouseSummary.company_id == company_id,
+                _array_membership(
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id,
+                    inactive_warehouse_ids,
+                    "live_stock_rebuild_inactive_summaries",
+                ),
+            )
+        )
+        await db.flush()
+
+    reports: list[LiveStockWarehouseRebuildReport] = []
+    for warehouse_id in active_warehouse_ids:
+        reports.append(
+            await _rebuild_live_stock_warehouse_locked(
+                db,
+                company_id=company_id,
+                warehouse_location_id=warehouse_id,
+                batch_size=batch_size,
+                computed_for_date=computed_for_date,
+            )
+        )
+
+    company_before = await db.scalar(
+        select(InventoryLiveStockCompanySummary).where(
+            InventoryLiveStockCompanySummary.company_id == company_id
+        )
+    )
+    expected_active_count = int(
+        (
+            await db.scalar(
+                select(func.count(ProductVariant.id)).where(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.lifecycle_status == "ACTIVE",
+                )
+            )
+        )
+        or 0
+    )
+    company_summary_repair = int(
+        company_before is None
+        or int(company_before.active_variant_count) != expected_active_count
+    )
+    await _ensure_company_summary_exact(
+        db,
+        company_id=company_id,
+        state="READY",
+        rebuilt=True,
+        verified=True,
+    )
+
+    return LiveStockCompanyRebuildReport(
+        company_id=company_id,
+        warehouse_count=len(active_warehouse_ids),
+        candidate_keys=sum(report.candidate_keys for report in reports),
+        drifted_keys=sum(report.drifted_keys for report in reports),
+        summary_repairs=(
+            company_summary_repair
+            + sum(report.summary_repairs for report in reports)
+        ),
+        dropped_inactive_warehouses=len(inactive_warehouse_ids),
+    )
+
+
+async def reconcile_live_stock_company(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    batch_size: int = _MAX_PROJECTOR_KEYS,
+) -> LiveStockCompanyRebuildReport:
+    return await rebuild_live_stock_company(
+        db,
+        company_id=company_id,
+        batch_size=batch_size,
+    )
+
+
+async def mark_live_stock_projection_degraded(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_location_id: int | None = None,
+) -> None:
+    company_id = _positive_int(company_id, "company_id")
+    await _acquire_company_projection_guard(
+        db,
+        company_id=company_id,
+        exclusive=True,
+    )
+    await _ensure_company_summary_exact(
+        db,
+        company_id=company_id,
+        state="DEGRADED",
+        rebuilt=False,
+        verified=False,
+    )
+    if warehouse_location_id is not None:
+        warehouse_location_id = _positive_int(
+            warehouse_location_id,
+            "warehouse_location_id",
+        )
+        await _set_warehouse_summary_exact(
+            db,
+            company_id=company_id,
+            warehouse_location_id=warehouse_location_id,
+            state="DEGRADED",
+            rebuilt=False,
+            verified=False,
+        )
+
+
+async def assert_live_stock_projection_ready(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_location_id: int,
+) -> None:
+    company_id = _positive_int(company_id, "company_id")
+    warehouse_location_id = _positive_int(
+        warehouse_location_id,
+        "warehouse_location_id",
+    )
+    row = (
+        await db.execute(
+            select(
+                InventoryLiveStockCompanySummary.projection_state,
+                InventoryLiveStockCompanySummary.projection_version,
+                InventoryLiveStockWarehouseSummary.projection_state,
+                InventoryLiveStockWarehouseSummary.projection_version,
+            )
+            .join(
+                InventoryLiveStockWarehouseSummary,
+                InventoryLiveStockWarehouseSummary.company_id
+                == InventoryLiveStockCompanySummary.company_id,
+            )
+            .where(
+                InventoryLiveStockCompanySummary.company_id == company_id,
+                InventoryLiveStockWarehouseSummary.warehouse_location_id
+                == warehouse_location_id,
+            )
+        )
+    ).one_or_none()
+    if (
+        row is None
+        or row[0] != "READY"
+        or int(row[1]) != PROJECTION_VERSION
+        or row[2] != "READY"
+        or int(row[3]) != PROJECTION_VERSION
+    ):
+        raise LiveStockProjectionError(
+            "Live Stock projection is not READY for this warehouse."
+        )
