@@ -803,6 +803,7 @@ def _real_uvicorn_http_load_stdlib(
     location_id: int,
     concurrency: int,
     requests: int,
+    close_each_request: bool = False,
 ) -> dict[str, Any]:
     """Generate real HTTP load without HTTPX's Windows asyncio transport cost.
 
@@ -847,6 +848,8 @@ def _real_uvicorn_http_load_stdlib(
             timeout=30.0,
         )
         headers = {"Authorization": f"Bearer {token}"}
+        if close_each_request:
+            headers["Connection"] = "close"
         try:
             for index in indices:
                 is_alert = index % 5 == 0
@@ -929,6 +932,16 @@ def _real_uvicorn_http_load_stdlib(
                     local_route_latencies[route_name].append(
                         elapsed_ms
                     )
+                    if close_each_request:
+                        try:
+                            connection.close()
+                        except Exception:
+                            pass
+                        connection = http.client.HTTPConnection(
+                            "127.0.0.1",
+                            port,
+                            timeout=30.0,
+                        )
         finally:
             connection.close()
 
@@ -980,7 +993,11 @@ def _real_uvicorn_http_load_stdlib(
         + transport_error_count
     )
     return {
-        "client": "stdlib_threads",
+        "client": (
+            "stdlib_threads_connection_close"
+            if close_each_request
+            else "stdlib_threads_persistent"
+        ),
         "requests": requests,
         "completed_responses": sum(
             1 for status in statuses if status != 0
@@ -1051,6 +1068,20 @@ async def real_uvicorn_http_load(
                 location_id=location_id,
                 concurrency=concurrency,
                 requests=requests,
+                close_each_request=False,
+            )
+            close_diagnostic = await asyncio.to_thread(
+                _real_uvicorn_http_load_stdlib,
+                port=port,
+                token=token,
+                location_id=location_id,
+                concurrency=concurrency,
+                requests=requests,
+                close_each_request=True,
+            )
+            print(
+                "HTTP_LOAD_CONNECTION_CLOSE_DIAGNOSTIC="
+                + json.dumps(close_diagnostic, sort_keys=True)
             )
         else:
             headers = {"Authorization": f"Bearer {token}"}
