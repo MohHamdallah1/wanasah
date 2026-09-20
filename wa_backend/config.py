@@ -40,8 +40,8 @@ class Config:
     DB_APP_CONNECTION_BUDGET = int(
         os.environ.get("DB_APP_CONNECTION_BUDGET", "20")
     )
-    DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "4"))
-    DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "1"))
+    DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
+    DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "0"))
     DB_POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "3"))
     DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
 
