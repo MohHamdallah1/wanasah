@@ -1075,126 +1075,31 @@ async def real_uvicorn_http_load(
             log_path=log_path,
         )
 
-        if os.name == "nt":
-            load = await asyncio.to_thread(
-                _real_uvicorn_http_load_stdlib,
-                port=port,
-                token=token,
-                location_id=location_id,
-                concurrency=concurrency,
-                requests=requests,
-                close_each_request=False,
-            )
-            close_diagnostic = await asyncio.to_thread(
-                _real_uvicorn_http_load_stdlib,
-                port=port,
-                token=token,
-                location_id=location_id,
-                concurrency=concurrency,
-                requests=requests,
-                close_each_request=True,
-            )
-            print(
-                "HTTP_LOAD_CONNECTION_CLOSE_DIAGNOSTIC="
-                + json.dumps(close_diagnostic, sort_keys=True)
-            )
-        else:
-            headers = {"Authorization": f"Bearer {token}"}
-            sem = asyncio.Semaphore(concurrency)
-            latencies: list[float] = []
-            statuses: list[int] = []
-            timeout_count = 0
-            transport_error_count = 0
-            error_samples: list[str] = []
-            route_latencies: dict[str, list[float]] = {
-                "cursor": [],
-                "alerts": [],
-            }
-
-            async with httpx.AsyncClient(
-                base_url=base_url,
-                headers=headers,
-                timeout=30.0,
-            ) as client:
-                async def one(index: int) -> None:
-                    nonlocal timeout_count, transport_error_count
-                    async with sem:
-                        is_alert = index % 5 == 0
-                        route_name = "alerts" if is_alert else "cursor"
-                        request_path = (
-                            f"/warehouse/inventory/alerts/summary"
-                            f"?location_id={location_id}"
-                            if is_alert
-                            else (
-                                f"/warehouse/inventory/cursor"
-                                f"?location_id={location_id}&limit=50"
-                            )
-                        )
-                        started = time.perf_counter()
-                        try:
-                            response = await client.get(request_path)
-                            statuses.append(response.status_code)
-                        except httpx.TimeoutException as exc:
-                            timeout_count += 1
-                            statuses.append(0)
-                            if len(error_samples) < 10:
-                                error_samples.append(
-                                    f"{route_name}:timeout:{type(exc).__name__}"
-                                )
-                        except httpx.HTTPError as exc:
-                            transport_error_count += 1
-                            statuses.append(0)
-                            if len(error_samples) < 10:
-                                error_samples.append(
-                                    f"{route_name}:http_error:{type(exc).__name__}"
-                                )
-                        finally:
-                            elapsed_ms = (
-                                time.perf_counter() - started
-                            ) * 1000
-                            latencies.append(elapsed_ms)
-                            route_latencies[route_name].append(elapsed_ms)
-
-                await asyncio.gather(
-                    *(one(i) for i in range(requests))
-                )
-
-            http_status_errors = sum(
-                1 for status in statuses if status not in {0, 200}
-            )
-            total_errors = (
-                http_status_errors
-                + timeout_count
-                + transport_error_count
-            )
-            load = {
-                "client": "httpx_async",
-                "requests": requests,
-                "completed_responses": sum(
-                    1 for status in statuses if status != 0
-                ),
-                "concurrency": concurrency,
-                "workers": REAL_HTTP_WORKERS,
-                "db_connection_cap": REAL_HTTP_DB_CAP,
-                "p50_ms": percentile(latencies, 0.50),
-                "p95_ms": percentile(latencies, 0.95),
-                "p99_ms": percentile(latencies, 0.99),
-                "max_ms": max(latencies),
-                "cursor_p95_ms": percentile(
-                    route_latencies["cursor"],
-                    0.95,
-                ),
-                "alerts_p95_ms": percentile(
-                    route_latencies["alerts"],
-                    0.95,
-                ),
-                "http_status_errors": http_status_errors,
-                "timeouts": timeout_count,
-                "transport_errors": transport_error_count,
-                "error_samples": error_samples,
-                "uvicorn_log_tail": "",
-                "errors": total_errors,
-            }
+        # Use the same load generator on every OS.  Stage 8.2.3 compares
+        # Windows and Linux server behaviour, so changing the client between
+        # stdlib threads and HTTPX would make the measurements incomparable.
+        load = await asyncio.to_thread(
+            _real_uvicorn_http_load_stdlib,
+            port=port,
+            token=token,
+            location_id=location_id,
+            concurrency=concurrency,
+            requests=requests,
+            close_each_request=False,
+        )
+        close_diagnostic = await asyncio.to_thread(
+            _real_uvicorn_http_load_stdlib,
+            port=port,
+            token=token,
+            location_id=location_id,
+            concurrency=concurrency,
+            requests=requests,
+            close_each_request=True,
+        )
+        print(
+            "HTTP_LOAD_CONNECTION_CLOSE_DIAGNOSTIC="
+            + json.dumps(close_diagnostic, sort_keys=True)
+        )
 
         if load["errors"]:
             load["uvicorn_log_tail"] = _read_benchmark_log(
