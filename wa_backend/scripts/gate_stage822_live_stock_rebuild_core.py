@@ -9,6 +9,9 @@ FILES = {
     "service": ROOT / "domains" / "live_stock_projection" / "service.py",
     "warehouse": ROOT / "api" / "warehouse.py",
     "foundation_gate": ROOT / "scripts" / "gate_stage82_live_stock_projection_foundation.py",
+    "worker_app": ROOT / "workers" / "app.py",
+    "worker_maintenance": ROOT / "workers" / "tasks" / "maintenance.py",
+    "worker_live_stock": ROOT / "workers" / "tasks" / "live_stock.py",
 }
 
 
@@ -64,6 +67,8 @@ def main() -> None:
         "assert_live_stock_projection_ready",
         "_projection_snapshot_for_keys",
         "_warehouse_candidate_variant_query",
+        "refresh_live_stock_policy_changes",
+        "refresh_due_live_stock_transitions",
     )
     for name in required_functions:
         checks += 1
@@ -151,6 +156,95 @@ def main() -> None:
     checks += 1
     if "dropped_inactive_warehouses" not in service:
         failures.append("INACTIVE_WAREHOUSE_RECONCILIATION_MISSING")
+
+    checks += 1
+    readiness = service[
+        service.find("async def assert_live_stock_projection_ready"):
+    ]
+    if (
+        "next_transition_date.is_not(None)" not in readiness
+        or "<= company_local_date" not in readiness
+        or "must be refreshed" not in readiness
+    ):
+        failures.append("STALE_TRANSITION_READINESS_GUARD_MISSING")
+
+    checks += 1
+    policy_hook = _function(service, "refresh_live_stock_policy_changes")
+    if "refresh_live_stock_keys" not in _calls(policy_hook):
+        failures.append("POLICY_CHANGE_PROJECTOR_HOOK_INCOMPLETE")
+
+    checks += 1
+    unhooked_policy_writers: list[str] = []
+    excluded_parts = {
+        "scripts",
+        "alembic",
+        "perf_reports",
+        "__pycache__",
+    }
+    writer_tokens = (
+        "db.add(InventoryStockPolicy",
+        "update(InventoryStockPolicy",
+        "delete(InventoryStockPolicy",
+        "pg_insert(InventoryStockPolicy",
+        "INSERT INTO inventory_stock_policies",
+        "UPDATE inventory_stock_policies",
+        "DELETE FROM inventory_stock_policies",
+    )
+    for path in ROOT.rglob("*.py"):
+        if any(part in excluded_parts for part in path.parts):
+            continue
+        if path == FILES["service"]:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if not any(token in source for token in writer_tokens):
+            continue
+        if "refresh_live_stock_policy_changes" not in source:
+            unhooked_policy_writers.append(
+                str(path.relative_to(ROOT)).replace("\\", "/")
+            )
+    if unhooked_policy_writers:
+        failures.append(
+            "UNHOOKED_INVENTORY_STOCK_POLICY_WRITERS:"
+            + ",".join(sorted(unhooked_policy_writers))
+        )
+
+    checks += 1
+    worker_app = sources["worker_app"]
+    if '"workers.tasks.live_stock"' not in worker_app:
+        failures.append("LIVE_STOCK_WORKER_NOT_REGISTERED")
+
+    checks += 1
+    worker_source = sources["worker_live_stock"]
+    required_worker_tokens = (
+        '@app.periodic(cron="2,17,32,47 * * * *")',
+        "COMPANY_SCAN_PAGE = 1000",
+        "TRANSITION_BATCH = 5000",
+        "MAX_BATCHES_PER_RUN = 20",
+        "Company.id > after_company_id",
+        "refresh_due_live_stock_transitions(",
+        "acquire_tenant_job_lock(",
+        "mark_live_stock_projection_degraded(",
+        'event="LIVE_STOCK_PROJECTION_DEGRADED"',
+    )
+    missing_worker_tokens = [
+        token for token in required_worker_tokens
+        if token not in worker_source
+    ]
+    if missing_worker_tokens:
+        failures.append(
+            "LIVE_STOCK_TEMPORAL_WORKER_INCOMPLETE:"
+            + ",".join(missing_worker_tokens)
+        )
+    if "except BaseException" in worker_source:
+        failures.append("LIVE_STOCK_WORKER_CATCHES_BASE_EXCEPTION")
+
+    checks += 1
+    retry_source = sources["worker_maintenance"]
+    if (
+        '"wanasah.scan_all_live_stock_transitions"' not in retry_source
+        or '"wanasah.refresh_company_live_stock_transitions"' not in retry_source
+    ):
+        failures.append("LIVE_STOCK_WORKER_SAFE_RETRY_ALLOWLIST_MISSING")
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
