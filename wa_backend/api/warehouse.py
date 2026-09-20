@@ -2515,9 +2515,9 @@ async def _require_live_stock_read_model_ready(
     *,
     company_id: int,
     location_id: int,
-) -> None:
+):
     try:
-        await assert_live_stock_projection_ready(
+        return await assert_live_stock_projection_ready(
             db,
             company_id=company_id,
             warehouse_location_id=location_id,
@@ -2840,27 +2840,12 @@ async def get_warehouse_inventory_alert_summary(
         actor=current_admin,
     )
 
-    await _require_live_stock_read_model_ready(
+    readiness = await _require_live_stock_read_model_ready(
         db,
         company_id=company_id,
         location_id=location_id,
     )
-    alert_count = int(
-        (
-            await db.scalar(
-                select(
-                    InventoryLiveStockWarehouseSummary.alert_count
-                ).where(
-                    InventoryLiveStockWarehouseSummary.company_id
-                    == company_id,
-                    InventoryLiveStockWarehouseSummary.warehouse_location_id
-                    == location_id,
-                )
-            )
-        )
-        or 0
-    )
-    return {"alert_count": alert_count}
+    return {"alert_count": int(readiness.alert_count)}
 
 
 @router.get("/warehouse/inventory/summary", response_model=WarehouseInventorySummaryResponse)
@@ -2881,39 +2866,19 @@ async def get_warehouse_inventory_summary(
         )
     )
 
-    await _require_live_stock_read_model_ready(
+    readiness = await _require_live_stock_read_model_ready(
         db,
         company_id=company_id,
         location_id=location_id,
     )
-
-    summary_row = (
-        await db.execute(
-            select(
-                InventoryLiveStockCompanySummary.active_variant_count,
-                InventoryLiveStockWarehouseSummary.alert_count,
-                InventoryLiveStockWarehouseSummary.nonactive_visible_count,
-            )
-            .join(
-                InventoryLiveStockWarehouseSummary,
-                InventoryLiveStockWarehouseSummary.company_id
-                == InventoryLiveStockCompanySummary.company_id,
-            )
-            .where(
-                InventoryLiveStockCompanySummary.company_id == company_id,
-                InventoryLiveStockWarehouseSummary.warehouse_location_id
-                == location_id,
-            )
-        )
-    ).one()
-    active_count = int(summary_row.active_variant_count)
-    alert_count = int(summary_row.alert_count)
+    active_count = int(readiness.active_variant_count)
+    alert_count = int(readiness.alert_count)
 
     if company_wide_inventory_read:
         return {
             "stock_total": (
                 active_count
-                + int(summary_row.nonactive_visible_count)
+                + int(readiness.nonactive_visible_count)
             ),
             "alert_count": alert_count,
         }
