@@ -40,15 +40,15 @@ export function TabInventoryAccess() {
   const [busy, setBusy] = useState(false);
   const queryPrefix = ['inventory-access-admin', localStorage.getItem('company_id'), localStorage.getItem('driver_id')];
   const roles = useQuery<Page<Role>>({ queryKey: [...queryPrefix, 'roles', roleAfter],
-    queryFn: ({signal}) => fetcher(`/inventory/access/roles?after_id=${roleAfter}`, {signal}) });
+    queryFn: async ({signal}) => (await fetcher(`/inventory/access/roles?after_id=${roleAfter}`, {signal})) as Page<Role> });
   const users = useQuery<Page<User>>({ queryKey: [...queryPrefix, 'users', userAfter],
-    queryFn: ({signal}) => fetcher(`/inventory/access/users?after_id=${userAfter}`, {signal}) });
+    queryFn: async ({signal}) => (await fetcher(`/inventory/access/users?after_id=${userAfter}`, {signal})) as Page<User> });
   const locations = useQuery<Page<Location>>({ queryKey: [...queryPrefix, 'locations', locationAfter],
-    queryFn: ({signal}) => fetcher(`/inventory/access/locations?after_id=${locationAfter}`, {signal}) });
+    queryFn: async ({signal}) => (await fetcher(`/inventory/access/locations?after_id=${locationAfter}`, {signal})) as Page<Location> });
   const catalog = useQuery<{permissions: string[]; company_only: string[]}>({ queryKey: [...queryPrefix, 'catalog'],
-    queryFn: ({signal}) => fetcher('/inventory/access/catalog', {signal}) });
+    queryFn: async ({signal}) => (await fetcher('/inventory/access/catalog', {signal})) as {permissions: string[]; company_only: string[]} });
   const grants = useQuery<Page<Grant>>({ queryKey: [...queryPrefix, 'grants', userId, scope, grantAfter], enabled: Boolean(userId),
-    queryFn: ({signal}) => fetcher(`/inventory/access/users/${userId}/grants?scope=${scope}&after_id=${grantAfter}`, {signal}) });
+    queryFn: async ({signal}) => (await fetcher(`/inventory/access/users/${userId}/grants?scope=${scope}&after_id=${grantAfter}`, {signal})) as Page<Grant> });
   const mutate = async (url: string, method: string, body?: unknown) => {
     if (busy) return;
     setBusy(true);
