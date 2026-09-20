@@ -315,12 +315,14 @@ def main() -> None:
     required_collapsed_detail_reads = (
         "detail_stmt",
         "latest_purchase_page",
-        '.lateral("latest_purchase_page")',
+        '.subquery("latest_purchase_page")',
         "display_uom_candidates",
-        '.lateral("display_uom_candidates")',
+        '.subquery("display_uom_candidates")',
         "display_uom_unique",
         "display_factor_to_base",
         "_warehouse_array_membership(",
+        ".distinct(InventoryCostEvent.product_variant_id)",
+        ".group_by(ProductUomConversion.product_variant_id)",
     )
     missing_detail_reads = [
         token
@@ -340,7 +342,6 @@ def main() -> None:
         "policy_subq",
         "InventoryStockPolicy.minimum_quantity",
         "display_uom_alias = aliased(",
-        "latest_purchase_page = (",
     )
     offenders = [token for token in forbidden_cursor if token in cursor]
     if offenders:
