@@ -81,7 +81,7 @@ def start_server(workers: int) -> tuple[subprocess.Popen, int, str]:
             sys.executable,
             "-m",
             "uvicorn",
-            "scripts.stage823_uvicorn_probe_app:app",
+            "scripts.stage823_transport_probe_app:app",
             "--host",
             "127.0.0.1",
             "--port",
@@ -147,7 +147,7 @@ async def wait_all_workers(
                 headers={"Connection": "close"},
                 trust_env=False,
             ) as client:
-                response = await client.get("/__stage823_probe/raw")
+                response = await client.get("/raw")
                 if response.status_code == 200:
                     return response.headers.get("x-wanasah-probe-pid")
         except httpx.HTTPError:
@@ -175,7 +175,7 @@ async def wait_all_workers(
 async def prime_connections(client: httpx.AsyncClient, concurrency: int) -> None:
     responses = await asyncio.gather(
         *(
-            client.get("/__stage823_probe/hold")
+            client.get("/hold")
             for _ in range(concurrency)
         )
     )
@@ -201,7 +201,7 @@ async def measure(
         async with sem:
             started = time.perf_counter()
             try:
-                response = await client.get("/__stage823_probe/raw")
+                response = await client.get("/raw")
                 if response.status_code != 200:
                     errors += 1
                     return
