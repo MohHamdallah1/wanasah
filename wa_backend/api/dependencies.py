@@ -32,11 +32,19 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
         raise HTTPException(status_code=401, detail="Token processing error")
 
     try:
-        # +++ زرع هوية المستأجر على الاتصال قبل أي استعلام Tenant-scoped +++
-        await db.execute(
-            text("SELECT set_config('app.current_tenant', :c, false)"),
-            {"c": str(comp_id_int)},
-        )
+        # المسار الطبيعي: لا تسحب قاعدة البيانات الاتصال قبل فك الـ JWT.
+        # tenant_context صار مضبوطاً أعلاه؛ أول checkout سيزرع RLS تلقائياً
+        # عبر database.on_checkout بدون رحلة SQL ثانية مكررة.
+        #
+        # إذا دخلنا من test/override أو dependency سحب الاتصال مسبقاً، نحافظ
+        # على الأمان ونزرع tenant صراحةً على الاتصال الموجود.
+        if db.in_transaction():
+            await db.execute(
+                text("SELECT set_config('app.current_tenant', :c, false)"),
+                {"c": str(comp_id_int)},
+            )
+        else:
+            await db.connection()
 
         # المسار الطبيعي للمصادقة = استعلام واحد فقط:
         # Driver + حالة blacklist معاً، بدون إسقاط أي فحص أمني.
