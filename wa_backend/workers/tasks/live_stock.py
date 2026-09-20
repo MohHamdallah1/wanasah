@@ -6,9 +6,10 @@ from sqlalchemy import select
 from database import AsyncSessionLocal
 from domains.live_stock_projection.service import (
     mark_live_stock_projection_degraded,
+    reconcile_live_stock_company,
     refresh_due_live_stock_transitions,
 )
-from models import Company
+from models import Company, InventoryLiveStockCompanySummary
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
 from workers.tenant import acquire_tenant_job_lock, tenant_session
@@ -96,11 +97,33 @@ async def run_company_live_stock_transition_maintenance(
             refreshed += count
             batches += 1
             if count < TRANSITION_BATCH:
+                recovered = False
+                async with tenant_session(company_id) as db:
+                    state = await db.scalar(
+                        select(
+                            InventoryLiveStockCompanySummary.projection_state
+                        ).where(
+                            InventoryLiveStockCompanySummary.company_id
+                            == int(company_id)
+                        )
+                    )
+                    if state == "DEGRADED":
+                        await reconcile_live_stock_company(
+                            db,
+                            company_id=int(company_id),
+                            batch_size=TRANSITION_BATCH,
+                        )
+                        await db.commit()
+                        recovered = True
+                    else:
+                        await db.rollback()
+
                 return {
                     "company_id": int(company_id),
                     "refreshed_keys": refreshed,
                     "batches": batches,
                     "saturated": False,
+                    "recovered": recovered,
                 }
 
         return {
@@ -108,17 +131,25 @@ async def run_company_live_stock_transition_maintenance(
             "refreshed_keys": refreshed,
             "batches": batches,
             "saturated": True,
+            "recovered": False,
         }
     except Exception:
-        # Fail closed. If time-sensitive projection maintenance cannot complete,
-        # mark the company projection DEGRADED in a new transaction so reads
-        # cannot silently serve stale inventory health.
+        # Fail closed first. Persist DEGRADED independently from notification
+        # delivery so an event failure can never roll the safety state back.
         try:
             async with tenant_session(company_id) as db:
                 await mark_live_stock_projection_degraded(
                     db,
                     company_id=int(company_id),
                 )
+                await db.commit()
+        except Exception:
+            pass
+
+        # Notification is best-effort and deliberately isolated from the
+        # persisted DEGRADED state.
+        try:
+            async with tenant_session(company_id) as db:
                 await emit_worker_event(
                     db,
                     company_id=int(company_id),
@@ -131,7 +162,6 @@ async def run_company_live_stock_transition_maintenance(
                 )
                 await db.commit()
         except Exception:
-            # Preserve the original failure; worker supervision/retry handles it.
             pass
         raise
 
