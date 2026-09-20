@@ -476,6 +476,31 @@ async def resolve_driver_id(company_id: int, requested: int | None) -> int:
         tenant_context.reset(token)
 
 
+async def verify_projection_read_schema() -> None:
+    async with AsyncSessionLocal() as db:
+        index_exists = await db.scalar(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_indexes
+                    WHERE schemaname = current_schema()
+                      AND tablename = 'inventory_live_stock_projection'
+                      AND indexname =
+                          'ix_live_stock_projection_warehouse_transition'
+                )
+                """
+            )
+        )
+        if db.in_transaction():
+            await db.rollback()
+    if not bool(index_exists):
+        raise RuntimeError(
+            "Live Stock warehouse transition seek index is missing. "
+            "Run Alembic upgrade head before benchmarking."
+        )
+
+
 async def dataset_snapshot(company_id: int, location_id: int) -> dict[str, int]:
     token = tenant_context.set(company_id)
     try:
@@ -726,6 +751,7 @@ def print_stats(stats: Stats) -> None:
     )
 
 async def async_main(args: argparse.Namespace) -> None:
+    await verify_projection_read_schema()
     driver_id = await resolve_driver_id(args.company_id, args.driver_id)
     snapshot = await dataset_snapshot(args.company_id, args.location_id)
     print("DATASET=" + json.dumps(snapshot, sort_keys=True))
