@@ -46,21 +46,63 @@ from api.warehouse import (  # noqa: E402
 from domains.live_stock_projection.service import rebuild_live_stock_company
 from main import app  # noqa: E402
 
-SQL_BUCKET: contextvars.ContextVar[list[float] | None] = contextvars.ContextVar(
+SQL_BUCKET: contextvars.ContextVar[list[tuple[str, float]] | None] = contextvars.ContextVar(
     "live_stock_scale_sql_bucket",
     default=None,
 )
+
+def _sql_label(statement: str) -> str:
+    normalized = " ".join(statement.lower().split())
+    if "set_config('app.current_tenant'" in normalized:
+        return "tenant"
+    if " from drivers " in normalized:
+        return "driver"
+    if "user_location_access" in normalized or "role_permissions" in normalized:
+        return "access"
+    if (
+        "inventory_live_stock_company_summaries" in normalized
+        and "inventory_live_stock_warehouse_summaries" in normalized
+    ):
+        return "readiness_summary"
+    if (
+        "inventory_live_stock_projection" in normalized
+        and "next_transition_date" in normalized
+    ):
+        return "readiness_due"
+    if "product_uom_conversions" in normalized:
+        return "display_uom"
+    if "inventory_cost_events" in normalized:
+        return "latest_purchase"
+    if (
+        "inventory_cost_states" in normalized
+        and "inventory_live_stock_projection" in normalized
+    ):
+        return "details"
+    if "inventory_live_stock_projection" in normalized:
+        return "candidate"
+    if "inventory_locations" in normalized:
+        return "location"
+    if "permissions" in normalized:
+        return "access"
+    return normalized.split(" ", 1)[0] if normalized else "unknown"
+
 
 def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     bucket = SQL_BUCKET.get()
     if bucket is not None:
         context._live_stock_scale_started = time.perf_counter()
+        context._live_stock_scale_label = _sql_label(statement)
 
 def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     bucket = SQL_BUCKET.get()
     started = getattr(context, "_live_stock_scale_started", None)
     if bucket is not None and started is not None:
-        bucket.append((time.perf_counter() - started) * 1000)
+        bucket.append(
+            (
+                getattr(context, "_live_stock_scale_label", "unknown"),
+                (time.perf_counter() - started) * 1000,
+            )
+        )
 
 def percentile(values: list[float], p: float) -> float:
     if not values:
@@ -83,6 +125,7 @@ class Sample:
     sql_count: int
     items: int | None = None
     total: int | None = None
+    sql_by_label: dict[str, float] | None = None
 
 @dataclass
 class Stats:
@@ -95,11 +138,29 @@ class Stats:
     statements_min: int
     statements_max: int
     samples: int
+    sql_label_p95: dict[str, float]
 
 def summarize(name: str, rows: list[Sample]) -> Stats:
     times = [r.ms for r in rows]
     sql = [r.sql_ms for r in rows]
     counts = [r.sql_count for r in rows]
+    labels = sorted(
+        {
+            label
+            for row in rows
+            for label in (row.sql_by_label or {})
+        }
+    )
+    label_p95 = {
+        label: percentile(
+            [
+                (row.sql_by_label or {}).get(label, 0.0)
+                for row in rows
+            ],
+            0.95,
+        )
+        for label in labels
+    }
     return Stats(
         name=name,
         p50=percentile(times, 0.50),
@@ -110,6 +171,7 @@ def summarize(name: str, rows: list[Sample]) -> Stats:
         statements_min=min(counts),
         statements_max=max(counts),
         samples=len(rows),
+        sql_label_p95=label_p95,
     )
 
 async def load_driver(db, company_id: int, driver_id: int) -> Driver:
@@ -141,19 +203,23 @@ async def prepare_session(company_id: int, driver_id: int):
 
 async def timed_core(call: Callable[[Any, Driver], Awaitable[dict[str, Any]]], company_id: int, driver_id: int) -> Sample:
     db, driver, tenant_token = await prepare_session(company_id, driver_id)
-    sql_bucket: list[float] = []
+    sql_bucket: list[tuple[str, float]] = []
     sql_token = SQL_BUCKET.set(sql_bucket)
     try:
         started = time.perf_counter()
         payload = await call(db, driver)
         elapsed = (time.perf_counter() - started) * 1000
         items = payload.get("items")
+        sql_by_label: dict[str, float] = {}
+        for label, sql_ms in sql_bucket:
+            sql_by_label[label] = sql_by_label.get(label, 0.0) + sql_ms
         return Sample(
             ms=elapsed,
-            sql_ms=sum(sql_bucket),
+            sql_ms=sum(sql_ms for _label, sql_ms in sql_bucket),
             sql_count=len(sql_bucket),
             items=len(items) if isinstance(items, list) else None,
             total=payload.get("total") if isinstance(payload.get("total"), int) else None,
+            sql_by_label=sql_by_label,
         )
     finally:
         SQL_BUCKET.reset(sql_token)
@@ -442,12 +508,18 @@ async def http_load(
     }
 
 def print_stats(stats: Stats) -> None:
+    labels = " ".join(
+        f"{label}_p95={value:.1f}ms"
+        for label, value in sorted(stats.sql_label_p95.items())
+        if value > 0
+    )
     print(
         f"{stats.name}: p50={stats.p50:.1f}ms "
         f"p95={stats.p95:.1f}ms p99={stats.p99:.1f}ms "
         f"max={stats.maximum:.1f}ms sql_p95={stats.sql_p95:.1f}ms "
         f"sql_statements={stats.statements_min}..{stats.statements_max} "
         f"samples={stats.samples}"
+        + (f" {labels}" if labels else "")
     )
 
 async def async_main(args: argparse.Namespace) -> None:
