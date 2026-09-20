@@ -52,6 +52,8 @@ def main() -> None:
         or "has_warehouse_presence.is_(True)" not in visible
         or "_readable_vehicle_locations_subquery" not in visible
         or "InventoryBalance" not in visible
+        or "company_wide_inventory_read" not in visible
+        or "has_vehicle_presence.is_(True)" not in visible
     ):
         failures.append("HYBRID_VISIBILITY_AUTHORITY_INCOMPLETE")
 
@@ -135,8 +137,13 @@ def main() -> None:
         )
 
     checks += 1
-    if "projection.vehicle_packs" in cursor:
-        failures.append("CURSOR_USES_GLOBAL_VEHICLE_PACKS_FOR_ACTOR_VIEW")
+    if (
+        "company_wide_inventory_read" not in cursor
+        or "projection.vehicle_packs" not in cursor
+        or "if not company_wide_inventory_read" not in cursor
+        or "vehicles.get" not in cursor
+    ):
+        failures.append("VEHICLE_PERMISSION_FAST_PATH_NOT_GUARDED")
 
     checks += 1
     readiness = function_block(
