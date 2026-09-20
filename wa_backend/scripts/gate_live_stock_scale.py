@@ -5,6 +5,7 @@ import asyncio
 import contextvars
 import json
 import math
+import os
 import statistics
 import sys
 import time
@@ -14,6 +15,7 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 from sqlalchemy import event, func, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 def find_backend_root() -> Path:
     here = Path(__file__).resolve()
@@ -35,6 +37,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from context import tenant_context  # noqa: E402
+import database as database_runtime  # noqa: E402
 from database import AsyncSessionLocal, engine  # noqa: E402
 from models import Company, Driver, InventoryBalance, InventoryStockPolicy, ProductVariant  # noqa: E402
 from api.auth import create_access_token  # noqa: E402
@@ -45,6 +48,64 @@ from api.warehouse import (  # noqa: E402
 )
 from domains.live_stock_projection.service import rebuild_live_stock_company
 from main import app  # noqa: E402
+
+# ASGITransport runs in one Python process, so the normal per-worker pool
+# (4 steady + 1 overflow) would expose only 1/4 of the measured production
+# DB budget. This aggregate benchmark pool models 4 workers × 5 = 20 without
+# weakening request concurrency or latency thresholds.
+HTTP_BENCH_POOL_SIZE = 16
+HTTP_BENCH_MAX_OVERFLOW = 4
+HTTP_BENCH_DB_CAP = HTTP_BENCH_POOL_SIZE + HTTP_BENCH_MAX_OVERFLOW
+if HTTP_BENCH_DB_CAP != 20:
+    raise RuntimeError("Live Stock HTTP benchmark DB cap must remain 20.")
+
+http_bench_engine = create_async_engine(
+    database_runtime.DATABASE_URL,
+    pool_size=HTTP_BENCH_POOL_SIZE,
+    max_overflow=HTTP_BENCH_MAX_OVERFLOW,
+    pool_timeout=3,
+    pool_recycle=1800,
+    pool_use_lifo=True,
+    pool_pre_ping=True,
+)
+event.listen(
+    http_bench_engine.sync_engine,
+    "checkout",
+    database_runtime.on_checkout,
+)
+HttpBenchSession = async_sessionmaker(
+    http_bench_engine,
+    expire_on_commit=False,
+)
+
+migration_url = os.environ.get("DATABASE_URL_MIGRATION")
+if not migration_url:
+    raise RuntimeError(
+        "DATABASE_URL_MIGRATION is required for global scale counts."
+    )
+global_count_engine = create_async_engine(
+    migration_url,
+    pool_size=1,
+    max_overflow=1,
+    pool_pre_ping=True,
+)
+GlobalCountSession = async_sessionmaker(
+    global_count_engine,
+    expire_on_commit=False,
+)
+
+
+async def http_benchmark_get_db():
+    async with HttpBenchSession() as session:
+        started = time.perf_counter()
+        await session.connection()
+        bucket = SQL_BUCKET.get()
+        if bucket is not None:
+            bucket.append(
+                ("pool_wait", (time.perf_counter() - started) * 1000)
+            )
+        yield session
+
 
 SQL_BUCKET: contextvars.ContextVar[list[tuple[str, float]] | None] = contextvars.ContextVar(
     "live_stock_scale_sql_bucket",
@@ -427,19 +488,35 @@ async def dataset_snapshot(company_id: int, location_id: int) -> dict[str, int]:
                     )
                 ) or 0
             )
-            global_variants = int(
-                await db.scalar(select(func.count()).select_from(ProductVariant)) or 0
-            )
-            companies = int(
-                await db.scalar(select(func.count()).select_from(Company)) or 0
-            )
-            return {
+            company_snapshot = {
                 "company_variants": variants,
                 "location_balances": balances,
                 "location_policies": policies,
-                "global_variants": global_variants,
-                "companies": companies,
             }
+
+        async with GlobalCountSession() as global_db:
+            global_variants = int(
+                (
+                    await global_db.scalar(
+                        select(func.count()).select_from(ProductVariant)
+                    )
+                )
+                or 0
+            )
+            companies = int(
+                (
+                    await global_db.scalar(
+                        select(func.count()).select_from(Company)
+                    )
+                )
+                or 0
+            )
+
+        return {
+            **company_snapshot,
+            "global_variants": global_variants,
+            "companies": companies,
+        }
     finally:
         tenant_context.reset(token)
 
@@ -476,36 +553,96 @@ async def http_load(
     sem = asyncio.Semaphore(concurrency)
     latencies: list[float] = []
     statuses: list[int] = []
+    sql_totals: list[float] = []
+    sql_counts: list[int] = []
+    sql_profiles: list[dict[str, float]] = []
 
-    async with httpx.AsyncClient(
-        transport=transport,
-        base_url="http://wanasah-perf.local",
-        headers=headers,
-        timeout=30.0,
-    ) as client:
-        async def one(index: int):
-            async with sem:
-                path = (
-                    f"/warehouse/inventory/alerts/summary?location_id={location_id}"
-                    if index % 5 == 0
-                    else f"/warehouse/inventory/cursor?location_id={location_id}&limit=50"
-                )
-                started = time.perf_counter()
-                response = await client.get(path)
-                latencies.append((time.perf_counter() - started) * 1000)
-                statuses.append(response.status_code)
+    previous_override = app.dependency_overrides.get(
+        database_runtime.get_db
+    )
+    app.dependency_overrides[
+        database_runtime.get_db
+    ] = http_benchmark_get_db
 
-        await asyncio.gather(*(one(i) for i in range(requests)))
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://wanasah-perf.local",
+            headers=headers,
+            timeout=30.0,
+        ) as client:
+            async def one(index: int):
+                async with sem:
+                    path = (
+                        f"/warehouse/inventory/alerts/summary?location_id={location_id}"
+                        if index % 5 == 0
+                        else f"/warehouse/inventory/cursor?location_id={location_id}&limit=50"
+                    )
+                    bucket: list[tuple[str, float]] = []
+                    sql_token = SQL_BUCKET.set(bucket)
+                    try:
+                        started = time.perf_counter()
+                        response = await client.get(path)
+                        latencies.append(
+                            (time.perf_counter() - started) * 1000
+                        )
+                        statuses.append(response.status_code)
+                        profile: dict[str, float] = {}
+                        for label, sql_ms in bucket:
+                            profile[label] = (
+                                profile.get(label, 0.0) + sql_ms
+                            )
+                        sql_profiles.append(profile)
+                        sql_totals.append(
+                            sum(ms for _label, ms in bucket)
+                        )
+                        sql_counts.append(len(bucket))
+                    finally:
+                        SQL_BUCKET.reset(sql_token)
 
+            await asyncio.gather(
+                *(one(i) for i in range(requests))
+            )
+    finally:
+        if previous_override is None:
+            app.dependency_overrides.pop(
+                database_runtime.get_db,
+                None,
+            )
+        else:
+            app.dependency_overrides[
+                database_runtime.get_db
+            ] = previous_override
+
+    labels = sorted(
+        {
+            label
+            for profile in sql_profiles
+            for label in profile
+        }
+    )
+    label_p95 = {
+        label: percentile(
+            [profile.get(label, 0.0) for profile in sql_profiles],
+            0.95,
+        )
+        for label in labels
+    }
     return {
         "requests": requests,
         "concurrency": concurrency,
+        "db_connection_cap": HTTP_BENCH_DB_CAP,
         "p50_ms": percentile(latencies, 0.50),
         "p95_ms": percentile(latencies, 0.95),
         "p99_ms": percentile(latencies, 0.99),
         "max_ms": max(latencies),
+        "sql_p95_ms": percentile(sql_totals, 0.95),
+        "sql_statements_min": min(sql_counts),
+        "sql_statements_max": max(sql_counts),
+        "sql_label_p95": label_p95,
         "errors": sum(1 for status in statuses if status != 200),
     }
+
 
 def print_stats(stats: Stats) -> None:
     labels = " ".join(
@@ -642,14 +779,38 @@ def parse_args() -> argparse.Namespace:
         parser.error("--requests must be >= --concurrency")
     return args
 
+async def _dispose_auxiliary_engines() -> None:
+    await http_bench_engine.dispose()
+    await global_count_engine.dispose()
+
+
 def main() -> None:
-    event.listen(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
-    event.listen(engine.sync_engine, "after_cursor_execute", after_cursor_execute)
+    for tracked_engine in (engine, http_bench_engine):
+        event.listen(
+            tracked_engine.sync_engine,
+            "before_cursor_execute",
+            before_cursor_execute,
+        )
+        event.listen(
+            tracked_engine.sync_engine,
+            "after_cursor_execute",
+            after_cursor_execute,
+        )
     try:
         asyncio.run(async_main(parse_args()))
     finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
-        event.remove(engine.sync_engine, "after_cursor_execute", after_cursor_execute)
+        for tracked_engine in (engine, http_bench_engine):
+            event.remove(
+                tracked_engine.sync_engine,
+                "before_cursor_execute",
+                before_cursor_execute,
+            )
+            event.remove(
+                tracked_engine.sync_engine,
+                "after_cursor_execute",
+                after_cursor_execute,
+            )
+        asyncio.run(_dispose_auxiliary_engines())
 
 if __name__ == "__main__":
     main()
