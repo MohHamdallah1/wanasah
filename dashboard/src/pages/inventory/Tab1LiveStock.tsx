@@ -515,7 +515,7 @@ export function Tab1LiveStock({
                 <button
                   type="button"
                   className={`live-stock-filter-button ${
-                    onlyAlerts
+                    activeFilterCount > 0
                       ? "live-stock-filter-button--active"
                       : ""
                   }`}
@@ -524,11 +524,9 @@ export function Tab1LiveStock({
                 >
                   <ListFilter className="h-4 w-4" />
                   <span>{t("inventoryLive.filterButton")}</span>
-                  {alertCount !== null && alertCount > 0 && (
+                  {activeFilterCount > 0 && (
                     <span className="live-stock-filter-count tabular-nums">
-                      {new Intl.NumberFormat(locale, {
-                        numberingSystem: "latn",
-                      }).format(alertCount)}
+                      {activeFilterCount}
                     </span>
                   )}
                 </button>
@@ -537,58 +535,168 @@ export function Tab1LiveStock({
                 align="start"
                 sideOffset={8}
                 dir={i18n.dir()}
-                className="live-stock-filter-popover"
+                className="live-stock-filter-popover live-stock-filter-popover--wide"
               >
-                <div className="live-stock-filter-title">
-                  {t("inventoryLive.filterTitle")}
-                </div>
-                <button
-                  type="button"
-                  className="live-stock-filter-option"
-                  data-active={!onlyAlerts}
-                  onClick={() => onOnlyAlertsChange(false)}
-                >
-                  <span>
-                    <strong>{t("inventoryLive.filterAll")}</strong>
-                    <small>{t("inventoryLive.filterAllHint")}</small>
-                  </span>
-                  {!onlyAlerts && <Check className="h-4 w-4" />}
-                </button>
-                <button
-                  type="button"
-                  className="live-stock-filter-option"
-                  data-active={onlyAlerts}
-                  disabled={alertCount === 0}
-                  onClick={() => onOnlyAlertsChange(true)}
-                >
-                  <span>
-                    <strong>{t("inventoryLive.filterLowStock")}</strong>
-                    <small>
-                      {alertCount === null
-                        ? t("common.loading")
-                        : t("inventoryLive.filterLowStockCount", {
-                            count: alertCount,
-                          })}
-                    </small>
-                  </span>
-                  {onlyAlerts ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                <div className="live-stock-filter-header">
+                  <div>
+                    <div className="live-stock-filter-title">
+                      {t("inventoryLive.filterTitle")}
+                    </div>
+                    <div className="live-stock-filter-subtitle">
+                      {t("inventoryLive.filterSubtitle")}
+                    </div>
+                  </div>
+                  {activeFilterCount > 0 && (
+                    <button
+                      type="button"
+                      className="live-stock-filter-reset"
+                      onClick={clearFilters}
+                    >
+                      <FilterX className="h-3.5 w-3.5" />
+                      {t("inventoryLive.filterReset")}
+                    </button>
                   )}
-                </button>
-                {onlyAlerts && (
-                  <button
-                    type="button"
-                    className="live-stock-filter-reset"
-                    onClick={() => onOnlyAlertsChange(false)}
+                </div>
+
+                <div className="live-stock-filter-section">
+                  <div className="live-stock-filter-section-title">
+                    {t("inventoryLive.stockStateTitle")}
+                  </div>
+                  <div className="live-stock-filter-choice-grid">
+                    {(
+                      [
+                        ["all", "filterAll", "filterAllHint"],
+                        ["on_hand", "filterOnHand", "filterOnHandHint"],
+                        ["sellable", "filterSellable", "filterSellableHint"],
+                        ["out_of_stock", "filterOutOfStock", "filterOutOfStockHint"],
+                        ["low_stock", "filterLowStock", "filterLowStockHint"],
+                      ] as const
+                    ).map(([value, labelKey, hintKey]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className="live-stock-filter-option"
+                        data-active={stockState === value}
+                        disabled={value === "low_stock" && alertCount === 0}
+                        onClick={() => onStockStateChange(value)}
+                      >
+                        <span>
+                          <strong>{t(`inventoryLive.${labelKey}`)}</strong>
+                          <small>
+                            {value === "low_stock" && alertCount !== null
+                              ? t("inventoryLive.filterLowStockCount", {
+                                  count: alertCount,
+                                })
+                              : t(`inventoryLive.${hintKey}`)}
+                          </small>
+                        </span>
+                        {stockState === value && <Check className="h-4 w-4" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="live-stock-filter-section">
+                  <div className="live-stock-filter-section-title">
+                    {t("inventoryLive.indicatorsTitle")}
+                  </div>
+                  <div className="live-stock-filter-chip-grid">
+                    {(
+                      [
+                        ["reserved", "indicatorReserved"],
+                        ["unavailable", "indicatorUnavailable"],
+                        ["damaged", "indicatorDamaged"],
+                        ["recalled", "indicatorRecalled"],
+                        ["vehicle", "indicatorVehicle"],
+                        ["minimum_unset", "indicatorMinimumUnset"],
+                      ] as const
+                    ).map(([value, labelKey]) => {
+                      const active = indicators.includes(value);
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          className="live-stock-filter-chip"
+                          data-active={active}
+                          onClick={() => toggleIndicator(value)}
+                        >
+                          {active && <Check className="h-3.5 w-3.5" />}
+                          {t(`inventoryLive.${labelKey}`)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="live-stock-filter-section">
+                  <div className="live-stock-filter-section-title">
+                    {t("inventoryLive.familyTitle")}
+                  </div>
+                  <input
+                    type="search"
+                    value={familySearch}
+                    onChange={(event) => setFamilySearch(event.target.value)}
+                    placeholder={t("inventoryLive.familySearch")}
+                    className="live-stock-family-search"
+                  />
+                  <div className="live-stock-family-list custom-scrollbar">
+                    <button
+                      type="button"
+                      className="live-stock-family-option"
+                      data-active={familyId === null}
+                      onClick={() => onFamilyChange(null)}
+                    >
+                      {t("inventoryLive.allFamilies")}
+                      {familyId === null && <Check className="h-3.5 w-3.5" />}
+                    </button>
+                    {familyLoading ? (
+                      <div className="live-stock-family-empty">
+                        {t("common.loading")}
+                      </div>
+                    ) : (
+                      familyOptions.map((family) => (
+                        <button
+                          key={family.id}
+                          type="button"
+                          className="live-stock-family-option"
+                          data-active={familyId === family.id}
+                          onClick={() => onFamilyChange(family.id)}
+                        >
+                          <span>
+                            <strong>{family.name}</strong>
+                            <small>{family.code}</small>
+                          </span>
+                          {familyId === family.id && (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="live-stock-filter-section live-stock-sort-section">
+                  <div className="live-stock-filter-section-title">
+                    {t("inventoryLive.sortTitle")}
+                  </div>
+                  <select
+                    value={sort}
+                    onChange={(event) =>
+                      onSortChange(event.target.value as LiveStockSort)
+                    }
+                    className="live-stock-sort-select"
+                    aria-label={t("inventoryLive.sortTitle")}
                   >
-                    <FilterX className="h-3.5 w-3.5" />
-                    {t("inventoryLive.filterReset")}
-                  </button>
-                )}
+                    <option value="name_asc">
+                      {t("inventoryLive.sortNameAsc")}
+                    </option>
+                    <option value="name_desc">
+                      {t("inventoryLive.sortNameDesc")}
+                    </option>
+                  </select>
+                </div>
               </PopoverContent>
-            </Popover>
+            </Popover>>
           </div>
 
           <div className="live-stock-context-panel">
