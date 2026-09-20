@@ -35,6 +35,7 @@ def main() -> None:
         "_require_live_stock_read_model_ready",
         "_readable_vehicle_locations_subquery",
         "_latest_readable_vehicle_sources_subquery",
+        "_has_company_wide_inventory_read",
         "_build_visible_inventory_stmt",
         "_build_inventory_alert_variants_stmt",
     )
@@ -79,7 +80,7 @@ def main() -> None:
         "InventoryLiveStockCompanySummary.active_variant_count",
         "InventoryLiveStockWarehouseSummary.alert_count",
         "nonactive_visible_count",
-        'access.allows("inventory.read")',
+        "_has_company_wide_inventory_read",
         "restricted_nonactive_visible",
         "_readable_vehicle_locations_subquery",
     )
@@ -90,6 +91,19 @@ def main() -> None:
         failures.append(
             "SUMMARY_READ_MODEL_INCOMPLETE:"
             + ",".join(missing_summary)
+        )
+
+    company_wide_helper = function_block(
+        source,
+        "_has_company_wide_inventory_read",
+    )
+    checks += 1
+    if (
+        'access.allows("inventory.read")' not in company_wide_helper
+        or "actor.is_admin" not in company_wide_helper
+    ):
+        failures.append(
+            "COMPANY_WIDE_INVENTORY_PERMISSION_HELPER_INCOMPLETE"
         )
 
     alert_summary = function_block(
