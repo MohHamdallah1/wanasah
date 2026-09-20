@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 from sqlalchemy import event, func, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 def find_backend_root() -> Path:
     here = Path(__file__).resolve()
@@ -53,8 +53,8 @@ from main import app  # noqa: E402
 # (4 steady + 1 overflow) would expose only 1/4 of the measured production
 # DB budget. This aggregate benchmark pool models 4 workers × 5 = 20 without
 # weakening request concurrency or latency thresholds.
-HTTP_BENCH_POOL_SIZE = 16
-HTTP_BENCH_MAX_OVERFLOW = 4
+HTTP_BENCH_POOL_SIZE = 20
+HTTP_BENCH_MAX_OVERFLOW = 0
 HTTP_BENCH_DB_CAP = HTTP_BENCH_POOL_SIZE + HTTP_BENCH_MAX_OVERFLOW
 if HTTP_BENCH_DB_CAP != 20:
     raise RuntimeError("Live Stock HTTP benchmark DB cap must remain 20.")
@@ -73,8 +73,29 @@ event.listen(
     "checkout",
     database_runtime.on_checkout,
 )
+POOL_WAIT_BUCKET: contextvars.ContextVar[list[float] | None] = (
+    contextvars.ContextVar(
+        "live_stock_http_pool_wait_bucket",
+        default=None,
+    )
+)
+
+
+class ProfiledHttpBenchSession(AsyncSession):
+    async def connection(self, *args, **kwargs):
+        started = time.perf_counter()
+        connection = await super().connection(*args, **kwargs)
+        bucket = POOL_WAIT_BUCKET.get()
+        if bucket is not None:
+            bucket.append(
+                (time.perf_counter() - started) * 1000
+            )
+        return connection
+
+
 HttpBenchSession = async_sessionmaker(
     http_bench_engine,
+    class_=ProfiledHttpBenchSession,
     expire_on_commit=False,
 )
 
@@ -107,21 +128,6 @@ SQL_BUCKET: contextvars.ContextVar[list[tuple[str, float]] | None] = contextvars
     "live_stock_scale_sql_bucket",
     default=None,
 )
-
-HTTP_REQUEST_STARTED: contextvars.ContextVar[float | None] = contextvars.ContextVar(
-    "live_stock_http_request_started",
-    default=None,
-)
-
-
-def http_pool_checkout(dbapi_connection, connection_record, connection_proxy):
-    bucket = SQL_BUCKET.get()
-    started = HTTP_REQUEST_STARTED.get()
-    if bucket is not None and started is not None:
-        bucket.append(
-            ("checkout_delay", (time.perf_counter() - started) * 1000)
-        )
-
 
 def _sql_label(statement: str) -> str:
     normalized = " ".join(statement.lower().split())
@@ -574,6 +580,7 @@ async def http_load(
         "alerts": [],
     }
     outside_sql_ms: list[float] = []
+    pool_wait_ms: list[float] = []
 
     previous_override = app.dependency_overrides.get(
         database_runtime.get_db
@@ -599,11 +606,12 @@ async def http_load(
                         else f"/warehouse/inventory/cursor?location_id={location_id}&limit=50"
                     )
                     bucket: list[tuple[str, float]] = []
+                    request_pool_wait: list[float] = []
                     sql_token = SQL_BUCKET.set(bucket)
-                    request_started = time.perf_counter()
-                    checkout_token = HTTP_REQUEST_STARTED.set(
-                        request_started
+                    pool_token = POOL_WAIT_BUCKET.set(
+                        request_pool_wait
                     )
+                    request_started = time.perf_counter()
                     try:
                         started = request_started
                         response = await client.get(path)
@@ -618,6 +626,12 @@ async def http_load(
                             profile[label] = (
                                 profile.get(label, 0.0) + sql_ms
                             )
+                        profile["pool_wait"] = sum(
+                            request_pool_wait
+                        )
+                        pool_wait_ms.append(
+                            sum(request_pool_wait)
+                        )
                         sql_profiles.append(profile)
                         sql_total = sum(
                             ms for _label, ms in bucket
@@ -628,7 +642,7 @@ async def http_load(
                         )
                         sql_counts.append(len(bucket))
                     finally:
-                        HTTP_REQUEST_STARTED.reset(checkout_token)
+                        POOL_WAIT_BUCKET.reset(pool_token)
                         SQL_BUCKET.reset(sql_token)
 
             await asyncio.gather(
@@ -671,11 +685,8 @@ async def http_load(
         "sql_statements_min": min(sql_counts),
         "sql_statements_max": max(sql_counts),
         "sql_label_p95": label_p95,
-        "checkout_delay_p95_ms": percentile(
-            [
-                profile.get("checkout_delay", 0.0)
-                for profile in sql_profiles
-            ],
+        "pool_wait_p95_ms": percentile(
+            pool_wait_ms,
             0.95,
         ),
         "outside_sql_p95_ms": percentile(
@@ -776,7 +787,7 @@ async def async_main(args: argparse.Namespace) -> None:
     print(
         f"HTTP_POOL_PREWARM={prewarm_ms:.1f}ms "
         f"steady_connections={HTTP_BENCH_POOL_SIZE} "
-        f"overflow_cold={HTTP_BENCH_MAX_OVERFLOW}"
+        f"max_overflow={HTTP_BENCH_MAX_OVERFLOW}"
     )
 
     load = await http_load(
@@ -791,7 +802,7 @@ async def async_main(args: argparse.Namespace) -> None:
         "HTTP_LOAD_PROFILE "
         f"cursor_p95={load['cursor_p95_ms']:.1f}ms "
         f"alerts_p95={load['alerts_p95_ms']:.1f}ms "
-        f"checkout_delay_p95={load['checkout_delay_p95_ms']:.1f}ms "
+        f"pool_wait_p95={load['pool_wait_p95_ms']:.1f}ms "
         f"sql_p95={load['sql_p95_ms']:.1f}ms "
         f"outside_sql_p95={load['outside_sql_p95_ms']:.1f}ms "
         f"labels={load['sql_label_p95']}"
@@ -868,12 +879,6 @@ async def _run() -> None:
             "after_cursor_execute",
             after_cursor_execute,
         )
-        if tracked_engine is http_bench_engine:
-            event.listen(
-                tracked_engine.sync_engine,
-                "checkout",
-                http_pool_checkout,
-            )
     try:
         await async_main(parse_args())
     finally:
@@ -888,12 +893,6 @@ async def _run() -> None:
                 "after_cursor_execute",
                 after_cursor_execute,
             )
-            if tracked_engine is http_bench_engine:
-                event.remove(
-                    tracked_engine.sync_engine,
-                    "checkout",
-                    http_pool_checkout,
-                )
         await _dispose_benchmark_engines()
 
 
