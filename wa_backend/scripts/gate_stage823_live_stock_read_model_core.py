@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WAREHOUSE = ROOT / "api" / "warehouse.py"
+PROJECTION_SERVICE = ROOT / "domains" / "live_stock_projection" / "service.py"
+DATABASE = ROOT / "database.py"
+MAIN = ROOT / "main.py"
 SCALE_GATE = ROOT / "scripts" / "gate_live_stock_scale.py"
 
 
@@ -231,6 +234,39 @@ def main() -> None:
         or "latest_purchase_by_variant" in cursor
     ):
         failures.append("LATEST_PURCHASE_NOT_COLLAPSED_INTO_DETAILS")
+
+    checks += 1
+    projection_source = PROJECTION_SERVICE.read_text(encoding="utf-8")
+    readiness_start = projection_source.find(
+        "async def assert_live_stock_projection_ready"
+    )
+    readiness_block = projection_source[readiness_start:]
+    if (
+        readiness_start < 0
+        or 'due_transition_exists.label("has_due_transition")'
+        not in readiness_block
+        or readiness_block.count("await db.execute(") != 1
+        or "await db.scalar(" in readiness_block
+    ):
+        failures.append("READINESS_NOT_COLLAPSED_TO_ONE_SQL_ROUND_TRIP")
+
+    checks += 1
+    database_source = DATABASE.read_text(encoding="utf-8")
+    main_source = MAIN.read_text(encoding="utf-8")
+    if (
+        "async def warm_async_engine_pool(" not in database_source
+        or "async def warm_database_pool(" not in database_source
+        or "await warm_database_pool()" not in main_source
+    ):
+        failures.append("API_DB_POOL_PREWARM_MISSING")
+
+    checks += 1
+    if (
+        "warm_async_engine_pool(" not in scale_source
+        or "HTTP_POOL_PREWARM=" not in scale_source
+        or "connections=HTTP_BENCH_POOL_SIZE" not in scale_source
+    ):
+        failures.append("HTTP_BENCHMARK_STEADY_POOL_PREWARM_MISSING")
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
