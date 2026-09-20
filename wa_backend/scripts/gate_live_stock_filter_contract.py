@@ -37,6 +37,13 @@ for path, source in ((WAREHOUSE, warehouse), (SCHEMAS, schemas)):
         failures.append(f"PYTHON_SYNTAX:{path.name}:{exc.lineno}:{exc.msg}")
 
 check(
+    "from typing import Literal" in warehouse
+    or "from typing import Literal," in warehouse
+    or ", Literal" in warehouse,
+    "Live Stock filter type contract imports Literal at runtime",
+)
+
+check(
     'stock_state: Literal[' in warehouse
     and 'family_id: Optional[int] = None' in warehouse
     and 'has_reserved: bool = False' in warehouse
