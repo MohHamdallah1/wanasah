@@ -85,10 +85,35 @@ const nullableCount = (
 ): number | null =>
   value === null ? null : int(value, code);
 
+export type LiveStockStockState =
+  | "all"
+  | "on_hand"
+  | "sellable"
+  | "out_of_stock"
+  | "low_stock";
+
+export type LiveStockIndicator =
+  | "reserved"
+  | "unavailable"
+  | "damaged"
+  | "recalled"
+  | "vehicle"
+  | "minimum_unset";
+
+export type LiveStockSort = "name_asc" | "name_desc";
+
+export interface LiveStockFamilyOption {
+  id: number;
+  name: string;
+  code: string;
+}
+
 export interface WarehouseProduct {
   id: number;
   name: string;
   sku: string | null;
+  product_id: number;
+  family_name: string;
 
   base_uom_id: number;
   base_uom_code: string;
@@ -220,6 +245,8 @@ export function parseLiveStockPage(
       id,
       name: str(row.name, code),
       sku: nullableStr(row.sku, code, 100),
+      product_id: int(row.product_id, code, 1),
+      family_name: str(row.family_name, code, 150),
       base_uom_id: int(row.base_uom_id, code, 1),
       base_uom_code: str(row.base_uom_code, code, 20),
       base_uom_name: str(row.base_uom_name, code, 50),
@@ -328,6 +355,25 @@ export function parseLiveStockPage(
     alert_count: nullableCount(page.alert_count, code),
     alert_samples: [...samples] as string[],
   };
+}
+
+export function parseLiveStockFamilies(
+  raw: unknown,
+): { items: LiveStockFamilyOption[]; has_more: boolean } {
+  const code = "LIVE_STOCK_FAMILIES_INVALID";
+  const payload = record(raw, code);
+  if (!Array.isArray(payload.items) || typeof payload.has_more !== "boolean") {
+    return contractError(code);
+  }
+  const items = payload.items.map((value) => {
+    const row = record(value, code);
+    return {
+      id: int(row.id, code, 1),
+      name: str(row.name, code, 150),
+      code: str(row.code, code, 100),
+    };
+  });
+  return { items, has_more: payload.has_more };
 }
 
 export function parseLiveStockSummary(
