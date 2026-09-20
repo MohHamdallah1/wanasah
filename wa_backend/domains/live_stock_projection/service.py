@@ -3082,6 +3082,20 @@ async def assert_live_stock_projection_ready(
         func.timezone(Company.timezone, func.current_timestamp()),
         Date,
     )
+    due_transition_exists = (
+        select(1)
+        .select_from(InventoryLiveStockProjection)
+        .where(
+            InventoryLiveStockProjection.company_id == company_id,
+            InventoryLiveStockProjection.warehouse_location_id
+            == warehouse_location_id,
+            InventoryLiveStockProjection.next_transition_date.is_not(None),
+            InventoryLiveStockProjection.next_transition_date
+            <= company_date_expr,
+        )
+        .correlate(Company)
+        .exists()
+    )
     row = (
         await db.execute(
             select(
@@ -3090,6 +3104,7 @@ async def assert_live_stock_projection_ready(
                 InventoryLiveStockWarehouseSummary.projection_state,
                 InventoryLiveStockWarehouseSummary.projection_version,
                 company_date_expr.label("company_local_date"),
+                due_transition_exists.label("has_due_transition"),
             )
             .join(
                 InventoryLiveStockWarehouseSummary,
@@ -3115,29 +3130,11 @@ async def assert_live_stock_projection_ready(
             "Live Stock projection is not READY for this warehouse."
         )
 
-    company_local_date = row.company_local_date
-    if type(company_local_date) is not date:
+    if type(row.company_local_date) is not date:
         raise LiveStockProjectionError(
             "Could not resolve the company-local date for Live Stock readiness."
         )
-
-    due_key = await db.scalar(
-        select(InventoryLiveStockProjection.product_variant_id)
-        .where(
-            InventoryLiveStockProjection.company_id == company_id,
-            InventoryLiveStockProjection.warehouse_location_id
-            == warehouse_location_id,
-            InventoryLiveStockProjection.next_transition_date.is_not(None),
-            InventoryLiveStockProjection.next_transition_date
-            <= company_local_date,
-        )
-        .order_by(
-            InventoryLiveStockProjection.next_transition_date,
-            InventoryLiveStockProjection.product_variant_id,
-        )
-        .limit(1)
-    )
-    if due_key is not None:
+    if bool(row.has_due_transition):
         raise LiveStockProjectionError(
             "Live Stock projection has a due time transition and must be refreshed."
         )
