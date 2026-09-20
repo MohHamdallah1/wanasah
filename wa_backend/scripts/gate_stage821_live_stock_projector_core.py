@@ -112,8 +112,8 @@ def main() -> None:
     required_pool_config = (
         'WEB_CONCURRENCY = int(os.environ.get("WEB_CONCURRENCY", "4"))',
         'os.environ.get("DB_APP_CONNECTION_BUDGET", "20")',
-        'os.environ.get("DB_POOL_SIZE", "4")',
-        'os.environ.get("DB_MAX_OVERFLOW", "1")',
+        'os.environ.get("DB_POOL_SIZE", "5")',
+        'os.environ.get("DB_MAX_OVERFLOW", "0")',
         'os.environ.get("DB_POOL_TIMEOUT", "3")',
         'DB_CONNECTIONS_TOTAL > DB_APP_CONNECTION_BUDGET',
         '"pool_use_lifo": True',
@@ -139,8 +139,8 @@ def main() -> None:
     checks += 1
     stress_source = sources["stress"]
     if (
-        'STAGE821_STRESS_POOL_SIZE", "16"' not in stress_source
-        or 'STAGE821_STRESS_MAX_OVERFLOW", "4"' not in stress_source
+        'STAGE821_STRESS_POOL_SIZE", "20"' not in stress_source
+        or 'STAGE821_STRESS_MAX_OVERFLOW", "0"' not in stress_source
         or "STRESS_DB_CONNECTION_CAP != 20" not in stress_source
         or "async def timed_cross_tenant_mutations(" not in stress_source
         or "pool_wait" not in stress_source

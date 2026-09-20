@@ -19,16 +19,17 @@ def run_gate(label: str, script: str, *args: str) -> None:
         check=False,
     )
     if completed.returncode != 0:
-        print(f"STAGE822_REGRESSION_FAILED_AT={label}", flush=True)
+        print(f"LIVE_STOCK_REGRESSION_FAILED_AT={label}", flush=True)
         raise SystemExit(completed.returncode)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Full Stage 8.2.1 + 8.2.2 regression suite."
+        description="Full Stage 8.2.1 + 8.2.2 + read-model regression suite."
     )
     parser.add_argument("--company-id", type=int, required=True)
     parser.add_argument("--location-id", type=int, required=True)
+    parser.add_argument("--driver-id", type=int)
     args = parser.parse_args()
 
     if args.company_id <= 0 or args.location_id <= 0:
@@ -61,6 +62,21 @@ def main() -> None:
             (),
         ),
         (
+            "mutation_idempotency_contract",
+            "gate_mutation_idempotency_contract.py",
+            (),
+        ),
+        (
+            "stage823_read_model_core",
+            "gate_stage823_live_stock_read_model_core.py",
+            (),
+        ),
+        (
+            "stage823_read_model_runtime",
+            "gate_stage823_live_stock_read_model.py",
+            (),
+        ),
+        (
             "stage821_stress",
             "gate_stage821_projector_stress.py",
             (
@@ -70,12 +86,29 @@ def main() -> None:
                 str(args.location_id),
             ),
         ),
+        (
+            "live_stock_read_scale",
+            "gate_live_stock_scale.py",
+            tuple(
+                [
+                    "--company-id",
+                    str(args.company_id),
+                    "--location-id",
+                    str(args.location_id),
+                ]
+                + (
+                    ["--driver-id", str(args.driver_id)]
+                    if args.driver_id is not None
+                    else []
+                )
+            ),
+        ),
     )
 
     for label, script, gate_args in gates:
         run_gate(label, script, *gate_args)
 
-    print("\nSTAGE822_FULL_REGRESSION_SUITE=PASS")
+    print("\nLIVE_STOCK_FULL_REGRESSION_SUITE=PASS")
 
 
 if __name__ == "__main__":

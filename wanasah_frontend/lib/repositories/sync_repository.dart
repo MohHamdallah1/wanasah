@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart'; // +++ للـ Isolates (compute) +++
+import 'package:uuid/uuid.dart';
 import '../core/network/api_client.dart';
 import '../core/db/local_database.dart';
 import '../models/product_model.dart';
@@ -22,6 +23,7 @@ class SyncRepository {
   // -----------------------------------------------------------------------
   final ApiClient _api;
   final LocalDatabase _db;
+  static const Uuid _uuid = Uuid();
   
   // الأقفال أصبحت الآن مركزية على مستوى التطبيق كله
   bool _isSyncing = false;
@@ -142,7 +144,9 @@ class SyncRepository {
     Map<String, dynamic> safePayload;
     try {
       safePayload = jsonDecode(jsonEncode(payload));
-      safePayload['idempotency_key'] ??= '${visitId}_${DateTime.now().microsecondsSinceEpoch}';
+      // Generate once per business operation and persist the same UUID through
+      // direct send, offline storage, automatic retry and syncUp replay.
+      safePayload['request_id'] ??= _uuid.v4();
     } catch (e) {
       developer.log('[SyncRepository] Payload encoding failed: $e');
       rethrow;
@@ -319,6 +323,21 @@ class SyncRepository {
              continue; 
           }
 
+          if (
+            type == 'submit_sale' &&
+            (payload['request_id'] == null ||
+                payload['request_id'].toString().trim().isEmpty)
+          ) {
+            payload['request_id'] = _uuid.v4();
+            // Persist before any network I/O. If the app dies after the server
+            // commits but before receiving the response, the next retry uses
+            // exactly the same request_id.
+            await _db.updatePendingSyncPayload(
+              recordId,
+              jsonEncode(payload),
+            );
+          }
+
           await _dispatchPendingRecord(type: type, payload: payload);
           await _db.deletePendingSync(recordId);
           successCount++;
@@ -397,13 +416,17 @@ class SyncRepository {
           ..remove('visitId')
           ..remove('idempotency_key')
           ..remove('quarantine_reason');
-        
-        final idempotencyKey = payload['idempotency_key']?.toString() ?? 'sync_${visitId}_fallback_${payload['cash_collected'] ?? 0}';
+
+        final requestId = body['request_id']?.toString().trim() ?? '';
+        if (requestId.isEmpty) {
+          throw StateError(
+            'submit_sale is missing its durable request_id.',
+          );
+        }
 
         final response = await _api.put(
-          '/visits/$visitId', 
+          '/visits/$visitId',
           data: body,
-          options: Options(headers: {'X-Idempotency-Key': idempotencyKey})
         );
 
         if (response.statusCode == null || response.statusCode! < 200 || response.statusCode! >= 300) {

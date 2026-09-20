@@ -374,6 +374,24 @@ class LocalDatabase {
     await db.delete('pending_sync', where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<void> updatePendingSyncPayload(
+    int id,
+    String payload,
+  ) async {
+    final db = await database;
+    final updated = await db.update(
+      'pending_sync',
+      {'payload': payload},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (updated != 1) {
+      throw StateError(
+        'Pending sync payload update failed for record #$id.',
+      );
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getProducts() async {
     final db = await database;
     return db.query('products');

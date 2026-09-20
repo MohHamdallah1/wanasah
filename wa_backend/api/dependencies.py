@@ -32,18 +32,64 @@ async def get_current_driver(credentials: HTTPAuthorizationCredentials = Depends
         raise HTTPException(status_code=401, detail="Token processing error")
 
     try:
-        # +++ A-01: التحقق من أن التوكن ليس محروقاً في القائمة السوداء +++
-        stmt_blacklisted = select(TokenBlacklist).filter_by(token=token)
-        is_blacklisted = (await db.execute(stmt_blacklisted)).scalars().first()
-        if is_blacklisted:
-            raise HTTPException(status_code=401, detail="مرفوض أمنياً: تم تسجيل الخروج مسبقاً (التوكن محروق).")
+        # المسار الطبيعي: لا تسحب قاعدة البيانات الاتصال قبل فك الـ JWT.
+        # tenant_context صار مضبوطاً أعلاه؛ أول checkout سيزرع RLS تلقائياً
+        # عبر database.on_checkout بدون رحلة SQL ثانية مكررة.
+        #
+        # إذا دخلنا من test/override أو dependency سحب الاتصال مسبقاً، نحافظ
+        # على الأمان ونزرع tenant صراحةً على الاتصال الموجود.
+        if db.in_transaction():
+            await db.execute(
+                text("SELECT set_config('app.current_tenant', :c, false)"),
+                {"c": str(comp_id_int)},
+            )
+        else:
+            await db.connection()
 
-        # +++ زرع هوية المستأجر مباشرة على الاتصال الحي المسحوب من الـ Pool قبل أي استعلام +++
-        await db.execute(text("SELECT set_config('app.current_tenant', :c, false)"), {"c": str(comp_id_int)})
+        # المسار الطبيعي للمصادقة = استعلام واحد فقط:
+        # Driver + حالة blacklist معاً، بدون إسقاط أي فحص أمني.
+        blacklisted_exists = (
+            select(TokenBlacklist.id)
+            .where(TokenBlacklist.token == token)
+            .exists()
+        )
+        stmt_auth = (
+            select(
+                Driver,
+                blacklisted_exists.label("is_blacklisted"),
+            )
+            .where(
+                Driver.id == driver_id_int,
+                Driver.company_id == comp_id_int,
+            )
+        )
+        auth_row = (await db.execute(stmt_auth)).one_or_none()
 
-        # +++ التحقق الصارم من أن المندوب ينتمي للشركة الموجودة في التوكن +++
-        stmt_driver = select(Driver).filter_by(id=driver_id_int, company_id=comp_id_int)
-        driver = (await db.execute(stmt_driver)).scalar_one_or_none()
+        if auth_row is None:
+            # نحافظ على أولوية خطأ blacklist القديمة حتى في الحالة النادرة
+            # التي يكون فيها الحساب محذوفاً والتوكن محروقاً معاً.
+            is_blacklisted = bool(
+                await db.scalar(select(blacklisted_exists))
+            )
+            if is_blacklisted:
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        "مرفوض أمنياً: تم تسجيل الخروج مسبقاً "
+                        "(التوكن محروق)."
+                    ),
+                )
+            driver = None
+        else:
+            driver, is_blacklisted = auth_row
+            if bool(is_blacklisted):
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        "مرفوض أمنياً: تم تسجيل الخروج مسبقاً "
+                        "(التوكن محروق)."
+                    ),
+                )
     except HTTPException:
         raise
     except Exception as e:
