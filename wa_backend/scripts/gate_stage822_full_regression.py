@@ -19,13 +19,13 @@ def run_gate(label: str, script: str, *args: str) -> None:
         check=False,
     )
     if completed.returncode != 0:
-        print(f"STAGE822_REGRESSION_FAILED_AT={label}", flush=True)
+        print(f"LIVE_STOCK_REGRESSION_FAILED_AT={label}", flush=True)
         raise SystemExit(completed.returncode)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Full Stage 8.2.1 + 8.2.2 regression suite."
+        description="Full Stage 8.2.1 + 8.2.2 + read-model regression suite."
     )
     parser.add_argument("--company-id", type=int, required=True)
     parser.add_argument("--location-id", type=int, required=True)
@@ -103,7 +103,7 @@ def main() -> None:
     for label, script, gate_args in gates:
         run_gate(label, script, *gate_args)
 
-    print("\nSTAGE822_FULL_REGRESSION_SUITE=PASS")
+    print("\nLIVE_STOCK_FULL_REGRESSION_SUITE=PASS")
 
 
 if __name__ == "__main__":
