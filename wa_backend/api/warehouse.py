@@ -3166,6 +3166,66 @@ async def get_warehouse_inventory_summary(
 
 
 @router.get(
+    "/warehouse/inventory/families",
+    status_code=200,
+)
+async def get_warehouse_inventory_families(
+    location_id: int,
+    search: Optional[str] = Query(default=None, max_length=100),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    company_id = current_admin.company_id
+    await _require_live_stock_warehouse_read(
+        db,
+        company_id=company_id,
+        location_id=location_id,
+        access=access,
+        actor=current_admin,
+    )
+
+    clean_search = (search or "").strip().lower()
+    if clean_search and len(clean_search) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="البحث في عائلات المنتجات يتطلب حرفين على الأقل.",
+        )
+
+    filters = [Product.company_id == company_id]
+    if clean_search:
+        pattern = f"%{_escape_like(clean_search)}%"
+        filters.append(
+            or_(
+                func.lower(Product.name).like(pattern, escape="\\"),
+                func.lower(Product.code).like(pattern, escape="\\"),
+            )
+        )
+
+    rows = (
+        await db.execute(
+            select(Product.id, Product.name, Product.code)
+            .where(*filters)
+            .order_by(Product.name.asc(), Product.id.asc())
+            .limit(limit + 1)
+        )
+    ).all()
+    page = rows[:limit]
+    return {
+        "items": [
+            {
+                "id": int(row.id),
+                "name": str(row.name),
+                "code": str(row.code),
+            }
+            for row in page
+        ],
+        "has_more": len(rows) > limit,
+    }
+
+
+@router.get(
     "/warehouse/inventory/cursor",
     response_model=WarehouseInventoryCursorPage,
     status_code=200,
@@ -3176,6 +3236,17 @@ async def get_warehouse_inventory(
     limit: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
     only_alerts: bool = False,
+    stock_state: Literal[
+        "all", "on_hand", "sellable", "out_of_stock", "low_stock"
+    ] = "all",
+    family_id: Optional[int] = Query(default=None, gt=0),
+    has_reserved: bool = False,
+    has_unavailable: bool = False,
+    has_damaged: bool = False,
+    has_recalled: bool = False,
+    has_vehicle: bool = False,
+    minimum_unset: bool = False,
+    sort: Literal["name_asc", "name_desc"] = "name_asc",
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_driver),
 ):
@@ -3205,6 +3276,25 @@ async def get_warehouse_inventory(
                 status_code=400,
                 detail="البحث في المخزون يتطلب حرفين على الأقل.",
             )
+        if only_alerts and stock_state not in {"all", "low_stock"}:
+            raise HTTPException(
+                status_code=400,
+                detail="لا يجوز دمج only_alerts مع حالة رصيد مختلفة.",
+            )
+
+        effective_stock_state = (
+            "low_stock" if only_alerts else stock_state
+        )
+        indicator_filters_active = any(
+            (
+                has_reserved,
+                has_unavailable,
+                has_damaged,
+                has_recalled,
+                has_vehicle,
+                minimum_unset,
+            )
+        )
 
         search_condition = None
         if clean_search:
@@ -3223,34 +3313,72 @@ async def get_warehouse_inventory(
             )
 
         scope = (
-            f"inventory|{company_id}|{location_id}|"
-            f"{clean_search}|{int(only_alerts)}"
+            f"inventory|{company_id}|{location_id}|{clean_search}|"
+            f"{effective_stock_state}|{family_id or 0}|"
+            f"{int(has_reserved)}{int(has_unavailable)}"
+            f"{int(has_damaged)}{int(has_recalled)}"
+            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
         )
         candidate_filters = []
         if search_condition is not None:
             candidate_filters.append(search_condition)
+        if family_id is not None:
+            candidate_filters.append(ProductVariant.product_id == family_id)
+
+        use_alert_fast_path = (
+            effective_stock_state == "low_stock"
+            and not indicator_filters_active
+        )
+        if (
+            not use_alert_fast_path
+            and (
+                effective_stock_state != "all"
+                or indicator_filters_active
+            )
+        ):
+            filtered_ids = _live_stock_filtered_variant_ids_stmt(
+                company_id=company_id,
+                location_id=location_id,
+                access=access,
+                company_wide_inventory_read=company_wide_inventory_read,
+                stock_state=effective_stock_state,
+                has_reserved=has_reserved,
+                has_unavailable=has_unavailable,
+                has_damaged=has_damaged,
+                has_recalled=has_recalled,
+                has_vehicle=has_vehicle,
+                minimum_unset=minimum_unset,
+            )
+            candidate_filters.append(ProductVariant.id.in_(filtered_ids))
+
         if cursor is not None:
             cursor_name, cursor_id = _decode_variant_cursor(
                 cursor,
                 expected_kind="warehouse-inventory",
                 expected_scope=scope,
             )
+            cursor_key = tuple_(ProductVariant.name, ProductVariant.id)
+            cursor_value = tuple_(cursor_name, cursor_id)
             candidate_filters.append(
-                tuple_(ProductVariant.name, ProductVariant.id)
-                > tuple_(cursor_name, cursor_id)
+                cursor_key < cursor_value
+                if sort == "name_desc"
+                else cursor_key > cursor_value
             )
 
-        if only_alerts:
-            # Search and seek are part of the policy-driven source query so the
-            # database never materializes the full alert population first.
+        if use_alert_fast_path:
             alerts = _build_inventory_alert_variants_stmt(
                 company_id=company_id,
                 location_id=location_id,
                 variant_filters=candidate_filters,
             ).cte("scoped_alerts").prefix_with("MATERIALIZED")
+            alert_order = (
+                (alerts.c.variant_name.desc(), alerts.c.id.desc())
+                if sort == "name_desc"
+                else (alerts.c.variant_name.asc(), alerts.c.id.asc())
+            )
             candidate_stmt = (
                 select(alerts.c.id, alerts.c.variant_name)
-                .order_by(alerts.c.variant_name, alerts.c.id)
+                .order_by(*alert_order)
                 .limit(limit + 1)
             )
         else:
@@ -3261,6 +3389,7 @@ async def get_warehouse_inventory(
                 company_wide_inventory_read=company_wide_inventory_read,
                 candidate_filters=candidate_filters,
                 limit=limit,
+                sort=sort,
             )
 
         # Compatibility fields remain nullable; no exact totals on list reads.
