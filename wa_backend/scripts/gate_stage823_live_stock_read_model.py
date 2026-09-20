@@ -557,6 +557,7 @@ async def run() -> None:
         )
 
         async with fixture.SessionApp() as app:
+            await app.begin()
             valid_driver = await get_current_driver(
                 credentials=credentials,
                 db=app,
@@ -588,6 +589,7 @@ async def run() -> None:
         blacklisted_status = None
         try:
             async with fixture.SessionApp() as app:
+                await app.begin()
                 await get_current_driver(
                     credentials=credentials,
                     db=app,
@@ -624,6 +626,7 @@ async def run() -> None:
         disabled_status = None
         try:
             async with fixture.SessionApp() as app:
+                await app.begin()
                 await get_current_driver(
                     credentials=credentials,
                     db=app,
