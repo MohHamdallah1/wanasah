@@ -42,6 +42,11 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import {
   parseBatchDetailResponse,
+  parseLiveStockFamilies,
+  type LiveStockFamilyOption,
+  type LiveStockIndicator,
+  type LiveStockSort,
+  type LiveStockStockState,
   type WarehouseBatchDetailResponse,
   type WarehouseBatchInventoryItem,
   type WarehouseProduct,
@@ -66,12 +71,18 @@ interface Props {
   pageSize: number;
   hasMore: boolean;
   hasPrevious: boolean;
-  onlyAlerts: boolean;
+  stockState: LiveStockStockState;
+  indicators: LiveStockIndicator[];
+  familyId: number | null;
+  sort: LiveStockSort;
   canManageMinimum: boolean;
   onLocationChange: (value: string) => void;
   onRefresh: () => void;
   onSearchChange: (search: string) => void;
-  onOnlyAlertsChange: (onlyAlerts: boolean) => void;
+  onStockStateChange: (value: LiveStockStockState) => void;
+  onIndicatorsChange: (value: LiveStockIndicator[]) => void;
+  onFamilyChange: (value: number | null) => void;
+  onSortChange: (value: LiveStockSort) => void;
   onNext: () => void;
   onPrevious: () => void;
 }
@@ -136,12 +147,18 @@ export function Tab1LiveStock({
   pageSize,
   hasMore,
   hasPrevious,
-  onlyAlerts,
+  stockState,
+  indicators,
+  familyId,
+  sort,
   canManageMinimum,
   onLocationChange,
   onRefresh,
   onSearchChange,
-  onOnlyAlertsChange,
+  onStockStateChange,
+  onIndicatorsChange,
+  onFamilyChange,
+  onSortChange,
   onNext,
   onPrevious,
 }: Props) {
@@ -162,6 +179,10 @@ export function Tab1LiveStock({
   const [minimumEditor, setMinimumEditor] =
     useState<MinimumStockEditor | null>(null);
   const [savingMinimum, setSavingMinimum] = useState(false);
+  const [familySearch, setFamilySearch] = useState("");
+  const [familyOptions, setFamilyOptions] =
+    useState<LiveStockFamilyOption[]>([]);
+  const [familyLoading, setFamilyLoading] = useState(false);
 
   const batchRequestSeq = useRef(0);
   const batchAbortRef = useRef<AbortController | null>(null);
@@ -175,6 +196,9 @@ export function Tab1LiveStock({
     setBatchErrorId(null);
     setMinimumEditor(null);
     setSavingMinimum(false);
+    setFamilySearch("");
+    setFamilyOptions([]);
+    setFamilyLoading(false);
     batchRequestSeq.current += 1;
     batchAbortRef.current?.abort();
     batchAbortRef.current = null;
@@ -195,10 +219,53 @@ export function Tab1LiveStock({
   }, [searchInput, onSearchChange]);
 
   useEffect(() => {
-    if (alertCount === 0 && onlyAlerts) {
-      onOnlyAlertsChange(false);
+    if (alertCount === 0 && stockState === "low_stock") {
+      onStockStateChange("all");
     }
-  }, [alertCount, onlyAlerts, onOnlyAlertsChange]);
+  }, [alertCount, onStockStateChange, stockState]);
+
+  useEffect(() => {
+    const clean = familySearch.trim();
+    if (clean.length === 1) {
+      setFamilyOptions([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setFamilyLoading(true);
+      const params = new URLSearchParams({
+        location_id: String(locationId),
+        limit: "50",
+      });
+      if (clean.length >= 2) params.set("search", clean);
+
+      void authFetch(
+        `/warehouse/inventory/families?${params.toString()}`,
+        { signal: controller.signal },
+      )
+        .then((raw) => {
+          if (!controller.signal.aborted) {
+            setFamilyOptions(parseLiveStockFamilies(raw).items);
+          }
+        })
+        .catch((error: unknown) => {
+          if (
+            !controller.signal.aborted &&
+            !(error instanceof Error && error.name === "AbortError")
+          ) {
+            setFamilyOptions([]);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setFamilyLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [authFetch, familySearch, locationId]);
 
   useEffect(() => {
     tableScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -402,6 +469,26 @@ export function Tab1LiveStock({
     savingMinimum,
     t,
   ]);
+
+  const activeFilterCount =
+    (stockState !== "all" ? 1 : 0) +
+    indicators.length +
+    (familyId !== null ? 1 : 0);
+
+  const toggleIndicator = (indicator: LiveStockIndicator) => {
+    onIndicatorsChange(
+      indicators.includes(indicator)
+        ? indicators.filter((item) => item !== indicator)
+        : [...indicators, indicator],
+    );
+  };
+
+  const clearFilters = () => {
+    onStockStateChange("all");
+    onIndicatorsChange([]);
+    onFamilyChange(null);
+    setFamilySearch("");
+  };
 
   return (
     <div className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-3">
