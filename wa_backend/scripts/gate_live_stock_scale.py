@@ -477,27 +477,36 @@ async def resolve_driver_id(company_id: int, requested: int | None) -> int:
 
 
 async def verify_projection_read_schema() -> None:
+    required_indexes = {
+        "ix_live_stock_projection_warehouse_transition",
+        "ix_product_variant_live_active_seek",
+        "ix_inventory_cost_event_purchase_latest",
+        "ix_product_uom_conversion_display_seek",
+    }
     async with AsyncSessionLocal() as db:
-        index_exists = await db.scalar(
-            text(
-                """
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM pg_indexes
-                    WHERE schemaname = current_schema()
-                      AND tablename = 'inventory_live_stock_projection'
-                      AND indexname =
-                          'ix_live_stock_projection_warehouse_transition'
+        existing = set(
+            (
+                await db.execute(
+                    text(
+                        """
+                        SELECT indexname
+                        FROM pg_indexes
+                        WHERE schemaname = current_schema()
+                          AND indexname = ANY(:index_names)
+                        """
+                    ),
+                    {"index_names": sorted(required_indexes)},
                 )
-                """
-            )
+            ).scalars().all()
         )
         if db.in_transaction():
             await db.rollback()
-    if not bool(index_exists):
+    missing = sorted(required_indexes - existing)
+    if missing:
         raise RuntimeError(
-            "Live Stock warehouse transition seek index is missing. "
-            "Run Alembic upgrade head before benchmarking."
+            "Live Stock read-path indexes are missing: "
+            + ", ".join(missing)
+            + ". Run Alembic upgrade head before benchmarking."
         )
 
 
