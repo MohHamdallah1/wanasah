@@ -2569,17 +2569,56 @@ def _latest_readable_vehicle_sources_subquery(
     )
 
 
-async def _has_company_wide_inventory_read(
+async def _require_live_stock_warehouse_read(
     db: AsyncSession,
     *,
+    company_id: int,
+    location_id: int,
     access: InventoryAccess,
     actor: Driver,
 ) -> bool:
+    """Validate the selected active warehouse and inventory.read authority.
+
+    Returns whether the actor has company-wide inventory.read. Admins need one
+    warehouse lookup only; restricted actors use one additional bounded
+    permission query. This replaces the previous duplicated location checks.
+    """
+    location_exists = await db.scalar(
+        select(InventoryLocation.id).where(
+            InventoryLocation.company_id == company_id,
+            InventoryLocation.id == location_id,
+            InventoryLocation.location_type == "WAREHOUSE",
+            InventoryLocation.is_active.is_(True),
+        )
+    )
+    if location_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail="المستودع غير موجود أو لا يتبع شركتك.",
+        )
+
     if bool(actor.is_admin):
         return True
-    return bool(
-        await db.scalar(select(access.allows("inventory.read")))
-    )
+
+    permission_row = (
+        await db.execute(
+            select(
+                access.allows(
+                    "inventory.read",
+                    location_id,
+                ).label("location_allowed"),
+                access.allows(
+                    "inventory.read",
+                ).label("company_wide_allowed"),
+            )
+        )
+    ).one()
+    if not bool(permission_row.location_allowed):
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية تنفيذ هذه العملية ضمن الموقع المحدد.",
+        )
+    return bool(permission_row.company_wide_allowed)
 
 
 def _build_visible_inventory_stmt(
@@ -2778,22 +2817,14 @@ async def get_warehouse_inventory_alert_summary(
     current_admin: Driver = Depends(get_current_driver),
 ):
     access = InventoryAccess(db, current_admin)
-    await access.require("inventory.read", location_id)
-
     company_id = current_admin.company_id
-    location_exists = await db.scalar(
-        select(InventoryLocation.id).filter(
-            InventoryLocation.id == location_id,
-            InventoryLocation.company_id == company_id,
-            InventoryLocation.location_type == "WAREHOUSE",
-            InventoryLocation.is_active.is_(True),
-        )
+    await _require_live_stock_warehouse_read(
+        db,
+        company_id=company_id,
+        location_id=location_id,
+        access=access,
+        actor=current_admin,
     )
-    if location_exists is None:
-        raise HTTPException(
-            status_code=404,
-            detail="المستودع غير موجود أو لا يتبع شركتك.",
-        )
 
     await _require_live_stock_read_model_ready(
         db,
@@ -2825,22 +2856,16 @@ async def get_warehouse_inventory_summary(
     current_admin: Driver = Depends(get_current_driver),
 ):
     access = InventoryAccess(db, current_admin)
-    await access.require("inventory.read", location_id)
     company_id = current_admin.company_id
-
-    location = await db.scalar(
-        select(InventoryLocation.id).where(
-            InventoryLocation.id == location_id,
-            InventoryLocation.company_id == company_id,
-            InventoryLocation.location_type == "WAREHOUSE",
-            InventoryLocation.is_active.is_(True),
+    company_wide_inventory_read = (
+        await _require_live_stock_warehouse_read(
+            db,
+            company_id=company_id,
+            location_id=location_id,
+            access=access,
+            actor=current_admin,
         )
     )
-    if location is None:
-        raise HTTPException(
-            status_code=404,
-            detail="المستودع غير موجود أو لا يتبع شركتك.",
-        )
 
     await _require_live_stock_read_model_ready(
         db,
@@ -2870,11 +2895,6 @@ async def get_warehouse_inventory_summary(
     active_count = int(summary_row.active_variant_count)
     alert_count = int(summary_row.alert_count)
 
-    company_wide_inventory_read = await _has_company_wide_inventory_read(
-        db,
-        access=access,
-        actor=current_admin,
-    )
     if company_wide_inventory_read:
         return {
             "stock_total": (
@@ -2978,35 +2998,23 @@ async def get_warehouse_inventory(
     current_admin: Driver = Depends(get_current_driver),
 ):
     access = InventoryAccess(db, current_admin)
-    await access.require('inventory.read', location_id)
-
     company_id = current_admin.company_id
 
     try:
-        stmt_location = select(InventoryLocation.id).filter_by(
-            id=location_id,
-            company_id=company_id,
-            location_type='WAREHOUSE',
-            is_active=True,
-        )
-        if (await db.execute(stmt_location)).scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=404,
-                detail="المستودع غير موجود أو لا يتبع شركتك.",
+        company_wide_inventory_read = (
+            await _require_live_stock_warehouse_read(
+                db,
+                company_id=company_id,
+                location_id=location_id,
+                access=access,
+                actor=current_admin,
             )
+        )
 
         await _require_live_stock_read_model_ready(
             db,
             company_id=company_id,
             location_id=location_id,
-        )
-
-        company_wide_inventory_read = (
-            await _has_company_wide_inventory_read(
-                db,
-                access=access,
-                actor=current_admin,
-            )
         )
 
         clean_search = (search or "").strip().lower()
