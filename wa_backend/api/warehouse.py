@@ -65,6 +65,12 @@ from domains.inventory_costing.service import (
     cost_policy_payload,
     set_cost_policy,
 )
+from domains.live_stock_projection.service import (
+    LiveStockProjectionError,
+    rebuild_live_stock_warehouse,
+    remove_live_stock_warehouse_projection,
+)
+
 from product_lifecycle import (
     DEFAULT_PRODUCT_LOCATION_FLAGS,
     INBOUND_NEW,
@@ -864,6 +870,12 @@ async def create_warehouse_location(
         db.add(location)
         await db.flush()
 
+        await rebuild_live_stock_warehouse(
+            db,
+            company_id=company_id,
+            warehouse_location_id=int(location.id),
+        )
+
         branch_name = str(branch_row.name) if branch_row is not None else None
         location_payload = _warehouse_location_to_payload(
             location,
@@ -893,6 +905,17 @@ async def create_warehouse_location(
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
+    except LiveStockProjectionError as exc:
+        await db.rollback()
+        logger.error(
+            "Live Stock projection lifecycle update failed: %s",
+            str(exc),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="تعذر تحديث حالة المخزون الحي بأمان.",
+        )
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
@@ -1112,7 +1135,8 @@ async def activate_warehouse_location(
             require_active=True,
         )
 
-        if not location.is_active:
+        activated_now = not bool(location.is_active)
+        if activated_now:
             location.is_active = True
             location.version = int(location.version) + 1
             location.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -1126,6 +1150,13 @@ async def activate_warehouse_location(
             ))
 
         await db.flush()
+        if activated_now:
+            await rebuild_live_stock_warehouse(
+                db,
+                company_id=company_id,
+                warehouse_location_id=int(location.id),
+            )
+
         location_payload = _warehouse_location_to_payload(
             location,
             branch_name=(str(branch_row.name) if branch_row is not None else None),
@@ -1144,6 +1175,17 @@ async def activate_warehouse_location(
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
+    except LiveStockProjectionError as exc:
+        await db.rollback()
+        logger.error(
+            "Live Stock projection lifecycle update failed: %s",
+            str(exc),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="تعذر تحديث حالة المخزون الحي بأمان.",
+        )
     except Exception as exc:
         await db.rollback()
         logger.error(f"خطأ في تفعيل المستودع: {str(exc)}", exc_info=True)
@@ -1215,7 +1257,8 @@ async def deactivate_warehouse_location(
             require_active=False,
         )
 
-        if location.is_active:
+        deactivated_now = bool(location.is_active)
+        if deactivated_now:
             stock_row = (
                 await db.execute(
                     select(
@@ -1381,6 +1424,13 @@ async def deactivate_warehouse_location(
             ))
 
         await db.flush()
+        if deactivated_now:
+            await remove_live_stock_warehouse_projection(
+                db,
+                company_id=company_id,
+                warehouse_location_id=int(location.id),
+            )
+
         location_payload = _warehouse_location_to_payload(
             location,
             branch_name=(str(branch_row.name) if branch_row is not None else None),
@@ -1399,6 +1449,17 @@ async def deactivate_warehouse_location(
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
+    except LiveStockProjectionError as exc:
+        await db.rollback()
+        logger.error(
+            "Live Stock projection lifecycle update failed: %s",
+            str(exc),
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="تعذر تحديث حالة المخزون الحي بأمان.",
+        )
     except Exception as exc:
         await db.rollback()
         logger.error(f"خطأ في تعطيل المستودع: {str(exc)}", exc_info=True)
