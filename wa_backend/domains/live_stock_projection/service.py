@@ -2340,6 +2340,14 @@ async def refresh_due_live_stock_transitions(
 
 
 @dataclass(frozen=True)
+class LiveStockReadinessSnapshot:
+    active_variant_count: int
+    alert_count: int
+    nonactive_visible_count: int
+    company_local_date: date
+
+
+@dataclass(frozen=True)
 class LiveStockWarehouseRebuildReport:
     company_id: int
     warehouse_location_id: int
@@ -3072,7 +3080,7 @@ async def assert_live_stock_projection_ready(
     *,
     company_id: int,
     warehouse_location_id: int,
-) -> None:
+) -> LiveStockReadinessSnapshot:
     company_id = _positive_int(company_id, "company_id")
     warehouse_location_id = _positive_int(
         warehouse_location_id,
@@ -3100,8 +3108,11 @@ async def assert_live_stock_projection_ready(
             select(
                 InventoryLiveStockCompanySummary.projection_state,
                 InventoryLiveStockCompanySummary.projection_version,
+                InventoryLiveStockCompanySummary.active_variant_count,
                 InventoryLiveStockWarehouseSummary.projection_state,
                 InventoryLiveStockWarehouseSummary.projection_version,
+                InventoryLiveStockWarehouseSummary.alert_count,
+                InventoryLiveStockWarehouseSummary.nonactive_visible_count,
                 company_date_expr.label("company_local_date"),
                 due_transition_exists.label("has_due_transition"),
             )
@@ -3135,8 +3146,8 @@ async def assert_live_stock_projection_ready(
         row is None
         or row[0] != "READY"
         or int(row[1]) != PROJECTION_VERSION
-        or row[2] != "READY"
-        or int(row[3]) != PROJECTION_VERSION
+        or row[3] != "READY"
+        or int(row[4]) != PROJECTION_VERSION
     ):
         raise LiveStockProjectionError(
             "Live Stock projection is not READY for this active warehouse."
@@ -3150,4 +3161,11 @@ async def assert_live_stock_projection_ready(
         raise LiveStockProjectionError(
             "Live Stock projection has a due time transition and must be refreshed."
         )
+
+    return LiveStockReadinessSnapshot(
+        active_variant_count=int(row.active_variant_count),
+        alert_count=int(row.alert_count),
+        nonactive_visible_count=int(row.nonactive_visible_count),
+        company_local_date=row.company_local_date,
+    )
 
