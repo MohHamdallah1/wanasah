@@ -308,6 +308,49 @@ async def async_main(args: argparse.Namespace) -> None:
     try:
         await wait_ready(process, base_url, log_path)
         headers = {"Authorization": f"Bearer {token}"}
+
+        # Isolate HTTPX/environment transport overhead before profiling app
+        # layers.  HTTPX trusts proxy-related environment variables by default;
+        # a localhost production gate must prove whether that changes loopback
+        # latency instead of assuming direct transport.
+        proxy_env = {
+            key: bool(os.environ.get(key))
+            for key in (
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "NO_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "all_proxy",
+                "no_proxy",
+            )
+        }
+        print("PROBE_PROXY_ENV=" + json.dumps(proxy_env, sort_keys=True))
+
+        for trust_env in (True, False):
+            async with httpx.AsyncClient(
+                base_url=base_url,
+                headers=headers,
+                timeout=30.0,
+                trust_env=trust_env,
+            ) as transport_client:
+                transport_result = await run_case(
+                    client=transport_client,
+                    name=(
+                        "raw_trust_env"
+                        if trust_env
+                        else "raw_direct"
+                    ),
+                    path="/__stage823_probe/raw",
+                    concurrency=max(args.concurrency),
+                    requests=args.requests,
+                )
+                print(
+                    "PROBE_TRANSPORT="
+                    + json.dumps(transport_result, sort_keys=True)
+                )
+
         routes = [
             ("raw", "/__stage823_probe/raw", False),
             ("db", "/__stage823_probe/db", False),
