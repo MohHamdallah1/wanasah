@@ -482,6 +482,35 @@ def main() -> None:
         failures.append("HTTP_SCALE_GATE_NOT_MODELING_AGGREGATE_DB_BUDGET")
 
     checks += 1
+    required_real_http = (
+        "REAL_HTTP_WORKERS = 4",
+        "REAL_HTTP_POOL_SIZE = 4",
+        "REAL_HTTP_MAX_OVERFLOW = 1",
+        "REAL_HTTP_DB_CAP != 20",
+        "async def real_uvicorn_http_load(",
+        "def _start_real_uvicorn(",
+        '"--workers"',
+        "str(REAL_HTTP_WORKERS)",
+        '"WEB_CONCURRENCY": str(REAL_HTTP_WORKERS)',
+        '"DB_APP_CONNECTION_BUDGET": str(REAL_HTTP_DB_CAP)',
+        '"DB_POOL_SIZE": str(REAL_HTTP_POOL_SIZE)',
+        '"DB_MAX_OVERFLOW": str(REAL_HTTP_MAX_OVERFLOW)',
+        "await engine.dispose()",
+        "await http_bench_engine.dispose()",
+        "ASGI_HTTP_DIAGNOSTIC=",
+        "HTTP_LOAD_PROFILE ",
+    )
+    missing_real_http = [
+        token for token in required_real_http
+        if token not in scale_source
+    ]
+    if missing_real_http:
+        failures.append(
+            "REAL_UVICORN_HTTP_GATE_INCOMPLETE:"
+            + ",".join(missing_real_http)
+        )
+
+    checks += 1
     benchmark_db = function_block(
         scale_source,
         "http_benchmark_get_db",
