@@ -8,11 +8,13 @@ import {
 import {
   AlertTriangle,
   CalendarDays,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   FilterX,
   Info,
+  ListFilter,
   PackageOpen,
   Pencil,
   RefreshCcw,
@@ -30,6 +32,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
@@ -56,6 +63,7 @@ interface Props {
   alertCount: number | null;
   matchingTotal: number | null;
   pageNumber: number;
+  pageSize: number;
   hasMore: boolean;
   hasPrevious: boolean;
   onlyAlerts: boolean;
@@ -125,6 +133,7 @@ export function Tab1LiveStock({
   loading,
   alertCount,
   pageNumber,
+  pageSize,
   hasMore,
   hasPrevious,
   onlyAlerts,
@@ -156,6 +165,7 @@ export function Tab1LiveStock({
 
   const batchRequestSeq = useRef(0);
   const batchAbortRef = useRef<AbortController | null>(null);
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setSearchInput("");
@@ -189,6 +199,10 @@ export function Tab1LiveStock({
       onOnlyAlertsChange(false);
     }
   }, [alertCount, onlyAlerts, onOnlyAlertsChange]);
+
+  useEffect(() => {
+    tableScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [pageNumber]);
 
   const formatDate = useCallback(
     (value: string | null): string => {
@@ -409,29 +423,85 @@ export function Tab1LiveStock({
               />
             </div>
 
-            {alertCount !== null && alertCount > 0 && (
-              <button
-                type="button"
-                onClick={() => onOnlyAlertsChange(!onlyAlerts)}
-                className={`inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-black transition-all ${
-                  onlyAlerts
-                    ? "border-red-400 bg-red-100 text-red-700"
-                    : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
-                }`}
-                title={t("inventoryLive.alertFilterTitle")}
-                aria-label={t("inventoryLive.alertTitle", {
-                  count: alertCount,
-                })}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={`live-stock-filter-button ${
+                    onlyAlerts
+                      ? "live-stock-filter-button--active"
+                      : ""
+                  }`}
+                  aria-label={t("inventoryLive.filterButton")}
+                  title={t("inventoryLive.filterButton")}
+                >
+                  <ListFilter className="h-4 w-4" />
+                  <span>{t("inventoryLive.filterButton")}</span>
+                  {alertCount !== null && alertCount > 0 && (
+                    <span className="live-stock-filter-count tabular-nums">
+                      {new Intl.NumberFormat(locale, {
+                        numberingSystem: "latn",
+                      }).format(alertCount)}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                sideOffset={8}
+                dir={i18n.dir()}
+                className="live-stock-filter-popover"
               >
-                <AlertTriangle className="h-4 w-4" />
-                <span className="tabular-nums">
-                  {new Intl.NumberFormat(locale, {
-                    numberingSystem: "latn",
-                  }).format(alertCount)}
-                </span>
-                {onlyAlerts && <FilterX className="h-4 w-4" />}
-              </button>
-            )}
+                <div className="live-stock-filter-title">
+                  {t("inventoryLive.filterTitle")}
+                </div>
+                <button
+                  type="button"
+                  className="live-stock-filter-option"
+                  data-active={!onlyAlerts}
+                  onClick={() => onOnlyAlertsChange(false)}
+                >
+                  <span>
+                    <strong>{t("inventoryLive.filterAll")}</strong>
+                    <small>{t("inventoryLive.filterAllHint")}</small>
+                  </span>
+                  {!onlyAlerts && <Check className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  className="live-stock-filter-option"
+                  data-active={onlyAlerts}
+                  disabled={alertCount === 0}
+                  onClick={() => onOnlyAlertsChange(true)}
+                >
+                  <span>
+                    <strong>{t("inventoryLive.filterLowStock")}</strong>
+                    <small>
+                      {alertCount === null
+                        ? t("common.loading")
+                        : t("inventoryLive.filterLowStockCount", {
+                            count: alertCount,
+                          })}
+                    </small>
+                  </span>
+                  {onlyAlerts ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                  )}
+                </button>
+                {onlyAlerts && (
+                  <button
+                    type="button"
+                    className="live-stock-filter-reset"
+                    onClick={() => onOnlyAlertsChange(false)}
+                  >
+                    <FilterX className="h-3.5 w-3.5" />
+                    {t("inventoryLive.filterReset")}
+                  </button>
+                )}
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div className="live-stock-context-panel">
@@ -510,6 +580,7 @@ export function Tab1LiveStock({
         </div>
 
         <div
+          ref={tableScrollRef}
           className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto transition-all duration-300 ${
             loading
               ? "pointer-events-none select-none opacity-50 grayscale-[20%]"
@@ -594,7 +665,7 @@ export function Tab1LiveStock({
                 </tr>
               )}
 
-              {products.map((product) => {
+              {products.map((product, index) => {
                 const isAlert =
                   compareQuantity(
                     product.minimum_quantity,
@@ -680,6 +751,23 @@ export function Tab1LiveStock({
                     >
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
+                          <span
+                            className="live-stock-row-number tabular-nums"
+                            aria-label={t("inventoryLive.rowNumber", {
+                              number:
+                                (pageNumber - 1) * pageSize +
+                                index +
+                                1,
+                            })}
+                          >
+                            {new Intl.NumberFormat(locale, {
+                              numberingSystem: "latn",
+                            }).format(
+                              (pageNumber - 1) * pageSize +
+                                index +
+                                1,
+                            )}
+                          </span>
                           <button
                             type="button"
                             onClick={() =>
@@ -1294,36 +1382,30 @@ export function Tab1LiveStock({
         </div>
 
         {(hasPrevious || hasMore) && (
-          <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3">
-            <span className="text-xs font-black text-slate-500">
+          <div className="live-stock-pagination">
+            <span className="live-stock-pagination-page">
               {t("inventoryLive.page", {
                 page: pageNumber,
               })}
             </span>
-            <div className="flex gap-2">
+            <div className="live-stock-pagination-actions">
               <button
                 type="button"
                 onClick={onPrevious}
                 disabled={!hasPrevious || loading}
-                className="rounded-lg border border-slate-200 p-1.5 text-slate-600 shadow-sm transition-all hover:bg-white disabled:opacity-30"
-                title={t("inventoryLive.previousPage")}
-                aria-label={t(
-                  "inventoryLive.previousPage",
-                )}
+                className="live-stock-pagination-button"
               >
                 <ChevronRight className="h-4 w-4 rtl:block ltr:hidden" />
                 <ChevronLeft className="hidden h-4 w-4 ltr:block" />
+                <span>{t("inventoryLive.previousPage")}</span>
               </button>
               <button
                 type="button"
                 onClick={onNext}
                 disabled={!hasMore || loading}
-                className="rounded-lg border border-slate-200 p-1.5 text-slate-600 shadow-sm transition-all hover:bg-white disabled:opacity-30"
-                title={t("inventoryLive.nextPage")}
-                aria-label={t(
-                  "inventoryLive.nextPage",
-                )}
+                className="live-stock-pagination-button"
               >
+                <span>{t("inventoryLive.nextPage")}</span>
                 <ChevronLeft className="h-4 w-4 rtl:block ltr:hidden" />
                 <ChevronRight className="hidden h-4 w-4 ltr:block" />
               </button>
