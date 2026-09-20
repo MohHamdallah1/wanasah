@@ -696,7 +696,7 @@ export function Tab1LiveStock({
                   </select>
                 </div>
               </PopoverContent>
-            </Popover>>
+            </Popover>
           </div>
 
           <div className="live-stock-context-panel">
@@ -785,8 +785,14 @@ export function Tab1LiveStock({
           <table className="live-stock-table" aria-label={t("inventoryShell.tabs.live")} aria-busy={loading}>
             <thead>
               <tr className="live-stock-columns">
+                <th scope="col" className="live-stock-number-heading">
+                  #
+                </th>
                 <th scope="col" className="live-product-heading">
                   {t("inventoryLive.product")}
+                </th>
+                <th scope="col" className="live-family-heading">
+                  {t("inventoryLive.family")}
                 </th>
 
                 <th scope="col">
@@ -850,7 +856,7 @@ export function Tab1LiveStock({
               {products.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={10}
                     className="py-14 text-center text-sm font-bold text-slate-400"
                   >
                     {loading
@@ -944,25 +950,28 @@ export function Tab1LiveStock({
                             : "bg-white hover:bg-slate-50/65"
                       }`}
                     >
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="live-stock-row-number tabular-nums"
-                            aria-label={t("inventoryLive.rowNumber", {
-                              number:
-                                (pageNumber - 1) * pageSize +
-                                index +
-                                1,
-                            })}
-                          >
-                            {new Intl.NumberFormat(locale, {
-                              numberingSystem: "latn",
-                            }).format(
+                      <td className="live-stock-number-cell">
+                        <span
+                          className="live-stock-row-number tabular-nums"
+                          aria-label={t("inventoryLive.rowNumber", {
+                            number:
                               (pageNumber - 1) * pageSize +
-                                index +
-                                1,
-                            )}
-                          </span>
+                              index +
+                              1,
+                          })}
+                        >
+                          {new Intl.NumberFormat(locale, {
+                            numberingSystem: "latn",
+                          }).format(
+                            (pageNumber - 1) * pageSize +
+                              index +
+                              1,
+                          )}
+                        </span>
+                      </td>
+
+                      <td className="live-product-cell px-4 py-3.5">
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() =>
@@ -1051,6 +1060,12 @@ export function Tab1LiveStock({
                               )}
                             </div>
                           </div>
+                        </div>
+                      </td>
+
+                      <td className="live-family-cell px-3 py-3.5">
+                        <div className="live-family-name" title={product.family_name}>
+                          {product.family_name}
                         </div>
                       </td>
 
@@ -1154,7 +1169,7 @@ export function Tab1LiveStock({
 
                     {expanded && (
                       <tr className="border-b border-sky-100 bg-[linear-gradient(135deg,rgba(240,249,255,0.92),rgba(248,250,252,0.96))]">
-                        <td colSpan={8} className="live-batch-panel p-0">
+                        <td colSpan={10} className="live-batch-panel p-0">
                           <div className="px-5 py-4">
                             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                               <div>
