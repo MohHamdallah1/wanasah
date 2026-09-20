@@ -964,11 +964,7 @@ export function Tab1LiveStock({
                         >
                           {new Intl.NumberFormat(locale, {
                             numberingSystem: "latn",
-                          }).format(
-                            (pageNumber - 1) * pageSize +
-                              index +
-                              1,
-                          )}
+                          }).format(index + 1)}
                         </span>
                       </td>
 
