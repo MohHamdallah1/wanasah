@@ -2523,6 +2523,20 @@ async def _require_live_stock_read_model_ready(
             warehouse_location_id=location_id,
         )
     except LiveStockProjectionError as exc:
+        if "active warehouse" in str(exc):
+            exists = await db.scalar(
+                select(InventoryLocation.id).where(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id == location_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                    InventoryLocation.is_active.is_(True),
+                )
+            )
+            if exists is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="المستودع غير موجود أو لا يتبع شركتك.",
+                ) from exc
         raise HTTPException(
             status_code=503,
             detail=inventory_business_error(
@@ -2577,12 +2591,15 @@ async def _require_live_stock_warehouse_read(
     access: InventoryAccess,
     actor: Driver,
 ) -> bool:
-    """Validate the selected active warehouse and inventory.read authority.
+    """Validate inventory.read authority for the selected warehouse.
 
-    Returns whether the actor has company-wide inventory.read. Admins need one
-    warehouse lookup only; restricted actors use one additional bounded
-    permission query. This replaces the previous duplicated location checks.
+    Company admins need no separate location SQL on the success path because
+    the readiness query already joins the active warehouse. Restricted actors
+    keep explicit location + permission checks to preserve authorization.
     """
+    if bool(actor.is_admin):
+        return True
+
     location_exists = await db.scalar(
         select(InventoryLocation.id).where(
             InventoryLocation.company_id == company_id,
@@ -2596,9 +2613,6 @@ async def _require_live_stock_warehouse_read(
             status_code=404,
             detail="المستودع غير موجود أو لا يتبع شركتك.",
         )
-
-    if bool(actor.is_admin):
-        return True
 
     permission_row = (
         await db.execute(
