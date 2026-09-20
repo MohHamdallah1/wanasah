@@ -638,7 +638,12 @@ async def http_load(
                         )
                         sql_totals.append(sql_total)
                         outside_sql_ms.append(
-                            max(0.0, elapsed_ms - sql_total)
+                            max(
+                                0.0,
+                                elapsed_ms
+                                - sql_total
+                                - sum(request_pool_wait),
+                            )
                         )
                         sql_counts.append(len(bucket))
                     finally:
