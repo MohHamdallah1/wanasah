@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WAREHOUSE = ROOT / "api" / "warehouse.py"
+SCALE_GATE = ROOT / "scripts" / "gate_live_stock_scale.py"
 
 
 def function_block(source: str, name: str) -> str:
@@ -176,6 +177,37 @@ def main() -> None:
     checks += 1
     if source.count("_require_live_stock_read_model_ready(") < 4:
         failures.append("READINESS_GUARD_NOT_APPLIED_TO_ALL_LIVE_STOCK_READS")
+
+    checks += 1
+    scale_source = SCALE_GATE.read_text(encoding="utf-8")
+    if (
+        "GlobalCountSession" not in scale_source
+        or "DATABASE_URL_MIGRATION" not in scale_source
+        or "global_count_engine" not in scale_source
+    ):
+        failures.append("GLOBAL_SCALE_COUNTS_NOT_RLS_INDEPENDENT")
+
+    checks += 1
+    if (
+        "HTTP_BENCH_POOL_SIZE = 16" not in scale_source
+        or "HTTP_BENCH_MAX_OVERFLOW = 4" not in scale_source
+        or "HTTP_BENCH_DB_CAP != 20" not in scale_source
+        or "http_benchmark_get_db" not in scale_source
+        or "app.dependency_overrides" not in scale_source
+        or '"pool_wait"' not in scale_source
+    ):
+        failures.append("HTTP_SCALE_GATE_NOT_MODELING_AGGREGATE_DB_BUDGET")
+
+    checks += 1
+    if (
+        'parser.add_argument("--concurrency", type=int, default=20)'
+        not in scale_source
+        or 'parser.add_argument("--requests", type=int, default=100)'
+        not in scale_source
+        or 'parser.add_argument("--max-http-p95", type=float, default=500.0)'
+        not in scale_source
+    ):
+        failures.append("HTTP_SCALE_GATE_THRESHOLDS_WEAKENED")
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
