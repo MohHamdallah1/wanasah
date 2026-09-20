@@ -561,11 +561,15 @@ async def run() -> None:
                 credentials=credentials,
                 db=app,
             )
+            valid_identity = (
+                int(valid_driver.id),
+                int(valid_driver.company_id),
+            )
             await app.rollback()
         record(
             "collapsed auth query preserves valid-token authentication",
-            int(valid_driver.id) == int(ids["admin_id"])
-            and int(valid_driver.company_id) == int(ids["company_id"]),
+            valid_identity
+            == (int(ids["admin_id"]), int(ids["company_id"])),
         )
 
         async with fixture.SessionSU() as su:
