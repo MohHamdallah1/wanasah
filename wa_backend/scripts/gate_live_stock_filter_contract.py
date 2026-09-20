@@ -111,6 +111,21 @@ check(
     "filter button count is active-filter count while low-stock count stays inside the menu",
 )
 check(
+    "live-stock-filter-popover--compact" in live
+    and "live-stock-family-popover" in live
+    and live.index("live-stock-family-popover")
+        > live.index("live-stock-filter-popover--compact"),
+    "family selection is a separate compact control outside the stock filter menu",
+)
+check(
+    "loadMoreSentinelRef" in live
+    and "IntersectionObserver" in live
+    and "onLoadMore()" in live
+    and "handleStockLoadMore" in main
+    and "...data.items.filter" in main,
+    "cursor pages auto-load and append while scrolling instead of requiring manual next-page navigation",
+)
+check(
     "parseLiveStockFamilies" in contracts
     and "product_id: number;" in contracts
     and "family_name: string;" in contracts,
