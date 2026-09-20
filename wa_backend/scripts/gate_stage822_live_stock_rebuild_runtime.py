@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,6 +21,8 @@ from domains.live_stock_projection.service import (
     rebuild_live_stock_warehouse,
     reconcile_live_stock_company,
     remove_live_stock_warehouse_projection,
+    refresh_due_live_stock_transitions,
+    refresh_live_stock_policy_changes,
 )
 
 
@@ -255,6 +258,182 @@ async def run() -> None:
                 f"drift={clean.drifted_keys} "
                 f"summary_repairs={clean.summary_repairs}"
             ),
+        )
+
+        # Policy mutation hook: change threshold in the same transaction and
+        # prove the projection changes without a rebuild.
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await app.execute(
+                text(
+                    """
+                    UPDATE inventory_stock_policies
+                    SET minimum_quantity=5, updated_at=NOW()
+                    WHERE company_id=:company_id
+                      AND location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "company_id": company_id,
+                    "warehouse_id": warehouse_id,
+                    "variant_id": variant_id,
+                },
+            )
+            await refresh_live_stock_policy_changes(
+                app,
+                company_id=company_id,
+                warehouse_location_id=warehouse_id,
+                variant_ids=[variant_id],
+            )
+            changed_policy = (
+                await app.execute(
+                    text(
+                        """
+                        SELECT minimum_quantity, is_low_stock
+                        FROM inventory_live_stock_projection
+                        WHERE company_id=:company_id
+                          AND warehouse_location_id=:warehouse_id
+                          AND product_variant_id=:variant_id
+                        """
+                    ),
+                    {
+                        "company_id": company_id,
+                        "warehouse_id": warehouse_id,
+                        "variant_id": variant_id,
+                    },
+                )
+            ).one()
+            await app.commit()
+        record(
+            "policy hook updates projection in the same transaction",
+            int(changed_policy.minimum_quantity) == 5
+            and not bool(changed_policy.is_low_stock),
+            (
+                f"minimum={changed_policy.minimum_quantity} "
+                f"low={changed_policy.is_low_stock}"
+            ),
+        )
+
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await app.execute(
+                text(
+                    """
+                    UPDATE inventory_stock_policies
+                    SET minimum_quantity=12, updated_at=NOW()
+                    WHERE company_id=:company_id
+                      AND location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "company_id": company_id,
+                    "warehouse_id": warehouse_id,
+                    "variant_id": variant_id,
+                },
+            )
+            await refresh_live_stock_policy_changes(
+                app,
+                company_id=company_id,
+                warehouse_location_id=warehouse_id,
+                variant_ids=[variant_id],
+            )
+            restored_policy = (
+                await app.execute(
+                    text(
+                        """
+                        SELECT minimum_quantity, is_low_stock
+                        FROM inventory_live_stock_projection
+                        WHERE company_id=:company_id
+                          AND warehouse_location_id=:warehouse_id
+                          AND product_variant_id=:variant_id
+                        """
+                    ),
+                    {
+                        "company_id": company_id,
+                        "warehouse_id": warehouse_id,
+                        "variant_id": variant_id,
+                    },
+                )
+            ).one()
+            await app.commit()
+        record(
+            "policy hook restore returns exact projection state",
+            int(restored_policy.minimum_quantity) == 12
+            and bool(restored_policy.is_low_stock),
+            (
+                f"minimum={restored_policy.minimum_quantity} "
+                f"low={restored_policy.is_low_stock}"
+            ),
+        )
+
+        # Artificially age one projection row while preserving its DB constraint:
+        # next_transition_date remains after computed_for_date but is due today.
+        as_of = date.fromordinal(int(ids["as_of_ordinal"]))
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await app.execute(
+                text(
+                    """
+                    UPDATE inventory_live_stock_projection
+                    SET computed_for_date=:yesterday,
+                        next_transition_date=:today
+                    WHERE company_id=:company_id
+                      AND warehouse_location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "yesterday": as_of.fromordinal(as_of.toordinal() - 1),
+                    "today": as_of,
+                    "company_id": company_id,
+                    "warehouse_id": warehouse_id,
+                    "variant_id": variant_id,
+                },
+            )
+            await app.commit()
+
+        stale_rejected = False
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            try:
+                await assert_live_stock_projection_ready(
+                    app,
+                    company_id=company_id,
+                    warehouse_location_id=warehouse_id,
+                )
+            except LiveStockProjectionError:
+                stale_rejected = True
+            await app.rollback()
+        record(
+            "due temporal transition is rejected before refresh",
+            stale_rejected,
+        )
+
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            due_count = await refresh_due_live_stock_transitions(
+                app,
+                company_id=company_id,
+                as_of_date=as_of,
+                limit=1000,
+            )
+            await assert_live_stock_projection_ready(
+                app,
+                company_id=company_id,
+                warehouse_location_id=warehouse_id,
+            )
+            await app.commit()
+        record(
+            "due transition refresh restores READY freshness",
+            due_count >= 1,
+            f"refreshed={due_count}",
         )
 
         async with fixture.SessionApp() as app:
