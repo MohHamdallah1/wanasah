@@ -546,9 +546,9 @@ def main() -> None:
 
     checks += 1
     required_real_http = (
-        "REAL_HTTP_WORKERS = 4",
-        "REAL_HTTP_POOL_SIZE = 4",
-        "REAL_HTTP_MAX_OVERFLOW = 1",
+        'os.environ.get("LIVE_STOCK_DIAGNOSTIC_WORKERS", "4")',
+        'os.environ.get("LIVE_STOCK_DIAGNOSTIC_POOL_SIZE", "5")',
+        "REAL_HTTP_MAX_OVERFLOW = 0",
         "REAL_HTTP_DB_CAP != 20",
         "async def real_uvicorn_http_load(",
         "def _start_real_uvicorn(",

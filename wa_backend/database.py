@@ -77,7 +77,9 @@ async def warm_async_engine_pool(
     async def warm_one() -> None:
         nonlocal ready
         async with target_engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
+            # Live Stock binds integer[] page keys. Initialize asyncpg's array
+            # codec here so concurrent first reads do not run type discovery.
+            await connection.execute(text("SELECT CAST('{}' AS INTEGER[])"))
             async with ready_lock:
                 ready += 1
                 if ready == connections:

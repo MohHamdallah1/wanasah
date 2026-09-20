@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import configure_mappers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -99,6 +100,9 @@ import os
 # +++ ISSUE-26: الإغلاق النظيف لموارد قاعدة البيانات لمنع تسريب الاتصالات (Connection Leaks) +++
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Resolve ORM relationships before accepting requests. Lazy configuration
+    # on the first authenticated read blocks every request in that worker.
+    configure_mappers()
     # Establish the steady DB pool before the worker is considered ready so
     # the first user request never pays PostgreSQL connection cold-start cost.
     await warm_database_pool()

@@ -1,0 +1,21 @@
+DATASET={"companies": 1065, "company_variants": 10121, "global_variants": 110187, "location_balances": 14938, "location_policies": 10120}
+PROJECTION_PREPARE=1244.7ms driver_id=26
+live_50: p50=14.1ms p95=15.8ms p99=17.0ms max=17.5ms sql_p95=9.6ms sql_statements=3..3 samples=30 candidate_p95=3.2ms details_p95=2.6ms readiness_summary_p95=5.0ms
+live_200: p50=21.2ms p95=26.1ms p99=88.7ms max=114.2ms sql_p95=14.3ms sql_statements=3..3 samples=30 candidate_p95=3.5ms details_p95=6.2ms readiness_summary_p95=6.0ms
+summary: p50=5.2ms p95=8.1ms p99=9.0ms max=9.2ms sql_p95=7.0ms sql_statements=1..1 samples=30 readiness_summary_p95=7.0ms
+alerts_summary: p50=5.1ms p95=7.4ms p99=8.4ms max=8.7ms sql_p95=6.5ms sql_statements=1..1 samples=30 readiness_summary_p95=6.5ms
+only_alerts_50: p50=15.9ms p95=19.1ms p99=20.4ms max=20.9ms sql_p95=13.7ms sql_statements=3..3 samples=30 candidate_p95=5.9ms details_p95=2.4ms readiness_summary_p95=7.0ms
+search_50: p50=36.9ms p95=46.5ms p99=47.2ms max=47.4ms sql_p95=39.9ms sql_statements=3..3 samples=30 candidate_p95=32.8ms details_p95=4.4ms readiness_summary_p95=8.1ms
+cursor_page_2: p50=28.7ms p95=33.9ms p99=34.5ms max=34.5ms sql_p95=11.1ms sql_statements=3..3 samples=30 candidate_p95=1.5ms details_p95=2.2ms readiness_summary_p95=8.2ms
+HTTP_POOL_PREWARM=861.8ms steady_connections=20 max_overflow=0
+ASGI_HTTP_DIAGNOSTIC={"alerts_p95_ms": 71.5803999803029, "concurrency": 5, "cursor_p95_ms": 161.63764998491388, "db_connection_cap": 20, "errors": 0, "max_ms": 163.1016000173986, "outside_sql_p95_ms": 40.899580041877925, "p50_ms": 76.24170003691688, "p95_ms": 161.39661998022348, "p99_ms": 162.73176000919193, "pool_wait_p95_ms": 17.348960018716745, "requests": 25, "sql_label_p95": {"auth_blacklist": 15.835659974254664, "candidate": 18.82211996708065, "details": 74.1539199952967, "pool_wait": 17.348960018716745, "readiness_summary": 31.688419973943375}, "sql_p95_ms": 127.65623998129739, "sql_statements_max": 4, "sql_statements_min": 2}
+ASGI_HTTP_PROFILE cursor_p95=161.6ms alerts_p95=71.6ms pool_wait_p95=17.3ms sql_p95=127.7ms outside_sql_p95=40.9ms labels={'auth_blacklist': 15.835659974254664, 'candidate': 18.82211996708065, 'details': 74.1539199952967, 'pool_wait': 17.348960018716745, 'readiness_summary': 31.688419973943375}
+HTTP_WORKERS_READY={"pids": [18772, 25116, 37532, 38240], "workers_expected": 4, "workers_seen": 4}
+HTTP_LOAD_CONNECTION_CLOSE_DIAGNOSTIC={"alerts_p95_ms": 306.04722998687066, "client": "stdlib_threads_connection_close", "client_minus_server_p95_ms": 27.77900003249067, "completed_responses": 100, "concurrency": 20, "cursor_p95_ms": 447.9984450008487, "db_connection_cap": 20, "error_samples": [], "errors": 0, "http_status_errors": 0, "max_ms": 654.2046999675222, "p50_ms": 230.63875001389533, "p95_ms": 433.1191000324907, "p99_ms": 620.7023079722422, "requests": 100, "server_p95_ms": 405.3401, "timeouts": 0, "transport_errors": 0, "uvicorn_log_tail": "", "worker_hits": {"18772": 24, "25116": 23, "37532": 25, "38240": 28}, "worker_server_p95_ms": {"18772": 284.5549, "25116": 405.06190000000004, "37532": 535.8715999999996, "38240": 271.62485}, "workers": 4}
+HTTP_UVICORN_LOG=C:\Users\admin\AppData\Local\Temp\wanasah-live-stock-uvicorn-i7asz1ab.log
+HTTP_LOAD={"alerts_p95_ms": 459.23161999962764, "client": "stdlib_threads_persistent", "client_minus_server_p95_ms": 4.89831496439615, "completed_responses": 100, "concurrency": 20, "cursor_p95_ms": 624.7543450124795, "db_connection_cap": 20, "error_samples": [], "errors": 0, "http_status_errors": 0, "max_ms": 918.0568000301719, "p50_ms": 237.77924999012612, "p95_ms": 623.3105149643961, "p99_ms": 680.8421080344135, "requests": 100, "server_p95_ms": 618.4122, "timeouts": 0, "transport_errors": 0, "uvicorn_log_tail": "", "worker_hits": {"18772": 35, "25116": 20, "37532": 15, "38240": 30}, "worker_server_p95_ms": {"18772": 620.7336, "25116": 564.2024500000001, "37532": 438.1463, "38240": 558.6763500000001}, "workers": 4}
+HTTP_LOAD_PROFILE workers=4 client=stdlib_threads_persistent cursor_p95=624.8ms alerts_p95=459.2ms overall_p95=623.3ms server_p95=618.4ms worker_hits={'18772': 35, '37532': 15, '25116': 20, '38240': 30} timeouts=0 transport_errors=0
+CHECKS=20
+FAILURES=1
+FAIL: HTTP_LOAD_P95:623.3>500.0
+LIVE_STOCK_SCALE_GATE=FAIL
