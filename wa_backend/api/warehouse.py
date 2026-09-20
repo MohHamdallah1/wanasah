@@ -2552,8 +2552,22 @@ def _latest_readable_vehicle_sources_subquery(
     )
 
 
+async def _has_company_wide_inventory_read(
+    db: AsyncSession,
+    *,
+    access: InventoryAccess,
+    actor: Driver,
+) -> bool:
+    if bool(actor.is_admin):
+        return True
+    return bool(
+        await db.scalar(select(access.allows("inventory.read")))
+    )
+
+
 def _build_visible_inventory_stmt(
     *, company_id: int, location_id: int, access: InventoryAccess,
+    company_wide_inventory_read: bool,
     candidate_filters=(), limit: Optional[int] = None,
 ):
     """Exact Live Stock visibility with projection-backed warehouse presence.
@@ -2610,49 +2624,75 @@ def _build_visible_inventory_stmt(
         .limit(limit + 1 if limit is not None else None)
     )
 
-    readable_vehicle_locations = _readable_vehicle_locations_subquery(
-        company_id=company_id,
-        access=access,
-    )
-    latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
-        company_id=company_id,
-        readable_vehicle_locations=readable_vehicle_locations,
-    )
-    vehicle_candidates = (
-        select(
-            ProductVariant.id,
-            ProductVariant.name.label("variant_name"),
+    if company_wide_inventory_read:
+        vehicle_candidates = (
+            select(
+                ProductVariant.id,
+                ProductVariant.name.label("variant_name"),
+            )
+            .join(
+                InventoryLiveStockProjection,
+                and_(
+                    InventoryLiveStockProjection.company_id
+                    == ProductVariant.company_id,
+                    InventoryLiveStockProjection.product_variant_id
+                    == ProductVariant.id,
+                    InventoryLiveStockProjection.warehouse_location_id
+                    == location_id,
+                ),
+            )
+            .where(
+                *candidate_filters,
+                ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
+                InventoryLiveStockProjection.has_vehicle_presence.is_(True),
+            )
+            .order_by(*ordering)
+            .limit(limit + 1 if limit is not None else None)
         )
-        .join(
-            InventoryBalance,
-            and_(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.product_variant_id == ProductVariant.id,
-                InventoryBalance.stock_status != "DAMAGED",
-                InventoryBalance.on_hand_quantity > 0,
-            ),
+    else:
+        readable_vehicle_locations = _readable_vehicle_locations_subquery(
+            company_id=company_id,
+            access=access,
         )
-        .join(
-            readable_vehicle_locations,
-            readable_vehicle_locations.c.id
-            == InventoryBalance.location_id,
+        latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
+            company_id=company_id,
+            readable_vehicle_locations=readable_vehicle_locations,
         )
-        .join(
-            latest_vehicle_sources,
-            and_(
-                latest_vehicle_sources.c.vehicle_id
-                == readable_vehicle_locations.c.vehicle_id,
-                latest_vehicle_sources.c.source_location_id == location_id,
-            ),
+        vehicle_candidates = (
+            select(
+                ProductVariant.id,
+                ProductVariant.name.label("variant_name"),
+            )
+            .join(
+                InventoryBalance,
+                and_(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.product_variant_id == ProductVariant.id,
+                    InventoryBalance.stock_status != "DAMAGED",
+                    InventoryBalance.on_hand_quantity > 0,
+                ),
+            )
+            .join(
+                readable_vehicle_locations,
+                readable_vehicle_locations.c.id
+                == InventoryBalance.location_id,
+            )
+            .join(
+                latest_vehicle_sources,
+                and_(
+                    latest_vehicle_sources.c.vehicle_id
+                    == readable_vehicle_locations.c.vehicle_id,
+                    latest_vehicle_sources.c.source_location_id == location_id,
+                ),
+            )
+            .where(
+                *candidate_filters,
+                ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
+            )
+            .distinct()
+            .order_by(*ordering)
+            .limit(limit + 1 if limit is not None else None)
         )
-        .where(
-            *candidate_filters,
-            ProductVariant.lifecycle_status.is_distinct_from("ACTIVE"),
-        )
-        .distinct()
-        .order_by(*ordering)
-        .limit(limit + 1 if limit is not None else None)
-    )
 
     visible_candidates = union(
         active_candidates,
@@ -2805,8 +2845,10 @@ async def get_warehouse_inventory_summary(
     active_count = int(summary_row.active_variant_count)
     alert_count = int(summary_row.alert_count)
 
-    company_wide_inventory_read = bool(
-        await db.scalar(select(access.allows("inventory.read")))
+    company_wide_inventory_read = await _has_company_wide_inventory_read(
+        db,
+        access=access,
+        actor=current_admin,
     )
     if company_wide_inventory_read:
         return {
@@ -2934,6 +2976,14 @@ async def get_warehouse_inventory(
             location_id=location_id,
         )
 
+        company_wide_inventory_read = (
+            await _has_company_wide_inventory_read(
+                db,
+                access=access,
+                actor=current_admin,
+            )
+        )
+
         clean_search = (search or "").strip().lower()
         if clean_search and len(clean_search) < 2:
             raise HTTPException(
@@ -2993,6 +3043,7 @@ async def get_warehouse_inventory(
                 company_id=company_id,
                 location_id=location_id,
                 access=access,
+                company_wide_inventory_read=company_wide_inventory_read,
                 candidate_filters=candidate_filters,
                 limit=limit,
             )
@@ -3018,46 +3069,55 @@ async def get_warehouse_inventory(
                 "alert_samples": alert_samples,
             }
 
-        readable_vehicle_locations = _readable_vehicle_locations_subquery(
-            company_id=company_id,
-            access=access,
-        )
-        latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
-            company_id=company_id,
-            readable_vehicle_locations=readable_vehicle_locations,
-        )
-        vehicle_inventory_stmt = (
-            select(
-                InventoryBalance.product_variant_id,
-                func.sum(
-                    InventoryBalance.on_hand_quantity
-                ).label("vehicle_packs"),
+        vehicles: dict[int, Decimal] = {}
+        if not company_wide_inventory_read:
+            readable_vehicle_locations = _readable_vehicle_locations_subquery(
+                company_id=company_id,
+                access=access,
             )
-            .join(
-                readable_vehicle_locations,
-                readable_vehicle_locations.c.id
-                == InventoryBalance.location_id,
+            latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
+                company_id=company_id,
+                readable_vehicle_locations=readable_vehicle_locations,
             )
-            .join(
-                latest_vehicle_sources,
-                and_(
-                    latest_vehicle_sources.c.vehicle_id
-                    == readable_vehicle_locations.c.vehicle_id,
-                    latest_vehicle_sources.c.source_location_id == location_id,
-                ),
+            vehicle_inventory_stmt = (
+                select(
+                    InventoryBalance.product_variant_id,
+                    func.sum(
+                        InventoryBalance.on_hand_quantity
+                    ).label("vehicle_packs"),
+                )
+                .join(
+                    readable_vehicle_locations,
+                    readable_vehicle_locations.c.id
+                    == InventoryBalance.location_id,
+                )
+                .join(
+                    latest_vehicle_sources,
+                    and_(
+                        latest_vehicle_sources.c.vehicle_id
+                        == readable_vehicle_locations.c.vehicle_id,
+                        latest_vehicle_sources.c.source_location_id
+                        == location_id,
+                    ),
+                )
+                .where(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.stock_status != "DAMAGED",
+                    InventoryBalance.product_variant_id.in_(
+                        page_variant_ids
+                    ),
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+                .group_by(InventoryBalance.product_variant_id)
             )
-            .where(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.stock_status != "DAMAGED",
-                InventoryBalance.product_variant_id.in_(page_variant_ids),
-                InventoryBalance.on_hand_quantity > 0,
-            )
-            .group_by(InventoryBalance.product_variant_id)
-        )
-        vehicles = {
-            int(row.product_variant_id): Decimal(row.vehicle_packs or 0)
-            for row in (await db.execute(vehicle_inventory_stmt)).all()
-        }
+            vehicles = {
+                int(row.product_variant_id): Decimal(
+                    row.vehicle_packs or 0
+                )
+                for row in (
+                    await db.execute(vehicle_inventory_stmt)
+                ).all()
+            }
 
         stmt = (
             select(
@@ -3088,7 +3148,12 @@ async def get_warehouse_inventory(
                 variant,
                 uom,
                 projection,
-                vehicles.get(int(variant.id), Decimal("0")),
+                (
+                    Decimal(projection.vehicle_packs or 0)
+                    if company_wide_inventory_read
+                    and projection is not None
+                    else vehicles.get(int(variant.id), Decimal("0"))
+                ),
             )
             for variant, uom, projection in (await db.execute(stmt)).all()
         ]
