@@ -6,12 +6,16 @@ from datetime import date, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select, text
 
 BACKEND = Path(__file__).resolve().parent.parent
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
+from api.auth import create_access_token
+from api.dependencies import get_current_driver
 from api.warehouse import (
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
@@ -538,6 +542,113 @@ async def run() -> None:
     try:
         base_ids = await fixture.seed()
         ids = await seed_read_model_scenario(base_ids)
+        auth_token = create_access_token(
+            {
+                "sub": str(ids["admin_id"]),
+                "is_admin": True,
+                "username": "stage823-admin",
+            },
+            company_id=ids["company_id"],
+            role_name="Admin",
+        )
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=auth_token,
+        )
+
+        async with fixture.SessionApp() as app:
+            valid_driver = await get_current_driver(
+                credentials=credentials,
+                db=app,
+            )
+            await app.rollback()
+        record(
+            "collapsed auth query preserves valid-token authentication",
+            int(valid_driver.id) == int(ids["admin_id"])
+            and int(valid_driver.company_id) == int(ids["company_id"]),
+        )
+
+        async with fixture.SessionSU() as su:
+            await su.begin()
+            await su.execute(
+                text(
+                    """
+                    INSERT INTO token_blacklist (token, blacklisted_at)
+                    VALUES (:token, NOW())
+                    """
+                ),
+                {"token": auth_token},
+            )
+            await su.commit()
+
+        blacklisted_status = None
+        try:
+            async with fixture.SessionApp() as app:
+                await get_current_driver(
+                    credentials=credentials,
+                    db=app,
+                )
+        except HTTPException as exc:
+            blacklisted_status = exc.status_code
+        record(
+            "collapsed auth query preserves blacklist rejection",
+            blacklisted_status == 401,
+            f"status={blacklisted_status}",
+        )
+
+        async with fixture.SessionSU() as su:
+            await su.begin()
+            await su.execute(
+                text("DELETE FROM token_blacklist WHERE token=:token"),
+                {"token": auth_token},
+            )
+            await su.execute(
+                text(
+                    """
+                    UPDATE drivers
+                    SET is_active=false
+                    WHERE company_id=:company_id AND id=:driver_id
+                    """
+                ),
+                {
+                    "company_id": ids["company_id"],
+                    "driver_id": ids["admin_id"],
+                },
+            )
+            await su.commit()
+
+        disabled_status = None
+        try:
+            async with fixture.SessionApp() as app:
+                await get_current_driver(
+                    credentials=credentials,
+                    db=app,
+                )
+        except HTTPException as exc:
+            disabled_status = exc.status_code
+        record(
+            "collapsed auth query preserves disabled-account rejection",
+            disabled_status == 403,
+            f"status={disabled_status}",
+        )
+
+        async with fixture.SessionSU() as su:
+            await su.begin()
+            await su.execute(
+                text(
+                    """
+                    UPDATE drivers
+                    SET is_active=true
+                    WHERE company_id=:company_id AND id=:driver_id
+                    """
+                ),
+                {
+                    "company_id": ids["company_id"],
+                    "driver_id": ids["admin_id"],
+                },
+            )
+            await su.commit()
+
         admin = make_actor(
             company_id=ids["company_id"],
             driver_id=ids["admin_id"],
