@@ -50,11 +50,13 @@ def main() -> None:
     checks += 1
     if (
         "InventoryLiveStockProjection" not in visible
-        or "has_warehouse_presence.is_(True)" not in visible
+        or "InventoryLiveStockProjection.has_warehouse_presence"
+        not in visible
         or "_readable_vehicle_locations_subquery" not in visible
         or "InventoryBalance" not in visible
         or "company_wide_inventory_read" not in visible
-        or "has_vehicle_presence.is_(True)" not in visible
+        or "InventoryLiveStockProjection.has_vehicle_presence"
+        not in visible
     ):
         failures.append("HYBRID_VISIBILITY_AUTHORITY_INCOMPLETE")
 
