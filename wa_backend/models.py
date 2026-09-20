@@ -269,6 +269,11 @@ class ProductVariant(Base):
         UniqueConstraint('company_id', 'sku', name='uq_company_sku'),
         UniqueConstraint('company_id', 'id', name='uq_product_variants_company_id'),
         Index('ix_product_variant_company_name_id', 'company_id', 'name', 'id'),
+        Index(
+            'ix_product_variant_live_active_seek',
+            'company_id', 'name', 'id',
+            postgresql_where=text("lifecycle_status = 'ACTIVE'"),
+        ),
         Index('uq_product_variant_company_gtin', 'company_id', 'gtin', unique=True, postgresql_where=text('gtin IS NOT NULL')),
         ForeignKeyConstraint(
             ['company_id', 'product_id'],
@@ -334,6 +339,11 @@ class ProductUomConversion(Base):
     __table_args__ = (
         UniqueConstraint('company_id', 'id', name='uq_product_uom_conversions_company_id'),
         UniqueConstraint('company_id', 'product_variant_id', 'from_uom_id', 'to_uom_id', name='uq_product_uom_conversion'),
+        Index(
+            'ix_product_uom_conversion_display_seek',
+            'company_id', 'product_variant_id', 'to_uom_id',
+            postgresql_where=text('numerator > denominator'),
+        ),
         ForeignKeyConstraint(
             ['company_id', 'product_variant_id'],
             ['product_variants.company_id', 'product_variants.id'],
@@ -531,6 +541,11 @@ class InventoryCostEvent(Base):
             name='chk_inventory_cost_event_reversal_scope',
         ),
         Index('ix_inventory_cost_event_variant_time', 'company_id', 'product_variant_id', 'created_at', 'id'),
+        Index(
+            'ix_inventory_cost_event_purchase_latest',
+            'company_id', 'product_variant_id', 'created_at', 'id',
+            postgresql_where=text("event_type = 'PURCHASE_IN'"),
+        ),
         Index('ix_inventory_cost_event_batch_time', 'company_id', 'product_variant_id', 'batch_id', 'created_at', 'id'),
     )
 
