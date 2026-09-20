@@ -3134,100 +3134,7 @@ async def get_warehouse_inventory(
                 ).all()
             }
 
-        display_uom_alias = aliased(UOM, name="display_uom")
-        display_factor_expr = (
-            ProductUomConversion.numerator
-            / ProductUomConversion.denominator
-        )
-        display_candidates = (
-            select(
-                ProductUomConversion.product_variant_id.label(
-                    "product_variant_id"
-                ),
-                ProductUomConversion.from_uom_id.label("uom_id"),
-                display_uom_alias.code.label("uom_code"),
-                display_uom_alias.name.label("uom_name"),
-                display_factor_expr.label("factor_to_base"),
-                func.count()
-                .over(
-                    partition_by=ProductUomConversion.product_variant_id
-                )
-                .label("candidate_count"),
-            )
-            .select_from(ProductUomConversion)
-            .join(
-                ProductVariant,
-                and_(
-                    ProductVariant.company_id
-                    == ProductUomConversion.company_id,
-                    ProductVariant.id
-                    == ProductUomConversion.product_variant_id,
-                ),
-            )
-            .join(
-                display_uom_alias,
-                display_uom_alias.id
-                == ProductUomConversion.from_uom_id,
-            )
-            .where(
-                ProductUomConversion.company_id == company_id,
-                _warehouse_array_membership(
-                    ProductUomConversion.product_variant_id,
-                    page_variant_ids,
-                    "inventory_display_detail_variant_ids",
-                ),
-                ProductUomConversion.to_uom_id
-                == ProductVariant.base_uom_id,
-                display_factor_expr > 1,
-            )
-            .subquery("display_uom_candidates")
-        )
-        display_unique = (
-            select(
-                display_candidates.c.product_variant_id,
-                display_candidates.c.uom_id,
-                display_candidates.c.uom_code,
-                display_candidates.c.uom_name,
-                display_candidates.c.factor_to_base,
-            )
-            .where(display_candidates.c.candidate_count == 1)
-            .subquery("display_uom_unique")
-        )
-
-        latest_purchase_page = (
-            select(
-                InventoryCostEvent.product_variant_id.label(
-                    "product_variant_id"
-                ),
-                InventoryCostEvent.input_unit_cost.label(
-                    "input_unit_cost"
-                ),
-                UOM.code.label("input_uom_code"),
-                InventoryCostEvent.created_at.label("created_at"),
-            )
-            .join(
-                UOM,
-                UOM.id == InventoryCostEvent.input_uom_id,
-            )
-            .where(
-                InventoryCostEvent.company_id == company_id,
-                _warehouse_array_membership(
-                    InventoryCostEvent.product_variant_id,
-                    page_variant_ids,
-                    "inventory_purchase_page_variant_ids",
-                ),
-                InventoryCostEvent.event_type == "PURCHASE_IN",
-            )
-            .distinct(InventoryCostEvent.product_variant_id)
-            .order_by(
-                InventoryCostEvent.product_variant_id,
-                InventoryCostEvent.created_at.desc(),
-                InventoryCostEvent.id.desc(),
-            )
-            .subquery("latest_purchase_page")
-        )
-
-        stmt = (
+        detail_stmt = (
             select(
                 ProductVariant,
                 UOM,
@@ -3236,21 +3143,6 @@ async def get_warehouse_inventory(
                     "average_unit_cost"
                 ),
                 Company.currency_code.label("currency_code"),
-                latest_purchase_page.c.input_unit_cost.label(
-                    "last_purchase_cost"
-                ),
-                latest_purchase_page.c.input_uom_code.label(
-                    "last_purchase_uom_code"
-                ),
-                latest_purchase_page.c.created_at.label(
-                    "last_purchase_created_at"
-                ),
-                display_unique.c.uom_id.label("display_uom_id"),
-                display_unique.c.uom_code.label("display_uom_code"),
-                display_unique.c.uom_name.label("display_uom_name"),
-                display_unique.c.factor_to_base.label(
-                    "display_factor_to_base"
-                ),
             )
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
             .join(Company, Company.id == ProductVariant.company_id)
@@ -3274,16 +3166,6 @@ async def get_warehouse_inventory(
                     == ProductVariant.id,
                 ),
             )
-            .outerjoin(
-                latest_purchase_page,
-                latest_purchase_page.c.product_variant_id
-                == ProductVariant.id,
-            )
-            .outerjoin(
-                display_unique,
-                display_unique.c.product_variant_id
-                == ProductVariant.id,
-            )
             .where(
                 ProductVariant.company_id == company_id,
                 _warehouse_array_membership(
@@ -3294,42 +3176,117 @@ async def get_warehouse_inventory(
             )
             .order_by(ProductVariant.name, ProductVariant.id)
         )
-        rows = [
-            (
-                variant,
-                uom,
-                projection,
-                average_unit_cost,
-                currency_code,
-                last_purchase_cost,
-                last_purchase_uom_code,
-                last_purchase_created_at,
-                display_uom_id,
-                display_uom_code,
-                display_uom_name,
-                display_factor_to_base,
-                (
-                    Decimal(projection.vehicle_packs or 0)
-                    if company_wide_inventory_read
-                    and projection is not None
-                    else vehicles.get(int(variant.id), Decimal("0"))
-                ),
+        detail_rows = (await db.execute(detail_stmt)).all()
+
+        display_uoms = await _load_inventory_display_uoms(
+            db,
+            company_id=company_id,
+            variant_ids=page_variant_ids,
+        )
+
+        latest_purchase_rows = (
+            await db.execute(
+                select(
+                    InventoryCostEvent.product_variant_id.label(
+                        "product_variant_id"
+                    ),
+                    InventoryCostEvent.input_unit_cost.label(
+                        "input_unit_cost"
+                    ),
+                    UOM.code.label("input_uom_code"),
+                    InventoryCostEvent.created_at.label("created_at"),
+                )
+                .join(
+                    UOM,
+                    UOM.id == InventoryCostEvent.input_uom_id,
+                )
+                .where(
+                    InventoryCostEvent.company_id == company_id,
+                    _warehouse_array_membership(
+                        InventoryCostEvent.product_variant_id,
+                        page_variant_ids,
+                        "inventory_purchase_page_variant_ids",
+                    ),
+                    InventoryCostEvent.event_type == "PURCHASE_IN",
+                )
+                .distinct(InventoryCostEvent.product_variant_id)
+                .order_by(
+                    InventoryCostEvent.product_variant_id,
+                    InventoryCostEvent.created_at.desc(),
+                    InventoryCostEvent.id.desc(),
+                )
             )
-            for (
-                variant,
-                uom,
-                projection,
-                average_unit_cost,
-                currency_code,
-                last_purchase_cost,
-                last_purchase_uom_code,
-                last_purchase_created_at,
-                display_uom_id,
-                display_uom_code,
-                display_uom_name,
-                display_factor_to_base,
-            ) in (await db.execute(stmt)).all()
-        ]
+        ).all()
+        latest_purchase_by_variant = {
+            int(row.product_variant_id): row
+            for row in latest_purchase_rows
+        }
+
+        rows = []
+        for (
+            variant,
+            uom,
+            projection,
+            average_unit_cost,
+            currency_code,
+        ) in detail_rows:
+            display = display_uoms.get(int(variant.id))
+            latest_purchase = latest_purchase_by_variant.get(
+                int(variant.id)
+            )
+            rows.append(
+                (
+                    variant,
+                    uom,
+                    projection,
+                    average_unit_cost,
+                    currency_code,
+                    (
+                        latest_purchase.input_unit_cost
+                        if latest_purchase is not None
+                        else None
+                    ),
+                    (
+                        latest_purchase.input_uom_code
+                        if latest_purchase is not None
+                        else None
+                    ),
+                    (
+                        latest_purchase.created_at
+                        if latest_purchase is not None
+                        else None
+                    ),
+                    (
+                        display["uom_id"]
+                        if display is not None
+                        else None
+                    ),
+                    (
+                        display["uom_code"]
+                        if display is not None
+                        else None
+                    ),
+                    (
+                        display["uom_name"]
+                        if display is not None
+                        else None
+                    ),
+                    (
+                        display["factor_to_base"]
+                        if display is not None
+                        else None
+                    ),
+                    (
+                        Decimal(projection.vehicle_packs or 0)
+                        if company_wide_inventory_read
+                        and projection is not None
+                        else vehicles.get(
+                            int(variant.id),
+                            Decimal("0"),
+                        )
+                    ),
+                )
+            )
 
         result = []
         for (
