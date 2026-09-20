@@ -19,7 +19,7 @@ TRANSITION_BATCH = 5000
 MAX_BATCHES_PER_RUN = 20
 
 
-@app.periodic(cron="2 * * * *")
+@app.periodic(cron="2,17,32,47 * * * *")
 @app.task(
     name="wanasah.scan_all_live_stock_transitions",
     queue=MAINTENANCE_QUEUE,
@@ -113,7 +113,7 @@ async def refresh_company_live_stock_transitions(
             "batches": batches,
             "saturated": True,
         }
-    except BaseException:
+    except Exception:
         # Fail closed. If time-sensitive projection maintenance cannot complete,
         # mark the company projection DEGRADED in a new transaction so reads
         # cannot silently serve stale inventory health.
@@ -134,7 +134,7 @@ async def refresh_company_live_stock_transitions(
                     data={"reason": "DUE_TRANSITION_REFRESH_FAILED"},
                 )
                 await db.commit()
-        except BaseException:
+        except Exception:
             # Preserve the original failure; worker supervision/retry handles it.
             pass
         raise
