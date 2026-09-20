@@ -214,9 +214,9 @@ def main() -> None:
     checks += 1
     required_summary = (
         "_require_live_stock_read_model_ready",
-        "InventoryLiveStockCompanySummary.active_variant_count",
-        "InventoryLiveStockWarehouseSummary.alert_count",
-        "nonactive_visible_count",
+        "readiness.active_variant_count",
+        "readiness.alert_count",
+        "readiness.nonactive_visible_count",
         "_require_live_stock_warehouse_read",
         "restricted_nonactive_visible",
         "_readable_vehicle_locations_subquery",
@@ -253,8 +253,8 @@ def main() -> None:
     checks += 1
     if (
         "_require_live_stock_read_model_ready" not in alert_summary
-        or "InventoryLiveStockWarehouseSummary.alert_count"
-        not in alert_summary
+        or "readiness.alert_count" not in alert_summary
+        or "InventoryLiveStockWarehouseSummary" in alert_summary
         or "_build_inventory_alert_variants_stmt" in alert_summary
     ):
         failures.append("ALERT_SUMMARY_NOT_O1_PROJECTION_READ")
@@ -351,13 +351,16 @@ def main() -> None:
 
     checks += 1
     if (
-        "HTTP_BENCH_POOL_SIZE = 16" not in scale_source
-        or "HTTP_BENCH_MAX_OVERFLOW = 4" not in scale_source
+        "HTTP_BENCH_POOL_SIZE = 20" not in scale_source
+        or "HTTP_BENCH_MAX_OVERFLOW = 0" not in scale_source
         or "HTTP_BENCH_DB_CAP != 20" not in scale_source
         or "http_benchmark_get_db" not in scale_source
         or "app.dependency_overrides" not in scale_source
-        or '"checkout_delay"' not in scale_source
-        or "http_pool_checkout" not in scale_source
+        or "POOL_WAIT_BUCKET" not in scale_source
+        or "class ProfiledHttpBenchSession" not in scale_source
+        or '"pool_wait_p95_ms"' not in scale_source
+        or "http_pool_checkout" in scale_source
+        or '"checkout_delay"' in scale_source
     ):
         failures.append("HTTP_SCALE_GATE_NOT_MODELING_AGGREGATE_DB_BUDGET")
 
@@ -401,6 +404,14 @@ def main() -> None:
         failures.append("LATEST_PURCHASE_NOT_COLLAPSED_INTO_DETAILS")
 
     checks += 1
+    if (
+        "display_uom_unique" not in cursor
+        or "display_factor_to_base" not in cursor
+        or "_load_inventory_display_uoms(" in cursor
+    ):
+        failures.append("DISPLAY_UOM_NOT_COLLAPSED_INTO_DETAILS")
+
+    checks += 1
     projection_source = PROJECTION_SERVICE.read_text(encoding="utf-8")
     readiness_start = projection_source.find(
         "async def assert_live_stock_projection_ready"
@@ -410,6 +421,13 @@ def main() -> None:
         readiness_start < 0
         or 'due_transition_exists.label("has_due_transition")'
         not in readiness_block
+        or "InventoryLiveStockCompanySummary.active_variant_count"
+        not in readiness_block
+        or "InventoryLiveStockWarehouseSummary.alert_count"
+        not in readiness_block
+        or "InventoryLiveStockWarehouseSummary.nonactive_visible_count"
+        not in readiness_block
+        or "LiveStockReadinessSnapshot(" not in readiness_block
         or readiness_block.count("await db.execute(") != 1
         or "await db.scalar(" in readiness_block
     ):
