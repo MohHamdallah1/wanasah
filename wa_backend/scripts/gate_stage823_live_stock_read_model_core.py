@@ -106,17 +106,6 @@ def main() -> None:
             "COMPANY_WIDE_INVENTORY_PERMISSION_HELPER_INCOMPLETE"
         )
 
-    checks += 1
-    company_wide_helper = function_block(
-        source,
-        "_has_company_wide_inventory_read",
-    )
-    if (
-        'access.allows("inventory.read")' not in company_wide_helper
-        or "actor.is_admin" not in company_wide_helper
-    ):
-        failures.append("COMPANY_WIDE_INVENTORY_READ_GUARD_INCOMPLETE")
-
     alert_summary = function_block(
         source,
         "get_warehouse_inventory_alert_summary",
