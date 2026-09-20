@@ -3239,7 +3239,7 @@ async def get_warehouse_inventory(
     stock_state: Literal[
         "all", "on_hand", "sellable", "out_of_stock", "low_stock"
     ] = "all",
-    family_id: Optional[int] = Query(default=None, gt=0),
+    family_id: Optional[int] = None,
     has_reserved: bool = False,
     has_unavailable: bool = False,
     has_damaged: bool = False,
@@ -3280,6 +3280,11 @@ async def get_warehouse_inventory(
             raise HTTPException(
                 status_code=400,
                 detail="لا يجوز دمج only_alerts مع حالة رصيد مختلفة.",
+            )
+        if family_id is not None and family_id <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="عائلة المنتج غير صالحة.",
             )
 
         effective_stock_state = (
