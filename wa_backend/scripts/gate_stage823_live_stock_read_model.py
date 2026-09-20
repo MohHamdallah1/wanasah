@@ -534,10 +534,10 @@ async def cleanup_gate_permission_if_owned(
 
 async def run() -> None:
     await fixture.cleanup_test_companies()
-    base_ids = await fixture.seed()
-    ids = await seed_read_model_scenario(base_ids)
-
+    ids: dict[str, int] = {}
     try:
+        base_ids = await fixture.seed()
+        ids = await seed_read_model_scenario(base_ids)
         admin = make_actor(
             company_id=ids["company_id"],
             driver_id=ids["admin_id"],
@@ -679,7 +679,7 @@ async def run() -> None:
     finally:
         await fixture.cleanup_test_companies()
         await cleanup_gate_permission_if_owned(
-            bool(ids.get("permission_created_by_gate"))
+            bool(ids.get("permission_created_by_gate", 0))
         )
 
     failures = [
