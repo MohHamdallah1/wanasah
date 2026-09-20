@@ -2668,6 +2668,11 @@ class InventoryLiveStockProjection(Base):
             postgresql_where=text('next_transition_date IS NOT NULL'),
         ),
         Index(
+            'ix_live_stock_projection_warehouse_transition',
+            'company_id', 'warehouse_location_id', 'next_transition_date', 'product_variant_id',
+            postgresql_where=text('next_transition_date IS NOT NULL'),
+        ),
+        Index(
             'ix_live_stock_projection_variant',
             'company_id', 'product_variant_id', 'warehouse_location_id',
         ),
