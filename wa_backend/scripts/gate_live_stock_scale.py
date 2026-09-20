@@ -96,14 +96,10 @@ GlobalCountSession = async_sessionmaker(
 
 
 async def http_benchmark_get_db():
+    # Match production get_db: yielding AsyncSession must not eagerly checkout
+    # a PostgreSQL connection before get_current_driver decodes the JWT and
+    # establishes tenant_context.
     async with HttpBenchSession() as session:
-        started = time.perf_counter()
-        await session.connection()
-        bucket = SQL_BUCKET.get()
-        if bucket is not None:
-            bucket.append(
-                ("pool_wait", (time.perf_counter() - started) * 1000)
-            )
         yield session
 
 
@@ -111,6 +107,21 @@ SQL_BUCKET: contextvars.ContextVar[list[tuple[str, float]] | None] = contextvars
     "live_stock_scale_sql_bucket",
     default=None,
 )
+
+HTTP_REQUEST_STARTED: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "live_stock_http_request_started",
+    default=None,
+)
+
+
+def http_pool_checkout(dbapi_connection, connection_record, connection_proxy):
+    bucket = SQL_BUCKET.get()
+    started = HTTP_REQUEST_STARTED.get()
+    if bucket is not None and started is not None:
+        bucket.append(
+            ("checkout_delay", (time.perf_counter() - started) * 1000)
+        )
+
 
 def _sql_label(statement: str) -> str:
     normalized = " ".join(statement.lower().split())
@@ -589,8 +600,12 @@ async def http_load(
                     )
                     bucket: list[tuple[str, float]] = []
                     sql_token = SQL_BUCKET.set(bucket)
+                    request_started = time.perf_counter()
+                    checkout_token = HTTP_REQUEST_STARTED.set(
+                        request_started
+                    )
                     try:
-                        started = time.perf_counter()
+                        started = request_started
                         response = await client.get(path)
                         elapsed_ms = (
                             time.perf_counter() - started
@@ -613,6 +628,7 @@ async def http_load(
                         )
                         sql_counts.append(len(bucket))
                     finally:
+                        HTTP_REQUEST_STARTED.reset(checkout_token)
                         SQL_BUCKET.reset(sql_token)
 
             await asyncio.gather(
@@ -655,9 +671,9 @@ async def http_load(
         "sql_statements_min": min(sql_counts),
         "sql_statements_max": max(sql_counts),
         "sql_label_p95": label_p95,
-        "pool_wait_p95_ms": percentile(
+        "checkout_delay_p95_ms": percentile(
             [
-                profile.get("pool_wait", 0.0)
+                profile.get("checkout_delay", 0.0)
                 for profile in sql_profiles
             ],
             0.95,
@@ -775,7 +791,7 @@ async def async_main(args: argparse.Namespace) -> None:
         "HTTP_LOAD_PROFILE "
         f"cursor_p95={load['cursor_p95_ms']:.1f}ms "
         f"alerts_p95={load['alerts_p95_ms']:.1f}ms "
-        f"pool_wait_p95={load['pool_wait_p95_ms']:.1f}ms "
+        f"checkout_delay_p95={load['checkout_delay_p95_ms']:.1f}ms "
         f"sql_p95={load['sql_p95_ms']:.1f}ms "
         f"outside_sql_p95={load['outside_sql_p95_ms']:.1f}ms "
         f"labels={load['sql_label_p95']}"
@@ -852,6 +868,12 @@ async def _run() -> None:
             "after_cursor_execute",
             after_cursor_execute,
         )
+        if tracked_engine is http_bench_engine:
+            event.listen(
+                tracked_engine.sync_engine,
+                "checkout",
+                http_pool_checkout,
+            )
     try:
         await async_main(parse_args())
     finally:
@@ -866,6 +888,12 @@ async def _run() -> None:
                 "after_cursor_execute",
                 after_cursor_execute,
             )
+            if tracked_engine is http_bench_engine:
+                event.remove(
+                    tracked_engine.sync_engine,
+                    "checkout",
+                    http_pool_checkout,
+                )
         await _dispose_benchmark_engines()
 
 
