@@ -2052,7 +2052,11 @@ async def refresh_live_stock_from_movement_specs(
                 InventoryLocation.vehicle_id,
             ).where(
                 InventoryLocation.company_id == company_id,
-                InventoryLocation.id.in_(location_ids),
+                _array_membership(
+                    InventoryLocation.id,
+                    location_ids,
+                    "live_stock_movement_location_ids",
+                ),
             )
         )
     ).all()
@@ -2169,8 +2173,10 @@ async def refresh_live_stock_vehicle_attribution(
             )
             .where(
                 InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id.in_(
-                    sorted(location_to_vehicle)
+                _array_membership(
+                    InventoryBalance.location_id,
+                    sorted(location_to_vehicle),
+                    "live_stock_attribution_location_ids",
                 ),
                 InventoryBalance.stock_status != "DAMAGED",
                 InventoryBalance.on_hand_quantity > 0,
