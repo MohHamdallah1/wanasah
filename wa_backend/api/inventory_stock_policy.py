@@ -304,6 +304,15 @@ async def update_minimum_stock(
             )
         ).scalar_one_or_none()
 
+        if policy is not None and not bool(policy.is_active):
+            raise HTTPException(
+                status_code=409,
+                detail=_error(
+                    "STOCK_MINIMUM_POLICY_INACTIVE",
+                    "سياسة هذا المنتج غير فعالة حالياً وتحتاج إدارة السياسة قبل تعديل الحد الأدنى.",
+                ),
+            )
+
         current_minimum = (
             Decimal(policy.minimum_quantity)
             if policy is not None
@@ -318,15 +327,6 @@ async def update_minimum_stock(
                     context={
                         "current_minimum_quantity": canonical_quantity(current_minimum),
                     },
-                ),
-            )
-
-        if policy is not None and not bool(policy.is_active):
-            raise HTTPException(
-                status_code=409,
-                detail=_error(
-                    "STOCK_MINIMUM_POLICY_INACTIVE",
-                    "سياسة هذا المنتج غير فعالة حالياً وتحتاج إدارة السياسة قبل تعديل الحد الأدنى.",
                 ),
             )
 
