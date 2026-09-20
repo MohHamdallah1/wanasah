@@ -62,6 +62,11 @@ def main() -> None:
             (),
         ),
         (
+            "mutation_idempotency_contract",
+            "gate_mutation_idempotency_contract.py",
+            (),
+        ),
+        (
             "stage823_read_model_core",
             "gate_stage823_live_stock_read_model_core.py",
             (),
