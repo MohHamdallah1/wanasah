@@ -776,6 +776,9 @@ async def real_uvicorn_http_load(
         sem = asyncio.Semaphore(concurrency)
         latencies: list[float] = []
         statuses: list[int] = []
+        timeout_count = 0
+        transport_error_count = 0
+        error_samples: list[str] = []
         route_latencies: dict[str, list[float]] = {
             "cursor": [],
             "alerts": [],
@@ -787,6 +790,7 @@ async def real_uvicorn_http_load(
             timeout=30.0,
         ) as client:
             async def one(index: int) -> None:
+                nonlocal timeout_count, transport_error_count
                 async with sem:
                     is_alert = index % 5 == 0
                     route_name = "alerts" if is_alert else "cursor"
@@ -800,20 +804,53 @@ async def real_uvicorn_http_load(
                         )
                     )
                     started = time.perf_counter()
-                    response = await client.get(path)
-                    elapsed_ms = (
-                        time.perf_counter() - started
-                    ) * 1000
-                    latencies.append(elapsed_ms)
-                    route_latencies[route_name].append(elapsed_ms)
-                    statuses.append(response.status_code)
+                    try:
+                        response = await client.get(path)
+                        statuses.append(response.status_code)
+                    except httpx.TimeoutException as exc:
+                        timeout_count += 1
+                        statuses.append(0)
+                        if len(error_samples) < 10:
+                            error_samples.append(
+                                f"{route_name}:timeout:{type(exc).__name__}"
+                            )
+                    except httpx.HTTPError as exc:
+                        transport_error_count += 1
+                        statuses.append(0)
+                        if len(error_samples) < 10:
+                            error_samples.append(
+                                f"{route_name}:http_error:{type(exc).__name__}"
+                            )
+                    finally:
+                        elapsed_ms = (
+                            time.perf_counter() - started
+                        ) * 1000
+                        latencies.append(elapsed_ms)
+                        route_latencies[route_name].append(elapsed_ms)
 
             await asyncio.gather(
                 *(one(i) for i in range(requests))
             )
 
+        http_status_errors = sum(
+            1 for status in statuses if status not in {0, 200}
+        )
+        total_errors = (
+            http_status_errors
+            + timeout_count
+            + transport_error_count
+        )
+        log_tail = (
+            _read_benchmark_log(log_path)
+            if total_errors
+            else ""
+        )
+
         return {
             "requests": requests,
+            "completed_responses": sum(
+                1 for status in statuses if status != 0
+            ),
             "concurrency": concurrency,
             "workers": REAL_HTTP_WORKERS,
             "db_connection_cap": REAL_HTTP_DB_CAP,
@@ -829,9 +866,12 @@ async def real_uvicorn_http_load(
                 route_latencies["alerts"],
                 0.95,
             ),
-            "errors": sum(
-                1 for status in statuses if status != 200
-            ),
+            "http_status_errors": http_status_errors,
+            "timeouts": timeout_count,
+            "transport_errors": transport_error_count,
+            "error_samples": error_samples,
+            "uvicorn_log_tail": log_tail,
+            "errors": total_errors,
         }
     finally:
         _stop_real_uvicorn(process)
@@ -1135,8 +1175,14 @@ async def async_main(args: argparse.Namespace) -> None:
         f"workers={load['workers']} "
         f"cursor_p95={load['cursor_p95_ms']:.1f}ms "
         f"alerts_p95={load['alerts_p95_ms']:.1f}ms "
-        f"overall_p95={load['p95_ms']:.1f}ms"
+        f"overall_p95={load['p95_ms']:.1f}ms "
+        f"timeouts={load['timeouts']} "
+        f"transport_errors={load['transport_errors']}"
     )
+    if load["uvicorn_log_tail"]:
+        print("HTTP_UVICORN_LOG_TAIL_BEGIN")
+        print(load["uvicorn_log_tail"])
+        print("HTTP_UVICORN_LOG_TAIL_END")
     if load["errors"]:
         failures.append(f"HTTP_LOAD_ERRORS:{load['errors']}")
     if load["p95_ms"] > args.max_http_p95:
