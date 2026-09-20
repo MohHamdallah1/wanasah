@@ -4,6 +4,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, tuple_, union, update
 from typing import Optional, List
 from database import get_db
@@ -3133,6 +3134,66 @@ async def get_warehouse_inventory(
                 ).all()
             }
 
+        display_uom_alias = aliased(UOM, name="display_uom")
+        display_factor_expr = (
+            ProductUomConversion.numerator
+            / ProductUomConversion.denominator
+        )
+        display_candidates = (
+            select(
+                ProductUomConversion.product_variant_id.label(
+                    "product_variant_id"
+                ),
+                ProductUomConversion.from_uom_id.label("uom_id"),
+                display_uom_alias.code.label("uom_code"),
+                display_uom_alias.name.label("uom_name"),
+                display_factor_expr.label("factor_to_base"),
+                func.count()
+                .over(
+                    partition_by=ProductUomConversion.product_variant_id
+                )
+                .label("candidate_count"),
+            )
+            .select_from(ProductUomConversion)
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id
+                    == ProductUomConversion.company_id,
+                    ProductVariant.id
+                    == ProductUomConversion.product_variant_id,
+                ),
+            )
+            .join(
+                display_uom_alias,
+                display_uom_alias.id
+                == ProductUomConversion.from_uom_id,
+            )
+            .where(
+                ProductUomConversion.company_id == company_id,
+                _warehouse_array_membership(
+                    ProductUomConversion.product_variant_id,
+                    page_variant_ids,
+                    "inventory_display_detail_variant_ids",
+                ),
+                ProductUomConversion.to_uom_id
+                == ProductVariant.base_uom_id,
+                display_factor_expr > 1,
+            )
+            .subquery("display_uom_candidates")
+        )
+        display_unique = (
+            select(
+                display_candidates.c.product_variant_id,
+                display_candidates.c.uom_id,
+                display_candidates.c.uom_code,
+                display_candidates.c.uom_name,
+                display_candidates.c.factor_to_base,
+            )
+            .where(display_candidates.c.candidate_count == 1)
+            .subquery("display_uom_unique")
+        )
+
         latest_purchase_page = (
             select(
                 InventoryCostEvent.product_variant_id.label(
@@ -3184,6 +3245,12 @@ async def get_warehouse_inventory(
                 latest_purchase_page.c.created_at.label(
                     "last_purchase_created_at"
                 ),
+                display_unique.c.uom_id.label("display_uom_id"),
+                display_unique.c.uom_code.label("display_uom_code"),
+                display_unique.c.uom_name.label("display_uom_name"),
+                display_unique.c.factor_to_base.label(
+                    "display_factor_to_base"
+                ),
             )
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
             .join(Company, Company.id == ProductVariant.company_id)
@@ -3212,6 +3279,11 @@ async def get_warehouse_inventory(
                 latest_purchase_page.c.product_variant_id
                 == ProductVariant.id,
             )
+            .outerjoin(
+                display_unique,
+                display_unique.c.product_variant_id
+                == ProductVariant.id,
+            )
             .where(
                 ProductVariant.company_id == company_id,
                 _warehouse_array_membership(
@@ -3232,6 +3304,10 @@ async def get_warehouse_inventory(
                 last_purchase_cost,
                 last_purchase_uom_code,
                 last_purchase_created_at,
+                display_uom_id,
+                display_uom_code,
+                display_uom_name,
+                display_factor_to_base,
                 (
                     Decimal(projection.vehicle_packs or 0)
                     if company_wide_inventory_read
@@ -3248,14 +3324,12 @@ async def get_warehouse_inventory(
                 last_purchase_cost,
                 last_purchase_uom_code,
                 last_purchase_created_at,
+                display_uom_id,
+                display_uom_code,
+                display_uom_name,
+                display_factor_to_base,
             ) in (await db.execute(stmt)).all()
         ]
-
-        display_uoms = await _load_inventory_display_uoms(
-            db,
-            company_id=company_id,
-            variant_ids=page_variant_ids,
-        )
 
         result = []
         for (
@@ -3267,6 +3341,10 @@ async def get_warehouse_inventory(
             last_purchase_cost_raw,
             last_purchase_uom_code_raw,
             last_purchase_created_at,
+            display_uom_id_raw,
+            display_uom_code_raw,
+            display_uom_name_raw,
+            display_factor_to_base_raw,
             vehicle_total,
         ) in rows:
             on_hand = Decimal(
@@ -3355,17 +3433,16 @@ async def get_warehouse_inventory(
 
             total_physical_available = on_hand + explicit_blocked + vehicle_total
 
-            display = display_uoms.get(int(variant.id))
-            if display is None:
+            if display_uom_id_raw is None:
                 display_uom_id = int(base_uom.id)
                 display_uom_code = str(base_uom.code)
                 display_uom_name = str(base_uom.name)
                 display_factor = Decimal("1")
             else:
-                display_uom_id = int(display["uom_id"])
-                display_uom_code = str(display["uom_code"])
-                display_uom_name = str(display["uom_name"])
-                display_factor = Decimal(display["factor_to_base"])
+                display_uom_id = int(display_uom_id_raw)
+                display_uom_code = str(display_uom_code_raw)
+                display_uom_name = str(display_uom_name_raw)
+                display_factor = Decimal(display_factor_to_base_raw)
 
             has_location_inventory = (
                 warehouse_on_hand_total > 0 or vehicle_total > 0
