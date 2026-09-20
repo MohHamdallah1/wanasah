@@ -2648,16 +2648,21 @@ def _build_visible_inventory_stmt(
     the current actor is allowed to read and whose latest route belongs to the
     selected warehouse.
     """
+    extra_candidate_filters = tuple(candidate_filters)
     candidate_filters = [
         ProductVariant.company_id == company_id,
-        *candidate_filters,
+        *extra_candidate_filters,
     ]
     ordering = (
         (ProductVariant.name, ProductVariant.id)
         if limit is not None
         else ()
     )
-    if company_wide_inventory_read and not candidate_filters:
+    # Fast path is valid only when there is no search/cursor filter beyond
+    # the mandatory tenant predicate.  Previously this condition checked the
+    # post-normalized list, which always contained company_id and therefore
+    # made the optimized UNION ALL path unreachable.
+    if company_wide_inventory_read and not extra_candidate_filters:
         stream_limit = limit + 1 if limit is not None else None
         active_stream = (
             select(
