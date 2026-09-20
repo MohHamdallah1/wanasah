@@ -730,15 +730,30 @@ async def _wait_for_real_uvicorn(
                     + _read_benchmark_log(log_path)
                 )
             try:
-                response = await client.get("/openapi.json")
-                if response.status_code == 200:
+                # OpenAPI/docs are intentionally disabled by default in
+                # production. Any HTTP response proves the ASGI server is
+                # accepting requests; use a lightweight non-existent path so
+                # readiness never depends on documentation settings.
+                response = await client.get(
+                    "/__live_stock_benchmark_readiness__"
+                )
+                if response.status_code in {
+                    200,
+                    204,
+                    401,
+                    403,
+                    404,
+                    405,
+                }:
                     return
             except httpx.HTTPError:
                 pass
             await asyncio.sleep(0.2)
+    log_tail = _read_benchmark_log(log_path)
     raise RuntimeError(
-        "Uvicorn benchmark server did not become ready in time.\n"
-        + _read_benchmark_log(log_path)
+        "Uvicorn benchmark server did not become ready in time. "
+        f"pid={process.pid} poll={process.poll()} log={log_path}\n"
+        + (log_tail or "<benchmark log is empty>")
     )
 
 
