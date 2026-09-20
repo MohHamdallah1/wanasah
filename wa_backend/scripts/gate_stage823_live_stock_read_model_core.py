@@ -180,6 +180,7 @@ def main() -> None:
         "_require_live_stock_warehouse_read",
         "_build_visible_inventory_stmt",
         "_build_inventory_alert_variants_stmt",
+        "_has_company_wide_inventory_read",
     )
     for helper in required_helpers:
         checks += 1
@@ -252,6 +253,17 @@ def main() -> None:
         failures.append(
             "WAREHOUSE_READ_AUTHORITY_HELPER_INCOMPLETE"
         )
+
+    checks += 1
+    company_wide = function_block(
+        source,
+        "_has_company_wide_inventory_read",
+    )
+    if (
+        'access.allows("inventory.read")' not in company_wide
+        or "actor.is_admin" not in company_wide
+    ):
+        failures.append("COMPANY_WIDE_PERMISSION_HELPER_INCOMPLETE")
 
     alert_summary = function_block(
         source,
