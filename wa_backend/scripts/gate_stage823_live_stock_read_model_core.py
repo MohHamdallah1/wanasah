@@ -243,27 +243,38 @@ def main() -> None:
         "_require_live_stock_warehouse_read",
     )
     checks += 1
-    if (
-        'access.allows(' not in warehouse_read_helper
-        or '"inventory.read"' not in warehouse_read_helper
-        or "actor.is_admin" not in warehouse_read_helper
-        or 'status_code=404' not in warehouse_read_helper
-        or 'status_code=403' not in warehouse_read_helper
-    ):
+    required_authority_tokens = (
+        "actor.is_admin",
+        'access.allows(',
+        '"inventory.read"',
+        "location_id",
+        'label("location_allowed")',
+        'label("company_wide_allowed")',
+        "permission_row.location_allowed",
+        "permission_row.company_wide_allowed",
+        "status_code=404",
+        "status_code=403",
+    )
+    missing_authority = [
+        token
+        for token in required_authority_tokens
+        if token not in warehouse_read_helper
+    ]
+    if missing_authority:
         failures.append(
-            "WAREHOUSE_READ_AUTHORITY_HELPER_INCOMPLETE"
+            "WAREHOUSE_READ_AUTHORITY_HELPER_INCOMPLETE:"
+            + ",".join(missing_authority)
         )
 
     checks += 1
-    company_wide = function_block(
-        source,
-        "_has_company_wide_inventory_read",
-    )
     if (
-        'access.allows("inventory.read")' not in company_wide
-        or "actor.is_admin" not in company_wide
+        "company_wide_inventory_read = (" not in summary
+        or "_require_live_stock_warehouse_read(" not in summary
+        or "if company_wide_inventory_read:" not in summary
     ):
-        failures.append("COMPANY_WIDE_PERMISSION_HELPER_INCOMPLETE")
+        failures.append(
+            "COMPANY_WIDE_PERMISSION_RESULT_NOT_USED_BY_SUMMARY"
+        )
 
     alert_summary = function_block(
         source,
