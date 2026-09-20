@@ -63,15 +63,28 @@ HTTP_BENCH_DB_CAP = HTTP_BENCH_POOL_SIZE + HTTP_BENCH_MAX_OVERFLOW
 if HTTP_BENCH_DB_CAP != 20:
     raise RuntimeError("Live Stock HTTP benchmark DB cap must remain 20.")
 
+# Match the Stage 8.2.1 production topology exactly: four workers with
+# five steady connections each and no overflow.  Using 4+1 here is not
+# equivalent because QueuePool overflow connections are transient and are not
+# prewarmed by the application lifespan, which distorts the HTTP tail latency
+# that this gate is supposed to measure.
 REAL_HTTP_WORKERS = 4
-REAL_HTTP_POOL_SIZE = 4
-REAL_HTTP_MAX_OVERFLOW = 1
+REAL_HTTP_POOL_SIZE = 5
+REAL_HTTP_MAX_OVERFLOW = 0
 REAL_HTTP_DB_CAP = (
     REAL_HTTP_WORKERS
     * (REAL_HTTP_POOL_SIZE + REAL_HTTP_MAX_OVERFLOW)
 )
-if REAL_HTTP_DB_CAP != 20:
-    raise RuntimeError("Real Uvicorn HTTP benchmark DB cap must remain 20.")
+if (
+    REAL_HTTP_WORKERS != 4
+    or REAL_HTTP_POOL_SIZE != 5
+    or REAL_HTTP_MAX_OVERFLOW != 0
+    or REAL_HTTP_DB_CAP != 20
+):
+    raise RuntimeError(
+        "Real Uvicorn HTTP benchmark must match production topology: "
+        "4 workers x (pool_size=5 + max_overflow=0) = 20 connections."
+    )
 
 http_bench_engine = create_async_engine(
     database_runtime.DATABASE_URL,
