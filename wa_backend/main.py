@@ -29,7 +29,7 @@ from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
 from api import auth, branches, catalog, commercial_policy, driver, dispatch, offers, pricing, taxation, product_locations, tenant, warehouse, reconciliation, platform_manager, sales_returns, simple_products
 from config import Config
-from database import engine, get_db
+from database import engine, get_db, warm_database_pool
 from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
@@ -94,12 +94,15 @@ async def async_log_error(exc_str: str):
     await asyncio.to_thread(logger.error, exc_str)
 
 from contextlib import asynccontextmanager
-from database import engine
 import os
 
 # +++ ISSUE-26: الإغلاق النظيف لموارد قاعدة البيانات لمنع تسريب الاتصالات (Connection Leaks) +++
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Establish the steady DB pool before the worker is considered ready so
+    # the first user request never pays PostgreSQL connection cold-start cost.
+    await warm_database_pool()
+
     # Queue connector is opened for atomic defer only; the heavy worker is a separate process.
     async with product_import_app.open_async():
         await worker_event_relay.start()
