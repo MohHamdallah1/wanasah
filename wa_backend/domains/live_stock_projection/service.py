@@ -1302,6 +1302,54 @@ async def _candidate_keys_for_variants(
     return _normalize_keys(keys)
 
 
+async def refresh_live_stock_policy_changes(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    warehouse_location_id: int,
+    variant_ids: Iterable[int],
+    computed_for_date: date | None = None,
+) -> None:
+    """Projection hook for any InventoryStockPolicy writer.
+
+    There is no production InventoryStockPolicy mutation endpoint today.
+    Any future writer must call this in the same transaction after the
+    policy row is flushed, including activation, deactivation and threshold
+    or shelf-life changes.
+    """
+    company_id = _positive_int(company_id, "company_id")
+    warehouse_location_id = _positive_int(
+        warehouse_location_id,
+        "warehouse_location_id",
+    )
+    ids = _normalize_ids(variant_ids, "product_variant_id")
+    if not ids:
+        return
+
+    location = await db.scalar(
+        select(InventoryLocation.id).where(
+            InventoryLocation.company_id == company_id,
+            InventoryLocation.id == warehouse_location_id,
+            InventoryLocation.location_type == "WAREHOUSE",
+            InventoryLocation.is_active.is_(True),
+        )
+    )
+    if location is None:
+        raise LiveStockProjectionError(
+            "InventoryStockPolicy change references an inactive or invalid warehouse."
+        )
+
+    await refresh_live_stock_keys(
+        db,
+        company_id=company_id,
+        keys=[
+            (warehouse_location_id, variant_id)
+            for variant_id in ids
+        ],
+        computed_for_date=computed_for_date,
+    )
+
+
 async def refresh_live_stock_variants(
     db: AsyncSession,
     *,
@@ -3024,6 +3072,10 @@ async def assert_live_stock_projection_ready(
         warehouse_location_id,
         "warehouse_location_id",
     )
+    company_date_expr = cast(
+        func.timezone(Company.timezone, func.current_timestamp()),
+        Date,
+    )
     row = (
         await db.execute(
             select(
@@ -3031,12 +3083,14 @@ async def assert_live_stock_projection_ready(
                 InventoryLiveStockCompanySummary.projection_version,
                 InventoryLiveStockWarehouseSummary.projection_state,
                 InventoryLiveStockWarehouseSummary.projection_version,
+                company_date_expr.label("company_local_date"),
             )
             .join(
                 InventoryLiveStockWarehouseSummary,
                 InventoryLiveStockWarehouseSummary.company_id
                 == InventoryLiveStockCompanySummary.company_id,
             )
+            .join(Company, Company.id == company_id)
             .where(
                 InventoryLiveStockCompanySummary.company_id == company_id,
                 InventoryLiveStockWarehouseSummary.warehouse_location_id
@@ -3054,3 +3108,31 @@ async def assert_live_stock_projection_ready(
         raise LiveStockProjectionError(
             "Live Stock projection is not READY for this warehouse."
         )
+
+    company_local_date = row.company_local_date
+    if type(company_local_date) is not date:
+        raise LiveStockProjectionError(
+            "Could not resolve the company-local date for Live Stock readiness."
+        )
+
+    due_key = await db.scalar(
+        select(InventoryLiveStockProjection.product_variant_id)
+        .where(
+            InventoryLiveStockProjection.company_id == company_id,
+            InventoryLiveStockProjection.warehouse_location_id
+            == warehouse_location_id,
+            InventoryLiveStockProjection.next_transition_date.is_not(None),
+            InventoryLiveStockProjection.next_transition_date
+            <= company_local_date,
+        )
+        .order_by(
+            InventoryLiveStockProjection.next_transition_date,
+            InventoryLiveStockProjection.product_variant_id,
+        )
+        .limit(1)
+    )
+    if due_key is not None:
+        raise LiveStockProjectionError(
+            "Live Stock projection has a due time transition and must be refreshed."
+        )
+
