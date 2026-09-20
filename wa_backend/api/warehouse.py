@@ -3154,6 +3154,39 @@ async def get_warehouse_inventory(
                 ).all()
             }
 
+        latest_purchase_page = (
+            select(
+                InventoryCostEvent.product_variant_id.label(
+                    "product_variant_id"
+                ),
+                InventoryCostEvent.input_unit_cost.label(
+                    "input_unit_cost"
+                ),
+                UOM.code.label("input_uom_code"),
+                InventoryCostEvent.created_at.label("created_at"),
+            )
+            .join(
+                UOM,
+                UOM.id == InventoryCostEvent.input_uom_id,
+            )
+            .where(
+                InventoryCostEvent.company_id == company_id,
+                _warehouse_array_membership(
+                    InventoryCostEvent.product_variant_id,
+                    page_variant_ids,
+                    "inventory_purchase_page_variant_ids",
+                ),
+                InventoryCostEvent.event_type == "PURCHASE_IN",
+            )
+            .distinct(InventoryCostEvent.product_variant_id)
+            .order_by(
+                InventoryCostEvent.product_variant_id,
+                InventoryCostEvent.created_at.desc(),
+                InventoryCostEvent.id.desc(),
+            )
+            .subquery("latest_purchase_page")
+        )
+
         stmt = (
             select(
                 ProductVariant,
@@ -3163,6 +3196,15 @@ async def get_warehouse_inventory(
                     "average_unit_cost"
                 ),
                 Company.currency_code.label("currency_code"),
+                latest_purchase_page.c.input_unit_cost.label(
+                    "last_purchase_cost"
+                ),
+                latest_purchase_page.c.input_uom_code.label(
+                    "last_purchase_uom_code"
+                ),
+                latest_purchase_page.c.created_at.label(
+                    "last_purchase_created_at"
+                ),
             )
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
             .join(Company, Company.id == ProductVariant.company_id)
@@ -3186,6 +3228,11 @@ async def get_warehouse_inventory(
                     == ProductVariant.id,
                 ),
             )
+            .outerjoin(
+                latest_purchase_page,
+                latest_purchase_page.c.product_variant_id
+                == ProductVariant.id,
+            )
             .where(
                 ProductVariant.company_id == company_id,
                 _warehouse_array_membership(
@@ -3203,6 +3250,9 @@ async def get_warehouse_inventory(
                 projection,
                 average_unit_cost,
                 currency_code,
+                last_purchase_cost,
+                last_purchase_uom_code,
+                last_purchase_created_at,
                 (
                     Decimal(projection.vehicle_packs or 0)
                     if company_wide_inventory_read
@@ -3216,6 +3266,9 @@ async def get_warehouse_inventory(
                 projection,
                 average_unit_cost,
                 currency_code,
+                last_purchase_cost,
+                last_purchase_uom_code,
+                last_purchase_created_at,
             ) in (await db.execute(stmt)).all()
         ]
 
@@ -3225,44 +3278,6 @@ async def get_warehouse_inventory(
             variant_ids=page_variant_ids,
         )
 
-        latest_purchase_rows = (
-            await db.execute(
-                select(
-                    InventoryCostEvent.product_variant_id.label(
-                        "product_variant_id"
-                    ),
-                    InventoryCostEvent.input_unit_cost.label(
-                        "input_unit_cost"
-                    ),
-                    UOM.code.label("input_uom_code"),
-                    InventoryCostEvent.created_at.label("created_at"),
-                )
-                .join(
-                    UOM,
-                    UOM.id == InventoryCostEvent.input_uom_id,
-                )
-                .filter(
-                    InventoryCostEvent.company_id == company_id,
-                    _warehouse_array_membership(
-                        InventoryCostEvent.product_variant_id,
-                        page_variant_ids,
-                        "inventory_purchase_page_variant_ids",
-                    ),
-                    InventoryCostEvent.event_type == "PURCHASE_IN",
-                )
-                .distinct(InventoryCostEvent.product_variant_id)
-                .order_by(
-                    InventoryCostEvent.product_variant_id,
-                    InventoryCostEvent.created_at.desc(),
-                    InventoryCostEvent.id.desc(),
-                )
-            )
-        ).all()
-        latest_purchase_by_variant = {
-            int(row.product_variant_id): row
-            for row in latest_purchase_rows
-        }
-
         result = []
         for (
             variant,
@@ -3270,6 +3285,9 @@ async def get_warehouse_inventory(
             projection,
             average_unit_cost,
             currency_code,
+            last_purchase_cost_raw,
+            last_purchase_uom_code_raw,
+            last_purchase_created_at,
             vehicle_total,
         ) in rows:
             on_hand = Decimal(
@@ -3380,23 +3398,21 @@ async def get_warehouse_inventory(
                     Decimal(average_unit_cost) * display_factor
                 ).quantize(Decimal("0.000001"))
 
-            last_purchase = (
-                latest_purchase_by_variant.get(int(variant.id))
-                if has_location_inventory
-                else None
-            )
             last_purchase_cost = None
             last_purchase_uom_code = None
             last_purchase_date = None
-            if last_purchase is not None:
-                last_purchase_cost = Decimal(
-                    last_purchase.input_unit_cost
-                )
+            if (
+                has_location_inventory
+                and last_purchase_cost_raw is not None
+            ):
+                last_purchase_cost = Decimal(last_purchase_cost_raw)
                 last_purchase_uom_code = str(
-                    last_purchase.input_uom_code
+                    last_purchase_uom_code_raw
                 )
                 last_purchase_date = (
-                    last_purchase.created_at.date()
+                    last_purchase_created_at.date()
+                    if last_purchase_created_at is not None
+                    else None
                 )
 
             if not currency_code:
