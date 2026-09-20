@@ -158,13 +158,21 @@ def main() -> None:
         failures.append("INACTIVE_WAREHOUSE_RECONCILIATION_MISSING")
 
     checks += 1
-    readiness = service[
+    readiness_node = _function(
+        service,
+        "assert_live_stock_projection_ready",
+    )
+    readiness_calls = _calls(readiness_node)
+    readiness_source = service[
         service.find("async def assert_live_stock_projection_ready"):
     ]
     if (
-        "next_transition_date.is_not(None)" not in readiness
-        or "<= company_local_date" not in readiness
-        or "must be refreshed" not in readiness
+        readiness_node is None
+        or "select" not in readiness_calls
+        or "exists" not in readiness_calls
+        or "next_transition_date.is_not(None)" not in readiness_source
+        or "has_due_transition" not in readiness_source
+        or "must be refreshed" not in readiness_source
     ):
         failures.append("STALE_TRANSITION_READINESS_GUARD_MISSING")
 
