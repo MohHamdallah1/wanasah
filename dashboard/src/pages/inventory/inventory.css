@@ -303,6 +303,14 @@
     linear-gradient(90deg, #ffffff 0%, #f7fbfa 58%, #f3f7f8 100%);
 }
 
+.live-stock-toolbar-search-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+}
+
 .live-stock-context-panel {
   display: flex;
   align-items: center;
@@ -442,9 +450,9 @@
 
 .live-stock-search {
   position: relative;
-  order: -1;
   width: min(100%, 24rem);
   flex: 0 1 24rem;
+  min-width: 12rem;
 }
 
 .live-stock-search input {
@@ -463,6 +471,44 @@
 
 .live-stock-search input::placeholder {
   color: #6a7c85;
+}
+
+.live-stock-minimum-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+  color: #667982;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.live-stock-minimum-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.14rem 0.38rem;
+  border: 1px solid #d5e1e4;
+  border-radius: 999px;
+  color: #35616b;
+  background: #f8fbfb;
+  font-size: 0.62rem;
+  font-weight: 850;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.live-stock-minimum-edit:hover {
+  border-color: #9fc4c2;
+  color: #155e58;
+  background: #edf7f5;
+}
+
+.live-stock-minimum-dialog {
+  border-color: #d7e1e5;
+  background: #fbfdfd;
 }
 
 .live-stock-table {
@@ -659,9 +705,15 @@
     flex: 1 1 10rem;
   }
 
-  .live-stock-search {
+  .live-stock-toolbar-search-group {
     width: 100%;
-    flex-basis: 100%;
+    flex: 1 1 100%;
+  }
+
+  .live-stock-search {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 }
 
@@ -1260,6 +1312,34 @@
 
   .inventory-top-dock__dock {
     width: max-content;
+  }
+}
+
+@media (min-width: 1024px) {
+  .inventory-top-dock-component {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    width: auto;
+    min-height: 3.25rem;
+    margin-block-start: -1.5rem;
+    margin-inline-start: -0.75rem;
+    margin-inline-end: -1rem;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .inventory-top-dock__bar {
+    width: 100%;
+    min-height: 3.25rem;
+    border-top: 0;
+    border-inline: 0;
+    border-radius: 0;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .inventory-top-dock__dock {
+    align-items: center;
   }
 }
 
