@@ -1,6 +1,13 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+import asyncio
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from config import Config
-from sqlalchemy import event
+from sqlalchemy import event, text
 from context import tenant_context
 
 # +++ درع السحاب: معالجة بروتوكولات postgres و postgresql بمرونة تامة للـ SaaS +++
@@ -48,6 +55,48 @@ def on_checkout(dbapi_connection, connection_record, connection_proxy):
         raise DisconnectionError(f"RLS Setup Failed: {e}")
 
 # (تم إعدام حدث on_checkin نهائياً: الاعتماد الكامل على إعادة البرمجة في on_checkout يمنع تسريب الـ asyncpg تماماً)
+
+async def warm_async_engine_pool(
+    target_engine: AsyncEngine,
+    *,
+    connections: int,
+) -> None:
+    """Open and validate exactly the steady-state pool connections.
+
+    Every task keeps its connection until all requested connections have been
+    checked out, which forces QueuePool to establish the full steady pool
+    instead of repeatedly reusing one connection.
+    """
+    if connections <= 0:
+        raise ValueError("connections must be positive")
+
+    ready = 0
+    ready_lock = asyncio.Lock()
+    all_ready = asyncio.Event()
+
+    async def warm_one() -> None:
+        nonlocal ready
+        async with target_engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+            async with ready_lock:
+                ready += 1
+                if ready == connections:
+                    all_ready.set()
+            await all_ready.wait()
+
+    await asyncio.gather(
+        *(warm_one() for _ in range(connections))
+    )
+
+
+async def warm_database_pool() -> None:
+    await warm_async_engine_pool(
+        engine,
+        connections=int(
+            Config.SQLALCHEMY_ENGINE_OPTIONS["pool_size"]
+        ),
+    )
+
 
 # مصنع الجلسات (Session Factory)
 AsyncSessionLocal = async_sessionmaker(
