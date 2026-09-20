@@ -72,11 +72,7 @@ async def scan_all_live_stock_transitions(
     }
 
 
-@app.task(
-    name="wanasah.refresh_company_live_stock_transitions",
-    queue=MAINTENANCE_QUEUE,
-)
-async def refresh_company_live_stock_transitions(
+async def run_company_live_stock_transition_maintenance(
     company_id: int,
 ) -> dict[str, int | bool]:
     refreshed = 0
@@ -138,3 +134,15 @@ async def refresh_company_live_stock_transitions(
             # Preserve the original failure; worker supervision/retry handles it.
             pass
         raise
+
+
+@app.task(
+    name="wanasah.refresh_company_live_stock_transitions",
+    queue=MAINTENANCE_QUEUE,
+)
+async def refresh_company_live_stock_transitions(
+    company_id: int,
+) -> dict[str, int | bool]:
+    return await run_company_live_stock_transition_maintenance(
+        company_id=int(company_id),
+    )
