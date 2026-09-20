@@ -36,7 +36,7 @@ def main() -> None:
         "_require_live_stock_read_model_ready",
         "_readable_vehicle_locations_subquery",
         "_latest_readable_vehicle_sources_subquery",
-        "_has_company_wide_inventory_read",
+        "_require_live_stock_warehouse_read",
         "_build_visible_inventory_stmt",
         "_build_inventory_alert_variants_stmt",
     )
@@ -83,7 +83,7 @@ def main() -> None:
         "InventoryLiveStockCompanySummary.active_variant_count",
         "InventoryLiveStockWarehouseSummary.alert_count",
         "nonactive_visible_count",
-        "_has_company_wide_inventory_read",
+        "_require_live_stock_warehouse_read",
         "restricted_nonactive_visible",
         "_readable_vehicle_locations_subquery",
     )
@@ -96,17 +96,20 @@ def main() -> None:
             + ",".join(missing_summary)
         )
 
-    company_wide_helper = function_block(
+    warehouse_read_helper = function_block(
         source,
-        "_has_company_wide_inventory_read",
+        "_require_live_stock_warehouse_read",
     )
     checks += 1
     if (
-        'access.allows("inventory.read")' not in company_wide_helper
-        or "actor.is_admin" not in company_wide_helper
+        'access.allows(' not in warehouse_read_helper
+        or '"inventory.read"' not in warehouse_read_helper
+        or "actor.is_admin" not in warehouse_read_helper
+        or 'status_code=404' not in warehouse_read_helper
+        or 'status_code=403' not in warehouse_read_helper
     ):
         failures.append(
-            "COMPANY_WIDE_INVENTORY_PERMISSION_HELPER_INCOMPLETE"
+            "WAREHOUSE_READ_AUTHORITY_HELPER_INCOMPLETE"
         )
 
     alert_summary = function_block(
@@ -208,6 +211,26 @@ def main() -> None:
         not in scale_source
     ):
         failures.append("HTTP_SCALE_GATE_THRESHOLDS_WEAKENED")
+
+    checks += 1
+    for fn_name in (
+        "get_warehouse_inventory_alert_summary",
+        "get_warehouse_inventory_summary",
+        "get_warehouse_inventory",
+    ):
+        block = function_block(source, fn_name)
+        if 'access.require("inventory.read"' in block or "access.require('inventory.read'" in block:
+            failures.append(
+                f"DUPLICATE_LIVE_STOCK_ACCESS_REQUIRE:{fn_name}"
+            )
+
+    checks += 1
+    cursor = function_block(source, "get_warehouse_inventory")
+    if (
+        "latest_purchase_page" not in cursor
+        or "latest_purchase_by_variant" in cursor
+    ):
+        failures.append("LATEST_PURCHASE_NOT_COLLAPSED_INTO_DETAILS")
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
