@@ -3093,7 +3093,6 @@ async def assert_live_stock_projection_ready(
             InventoryLiveStockProjection.next_transition_date
             <= company_date_expr,
         )
-        .correlate(Company)
         .exists()
     )
     row = (
@@ -3106,16 +3105,29 @@ async def assert_live_stock_projection_ready(
                 company_date_expr.label("company_local_date"),
                 due_transition_exists.label("has_due_transition"),
             )
+            .select_from(InventoryLiveStockCompanySummary)
             .join(
                 InventoryLiveStockWarehouseSummary,
-                InventoryLiveStockWarehouseSummary.company_id
-                == InventoryLiveStockCompanySummary.company_id,
+                and_(
+                    InventoryLiveStockWarehouseSummary.company_id
+                    == InventoryLiveStockCompanySummary.company_id,
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                    == warehouse_location_id,
+                ),
+            )
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id
+                    == InventoryLiveStockCompanySummary.company_id,
+                    InventoryLocation.id == warehouse_location_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                    InventoryLocation.is_active.is_(True),
+                ),
             )
             .join(Company, Company.id == company_id)
             .where(
                 InventoryLiveStockCompanySummary.company_id == company_id,
-                InventoryLiveStockWarehouseSummary.warehouse_location_id
-                == warehouse_location_id,
             )
         )
     ).one_or_none()
@@ -3127,7 +3139,7 @@ async def assert_live_stock_projection_ready(
         or int(row[3]) != PROJECTION_VERSION
     ):
         raise LiveStockProjectionError(
-            "Live Stock projection is not READY for this warehouse."
+            "Live Stock projection is not READY for this active warehouse."
         )
 
     if type(row.company_local_date) is not date:
