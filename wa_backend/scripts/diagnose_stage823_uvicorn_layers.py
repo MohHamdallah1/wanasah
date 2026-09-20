@@ -169,22 +169,64 @@ def stop_server(process: subprocess.Popen) -> None:
 
 
 async def wait_ready(process: subprocess.Popen, base_url: str, log_path: str) -> None:
+    """Do not start measuring until every Uvicorn worker has completed lifespan.
+
+    A single successful readiness response proves only that one worker is
+    ready.  The production benchmark runs four workers, so a one-worker
+    readiness check can accidentally benchmark the other workers while they
+    are still starting and prewarming their DB pools.
+    """
     deadline = time.monotonic() + 60.0
-    async with httpx.AsyncClient(base_url=base_url, timeout=2.0) as client:
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError(
-                    "Probe Uvicorn exited before readiness.\n" + read_log(log_path)
-                )
-            try:
+    seen_pids: set[str] = set()
+
+    async def probe_once() -> str | None:
+        limits = httpx.Limits(
+            max_connections=1,
+            max_keepalive_connections=0,
+        )
+        try:
+            async with httpx.AsyncClient(
+                base_url=base_url,
+                timeout=3.0,
+                limits=limits,
+                headers={"Connection": "close"},
+            ) as client:
                 response = await client.get("/__stage823_probe/raw")
-                if response.status_code == 200:
-                    return
-            except httpx.HTTPError:
-                pass
-            await asyncio.sleep(0.2)
+                if response.status_code != 200:
+                    return None
+                return response.headers.get("x-wanasah-probe-pid")
+        except httpx.HTTPError:
+            return None
+
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(
+                "Probe Uvicorn exited before readiness.\n" + read_log(log_path)
+            )
+
+        batch = await asyncio.gather(
+            *(probe_once() for _ in range(WORKERS * 4))
+        )
+        seen_pids.update(pid for pid in batch if pid)
+        if len(seen_pids) >= WORKERS:
+            print(
+                "PROBE_READY="
+                + json.dumps(
+                    {
+                        "workers_expected": WORKERS,
+                        "workers_seen": len(seen_pids),
+                        "pids": sorted(seen_pids),
+                    },
+                    sort_keys=True,
+                )
+            )
+            return
+        await asyncio.sleep(0.2)
+
     raise RuntimeError(
-        "Probe Uvicorn did not become ready.\n" + read_log(log_path)
+        "Not all Uvicorn workers became observable before benchmark. "
+        f"seen={sorted(seen_pids)} expected={WORKERS}\n"
+        + read_log(log_path)
     )
 
 
