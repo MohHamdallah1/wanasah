@@ -2669,7 +2669,7 @@ async def _rebuild_live_stock_warehouse_locked(
             "Inactive warehouses cannot be rebuilt; remove their projection instead."
         )
 
-    await _set_warehouse_summary_exact(
+    pre_summary_repairs = await _set_warehouse_summary_exact(
         db,
         company_id=company_id,
         warehouse_location_id=warehouse_location_id,
@@ -2734,7 +2734,7 @@ async def _rebuild_live_stock_warehouse_locked(
         candidate_keys += len(keys)
         after_variant_id = variant_ids[-1]
 
-    summary_repairs = await _set_warehouse_summary_exact(
+    summary_repairs = pre_summary_repairs + await _set_warehouse_summary_exact(
         db,
         company_id=company_id,
         warehouse_location_id=warehouse_location_id,
@@ -2842,6 +2842,26 @@ async def rebuild_live_stock_company(
         company_id=company_id,
         exclusive=True,
     )
+    expected_active_count = int(
+        (
+            await db.scalar(
+                select(func.count(ProductVariant.id)).where(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.lifecycle_status == "ACTIVE",
+                )
+            )
+        )
+        or 0
+    )
+    company_before = await db.scalar(
+        select(InventoryLiveStockCompanySummary).where(
+            InventoryLiveStockCompanySummary.company_id == company_id
+        )
+    )
+    company_summary_repair = int(
+        company_before is None
+        or int(company_before.active_variant_count) != expected_active_count
+    )
     await _ensure_company_summary_exact(
         db,
         company_id=company_id,
@@ -2925,26 +2945,6 @@ async def rebuild_live_stock_company(
             )
         )
 
-    company_before = await db.scalar(
-        select(InventoryLiveStockCompanySummary).where(
-            InventoryLiveStockCompanySummary.company_id == company_id
-        )
-    )
-    expected_active_count = int(
-        (
-            await db.scalar(
-                select(func.count(ProductVariant.id)).where(
-                    ProductVariant.company_id == company_id,
-                    ProductVariant.lifecycle_status == "ACTIVE",
-                )
-            )
-        )
-        or 0
-    )
-    company_summary_repair = int(
-        company_before is None
-        or int(company_before.active_variant_count) != expected_active_count
-    )
     await _ensure_company_summary_exact(
         db,
         company_id=company_id,
