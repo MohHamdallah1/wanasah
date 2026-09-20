@@ -13,6 +13,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from scripts import gate_stage821_live_stock_projector_runtime as fixture
+import workers.tasks.live_stock as live_stock_worker
 from domains.live_stock_projection.service import (
     LiveStockProjectionError,
     assert_live_stock_projection_ready,
@@ -434,6 +435,112 @@ async def run() -> None:
             "due transition refresh restores READY freshness",
             due_count >= 1,
             f"refreshed={due_count}",
+        )
+
+        # Exercise the exact implementation used by the background worker.
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await app.execute(
+                text(
+                    """
+                    UPDATE inventory_live_stock_projection
+                    SET computed_for_date=:yesterday,
+                        next_transition_date=:today
+                    WHERE company_id=:company_id
+                      AND warehouse_location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "yesterday": date.fromordinal(as_of.toordinal() - 1),
+                    "today": as_of,
+                    "company_id": company_id,
+                    "warehouse_id": warehouse_id,
+                    "variant_id": variant_id,
+                },
+            )
+            await app.commit()
+
+        worker_result = (
+            await live_stock_worker.run_company_live_stock_transition_maintenance(
+                company_id
+            )
+        )
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await assert_live_stock_projection_ready(
+                app,
+                company_id=company_id,
+                warehouse_location_id=warehouse_id,
+            )
+            await app.rollback()
+        record(
+            "background worker implementation refreshes due transitions",
+            int(worker_result["refreshed_keys"]) >= 1
+            and not bool(worker_result["saturated"]),
+            (
+                f"refreshed={worker_result['refreshed_keys']} "
+                f"batches={worker_result['batches']} "
+                f"recovered={worker_result['recovered']}"
+            ),
+        )
+
+        original_worker_refresh = (
+            live_stock_worker.refresh_due_live_stock_transitions
+        )
+
+        async def injected_failure(*args, **kwargs):
+            raise RuntimeError("STAGE822_INJECTED_WORKER_FAILURE")
+
+        live_stock_worker.refresh_due_live_stock_transitions = injected_failure
+        worker_failed = False
+        try:
+            await live_stock_worker.run_company_live_stock_transition_maintenance(
+                company_id
+            )
+        except RuntimeError as exc:
+            worker_failed = "STAGE822_INJECTED_WORKER_FAILURE" in str(exc)
+        finally:
+            live_stock_worker.refresh_due_live_stock_transitions = (
+                original_worker_refresh
+            )
+
+        degraded_health = await projection_health(
+            company_id,
+            warehouse_id,
+        )
+        record(
+            "worker failure persists DEGRADED before best-effort event",
+            worker_failed and degraded_health[0] == "DEGRADED",
+            (
+                f"worker_failed={worker_failed} "
+                f"company_state={degraded_health[0]}"
+            ),
+        )
+
+        recovery_result = (
+            await live_stock_worker.run_company_live_stock_transition_maintenance(
+                company_id
+            )
+        )
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await assert_live_stock_projection_ready(
+                app,
+                company_id=company_id,
+                warehouse_location_id=warehouse_id,
+            )
+            await app.rollback()
+        record(
+            "worker self-heals DEGRADED projection through reconciliation",
+            bool(recovery_result["recovered"]),
+            (
+                f"recovered={recovery_result['recovered']} "
+                f"refreshed={recovery_result['refreshed_keys']}"
+            ),
         )
 
         async with fixture.SessionApp() as app:
