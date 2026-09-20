@@ -296,11 +296,31 @@ def main() -> None:
         )
 
     checks += 1
+    required_bounded_detail_reads = (
+        "detail_stmt",
+        "_load_inventory_display_uoms(",
+        "latest_purchase_rows",
+        "_warehouse_array_membership(",
+    )
+    missing_detail_reads = [
+        token
+        for token in required_bounded_detail_reads
+        if token not in cursor
+    ]
+    if missing_detail_reads:
+        failures.append(
+            "BOUNDED_PAGE_DETAIL_READS_MISSING:"
+            + ",".join(missing_detail_reads)
+        )
+
+    checks += 1
     forbidden_cursor = (
         "warehouse_inventory_stmt",
         "batch_is_sellable",
         "policy_subq",
         "InventoryStockPolicy.minimum_quantity",
+        "display_uom_alias = aliased(",
+        "latest_purchase_page = (",
     )
     offenders = [token for token in forbidden_cursor if token in cursor]
     if offenders:
