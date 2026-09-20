@@ -430,9 +430,6 @@ async def create_product(
     except InventoryMutationError as exc:
         await db.rollback()
         raise _error(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
-    except LiveStockProjectionError as exc:
-        await db.rollback()
-        raise _error(500, "LIVE_STOCK_PROJECTION_FAILED", "تعذر تحديث عرض المخزون الحي بأمان.") from exc
 
 
 @router.patch("/products/{product_id}")
@@ -988,6 +985,13 @@ async def _run_variant_state_command(
     except InventoryMutationError as exc:
         await db.rollback()
         raise _error(409, "IDEMPOTENCY_CONFLICT", str(exc)) from exc
+    except LiveStockProjectionError as exc:
+        await db.rollback()
+        raise _error(
+            500,
+            "LIVE_STOCK_PROJECTION_FAILED",
+            "تعذر تحديث عرض المخزون الحي بأمان.",
+        ) from exc
 
 
 @router.post("/variants/{variant_id}/publish")

@@ -33,20 +33,40 @@ class Config:
     if not SQLALCHEMY_DATABASE_URI:
         raise ValueError("خطأ أمني قاتل: لم يتم العثور على DATABASE_URL في بيئة التشغيل! السيرفر يرفض الإقلاع حمايةً للبيانات.")
     
-    # +++ إعدادات تجمع الاتصالات (Connection Pool) للعمل مع 4 Workers محلياً +++
+    # ميزانية الاتصالات مقاسة من Stage 8.2.1: نقطة التشغيل المثلى الحالية ≈ 20
+    # اتصال PostgreSQL متزامناً للتطبيق كله. لا ترفعها عشوائياً؛ أعد تشغيل
+    # diagnose_stage821_concurrency_knee.py على نفس طبقة قاعدة بيانات الإنتاج.
+    WEB_CONCURRENCY = int(os.environ.get("WEB_CONCURRENCY", "4"))
+    DB_APP_CONNECTION_BUDGET = int(
+        os.environ.get("DB_APP_CONNECTION_BUDGET", "20")
+    )
+    DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "4"))
+    DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "1"))
+    DB_POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "3"))
+    DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
+
+    if WEB_CONCURRENCY <= 0:
+        raise ValueError("WEB_CONCURRENCY يجب أن يكون أكبر من صفر.")
+    if DB_APP_CONNECTION_BUDGET <= 0:
+        raise ValueError("DB_APP_CONNECTION_BUDGET يجب أن يكون أكبر من صفر.")
+    if DB_POOL_SIZE <= 0 or DB_MAX_OVERFLOW < 0:
+        raise ValueError("إعدادات DB pool غير صالحة.")
+    if DB_POOL_TIMEOUT <= 0 or DB_POOL_RECYCLE <= 0:
+        raise ValueError("DB pool timeout/recycle يجب أن يكونا أكبر من صفر.")
+
+    DB_CONNECTIONS_PER_WORKER = DB_POOL_SIZE + DB_MAX_OVERFLOW
+    DB_CONNECTIONS_TOTAL = DB_CONNECTIONS_PER_WORKER * WEB_CONCURRENCY
+    if DB_CONNECTIONS_TOTAL > DB_APP_CONNECTION_BUDGET:
+        raise ValueError(
+            "إعدادات قاعدة البيانات تتجاوز ميزانية الاتصالات الآمنة: "
+            f"{DB_CONNECTIONS_TOTAL} > {DB_APP_CONNECTION_BUDGET}. "
+            "خفّض DB_POOL_SIZE/DB_MAX_OVERFLOW أو أعد قياس نقطة التشبع."
+        )
+
     SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_size": 15,           # 15 * 4 = 60 اتصال أساسي
-        "max_overflow": 5,         # 5 * 4 = 20 اتصال فائض للضغط (الإجمالي 80 < 100)
-        "pool_timeout": 30,        
-        "pool_recycle": 1800,      
+        "pool_size": DB_POOL_SIZE,
+        "max_overflow": DB_MAX_OVERFLOW,
+        "pool_timeout": DB_POOL_TIMEOUT,
+        "pool_recycle": DB_POOL_RECYCLE,
+        "pool_use_lifo": True,
     }
-    #في بيئة الانتاج ارفعهم الى 
-    # +++ إعدادات تجمع الاتصالات (Connection Pool) لمنع الشلل التام (Deadlock) عند استخدام أقفال المخزون +++
-        #SQLALCHEMY_ENGINE_OPTIONS = {
-        #    "pool_size": 40,           # قاعدة دائمة (يجب أن تبقى أقل من max_connections في PostgreSQL)
-        #    "max_overflow": 30,        # فائض للضغط: الإجمالي الأقصى 70 اتصال < 100 (حد PostgreSQL الافتراضي)
-        #   "pool_timeout": 30,        
-        #    # +++ درع الاستضافة السحابية: لا تحذفه أبداً — يقتل الاتصالات الخاملة قبل أن تقتلها المنصة +++
-            # (Supabase/Heroku/RDS تقفل الاتصال الخامل بعد دقائق؛ بدونه ينهار أول طلب بعد فترة سكون)
-        #   "pool_recycle": 1800,      
-        #}

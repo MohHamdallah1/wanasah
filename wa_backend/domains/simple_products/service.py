@@ -25,6 +25,7 @@ from domains.pricing.publishing import (
 )
 from domains.pricing.resolver import resolve_prices_bulk
 from domains.live_stock_projection.service import (
+    LiveStockProjectionError,
     apply_live_stock_active_variant_delta,
 )
 from models import (
@@ -1018,11 +1019,18 @@ async def create_product_structures(
 
     await db.flush()
     if result:
-        await apply_live_stock_active_variant_delta(
-            db,
-            company_id=int(actor.company_id),
-            delta=len(result),
-        )
+        try:
+            await apply_live_stock_active_variant_delta(
+                db,
+                company_id=int(actor.company_id),
+                delta=len(result),
+            )
+        except LiveStockProjectionError as exc:
+            raise SimpleProductError(
+                "LIVE_STOCK_PROJECTION_FAILED",
+                "تعذر تحديث عرض المخزون الحي بأمان.",
+                status_code=500,
+            ) from exc
     return result
 
 

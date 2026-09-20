@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import and_, func, or_
 
@@ -53,3 +53,70 @@ def batch_sellability_predicate(
             ),
         ),
     )
+
+
+def batch_metadata_is_sellable(
+    *,
+    as_of_date: date,
+    expiry_control_mode: str,
+    production_date: date | None,
+    expiry_date: date | None,
+    minimum_remaining_shelf_life_days: int = 0,
+    is_active: bool = True,
+    disposition: str = "RELEASED",
+) -> bool:
+    """Pure-Python twin of batch_sellability_predicate for locked movement data."""
+    if type(as_of_date) is not date:
+        raise ValueError("as_of_date must be an explicit date.")
+    minimum_days = int(minimum_remaining_shelf_life_days or 0)
+    if minimum_days < 0:
+        raise ValueError("minimum_remaining_shelf_life_days cannot be negative.")
+
+    mode = str(expiry_control_mode or "").upper()
+    if mode not in {"NONE", "OPTIONAL", "REQUIRED"}:
+        raise ValueError("expiry_control_mode is invalid.")
+
+    if not bool(is_active) or str(disposition or "").upper() != "RELEASED":
+        return False
+    if production_date is not None and production_date > as_of_date:
+        return False
+
+    if expiry_date is None:
+        return mode in {"NONE", "OPTIONAL"} and minimum_days == 0
+
+    if mode == "NONE":
+        return False
+    return (expiry_date - as_of_date).days >= minimum_days
+
+
+def batch_next_transition_date(
+    *,
+    as_of_date: date,
+    expiry_control_mode: str,
+    production_date: date | None,
+    expiry_date: date | None,
+    minimum_remaining_shelf_life_days: int = 0,
+    is_active: bool = True,
+    disposition: str = "RELEASED",
+) -> date | None:
+    """Next date on which this batch can change Live Stock sellability."""
+    if type(as_of_date) is not date:
+        raise ValueError("as_of_date must be an explicit date.")
+    if not bool(is_active) or str(disposition or "").upper() != "RELEASED":
+        return None
+
+    minimum_days = int(minimum_remaining_shelf_life_days or 0)
+    if minimum_days < 0:
+        raise ValueError("minimum_remaining_shelf_life_days cannot be negative.")
+
+    mode = str(expiry_control_mode or "").upper()
+    candidates: list[date] = []
+    if production_date is not None and production_date > as_of_date:
+        candidates.append(production_date)
+
+    if mode in {"OPTIONAL", "REQUIRED"} and expiry_date is not None:
+        expiry_transition = expiry_date - timedelta(days=minimum_days) + timedelta(days=1)
+        if expiry_transition > as_of_date:
+            candidates.append(expiry_transition)
+
+    return min(candidates) if candidates else None

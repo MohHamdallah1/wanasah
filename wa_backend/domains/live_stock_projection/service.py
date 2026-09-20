@@ -5,11 +5,15 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
-from sqlalchemy import and_, case, func, or_, select, text, tuple_, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import Date, Integer, and_, any_, bindparam, case, cast, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domains.inventory_rules import batch_sellability_predicate
+from domains.inventory_rules import (
+    batch_metadata_is_sellable,
+    batch_next_transition_date,
+    batch_sellability_predicate,
+)
 from models import (
     Company,
     DispatchRoute,
@@ -27,6 +31,7 @@ from models import (
 
 PROJECTION_VERSION = 1
 _MAX_PROJECTOR_KEYS = 10_000
+_COARSE_GUARD_THRESHOLD = 256
 _ZERO = Decimal("0")
 
 
@@ -78,6 +83,52 @@ def _normalize_keys(
     return normalized
 
 
+def _array_membership(column, values: Sequence[int], bind_name: str):
+    if not values:
+        raise LiveStockProjectionError(
+            f"{bind_name} cannot be empty for array membership."
+        )
+    return column == any_(
+        bindparam(
+            bind_name,
+            value=list(values),
+            type_=ARRAY(Integer),
+        )
+    )
+
+
+def _projection_key_scope(
+    keys: Sequence[tuple[int, int]],
+    *,
+    name: str,
+):
+    if not keys:
+        raise LiveStockProjectionError(
+            f"{name} cannot be empty for projection key scope."
+        )
+    warehouse_ids = [warehouse_id for warehouse_id, _variant_id in keys]
+    variant_ids = [variant_id for _warehouse_id, variant_id in keys]
+    return (
+        func.unnest(
+            bindparam(
+                f"{name}_warehouse_ids",
+                value=warehouse_ids,
+                type_=ARRAY(Integer),
+            ),
+            bindparam(
+                f"{name}_variant_ids",
+                value=variant_ids,
+                type_=ARRAY(Integer),
+            ),
+        )
+        .table_valued(
+            "warehouse_location_id",
+            "product_variant_id",
+        )
+        .render_derived(name=f"{name}_keys")
+    )
+
+
 async def _acquire_text_guards(
     db: AsyncSession,
     keys: Sequence[str],
@@ -98,6 +149,20 @@ async def _acquire_text_guards(
             """
         ),
         {"lock_keys": sorted(set(keys))},
+    )
+
+
+async def _acquire_company_projection_guard(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    exclusive: bool,
+) -> None:
+    company_id = _positive_int(company_id, "company_id")
+    await _acquire_text_guards(
+        db,
+        [f"live-stock-company:{company_id}"],
+        shared=not exclusive,
     )
 
 
@@ -190,7 +255,11 @@ async def get_live_stock_vehicle_sources(
             )
             .where(
                 DispatchRoute.company_id == company_id,
-                DispatchRoute.vehicle_id.in_(ids),
+                _array_membership(
+                    DispatchRoute.vehicle_id,
+                    ids,
+                    "live_stock_vehicle_source_ids",
+                ),
             )
             .distinct(DispatchRoute.vehicle_id)
             .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
@@ -212,30 +281,59 @@ async def _ensure_warehouse_summaries(
     if not warehouse_ids:
         return
 
-    insert_stmt = (
-        pg_insert(InventoryLiveStockWarehouseSummary)
-        .values(
-            [
-                {
-                    "company_id": company_id,
-                    "warehouse_location_id": warehouse_id,
-                    "projection_state": "BUILDING",
-                    "projection_version": PROJECTION_VERSION,
-                    "revision": 1,
-                }
-                for warehouse_id in warehouse_ids
-            ]
-        )
-        .on_conflict_do_nothing(
-            index_elements=["company_id", "warehouse_location_id"]
-        )
-        .returning(InventoryLiveStockWarehouseSummary.warehouse_location_id)
-    )
-    inserted_ids = [
+    requested = sorted(set(int(value) for value in warehouse_ids))
+    existing = {
         int(value)
-        for value in (await db.execute(insert_stmt)).scalars().all()
+        for value in (
+            await db.execute(
+                select(
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                ).where(
+                    InventoryLiveStockWarehouseSummary.company_id == company_id,
+                    _array_membership(
+                        InventoryLiveStockWarehouseSummary.warehouse_location_id,
+                        requested,
+                        "live_stock_summary_warehouse_ids",
+                    ),
+                )
+            )
+        ).scalars().all()
+    }
+    missing = [value for value in requested if value not in existing]
+    if not missing:
+        return
+
+    # Summary creation is rare. Serialize only the missing warehouses instead
+    # of making every hot-path refresh contend on INSERT .. ON CONFLICT.
+    await _acquire_text_guards(
+        db,
+        [
+            f"live-stock-summary:{company_id}:{warehouse_id}"
+            for warehouse_id in missing
+        ],
+        shared=False,
+    )
+    existing_after_lock = {
+        int(value)
+        for value in (
+            await db.execute(
+                select(
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                ).where(
+                    InventoryLiveStockWarehouseSummary.company_id == company_id,
+                    _array_membership(
+                        InventoryLiveStockWarehouseSummary.warehouse_location_id,
+                        missing,
+                        "live_stock_missing_summary_warehouse_ids",
+                    ),
+                )
+            )
+        ).scalars().all()
+    }
+    missing = [
+        value for value in missing if value not in existing_after_lock
     ]
-    if not inserted_ids:
+    if not missing:
         return
 
     aggregate_rows = (
@@ -246,7 +344,10 @@ async def _ensure_warehouse_summaries(
                 func.coalesce(
                     func.sum(
                         case(
-                            (InventoryLiveStockProjection.is_low_stock.is_(True), 1),
+                            (
+                                InventoryLiveStockProjection.is_low_stock.is_(True),
+                                1,
+                            ),
                             else_=0,
                         )
                     ),
@@ -278,11 +379,15 @@ async def _ensure_warehouse_summaries(
             )
             .where(
                 InventoryLiveStockProjection.company_id == company_id,
-                InventoryLiveStockProjection.warehouse_location_id.in_(
-                    inserted_ids
+                _array_membership(
+                    InventoryLiveStockProjection.warehouse_location_id,
+                    missing,
+                    "live_stock_new_summary_warehouse_ids",
                 ),
             )
-            .group_by(InventoryLiveStockProjection.warehouse_location_id)
+            .group_by(
+                InventoryLiveStockProjection.warehouse_location_id
+            )
         )
     ).all()
     aggregates = {
@@ -293,24 +398,31 @@ async def _ensure_warehouse_summaries(
         )
         for row in aggregate_rows
     }
-    for warehouse_id in inserted_ids:
-        alert_count, nonactive_count, row_count = aggregates.get(
-            warehouse_id, (0, 0, 0)
+
+    await db.execute(
+        pg_insert(InventoryLiveStockWarehouseSummary).values(
+            [
+                {
+                    "company_id": company_id,
+                    "warehouse_location_id": warehouse_id,
+                    "projection_state": "BUILDING",
+                    "projection_version": PROJECTION_VERSION,
+                    "revision": 1,
+                    "alert_count": aggregates.get(
+                        warehouse_id, (0, 0, 0)
+                    )[0],
+                    "nonactive_visible_count": aggregates.get(
+                        warehouse_id, (0, 0, 0)
+                    )[1],
+                    "projected_row_count": aggregates.get(
+                        warehouse_id, (0, 0, 0)
+                    )[2],
+                    "updated_at": utc_now(),
+                }
+                for warehouse_id in missing
+            ]
         )
-        await db.execute(
-            update(InventoryLiveStockWarehouseSummary)
-            .where(
-                InventoryLiveStockWarehouseSummary.company_id == company_id,
-                InventoryLiveStockWarehouseSummary.warehouse_location_id
-                == warehouse_id,
-            )
-            .values(
-                alert_count=alert_count,
-                nonactive_visible_count=nonactive_count,
-                projected_row_count=row_count,
-                updated_at=utc_now(),
-            )
-        )
+    )
 
 
 def _nonactive_visible_from_values(values: Mapping[str, object]) -> bool:
@@ -330,94 +442,214 @@ def _nonactive_visible_from_row(row: InventoryLiveStockProjection) -> bool:
     )
 
 
+async def _apply_warehouse_summary_deltas(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    summary_deltas: Mapping[int, Sequence[int]],
+) -> None:
+    for warehouse_id in sorted(summary_deltas):
+        alert_delta, nonactive_delta, row_delta = summary_deltas[warehouse_id]
+        if not (alert_delta or nonactive_delta or row_delta):
+            continue
+        result = await db.execute(
+            update(InventoryLiveStockWarehouseSummary)
+            .where(
+                InventoryLiveStockWarehouseSummary.company_id == company_id,
+                InventoryLiveStockWarehouseSummary.warehouse_location_id
+                == warehouse_id,
+            )
+            .values(
+                alert_count=(
+                    InventoryLiveStockWarehouseSummary.alert_count + alert_delta
+                ),
+                nonactive_visible_count=(
+                    InventoryLiveStockWarehouseSummary.nonactive_visible_count
+                    + nonactive_delta
+                ),
+                projected_row_count=(
+                    InventoryLiveStockWarehouseSummary.projected_row_count
+                    + row_delta
+                ),
+                revision=InventoryLiveStockWarehouseSummary.revision + 1,
+                updated_at=utc_now(),
+            )
+        )
+        if result.rowcount != 1:
+            raise LiveStockProjectionError(
+                "Live Stock warehouse summary is missing during projection update."
+            )
+    await db.flush()
+
+
 async def refresh_live_stock_keys(
     db: AsyncSession,
     *,
     company_id: int,
     keys: Iterable[tuple[int, int]],
     computed_for_date: date | None = None,
-    variant_guard_exclusive: bool = False,
+    _company_guard_held: bool = False,
+    _force_coarse_guard: bool = False,
 ) -> None:
     company_id = _positive_int(company_id, "company_id")
     normalized_keys = _normalize_keys(keys)
     if not normalized_keys:
         return
 
-    variant_ids = sorted({variant_id for _warehouse_id, variant_id in normalized_keys})
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=variant_ids,
-        exclusive=variant_guard_exclusive,
+    variant_ids = sorted(
+        {variant_id for _warehouse_id, variant_id in normalized_keys}
     )
-    await _acquire_projection_key_guards(
-        db,
-        company_id=company_id,
-        keys=normalized_keys,
+    coarse_guard = (
+        _force_coarse_guard
+        or len(normalized_keys) >= _COARSE_GUARD_THRESHOLD
+        or len(variant_ids) >= _COARSE_GUARD_THRESHOLD
+    )
+    if not _company_guard_held:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=coarse_guard,
+        )
+    if not coarse_guard:
+        await _acquire_projection_key_guards(
+            db,
+            company_id=company_id,
+            keys=normalized_keys,
+        )
+
+    requested_key_scope = _projection_key_scope(
+        normalized_keys,
+        name="live_stock_requested",
+    )
+    company_date_expr = cast(
+        func.timezone(Company.timezone, func.current_timestamp()),
+        Date,
     )
 
+    metadata_rows = (
+        await db.execute(
+            select(
+                requested_key_scope.c.warehouse_location_id,
+                requested_key_scope.c.product_variant_id,
+                ProductVariant.name.label("variant_name"),
+                ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
+                ProductVariant.expiry_control_mode,
+                InventoryStockPolicy.minimum_quantity,
+                InventoryStockPolicy.minimum_remaining_shelf_life_days,
+                company_date_expr.label("company_local_date"),
+                InventoryLiveStockWarehouseSummary.warehouse_location_id.label(
+                    "summary_warehouse_id"
+                ),
+                InventoryLiveStockProjection,
+            )
+            .select_from(requested_key_scope)
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id
+                    == requested_key_scope.c.warehouse_location_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                ),
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id
+                    == requested_key_scope.c.product_variant_id,
+                ),
+            )
+            .join(Company, Company.id == company_id)
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id == company_id,
+                    InventoryStockPolicy.location_id
+                    == requested_key_scope.c.warehouse_location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == requested_key_scope.c.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                ),
+            )
+            .outerjoin(
+                InventoryLiveStockWarehouseSummary,
+                and_(
+                    InventoryLiveStockWarehouseSummary.company_id
+                    == company_id,
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                    == requested_key_scope.c.warehouse_location_id,
+                ),
+            )
+            .outerjoin(
+                InventoryLiveStockProjection,
+                and_(
+                    InventoryLiveStockProjection.company_id == company_id,
+                    InventoryLiveStockProjection.warehouse_location_id
+                    == requested_key_scope.c.warehouse_location_id,
+                    InventoryLiveStockProjection.product_variant_id
+                    == requested_key_scope.c.product_variant_id,
+                ),
+            )
+        )
+    ).all()
+
+    metadata = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row
+        for row in metadata_rows
+    }
+    existing = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row[-1]
+        for row in metadata_rows
+        if row[-1] is not None
+    }
+    active_keys = sorted(metadata)
     if computed_for_date is None:
-        computed_for_date = await _company_local_date(db, company_id)
+        dates = {
+            row.company_local_date
+            for row in metadata_rows
+            if row.company_local_date is not None
+        }
+        if len(dates) != 1:
+            raise LiveStockProjectionError(
+                "Could not resolve one company-local operational date."
+            )
+        computed_for_date = next(iter(dates))
     if type(computed_for_date) is not date:
         raise LiveStockProjectionError("computed_for_date must be a date.")
 
-    warehouse_ids = sorted({warehouse_id for warehouse_id, _ in normalized_keys})
-    warehouses = set(
-        (
-            await db.execute(
-                select(InventoryLocation.id).where(
-                    InventoryLocation.company_id == company_id,
-                    InventoryLocation.id.in_(warehouse_ids),
-                    InventoryLocation.location_type == "WAREHOUSE",
-                )
-            )
-        ).scalars().all()
+    active_key_scope = (
+        _projection_key_scope(active_keys, name="live_stock_active")
+        if active_keys
+        else None
     )
-    warehouses = {int(value) for value in warehouses}
+    normalized_key_scope = requested_key_scope
 
-    variants = {
-        int(row.id): row
-        for row in (
-            await db.execute(
-                select(ProductVariant).where(
-                    ProductVariant.company_id == company_id,
-                    ProductVariant.id.in_(variant_ids),
-                )
-            )
-        ).scalars().all()
-    }
-
-    active_keys = [
-        key
-        for key in normalized_keys
-        if key[0] in warehouses and key[1] in variants
-    ]
-    await _ensure_warehouse_summaries(
-        db,
-        company_id=company_id,
-        warehouse_ids=sorted({key[0] for key in active_keys}),
+    missing_summary_warehouses = sorted(
+        {
+            int(row.warehouse_location_id)
+            for row in metadata_rows
+            if row.summary_warehouse_id is None
+        }
     )
-
-    policy_rows = (
-        await db.execute(
-            select(
-                InventoryStockPolicy.location_id,
-                InventoryStockPolicy.product_variant_id,
-                InventoryStockPolicy.minimum_quantity,
-                InventoryStockPolicy.minimum_remaining_shelf_life_days,
-            ).where(
-                InventoryStockPolicy.company_id == company_id,
-                InventoryStockPolicy.is_active.is_(True),
-                tuple_(
-                    InventoryStockPolicy.location_id,
-                    InventoryStockPolicy.product_variant_id,
-                ).in_(active_keys),
-            )
+    if missing_summary_warehouses:
+        await _ensure_warehouse_summaries(
+            db,
+            company_id=company_id,
+            warehouse_ids=missing_summary_warehouses,
         )
-    ).all() if active_keys else []
+
     policies = {
-        (int(row.location_id), int(row.product_variant_id)): row
-        for row in policy_rows
+        key: row
+        for key, row in metadata.items()
+        if row.minimum_quantity is not None
     }
 
     min_shelf_life = func.coalesce(
@@ -437,184 +669,182 @@ async def refresh_live_stock_keys(
     )
     expiry_transition = ProductBatch.expiry_date - min_shelf_life + 1
 
-    direct_rows = (
-        await db.execute(
-            select(
-                InventoryBalance.location_id,
-                InventoryBalance.product_variant_id,
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_on_hand"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                InventoryBalance.reserved_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_reserved"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    InventoryBalance.stock_status == "AVAILABLE",
-                                    sellable_batch,
-                                ),
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_sellable_on_hand"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                and_(
-                                    InventoryBalance.stock_status == "AVAILABLE",
-                                    sellable_batch,
-                                ),
-                                InventoryBalance.reserved_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("warehouse_sellable_reserved"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status.in_(
-                                    [
-                                        "QUARANTINED",
-                                        "BLOCKED",
-                                        "RECALLED",
-                                        "DISPOSAL_PENDING",
-                                    ]
-                                ),
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("blocked_status_packs"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "RECALLED",
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("recalled_packs"),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            (
-                                InventoryBalance.stock_status == "DAMAGED",
-                                InventoryBalance.on_hand_quantity,
-                            ),
-                            else_=_ZERO,
-                        )
-                    ),
-                    _ZERO,
-                ).label("damaged_packs"),
-                func.min(
+    direct_agg = (
+        select(
+            InventoryBalance.location_id.label("warehouse_location_id"),
+            InventoryBalance.product_variant_id.label("product_variant_id"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "AVAILABLE",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
+                ),
+                _ZERO,
+            ).label("warehouse_on_hand"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "AVAILABLE",
+                            InventoryBalance.reserved_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
+                ),
+                _ZERO,
+            ).label("warehouse_reserved"),
+            func.coalesce(
+                func.sum(
                     case(
                         (
                             and_(
-                                transition_scope,
-                                ProductBatch.production_date.is_not(None),
-                                ProductBatch.production_date > computed_for_date,
+                                InventoryBalance.stock_status == "AVAILABLE",
+                                sellable_batch,
                             ),
-                            ProductBatch.production_date,
+                            InventoryBalance.on_hand_quantity,
                         ),
-                        else_=None,
+                        else_=_ZERO,
                     )
-                ).label("next_production_transition"),
-                func.min(
+                ),
+                _ZERO,
+            ).label("warehouse_sellable_on_hand"),
+            func.coalesce(
+                func.sum(
                     case(
                         (
                             and_(
-                                transition_scope,
-                                ProductVariant.expiry_control_mode.in_(
-                                    ["OPTIONAL", "REQUIRED"]
-                                ),
-                                ProductBatch.expiry_date.is_not(None),
-                                expiry_transition > computed_for_date,
+                                InventoryBalance.stock_status == "AVAILABLE",
+                                sellable_batch,
                             ),
-                            expiry_transition,
+                            InventoryBalance.reserved_quantity,
                         ),
-                        else_=None,
+                        else_=_ZERO,
                     )
-                ).label("next_expiry_transition"),
-            )
-            .select_from(InventoryBalance)
-            .join(
-                ProductBatch,
-                and_(
-                    ProductBatch.company_id == InventoryBalance.company_id,
-                    ProductBatch.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    ProductBatch.id == InventoryBalance.batch_id,
                 ),
-            )
-            .join(
-                ProductVariant,
-                and_(
-                    ProductVariant.company_id == InventoryBalance.company_id,
-                    ProductVariant.id == InventoryBalance.product_variant_id,
+                _ZERO,
+            ).label("warehouse_sellable_reserved"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status.in_(
+                                [
+                                    "QUARANTINED",
+                                    "BLOCKED",
+                                    "RECALLED",
+                                    "DISPOSAL_PENDING",
+                                ]
+                            ),
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
                 ),
-            )
-            .outerjoin(
-                InventoryStockPolicy,
-                and_(
-                    InventoryStockPolicy.company_id
-                    == InventoryBalance.company_id,
-                    InventoryStockPolicy.location_id
-                    == InventoryBalance.location_id,
-                    InventoryStockPolicy.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    InventoryStockPolicy.is_active.is_(True),
+                _ZERO,
+            ).label("blocked_status_packs"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "RECALLED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
                 ),
-            )
-            .where(
-                InventoryBalance.company_id == company_id,
-                tuple_(
-                    InventoryBalance.location_id,
-                    InventoryBalance.product_variant_id,
-                ).in_(active_keys),
-            )
-            .group_by(
-                InventoryBalance.location_id,
-                InventoryBalance.product_variant_id,
-            )
+                _ZERO,
+            ).label("recalled_packs"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            InventoryBalance.stock_status == "DAMAGED",
+                            InventoryBalance.on_hand_quantity,
+                        ),
+                        else_=_ZERO,
+                    )
+                ),
+                _ZERO,
+            ).label("damaged_packs"),
+            func.min(
+                case(
+                    (
+                        and_(
+                            transition_scope,
+                            ProductBatch.production_date.is_not(None),
+                            ProductBatch.production_date > computed_for_date,
+                        ),
+                        ProductBatch.production_date,
+                    ),
+                    else_=None,
+                )
+            ).label("next_production_transition"),
+            func.min(
+                case(
+                    (
+                        and_(
+                            transition_scope,
+                            ProductVariant.expiry_control_mode.in_(
+                                ["OPTIONAL", "REQUIRED"]
+                            ),
+                            ProductBatch.expiry_date.is_not(None),
+                            expiry_transition > computed_for_date,
+                        ),
+                        expiry_transition,
+                    ),
+                    else_=None,
+                )
+            ).label("next_expiry_transition"),
         )
-    ).all() if active_keys else []
-    direct = {
-        (int(row.location_id), int(row.product_variant_id)): row
-        for row in direct_rows
-    }
+        .select_from(InventoryBalance)
+        .join(
+            active_key_scope,
+            and_(
+                active_key_scope.c.warehouse_location_id
+                == InventoryBalance.location_id,
+                active_key_scope.c.product_variant_id
+                == InventoryBalance.product_variant_id,
+            ),
+        )
+        .join(
+            ProductBatch,
+            and_(
+                ProductBatch.company_id == InventoryBalance.company_id,
+                ProductBatch.product_variant_id
+                == InventoryBalance.product_variant_id,
+                ProductBatch.id == InventoryBalance.batch_id,
+            ),
+        )
+        .join(
+            ProductVariant,
+            and_(
+                ProductVariant.company_id == InventoryBalance.company_id,
+                ProductVariant.id == InventoryBalance.product_variant_id,
+            ),
+        )
+        .outerjoin(
+            InventoryStockPolicy,
+            and_(
+                InventoryStockPolicy.company_id
+                == InventoryBalance.company_id,
+                InventoryStockPolicy.location_id
+                == InventoryBalance.location_id,
+                InventoryStockPolicy.product_variant_id
+                == InventoryBalance.product_variant_id,
+                InventoryStockPolicy.is_active.is_(True),
+            ),
+        )
+        .where(InventoryBalance.company_id == company_id)
+        .group_by(
+            InventoryBalance.location_id,
+            InventoryBalance.product_variant_id,
+        )
+        .subquery("live_stock_direct_agg")
+    )
 
     latest_route = (
         select(
@@ -630,72 +860,113 @@ async def refresh_live_stock_keys(
         .subquery("live_stock_latest_vehicle_route")
     )
 
-    vehicle_rows = (
+    vehicle_agg = (
+        select(
+            latest_route.c.source_location_id.label(
+                "warehouse_location_id"
+            ),
+            InventoryBalance.product_variant_id.label(
+                "product_variant_id"
+            ),
+            func.coalesce(
+                func.sum(InventoryBalance.on_hand_quantity),
+                _ZERO,
+            ).label("vehicle_packs"),
+        )
+        .select_from(InventoryBalance)
+        .join(
+            InventoryLocation,
+            and_(
+                InventoryLocation.company_id == InventoryBalance.company_id,
+                InventoryLocation.id == InventoryBalance.location_id,
+                InventoryLocation.location_type == "VEHICLE",
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.vehicle_id.is_not(None),
+            ),
+        )
+        .join(
+            latest_route,
+            latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
+        )
+        .join(
+            active_key_scope,
+            and_(
+                active_key_scope.c.warehouse_location_id
+                == latest_route.c.source_location_id,
+                active_key_scope.c.product_variant_id
+                == InventoryBalance.product_variant_id,
+            ),
+        )
+        .where(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.stock_status != "DAMAGED",
+        )
+        .group_by(
+            latest_route.c.source_location_id,
+            InventoryBalance.product_variant_id,
+        )
+        .subquery("live_stock_vehicle_agg")
+    )
+
+    fact_rows = (
         await db.execute(
             select(
-                latest_route.c.source_location_id.label("warehouse_location_id"),
-                InventoryBalance.product_variant_id,
+                active_key_scope.c.warehouse_location_id,
+                active_key_scope.c.product_variant_id,
                 func.coalesce(
-                    func.sum(InventoryBalance.on_hand_quantity),
-                    _ZERO,
+                    direct_agg.c.warehouse_on_hand, _ZERO
+                ).label("warehouse_on_hand"),
+                func.coalesce(
+                    direct_agg.c.warehouse_reserved, _ZERO
+                ).label("warehouse_reserved"),
+                func.coalesce(
+                    direct_agg.c.warehouse_sellable_on_hand, _ZERO
+                ).label("warehouse_sellable_on_hand"),
+                func.coalesce(
+                    direct_agg.c.warehouse_sellable_reserved, _ZERO
+                ).label("warehouse_sellable_reserved"),
+                func.coalesce(
+                    direct_agg.c.blocked_status_packs, _ZERO
+                ).label("blocked_status_packs"),
+                func.coalesce(
+                    direct_agg.c.recalled_packs, _ZERO
+                ).label("recalled_packs"),
+                func.coalesce(
+                    direct_agg.c.damaged_packs, _ZERO
+                ).label("damaged_packs"),
+                func.coalesce(
+                    vehicle_agg.c.vehicle_packs, _ZERO
                 ).label("vehicle_packs"),
+                direct_agg.c.next_production_transition,
+                direct_agg.c.next_expiry_transition,
             )
-            .select_from(InventoryBalance)
-            .join(
-                InventoryLocation,
+            .select_from(active_key_scope)
+            .outerjoin(
+                direct_agg,
                 and_(
-                    InventoryLocation.company_id == InventoryBalance.company_id,
-                    InventoryLocation.id == InventoryBalance.location_id,
-                    InventoryLocation.location_type == "VEHICLE",
-                    InventoryLocation.is_active.is_(True),
-                    InventoryLocation.vehicle_id.is_not(None),
+                    direct_agg.c.warehouse_location_id
+                    == active_key_scope.c.warehouse_location_id,
+                    direct_agg.c.product_variant_id
+                    == active_key_scope.c.product_variant_id,
                 ),
             )
-            .join(
-                latest_route,
-                latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
-            )
-            .where(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.stock_status != "DAMAGED",
-                tuple_(
-                    latest_route.c.source_location_id,
-                    InventoryBalance.product_variant_id,
-                ).in_(active_keys),
-            )
-            .group_by(
-                latest_route.c.source_location_id,
-                InventoryBalance.product_variant_id,
+            .outerjoin(
+                vehicle_agg,
+                and_(
+                    vehicle_agg.c.warehouse_location_id
+                    == active_key_scope.c.warehouse_location_id,
+                    vehicle_agg.c.product_variant_id
+                    == active_key_scope.c.product_variant_id,
+                ),
             )
         )
     ).all() if active_keys else []
-    vehicle = {
-        (int(row.warehouse_location_id), int(row.product_variant_id)): Decimal(
-            row.vehicle_packs or 0
-        )
-        for row in vehicle_rows
-    }
-
-    existing_rows = (
-        await db.execute(
-            select(InventoryLiveStockProjection)
-            .where(
-                InventoryLiveStockProjection.company_id == company_id,
-                tuple_(
-                    InventoryLiveStockProjection.warehouse_location_id,
-                    InventoryLiveStockProjection.product_variant_id,
-                ).in_(normalized_keys),
-            )
-            .order_by(
-                InventoryLiveStockProjection.warehouse_location_id,
-                InventoryLiveStockProjection.product_variant_id,
-            )
-            .with_for_update()
-        )
-    ).scalars().all()
-    existing = {
-        (int(row.warehouse_location_id), int(row.product_variant_id)): row
-        for row in existing_rows
+    facts = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row
+        for row in fact_rows
     }
 
     summary_deltas: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])
@@ -723,11 +994,11 @@ async def refresh_live_stock_keys(
     for warehouse_id, variant_id in normalized_keys:
         key = (warehouse_id, variant_id)
         old = existing.get(key)
-        variant = variants.get(variant_id)
-        if warehouse_id not in warehouses or variant is None:
+        variant = metadata.get(key)
+        if variant is None:
             new_values = None
         else:
-            aggregate = direct.get(key)
+            aggregate = facts.get(key)
             policy = policies.get(key)
             warehouse_on_hand = Decimal(
                 getattr(aggregate, "warehouse_on_hand", 0) or 0
@@ -750,7 +1021,9 @@ async def refresh_live_stock_keys(
             damaged_packs = Decimal(
                 getattr(aggregate, "damaged_packs", 0) or 0
             )
-            vehicle_packs = vehicle.get(key, _ZERO)
+            vehicle_packs = Decimal(
+                getattr(aggregate, "vehicle_packs", 0) or 0
+            )
             minimum_quantity = (
                 Decimal(policy.minimum_quantity or 0)
                 if policy is not None
@@ -794,7 +1067,7 @@ async def refresh_live_stock_keys(
                     <= minimum_quantity
                 )
                 new_values = {
-                    "variant_name": str(variant.name),
+                    "variant_name": str(variant.variant_name),
                     "lifecycle_status": str(variant.lifecycle_status),
                     "operational_hold": str(variant.operational_hold),
                     "warehouse_on_hand": warehouse_on_hand,
@@ -870,38 +1143,11 @@ async def refresh_live_stock_keys(
 
     await db.flush()
 
-    for warehouse_id in sorted(summary_deltas):
-        alert_delta, nonactive_delta, row_delta = summary_deltas[warehouse_id]
-        if not (alert_delta or nonactive_delta or row_delta):
-            continue
-        result = await db.execute(
-            update(InventoryLiveStockWarehouseSummary)
-            .where(
-                InventoryLiveStockWarehouseSummary.company_id == company_id,
-                InventoryLiveStockWarehouseSummary.warehouse_location_id
-                == warehouse_id,
-            )
-            .values(
-                alert_count=(
-                    InventoryLiveStockWarehouseSummary.alert_count + alert_delta
-                ),
-                nonactive_visible_count=(
-                    InventoryLiveStockWarehouseSummary.nonactive_visible_count
-                    + nonactive_delta
-                ),
-                projected_row_count=(
-                    InventoryLiveStockWarehouseSummary.projected_row_count
-                    + row_delta
-                ),
-                revision=InventoryLiveStockWarehouseSummary.revision + 1,
-                updated_at=utc_now(),
-            )
-        )
-        if result.rowcount != 1:
-            raise LiveStockProjectionError(
-                "Live Stock warehouse summary is missing during projection update."
-            )
-    await db.flush()
+    await _apply_warehouse_summary_deltas(
+        db,
+        company_id=company_id,
+        summary_deltas=summary_deltas,
+    )
 
 
 async def _candidate_keys_for_variants(
@@ -950,7 +1196,11 @@ async def _candidate_keys_for_variants(
             )
             .where(
                 InventoryStockPolicy.company_id == company_id,
-                InventoryStockPolicy.product_variant_id.in_(variant_ids),
+                _array_membership(
+                    InventoryStockPolicy.product_variant_id,
+                    variant_ids,
+                    "live_stock_candidate_policy_variant_ids",
+                ),
                 InventoryStockPolicy.is_active.is_(True),
             )
         )
@@ -976,7 +1226,11 @@ async def _candidate_keys_for_variants(
             )
             .where(
                 InventoryBalance.company_id == company_id,
-                InventoryBalance.product_variant_id.in_(variant_ids),
+                _array_membership(
+                    InventoryBalance.product_variant_id,
+                    variant_ids,
+                    "live_stock_candidate_balance_variant_ids",
+                ),
                 or_(
                     InventoryBalance.on_hand_quantity > 0,
                     InventoryBalance.reserved_quantity > 0,
@@ -1026,7 +1280,11 @@ async def _candidate_keys_for_variants(
             )
             .where(
                 InventoryBalance.company_id == company_id,
-                InventoryBalance.product_variant_id.in_(variant_ids),
+                _array_membership(
+                    InventoryBalance.product_variant_id,
+                    variant_ids,
+                    "live_stock_candidate_vehicle_variant_ids",
+                ),
                 InventoryBalance.stock_status != "DAMAGED",
                 InventoryBalance.on_hand_quantity > 0,
             )
@@ -1052,12 +1310,20 @@ async def refresh_live_stock_variants(
     ids = _normalize_ids(variant_ids, "product_variant_id")
     if not ids:
         return
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=ids,
-        exclusive=True,
-    )
+    coarse_guard = len(ids) >= _COARSE_GUARD_THRESHOLD
+    if coarse_guard:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=True,
+        )
+    else:
+        await _acquire_variant_guards(
+            db,
+            company_id=company_id,
+            variant_ids=ids,
+            exclusive=True,
+        )
     keys = await _candidate_keys_for_variants(
         db,
         company_id=company_id,
@@ -1069,7 +1335,628 @@ async def refresh_live_stock_variants(
             company_id=company_id,
             keys=keys,
             computed_for_date=computed_for_date,
-            variant_guard_exclusive=True,
+            _company_guard_held=coarse_guard,
+            _force_coarse_guard=coarse_guard,
+        )
+
+
+def _impact_decimal(value: object) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except Exception as exc:
+        raise LiveStockProjectionError(
+            "Live Stock balance impact contains an invalid quantity."
+        ) from exc
+
+
+def _projection_quantities_are_valid(values: Mapping[str, object]) -> bool:
+    on_hand = _impact_decimal(values["warehouse_on_hand"])
+    reserved = _impact_decimal(values["warehouse_reserved"])
+    sellable = _impact_decimal(values["warehouse_sellable_on_hand"])
+    sellable_reserved = _impact_decimal(
+        values["warehouse_sellable_reserved"]
+    )
+    blocked = _impact_decimal(values["blocked_status_packs"])
+    recalled = _impact_decimal(values["recalled_packs"])
+    damaged = _impact_decimal(values["damaged_packs"])
+    vehicle = _impact_decimal(values["vehicle_packs"])
+    minimum = _impact_decimal(values["minimum_quantity"])
+    return (
+        on_hand >= 0
+        and reserved >= 0
+        and reserved <= on_hand
+        and sellable >= 0
+        and sellable <= on_hand
+        and sellable_reserved >= 0
+        and sellable_reserved <= sellable
+        and blocked >= 0
+        and recalled >= 0
+        and recalled <= blocked
+        and damaged >= 0
+        and vehicle >= 0
+        and minimum >= 0
+    )
+
+
+async def apply_live_stock_balance_impacts(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    impacts: Sequence[Mapping[str, object]],
+) -> None:
+    """Apply already-locked InventoryBalance before/after deltas transactionally.
+
+    This is the hot mutation path. Full SSOT aggregation remains the authority
+    for rebuilds, lifecycle/batch changes, stale-date repair and drift recovery.
+    """
+    company_id = _positive_int(company_id, "company_id")
+    if not impacts:
+        return
+
+    normalized_impacts: list[dict[str, object]] = []
+    vehicle_ids: set[int] = set()
+    for raw in impacts:
+        location_id = _positive_int(raw.get("location_id"), "location_id")
+        variant_id = _positive_int(
+            raw.get("product_variant_id"),
+            "product_variant_id",
+        )
+        location_type = str(raw.get("location_type") or "").upper()
+        if location_type not in {"WAREHOUSE", "VEHICLE", "IN_TRANSIT"}:
+            raise LiveStockProjectionError(
+                f"Unsupported inventory location type: {location_type}"
+            )
+        vehicle_id = raw.get("vehicle_id")
+        if vehicle_id is not None:
+            vehicle_id = _positive_int(vehicle_id, "vehicle_id")
+        if location_type == "VEHICLE":
+            if vehicle_id is None:
+                raise LiveStockProjectionError(
+                    "Vehicle inventory impact is missing vehicle_id."
+                )
+            vehicle_ids.add(int(vehicle_id))
+
+        normalized = dict(raw)
+        normalized["location_id"] = location_id
+        normalized["product_variant_id"] = variant_id
+        normalized["location_type"] = location_type
+        normalized["vehicle_id"] = vehicle_id
+        normalized["stock_status"] = str(
+            raw.get("stock_status") or ""
+        ).upper()
+        normalized_impacts.append(normalized)
+
+    if vehicle_ids:
+        await acquire_live_stock_vehicle_guards(
+            db,
+            company_id=company_id,
+            vehicle_ids=sorted(vehicle_ids),
+        )
+    vehicle_sources = await get_live_stock_vehicle_sources(
+        db,
+        company_id=company_id,
+        vehicle_ids=sorted(vehicle_ids),
+    )
+
+    impacts_by_key: dict[
+        tuple[int, int],
+        list[dict[str, object]],
+    ] = defaultdict(list)
+    for impact in normalized_impacts:
+        location_type = str(impact["location_type"])
+        variant_id = int(impact["product_variant_id"])
+        if location_type == "WAREHOUSE":
+            key = (int(impact["location_id"]), variant_id)
+        elif location_type == "VEHICLE":
+            source = vehicle_sources.get(int(impact["vehicle_id"]))
+            if source is None:
+                continue
+            key = (int(source), variant_id)
+        else:
+            continue
+        impacts_by_key[key].append(impact)
+
+    keys = _normalize_keys(impacts_by_key)
+    if not keys:
+        return
+
+    coarse_guard = len(keys) >= _COARSE_GUARD_THRESHOLD
+    await _acquire_company_projection_guard(
+        db,
+        company_id=company_id,
+        exclusive=coarse_guard,
+    )
+    if not coarse_guard:
+        await _acquire_projection_key_guards(
+            db,
+            company_id=company_id,
+            keys=keys,
+        )
+
+    key_scope = _projection_key_scope(
+        keys,
+        name="live_stock_delta",
+    )
+    company_date_expr = cast(
+        func.timezone(Company.timezone, func.current_timestamp()),
+        Date,
+    )
+    rows = (
+        await db.execute(
+            select(
+                key_scope.c.warehouse_location_id,
+                key_scope.c.product_variant_id,
+                InventoryStockPolicy.minimum_quantity,
+                InventoryStockPolicy.minimum_remaining_shelf_life_days,
+                company_date_expr.label("company_local_date"),
+                InventoryLiveStockWarehouseSummary.warehouse_location_id.label(
+                    "summary_warehouse_id"
+                ),
+                InventoryLiveStockProjection,
+            )
+            .select_from(key_scope)
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id
+                    == key_scope.c.warehouse_location_id,
+                    InventoryLocation.location_type == "WAREHOUSE",
+                ),
+            )
+            .join(Company, Company.id == company_id)
+            .outerjoin(
+                InventoryStockPolicy,
+                and_(
+                    InventoryStockPolicy.company_id == company_id,
+                    InventoryStockPolicy.location_id
+                    == key_scope.c.warehouse_location_id,
+                    InventoryStockPolicy.product_variant_id
+                    == key_scope.c.product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
+                ),
+            )
+            .outerjoin(
+                InventoryLiveStockWarehouseSummary,
+                and_(
+                    InventoryLiveStockWarehouseSummary.company_id
+                    == company_id,
+                    InventoryLiveStockWarehouseSummary.warehouse_location_id
+                    == key_scope.c.warehouse_location_id,
+                ),
+            )
+            .outerjoin(
+                InventoryLiveStockProjection,
+                and_(
+                    InventoryLiveStockProjection.company_id == company_id,
+                    InventoryLiveStockProjection.warehouse_location_id
+                    == key_scope.c.warehouse_location_id,
+                    InventoryLiveStockProjection.product_variant_id
+                    == key_scope.c.product_variant_id,
+                ),
+            )
+        )
+    ).all()
+    metadata = {
+        (
+            int(row.warehouse_location_id),
+            int(row.product_variant_id),
+        ): row
+        for row in rows
+    }
+    if set(metadata) != set(keys):
+        raise LiveStockProjectionError(
+            "A Live Stock impact references an invalid warehouse key."
+        )
+
+    dates = {
+        row.company_local_date
+        for row in rows
+        if row.company_local_date is not None
+    }
+    if len(dates) != 1:
+        raise LiveStockProjectionError(
+            "Could not resolve one company-local operational date."
+        )
+    as_of_date = next(iter(dates))
+    if type(as_of_date) is not date:
+        raise LiveStockProjectionError(
+            "Company-local operational date is invalid."
+        )
+
+    missing_summaries = sorted(
+        {
+            int(row.warehouse_location_id)
+            for row in rows
+            if row.summary_warehouse_id is None
+        }
+    )
+    if missing_summaries:
+        await _ensure_warehouse_summaries(
+            db,
+            company_id=company_id,
+            warehouse_ids=missing_summaries,
+        )
+
+    fallback_keys: set[tuple[int, int]] = set()
+    for key, row in metadata.items():
+        old = row[-1]
+        minimum_days = int(
+            row.minimum_remaining_shelf_life_days or 0
+        )
+        has_policy = row.minimum_quantity is not None
+
+        if old is not None and (
+            old.computed_for_date != as_of_date
+            or (
+                old.next_transition_date is not None
+                and old.next_transition_date <= as_of_date
+            )
+        ):
+            fallback_keys.add(key)
+            continue
+
+        had_presence_before = False
+        for impact in impacts_by_key[key]:
+            before_on_hand = _impact_decimal(
+                impact.get("on_hand_before")
+            )
+            before_reserved = _impact_decimal(
+                impact.get("reserved_before")
+            )
+            location_type = str(impact["location_type"])
+            status = str(impact["stock_status"])
+            if location_type == "WAREHOUSE":
+                if before_on_hand > 0 or before_reserved > 0:
+                    had_presence_before = True
+            elif (
+                location_type == "VEHICLE"
+                and status != "DAMAGED"
+                and before_on_hand > 0
+            ):
+                had_presence_before = True
+
+            if (
+                old is not None
+                and location_type == "WAREHOUSE"
+                and status == "AVAILABLE"
+                and before_on_hand > 0
+                and _impact_decimal(impact.get("on_hand_after")) == 0
+            ):
+                candidate = batch_next_transition_date(
+                    as_of_date=as_of_date,
+                    expiry_control_mode=str(
+                        impact.get("expiry_control_mode") or ""
+                    ),
+                    production_date=impact.get("production_date"),
+                    expiry_date=impact.get("expiry_date"),
+                    minimum_remaining_shelf_life_days=minimum_days,
+                    is_active=bool(impact.get("batch_is_active")),
+                    disposition=str(
+                        impact.get("batch_disposition") or ""
+                    ),
+                )
+                if (
+                    candidate is not None
+                    and candidate == old.next_transition_date
+                ):
+                    fallback_keys.add(key)
+
+        if old is None and (has_policy or had_presence_before):
+            fallback_keys.add(key)
+
+    summary_deltas: dict[int, list[int]] = defaultdict(
+        lambda: [0, 0, 0]
+    )
+    projection_fields = (
+        "variant_name",
+        "lifecycle_status",
+        "operational_hold",
+        "warehouse_on_hand",
+        "warehouse_reserved",
+        "warehouse_sellable_on_hand",
+        "warehouse_sellable_reserved",
+        "blocked_status_packs",
+        "recalled_packs",
+        "damaged_packs",
+        "vehicle_packs",
+        "minimum_quantity",
+        "has_active_policy",
+        "is_low_stock",
+        "has_warehouse_presence",
+        "has_vehicle_presence",
+        "next_transition_date",
+        "computed_for_date",
+    )
+
+    for key in keys:
+        if key in fallback_keys:
+            continue
+
+        warehouse_id, variant_id = key
+        row = metadata[key]
+        old = row[-1]
+        minimum_quantity = (
+            _impact_decimal(row.minimum_quantity)
+            if row.minimum_quantity is not None
+            else _ZERO
+        )
+        minimum_days = int(
+            row.minimum_remaining_shelf_life_days or 0
+        )
+
+        first = impacts_by_key[key][0]
+        values: dict[str, object] = {
+            "variant_name": (
+                str(old.variant_name)
+                if old is not None
+                else str(first.get("variant_name") or "").strip()
+            ),
+            "lifecycle_status": (
+                str(old.lifecycle_status)
+                if old is not None
+                else str(first.get("lifecycle_status") or "")
+            ),
+            "operational_hold": (
+                str(old.operational_hold)
+                if old is not None
+                else str(first.get("operational_hold") or "")
+            ),
+            "warehouse_on_hand": (
+                _impact_decimal(old.warehouse_on_hand)
+                if old is not None
+                else _ZERO
+            ),
+            "warehouse_reserved": (
+                _impact_decimal(old.warehouse_reserved)
+                if old is not None
+                else _ZERO
+            ),
+            "warehouse_sellable_on_hand": (
+                _impact_decimal(old.warehouse_sellable_on_hand)
+                if old is not None
+                else _ZERO
+            ),
+            "warehouse_sellable_reserved": (
+                _impact_decimal(old.warehouse_sellable_reserved)
+                if old is not None
+                else _ZERO
+            ),
+            "blocked_status_packs": (
+                _impact_decimal(old.blocked_status_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "recalled_packs": (
+                _impact_decimal(old.recalled_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "damaged_packs": (
+                _impact_decimal(old.damaged_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "vehicle_packs": (
+                _impact_decimal(old.vehicle_packs)
+                if old is not None
+                else _ZERO
+            ),
+            "minimum_quantity": minimum_quantity,
+            "has_active_policy": row.minimum_quantity is not None,
+            "next_transition_date": (
+                old.next_transition_date if old is not None else None
+            ),
+            "computed_for_date": as_of_date,
+        }
+
+        for impact in impacts_by_key[key]:
+            delta_on_hand = (
+                _impact_decimal(impact.get("on_hand_after"))
+                - _impact_decimal(impact.get("on_hand_before"))
+            )
+            delta_reserved = (
+                _impact_decimal(impact.get("reserved_after"))
+                - _impact_decimal(impact.get("reserved_before"))
+            )
+            location_type = str(impact["location_type"])
+            status = str(impact["stock_status"])
+
+            if location_type == "VEHICLE":
+                if status != "DAMAGED":
+                    values["vehicle_packs"] = (
+                        _impact_decimal(values["vehicle_packs"])
+                        + delta_on_hand
+                    )
+                continue
+
+            if status == "AVAILABLE":
+                values["warehouse_on_hand"] = (
+                    _impact_decimal(values["warehouse_on_hand"])
+                    + delta_on_hand
+                )
+                values["warehouse_reserved"] = (
+                    _impact_decimal(values["warehouse_reserved"])
+                    + delta_reserved
+                )
+                sellable = batch_metadata_is_sellable(
+                    as_of_date=as_of_date,
+                    expiry_control_mode=str(
+                        impact.get("expiry_control_mode") or ""
+                    ),
+                    production_date=impact.get("production_date"),
+                    expiry_date=impact.get("expiry_date"),
+                    minimum_remaining_shelf_life_days=minimum_days,
+                    is_active=bool(impact.get("batch_is_active")),
+                    disposition=str(
+                        impact.get("batch_disposition") or ""
+                    ),
+                )
+                if sellable:
+                    values["warehouse_sellable_on_hand"] = (
+                        _impact_decimal(
+                            values["warehouse_sellable_on_hand"]
+                        )
+                        + delta_on_hand
+                    )
+                    values["warehouse_sellable_reserved"] = (
+                        _impact_decimal(
+                            values["warehouse_sellable_reserved"]
+                        )
+                        + delta_reserved
+                    )
+
+                if _impact_decimal(impact.get("on_hand_after")) > 0:
+                    candidate = batch_next_transition_date(
+                        as_of_date=as_of_date,
+                        expiry_control_mode=str(
+                            impact.get("expiry_control_mode") or ""
+                        ),
+                        production_date=impact.get("production_date"),
+                        expiry_date=impact.get("expiry_date"),
+                        minimum_remaining_shelf_life_days=minimum_days,
+                        is_active=bool(impact.get("batch_is_active")),
+                        disposition=str(
+                            impact.get("batch_disposition") or ""
+                        ),
+                    )
+                    current = values["next_transition_date"]
+                    if candidate is not None and (
+                        current is None or candidate < current
+                    ):
+                        values["next_transition_date"] = candidate
+
+            elif status in {
+                "QUARANTINED",
+                "BLOCKED",
+                "RECALLED",
+                "DISPOSAL_PENDING",
+            }:
+                values["blocked_status_packs"] = (
+                    _impact_decimal(values["blocked_status_packs"])
+                    + delta_on_hand
+                )
+                if status == "RECALLED":
+                    values["recalled_packs"] = (
+                        _impact_decimal(values["recalled_packs"])
+                        + delta_on_hand
+                    )
+            elif status == "DAMAGED":
+                values["damaged_packs"] = (
+                    _impact_decimal(values["damaged_packs"])
+                    + delta_on_hand
+                )
+            else:
+                raise LiveStockProjectionError(
+                    f"Unsupported inventory stock status: {status}"
+                )
+
+        if not str(values["variant_name"]).strip():
+            raise LiveStockProjectionError(
+                "Live Stock impact is missing variant_name."
+            )
+
+        if not _projection_quantities_are_valid(values):
+            fallback_keys.add(key)
+            continue
+
+        values["has_warehouse_presence"] = (
+            _impact_decimal(values["warehouse_on_hand"]) > 0
+            or _impact_decimal(values["blocked_status_packs"]) > 0
+            or _impact_decimal(values["damaged_packs"]) > 0
+        )
+        values["has_vehicle_presence"] = (
+            _impact_decimal(values["vehicle_packs"]) > 0
+        )
+        values["is_low_stock"] = (
+            bool(values["has_active_policy"])
+            and minimum_quantity > 0
+            and str(values["lifecycle_status"]) == "ACTIVE"
+            and str(values["operational_hold"]) == "NONE"
+            and (
+                _impact_decimal(values["warehouse_sellable_on_hand"])
+                - _impact_decimal(
+                    values["warehouse_sellable_reserved"]
+                )
+            )
+            <= minimum_quantity
+        )
+
+        sparse = (
+            bool(values["has_active_policy"])
+            or bool(values["has_warehouse_presence"])
+            or bool(values["has_vehicle_presence"])
+        )
+        new_values = values if sparse else None
+
+        old_alert = bool(old.is_low_stock) if old is not None else False
+        old_nonactive = (
+            _nonactive_visible_from_row(old) if old is not None else False
+        )
+        old_present = old is not None
+        new_alert = (
+            bool(new_values["is_low_stock"])
+            if new_values is not None
+            else False
+        )
+        new_nonactive = (
+            _nonactive_visible_from_values(new_values)
+            if new_values is not None
+            else False
+        )
+        new_present = new_values is not None
+        if (
+            old_alert != new_alert
+            or old_nonactive != new_nonactive
+            or old_present != new_present
+        ):
+            delta = summary_deltas[warehouse_id]
+            delta[0] += int(new_alert) - int(old_alert)
+            delta[1] += int(new_nonactive) - int(old_nonactive)
+            delta[2] += int(new_present) - int(old_present)
+
+        if new_values is None:
+            if old is not None:
+                await db.delete(old)
+            continue
+
+        if old is None:
+            db.add(
+                InventoryLiveStockProjection(
+                    company_id=company_id,
+                    warehouse_location_id=warehouse_id,
+                    product_variant_id=variant_id,
+                    revision=1,
+                    **new_values,
+                )
+            )
+            continue
+
+        changed = any(
+            getattr(old, field) != new_values[field]
+            for field in projection_fields
+        )
+        if not changed:
+            continue
+        for field in projection_fields:
+            setattr(old, field, new_values[field])
+        old.revision = int(old.revision) + 1
+        old.updated_at = utc_now()
+
+    await db.flush()
+    await _apply_warehouse_summary_deltas(
+        db,
+        company_id=company_id,
+        summary_deltas=summary_deltas,
+    )
+
+    if fallback_keys:
+        await refresh_live_stock_keys(
+            db,
+            company_id=company_id,
+            keys=sorted(fallback_keys),
+            _company_guard_held=True,
+            _force_coarse_guard=coarse_guard,
         )
 
 
@@ -1136,12 +2023,13 @@ async def refresh_live_stock_from_movement_specs(
             company_id=company_id,
             vehicle_ids=vehicle_ids,
         )
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=variant_ids,
-        exclusive=False,
-    )
+    coarse_guard = len(variant_ids) >= _COARSE_GUARD_THRESHOLD
+    if coarse_guard:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=True,
+        )
     vehicle_sources = await get_live_stock_vehicle_sources(
         db,
         company_id=company_id,
@@ -1174,6 +2062,8 @@ async def refresh_live_stock_from_movement_specs(
             db,
             company_id=company_id,
             keys=keys,
+            _company_guard_held=coarse_guard,
+            _force_coarse_guard=coarse_guard,
         )
 
 
@@ -1203,7 +2093,11 @@ async def refresh_live_stock_vehicle_attribution(
             ).where(
                 InventoryLocation.company_id == company_id,
                 InventoryLocation.location_type == "VEHICLE",
-                InventoryLocation.vehicle_id.in_(ids),
+                _array_membership(
+                    InventoryLocation.vehicle_id,
+                    ids,
+                    "live_stock_attribution_vehicle_ids",
+                ),
                 InventoryLocation.is_active.is_(True),
             )
         )
@@ -1249,12 +2143,13 @@ async def refresh_live_stock_vehicle_attribution(
     if not variant_ids:
         return
 
-    await _acquire_variant_guards(
-        db,
-        company_id=company_id,
-        variant_ids=variant_ids,
-        exclusive=True,
-    )
+    coarse_guard = len(variant_ids) >= _COARSE_GUARD_THRESHOLD
+    if coarse_guard:
+        await _acquire_company_projection_guard(
+            db,
+            company_id=company_id,
+            exclusive=True,
+        )
     current_sources = await get_live_stock_vehicle_sources(
         db,
         company_id=company_id,
@@ -1280,7 +2175,8 @@ async def refresh_live_stock_vehicle_attribution(
             db,
             company_id=company_id,
             keys=keys,
-            variant_guard_exclusive=True,
+            _company_guard_held=coarse_guard,
+            _force_coarse_guard=coarse_guard,
         )
 
 

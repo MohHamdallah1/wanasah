@@ -20,6 +20,16 @@ FILES = {
     "simple_products": ROOT / "domains" / "simple_products" / "service.py",
     "rules": ROOT / "domains" / "inventory_rules.py",
     "projector": ROOT / "domains" / "live_stock_projection" / "service.py",
+    "config": ROOT / "config.py",
+    "database": ROOT / "database.py",
+    "stress": ROOT / "scripts" / "gate_stage821_projector_stress.py",
+    "knee": ROOT / "scripts" / "diagnose_stage821_concurrency_knee.py",
+    "cost_guard_migration": (
+        ROOT
+        / "alembic"
+        / "versions"
+        / "c7d4a91e6f32_cost_history_guard_exactness.py"
+    ),
 }
 
 
@@ -27,18 +37,50 @@ def _read(name: str) -> str:
     return FILES[name].read_text(encoding="utf-8")
 
 
-def _has_async_call(source: str, function_name: str, callee_name: str) -> bool:
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
+def _tree(source: str) -> ast.AST:
+    return ast.parse(source)
+
+
+def _function_node(source: str, function_name: str):
+    for node in ast.walk(_tree(source)):
         if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)) and node.name == function_name:
-            for child in ast.walk(node):
-                if isinstance(child, ast.Call):
-                    func = child.func
-                    if isinstance(func, ast.Name) and func.id == callee_name:
-                        return True
-                    if isinstance(func, ast.Attribute) and func.attr == callee_name:
-                        return True
-    return False
+            return node
+    return None
+
+
+def _call_names(node: ast.AST | None) -> list[str]:
+    if node is None:
+        return []
+    names: list[str] = []
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if isinstance(func, ast.Name):
+            names.append(func.id)
+        elif isinstance(func, ast.Attribute):
+            names.append(func.attr)
+    return names
+
+
+def _caught_exception_names(node: ast.AST | None) -> set[str]:
+    result: set[str] = set()
+    if node is None:
+        return result
+    for child in ast.walk(node):
+        if not isinstance(child, ast.ExceptHandler) or child.type is None:
+            continue
+        targets = child.type.elts if isinstance(child.type, ast.Tuple) else [child.type]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                result.add(target.id)
+            elif isinstance(target, ast.Attribute):
+                result.add(target.attr)
+    return result
+
+
+def _has_call(source: str, function_name: str, callee_name: str) -> bool:
+    return callee_name in _call_names(_function_node(source, function_name))
 
 
 def main() -> None:
@@ -55,6 +97,65 @@ def main() -> None:
             failures.append(f"SYNTAX:{name}:{exc.lineno}:{exc.msg}")
 
     checks += 1
+    migration = sources["cost_guard_migration"]
+    if (
+        'revision = "c7d4a91e6f32"' not in migration
+        or 'down_revision = "b3e91c7a4d20"' not in migration
+        or "FOR EACH ROW" not in migration
+        or "BEFORE TRUNCATE" not in migration
+        or "FOR EACH STATEMENT" not in migration
+    ):
+        failures.append("COST_HISTORY_GUARD_EXACTNESS_MIGRATION_INVALID")
+
+    checks += 1
+    config_source = sources["config"]
+    required_pool_config = (
+        'WEB_CONCURRENCY = int(os.environ.get("WEB_CONCURRENCY", "4"))',
+        'os.environ.get("DB_APP_CONNECTION_BUDGET", "20")',
+        'os.environ.get("DB_POOL_SIZE", "4")',
+        'os.environ.get("DB_MAX_OVERFLOW", "1")',
+        'os.environ.get("DB_POOL_TIMEOUT", "3")',
+        'DB_CONNECTIONS_TOTAL > DB_APP_CONNECTION_BUDGET',
+        '"pool_use_lifo": True',
+    )
+    missing_pool_config = [
+        value for value in required_pool_config
+        if value not in config_source
+    ]
+    if missing_pool_config:
+        failures.append(
+            "PRODUCTION_DB_POOL_BUDGET_INVALID:"
+            + ",".join(missing_pool_config)
+        )
+
+    checks += 1
+    database_source = sources["database"]
+    if (
+        "pool_use_lifo=" not in database_source
+        or "pool_pre_ping=True" not in database_source
+    ):
+        failures.append("PRODUCTION_DB_POOL_ENGINE_GUARDS_MISSING")
+
+    checks += 1
+    stress_source = sources["stress"]
+    if (
+        'STAGE821_STRESS_POOL_SIZE", "16"' not in stress_source
+        or 'STAGE821_STRESS_MAX_OVERFLOW", "4"' not in stress_source
+        or "STRESS_DB_CONNECTION_CAP != 20" not in stress_source
+        or "async def timed_cross_tenant_mutations(" not in stress_source
+        or "pool_wait" not in stress_source
+    ):
+        failures.append("STRESS_GATE_PRODUCTION_BACKPRESSURE_MISMATCH")
+
+    checks += 1
+    knee_source = sources["knee"]
+    if (
+        "load_noise_mutation_samples" not in knee_source
+        or "timed_cross_tenant_mutations" not in knee_source
+    ):
+        failures.append("CONCURRENCY_KNEE_NOT_MEASURING_REAL_MUTATIONS")
+
+    checks += 1
     if "def batch_sellability_predicate(" in sources["services"]:
         failures.append("DUPLICATE_BATCH_SELLABILITY_AUTHORITY")
 
@@ -62,71 +163,80 @@ def main() -> None:
     if "from domains.inventory_rules import batch_sellability_predicate" not in sources["services"]:
         failures.append("SERVICES_SHARED_SELLABILITY_IMPORT_MISSING")
 
-    checks += 1
-    if not _has_async_call(
-        sources["services"],
-        "apply_inventory_movements_batch",
-        "refresh_live_stock_from_movement_specs",
-    ):
-        failures.append("INVENTORY_MOVEMENT_PROJECTOR_HOOK_MISSING")
+    expected_hooks = (
+        ("services", "apply_inventory_movements_batch", "apply_live_stock_balance_impacts", "INVENTORY_MOVEMENT_DELTA_PROJECTOR_HOOK_MISSING"),
+        ("services", "change_product_batch_disposition", "refresh_live_stock_variants", "BATCH_DISPOSITION_PROJECTOR_HOOK_MISSING"),
+        ("catalog", "_run_variant_state_command", "refresh_live_stock_variants", "LIFECYCLE_PROJECTOR_HOOK_MISSING"),
+        ("catalog", "_run_variant_state_command", "apply_live_stock_active_variant_delta", "ACTIVE_VARIANT_SUMMARY_HOOK_MISSING"),
+        ("simple_products", "create_product_structures", "apply_live_stock_active_variant_delta", "SIMPLE_PRODUCT_ACTIVE_SUMMARY_HOOK_MISSING"),
+        ("dispatch", "dispatch_route", "refresh_live_stock_vehicle_attribution", "DISPATCH_CREATE_ATTRIBUTION_HOOK_MISSING"),
+        ("dispatch", "update_route_status", "refresh_live_stock_vehicle_attribution", "DISPATCH_UPDATE_ATTRIBUTION_HOOK_MISSING"),
+    )
+    for source_name, function_name, callee_name, failure in expected_hooks:
+        checks += 1
+        if not _has_call(sources[source_name], function_name, callee_name):
+            failures.append(failure)
 
     checks += 1
-    if not _has_async_call(
-        sources["services"],
-        "change_product_batch_disposition",
+    lifecycle_catches = _caught_exception_names(
+        _function_node(sources["catalog"], "_run_variant_state_command")
+    )
+    if "LiveStockProjectionError" not in lifecycle_catches:
+        failures.append("LIFECYCLE_PROJECTOR_ROLLBACK_HANDLER_MISSING")
+
+    checks += 1
+    create_product_calls = set(
+        _call_names(_function_node(sources["catalog"], "create_product"))
+    )
+    if {
         "refresh_live_stock_variants",
-    ):
-        failures.append("BATCH_DISPOSITION_PROJECTOR_HOOK_MISSING")
-
-    checks += 1
-    if not _has_async_call(
-        sources["catalog"],
-        "_run_variant_state_command",
-        "refresh_live_stock_variants",
-    ):
-        failures.append("LIFECYCLE_PROJECTOR_HOOK_MISSING")
-
-    checks += 1
-    if not _has_async_call(
-        sources["catalog"],
-        "_run_variant_state_command",
         "apply_live_stock_active_variant_delta",
-    ):
-        failures.append("ACTIVE_VARIANT_SUMMARY_HOOK_MISSING")
+    } & create_product_calls:
+        failures.append("UNRELATED_CREATE_PRODUCT_PROJECTOR_HOOK")
 
     checks += 1
-    if not _has_async_call(
-        sources["simple_products"],
-        "create_product_structures",
-        "apply_live_stock_active_variant_delta",
+    create_product_catches = _caught_exception_names(
+        _function_node(sources["catalog"], "create_product")
+    )
+    if "LiveStockProjectionError" in create_product_catches:
+        failures.append("MISPLACED_CREATE_PRODUCT_PROJECTOR_HANDLER")
+
+    for function_name, failure in (
+        ("dispatch_route", "DISPATCH_CREATE_EARLY_VEHICLE_GUARD"),
+        ("update_route_status", "DISPATCH_UPDATE_EARLY_VEHICLE_GUARD"),
     ):
-        failures.append("SIMPLE_PRODUCT_ACTIVE_SUMMARY_HOOK_MISSING")
+        checks += 1
+        if _has_call(
+            sources["dispatch"],
+            function_name,
+            "acquire_live_stock_vehicle_guards",
+        ):
+            failures.append(failure)
 
     checks += 1
-    if not _has_async_call(
-        sources["dispatch"],
-        "dispatch_route",
-        "refresh_live_stock_vehicle_attribution",
-    ):
-        failures.append("DISPATCH_CREATE_ATTRIBUTION_HOOK_MISSING")
+    services_tree = _tree(sources["services"])
+    if "LiveStockProjectionError" not in {
+        node.id for node in ast.walk(services_tree) if isinstance(node, ast.Name)
+    }:
+        failures.append("SERVICES_PROJECTOR_FAIL_CLOSED_MISSING")
 
     checks += 1
-    if not _has_async_call(
-        sources["dispatch"],
-        "update_route_status",
-        "refresh_live_stock_vehicle_attribution",
-    ):
-        failures.append("DISPATCH_UPDATE_ATTRIBUTION_HOOK_MISSING")
+    simple_tree = _tree(sources["simple_products"])
+    if "LiveStockProjectionError" not in {
+        node.id for node in ast.walk(simple_tree) if isinstance(node, ast.Name)
+    }:
+        failures.append("SIMPLE_PRODUCT_PROJECTOR_FAIL_CLOSED_MISSING")
 
     required_projector_functions = {
         "refresh_live_stock_keys",
         "refresh_live_stock_variants",
+        "apply_live_stock_balance_impacts",
         "refresh_live_stock_from_movement_specs",
         "refresh_live_stock_vehicle_attribution",
         "refresh_due_live_stock_transitions",
         "apply_live_stock_active_variant_delta",
     }
-    projector_tree = ast.parse(sources["projector"])
+    projector_tree = _tree(sources["projector"])
     projector_functions = {
         node.name
         for node in ast.walk(projector_tree)
@@ -138,32 +248,130 @@ def main() -> None:
         failures.append(f"PROJECTOR_FUNCTIONS_MISSING:{missing}")
 
     checks += 1
-    movement_source = sources["projector"]
-    movement_start = movement_source.find("async def refresh_live_stock_from_movement_specs")
-    movement_end = movement_source.find(
-        "async def refresh_live_stock_vehicle_attribution", movement_start
+    projector_source = sources["projector"]
+    if (
+        "_COARSE_GUARD_THRESHOLD = 256" not in projector_source
+        or "async def _acquire_company_projection_guard(" not in projector_source
+        or 'f"live-stock-company:{company_id}"' not in projector_source
+        or "_force_coarse_guard" not in projector_source
+    ):
+        failures.append("HIERARCHICAL_PROJECTOR_GUARDS_MISSING")
+
+    checks += 1
+    if (
+        "def _projection_key_scope(" not in projector_source
+        or "func.unnest(" not in projector_source
+        or "ARRAY(Integer)" not in projector_source
+        or "def _array_membership(" not in projector_source
+        or "any_(" not in projector_source
+    ):
+        failures.append("BOUNDED_PROJECTOR_SQL_PARAMETERIZATION_MISSING")
+
+    checks += 1
+    forbidden_bulk_parameter_patterns = (
+        "tuple_(",
+        ".in_(active_keys)",
+        ".in_(normalized_keys)",
+        ".in_(variant_ids)",
+        ".in_(warehouse_ids)",
     )
-    movement_block = movement_source[movement_start:movement_end]
-    vehicle_pos = movement_block.find("acquire_live_stock_vehicle_guards")
-    variant_pos = movement_block.find("_acquire_variant_guards")
-    if vehicle_pos < 0 or variant_pos < 0 or vehicle_pos > variant_pos:
-        failures.append("PROJECTOR_LOCK_ORDER_INVALID")
+    found_forbidden = [
+        pattern
+        for pattern in forbidden_bulk_parameter_patterns
+        if pattern in projector_source
+    ]
+    if found_forbidden:
+        failures.append(
+            "UNBOUNDED_PROJECTOR_SQL_PARAMETERS:"
+            + ",".join(found_forbidden)
+        )
+
+    checks += 1
+    refresh_keys_source = projector_source[
+        projector_source.find("async def refresh_live_stock_keys"):
+        projector_source.find("async def _candidate_keys_for_variants")
+    ]
+    if "_acquire_variant_guards(" in refresh_keys_source:
+        failures.append("REDUNDANT_HOT_PATH_VARIANT_GUARD_PRESENT")
+    if "_acquire_projection_key_guards(" not in refresh_keys_source:
+        failures.append("PROJECTION_KEY_GUARD_MISSING")
+
+    checks += 1
+    movement_source = sources["projector"]
+    delta_start = movement_source.find(
+        "async def apply_live_stock_balance_impacts"
+    )
+    delta_end = movement_source.find(
+        "async def refresh_live_stock_from_movement_specs",
+        delta_start,
+    )
+    delta_block = movement_source[delta_start:delta_end]
+    if "_acquire_variant_guards(" in delta_block:
+        failures.append("REDUNDANT_MOVEMENT_VARIANT_GUARD_PRESENT")
+    if "acquire_live_stock_vehicle_guards(" not in delta_block:
+        failures.append("MOVEMENT_VEHICLE_GUARD_MISSING")
+    if (
+        "batch_metadata_is_sellable(" not in delta_block
+        or "batch_next_transition_date(" not in delta_block
+        or "fallback_keys" not in delta_block
+        or "_apply_warehouse_summary_deltas(" not in delta_block
+    ):
+        failures.append("MOVEMENT_DELTA_CORRECTNESS_FALLBACK_MISSING")
+
+    checks += 1
+    services_movement_start = sources["services"].find(
+        "async def apply_inventory_movements_batch("
+    )
+    services_movement_end = sources["services"].find(
+        "\nasync def apply_inventory_movement(",
+        services_movement_start + 1,
+    )
+    services_movement = sources["services"][
+        services_movement_start:services_movement_end
+    ]
+    if "refresh_live_stock_from_movement_specs(" in services_movement:
+        failures.append("MOVEMENT_HOT_PATH_STILL_REAGGREGATES")
+    if "projection_impacts" not in services_movement:
+        failures.append("MOVEMENT_IMPACT_SNAPSHOTS_NOT_PROJECTED")
+
+    checks += 1
+    attribution_source = movement_source[
+        movement_source.find("async def refresh_live_stock_vehicle_attribution"):
+        movement_source.find("async def apply_live_stock_active_variant_delta")
+    ]
+    if "_acquire_variant_guards(" in attribution_source:
+        failures.append("REDUNDANT_ATTRIBUTION_VARIANT_GUARD_PRESENT")
+    if "acquire_live_stock_vehicle_guards(" not in attribution_source:
+        failures.append("ATTRIBUTION_VEHICLE_GUARD_MISSING")
+
+    checks += 1
+    variant_refresh_source = projector_source[
+        projector_source.find("async def refresh_live_stock_variants"):
+        projector_source.find("async def apply_live_stock_balance_impacts")
+    ]
+    if "_acquire_variant_guards(" not in variant_refresh_source:
+        failures.append("VARIANT_DISCOVERY_GUARD_MISSING")
+
+    checks += 1
+    if (
+        'summary_warehouse_id' not in refresh_keys_source
+        or "InventoryLiveStockProjection," not in refresh_keys_source
+        or "missing_summary_warehouses" not in refresh_keys_source
+    ):
+        failures.append("HOT_PATH_READ_COLLAPSE_MISSING")
 
     checks += 1
     if "pg_advisory_xact_lock" not in sources["projector"]:
         failures.append("PROJECTOR_ADVISORY_LOCKS_MISSING")
 
-    checks += 1
-    if "InventoryLiveStockProjection" not in sources["projector"]:
-        failures.append("PROJECTION_MODEL_NOT_USED")
-
-    checks += 1
-    if "InventoryLiveStockWarehouseSummary" not in sources["projector"]:
-        failures.append("WAREHOUSE_SUMMARY_MODEL_NOT_USED")
-
-    checks += 1
-    if "InventoryLiveStockCompanySummary" not in sources["projector"]:
-        failures.append("COMPANY_SUMMARY_MODEL_NOT_USED")
+    for model_name, failure in (
+        ("InventoryLiveStockProjection", "PROJECTION_MODEL_NOT_USED"),
+        ("InventoryLiveStockWarehouseSummary", "WAREHOUSE_SUMMARY_MODEL_NOT_USED"),
+        ("InventoryLiveStockCompanySummary", "COMPANY_SUMMARY_MODEL_NOT_USED"),
+    ):
+        checks += 1
+        if model_name not in sources["projector"]:
+            failures.append(failure)
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
