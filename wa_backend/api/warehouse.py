@@ -2,9 +2,9 @@ from datetime import timezone, date, datetime
 from decimal import Decimal
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, update, tuple_, case, union
+from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, tuple_, union, update
 from typing import Optional, List
 from database import get_db
 from api.dependencies import get_current_driver
@@ -1693,7 +1693,11 @@ async def _load_inventory_display_uoms(
             .join(UOM, UOM.id == ProductUomConversion.from_uom_id)
             .filter(
                 ProductUomConversion.company_id == int(company_id),
-                ProductUomConversion.product_variant_id.in_(ids),
+                _warehouse_array_membership(
+                    ProductUomConversion.product_variant_id,
+                    ids,
+                    "inventory_display_uom_variant_ids",
+                ),
                 ProductUomConversion.to_uom_id == ProductVariant.base_uom_id,
             )
             .order_by(
@@ -2493,6 +2497,19 @@ async def warehouse_inbound(
 # =================================================================================
 # 3. جلب حالة المستودع بالكامل من المحرك الموحد
 # =================================================================================
+def _warehouse_array_membership(column, values, bind_name: str):
+    normalized = sorted({int(value) for value in values})
+    if not normalized:
+        raise ValueError("Warehouse array membership requires values.")
+    return column == any_(
+        bindparam(
+            bind_name,
+            value=normalized,
+            type_=ARRAY(Integer),
+        )
+    )
+
+
 async def _require_live_stock_read_model_ready(
     db: AsyncSession,
     *,
@@ -2586,6 +2603,40 @@ def _build_visible_inventory_stmt(
         if limit is not None
         else ()
     )
+    if company_wide_inventory_read:
+        return (
+            select(
+                ProductVariant.id,
+                ProductVariant.name.label("variant_name"),
+            )
+            .outerjoin(
+                InventoryLiveStockProjection,
+                and_(
+                    InventoryLiveStockProjection.company_id
+                    == ProductVariant.company_id,
+                    InventoryLiveStockProjection.product_variant_id
+                    == ProductVariant.id,
+                    InventoryLiveStockProjection.warehouse_location_id
+                    == location_id,
+                ),
+            )
+            .where(
+                *candidate_filters,
+                or_(
+                    ProductVariant.lifecycle_status == "ACTIVE",
+                    InventoryLiveStockProjection.has_warehouse_presence.is_(
+                        True
+                    ),
+                    InventoryLiveStockProjection.has_vehicle_presence.is_(
+                        True
+                    ),
+                ),
+            )
+            .order_by(*ordering)
+            .limit(limit + 1 if limit is not None else None)
+        )
+
+
     active_candidates = (
         select(
             ProductVariant.id,
@@ -3103,8 +3154,10 @@ async def get_warehouse_inventory(
                 .where(
                     InventoryBalance.company_id == company_id,
                     InventoryBalance.stock_status != "DAMAGED",
-                    InventoryBalance.product_variant_id.in_(
-                        page_variant_ids
+                    _warehouse_array_membership(
+                        InventoryBalance.product_variant_id,
+                        page_variant_ids,
+                        "inventory_vehicle_page_variant_ids",
                     ),
                     InventoryBalance.on_hand_quantity > 0,
                 )
@@ -3124,8 +3177,13 @@ async def get_warehouse_inventory(
                 ProductVariant,
                 UOM,
                 InventoryLiveStockProjection,
+                InventoryCostState.average_unit_cost.label(
+                    "average_unit_cost"
+                ),
+                Company.currency_code.label("currency_code"),
             )
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
+            .join(Company, Company.id == ProductVariant.company_id)
             .outerjoin(
                 InventoryLiveStockProjection,
                 and_(
@@ -3137,9 +3195,22 @@ async def get_warehouse_inventory(
                     == location_id,
                 ),
             )
+            .outerjoin(
+                InventoryCostState,
+                and_(
+                    InventoryCostState.company_id
+                    == ProductVariant.company_id,
+                    InventoryCostState.product_variant_id
+                    == ProductVariant.id,
+                ),
+            )
             .where(
                 ProductVariant.company_id == company_id,
-                ProductVariant.id.in_(page_variant_ids),
+                _warehouse_array_membership(
+                    ProductVariant.id,
+                    page_variant_ids,
+                    "inventory_detail_page_variant_ids",
+                ),
             )
             .order_by(ProductVariant.name, ProductVariant.id)
         )
@@ -3148,6 +3219,8 @@ async def get_warehouse_inventory(
                 variant,
                 uom,
                 projection,
+                average_unit_cost,
+                currency_code,
                 (
                     Decimal(projection.vehicle_packs or 0)
                     if company_wide_inventory_read
@@ -3155,7 +3228,13 @@ async def get_warehouse_inventory(
                     else vehicles.get(int(variant.id), Decimal("0"))
                 ),
             )
-            for variant, uom, projection in (await db.execute(stmt)).all()
+            for (
+                variant,
+                uom,
+                projection,
+                average_unit_cost,
+                currency_code,
+            ) in (await db.execute(stmt)).all()
         ]
 
         display_uoms = await _load_inventory_display_uoms(
@@ -3163,19 +3242,6 @@ async def get_warehouse_inventory(
             company_id=company_id,
             variant_ids=page_variant_ids,
         )
-        cost_state_rows = list(
-            (
-                await db.scalars(
-                    select(InventoryCostState).filter(
-                        InventoryCostState.company_id == company_id,
-                        InventoryCostState.product_variant_id.in_(page_variant_ids),
-                    )
-                )
-            ).all()
-        )
-        cost_state_by_variant = {
-            int(row.product_variant_id): row for row in cost_state_rows
-        }
 
         latest_purchase_rows = (
             await db.execute(
@@ -3195,8 +3261,10 @@ async def get_warehouse_inventory(
                 )
                 .filter(
                     InventoryCostEvent.company_id == company_id,
-                    InventoryCostEvent.product_variant_id.in_(
-                        page_variant_ids
+                    _warehouse_array_membership(
+                        InventoryCostEvent.product_variant_id,
+                        page_variant_ids,
+                        "inventory_purchase_page_variant_ids",
                     ),
                     InventoryCostEvent.event_type == "PURCHASE_IN",
                 )
@@ -3213,17 +3281,13 @@ async def get_warehouse_inventory(
             for row in latest_purchase_rows
         }
 
-        currency_code = await db.scalar(
-            select(Company.currency_code).where(Company.id == company_id)
-        )
-        if not currency_code:
-            raise RuntimeError("Company currency is unavailable.")
-
         result = []
         for (
             variant,
             base_uom,
             projection,
+            average_unit_cost,
+            currency_code,
             vehicle_total,
         ) in rows:
             on_hand = Decimal(
@@ -3328,15 +3392,10 @@ async def get_warehouse_inventory(
                 warehouse_on_hand_total > 0 or vehicle_total > 0
             )
 
-            cost_state = (
-                cost_state_by_variant.get(int(variant.id))
-                if has_location_inventory
-                else None
-            )
             average_cost_display = None
-            if cost_state is not None:
+            if has_location_inventory and average_unit_cost is not None:
                 average_cost_display = (
-                    Decimal(cost_state.average_unit_cost) * display_factor
+                    Decimal(average_unit_cost) * display_factor
                 ).quantize(Decimal("0.000001"))
 
             last_purchase = (
@@ -3357,6 +3416,9 @@ async def get_warehouse_inventory(
                 last_purchase_date = (
                     last_purchase.created_at.date()
                 )
+
+            if not currency_code:
+                raise RuntimeError("Company currency is unavailable.")
 
             result.append({
                 "id": variant.id,
