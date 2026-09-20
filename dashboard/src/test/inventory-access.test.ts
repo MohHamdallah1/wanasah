@@ -97,7 +97,7 @@ describe('inbound contract and draft isolation', () => {
 
 describe('live stock response contract', () => {
   const item = {
-    id:7,name:'صنف',sku:'SKU-7',base_uom_id:1,base_uom_code:'EACH',base_uom_name:'حبة',
+    id:7,name:'صنف',sku:'SKU-7',product_id:3,family_name:'عائلة',base_uom_id:1,base_uom_code:'EACH',base_uom_name:'حبة',
     display_uom_id:1,display_uom_code:'EACH',display_uom_name:'حبة',display_factor_to_base:'1',
     currency_code:'JOD',average_cost_display:null,last_purchase_cost:null,last_purchase_uom_code:null,last_purchase_date:null,
     quantity_scale:3,quantity_step:'0.125',on_hand_quantity:'32.125',reserved_quantity:'3',
