@@ -335,6 +335,12 @@ def main() -> None:
         failures.append("AUTH_TENANT_RLS_GUARD_MISSING")
 
     checks += 1
+    if (
+        "if db.in_transaction()" not in auth_block
+        or "await db.connection()" not in auth_block
+    ):
+        failures.append("AUTH_NORMAL_PATH_NOT_USING_TENANT_AWARE_CHECKOUT")
+    checks += 1
     scale_source = SCALE_GATE.read_text(encoding="utf-8")
     if (
         "GlobalCountSession" not in scale_source
@@ -350,9 +356,18 @@ def main() -> None:
         or "HTTP_BENCH_DB_CAP != 20" not in scale_source
         or "http_benchmark_get_db" not in scale_source
         or "app.dependency_overrides" not in scale_source
-        or '"pool_wait"' not in scale_source
+        or '"checkout_delay"' not in scale_source
+        or "http_pool_checkout" not in scale_source
     ):
         failures.append("HTTP_SCALE_GATE_NOT_MODELING_AGGREGATE_DB_BUDGET")
+
+    checks += 1
+    benchmark_db = function_block(
+        scale_source,
+        "http_benchmark_get_db",
+    )
+    if "session.connection(" in benchmark_db:
+        failures.append("HTTP_BENCHMARK_EAGERLY_CHECKS_OUT_DB_BEFORE_JWT")
 
     checks += 1
     if (
