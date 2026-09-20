@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
+import http.client
 import json
 import math
 import os
@@ -299,6 +301,116 @@ async def run_case(
     }
 
 
+def run_stdlib_case(
+    *,
+    port: int,
+    token: str,
+    name: str,
+    path: str,
+    concurrency: int,
+    requests: int,
+) -> dict[str, Any]:
+    work: list[list[int]] = [[] for _ in range(concurrency)]
+    for index in range(requests):
+        work[index % concurrency].append(index)
+
+    def worker(indices: list[int]) -> dict[str, Any]:
+        latencies: list[float] = []
+        server_ms: list[float] = []
+        pids: dict[str, int] = {}
+        errors = 0
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            port,
+            timeout=30.0,
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            for _ in indices:
+                started = time.perf_counter()
+                try:
+                    connection.request(
+                        "GET",
+                        path,
+                        headers=headers,
+                    )
+                    response = connection.getresponse()
+                    response.read()
+                    if response.status != 200:
+                        errors += 1
+                    raw_server = response.getheader(
+                        "x-wanasah-probe-server-ms"
+                    )
+                    if raw_server:
+                        server_ms.append(float(raw_server))
+                    pid = response.getheader(
+                        "x-wanasah-probe-pid"
+                    ) or "?"
+                    pids[pid] = pids.get(pid, 0) + 1
+                except Exception:
+                    errors += 1
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+                    connection = http.client.HTTPConnection(
+                        "127.0.0.1",
+                        port,
+                        timeout=30.0,
+                    )
+                finally:
+                    latencies.append(
+                        (time.perf_counter() - started) * 1000
+                    )
+        finally:
+            connection.close()
+        return {
+            "latencies": latencies,
+            "server_ms": server_ms,
+            "pids": pids,
+            "errors": errors,
+        }
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=concurrency
+    ) as executor:
+        results = list(executor.map(worker, work))
+
+    latencies: list[float] = []
+    server_ms: list[float] = []
+    pids: dict[str, int] = {}
+    errors = 0
+    for result in results:
+        latencies.extend(result["latencies"])
+        server_ms.extend(result["server_ms"])
+        errors += result["errors"]
+        for pid, count in result["pids"].items():
+            pids[pid] = pids.get(pid, 0) + count
+
+    return {
+        "route": name,
+        "client": "stdlib_threads",
+        "concurrency": concurrency,
+        "requests": requests,
+        "p50_ms": percentile(latencies, 0.50),
+        "p95_ms": percentile(latencies, 0.95),
+        "p99_ms": percentile(latencies, 0.99),
+        "max_ms": max(latencies),
+        "server_p95_ms": percentile(server_ms, 0.95),
+        "client_minus_server_p95_ms": (
+            max(
+                0.0,
+                percentile(latencies, 0.95)
+                - percentile(server_ms, 0.95),
+            )
+            if server_ms
+            else None
+        ),
+        "errors": errors,
+        "worker_hits": pids,
+    }
+
+
 async def async_main(args: argparse.Namespace) -> None:
     token = await benchmark_token(args.company_id, args.driver_id)
     await engine.dispose()
@@ -396,6 +508,23 @@ async def async_main(args: argparse.Namespace) -> None:
                     print(
                         "PROBE="
                         + json.dumps(result, sort_keys=True)
+                    )
+
+                    stdlib_result = await asyncio.to_thread(
+                        run_stdlib_case,
+                        port=port,
+                        token=token,
+                        name=name,
+                        path=path,
+                        concurrency=concurrency,
+                        requests=args.requests,
+                    )
+                    print(
+                        "PROBE_STDLIB="
+                        + json.dumps(
+                            stdlib_result,
+                            sort_keys=True,
+                        )
                     )
     finally:
         stop_server(process)
