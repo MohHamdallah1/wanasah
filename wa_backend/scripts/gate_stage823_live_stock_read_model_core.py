@@ -105,6 +105,25 @@ def _contains_label_call(
     return False
 
 
+def _normalized_source(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _selects_whole_entity(source: str, entity_name: str) -> bool:
+    node = function_node(source, "get_warehouse_inventory")
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        if _call_name(child.func) != "select":
+            continue
+        if any(
+            isinstance(arg, ast.Name) and arg.id == entity_name
+            for arg in child.args
+        ):
+            return True
+    return False
+
+
 def _auth_query_is_collapsed(source: str) -> bool:
     """Verify semantics of the normal auth path, independent of formatting."""
     node = function_node(source, "get_current_driver")
@@ -328,10 +347,11 @@ def main() -> None:
         "ProductUomConversion.to_uom_id == ProductVariant.base_uom_id",
         ").mappings().all()",
     )
+    normalized_cursor = _normalized_source(cursor)
     missing_detail_reads = [
         token
         for token in required_bounded_detail_reads
-        if token not in cursor
+        if _normalized_source(token) not in normalized_cursor
     ]
     if missing_detail_reads:
         failures.append(
@@ -345,8 +365,6 @@ def main() -> None:
         '.subquery("display_uom_candidates")',
         ".distinct(InventoryCostEvent.product_variant_id)",
         ".group_by(ProductUomConversion.product_variant_id)",
-        "select(\n                ProductVariant,",
-        "InventoryLiveStockProjection,\n",
     )
     detail_offenders = [
         token for token in forbidden_detail_patterns if token in cursor
@@ -355,6 +373,23 @@ def main() -> None:
         failures.append(
             "LEGACY_HEAVY_DETAIL_PLAN_PRESENT:"
             + ",".join(detail_offenders)
+        )
+
+    checks += 1
+    heavy_entities = [
+        entity
+        for entity in (
+            "ProductVariant",
+            "UOM",
+            "InventoryLiveStockProjection",
+            "InventoryCostState",
+        )
+        if _selects_whole_entity(cursor, entity)
+    ]
+    if heavy_entities:
+        failures.append(
+            "LEGACY_ORM_ENTITY_HYDRATION_PRESENT:"
+            + ",".join(heavy_entities)
         )
 
     checks += 1
