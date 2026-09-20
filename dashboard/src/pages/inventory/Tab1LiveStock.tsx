@@ -73,6 +73,7 @@ type MinimumStockEditor = {
   uomId: number;
   uomCode: string;
   value: string;
+  requestId: string;
 };
 
 const statusTone = (
@@ -332,6 +333,7 @@ export function Tab1LiveStock({
         value: useDisplayUom
           ? converted
           : product.minimum_quantity,
+        requestId: crypto.randomUUID(),
       });
     },
     [],
@@ -355,7 +357,7 @@ export function Tab1LiveStock({
         {
           method: "PUT",
           body: JSON.stringify({
-            request_id: crypto.randomUUID(),
+            request_id: minimumEditor.requestId,
             location_id: locationId,
             uom_id: minimumEditor.uomId,
             minimum_quantity: value,
@@ -1379,6 +1381,7 @@ export function Tab1LiveStock({
                         ? {
                             ...current,
                             value: event.target.value,
+                            requestId: crypto.randomUUID(),
                           }
                         : current,
                     )
