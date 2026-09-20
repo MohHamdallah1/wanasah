@@ -43,6 +43,7 @@ app = App(
         "workers.tasks.integrity",
         "workers.tasks.reports",
         "workers.tasks.maintenance",
+        "workers.tasks.live_stock",
     ],
     worker_defaults={
         "concurrency": 4,
