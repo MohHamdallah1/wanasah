@@ -26,6 +26,7 @@
 - integrity scan: hourly at minute 7
 - safe stalled-job recovery: every 10 minutes
 - worker-history retention cleanup: daily at 04:13
+- Live Stock due-transition scan: every 15 minutes (minute 2/17/32/47)
 
 Scheduling is handled by Procrastinate workers and PostgreSQL. At least one worker must run
 for periodic jobs to be deferred.

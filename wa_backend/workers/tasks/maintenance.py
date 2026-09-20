@@ -17,6 +17,8 @@ STALLED_RETRY_ALLOWLIST = {
     "wanasah.report_foundation_probe",
     "wanasah.retry_safe_stalled_jobs",
     "wanasah.cleanup_old_worker_jobs",
+    "wanasah.scan_all_live_stock_transitions",
+    "wanasah.refresh_company_live_stock_transitions",
 }
 
 
