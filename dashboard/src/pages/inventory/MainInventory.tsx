@@ -745,6 +745,7 @@ export default function MainInventory() {
             hasMore={!!stockNextCursor}
             hasPrevious={stockCursorHistory.length > 0}
             onlyAlerts={stockOnlyAlerts}
+            canManageMinimum={isCompanyAdmin}
             onSearchChange={handleStockSearchChange}
             onOnlyAlertsChange={handleStockAlertsChange}
             onNext={handleStockNext}
