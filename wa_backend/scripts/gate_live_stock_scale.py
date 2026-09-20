@@ -50,7 +50,7 @@ from domains.live_stock_projection.service import rebuild_live_stock_company
 from main import app  # noqa: E402
 
 # ASGITransport runs in one Python process, so the normal per-worker pool
-# (4 steady + 1 overflow) would expose only 1/4 of the measured production
+# (5 steady + 0 overflow) would expose only 1/4 of the measured production
 # DB budget. This aggregate benchmark pool models 4 workers × 5 = 20 without
 # weakening request concurrency or latency thresholds.
 HTTP_BENCH_POOL_SIZE = 20
@@ -149,13 +149,13 @@ def _sql_label(statement: str) -> str:
         and "next_transition_date" in normalized
     ):
         return "readiness_due"
-    if "product_uom_conversions" in normalized:
-        return "display_uom"
     if (
         "inventory_cost_states" in normalized
         and "inventory_live_stock_projection" in normalized
     ):
         return "details"
+    if "product_uom_conversions" in normalized:
+        return "display_uom"
     if "inventory_cost_events" in normalized:
         return "latest_purchase"
     if "inventory_live_stock_projection" in normalized:
