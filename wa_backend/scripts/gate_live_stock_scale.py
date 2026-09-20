@@ -751,6 +751,18 @@ async def async_main(args: argparse.Namespace) -> None:
             "N_PLUS_ONE_GUARD:live_50_and_live_200_statement_counts_differ"
         )
 
+    prewarm_started = time.perf_counter()
+    await database_runtime.warm_async_engine_pool(
+        http_bench_engine,
+        connections=HTTP_BENCH_POOL_SIZE,
+    )
+    prewarm_ms = (time.perf_counter() - prewarm_started) * 1000
+    print(
+        f"HTTP_POOL_PREWARM={prewarm_ms:.1f}ms "
+        f"steady_connections={HTTP_BENCH_POOL_SIZE} "
+        f"overflow_cold={HTTP_BENCH_MAX_OVERFLOW}"
+    )
+
     load = await http_load(
         company_id=args.company_id,
         driver_id=driver_id,
