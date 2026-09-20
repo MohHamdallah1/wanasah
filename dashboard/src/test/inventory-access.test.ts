@@ -9,7 +9,7 @@ import {
   parseInboundDrafts,
   parseInboundResponse,
 } from '@/pages/inventory/inbound/contracts';
-import { parseLiveStockPage } from '@/pages/inventory/liveStock/contracts';
+import { parseLiveStockFamilies, parseLiveStockPage } from '@/pages/inventory/liveStock/contracts';
 import {
   buildLedgerAdjustmentPayload,
   parseLedgerMutationResponse,
@@ -104,6 +104,16 @@ describe('live stock response contract', () => {
     available_for_sale_quantity:'27.125',unavailable_quantity:'2',vehicle_quantity:'0',recalled_quantity:'0',
     available_quantity:'27.125',blocked_quantity:'2',total_quantity:'32.125',damaged_quantity:'1',minimum_quantity:'10',
   };
+
+  it('parses searchable product-family options for Live Stock filters', () => {
+    expect(parseLiveStockFamilies({
+      items: [{id: 3, name: 'عائلة', code: 'FAM-3'}],
+      has_more: false,
+    })).toEqual({
+      items: [{id: 3, name: 'عائلة', code: 'FAM-3'}],
+      has_more: false,
+    });
+  });
 
   it('accepts the exact cursor page and preserves base-unit quantities', () => {
     expect(parseLiveStockPage({
