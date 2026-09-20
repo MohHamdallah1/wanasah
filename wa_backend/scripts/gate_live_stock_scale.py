@@ -116,6 +116,8 @@ def _sql_label(statement: str) -> str:
     normalized = " ".join(statement.lower().split())
     if "set_config('app.current_tenant'" in normalized:
         return "tenant"
+    if "token_blacklist" in normalized:
+        return "auth_blacklist"
     if " from drivers " in normalized:
         return "driver"
     if "user_location_access" in normalized or "role_permissions" in normalized:
@@ -556,6 +558,11 @@ async def http_load(
     sql_totals: list[float] = []
     sql_counts: list[int] = []
     sql_profiles: list[dict[str, float]] = []
+    route_latencies: dict[str, list[float]] = {
+        "cursor": [],
+        "alerts": [],
+    }
+    outside_sql_ms: list[float] = []
 
     previous_override = app.dependency_overrides.get(
         database_runtime.get_db
@@ -573,9 +580,11 @@ async def http_load(
         ) as client:
             async def one(index: int):
                 async with sem:
+                    is_alert = index % 5 == 0
+                    route_name = "alerts" if is_alert else "cursor"
                     path = (
                         f"/warehouse/inventory/alerts/summary?location_id={location_id}"
-                        if index % 5 == 0
+                        if is_alert
                         else f"/warehouse/inventory/cursor?location_id={location_id}&limit=50"
                     )
                     bucket: list[tuple[str, float]] = []
@@ -583,9 +592,11 @@ async def http_load(
                     try:
                         started = time.perf_counter()
                         response = await client.get(path)
-                        latencies.append(
-                            (time.perf_counter() - started) * 1000
-                        )
+                        elapsed_ms = (
+                            time.perf_counter() - started
+                        ) * 1000
+                        latencies.append(elapsed_ms)
+                        route_latencies[route_name].append(elapsed_ms)
                         statuses.append(response.status_code)
                         profile: dict[str, float] = {}
                         for label, sql_ms in bucket:
@@ -593,8 +604,12 @@ async def http_load(
                                 profile.get(label, 0.0) + sql_ms
                             )
                         sql_profiles.append(profile)
-                        sql_totals.append(
-                            sum(ms for _label, ms in bucket)
+                        sql_total = sum(
+                            ms for _label, ms in bucket
+                        )
+                        sql_totals.append(sql_total)
+                        outside_sql_ms.append(
+                            max(0.0, elapsed_ms - sql_total)
                         )
                         sql_counts.append(len(bucket))
                     finally:
@@ -640,6 +655,25 @@ async def http_load(
         "sql_statements_min": min(sql_counts),
         "sql_statements_max": max(sql_counts),
         "sql_label_p95": label_p95,
+        "pool_wait_p95_ms": percentile(
+            [
+                profile.get("pool_wait", 0.0)
+                for profile in sql_profiles
+            ],
+            0.95,
+        ),
+        "outside_sql_p95_ms": percentile(
+            outside_sql_ms,
+            0.95,
+        ),
+        "cursor_p95_ms": percentile(
+            route_latencies["cursor"],
+            0.95,
+        ),
+        "alerts_p95_ms": percentile(
+            route_latencies["alerts"],
+            0.95,
+        ),
         "errors": sum(1 for status in statuses if status != 200),
     }
 
@@ -687,7 +721,7 @@ async def async_main(args: argparse.Namespace) -> None:
     scenarios.append(("alerts_summary", await alert_summary_call(args.location_id), args.max_alert_p95))
     scenarios.append(("only_alerts_50", await only_alerts_call(args.location_id, 50), args.max_alert_p95))
     scenarios.append(("search_50", await search_call(args.location_id, 50, args.search), args.max_search_p95))
-    scenarios.append(("cursor_page_2", await second_page_call(args.location_id, 50, args.company_id, args.driver_id), args.max_live_p95))
+    scenarios.append(("cursor_page_2", await second_page_call(args.location_id, 50, args.company_id, driver_id), args.max_live_p95))
 
     stats_by_name: dict[str, Stats] = {}
     for name, call, threshold in scenarios:
@@ -725,6 +759,15 @@ async def async_main(args: argparse.Namespace) -> None:
         requests=args.requests,
     )
     print("HTTP_LOAD=" + json.dumps(load, sort_keys=True))
+    print(
+        "HTTP_LOAD_PROFILE "
+        f"cursor_p95={load['cursor_p95_ms']:.1f}ms "
+        f"alerts_p95={load['alerts_p95_ms']:.1f}ms "
+        f"pool_wait_p95={load['pool_wait_p95_ms']:.1f}ms "
+        f"sql_p95={load['sql_p95_ms']:.1f}ms "
+        f"outside_sql_p95={load['outside_sql_p95_ms']:.1f}ms "
+        f"labels={load['sql_label_p95']}"
+    )
     if load["errors"]:
         failures.append(f"HTTP_LOAD_ERRORS:{load['errors']}")
     if load["p95_ms"] > args.max_http_p95:
@@ -779,12 +822,13 @@ def parse_args() -> argparse.Namespace:
         parser.error("--requests must be >= --concurrency")
     return args
 
-async def _dispose_auxiliary_engines() -> None:
+async def _dispose_benchmark_engines() -> None:
+    await engine.dispose()
     await http_bench_engine.dispose()
     await global_count_engine.dispose()
 
 
-def main() -> None:
+async def _run() -> None:
     for tracked_engine in (engine, http_bench_engine):
         event.listen(
             tracked_engine.sync_engine,
@@ -797,7 +841,7 @@ def main() -> None:
             after_cursor_execute,
         )
     try:
-        asyncio.run(async_main(parse_args()))
+        await async_main(parse_args())
     finally:
         for tracked_engine in (engine, http_bench_engine):
             event.remove(
@@ -810,7 +854,12 @@ def main() -> None:
                 "after_cursor_execute",
                 after_cursor_execute,
             )
-        asyncio.run(_dispose_auxiliary_engines())
+        await _dispose_benchmark_engines()
+
+
+def main() -> None:
+    asyncio.run(_run())
+
 
 if __name__ == "__main__":
     main()
