@@ -14,6 +14,7 @@ import {
   FilterX,
   Info,
   PackageOpen,
+  Pencil,
   RefreshCcw,
   Search,
   ShieldAlert,
@@ -21,6 +22,14 @@ import {
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
@@ -32,6 +41,7 @@ import {
 } from "./liveStock/contracts";
 import {
   compareQuantity,
+  convertBaseQuantityToUom,
   formatCommercialQuantity,
 } from "./quantity";
 
@@ -49,6 +59,7 @@ interface Props {
   hasMore: boolean;
   hasPrevious: boolean;
   onlyAlerts: boolean;
+  canManageMinimum: boolean;
   onLocationChange: (value: string) => void;
   onRefresh: () => void;
   onSearchChange: (search: string) => void;
@@ -56,6 +67,13 @@ interface Props {
   onNext: () => void;
   onPrevious: () => void;
 }
+
+type MinimumStockEditor = {
+  product: WarehouseProduct;
+  uomId: number;
+  uomCode: string;
+  value: string;
+};
 
 const statusTone = (
   status: WarehouseBatchInventoryItem["disposition"],
@@ -109,6 +127,7 @@ export function Tab1LiveStock({
   hasMore,
   hasPrevious,
   onlyAlerts,
+  canManageMinimum,
   onLocationChange,
   onRefresh,
   onSearchChange,
@@ -130,6 +149,9 @@ export function Tab1LiveStock({
     useState<number | null>(null);
   const [batchErrorId, setBatchErrorId] =
     useState<number | null>(null);
+  const [minimumEditor, setMinimumEditor] =
+    useState<MinimumStockEditor | null>(null);
+  const [savingMinimum, setSavingMinimum] = useState(false);
 
   const batchRequestSeq = useRef(0);
   const batchAbortRef = useRef<AbortController | null>(null);
@@ -140,6 +162,8 @@ export function Tab1LiveStock({
     setBatchDetails({});
     setBatchLoadingId(null);
     setBatchErrorId(null);
+    setMinimumEditor(null);
+    setSavingMinimum(false);
     batchRequestSeq.current += 1;
     batchAbortRef.current?.abort();
     batchAbortRef.current = null;
@@ -287,10 +311,127 @@ export function Tab1LiveStock({
     [loadBatchDetails],
   );
 
+  const openMinimumEditor = useCallback(
+    (product: WarehouseProduct) => {
+      const converted = convertBaseQuantityToUom(
+        product.minimum_quantity,
+        product.display_factor_to_base,
+      );
+      const useDisplayUom =
+        product.display_uom_id !== product.base_uom_id &&
+        converted !== null;
+
+      setMinimumEditor({
+        product,
+        uomId: useDisplayUom
+          ? product.display_uom_id
+          : product.base_uom_id,
+        uomCode: useDisplayUom
+          ? product.display_uom_code
+          : product.base_uom_code,
+        value: useDisplayUom
+          ? converted
+          : product.minimum_quantity,
+      });
+    },
+    [],
+  );
+
+  const saveMinimumStock = useCallback(async () => {
+    if (!minimumEditor || savingMinimum) return;
+
+    const value = minimumEditor.value.trim();
+    if (!/^\d+(?:\.\d{1,6})?$/.test(value)) {
+      toast.error(t("inventoryLive.minimumStockInvalid"));
+      return;
+    }
+
+    setSavingMinimum(true);
+    try {
+      await authFetch(
+        `/warehouse/inventory/${encodeURIComponent(
+          String(minimumEditor.product.id),
+        )}/minimum-stock`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            request_id: crypto.randomUUID(),
+            location_id: locationId,
+            uom_id: minimumEditor.uomId,
+            minimum_quantity: value,
+            expected_minimum_quantity:
+              minimumEditor.product.minimum_quantity,
+          }),
+        },
+      );
+
+      toast.success(t("inventoryLive.minimumStockSaved"));
+      setMinimumEditor(null);
+      onRefresh();
+    } catch (error: unknown) {
+      toast.error(
+        apiErrorMessage(
+          error,
+          t("inventoryLive.minimumStockSaveFailed"),
+        ),
+      );
+    } finally {
+      setSavingMinimum(false);
+    }
+  }, [
+    authFetch,
+    locationId,
+    minimumEditor,
+    onRefresh,
+    savingMinimum,
+    t,
+  ]);
+
   return (
     <div className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-3">
       <div className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
         <div className="live-stock-toolbar">
+          <div className="live-stock-toolbar-search-group">
+            <div className="live-stock-search">
+              <Search className="absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                aria-label={t("inventoryLive.searchPlaceholder")}
+                placeholder={t("inventoryLive.searchPlaceholder")}
+                value={searchInput}
+                onChange={(event) =>
+                  setSearchInput(event.target.value)
+                }
+                maxLength={100}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none transition-all"
+              />
+            </div>
+
+            {alertCount !== null && alertCount > 0 && (
+              <button
+                type="button"
+                onClick={() => onOnlyAlertsChange(!onlyAlerts)}
+                className={`inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-black transition-all ${
+                  onlyAlerts
+                    ? "border-red-400 bg-red-100 text-red-700"
+                    : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                }`}
+                title={t("inventoryLive.alertFilterTitle")}
+                aria-label={t("inventoryLive.alertTitle", {
+                  count: alertCount,
+                })}
+              >
+                <AlertTriangle className="h-4 w-4" />
+                <span className="tabular-nums">
+                  {new Intl.NumberFormat(locale, {
+                    numberingSystem: "latn",
+                  }).format(alertCount)}
+                </span>
+                {onlyAlerts && <FilterX className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
+
           <div className="live-stock-context-panel">
             <label className="live-stock-context-location">
               <span className="live-stock-context-label">
@@ -362,47 +503,6 @@ export function Tab1LiveStock({
                   />
                 </button>
               </div>
-            </div>
-          </div>
-
-          <div className="flex min-w-0 flex-1 items-center justify-start gap-2">
-            {alertCount !== null && alertCount > 0 && (
-              <button
-                type="button"
-                onClick={() => onOnlyAlertsChange(!onlyAlerts)}
-                className={`inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-black transition-all ${
-                  onlyAlerts
-                    ? "border-red-400 bg-red-100 text-red-700"
-                    : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
-                }`}
-                title={t("inventoryLive.alertFilterTitle")}
-                aria-label={t("inventoryLive.alertTitle", {
-                  count: alertCount,
-                })}
-              >
-                <AlertTriangle className="h-4 w-4" />
-                <span className="tabular-nums">
-                  {new Intl.NumberFormat(locale, {
-                    numberingSystem: "latn",
-                  }).format(alertCount)}
-                </span>
-                {onlyAlerts && <FilterX className="h-4 w-4" />}
-              </button>
-            )}
-
-            <div className="live-stock-search">
-              <Search className="absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                aria-label={t("inventoryLive.searchPlaceholder")}
-                placeholder={t("inventoryLive.searchPlaceholder")}
-                value={searchInput}
-                onChange={(event) =>
-                  setSearchInput(event.target.value)
-                }
-                maxLength={100}
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none transition-all"
-              />
             </div>
           </div>
         </div>
@@ -627,6 +727,42 @@ export function Tab1LiveStock({
                             <div className="mt-0.5 text-[10px] font-bold text-slate-400">
                               {t(
                                 "inventoryLive.batchDetailsHint",
+                              )}
+                            </div>
+                            <div className="live-stock-minimum-row">
+                              <span>
+                                {t("inventoryLive.minimumStockLabel")}:{" "}
+                                {compareQuantity(
+                                  product.minimum_quantity,
+                                  "0",
+                                ) > 0
+                                  ? renderQuantity(
+                                      product.minimum_quantity,
+                                    ).primary
+                                  : t(
+                                      "inventoryLive.minimumStockUnset",
+                                    )}
+                              </span>
+                              {canManageMinimum && (
+                                <button
+                                  type="button"
+                                  className="live-stock-minimum-edit"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openMinimumEditor(product);
+                                  }}
+                                  title={t(
+                                    "inventoryLive.editMinimumStock",
+                                  )}
+                                  aria-label={t(
+                                    "inventoryLive.editMinimumStock",
+                                  )}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                  {t(
+                                    "inventoryLive.editMinimumStock",
+                                  )}
+                                </button>
                               )}
                             </div>
                           </div>
@@ -1193,6 +1329,91 @@ export function Tab1LiveStock({
           </div>
         )}
       </div>
+
+      <Dialog
+        open={minimumEditor !== null}
+        onOpenChange={(open) => {
+          if (!open && !savingMinimum) {
+            setMinimumEditor(null);
+          }
+        }}
+      >
+        <DialogContent
+          dir={i18n.dir()}
+          className="live-stock-minimum-dialog sm:max-w-md"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {t("inventoryLive.minimumStockDialogTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("inventoryLive.minimumStockDialogDescription", {
+                product: minimumEditor?.product.name ?? "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+
+          {minimumEditor && (
+            <div className="grid gap-3">
+              <label className="grid gap-1.5 text-xs font-black text-slate-700">
+                <span>
+                  {t("inventoryLive.minimumStockInputLabel", {
+                    unit: t(
+                      `uom.${minimumEditor.uomCode}`,
+                      {
+                        defaultValue:
+                          minimumEditor.uomCode,
+                      },
+                    ),
+                  })}
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  maxLength={24}
+                  value={minimumEditor.value}
+                  onChange={(event) =>
+                    setMinimumEditor((current) =>
+                      current
+                        ? {
+                            ...current,
+                            value: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black tabular-nums outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                />
+              </label>
+              <p className="text-[11px] font-semibold leading-5 text-slate-500">
+                {t("inventoryLive.minimumStockZeroHint")}
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <button
+              type="button"
+              disabled={savingMinimum}
+              onClick={() => setMinimumEditor(null)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 disabled:opacity-50"
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              type="button"
+              disabled={savingMinimum || minimumEditor === null}
+              onClick={() => void saveMinimumStock()}
+              className="h-10 rounded-xl bg-sky-700 px-4 text-xs font-black text-white shadow-sm hover:bg-sky-800 disabled:opacity-50"
+            >
+              {savingMinimum
+                ? t("common.saving")
+                : t("inventoryLive.minimumStockSave")}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
