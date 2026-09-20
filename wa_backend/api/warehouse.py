@@ -3226,6 +3226,10 @@ async def get_warehouse_inventory(
             UOM,
             name="inventory_display_uom",
         )
+        display_variant = aliased(
+            ProductVariant,
+            name="inventory_display_variant",
+        )
         display_factor_expression = (
             ProductUomConversion.numerator
             / ProductUomConversion.denominator
@@ -3250,6 +3254,15 @@ async def get_warehouse_inventory(
                 display_uom.id
                 == ProductUomConversion.from_uom_id,
             )
+            .join(
+                display_variant,
+                and_(
+                    display_variant.company_id
+                    == ProductUomConversion.company_id,
+                    display_variant.id
+                    == ProductUomConversion.product_variant_id,
+                ),
+            )
             .where(
                 ProductUomConversion.company_id == company_id,
                 _warehouse_array_membership(
@@ -3258,7 +3271,7 @@ async def get_warehouse_inventory(
                     "inventory_display_page_variant_ids",
                 ),
                 ProductUomConversion.to_uom_id
-                == ProductVariant.base_uom_id,
+                == display_variant.base_uom_id,
                 ProductUomConversion.numerator
                 > ProductUomConversion.denominator,
             )
