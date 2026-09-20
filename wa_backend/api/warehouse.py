@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, true, tuple_, union, union_all, update
-from typing import Optional, List, Literal
+from typing import Literal, Optional, List, Literal
 from database import get_db
 from api.dependencies import get_current_driver
 from inventory_access import (InventoryAccess, require_stocktake, require_transfer,
