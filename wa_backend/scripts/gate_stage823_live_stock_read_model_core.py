@@ -124,6 +124,63 @@ def _selects_whole_entity(source: str, entity_name: str) -> bool:
     return False
 
 
+def _warehouse_read_authority_is_complete(source: str) -> bool:
+    """Verify warehouse + company inventory.read semantics via AST."""
+    node = function_node(source, "_require_live_stock_warehouse_read")
+
+    has_admin_short_circuit = False
+    for child in ast.walk(node):
+        if not isinstance(child, ast.If):
+            continue
+        has_admin_attr = any(
+            isinstance(item, ast.Attribute)
+            and item.attr == "is_admin"
+            and isinstance(item.value, ast.Name)
+            and item.value.id == "actor"
+            for item in ast.walk(child.test)
+        )
+        returns_true = any(
+            isinstance(item, ast.Return)
+            and isinstance(item.value, ast.Constant)
+            and item.value.value is True
+            for stmt in child.body
+            for item in ast.walk(stmt)
+        )
+        if has_admin_attr and returns_true:
+            has_admin_short_circuit = True
+            break
+
+    location_scoped = False
+    company_wide = False
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        if not (
+            isinstance(child.func, ast.Attribute)
+            and child.func.attr == "allows"
+            and isinstance(child.func.value, ast.Name)
+            and child.func.value.id == "access"
+        ):
+            continue
+        if not (
+            child.args
+            and isinstance(child.args[0], ast.Constant)
+            and child.args[0].value == "inventory.read"
+        ):
+            continue
+
+        if len(child.args) == 1:
+            company_wide = True
+        elif (
+            len(child.args) >= 2
+            and isinstance(child.args[1], ast.Name)
+            and child.args[1].id == "location_id"
+        ):
+            location_scoped = True
+
+    return has_admin_short_circuit and location_scoped and company_wide
+
+
 def _auth_query_is_collapsed(source: str) -> bool:
     """Verify semantics of the normal auth path, independent of formatting."""
     node = function_node(source, "get_current_driver")
@@ -301,15 +358,10 @@ def main() -> None:
         )
 
     checks += 1
-    company_wide_helper = function_block(
-        source,
-        "_has_company_wide_inventory_read",
-    )
-    if (
-        "actor.is_admin" not in company_wide_helper
-        or 'access.allows("inventory.read")' not in company_wide_helper
-    ):
-        failures.append("COMPANY_WIDE_INVENTORY_PERMISSION_CHECK_INCOMPLETE")
+    if not _warehouse_read_authority_is_complete(source):
+        failures.append(
+            "COMPANY_WIDE_INVENTORY_PERMISSION_CHECK_INCOMPLETE"
+        )
 
     alert_summary = function_block(
         source,
