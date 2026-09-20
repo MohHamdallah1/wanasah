@@ -25,6 +25,133 @@ def function_block(source: str, name: str) -> str:
     raise RuntimeError(f"Missing function: {name}")
 
 
+def function_node(source: str, name: str) -> ast.AsyncFunctionDef | ast.FunctionDef:
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    raise RuntimeError(f"Missing function: {name}")
+
+
+def _assigned_value(node: ast.AST, target_name: str) -> ast.AST | None:
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Assign):
+            continue
+        if any(
+            isinstance(target, ast.Name) and target.id == target_name
+            for target in child.targets
+        ):
+            return child.value
+    return None
+
+
+def _call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _contains_name(node: ast.AST | None, name: str) -> bool:
+    return node is not None and any(
+        isinstance(child, ast.Name) and child.id == name
+        for child in ast.walk(node)
+    )
+
+
+def _contains_label_call(
+    node: ast.AST | None,
+    *,
+    source_name: str,
+    label: str,
+) -> bool:
+    if node is None:
+        return False
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        if not isinstance(child.func, ast.Attribute):
+            continue
+        if child.func.attr != "label":
+            continue
+        if not (
+            isinstance(child.func.value, ast.Name)
+            and child.func.value.id == source_name
+        ):
+            continue
+        if (
+            len(child.args) == 1
+            and isinstance(child.args[0], ast.Constant)
+            and child.args[0].value == label
+        ):
+            return True
+    return False
+
+
+def _auth_query_is_collapsed(source: str) -> bool:
+    """Verify semantics of the normal auth path, independent of formatting."""
+    node = function_node(source, "get_current_driver")
+
+    blacklist_expr = _assigned_value(node, "blacklisted_exists")
+    if blacklist_expr is None:
+        return False
+    if not _contains_name(blacklist_expr, "TokenBlacklist"):
+        return False
+    if not any(
+        isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "exists"
+        for child in ast.walk(blacklist_expr)
+    ):
+        return False
+
+    stmt_auth = _assigned_value(node, "stmt_auth")
+    if stmt_auth is None:
+        return False
+
+    select_calls = [
+        child
+        for child in ast.walk(stmt_auth)
+        if isinstance(child, ast.Call)
+        and _call_name(child.func) == "select"
+    ]
+    if not select_calls:
+        return False
+    select_call = select_calls[0]
+    if not any(
+        isinstance(arg, ast.Name) and arg.id == "Driver"
+        for arg in select_call.args
+    ):
+        return False
+    if not _contains_label_call(
+        select_call,
+        source_name="blacklisted_exists",
+        label="is_blacklisted",
+    ):
+        return False
+
+    # The normal path must execute the combined statement itself.
+    executes_stmt_auth = any(
+        isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "execute"
+        and any(
+            isinstance(arg, ast.Name) and arg.id == "stmt_auth"
+            for arg in child.args
+        )
+        for child in ast.walk(node)
+    )
+    if not executes_stmt_auth:
+        return False
+
+    # Do not allow the old separate blacklist statement to return.
+    if _assigned_value(node, "stmt_blacklisted") is not None:
+        return False
+
+    return True
+
+
 def main() -> None:
     source = WAREHOUSE.read_text(encoding="utf-8")
     failures: list[str] = []
@@ -197,12 +324,7 @@ def main() -> None:
         dependency_source,
         "get_current_driver",
     )
-    if (
-        "blacklisted_exists" not in auth_block
-        or 'blacklisted_exists.label("is_blacklisted")' not in auth_block
-        or "select(Driver," not in auth_block
-        or "stmt_blacklisted" in auth_block
-    ):
+    if not _auth_query_is_collapsed(dependency_source):
         failures.append("AUTH_BLACKLIST_DRIVER_READ_NOT_COLLAPSED")
 
     checks += 1
