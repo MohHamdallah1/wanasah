@@ -21,6 +21,12 @@ SCALE_GATE = ROOT / "scripts" / "gate_live_stock_scale.py"
 READ_MODEL_RUNTIME_GATE = (
     ROOT / "scripts" / "gate_stage823_live_stock_read_model.py"
 )
+READ_PATH_INDEX_MIGRATION = (
+    ROOT
+    / "alembic"
+    / "versions"
+    / "e4b7a2c9d310_live_stock_read_path_indexes.py"
+)
 
 
 def function_block(source: str, name: str) -> str:
@@ -545,6 +551,56 @@ def main() -> None:
         or "WHERE next_transition_date IS NOT NULL" not in migration_source
     ):
         failures.append("WAREHOUSE_TRANSITION_SEEK_INDEX_MISSING")
+
+    checks += 1
+    if (
+        "union_all(" not in visible
+        or "visible_inventory_fast_candidates" not in visible
+        or "InventoryLiveStockProjection.variant_name" not in visible
+    ):
+        failures.append("COMPANY_WIDE_CANDIDATE_FAST_STREAM_MISSING")
+
+    checks += 1
+    if ".lateral(" in cursor:
+        failures.append("PER_VARIANT_LATERAL_READ_AMPLIFICATION_PRESENT")
+    required_set_based_details = (
+        '.subquery("latest_purchase_page")',
+        '.subquery("display_uom_candidates")',
+        ".distinct(InventoryCostEvent.product_variant_id)",
+        ".group_by(ProductUomConversion.product_variant_id)",
+    )
+    missing_set_based = [
+        token for token in required_set_based_details
+        if token not in cursor
+    ]
+    if missing_set_based:
+        failures.append(
+            "SET_BASED_DETAIL_ENRICHMENT_MISSING:"
+            + ",".join(missing_set_based)
+        )
+
+    checks += 1
+    if not READ_PATH_INDEX_MIGRATION.is_file():
+        failures.append("LIVE_STOCK_READ_PATH_INDEX_MIGRATION_MISSING")
+    else:
+        migration_source = READ_PATH_INDEX_MIGRATION.read_text(
+            encoding="utf-8"
+        )
+        required_indexes = (
+            "ix_product_variant_live_active_seek",
+            "ix_inventory_cost_event_purchase_latest",
+            "ix_product_uom_conversion_display_seek",
+            "CREATE INDEX CONCURRENTLY",
+        )
+        missing_indexes = [
+            token for token in required_indexes
+            if token not in migration_source
+        ]
+        if missing_indexes:
+            failures.append(
+                "LIVE_STOCK_READ_PATH_INDEXES_INCOMPLETE:"
+                + ",".join(missing_indexes)
+            )
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
