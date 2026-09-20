@@ -61,6 +61,17 @@ def main() -> None:
     ):
         failures.append("HYBRID_VISIBILITY_AUTHORITY_INCOMPLETE")
 
+    checks += 1
+    company_wide_helper = function_block(
+        source,
+        "_has_company_wide_inventory_read",
+    )
+    if (
+        'access.allows("inventory.read")' not in company_wide_helper
+        or "actor.is_admin" not in company_wide_helper
+    ):
+        failures.append("COMPANY_WIDE_PERMISSION_HELPER_INCOMPLETE")
+
     alert_builder = function_block(
         source,
         "_build_inventory_alert_variants_stmt",
