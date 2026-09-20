@@ -420,22 +420,23 @@ async def seed_read_model_scenario(ids: dict[str, int]) -> dict[str, int]:
     }
 
 
-async def load_actor(company_id: int, driver_id: int) -> Driver:
-    async with fixture.SessionApp() as app:
-        await app.begin()
-        await fixture.set_tenant(app, company_id)
-        actor = await app.scalar(
-            select(Driver).where(
-                Driver.company_id == company_id,
-                Driver.id == driver_id,
-                Driver.is_active.is_(True),
-            )
-        )
-        if actor is None:
-            raise RuntimeError("Stage 8.2.3 actor is missing.")
-        app.expunge(actor)
-        await app.rollback()
-        return actor
+def make_actor(
+    *,
+    company_id: int,
+    driver_id: int,
+    is_admin: bool,
+) -> Driver:
+    return Driver(
+        id=int(driver_id),
+        company_id=int(company_id),
+        username=f"stage823-{driver_id}",
+        password_hash="x",
+        full_name="Stage823 Actor",
+        is_active=True,
+        is_admin=bool(is_admin),
+        can_allow_debt=False,
+        max_debt_limit=0,
+    )
 
 
 async def page(
@@ -500,10 +501,15 @@ async def run() -> None:
     ids = await seed_read_model_scenario(base_ids)
 
     try:
-        admin = await load_actor(ids["company_id"], ids["admin_id"])
-        restricted = await load_actor(
-            ids["company_id"],
-            ids["restricted_id"],
+        admin = make_actor(
+            company_id=ids["company_id"],
+            driver_id=ids["admin_id"],
+            is_admin=True,
+        )
+        restricted = make_actor(
+            company_id=ids["company_id"],
+            driver_id=ids["restricted_id"],
+            is_admin=False,
         )
 
         admin_page = await page(
