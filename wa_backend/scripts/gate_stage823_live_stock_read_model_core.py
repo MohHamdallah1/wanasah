@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WAREHOUSE = ROOT / "api" / "warehouse.py"
+DEPENDENCIES = ROOT / "api" / "dependencies.py"
 PROJECTION_SERVICE = ROOT / "domains" / "live_stock_projection" / "service.py"
 DATABASE = ROOT / "database.py"
 MAIN = ROOT / "main.py"
@@ -183,6 +184,30 @@ def main() -> None:
     checks += 1
     if source.count("_require_live_stock_read_model_ready(") < 4:
         failures.append("READINESS_GUARD_NOT_APPLIED_TO_ALL_LIVE_STOCK_READS")
+
+    checks += 1
+    dependency_source = DEPENDENCIES.read_text(encoding="utf-8")
+    try:
+        ast.parse(dependency_source)
+    except SyntaxError as exc:
+        failures.append(f"DEPENDENCIES_SYNTAX:{exc}")
+
+    checks += 1
+    auth_block = function_block(
+        dependency_source,
+        "get_current_driver",
+    )
+    if (
+        "blacklisted_exists" not in auth_block
+        or 'blacklisted_exists.label("is_blacklisted")' not in auth_block
+        or "select(Driver," not in auth_block
+        or "stmt_blacklisted" in auth_block
+    ):
+        failures.append("AUTH_BLACKLIST_DRIVER_READ_NOT_COLLAPSED")
+
+    checks += 1
+    if "set_config('app.current_tenant'" not in auth_block:
+        failures.append("AUTH_TENANT_RLS_GUARD_MISSING")
 
     checks += 1
     scale_source = SCALE_GATE.read_text(encoding="utf-8")
