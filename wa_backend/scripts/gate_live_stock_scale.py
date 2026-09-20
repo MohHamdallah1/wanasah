@@ -673,7 +673,7 @@ def _start_real_uvicorn() -> tuple[subprocess.Popen, int, str]:
             sys.executable,
             "-m",
             "uvicorn",
-            "main:app",
+            "scripts.stage823_benchmark_app:app",
             "--host",
             "127.0.0.1",
             "--port",
@@ -733,40 +733,64 @@ async def _wait_for_real_uvicorn(
     base_url: str,
     log_path: str,
 ) -> None:
+    """Wait until every real Uvicorn worker has completed lifespan startup."""
     deadline = time.monotonic() + 45.0
-    async with httpx.AsyncClient(
-        base_url=base_url,
-        timeout=1.5,
-    ) as client:
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError(
-                    "Uvicorn benchmark server exited before readiness.\n"
-                    + _read_benchmark_log(log_path)
-                )
-            try:
-                # OpenAPI/docs are intentionally disabled by default in
-                # production. Any HTTP response proves the ASGI server is
-                # accepting requests; use a lightweight non-existent path so
-                # readiness never depends on documentation settings.
+    seen_pids: set[int] = set()
+
+    async def probe_once() -> int | None:
+        limits = httpx.Limits(
+            max_connections=1,
+            max_keepalive_connections=0,
+        )
+        try:
+            async with httpx.AsyncClient(
+                base_url=base_url,
+                timeout=2.0,
+                limits=limits,
+                headers={"Connection": "close"},
+                trust_env=False,
+            ) as client:
                 response = await client.get(
                     "/__live_stock_benchmark_readiness__"
                 )
-                if response.status_code in {
-                    200,
-                    204,
-                    401,
-                    403,
-                    404,
-                    405,
-                }:
-                    return
-            except httpx.HTTPError:
-                pass
-            await asyncio.sleep(0.2)
+                if response.status_code != 200:
+                    return None
+                payload = response.json()
+                pid = payload.get("pid")
+                return pid if type(pid) is int and pid > 0 else None
+        except (httpx.HTTPError, ValueError, TypeError):
+            return None
+
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(
+                "Uvicorn benchmark server exited before readiness.\n"
+                + _read_benchmark_log(log_path)
+            )
+
+        batch = await asyncio.gather(
+            *(probe_once() for _ in range(REAL_HTTP_WORKERS * 4))
+        )
+        seen_pids.update(pid for pid in batch if pid is not None)
+        if len(seen_pids) >= REAL_HTTP_WORKERS:
+            print(
+                "HTTP_WORKERS_READY="
+                + json.dumps(
+                    {
+                        "workers_expected": REAL_HTTP_WORKERS,
+                        "workers_seen": len(seen_pids),
+                        "pids": sorted(seen_pids),
+                    },
+                    sort_keys=True,
+                )
+            )
+            return
+        await asyncio.sleep(0.2)
+
     log_tail = _read_benchmark_log(log_path)
     raise RuntimeError(
-        "Uvicorn benchmark server did not become ready in time. "
+        "Not all Uvicorn benchmark workers became ready in time. "
+        f"seen={sorted(seen_pids)} expected={REAL_HTTP_WORKERS} "
         f"pid={process.pid} poll={process.poll()} log={log_path}\n"
         + (log_tail or "<benchmark log is empty>")
     )
