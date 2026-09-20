@@ -1591,16 +1591,15 @@ export function Tab1LiveStock({
               })}
             </tbody>
           </table>
-        </div>
-
-        <div
-          ref={loadMoreSentinelRef}
-          className="live-stock-load-more-sentinel"
-          aria-hidden={!hasMore}
-        >
-          {hasMore && loading && (
-            <span>{t("common.loading")}</span>
-          )}
+          <div
+            ref={loadMoreSentinelRef}
+            className="live-stock-load-more-sentinel"
+            aria-hidden={!hasMore}
+          >
+            {hasMore && loading && (
+              <span>{t("common.loading")}</span>
+            )}
+          </div>
         </div>
 
       <Dialog
