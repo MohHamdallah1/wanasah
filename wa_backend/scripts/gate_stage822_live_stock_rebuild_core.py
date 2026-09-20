@@ -246,6 +246,33 @@ def main() -> None:
     ):
         failures.append("LIVE_STOCK_WORKER_SAFE_RETRY_ALLOWLIST_MISSING")
 
+    checks += 1
+    forbidden_unbounded_projector_binds = (
+        ".id.in_(location_ids)",
+        ".location_id.in_(",
+        ".product_variant_id.in_(variant_ids)",
+    )
+    offenders = [
+        token
+        for token in forbidden_unbounded_projector_binds
+        if token in service
+    ]
+    if offenders:
+        failures.append(
+            "UNBOUNDED_PROJECTOR_LIST_BINDS:" + ",".join(offenders)
+        )
+
+    checks += 1
+    worker_source = sources["worker_live_stock"]
+    if (
+        "async def run_company_live_stock_transition_maintenance(" 
+        not in worker_source
+        or "reconcile_live_stock_company(" not in worker_source
+        or 'state == "DEGRADED"' not in worker_source
+        or "Persist DEGRADED independently" not in worker_source
+    ):
+        failures.append("LIVE_STOCK_WORKER_SELF_HEAL_OR_FAIL_CLOSED_MISSING")
+
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
     for failure in failures:
