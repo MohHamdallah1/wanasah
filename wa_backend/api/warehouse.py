@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, true, tuple_, union, update
+from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, true, tuple_, union, union_all, update
 from typing import Optional, List
 from database import get_db
 from api.dependencies import get_current_driver
@@ -2657,6 +2657,57 @@ def _build_visible_inventory_stmt(
         if limit is not None
         else ()
     )
+    if company_wide_inventory_read and not candidate_filters:
+        stream_limit = limit + 1 if limit is not None else None
+        active_stream = (
+            select(
+                ProductVariant.id.label("id"),
+                ProductVariant.name.label("variant_name"),
+            )
+            .where(
+                ProductVariant.company_id == company_id,
+                ProductVariant.lifecycle_status == "ACTIVE",
+            )
+            .order_by(ProductVariant.name, ProductVariant.id)
+            .limit(stream_limit)
+        )
+        nonactive_stream = (
+            select(
+                InventoryLiveStockProjection.product_variant_id.label("id"),
+                InventoryLiveStockProjection.variant_name.label(
+                    "variant_name"
+                ),
+            )
+            .where(
+                InventoryLiveStockProjection.company_id == company_id,
+                InventoryLiveStockProjection.warehouse_location_id
+                == location_id,
+                InventoryLiveStockProjection.lifecycle_status != "ACTIVE",
+                or_(
+                    InventoryLiveStockProjection.has_warehouse_presence.is_(
+                        True
+                    ),
+                    InventoryLiveStockProjection.has_vehicle_presence.is_(
+                        True
+                    ),
+                ),
+            )
+            .order_by(
+                InventoryLiveStockProjection.variant_name,
+                InventoryLiveStockProjection.product_variant_id,
+            )
+            .limit(stream_limit)
+        )
+        merged = union_all(
+            active_stream,
+            nonactive_stream,
+        ).subquery("visible_inventory_fast_candidates")
+        return (
+            select(merged.c.id, merged.c.variant_name)
+            .order_by(merged.c.variant_name, merged.c.id)
+            .limit(stream_limit)
+        )
+
     if company_wide_inventory_read:
         return (
             select(
@@ -3138,23 +3189,38 @@ async def get_warehouse_inventory(
             UOM,
             name="inventory_latest_purchase_uom",
         )
-        latest_purchase_page = select(
-            InventoryCostEvent.input_unit_cost.label(
-                "input_unit_cost"
-            ),
-            purchase_uom.code.label("input_uom_code"),
-            InventoryCostEvent.created_at.label("created_at"),
-        ).join(
-            purchase_uom,
-            purchase_uom.id == InventoryCostEvent.input_uom_id,
-        ).where(
-            InventoryCostEvent.company_id == company_id,
-            InventoryCostEvent.product_variant_id == ProductVariant.id,
-            InventoryCostEvent.event_type == "PURCHASE_IN",
-        ).order_by(
-            InventoryCostEvent.created_at.desc(),
-            InventoryCostEvent.id.desc(),
-        ).limit(1).lateral("latest_purchase_page")
+        latest_purchase_page = (
+            select(
+                InventoryCostEvent.product_variant_id.label(
+                    "product_variant_id"
+                ),
+                InventoryCostEvent.input_unit_cost.label(
+                    "input_unit_cost"
+                ),
+                purchase_uom.code.label("input_uom_code"),
+                InventoryCostEvent.created_at.label("created_at"),
+            )
+            .join(
+                purchase_uom,
+                purchase_uom.id == InventoryCostEvent.input_uom_id,
+            )
+            .where(
+                InventoryCostEvent.company_id == company_id,
+                _warehouse_array_membership(
+                    InventoryCostEvent.product_variant_id,
+                    page_variant_ids,
+                    "inventory_purchase_page_variant_ids",
+                ),
+                InventoryCostEvent.event_type == "PURCHASE_IN",
+            )
+            .distinct(InventoryCostEvent.product_variant_id)
+            .order_by(
+                InventoryCostEvent.product_variant_id,
+                InventoryCostEvent.created_at.desc(),
+                InventoryCostEvent.id.desc(),
+            )
+            .subquery("latest_purchase_page")
+        )
 
         display_uom = aliased(
             UOM,
@@ -3164,29 +3230,41 @@ async def get_warehouse_inventory(
             ProductUomConversion.numerator
             / ProductUomConversion.denominator
         )
-        display_uom_candidates = select(
-            func.count(ProductUomConversion.id).label(
-                "candidate_count"
-            ),
-            func.min(display_uom.id).label("uom_id"),
-            func.min(display_uom.code).label("uom_code"),
-            func.min(display_uom.name).label("uom_name"),
-            func.min(display_factor_expression).label(
-                "factor_to_base"
-            ),
-        ).join(
-            display_uom,
-            display_uom.id == ProductUomConversion.from_uom_id,
-        ).where(
-            ProductUomConversion.company_id
-            == ProductVariant.company_id,
-            ProductUomConversion.product_variant_id
-            == ProductVariant.id,
-            ProductUomConversion.to_uom_id
-            == ProductVariant.base_uom_id,
-            ProductUomConversion.numerator
-            > ProductUomConversion.denominator,
-        ).lateral("display_uom_candidates")
+        display_uom_candidates = (
+            select(
+                ProductUomConversion.product_variant_id.label(
+                    "product_variant_id"
+                ),
+                func.count(ProductUomConversion.id).label(
+                    "candidate_count"
+                ),
+                func.min(display_uom.id).label("uom_id"),
+                func.min(display_uom.code).label("uom_code"),
+                func.min(display_uom.name).label("uom_name"),
+                func.min(display_factor_expression).label(
+                    "factor_to_base"
+                ),
+            )
+            .join(
+                display_uom,
+                display_uom.id
+                == ProductUomConversion.from_uom_id,
+            )
+            .where(
+                ProductUomConversion.company_id == company_id,
+                _warehouse_array_membership(
+                    ProductUomConversion.product_variant_id,
+                    page_variant_ids,
+                    "inventory_display_page_variant_ids",
+                ),
+                ProductUomConversion.to_uom_id
+                == ProductVariant.base_uom_id,
+                ProductUomConversion.numerator
+                > ProductUomConversion.denominator,
+            )
+            .group_by(ProductUomConversion.product_variant_id)
+            .subquery("display_uom_candidates")
+        )
 
         display_uom_unique = case(
             (
@@ -3256,8 +3334,16 @@ async def get_warehouse_inventory(
                     == ProductVariant.id,
                 ),
             )
-            .outerjoin(latest_purchase_page, true())
-            .join(display_uom_candidates, true())
+            .outerjoin(
+                latest_purchase_page,
+                latest_purchase_page.c.product_variant_id
+                == ProductVariant.id,
+            )
+            .outerjoin(
+                display_uom_candidates,
+                display_uom_candidates.c.product_variant_id
+                == ProductVariant.id,
+            )
             .where(
                 ProductVariant.company_id == company_id,
                 _warehouse_array_membership(
