@@ -444,6 +444,96 @@
   padding: 0.8rem;
 }
 
+.live-stock-filter-popover--compact {
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+}
+
+.live-stock-filter-choice-grid--compact {
+  gap: 0.3rem;
+}
+
+.live-stock-filter-option--compact {
+  min-height: 2.4rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.live-stock-filter-option--compact small {
+  margin-top: 0.08rem;
+  font-size: 0.6rem;
+}
+
+.live-stock-filter-chip-grid--compact {
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid #edf1f2;
+}
+
+.live-stock-filter-reset--compact {
+  margin-top: 0.5rem;
+}
+
+.live-stock-family-button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  max-width: 11rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  flex: 0 1 auto;
+  padding: 0 0.75rem;
+  border: 1px solid #d4dee2;
+  border-radius: 0.8rem;
+  color: #405861;
+  background: #fff;
+  font-size: 0.72rem;
+  font-weight: 850;
+  box-shadow: 0 8px 20px -20px rgb(23 63 66 / 0.75);
+}
+
+.live-stock-family-button--active {
+  border-color: #9bc9c0;
+  color: #126457;
+  background: #edf8f5;
+}
+
+.live-stock-family-button-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-stock-family-popover {
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+  border-color: #dbe4e7;
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.live-stock-sort-select--toolbar {
+  width: auto;
+  min-width: 8.5rem;
+  min-height: 2.75rem;
+  padding-inline: 0.7rem 1.8rem;
+  flex: 0 0 auto;
+}
+
+.live-stock-load-more-sentinel {
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  color: #71838b;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.live-stock-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 86px;
+}
+
 .live-stock-filter-header {
   display: flex;
   align-items: flex-start;
@@ -1093,6 +1183,14 @@
 
   .live-stock-filter-button > span:not(.live-stock-filter-count) {
     display: none;
+  }
+
+  .live-stock-family-button {
+    max-width: 8rem;
+  }
+
+  .live-stock-sort-select--toolbar {
+    min-width: 7rem;
   }
 
   .live-stock-search {
