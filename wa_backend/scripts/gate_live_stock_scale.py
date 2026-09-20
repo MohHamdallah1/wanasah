@@ -6,8 +6,12 @@ import contextvars
 import json
 import math
 import os
+import signal
+import socket
 import statistics
+import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +62,16 @@ HTTP_BENCH_MAX_OVERFLOW = 0
 HTTP_BENCH_DB_CAP = HTTP_BENCH_POOL_SIZE + HTTP_BENCH_MAX_OVERFLOW
 if HTTP_BENCH_DB_CAP != 20:
     raise RuntimeError("Live Stock HTTP benchmark DB cap must remain 20.")
+
+REAL_HTTP_WORKERS = 4
+REAL_HTTP_POOL_SIZE = 4
+REAL_HTTP_MAX_OVERFLOW = 1
+REAL_HTTP_DB_CAP = (
+    REAL_HTTP_WORKERS
+    * (REAL_HTTP_POOL_SIZE + REAL_HTTP_MAX_OVERFLOW)
+)
+if REAL_HTTP_DB_CAP != 20:
+    raise RuntimeError("Real Uvicorn HTTP benchmark DB cap must remain 20.")
 
 http_bench_engine = create_async_engine(
     database_runtime.DATABASE_URL,
@@ -573,14 +587,11 @@ async def dataset_snapshot(company_id: int, location_id: int) -> dict[str, int]:
     finally:
         tenant_context.reset(token)
 
-async def http_load(
+async def create_benchmark_token(
     *,
     company_id: int,
     driver_id: int,
-    location_id: int,
-    concurrency: int,
-    requests: int,
-) -> dict[str, Any]:
+) -> str:
     token_ctx = tenant_context.set(company_id)
     try:
         async with AsyncSessionLocal() as db:
@@ -589,7 +600,7 @@ async def http_load(
                 {"c": str(company_id)},
             )
             driver = await load_driver(db, company_id, driver_id)
-            token = create_access_token(
+            return create_access_token(
                 {
                     "sub": str(driver.id),
                     "is_admin": bool(driver.is_admin),
@@ -600,6 +611,233 @@ async def http_load(
             )
     finally:
         tenant_context.reset(token_ctx)
+
+
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _start_real_uvicorn() -> tuple[subprocess.Popen, int, str]:
+    port = _free_local_port()
+    env = os.environ.copy()
+    env.update(
+        {
+            "WEB_CONCURRENCY": str(REAL_HTTP_WORKERS),
+            "DB_APP_CONNECTION_BUDGET": str(REAL_HTTP_DB_CAP),
+            "DB_POOL_SIZE": str(REAL_HTTP_POOL_SIZE),
+            "DB_MAX_OVERFLOW": str(REAL_HTTP_MAX_OVERFLOW),
+            "DB_POOL_TIMEOUT": "3",
+            "DB_POOL_RECYCLE": "1800",
+        }
+    )
+
+    log_file = tempfile.NamedTemporaryFile(
+        prefix="wanasah-live-stock-uvicorn-",
+        suffix=".log",
+        delete=False,
+    )
+    log_path = log_file.name
+    log_file.close()
+    log_stream = open(log_path, "w", encoding="utf-8")
+
+    kwargs: dict[str, Any] = {
+        "cwd": str(BACKEND_ROOT),
+        "env": env,
+        "stdout": log_stream,
+        "stderr": subprocess.STDOUT,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            str(REAL_HTTP_WORKERS),
+            "--log-level",
+            "warning",
+        ],
+        **kwargs,
+    )
+    log_stream.close()
+    return process, port, log_path
+
+
+def _read_benchmark_log(log_path: str, limit: int = 6000) -> str:
+    try:
+        value = Path(log_path).read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError:
+        return ""
+    return value[-limit:]
+
+
+def _stop_real_uvicorn(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                [
+                    "taskkill",
+                    "/PID",
+                    str(process.pid),
+                    "/T",
+                    "/F",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        process.wait(timeout=10)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+async def _wait_for_real_uvicorn(
+    *,
+    process: subprocess.Popen,
+    base_url: str,
+    log_path: str,
+) -> None:
+    deadline = time.monotonic() + 45.0
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        timeout=1.5,
+    ) as client:
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError(
+                    "Uvicorn benchmark server exited before readiness.\n"
+                    + _read_benchmark_log(log_path)
+                )
+            try:
+                response = await client.get("/openapi.json")
+                if response.status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            await asyncio.sleep(0.2)
+    raise RuntimeError(
+        "Uvicorn benchmark server did not become ready in time.\n"
+        + _read_benchmark_log(log_path)
+    )
+
+
+async def real_uvicorn_http_load(
+    *,
+    token: str,
+    location_id: int,
+    concurrency: int,
+    requests: int,
+) -> dict[str, Any]:
+    process, port, log_path = _start_real_uvicorn()
+    base_url = f"http://127.0.0.1:{port}"
+    try:
+        await _wait_for_real_uvicorn(
+            process=process,
+            base_url=base_url,
+            log_path=log_path,
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        sem = asyncio.Semaphore(concurrency)
+        latencies: list[float] = []
+        statuses: list[int] = []
+        route_latencies: dict[str, list[float]] = {
+            "cursor": [],
+            "alerts": [],
+        }
+
+        async with httpx.AsyncClient(
+            base_url=base_url,
+            headers=headers,
+            timeout=30.0,
+        ) as client:
+            async def one(index: int) -> None:
+                async with sem:
+                    is_alert = index % 5 == 0
+                    route_name = "alerts" if is_alert else "cursor"
+                    path = (
+                        f"/warehouse/inventory/alerts/summary"
+                        f"?location_id={location_id}"
+                        if is_alert
+                        else (
+                            f"/warehouse/inventory/cursor"
+                            f"?location_id={location_id}&limit=50"
+                        )
+                    )
+                    started = time.perf_counter()
+                    response = await client.get(path)
+                    elapsed_ms = (
+                        time.perf_counter() - started
+                    ) * 1000
+                    latencies.append(elapsed_ms)
+                    route_latencies[route_name].append(elapsed_ms)
+                    statuses.append(response.status_code)
+
+            await asyncio.gather(
+                *(one(i) for i in range(requests))
+            )
+
+        return {
+            "requests": requests,
+            "concurrency": concurrency,
+            "workers": REAL_HTTP_WORKERS,
+            "db_connection_cap": REAL_HTTP_DB_CAP,
+            "p50_ms": percentile(latencies, 0.50),
+            "p95_ms": percentile(latencies, 0.95),
+            "p99_ms": percentile(latencies, 0.99),
+            "max_ms": max(latencies),
+            "cursor_p95_ms": percentile(
+                route_latencies["cursor"],
+                0.95,
+            ),
+            "alerts_p95_ms": percentile(
+                route_latencies["alerts"],
+                0.95,
+            ),
+            "errors": sum(
+                1 for status in statuses if status != 200
+            ),
+        }
+    finally:
+        _stop_real_uvicorn(process)
+        try:
+            Path(log_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+async def http_load(
+    *,
+    company_id: int,
+    driver_id: int,
+    location_id: int,
+    concurrency: int,
+    requests: int,
+) -> dict[str, Any]:
+    token = await create_benchmark_token(
+        company_id=company_id,
+        driver_id=driver_id,
+    )
 
     transport = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {token}"}
@@ -830,9 +1068,48 @@ async def async_main(args: argparse.Namespace) -> None:
         f"max_overflow={HTTP_BENCH_MAX_OVERFLOW}"
     )
 
-    load = await http_load(
+    # Keep the in-process ASGI run as a SQL diagnostic only. It deliberately
+    # uses one Python process, so it must not be treated as a 4-worker latency
+    # verdict.
+    asgi_diagnostic = await http_load(
         company_id=args.company_id,
         driver_id=driver_id,
+        location_id=args.location_id,
+        concurrency=min(args.concurrency, 5),
+        requests=min(args.requests, 25),
+    )
+    print(
+        "ASGI_HTTP_DIAGNOSTIC="
+        + json.dumps(asgi_diagnostic, sort_keys=True)
+    )
+    print(
+        "ASGI_HTTP_PROFILE "
+        f"cursor_p95={asgi_diagnostic['cursor_p95_ms']:.1f}ms "
+        f"alerts_p95={asgi_diagnostic['alerts_p95_ms']:.1f}ms "
+        f"pool_wait_p95={asgi_diagnostic['pool_wait_p95_ms']:.1f}ms "
+        f"sql_p95={asgi_diagnostic['sql_p95_ms']:.1f}ms "
+        f"outside_sql_p95={asgi_diagnostic['outside_sql_p95_ms']:.1f}ms "
+        f"labels={asgi_diagnostic['sql_label_p95']}"
+    )
+    if asgi_diagnostic["errors"]:
+        failures.append(
+            f"ASGI_HTTP_DIAGNOSTIC_ERRORS:{asgi_diagnostic['errors']}"
+        )
+
+    token = await create_benchmark_token(
+        company_id=args.company_id,
+        driver_id=driver_id,
+    )
+
+    # Release every parent-process DB connection before starting the four real
+    # Uvicorn workers. Otherwise the benchmark itself would exceed the intended
+    # 20-connection application budget.
+    await engine.dispose()
+    await http_bench_engine.dispose()
+    await global_count_engine.dispose()
+
+    load = await real_uvicorn_http_load(
+        token=token,
         location_id=args.location_id,
         concurrency=args.concurrency,
         requests=args.requests,
@@ -840,12 +1117,10 @@ async def async_main(args: argparse.Namespace) -> None:
     print("HTTP_LOAD=" + json.dumps(load, sort_keys=True))
     print(
         "HTTP_LOAD_PROFILE "
+        f"workers={load['workers']} "
         f"cursor_p95={load['cursor_p95_ms']:.1f}ms "
         f"alerts_p95={load['alerts_p95_ms']:.1f}ms "
-        f"pool_wait_p95={load['pool_wait_p95_ms']:.1f}ms "
-        f"sql_p95={load['sql_p95_ms']:.1f}ms "
-        f"outside_sql_p95={load['outside_sql_p95_ms']:.1f}ms "
-        f"labels={load['sql_label_p95']}"
+        f"overall_p95={load['p95_ms']:.1f}ms"
     )
     if load["errors"]:
         failures.append(f"HTTP_LOAD_ERRORS:{load['errors']}")
