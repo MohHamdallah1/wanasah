@@ -6,6 +6,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WAREHOUSE = ROOT / "api" / "warehouse.py"
+MODELS = ROOT / "models.py"
+TRANSITION_MIGRATION = (
+    ROOT
+    / "alembic"
+    / "versions"
+    / "d8f2a6c4b190_live_stock_warehouse_transition_seek.py"
+)
 DEPENDENCIES = ROOT / "api" / "dependencies.py"
 PROJECTION_SERVICE = ROOT / "domains" / "live_stock_projection" / "service.py"
 DATABASE = ROOT / "database.py"
@@ -473,6 +480,25 @@ def main() -> None:
             "READ_MODEL_AUTH_GATE_MISSING_EXPLICIT_TRANSACTION:"
             + ",".join(str(value) for value in missing_explicit_begin)
         )
+
+    checks += 1
+    model_source = MODELS.read_text(encoding="utf-8")
+    migration_source = TRANSITION_MIGRATION.read_text(encoding="utf-8")
+    required_seek_index = (
+        "ix_live_stock_projection_warehouse_transition",
+        "'company_id', 'warehouse_location_id', 'next_transition_date', 'product_variant_id'",
+    )
+    if (
+        required_seek_index[0] not in model_source
+        or required_seek_index[1] not in model_source
+        or 'down_revision = "c7d4a91e6f32"' not in migration_source
+        or "CREATE INDEX CONCURRENTLY IF NOT EXISTS" not in migration_source
+        or "company_id," not in migration_source
+        or "warehouse_location_id," not in migration_source
+        or "next_transition_date," not in migration_source
+        or "WHERE next_transition_date IS NOT NULL" not in migration_source
+    ):
+        failures.append("WAREHOUSE_TRANSITION_SEEK_INDEX_MISSING")
 
     print(f"CHECKS={checks}")
     print(f"FAILURES={len(failures)}")
