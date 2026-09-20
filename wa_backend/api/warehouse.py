@@ -2636,32 +2636,33 @@ async def _require_live_stock_warehouse_read(
     return bool(permission_row.company_wide_allowed)
 
 
+def _live_stock_ordering(*, sort: str):
+    if sort == "name_desc":
+        return (
+            ProductVariant.name.desc(),
+            ProductVariant.id.desc(),
+        )
+    return (
+        ProductVariant.name.asc(),
+        ProductVariant.id.asc(),
+    )
+
+
 def _build_visible_inventory_stmt(
     *, company_id: int, location_id: int, access: InventoryAccess,
     company_wide_inventory_read: bool,
     candidate_filters=(), limit: Optional[int] = None,
+    sort: str = "name_asc",
 ):
-    """Exact Live Stock visibility with projection-backed warehouse presence.
-
-    Active variants are always visible. Non-active variants are visible when
-    warehouse stock exists in the projection or when stock exists on a vehicle
-    the current actor is allowed to read and whose latest route belongs to the
-    selected warehouse.
-    """
+    """Exact Live Stock visibility with projection-backed warehouse presence."""
     extra_candidate_filters = tuple(candidate_filters)
     candidate_filters = [
         ProductVariant.company_id == company_id,
         *extra_candidate_filters,
     ]
-    ordering = (
-        (ProductVariant.name, ProductVariant.id)
-        if limit is not None
-        else ()
-    )
-    # Fast path is valid only when there is no search/cursor filter beyond
-    # the mandatory tenant predicate.  Previously this condition checked the
-    # post-normalized list, which always contained company_id and therefore
-    # made the optimized UNION ALL path unreachable.
+    ordering = _live_stock_ordering(sort=sort) if limit is not None else ()
+    descending = sort == "name_desc"
+
     if company_wide_inventory_read and not extra_candidate_filters:
         stream_limit = limit + 1 if limit is not None else None
         active_stream = (
@@ -2673,8 +2674,19 @@ def _build_visible_inventory_stmt(
                 ProductVariant.company_id == company_id,
                 ProductVariant.lifecycle_status == "ACTIVE",
             )
-            .order_by(ProductVariant.name, ProductVariant.id)
+            .order_by(*ordering)
             .limit(stream_limit)
+        )
+        projection_order = (
+            (
+                InventoryLiveStockProjection.variant_name.desc(),
+                InventoryLiveStockProjection.product_variant_id.desc(),
+            )
+            if descending
+            else (
+                InventoryLiveStockProjection.variant_name.asc(),
+                InventoryLiveStockProjection.product_variant_id.asc(),
+            )
         )
         nonactive_stream = (
             select(
@@ -2697,19 +2709,21 @@ def _build_visible_inventory_stmt(
                     ),
                 ),
             )
-            .order_by(
-                InventoryLiveStockProjection.variant_name,
-                InventoryLiveStockProjection.product_variant_id,
-            )
+            .order_by(*projection_order)
             .limit(stream_limit)
         )
         merged = union_all(
             active_stream,
             nonactive_stream,
         ).subquery("visible_inventory_fast_candidates")
+        merged_order = (
+            (merged.c.variant_name.desc(), merged.c.id.desc())
+            if descending
+            else (merged.c.variant_name.asc(), merged.c.id.asc())
+        )
         return (
             select(merged.c.id, merged.c.variant_name)
-            .order_by(merged.c.variant_name, merged.c.id)
+            .order_by(*merged_order)
             .limit(stream_limit)
         )
 
@@ -2745,7 +2759,6 @@ def _build_visible_inventory_stmt(
             .order_by(*ordering)
             .limit(limit + 1 if limit is not None else None)
         )
-
 
     active_candidates = (
         select(
@@ -2834,15 +2847,23 @@ def _build_visible_inventory_stmt(
         warehouse_candidates,
         vehicle_candidates,
     ).subquery("visible_inventory_candidates")
+    visible_order = (
+        (
+            visible_candidates.c.variant_name.desc(),
+            visible_candidates.c.id.desc(),
+        )
+        if descending
+        else (
+            visible_candidates.c.variant_name.asc(),
+            visible_candidates.c.id.asc(),
+        )
+    )
     return (
         select(
             visible_candidates.c.id,
             visible_candidates.c.variant_name,
         )
-        .order_by(
-            *((visible_candidates.c.variant_name, visible_candidates.c.id)
-              if limit is not None else ())
-        )
+        .order_by(*visible_order)
         .limit(limit + 1 if limit is not None else None)
     )
 
@@ -2874,6 +2895,131 @@ def _build_inventory_alert_variants_stmt(
             InventoryLiveStockProjection.is_low_stock.is_(True),
             *variant_filters,
         )
+    )
+
+
+def _live_stock_filtered_variant_ids_stmt(
+    *,
+    company_id: int,
+    location_id: int,
+    access: InventoryAccess,
+    company_wide_inventory_read: bool,
+    stock_state: str,
+    has_reserved: bool,
+    has_unavailable: bool,
+    has_damaged: bool,
+    has_recalled: bool,
+    has_vehicle: bool,
+    minimum_unset: bool,
+):
+    variant = aliased(ProductVariant, name="live_stock_filter_variant")
+    projection = aliased(
+        InventoryLiveStockProjection,
+        name="live_stock_filter_projection",
+    )
+
+    projected_on_hand = func.coalesce(projection.warehouse_on_hand, 0)
+    projected_reserved = func.coalesce(projection.warehouse_reserved, 0)
+    projected_sellable_on_hand = func.coalesce(
+        projection.warehouse_sellable_on_hand, 0
+    )
+    projected_sellable_reserved = func.coalesce(
+        projection.warehouse_sellable_reserved, 0
+    )
+    projected_blocked = func.coalesce(projection.blocked_status_packs, 0)
+    projected_damaged = func.coalesce(projection.damaged_packs, 0)
+    projected_recalled = func.coalesce(projection.recalled_packs, 0)
+
+    effective_sellable = case(
+        (
+            and_(
+                variant.lifecycle_status == "ACTIVE",
+                variant.operational_hold == "NONE",
+            ),
+            projected_sellable_on_hand - projected_sellable_reserved,
+        ),
+        else_=0,
+    )
+    warehouse_total = (
+        projected_on_hand + projected_blocked + projected_damaged
+    )
+    unavailable = (
+        warehouse_total - projected_reserved - effective_sellable
+    )
+
+    conditions = []
+    if stock_state == "on_hand":
+        conditions.append(warehouse_total > 0)
+    elif stock_state == "sellable":
+        conditions.append(effective_sellable > 0)
+    elif stock_state == "out_of_stock":
+        conditions.append(effective_sellable <= 0)
+    elif stock_state == "low_stock":
+        conditions.append(projection.is_low_stock.is_(True))
+
+    if has_reserved:
+        conditions.append(projected_reserved > 0)
+    if has_unavailable:
+        conditions.append(unavailable > 0)
+    if has_damaged:
+        conditions.append(projected_damaged > 0)
+    if has_recalled:
+        conditions.append(projected_recalled > 0)
+    if minimum_unset:
+        conditions.append(func.coalesce(projection.minimum_quantity, 0) == 0)
+
+    if has_vehicle:
+        if company_wide_inventory_read:
+            conditions.append(func.coalesce(projection.vehicle_packs, 0) > 0)
+        else:
+            readable_vehicle_locations = _readable_vehicle_locations_subquery(
+                company_id=company_id,
+                access=access,
+            )
+            latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
+                company_id=company_id,
+                readable_vehicle_locations=readable_vehicle_locations,
+            )
+            readable_vehicle_variants = (
+                select(InventoryBalance.product_variant_id)
+                .join(
+                    readable_vehicle_locations,
+                    readable_vehicle_locations.c.id
+                    == InventoryBalance.location_id,
+                )
+                .join(
+                    latest_vehicle_sources,
+                    and_(
+                        latest_vehicle_sources.c.vehicle_id
+                        == readable_vehicle_locations.c.vehicle_id,
+                        latest_vehicle_sources.c.source_location_id
+                        == location_id,
+                    ),
+                )
+                .where(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.stock_status != "DAMAGED",
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+                .distinct()
+            )
+            conditions.append(variant.id.in_(readable_vehicle_variants))
+
+    return (
+        select(variant.id)
+        .outerjoin(
+            projection,
+            and_(
+                projection.company_id == variant.company_id,
+                projection.product_variant_id == variant.id,
+                projection.warehouse_location_id == location_id,
+            ),
+        )
+        .where(
+            variant.company_id == company_id,
+            *conditions,
+        )
+        .correlate(None)
     )
 
 
