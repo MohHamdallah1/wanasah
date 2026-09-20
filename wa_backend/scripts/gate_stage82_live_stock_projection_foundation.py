@@ -6,6 +6,8 @@ import re
 import sys
 from pathlib import Path
 
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
 from dotenv import load_dotenv
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -32,7 +34,7 @@ from models import (  # noqa: E402
     InventoryLiveStockWarehouseSummary,
 )
 
-EXPECTED_REVISION = "b3e91c7a4d20"
+FOUNDATION_REVISION = "b3e91c7a4d20"
 EXPECTED_TABLES = (
     "inventory_live_stock_company_summaries",
     "inventory_live_stock_warehouse_summaries",
@@ -115,8 +117,24 @@ async def main() -> None:
         async with engine.connect() as conn:
             revision = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             checks += 1
-            if str(revision) != EXPECTED_REVISION:
-                failures.append(f"ALEMBIC_HEAD:{revision}")
+            alembic_cfg = AlembicConfig(str(BACKEND_ROOT / "alembic.ini"))
+            script = ScriptDirectory.from_config(alembic_cfg)
+            try:
+                lineage = {
+                    item.revision
+                    for item in script.walk_revisions(
+                        base="base",
+                        head=str(revision),
+                    )
+                }
+            except Exception as exc:
+                failures.append(f"ALEMBIC_LINEAGE:{type(exc).__name__}:{exc}")
+                lineage = set()
+            if FOUNDATION_REVISION not in lineage:
+                failures.append(
+                    f"FOUNDATION_REVISION_NOT_ANCESTOR:"
+                    f"{FOUNDATION_REVISION}->{revision}"
+                )
 
             rows = (
                 await conn.execute(
