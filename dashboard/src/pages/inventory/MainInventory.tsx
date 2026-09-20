@@ -32,6 +32,8 @@ const TABS = [
   { id: "permissions", labelKey: "inventoryShell.tabs.permissions", icon: Lock },
 ] as const;
 
+const LIVE_STOCK_PAGE_SIZE = 50;
+
 type TabId = typeof TABS[number]["id"];
 const TAB_PERMISSION: Record<TabId, string> = {
   live: 'inventory.read', inbound: 'inbound.create', transfers: 'transfer.read',
@@ -321,7 +323,7 @@ export default function MainInventory() {
     try {
       const params = new URLSearchParams({
         location_id: String(selectedLocationId),
-        limit: "50",
+        limit: String(LIVE_STOCK_PAGE_SIZE),
       });
 
       if (stockCursor) params.set("cursor", stockCursor);
@@ -742,6 +744,7 @@ export default function MainInventory() {
             alertCount={stockAlertCount}
             matchingTotal={stockMatchingTotal}
             pageNumber={stockCursorHistory.length + 1}
+            pageSize={LIVE_STOCK_PAGE_SIZE}
             hasMore={!!stockNextCursor}
             hasPrevious={stockCursorHistory.length > 0}
             onlyAlerts={stockOnlyAlerts}
