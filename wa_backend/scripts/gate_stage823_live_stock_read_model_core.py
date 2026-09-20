@@ -312,27 +312,49 @@ def main() -> None:
         )
 
     checks += 1
-    required_collapsed_detail_reads = (
-        "detail_stmt",
-        "latest_purchase_page",
-        '.subquery("latest_purchase_page")',
-        "display_uom_candidates",
-        '.subquery("display_uom_candidates")',
-        "display_uom_unique",
-        "display_factor_to_base",
-        "_warehouse_array_membership(",
-        ".distinct(InventoryCostEvent.product_variant_id)",
-        ".group_by(ProductUomConversion.product_variant_id)",
+    required_bounded_detail_reads = (
+        "detail_key_scope",
+        "func.unnest(",
+        "inventory_detail_page_variant_ids",
+        "latest_purchase_one",
+        '.lateral("inventory_latest_purchase_one")',
+        ".order_by(",
+        "InventoryCostEvent.created_at.desc()",
+        "InventoryCostEvent.id.desc()",
+        ".limit(1)",
+        "display_uom_one",
+        '.lateral("inventory_display_uom_one")',
+        "ProductUomConversion.product_variant_id == ProductVariant.id",
+        "ProductUomConversion.to_uom_id == ProductVariant.base_uom_id",
+        ").mappings().all()",
     )
     missing_detail_reads = [
         token
-        for token in required_collapsed_detail_reads
+        for token in required_bounded_detail_reads
         if token not in cursor
     ]
     if missing_detail_reads:
         failures.append(
-            "COLLAPSED_PAGE_DETAIL_READS_MISSING:"
+            "BOUNDED_SCALAR_PAGE_DETAIL_READS_MISSING:"
             + ",".join(missing_detail_reads)
+        )
+
+    checks += 1
+    forbidden_detail_patterns = (
+        '.subquery("latest_purchase_page")',
+        '.subquery("display_uom_candidates")',
+        ".distinct(InventoryCostEvent.product_variant_id)",
+        ".group_by(ProductUomConversion.product_variant_id)",
+        "select(\n                ProductVariant,",
+        "InventoryLiveStockProjection,\n",
+    )
+    detail_offenders = [
+        token for token in forbidden_detail_patterns if token in cursor
+    ]
+    if detail_offenders:
+        failures.append(
+            "LEGACY_HEAVY_DETAIL_PLAN_PRESENT:"
+            + ",".join(detail_offenders)
         )
 
     checks += 1
@@ -353,7 +375,7 @@ def main() -> None:
     checks += 1
     if (
         "company_wide_inventory_read" not in cursor
-        or "projection.vehicle_packs" not in cursor
+        or 'row["projected_vehicle_packs"]' not in cursor
         or "if not company_wide_inventory_read" not in cursor
         or "vehicles.get" not in cursor
     ):
@@ -458,18 +480,19 @@ def main() -> None:
     checks += 1
     cursor = function_block(source, "get_warehouse_inventory")
     if (
-        "latest_purchase_page" not in cursor
+        "latest_purchase_one" not in cursor
+        or '.lateral("inventory_latest_purchase_one")' not in cursor
         or "latest_purchase_by_variant" in cursor
     ):
-        failures.append("LATEST_PURCHASE_NOT_COLLAPSED_INTO_DETAILS")
+        failures.append("LATEST_PURCHASE_NOT_INDEXED_BOUNDED_LOOKUP")
 
     checks += 1
     if (
-        "display_uom_unique" not in cursor
-        or "display_factor_to_base" not in cursor
+        "display_uom_one" not in cursor
+        or '.lateral("inventory_display_uom_one")' not in cursor
         or "_load_inventory_display_uoms(" in cursor
     ):
-        failures.append("DISPLAY_UOM_NOT_COLLAPSED_INTO_DETAILS")
+        failures.append("DISPLAY_UOM_NOT_INDEXED_BOUNDED_LOOKUP")
 
     checks += 1
     projection_source = PROJECTION_SERVICE.read_text(encoding="utf-8")
@@ -562,23 +585,10 @@ def main() -> None:
         failures.append("COMPANY_WIDE_CANDIDATE_FAST_STREAM_MISSING")
 
     checks += 1
-    if ".lateral(" in cursor:
-        failures.append("PER_VARIANT_LATERAL_READ_AMPLIFICATION_PRESENT")
-    required_set_based_details = (
-        '.subquery("latest_purchase_page")',
-        '.subquery("display_uom_candidates")',
-        ".distinct(InventoryCostEvent.product_variant_id)",
-        ".group_by(ProductUomConversion.product_variant_id)",
-    )
-    missing_set_based = [
-        token for token in required_set_based_details
-        if token not in cursor
-    ]
-    if missing_set_based:
-        failures.append(
-            "SET_BASED_DETAIL_ENRICHMENT_MISSING:"
-            + ",".join(missing_set_based)
-        )
+    if cursor.count(".lateral(") != 2:
+        failures.append("DETAIL_INDEXED_LATERAL_LOOKUP_COUNT_INVALID")
+    if "detail_key_scope.c.product_variant_id" not in cursor:
+        failures.append("DETAIL_QUERY_NOT_DRIVEN_BY_BOUNDED_PAGE_KEYS")
 
     checks += 1
     if not READ_PATH_INDEX_MIGRATION.is_file():
