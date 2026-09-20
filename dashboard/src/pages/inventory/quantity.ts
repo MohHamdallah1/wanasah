@@ -63,6 +63,20 @@ export const compareQuantity = (left: Quantity, right: Quantity): number => {
   return a === b ? 0 : a < b ? -1 : 1;
 };
 
+export function convertBaseQuantityToUom(
+  value: Quantity,
+  factorToBase: Quantity,
+): Quantity | null {
+  const valueScaled = scaled(value);
+  const factorScaled = scaled(factorToBase);
+  if (factorScaled <= 0n) return null;
+
+  const numerator = valueScaled * 1_000_000n;
+  if (numerator % factorScaled !== 0n) return null;
+
+  return canonicalFromScaled(numerator / factorScaled);
+}
+
 export const addQuantity = (left: Quantity, right: Quantity): Quantity =>
   canonicalFromScaled(scaled(left) + scaled(right));
 
