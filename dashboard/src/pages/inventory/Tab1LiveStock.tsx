@@ -1597,6 +1597,7 @@ export function Tab1LiveStock({
             )}
           </div>
         </div>
+      </div>
 
       <Dialog
         open={minimumEditor !== null}
