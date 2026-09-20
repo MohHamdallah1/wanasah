@@ -196,7 +196,6 @@ export default function MainInventory() {
   const [stockMatchingTotal, setStockMatchingTotal] = useState<number | null>(null);
   const [stockAlertCount, setStockAlertCount] = useState<number | null>(null);
   const [stockCursor, setStockCursor] = useState<string | null>(null);
-  const [stockCursorHistory, setStockCursorHistory] = useState<Array<string | null>>([]);
   const [stockNextCursor, setStockNextCursor] = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState("");
   const [stockState, setStockState] =
@@ -369,7 +368,14 @@ export default function MainInventory() {
 
       if (requestSeq !== stockRequestSeq.current) return;
       const data = parseLiveStockPage(raw);
-      setStockItems(data.items);
+      setStockItems((current) => {
+        if (!stockCursor) return data.items;
+        const seen = new Set(current.map((item) => item.id));
+        return [
+          ...current,
+          ...data.items.filter((item) => !seen.has(item.id)),
+        ];
+      });
       setStockNextCursor(data.next_cursor);
 
       if (typeof data.total === "number") {
@@ -459,8 +465,8 @@ export default function MainInventory() {
   ]);
 
   const resetStockPagination = useCallback(() => {
+    setStockItems([]);
     setStockCursor(null);
-    setStockCursorHistory([]);
     setStockNextCursor(null);
     setStockMatchingTotal(null);
   }, []);
@@ -507,18 +513,10 @@ export default function MainInventory() {
     [resetStockPagination],
   );
 
-  const handleStockNext = useCallback(() => {
-    if (!stockNextCursor) return;
-    setStockCursorHistory((prev) => [...prev, stockCursor]);
+  const handleStockLoadMore = useCallback(() => {
+    if (!stockNextCursor || loadingStock) return;
     setStockCursor(stockNextCursor);
-  }, [stockCursor, stockNextCursor]);
-
-  const handleStockPrevious = useCallback(() => {
-    if (stockCursorHistory.length === 0) return;
-    const previousCursor = stockCursorHistory[stockCursorHistory.length - 1] ?? null;
-    setStockCursorHistory((prev) => prev.slice(0, -1));
-    setStockCursor(previousCursor);
-  }, [stockCursorHistory]);
+  }, [loadingStock, stockNextCursor]);
 
   // حالة القفل مرتبطة دائماً بالمستودع المحدد.
   const fetchStatus = useCallback(async () => {
@@ -583,7 +581,6 @@ export default function MainInventory() {
     setStockFamilyId(null);
     setStockSort("name_asc");
     setStockCursor(null);
-    setStockCursorHistory([]);
     setStockNextCursor(null);
     setLastSync(null);
 
@@ -808,10 +805,7 @@ export default function MainInventory() {
             }}
             alertCount={stockAlertCount}
             matchingTotal={stockMatchingTotal}
-            pageNumber={stockCursorHistory.length + 1}
-            pageSize={LIVE_STOCK_PAGE_SIZE}
             hasMore={!!stockNextCursor}
-            hasPrevious={stockCursorHistory.length > 0}
             stockState={stockState}
             indicators={stockIndicators}
             familyId={stockFamilyId}
@@ -822,8 +816,7 @@ export default function MainInventory() {
             onIndicatorsChange={handleStockIndicatorsChange}
             onFamilyChange={handleStockFamilyChange}
             onSortChange={handleStockSortChange}
-            onNext={handleStockNext}
-            onPrevious={handleStockPrevious}
+            onLoadMore={handleStockLoadMore}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
