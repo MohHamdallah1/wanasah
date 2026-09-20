@@ -819,6 +819,9 @@ def _real_uvicorn_http_load_stdlib(
     timeout_count = 0
     transport_error_count = 0
     error_samples: list[str] = []
+    server_latencies: list[float] = []
+    worker_latencies: dict[str, list[float]] = {}
+    worker_hits: dict[str, int] = {}
 
     work: list[list[int]] = [[] for _ in range(concurrency)]
     for index in range(requests):
@@ -834,6 +837,9 @@ def _real_uvicorn_http_load_stdlib(
         local_timeouts = 0
         local_transport_errors = 0
         local_error_samples: list[str] = []
+        local_server_latencies: list[float] = []
+        local_worker_latencies: dict[str, list[float]] = {}
+        local_worker_hits: dict[str, int] = {}
 
         connection = http.client.HTTPConnection(
             "127.0.0.1",
@@ -864,6 +870,25 @@ def _real_uvicorn_http_load_stdlib(
                     response = connection.getresponse()
                     response.read()
                     local_statuses.append(response.status)
+
+                    raw_pid = response.getheader(
+                        "x-wanasah-benchmark-pid"
+                    )
+                    raw_server_ms = response.getheader(
+                        "x-wanasah-benchmark-server-ms"
+                    )
+                    if raw_pid:
+                        local_worker_hits[raw_pid] = (
+                            local_worker_hits.get(raw_pid, 0) + 1
+                        )
+                    if raw_server_ms:
+                        server_ms = float(raw_server_ms)
+                        local_server_latencies.append(server_ms)
+                        if raw_pid:
+                            local_worker_latencies.setdefault(
+                                raw_pid,
+                                [],
+                            ).append(server_ms)
                 except TimeoutError as exc:
                     local_timeouts += 1
                     local_statuses.append(0)
@@ -914,6 +939,9 @@ def _real_uvicorn_http_load_stdlib(
             "timeouts": local_timeouts,
             "transport_errors": local_transport_errors,
             "error_samples": local_error_samples,
+            "server_latencies": local_server_latencies,
+            "worker_latencies": local_worker_latencies,
+            "worker_hits": local_worker_hits,
         }
 
     with concurrent.futures.ThreadPoolExecutor(
@@ -932,6 +960,11 @@ def _real_uvicorn_http_load_stdlib(
         )
         timeout_count += result["timeouts"]
         transport_error_count += result["transport_errors"]
+        server_latencies.extend(result["server_latencies"])
+        for pid, count in result["worker_hits"].items():
+            worker_hits[pid] = worker_hits.get(pid, 0) + count
+        for pid, values in result["worker_latencies"].items():
+            worker_latencies.setdefault(pid, []).extend(values)
         if len(error_samples) < 10:
             remaining = 10 - len(error_samples)
             error_samples.extend(
@@ -967,6 +1000,24 @@ def _real_uvicorn_http_load_stdlib(
             route_latencies["alerts"],
             0.95,
         ),
+        "server_p95_ms": percentile(
+            server_latencies,
+            0.95,
+        ),
+        "client_minus_server_p95_ms": (
+            max(
+                0.0,
+                percentile(latencies, 0.95)
+                - percentile(server_latencies, 0.95),
+            )
+            if server_latencies
+            else None
+        ),
+        "worker_hits": worker_hits,
+        "worker_server_p95_ms": {
+            pid: percentile(values, 0.95)
+            for pid, values in sorted(worker_latencies.items())
+        },
         "http_status_errors": http_status_errors,
         "timeouts": timeout_count,
         "transport_errors": transport_error_count,
@@ -1408,6 +1459,8 @@ async def async_main(args: argparse.Namespace) -> None:
         f"cursor_p95={load['cursor_p95_ms']:.1f}ms "
         f"alerts_p95={load['alerts_p95_ms']:.1f}ms "
         f"overall_p95={load['p95_ms']:.1f}ms "
+        f"server_p95={load.get('server_p95_ms', 0.0):.1f}ms "
+        f"worker_hits={load.get('worker_hits', {})} "
         f"timeouts={load['timeouts']} "
         f"transport_errors={load['transport_errors']}"
     )
