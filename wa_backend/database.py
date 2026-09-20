@@ -84,9 +84,18 @@ async def warm_async_engine_pool(
                     all_ready.set()
             await all_ready.wait()
 
-    await asyncio.gather(
-        *(warm_one() for _ in range(connections))
-    )
+    tasks = [
+        asyncio.create_task(warm_one())
+        for _ in range(connections)
+    ]
+    try:
+        await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 async def warm_database_pool() -> None:
