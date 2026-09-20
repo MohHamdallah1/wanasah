@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
+import http.client
 import json
 import math
 import os
@@ -112,15 +114,31 @@ def stop_server(process: subprocess.Popen) -> None:
         return
     try:
         if os.name == "nt":
-            subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+            # Graceful first: avoid a taskkill/respawn race in Uvicorn's
+            # Windows multiprocess supervisor that can emit false startup
+            # socket errors while the diagnostic is already shutting down.
+            process.send_signal(signal.CTRL_BREAK_EVENT)
         else:
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
         process.wait(timeout=10)
+        return
+    except Exception:
+        pass
+
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    else:
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except Exception:
+            pass
+    try:
+        process.wait(timeout=5)
     except Exception:
         try:
             process.kill()
@@ -230,6 +248,88 @@ async def measure(
     }
 
 
+def measure_stdlib_threads(
+    *,
+    port: int,
+    concurrency: int,
+    requests: int,
+) -> dict[str, Any]:
+    latencies: list[float] = []
+    server_ms: list[float] = []
+    errors = 0
+
+    def worker(count: int) -> tuple[list[float], list[float], int]:
+        local_latencies: list[float] = []
+        local_server: list[float] = []
+        local_errors = 0
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            port,
+            timeout=30.0,
+        )
+        try:
+            for _ in range(count):
+                started = time.perf_counter()
+                try:
+                    connection.request("GET", "/raw")
+                    response = connection.getresponse()
+                    response.read()
+                    if response.status != 200:
+                        local_errors += 1
+                    raw_server = response.getheader(
+                        "x-wanasah-probe-server-ms"
+                    )
+                    if raw_server:
+                        local_server.append(float(raw_server))
+                except Exception:
+                    local_errors += 1
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+                    connection = http.client.HTTPConnection(
+                        "127.0.0.1",
+                        port,
+                        timeout=30.0,
+                    )
+                finally:
+                    local_latencies.append(
+                        (time.perf_counter() - started) * 1000
+                    )
+        finally:
+            connection.close()
+        return local_latencies, local_server, local_errors
+
+    base = requests // concurrency
+    remainder = requests % concurrency
+    counts = [
+        base + (1 if index < remainder else 0)
+        for index in range(concurrency)
+    ]
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=concurrency
+    ) as executor:
+        results = list(executor.map(worker, counts))
+
+    for local_latencies, local_server, local_errors in results:
+        latencies.extend(local_latencies)
+        server_ms.extend(local_server)
+        errors += local_errors
+
+    return {
+        "label": "stdlib_threads_persistent",
+        "concurrency": concurrency,
+        "requests": requests,
+        "p50_ms": percentile(latencies, 0.50),
+        "p95_ms": percentile(latencies, 0.95),
+        "p99_ms": percentile(latencies, 0.99),
+        "max_ms": max(latencies),
+        "server_p95_ms": percentile(server_ms, 0.95),
+        "errors": errors,
+    }
+
+
 async def run_topology(workers: int, concurrency: int, requests: int) -> None:
     process, port, log_path = start_server(workers)
     base_url = f"http://127.0.0.1:{port}"
@@ -276,6 +376,20 @@ async def run_topology(workers: int, concurrency: int, requests: int) -> None:
                 requests=requests,
             )
             print("TRANSPORT_PROBE=" + json.dumps(warm, sort_keys=True))
+
+        stdlib_result = await asyncio.to_thread(
+            measure_stdlib_threads,
+            port=port,
+            concurrency=concurrency,
+            requests=requests,
+        )
+        stdlib_result["label"] = (
+            f"workers_{workers}_stdlib_threads"
+        )
+        print(
+            "TRANSPORT_PROBE="
+            + json.dumps(stdlib_result, sort_keys=True)
+        )
     finally:
         stop_server(process)
         log_tail = read_log(log_path)
