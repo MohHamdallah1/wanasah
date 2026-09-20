@@ -116,21 +116,19 @@ async def seed_read_model_scenario(ids: dict[str, int]) -> dict[str, int]:
             ).scalar_one()
         )
 
-        permission_id = int(
-            (
-                await su.execute(
-                    text(
-                        """
-                        INSERT INTO permissions (code)
-                        VALUES ('inventory.read')
-                        ON CONFLICT (code)
-                        DO UPDATE SET code=EXCLUDED.code
-                        RETURNING id
-                        """
-                    )
+        permission_value = (
+            await su.execute(
+                text(
+                    "SELECT id FROM permissions "
+                    "WHERE code='inventory.read'"
                 )
-            ).scalar_one()
-        )
+            )
+        ).scalar_one_or_none()
+        if permission_value is None:
+            raise RuntimeError(
+                "inventory.read permission seed is missing."
+            )
+        permission_id = int(permission_value)
         role_id = int(
             (
                 await su.execute(
