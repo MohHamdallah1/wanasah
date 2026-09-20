@@ -65,26 +65,41 @@ HTTP_BENCH_DB_CAP = HTTP_BENCH_POOL_SIZE + HTTP_BENCH_MAX_OVERFLOW
 if HTTP_BENCH_DB_CAP != 20:
     raise RuntimeError("Live Stock HTTP benchmark DB cap must remain 20.")
 
-# Match the Stage 8.2.1 production topology exactly: four workers with
-# five steady connections each and no overflow.  Using 4+1 here is not
-# equivalent because QueuePool overflow connections are transient and are not
-# prewarmed by the application lifespan, which distorts the HTTP tail latency
-# that this gate is supposed to measure.
-REAL_HTTP_WORKERS = 4
-REAL_HTTP_POOL_SIZE = 5
+# Default production topology remains 4 workers x 5 steady DB
+# connections = 20 total.  Stage 8.2.3 also supports an explicit diagnostic
+# override so we can prove whether per-process pool fragmentation is causing
+# persistent-connection tail latency.  The total DB budget is never allowed to
+# exceed or fall below 20 during this comparison.
+_DIAGNOSTIC_TOPOLOGY = (
+    os.environ.get("LIVE_STOCK_ALLOW_DIAGNOSTIC_TOPOLOGY", "")
+    == "1"
+)
+REAL_HTTP_WORKERS = int(
+    os.environ.get("LIVE_STOCK_DIAGNOSTIC_WORKERS", "4")
+)
+REAL_HTTP_POOL_SIZE = int(
+    os.environ.get("LIVE_STOCK_DIAGNOSTIC_POOL_SIZE", "5")
+)
 REAL_HTTP_MAX_OVERFLOW = 0
 REAL_HTTP_DB_CAP = (
     REAL_HTTP_WORKERS
     * (REAL_HTTP_POOL_SIZE + REAL_HTTP_MAX_OVERFLOW)
 )
+if REAL_HTTP_DB_CAP != 20:
+    raise RuntimeError(
+        "Live Stock real HTTP topology must preserve the 20-connection "
+        "application DB budget."
+    )
 if (
-    REAL_HTTP_WORKERS != 4
-    or REAL_HTTP_POOL_SIZE != 5
-    or REAL_HTTP_MAX_OVERFLOW != 0
-    or REAL_HTTP_DB_CAP != 20
+    not _DIAGNOSTIC_TOPOLOGY
+    and (
+        REAL_HTTP_WORKERS != 4
+        or REAL_HTTP_POOL_SIZE != 5
+        or REAL_HTTP_MAX_OVERFLOW != 0
+    )
 ):
     raise RuntimeError(
-        "Real Uvicorn HTTP benchmark must match production topology: "
+        "Production Live Stock HTTP gate topology must remain "
         "4 workers x (pool_size=5 + max_overflow=0) = 20 connections."
     )
 
