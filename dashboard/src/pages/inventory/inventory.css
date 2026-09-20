@@ -1565,17 +1565,13 @@
   border: 1px solid rgb(255 255 255 / 0.10);
   border-radius: 1rem;
   background:
-    radial-gradient(
-      circle at 100% 0%,
-      rgb(34 132 178 / 0.28),
-      transparent 26rem
-    ),
     linear-gradient(
       to left,
-      #173252 0%,
-      #142945 12%,
-      #112640 40%,
-      #0f2138 68%,
+      #274b68 0%,
+      #184062 8%,
+      #142945 24%,
+      #112640 48%,
+      #0f2138 72%,
       #0c192c 100%
     );
   box-shadow:
