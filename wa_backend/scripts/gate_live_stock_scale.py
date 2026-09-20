@@ -145,11 +145,6 @@ def _sql_label(statement: str) -> str:
     ):
         return "readiness_summary"
     if (
-        "inventory_live_stock_projection" in normalized
-        and "next_transition_date" in normalized
-    ):
-        return "readiness_due"
-    if (
         "inventory_cost_states" in normalized
         and "inventory_live_stock_projection" in normalized
     ):
@@ -158,6 +153,11 @@ def _sql_label(statement: str) -> str:
         return "display_uom"
     if "inventory_cost_events" in normalized:
         return "latest_purchase"
+    if (
+        "inventory_live_stock_projection" in normalized
+        and "next_transition_date" in normalized
+    ):
+        return "readiness_due"
     if "inventory_live_stock_projection" in normalized:
         return "candidate"
     if "inventory_locations" in normalized:
