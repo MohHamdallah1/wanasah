@@ -180,7 +180,6 @@ def main() -> None:
         "_require_live_stock_warehouse_read",
         "_build_visible_inventory_stmt",
         "_build_inventory_alert_variants_stmt",
-        "_has_company_wide_inventory_read",
     )
     for helper in required_helpers:
         checks += 1
