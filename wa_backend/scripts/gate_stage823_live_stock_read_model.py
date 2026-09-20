@@ -124,10 +124,21 @@ async def seed_read_model_scenario(ids: dict[str, int]) -> dict[str, int]:
                 )
             )
         ).scalar_one_or_none()
+        permission_created_by_gate = permission_value is None
         if permission_value is None:
-            raise RuntimeError(
-                "inventory.read permission seed is missing."
-            )
+            permission_value = (
+                await su.execute(
+                    text(
+                        """
+                        INSERT INTO permissions (code)
+                        VALUES ('inventory.read')
+                        ON CONFLICT (code) DO UPDATE
+                        SET code=EXCLUDED.code
+                        RETURNING id
+                        """
+                    )
+                )
+            ).scalar_one()
         permission_id = int(permission_value)
         role_id = int(
             (
@@ -417,6 +428,9 @@ async def seed_read_model_scenario(ids: dict[str, int]) -> dict[str, int]:
         "hidden_variant_id": hidden_variant_id,
         "readable_vehicle_id": readable_vehicle_id,
         "hidden_vehicle_id": hidden_vehicle_id,
+        "permission_created_by_gate": int(
+            permission_created_by_gate
+        ),
     }
 
 
@@ -493,6 +507,29 @@ def item_by_name(payload: dict, name: str) -> dict | None:
         (row for row in payload["items"] if row["name"] == name),
         None,
     )
+
+
+async def cleanup_gate_permission_if_owned(
+    created_by_gate: bool,
+) -> None:
+    if not created_by_gate:
+        return
+    async with fixture.SessionSU() as su:
+        await su.begin()
+        await su.execute(
+            text(
+                """
+                DELETE FROM permissions p
+                WHERE p.code='inventory.read'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM role_permissions rp
+                      WHERE rp.permission_id=p.id
+                  )
+                """
+            )
+        )
+        await su.commit()
 
 
 async def run() -> None:
@@ -641,6 +678,9 @@ async def run() -> None:
 
     finally:
         await fixture.cleanup_test_companies()
+        await cleanup_gate_permission_if_owned(
+            bool(ids.get("permission_created_by_gate"))
+        )
 
     failures = [
         (name, detail)
