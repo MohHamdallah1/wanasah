@@ -126,6 +126,17 @@ check(
     "cursor pages auto-load and append while scrolling instead of requiring manual next-page navigation",
 )
 check(
+    "if (value === stockSearch) return;" in main
+    and 'const emittedSearchRef = useRef("");' in live
+    and "if (nextSearch === emittedSearchRef.current) return;" in live,
+    "unchanged empty search cannot clear a freshly loaded Live Stock page",
+)
+check(
+    "const firstLocationId = page.items[0].id;" in main
+    and "setSelectedLocationId(firstLocationId);" in main,
+    "Live Stock automatically selects the first accessible warehouse when no valid preference exists",
+)
+check(
     "parseLiveStockFamilies" in contracts
     and "product_id: number;" in contracts
     and "family_name: string;" in contracts,
