@@ -2,10 +2,11 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { TabInventoryAccess } from "./TabInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft } from "lucide-react";
+import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft, Layers3 } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { Tab1LiveStock } from "./Tab1LiveStock";
+import { TabBatches } from "./TabBatches";
 import { Tab2Inbound } from "./Tab2Inbound";
 import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
@@ -26,6 +27,7 @@ import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء ال�
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
   { id: "live", labelKey: "inventoryShell.tabs.live", icon: Package },
+  { id: "batches", labelKey: "inventoryShell.tabs.batches", icon: Layers3 },
   { id: "inbound", labelKey: "inventoryShell.tabs.inbound", icon: FilePlus },
   { id: "transfers", labelKey: "inventoryShell.tabs.transfers", icon: ArrowRightLeft },
   { id: "ledger", labelKey: "inventoryShell.tabs.ledger", icon: History },
@@ -38,7 +40,7 @@ const LIVE_STOCK_PAGE_SIZE = 50;
 
 type TabId = typeof TABS[number]["id"];
 const TAB_PERMISSION: Record<TabId, string> = {
-  live: 'inventory.read', inbound: 'inbound.create', transfers: 'transfer.read',
+  live: 'inventory.read', batches: 'inventory.read', inbound: 'inbound.create', transfers: 'transfer.read',
   ledger: 'ledger.read', stocktake: 'stocktake.read', warehouses: 'location.read', permissions: '',
 };
 
@@ -803,6 +805,12 @@ export default function MainInventory() {
             onIndicatorsChange={handleStockIndicatorsChange}
             onFamilyChange={handleStockFamilyChange}
             onLoadMore={handleStockLoadMore}
+          />
+        )}
+        {!locationAccess.isPending && activeTab === "batches" && tabAllowed("batches") && selectedLocationId !== null && (
+          <TabBatches
+            key={selectedLocationId}
+            locationId={selectedLocationId}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
