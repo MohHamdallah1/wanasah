@@ -33,8 +33,8 @@ describe("live stock quantity and minimum-stock contracts", () => {
       parseBulkMinimumStockPlan({
         location_id: 1,
         scope: "FAMILY",
-        family_id: 8,
-        product_variant_id: null,
+        family_ids: [8, 9],
+        product_variant_ids: [],
         minimum_quantity: "10",
         unit_mode: "DISPLAY_UOM_PER_PRODUCT",
         apply_mode: "ONLY_UNSET",
