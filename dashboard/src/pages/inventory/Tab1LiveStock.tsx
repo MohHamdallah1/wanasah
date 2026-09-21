@@ -524,10 +524,10 @@ export function Tab1LiveStock({
 
         <div
           ref={tableScrollRef}
-          className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto transition-all duration-300 ${
-            loading
-              ? "pointer-events-none select-none opacity-50 grayscale-[20%]"
-              : "opacity-100"
+          className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto ${
+            loading && products.length === 0
+              ? "pointer-events-none select-none"
+              : ""
           }`}
         >
           <table className="live-stock-table" aria-label={t("inventoryShell.tabs.live")} aria-busy={loading}>
