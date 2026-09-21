@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_current_driver
 from database import get_db
 from inventory_access import InventoryAccess
-from schemas import StocktakeCycleBatchCursorPage
+from schemas import StocktakeCycleBatchCursorPage, VehicleReconCandidateCursorPage
 
 from models import (
+    DispatchRoute,
     Driver,
     InventoryBalance,
     InventoryLocation,
@@ -25,6 +26,7 @@ from models import (
     StocktakeCountAttempt,
     StocktakeSession,
     SystemSetting,
+    WorkSession,
 )
 
 
@@ -534,6 +536,437 @@ async def list_stocktake_cycle_batches(
             }
             for row in page_rows
         ],
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+    }
+
+
+# ====================================================
+# 11.17 إنشاء بصمة نطاق Cursor لمرشحي تسوية السيارات
+# ====================================================
+def _vehicle_recon_candidate_cursor_scope_hash(
+    scope: str,
+) -> str:
+    return hashlib.sha256(
+        scope.encode("utf-8")
+    ).hexdigest()[:24]
+
+
+# ====================================================
+# 11.18 ترميز Cursor لمرشحي تسوية السيارات
+# ====================================================
+def _encode_vehicle_recon_candidate_cursor(
+    work_session_id: int,
+    *,
+    scope: str,
+) -> str:
+    raw = json.dumps(
+        {
+            "v": 1,
+            "kind":
+                "stocktake-vehicle-recon-candidate",
+            "scope":
+                _vehicle_recon_candidate_cursor_scope_hash(
+                    scope
+                ),
+            "id": int(work_session_id),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(
+        raw
+    ).decode("ascii").rstrip("=")
+
+
+# ====================================================
+# 11.19 فك Cursor مرشحي تسوية السيارات والتحقق من نطاقه
+# ====================================================
+def _decode_vehicle_recon_candidate_cursor(
+    cursor: str,
+    *,
+    expected_scope: str,
+) -> int:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(
+            (cursor + padding).encode("ascii")
+        )
+        payload = json.loads(
+            raw.decode("utf-8")
+        )
+
+        if (
+            not isinstance(payload, dict)
+            or payload.get("v") != 1
+            or payload.get("kind")
+            != "stocktake-vehicle-recon-candidate"
+            or payload.get("scope")
+            != _vehicle_recon_candidate_cursor_scope_hash(
+                expected_scope
+            )
+        ):
+            raise ValueError
+
+        work_session_id = payload.get("id")
+        if (
+            type(work_session_id) is not int
+            or work_session_id <= 0
+        ):
+            raise ValueError
+
+        return work_session_id
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cursor جلسات تسوية السيارات "
+                "غير صالح أو لا يطابق المستودع الحالي."
+            ),
+        ) from exc
+
+
+# ====================================================
+# 11.20 جلب جلسات العمل المرشحة لتسوية مخزون السيارات
+# ====================================================
+@router.get(
+    "/warehouse/unified/stocktake/vehicle-recon-candidates",
+    response_model=VehicleReconCandidateCursorPage,
+    status_code=200,
+)
+async def list_vehicle_recon_candidates(
+    source_location_id: int = Query(
+        ...,
+        ge=1,
+    ),
+    search: Optional[str] = Query(
+        default=None,
+        min_length=2,
+        max_length=100,
+    ),
+    cursor: Optional[str] = Query(
+        default=None,
+        max_length=1024,
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=100,
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(
+        get_current_driver
+    ),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.read', source_location_id)
+    await access.require('stocktake.start', any_location=True)
+
+    company_id = current_admin.company_id
+
+    source_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id
+                == company_id,
+                InventoryLocation.id
+                == source_location_id,
+                InventoryLocation.location_type
+                == "WAREHOUSE",
+                InventoryLocation.is_active.is_(
+                    True
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if source_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "المستودع المصدر غير موجود "
+                "أو غير فعال أو لا يتبع شركتك."
+            ),
+        )
+
+    clean_search = (
+        search.strip()
+        if search
+        else ""
+    )
+    scope = (
+        f"{company_id}|"
+        f"{source_location_id}|"
+        f"{clean_search}"
+    )
+
+    base_filters = [
+        access.location_filter('stocktake.start'),
+        WorkSession.company_id == company_id,
+        WorkSession.end_time.is_not(None),
+        WorkSession.is_settled.is_(False),
+        WorkSession.inventory_reconciled_at
+        .is_(None),
+    ]
+
+    if clean_search:
+        escaped = _escape_like(clean_search)
+        pattern = f"%{escaped}%"
+        base_filters.append(
+            or_(
+                Driver.full_name.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+                InventoryLocation.name.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+                InventoryLocation.code.ilike(
+                    pattern,
+                    escape="\\",
+                ),
+            )
+        )
+
+    def _candidate_query_columns():
+        return (
+            WorkSession.id.label(
+                "work_session_id"
+            ),
+            WorkSession.driver_id,
+            Driver.full_name.label(
+                "driver_name"
+            ),
+            WorkSession.session_date,
+            WorkSession.end_time,
+            DispatchRoute.vehicle_id,
+            InventoryLocation.id.label(
+                "vehicle_location_id"
+            ),
+            InventoryLocation.name.label(
+                "vehicle_location_name"
+            ),
+            InventoryLocation.code.label(
+                "vehicle_location_code"
+            ),
+        )
+
+    def _candidate_joins(stmt):
+        return (
+            stmt
+            .join(
+                DispatchRoute,
+                and_(
+                    DispatchRoute.company_id
+                    == WorkSession.company_id,
+                    DispatchRoute.work_session_id
+                    == WorkSession.id,
+                    DispatchRoute.driver_id
+                    == WorkSession.driver_id,
+                    DispatchRoute.source_location_id
+                    == source_location_id,
+                    DispatchRoute.vehicle_id
+                    .is_not(None),
+                ),
+            )
+            .join(
+                InventoryLocation,
+                and_(
+                    InventoryLocation.company_id
+                    == WorkSession.company_id,
+                    InventoryLocation.vehicle_id
+                    == DispatchRoute.vehicle_id,
+                    InventoryLocation.location_type
+                    == "VEHICLE",
+                    InventoryLocation.is_active
+                    .is_(True),
+                ),
+            )
+            .join(
+                Driver,
+                and_(
+                    Driver.company_id
+                    == WorkSession.company_id,
+                    Driver.id
+                    == WorkSession.driver_id,
+                ),
+            )
+        )
+
+    total = None
+    if cursor is None:
+        count_stmt = _candidate_joins(
+            select(
+                func.count(
+                    WorkSession.id
+                )
+            ).select_from(WorkSession)
+        ).filter(*base_filters)
+
+        total = int(
+            (
+                await db.execute(
+                    count_stmt
+                )
+            ).scalar_one()
+        )
+
+    stmt = _candidate_joins(
+        select(
+            *_candidate_query_columns()
+        ).select_from(WorkSession)
+    ).filter(*base_filters)
+
+    if cursor is not None:
+        cursor_id = (
+            _decode_vehicle_recon_candidate_cursor(
+                cursor,
+                expected_scope=scope,
+            )
+        )
+        stmt = stmt.filter(
+            WorkSession.id < cursor_id
+        )
+
+    rows = (
+        await db.execute(
+            stmt.order_by(
+                WorkSession.id.desc()
+            ).limit(limit + 1)
+        )
+    ).all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+
+    next_cursor = None
+    if has_more and page_rows:
+        next_cursor = (
+            _encode_vehicle_recon_candidate_cursor(
+                int(
+                    page_rows[-1]
+                    .work_session_id
+                ),
+                scope=scope,
+            )
+        )
+
+    work_session_ids = [
+        int(row.work_session_id)
+        for row in page_rows
+    ]
+    existing_by_work_session = {}
+
+    if work_session_ids:
+        existing_rows = (
+            await db.execute(
+                select(
+                    StocktakeSession
+                    .related_work_session_id,
+                    StocktakeSession.id,
+                    StocktakeSession
+                    .reference_number,
+                    StocktakeSession.status,
+                )
+                .filter(
+                    StocktakeSession.company_id
+                    == company_id,
+                    StocktakeSession.stocktake_type
+                    == "VEHICLE_RECON",
+                    StocktakeSession
+                    .related_work_session_id
+                    .in_(work_session_ids),
+                    StocktakeSession.status
+                    != "CANCELLED",
+                )
+                .order_by(
+                    StocktakeSession
+                    .related_work_session_id
+                    .asc(),
+                    StocktakeSession.id.desc(),
+                )
+            )
+        ).all()
+
+        for existing in existing_rows:
+            work_session_id = int(
+                existing.related_work_session_id
+            )
+            if (
+                work_session_id
+                not in existing_by_work_session
+            ):
+                existing_by_work_session[
+                    work_session_id
+                ] = existing
+
+    items = []
+    for row in page_rows:
+        work_session_id = int(
+            row.work_session_id
+        )
+        existing = (
+            existing_by_work_session.get(
+                work_session_id
+            )
+        )
+
+        items.append(
+            {
+                "work_session_id":
+                    work_session_id,
+                "driver_id":
+                    int(row.driver_id),
+                "driver_name":
+                    str(row.driver_name),
+                "session_date":
+                    row.session_date,
+                "end_time":
+                    row.end_time,
+                "vehicle_id":
+                    int(row.vehicle_id),
+                "vehicle_location_id":
+                    int(
+                        row.vehicle_location_id
+                    ),
+                "vehicle_location_name":
+                    str(
+                        row
+                        .vehicle_location_name
+                    ),
+                "vehicle_location_code":
+                    str(
+                        row
+                        .vehicle_location_code
+                    ),
+                "existing_stocktake_session_id":
+                    (
+                        int(existing.id)
+                        if existing is not None
+                        else None
+                    ),
+                "existing_stocktake_reference":
+                    (
+                        str(
+                            existing
+                            .reference_number
+                        )
+                        if existing is not None
+                        else None
+                    ),
+                "existing_stocktake_status":
+                    (
+                        str(existing.status)
+                        if existing is not None
+                        else None
+                    ),
+            }
+        )
+
+    return {
+        "items": items,
         "next_cursor": next_cursor,
         "has_more": has_more,
         "total": total,
