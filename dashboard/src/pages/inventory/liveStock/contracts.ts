@@ -172,8 +172,8 @@ export type MinimumStockApplyMode = "ONLY_UNSET" | "OVERWRITE";
 export interface BulkMinimumStockPlan {
   location_id: number;
   scope: MinimumStockScope;
-  family_id: number | null;
-  product_variant_id: number | null;
+  family_ids: number[];
+  product_variant_ids: number[];
   minimum_quantity: Quantity;
   unit_mode: "DISPLAY_UOM_PER_PRODUCT";
   apply_mode: MinimumStockApplyMode;
@@ -216,18 +216,22 @@ export function parseBulkMinimumStockPlan(raw: unknown): BulkMinimumStockPlan {
     return value.map((item) => int(item, code, 1));
   };
 
-  const familyId =
-    row.family_id === null ? null : int(row.family_id, code, 1);
-  const productVariantId =
-    row.product_variant_id === null
-      ? null
-      : int(row.product_variant_id, code, 1);
+  const parseSelectionIds = (value: unknown): number[] => {
+    if (!Array.isArray(value) || value.length > 200) {
+      return contractError(code);
+    }
+    const ids = value.map((item) => int(item, code, 1));
+    if (new Set(ids).size !== ids.length) {
+      return contractError(code);
+    }
+    return ids;
+  };
 
   return {
     location_id: int(row.location_id, code, 1),
     scope: scope as MinimumStockScope,
-    family_id: familyId,
-    product_variant_id: productVariantId,
+    family_ids: parseSelectionIds(row.family_ids),
+    product_variant_ids: parseSelectionIds(row.product_variant_ids),
     minimum_quantity: parseQuantity(
       row.minimum_quantity,
       "minimum_quantity",
