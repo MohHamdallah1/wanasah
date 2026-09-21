@@ -473,6 +473,291 @@
   margin-top: 0.5rem;
 }
 
+.live-stock-minimum-manager-button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  padding: 0 0.75rem;
+  border: 1px solid #d4dee2;
+  border-radius: 0.8rem;
+  color: #405861;
+  background: #fff;
+  font-size: 0.72rem;
+  font-weight: 850;
+  box-shadow: 0 8px 20px -20px rgb(23 63 66 / 0.75);
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.live-stock-minimum-manager-button:hover {
+  border-color: #a9c7c4;
+  color: #155e58;
+  background: #f6fbfa;
+}
+
+.inventory-minimum-dialog {
+  border-color: #d7e1e5;
+  background: #fbfdfd;
+}
+
+.inventory-minimum-body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.inventory-minimum-scope {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.inventory-minimum-scope button,
+.inventory-minimum-mode button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2.4rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #dce5e8;
+  border-radius: 0.72rem;
+  color: #526970;
+  background: #fff;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.inventory-minimum-scope button[data-active="true"],
+.inventory-minimum-mode button[data-active="true"] {
+  border-color: #9fcac3;
+  color: #155e58;
+  background: #edf8f5;
+}
+
+.inventory-minimum-picker {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border: 1px solid #e2e9eb;
+  border-radius: 0.8rem;
+  background: #fff;
+}
+
+.inventory-minimum-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.35rem;
+  padding-inline: 0.65rem;
+  border: 1px solid #dbe4e7;
+  border-radius: 0.68rem;
+  color: #72858d;
+  background: #fbfcfc;
+}
+
+.inventory-minimum-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #344b54;
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.inventory-minimum-options {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.inventory-minimum-options > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 0.65rem;
+  color: #4a626a;
+  background: transparent;
+  text-align: start;
+}
+
+.inventory-minimum-options > button[data-active="true"] {
+  border-color: #c8dfdb;
+  color: #155e58;
+  background: #f0f8f6;
+}
+
+.inventory-minimum-options > button > span {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.inventory-minimum-options strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.inventory-minimum-options small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #87959b;
+  font-size: 0.58rem;
+  font-weight: 700;
+}
+
+.inventory-minimum-value-row {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: minmax(10rem, 0.8fr) minmax(0, 1.2fr);
+  align-items: end;
+}
+
+.inventory-minimum-value-row label {
+  display: grid;
+  gap: 0.28rem;
+  color: #48616a;
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.inventory-minimum-value-row input {
+  min-height: 2.5rem;
+  padding-inline: 0.7rem;
+  border: 1px solid #d6e1e4;
+  border-radius: 0.72rem;
+  color: #203841;
+  background: #fff;
+  font-size: 0.8rem;
+  font-weight: 900;
+  outline: 0;
+}
+
+.inventory-minimum-value-row p {
+  margin: 0;
+  color: #7d8f96;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.inventory-minimum-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.inventory-minimum-mode button {
+  justify-content: flex-start;
+  text-align: start;
+}
+
+.inventory-minimum-mode button > span {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.inventory-minimum-mode small {
+  color: #829298;
+  font-size: 0.58rem;
+  font-weight: 700;
+}
+
+.inventory-minimum-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid #d8e7e3;
+  border-radius: 0.8rem;
+  background: #f4faf8;
+}
+
+.inventory-minimum-preview > div {
+  display: grid;
+  gap: 0.08rem;
+  text-align: center;
+}
+
+.inventory-minimum-preview strong {
+  color: #195f55;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.inventory-minimum-preview span {
+  color: #6d8389;
+  font-size: 0.58rem;
+  font-weight: 750;
+}
+
+.inventory-minimum-preview p {
+  grid-column: 1 / -1;
+  margin: 0.2rem 0 0;
+  color: #b42318;
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-align: center;
+}
+
+.inventory-minimum-preview[data-conflict="true"] {
+  border-color: #f0c7c4;
+  background: #fff6f5;
+}
+
+.inventory-minimum-actions {
+  gap: 0.4rem;
+}
+
+.inventory-minimum-actions button {
+  min-height: 2.45rem;
+  padding-inline: 0.8rem;
+  border-radius: 0.7rem;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.inventory-minimum-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid #d8e1e4;
+  color: #566c74;
+  background: #fff;
+}
+
+.inventory-minimum-preview-button {
+  border: 1px solid #b9d4cf;
+  color: #155e58;
+  background: #eff8f6;
+}
+
+.inventory-minimum-apply {
+  border: 1px solid #17665d;
+  color: #fff;
+  background: #17665d;
+}
+
+.inventory-minimum-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .live-stock-family-button {
   display: inline-flex;
   min-height: 2.75rem;
@@ -876,34 +1161,6 @@
   color: #667982;
   font-size: 0.68rem;
   font-weight: 750;
-}
-
-.live-stock-minimum-edit {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 0.14rem 0.38rem;
-  border: 1px solid #d5e1e4;
-  border-radius: 999px;
-  color: #35616b;
-  background: #f8fbfb;
-  font-size: 0.62rem;
-  font-weight: 850;
-  transition:
-    color 140ms ease,
-    border-color 140ms ease,
-    background-color 140ms ease;
-}
-
-.live-stock-minimum-edit:hover {
-  border-color: #9fc4c2;
-  color: #155e58;
-  background: #edf7f5;
-}
-
-.live-stock-minimum-dialog {
-  border-color: #d7e1e5;
-  background: #fbfdfd;
 }
 
 .live-stock-table {
