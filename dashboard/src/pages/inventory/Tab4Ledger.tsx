@@ -151,7 +151,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
       }
       if (sequence === requestSequence.current) setLoading(false);
     }
-  }, [authenticatedFetch, buildUrl]);
+  }, [authenticatedFetch, buildUrl, t]);
 
   const resetAndLoad = useCallback(() => {
     requestSequence.current += 1;
