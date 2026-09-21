@@ -16,6 +16,7 @@ from sqlalchemy import event, select, text, true
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from fastapi import HTTPException
 import api.warehouse.live_stock as w
+from api.warehouse.ledger import _load_inventory_display_uoms
 from context import tenant_context
 from database import engine as runtime_engine
 from models import (Company, Driver, Product, ProductVariant, ProductBatch, InventoryBalance,
@@ -31,7 +32,11 @@ tree = ast.parse(source)
 fn = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "get_warehouse_inventory")
 fn.decorator_list = []
 fn.name = "baseline_get"
-namespace = dict(vars(w), true=true)
+namespace = dict(
+    vars(w),
+    true=true,
+    _load_inventory_display_uoms=_load_inventory_display_uoms,
+)
 exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), "baseline", "exec"), namespace)
 baseline_get = namespace["baseline_get"]
 
