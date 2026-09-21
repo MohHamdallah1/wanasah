@@ -137,6 +137,22 @@ check(
     "Live Stock automatically selects the first accessible warehouse when no valid preference exists",
 )
 check(
+    'search_tokens = clean_search.split()' in warehouse
+    and 'for token in search_tokens' in warehouse
+    and 'func.coalesce(ProductVariant.sku, "")' in warehouse,
+    "Live Stock search treats whitespace-separated terms as order-independent AND tokens across product name/SKU",
+)
+check(
+    "LIVE_STOCK_SEARCH_TOO_SHORT" in warehouse
+    and "LIVE_STOCK_FAMILY_SEARCH_TOO_SHORT" in warehouse
+    and "LIVE_STOCK_FAMILY_INVALID" in warehouse,
+    "Live Stock validation errors use stable localizable error codes",
+)
+check(
+    'className="live-stock-sellable-chip"' in live,
+    "available-for-sale quantity has a dedicated visual emphasis hook",
+)
+check(
     "parseLiveStockFamilies" in contracts
     and "product_id: number;" in contracts
     and "family_name: string;" in contracts,
