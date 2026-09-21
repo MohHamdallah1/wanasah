@@ -24,6 +24,14 @@ interface Props {
 
 const PAGE_SIZE = 20;
 
+type LedgerUiContractError = Error & { code: string };
+
+const ledgerUiContractError = (code: string): never => {
+  const error = new Error(code) as LedgerUiContractError;
+  error.code = code;
+  throw error;
+};
+
 export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
@@ -196,18 +204,18 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
 
       for (const item of data.items) {
         if (movementIds.has(item.id)) {
-          throw new Error("تفاصيل المرجع تحتوي حركة مكررة بين الصفحات.");
+          ledgerUiContractError("LEDGER_REFERENCE_DUPLICATE_MOVEMENT");
         }
         movementIds.add(item.id);
       }
       all.push(...data.items);
 
       if (!data.has_more) return all;
-      if (!data.next_cursor) throw new Error("Cursor تفاصيل المرجع غير متسق.");
+      if (!data.next_cursor) ledgerUiContractError("LEDGER_REFERENCE_CURSOR_INVALID");
       cursor = data.next_cursor;
     }
 
-    throw new Error("عدد حركات المرجع تجاوز 10,000 حركة؛ استخدم تقريراً مخصصاً.");
+    ledgerUiContractError("LEDGER_REFERENCE_TOO_LARGE");
   }, [authenticatedFetch, buildUrl]);
 
   const openReference = async (reference: string) => {
