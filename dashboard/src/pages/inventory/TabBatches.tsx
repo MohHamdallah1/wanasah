@@ -94,19 +94,17 @@ export function TabBatches({ locationId }: Props) {
     const timer = window.setTimeout(() => {
       const clean = searchInput.trim();
       const next = clean.length >= 2 ? clean : "";
-      setSearch((current) => {
-        if (current === next) return current;
-        setProducts([]);
-        setCursor(null);
-        setNextCursor(null);
-        setSelectedProductId(null);
-        setDetails(null);
-        setDetailsFailed(false);
-        return next;
-      });
+      if (next === search) return;
+      setProducts([]);
+      setCursor(null);
+      setNextCursor(null);
+      setSelectedProductId(null);
+      setDetails(null);
+      setDetailsFailed(false);
+      setSearch(next);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [searchInput]);
+  }, [search, searchInput]);
 
   const fetchProducts = useCallback(async () => {
     const requestSeq = ++productRequestSeq.current;
