@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, ChevronLeft, ChevronRight, GitBranch, Pencil, Plus, Power, PowerOff, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
@@ -47,8 +49,13 @@ type StateAction = "activate" | "deactivate";
 
 const WAREHOUSE_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
 
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "حدث خطأ غير متوقع";
+type WarehouseLocationContractError = Error & { code: string };
+
+const warehouseLocationContractError = (code: string): never => {
+  const error = new Error(code) as WarehouseLocationContractError;
+  error.code = code;
+  throw error;
+};
 
 const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
   if (
@@ -57,13 +64,13 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
     !("items" in value) ||
     !Array.isArray((value as { items?: unknown }).items)
   ) {
-    throw new Error("تنسيق قائمة المستودعات غير صالح.");
+    warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
 
   const page = value as Record<string, unknown>;
   const items = (page.items as unknown[]).map((raw) => {
     if (typeof raw !== "object" || raw === null) {
-      throw new Error("بيانات مستودع غير صالحة.");
+      warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
 
     const row = raw as Record<string, unknown>;
@@ -80,7 +87,7 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
       typeof row.created_at !== "string" ||
       typeof row.updated_at !== "string"
     ) {
-      throw new Error("بيانات مستودع غير مكتملة.");
+      warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
 
     return {
@@ -112,13 +119,14 @@ const asMutationResponse = (value: unknown): WarehouseLocationMutationResponse =
     typeof (value as { location?: unknown }).location !== "object" ||
     (value as { location?: unknown }).location === null
   ) {
-    throw new Error("استجابة عملية المستودع غير صالحة.");
+    warehouseLocationContractError("WAREHOUSE_LOCATION_MUTATION_RESPONSE_INVALID");
   }
   return value as WarehouseLocationMutationResponse;
 };
 
 export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
+  const { t } = useTranslation();
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
   const access = useInventoryAccess();
@@ -178,7 +186,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
       if (seq !== requestSeq.current) return;
       setItems([]);
       setNextCursor(null);
-      toast.error("فشل جلب إدارة المستودعات: " + getErrorMessage(error));
+      toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.loadFailed")));
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
@@ -228,15 +236,15 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
     const code = form.code.trim().toUpperCase();
 
     if (!name || name.length > 150) {
-      toast.error("اسم المستودع مطلوب وبحد أقصى 150 حرفاً.");
+      toast.error(t("inventoryWarehouses.errors.nameInvalid"));
       return;
     }
     if (!code || code.length > 50 || !WAREHOUSE_CODE_RE.test(code)) {
-      toast.error("كود المستودع يجب أن يبدأ بحرف/رقم ويحتوي فقط A-Z و0-9 و _ و -.");
+      toast.error(t("inventoryWarehouses.errors.codeInvalid"));
       return;
     }
     if (code === "TRANSIT-SYS") {
-      toast.error("الكود TRANSIT-SYS محجوز للنظام.");
+      toast.error(t("inventoryWarehouses.errors.systemCodeReserved"));
       return;
     }
     if (
@@ -246,7 +254,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
       editingLocation.code === code &&
       editingLocation.branch_id === form.branch_id
     ) {
-      toast.info("لا توجد تغييرات لحفظها.");
+      toast.info(t("inventoryWarehouses.noChanges"));
       return;
     }
 
@@ -281,7 +289,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
       else setRefreshKey((value) => value + 1);
       await onLocationsChanged();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
+      toast.error(apiErrorMessage(error, t("inventoryWarehouses.errors.saveFailed")));
     } finally {
       setFormSubmitting(false);
     }
@@ -299,11 +307,11 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
 
     const reason = stateReason.trim();
     if (stateAction === "deactivate" && !reason) {
-      toast.error("سبب تعطيل المستودع مطلوب للتدقيق.");
+      toast.error(t("inventoryWarehouses.errors.deactivationReasonRequired"));
       return;
     }
     if (reason.length > 1000) {
-      toast.error("سبب العملية لا يجوز أن يتجاوز 1000 حرف.");
+      toast.error(t("inventoryWarehouses.errors.reasonTooLong"));
       return;
     }
 
@@ -548,7 +556,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
             disabled={formSubmitting}
             className="w-full py-3 rounded-xl bg-blue-600 text-white font-bold disabled:opacity-50"
           >
-            {formSubmitting ? "جاري الحفظ..." : "حفظ"}
+            {formSubmitting ? t("common.saving") : t("common.save")}
           </button>
         </div>
       </Modal>
@@ -605,7 +613,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
             }`}
           >
             {stateSubmitting
-              ? "جاري التنفيذ..."
+              ? t("inventoryWarehouses.processing")
               : stateAction === "deactivate"
                 ? "تأكيد التعطيل"
                 : "تأكيد التفعيل"}
