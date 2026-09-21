@@ -27,6 +27,8 @@ live = read("dashboard/src/pages/inventory/Tab1LiveStock.tsx")
 quantity = read("dashboard/src/pages/inventory/quantity.ts")
 manager = read("dashboard/src/pages/inventory/StockMinimumManager.tsx")
 seed = read("wa_backend/scripts/seed_live_stock_demo.py")
+css = read("dashboard/src/pages/inventory/inventory.css")
+resources = read("dashboard/src/i18n/resources.ts")
 
 check(
     "inventory_stock_policy" in main
@@ -141,6 +143,28 @@ check(
     'if (!scopeReady || !quantityReady || applying || hasConflict) return;' in manager
     and '!plan ||' not in manager,
     "minimum-stock preview is optional and direct apply remains available",
+)
+check(
+    'useState<MinimumStockApplyMode>("OVERWRITE")' in manager
+    and 'applied.affected_count === 0' in manager
+    and 'noChangesExisting' in manager
+    and 'noChangesSame' in manager,
+    "minimum-stock UI defaults to applying the requested change and explains zero-change outcomes",
+)
+check(
+    'className="inventory-minimum-header"' in manager
+    and '.inventory-minimum-header {' in css
+    and 'text-align: start !important;' in css
+    and 'height: min(36rem, calc(100vh - 2rem));' in css
+    and '.inventory-minimum-target-area {' in css,
+    "minimum-stock dialog has RTL-aware alignment and stable dimensions across scope changes",
+)
+check(
+    'lastCompanyPurchase: "تكلفة آخر شراء"' in resources
+    and 'companyAverage: "متوسط التكلفة"' in resources
+    and 'lastCompanyPurchase: "Latest purchase cost"' in resources
+    and 'companyAverage: "Average cost"' in resources,
+    "Live Stock costing labels use clear accounting terminology in Arabic and English",
 )
 check(
     "product.sku" not in live,
