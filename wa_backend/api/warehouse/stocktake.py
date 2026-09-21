@@ -3,17 +3,26 @@ import base64
 import bcrypt
 import hashlib
 import json
+import logging
+import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from api.dependencies import get_current_driver
 from database import get_db
 from inventory_access import InventoryAccess, require_stocktake
-from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, VehicleReconCandidateCursorPage
+from services import (
+    InventoryMutationError,
+    acquire_inventory_location_guard,
+    validate_vehicle_recon_work_session,
+)
+from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
     DispatchRoute,
@@ -24,6 +33,7 @@ from models import (
     ProductBatch,
     ProductVariant,
     StocktakeCountAttempt,
+    StocktakeLine,
     StocktakeSession,
     SystemSetting,
     WorkSession,
@@ -33,6 +43,7 @@ from models import (
 from ._shared import _escape_like
 
 
+logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
 
 
@@ -1350,4 +1361,252 @@ async def get_stocktake_session_context(
         "source_location_id":
             int(anchor_location_id),
     }
+
+
+# ====================================================
+# 11.23 بدء جلسة الجرد وأخذ Snapshot مقفل للنطاق
+# ====================================================
+@router.post("/warehouse/unified/stocktake/start", status_code=201)
+async def start_unified_stocktake(
+    payload: UnifiedStocktakeStartRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """فتح الجلسة وأخذ Snapshot ثابت وإنشاء Lock مطابق للنطاق."""
+    access = InventoryAccess(db, current_admin)
+    await access.require('stocktake.start', payload.location_id)
+
+    company_id = current_admin.company_id
+
+    try:
+        expected_location_type = 'VEHICLE' if payload.stocktake_type == 'VEHICLE_RECON' else 'WAREHOUSE'
+        location = (
+            await db.execute(
+                select(InventoryLocation).filter_by(
+                    id=payload.location_id,
+                    company_id=company_id,
+                    location_type=expected_location_type,
+                    is_active=True,
+                )
+            )
+        ).scalar_one_or_none()
+        if location is None:
+            raise HTTPException(status_code=404, detail="الموقع غير موجود أو غير فعال أو لا يتبع شركتك.")
+
+        if payload.product_variant_id is not None:
+            variant_id = (
+                await db.execute(
+                    select(ProductVariant.id).filter_by(
+                        id=payload.product_variant_id,
+                        company_id=company_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if variant_id is None:
+                raise HTTPException(status_code=404, detail="الصنف المحدد غير موجود أو لا يتبع شركتك.")
+
+        if payload.batch_id is not None:
+            batch_id = (
+                await db.execute(
+                    select(ProductBatch.id).filter_by(
+                        id=payload.batch_id,
+                        company_id=company_id,
+                        product_variant_id=payload.product_variant_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if batch_id is None:
+                raise HTTPException(status_code=404, detail="الدفعة المحددة غير موجودة أو لا تتبع الصنف والشركة.")
+
+        # ترتيب القفل ثابت: موقع المخزون أولاً، ثم WorkSession.
+        # هذا يطابق posting ويمنع سباق Start/Approve مع التسوية.
+        await acquire_inventory_location_guard(
+            db,
+            company_id,
+            payload.location_id,
+            exclusive=True,
+        )
+
+        if payload.stocktake_type == 'VEHICLE_RECON':
+            if location.vehicle_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="موقع السيارة لا يحمل vehicle_id صالحاً.",
+                )
+
+            try:
+                await validate_vehicle_recon_work_session(
+                    db,
+                    company_id=company_id,
+                    work_session_id=payload.related_work_session_id,
+                    vehicle_id=location.vehicle_id,
+                )
+            except InventoryMutationError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=str(exc),
+                ) from exc
+
+            existing_recon_id = (
+                await db.execute(
+                    select(StocktakeSession.id).filter(
+                        StocktakeSession.company_id == company_id,
+                        StocktakeSession.stocktake_type == 'VEHICLE_RECON',
+                        StocktakeSession.related_work_session_id
+                        == payload.related_work_session_id,
+                        StocktakeSession.status != 'CANCELLED',
+                    )
+                    .order_by(StocktakeSession.id.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+            if existing_recon_id is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "جلسة العمل مرتبطة مسبقاً بـ VEHICLE_RECON غير ملغى؛ "
+                        "لا يمكن إنشاء تسوية مخزون ثانية لنفس الجلسة."
+                    ),
+                )
+
+        session_overlap = _stocktake_session_overlap_predicate(
+            payload.stocktake_type,
+            payload.product_variant_id,
+            payload.batch_id,
+        )
+        stmt_session_overlap = select(StocktakeSession.id).filter(
+            StocktakeSession.company_id == company_id,
+            StocktakeSession.location_id == payload.location_id,
+            StocktakeSession.status.in_(_STOCKTAKE_ACTIVE_STATUSES),
+        )
+        if session_overlap is not None:
+            stmt_session_overlap = stmt_session_overlap.filter(session_overlap)
+        conflicting_session_id = (
+            await db.execute(
+                stmt_session_overlap.order_by(StocktakeSession.id.asc()).limit(1).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if conflicting_session_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="يوجد جرد نشط يتداخل مع نفس الموقع/الصنف/الدفعة.",
+            )
+
+        lock_overlap = _inventory_lock_overlap_predicate(
+            payload.stocktake_type,
+            payload.product_variant_id,
+            payload.batch_id,
+        )
+        stmt_lock_overlap = select(InventoryLock.id).filter(
+            InventoryLock.company_id == company_id,
+            InventoryLock.location_id == payload.location_id,
+            InventoryLock.released_at.is_(None),
+        )
+        if lock_overlap is not None:
+            stmt_lock_overlap = stmt_lock_overlap.filter(lock_overlap)
+        conflicting_lock_id = (
+            await db.execute(
+                stmt_lock_overlap.order_by(InventoryLock.id.asc()).limit(1).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if conflicting_lock_id is not None:
+            raise HTTPException(status_code=409, detail="يوجد قفل جرد فعال يتداخل مع النطاق المطلوب.")
+
+        reference_number = f"STK-{uuid.uuid4().hex[:12].upper()}"
+        session = StocktakeSession(
+            company_id=company_id,
+            location_id=payload.location_id,
+            reference_number=reference_number,
+            stocktake_type=payload.stocktake_type,
+            status='DRAFT',
+            scope_product_variant_id=payload.product_variant_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
+            scope_batch_id=payload.batch_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
+            related_work_session_id=payload.related_work_session_id if payload.stocktake_type == 'VEHICLE_RECON' else None,
+            started_by=current_admin.id,
+            notes=payload.notes,
+        )
+        db.add(session)
+        await db.flush()
+
+        db.add(InventoryLock(
+            company_id=company_id,
+            stocktake_session_id=session.id,
+            location_id=payload.location_id,
+            product_variant_id=payload.product_variant_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
+            batch_id=payload.batch_id if payload.stocktake_type == 'CYCLE_COUNT' else None,
+            created_by=current_admin.id,
+        ))
+        await db.flush()
+
+        stmt_balances = select(InventoryBalance).filter(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.location_id == payload.location_id,
+            InventoryBalance.on_hand_quantity > 0,
+        )
+        if payload.stocktake_type == 'CYCLE_COUNT':
+            stmt_balances = stmt_balances.filter(
+                InventoryBalance.product_variant_id == payload.product_variant_id
+            )
+            if payload.batch_id is not None:
+                stmt_balances = stmt_balances.filter(InventoryBalance.batch_id == payload.batch_id)
+
+        balances = (
+            await db.execute(
+                stmt_balances
+                .order_by(
+                    InventoryBalance.product_variant_id.asc(),
+                    InventoryBalance.batch_id.asc(),
+                    InventoryBalance.stock_status.asc(),
+                    InventoryBalance.id.asc(),
+                )
+                .limit(_MAX_STOCKTAKE_LINES + 1)
+                .with_for_update()
+            )
+        ).scalars().all()
+        if len(balances) > _MAX_STOCKTAKE_LINES:
+            raise HTTPException(
+                status_code=409,
+                detail="نطاق الجرد يتجاوز 10000 سطر؛ استخدم CYCLE_COUNT أصغر.",
+            )
+
+        for balance in balances:
+            db.add(StocktakeLine(
+                company_id=company_id,
+                stocktake_session_id=session.id,
+                product_variant_id=balance.product_variant_id,
+                batch_id=balance.batch_id,
+                stock_status=balance.stock_status,
+                line_origin='SNAPSHOT',
+                expected_quantity=Decimal(balance.on_hand_quantity),
+            ))
+
+        cutoff = _utc_naive_now()
+        session.snapshot_cutoff_at = cutoff
+        session.status = 'COUNTING'
+        session.updated_at = cutoff
+        await db.commit()
+
+        return {
+            "message": "تم بدء جلسة الجرد وأخذ Snapshot مقفل بنجاح.",
+            "reference_number": reference_number,
+            "session_id": session.id,
+            "stocktake_type": session.stocktake_type,
+            "snapshot_lines": len(balances),
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.warning(f"تعارض متزامن أثناء بدء الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=409, detail="حدث تعارض متزامن أثناء فتح الجرد؛ لم تُحفظ جلسة جزئية.")
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في بدء الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء فتح جلسة الجرد.")
+
+
+# Blind Count: لا يتم إرجاع expected_quantity.
 
