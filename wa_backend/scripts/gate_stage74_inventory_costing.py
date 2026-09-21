@@ -21,7 +21,7 @@ def read(path: str) -> str:
 
 models = read("wa_backend/models.py")
 services = read("wa_backend/services.py")
-warehouse = read("wa_backend/api/warehouse.py")
+warehouse = read("wa_backend/api/warehouse/inbound.py")
 driver = read("wa_backend/api/driver.py")
 dispatch = read("wa_backend/api/dispatch.py")
 platform = read("wa_backend/api/platform_manager.py")
