@@ -154,8 +154,8 @@ class BulkMinimumStockBase(BaseModel):
 
     location_id: int = Field(gt=0)
     scope: Literal["ALL", "FAMILY", "PRODUCT"]
-    family_id: int | None = Field(default=None, gt=0)
-    product_variant_id: int | None = Field(default=None, gt=0)
+    family_ids: list[int] = Field(default_factory=list, max_length=100)
+    product_variant_ids: list[int] = Field(default_factory=list, max_length=200)
     minimum_quantity: Decimal
     apply_mode: Literal["ONLY_UNSET", "OVERWRITE"] = "ONLY_UNSET"
 
@@ -172,32 +172,47 @@ class BulkMinimumStockBase(BaseModel):
             raise ValueError("Quantity must be finite and non-negative.")
         return parsed
 
+    @field_validator("family_ids", "product_variant_ids", mode="before")
+    @classmethod
+    def exact_id_lists(cls, value):
+        if not isinstance(value, list):
+            raise ValueError("Selection ids must be sent as a list.")
+        result: list[int] = []
+        seen: set[int] = set()
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+                raise ValueError("Selection ids must be positive integers.")
+            if item not in seen:
+                seen.add(item)
+                result.append(item)
+        return sorted(result)
+
     def validate_scope(self) -> None:
         if self.scope == "ALL":
-            if self.family_id is not None or self.product_variant_id is not None:
+            if self.family_ids or self.product_variant_ids:
                 raise HTTPException(
                     status_code=422,
                     detail=_error(
                         "STOCK_MINIMUM_SCOPE_INVALID",
-                        "نطاق كل المنتجات لا يقبل عائلة أو منتجاً محدداً.",
+                        "نطاق كل المنتجات لا يقبل عائلات أو منتجات محددة.",
                     ),
                 )
         elif self.scope == "FAMILY":
-            if self.family_id is None or self.product_variant_id is not None:
+            if not self.family_ids or self.product_variant_ids:
                 raise HTTPException(
                     status_code=422,
                     detail=_error(
                         "STOCK_MINIMUM_SCOPE_INVALID",
-                        "اختر عائلة واحدة لتطبيق الحد الأدنى عليها.",
+                        "اختر عائلة واحدة أو أكثر لتطبيق الحد الأدنى عليها.",
                     ),
                 )
         elif self.scope == "PRODUCT":
-            if self.product_variant_id is None or self.family_id is not None:
+            if not self.product_variant_ids or self.family_ids:
                 raise HTTPException(
                     status_code=422,
                     detail=_error(
                         "STOCK_MINIMUM_SCOPE_INVALID",
-                        "اختر منتجاً واحداً لتطبيق الحد الأدنى عليه.",
+                        "اختر منتجاً واحداً أو أكثر لتطبيق الحد الأدنى عليه.",
                     ),
                 )
 
@@ -319,9 +334,9 @@ async def _load_bulk_minimum_candidates(
     )
 
     if payload.scope == "FAMILY":
-        stmt = stmt.where(ProductVariant.product_id == int(payload.family_id))
+        stmt = stmt.where(ProductVariant.product_id.in_(payload.family_ids))
     elif payload.scope == "PRODUCT":
-        stmt = stmt.where(ProductVariant.id == int(payload.product_variant_id))
+        stmt = stmt.where(ProductVariant.id.in_(payload.product_variant_ids))
 
     return (await db.execute(stmt)).mappings().all()
 
@@ -459,8 +474,8 @@ def _bulk_plan_response(payload: BulkMinimumStockBase, plan: dict) -> dict:
     return {
         "location_id": int(payload.location_id),
         "scope": payload.scope,
-        "family_id": payload.family_id,
-        "product_variant_id": payload.product_variant_id,
+        "family_ids": list(payload.family_ids),
+        "product_variant_ids": list(payload.product_variant_ids),
         "minimum_quantity": canonical_quantity(plan["entered_quantity"]),
         "unit_mode": "DISPLAY_UOM_PER_PRODUCT",
         "apply_mode": payload.apply_mode,
