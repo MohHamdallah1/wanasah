@@ -303,6 +303,36 @@ export const resources = {
           details: "تعذر تحميل تفاصيل الدفعات.",
         },
       },
+      inventoryMinimum: {
+        button: "الحد الأدنى",
+        title: "إدارة الحد الأدنى للمخزون",
+        description:
+          "حدد مستوى التنبيه للمستودع الحالي حسب كل المنتجات أو عائلة أو منتج واحد.",
+        scopeAll: "كل المنتجات",
+        scopeFamily: "عائلة محددة",
+        scopeProduct: "منتج محدد",
+        searchFamily: "ابحث عن عائلة...",
+        searchProduct: "ابحث عن منتج أو SKU...",
+        valueLabel: "الحد الأدنى",
+        unitHint:
+          "يُطبّق الرقم بوحدة العرض الخاصة بكل منتج؛ كرتونة للمنتجات المعروضة بالكرتونة وحبة للمنتجات المعروضة بالحبة.",
+        onlyUnset: "فقط غير المحدد",
+        onlyUnsetHint: "يحافظ على الحدود التي تم ضبطها سابقاً.",
+        overwrite: "استبدال الحالي",
+        overwriteHint: "يحدّث الحد الأدنى حتى لو كان محدداً مسبقاً.",
+        preview: "معاينة",
+        apply: "تطبيق",
+        previewMatched: "{{count}} منتج ضمن النطاق",
+        previewAffected: "سيتم تعديلها",
+        previewSkipped: "محفوظة كما هي",
+        previewConflict:
+          "{{count}} منتج لديه تعارض يمنع التطبيق الآمن. عدّل الإعداد قبل التنفيذ.",
+        applied: "تم تحديث الحد الأدنى لـ {{count}} منتج.",
+        errors: {
+          preview: "تعذر معاينة تطبيق الحد الأدنى.",
+          apply: "تعذر تطبيق الحد الأدنى للمخزون.",
+        },
+      },
       inventoryLive: {
         product: "المنتج",
         searchPlaceholder: "ابحث عن منتج أو SKU...",
@@ -339,7 +369,7 @@ export const resources = {
         results: "النتائج: {{count}}",
         page: "صفحة {{page}}",
         noMatches: "لا توجد بيانات مطابقة",
-        atMinimum: "وصل للحد الأدنى",
+        atMinimum: "وصل للحد الأدنى للمخزون",
         minimumStockLabel: "الحد الأدنى",
         minimumStockUnset: "غير محدد",
         editMinimumStock: "تعديل",
@@ -870,6 +900,36 @@ export const resources = {
         errors: {
           products: "Could not load warehouse products.",
           details: "Could not load batch details.",
+        },
+      },
+      inventoryMinimum: {
+        button: "Minimum stock",
+        title: "Manage minimum stock",
+        description:
+          "Set the alert level for the current warehouse across all products, one family, or one product.",
+        scopeAll: "All products",
+        scopeFamily: "Selected family",
+        scopeProduct: "Selected product",
+        searchFamily: "Search family...",
+        searchProduct: "Search product or SKU...",
+        valueLabel: "Minimum stock",
+        unitHint:
+          "The number uses each product's display unit: cartons for carton-displayed products and eaches for each-displayed products.",
+        onlyUnset: "Only unset",
+        onlyUnsetHint: "Keeps thresholds that were already configured.",
+        overwrite: "Replace current",
+        overwriteHint: "Updates the minimum even when a value already exists.",
+        preview: "Preview",
+        apply: "Apply",
+        previewMatched: "{{count}} products in scope",
+        previewAffected: "Will change",
+        previewSkipped: "Kept unchanged",
+        previewConflict:
+          "{{count}} products have conflicts that block a safe update. Resolve them before applying.",
+        applied: "Minimum stock updated for {{count}} products.",
+        errors: {
+          preview: "Could not preview the minimum-stock update.",
+          apply: "Could not apply minimum stock.",
         },
       },
       inventoryLive: {
