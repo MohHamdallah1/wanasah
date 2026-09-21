@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import logging
+import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,6 +27,7 @@ from models import (
     ProductBatch,
     ProductLocation,
     ProductVariant,
+    SystemAuditLog,
     UOM,
 )
 from schemas import (
@@ -38,20 +40,32 @@ from schemas import (
     UnifiedTransferSourceInventoryCursorPage,
     WarehouseTransferCursorPage,
     WarehouseTransferDetail,
+    SpecialTransferDispatchRequest,
+    SpecialTransferDispatchResponse,
 )
 from quantity import canonical_quantity
-from product_lifecycle import WAREHOUSE_BALANCING, product_capability_predicate
+from product_lifecycle import (
+    WAREHOUSE_BALANCING,
+    acquire_product_lifecycle_guards,
+    product_capability_predicate,
+)
 
 from services import (
     InventoryMutationError,
     InventoryRuleError,
+    SPECIAL_TRANSFER_PERMISSION,
+    TRANSFER_DESTINATION_POLICY_CODE,
     apply_inventory_movement,
+    apply_inventory_movements_batch,
     begin_idempotent_operation,
     change_product_batch_disposition,
     complete_idempotent_operation,
     batch_sellability_predicate,
+    ensure_system_transit_location,
     get_company_local_date,
     inventory_business_error,
+    resolve_special_transfer_direction_context,
+    validate_special_transfer_source_items_locked,
 )
 
 # Staging-only dependency: remains sourced from the untouched monolith until
@@ -1402,3 +1416,272 @@ async def get_unified_transfer_detail(
 
 
 # STAGE4E2B2_SPECIAL_TRANSFER_EXECUTION
+
+# ====================================================
+# 10.13 إنشاء تحويل خاص مرتبط بسياسة الوجهات ونقل المخزون إلى IN_TRANSIT
+# ====================================================
+@router.post(
+    "/warehouse/unified/transfer/special/dispatch",
+    response_model=SpecialTransferDispatchResponse,
+    status_code=200,
+)
+async def special_transfer_dispatch(
+    payload: SpecialTransferDispatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    company_id = current_admin.company_id
+    purpose = str(payload.transfer_purpose).upper()
+    permission_code = SPECIAL_TRANSFER_PERMISSION.get(purpose)
+    if permission_code is None:
+        raise HTTPException(
+            status_code=422,
+            detail=inventory_business_error(
+                "SPECIAL_TRANSFER_PURPOSE_INVALID",
+                "غرض التحويل الخاص غير صالح.",
+                context={"transfer_purpose": purpose},
+            ),
+        )
+
+    access = InventoryAccess(db, current_admin)
+    await access.require(permission_code)
+    await access.require("transfer.send", payload.source_location_id)
+
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="SPECIAL_TRANSFER_DISPATCH",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        requested_variant_ids = sorted({
+            int(item.product_variant_id)
+            for item in payload.items
+        })
+        await acquire_product_lifecycle_guards(
+            db,
+            company_id,
+            requested_variant_ids,
+            exclusive=False,
+        )
+
+        transit_location = await ensure_system_transit_location(
+            db,
+            company_id,
+        )
+        transit_location_id = int(transit_location.id)
+
+        direction = await resolve_special_transfer_direction_context(
+            db,
+            company_id=company_id,
+            source_location_id=payload.source_location_id,
+            transfer_purpose=purpose,
+            additional_location_ids=[transit_location_id],
+        )
+
+        destination_location_id = int(
+            direction["destination_location_id"]
+        )
+        await access.require(
+            "transfer.destination",
+            destination_location_id,
+        )
+
+        as_of_date = await get_company_local_date(db, company_id)
+        source_lines = await validate_special_transfer_source_items_locked(
+            db,
+            company_id=company_id,
+            source_location_id=payload.source_location_id,
+            transfer_purpose=purpose,
+            items=list(payload.items),
+            as_of_date=as_of_date,
+        )
+
+        transfer_ref = f"SPTR-{uuid.uuid4().hex.upper()}"
+        header = InventoryTransferHeader(
+            company_id=company_id,
+            reference_number=transfer_ref,
+            source_location_id=payload.source_location_id,
+            destination_location_id=destination_location_id,
+            transit_location_id=transit_location_id,
+            workflow_type="TRANSIT",
+            status="IN_TRANSIT",
+            transfer_purpose=purpose,
+            commercial_context={
+                "schema_version": 1,
+                "commercial_context_id": None,
+                "tenant_policy_code": TRANSFER_DESTINATION_POLICY_CODE,
+                "tenant_policy_id": int(direction["tenant_policy_id"]),
+                "tenant_policy_revision": int(
+                    direction["tenant_policy_revision"]
+                ),
+                "source_location_type": str(
+                    direction["source_location_type"]
+                ),
+                "destination_location_type": str(
+                    direction["destination_location_type"]
+                ),
+                "transfer_purpose": purpose,
+            },
+            tenant_policy_id=int(direction["tenant_policy_id"]),
+            tenant_policy_revision=int(
+                direction["tenant_policy_revision"]
+            ),
+            dispatched_by=current_admin.id,
+            notes=payload.notes,
+        )
+        db.add(header)
+        await db.flush()
+
+        transfer_lines = []
+        movement_specs = []
+        for line_no, line in enumerate(source_lines, start=1):
+            transfer_lines.append(
+                InventoryTransferLine(
+                    company_id=company_id,
+                    transfer_header_id=header.id,
+                    product_variant_id=line["product_variant_id"],
+                    batch_id=line["batch_id"],
+                    quantity=line["quantity"],
+                    source_stock_status=line["source_stock_status"],
+                    lifecycle_revision_snapshot=(
+                        line["lifecycle_revision_snapshot"]
+                    ),
+                    lifecycle_status_snapshot=(
+                        line["lifecycle_status_snapshot"]
+                    ),
+                    operational_hold_snapshot=(
+                        line["operational_hold_snapshot"]
+                    ),
+                    fefo_override_reason_id=None,
+                    fefo_overridden_by=None,
+                    fefo_override_note=None,
+                )
+            )
+            movement_specs.append({
+                "product_variant_id": line["product_variant_id"],
+                "batch_id": line["batch_id"],
+                "quantity": line["quantity"],
+                "movement_kind": "PHYSICAL",
+                "reference_type": "SPECIAL_TRANSFER_DISPATCH",
+                "reference_id": transfer_ref,
+                "idempotency_key": (
+                    f"SPTR-DISP-{header.id}-{line_no}"
+                ),
+                "source_location_id": payload.source_location_id,
+                "destination_location_id": transit_location_id,
+                "source_stock_status": line["source_stock_status"],
+                "destination_stock_status": line["source_stock_status"],
+                "transfer_header_id": header.id,
+                "notes": payload.notes,
+            })
+
+        if not movement_specs:
+            raise InventoryMutationError(
+                "التحويل الخاص لم ينتج أي حركة مخزون."
+            )
+
+        db.add_all(transfer_lines)
+        await apply_inventory_movements_batch(
+            db,
+            company_id=company_id,
+            performed_by=current_admin.id,
+            movements=movement_specs,
+        )
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Transfer_{header.id}",
+            action_type="SPECIAL_TRANSFER_DISPATCHED",
+            old_value=None,
+            new_value=(
+                f"purpose={purpose}; "
+                f"policy={direction['tenant_policy_id']}:"
+                f"{direction['tenant_policy_revision']}; "
+                f"source={payload.source_location_id}; "
+                f"destination={destination_location_id}"
+            ),
+        ))
+
+        response_payload = {
+            "message": "تم إنشاء التحويل الخاص ونقل المخزون إلى IN_TRANSIT.",
+            "transfer_reference": transfer_ref,
+            "header_id": int(header.id),
+            "transfer_purpose": purpose,
+            "source_location_id": int(payload.source_location_id),
+            "destination_location_id": destination_location_id,
+            "tenant_policy_id": int(direction["tenant_policy_id"]),
+            "tenant_policy_revision": int(
+                direction["tenant_policy_revision"]
+            ),
+        }
+        complete_idempotent_operation(
+            idempotency_record,
+            response_payload,
+        )
+        await db.commit()
+        return response_payload
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryRuleError as exc:
+        await db.rollback()
+        status_code = (
+            422
+            if exc.code == "SPECIAL_TRANSFER_UOM_MISMATCH"
+            else 409
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=exc.as_detail(),
+        ) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "SPECIAL_TRANSFER_REJECTED",
+                str(exc),
+                context={"transfer_purpose": purpose},
+            ),
+        ) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning(
+            "تعارض متزامن أثناء إنشاء التحويل الخاص",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "SPECIAL_TRANSFER_CONFLICT",
+                "حدث تعارض متزامن؛ لم يتم حفظ أي جزء من التحويل.",
+                context={"transfer_purpose": purpose},
+            ),
+        ) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error(
+            "خطأ داخلي أثناء إنشاء التحويل الخاص",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=inventory_business_error(
+                "SPECIAL_TRANSFER_INTERNAL_ERROR",
+                "خطأ داخلي أثناء إنشاء التحويل الخاص.",
+            ),
+        ) from exc
+
+# Stage 4E generic TRANSIT endpoint owns only REPLENISHMENT and
+# WAREHOUSE_BALANCING. Special purposes use the dedicated policy-bound command.
+
