@@ -44,6 +44,7 @@ from schemas import (
     SpecialTransferDispatchResponse,
     UnifiedDispatchRequest,
     UnifiedReceiveRequest,
+    UnifiedTransferDecisionRequest,
 )
 from quantity import canonical_quantity
 from product_lifecycle import (
@@ -2634,4 +2635,254 @@ async def unified_transfer_receive(
             status_code=500,
             detail="خطأ داخلي أثناء استلام الحوالة."
         )
+
+
+# ====================================================
+# 10.19 إلغاء الحوالة وإرجاع المخزون من IN_TRANSIT إلى المصدر
+# ====================================================
+@router.post("/warehouse/unified/transfer/{header_id}/cancel", status_code=200)
+async def unified_transfer_cancel(
+    header_id: int,
+    payload: UnifiedTransferDecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver)
+):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.cancel', header_id, 'source')
+
+    company_id = current_admin.company_id
+    reason = _validate_transfer_decision_reason(
+        payload.decision_reason,
+        action_label="الإلغاء"
+    )
+
+    try:
+        request_hash = _stable_request_hash(
+            payload,
+            context={"transfer_header_id": int(header_id)},
+        )
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="WAREHOUSE_TRANSFER_CANCEL",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        header = await _load_locked_in_transit_transfer(
+            db,
+            company_id,
+            header_id,
+            action_label="إلغاء"
+        )
+
+        special_permission = SPECIAL_TRANSFER_PERMISSION.get(
+            str(header.transfer_purpose).upper()
+        )
+        if special_permission is not None:
+            await access.require(special_permission)
+
+        await _move_transfer_lines_from_transit(
+            db,
+            company_id=company_id,
+            header=header,
+            performed_by=current_admin.id,
+            destination_location_id=header.source_location_id,
+            reference_type='TRANSFER_CANCELLED',
+            idempotency_prefix='TRN-CANC',
+            notes=reason,
+            terminal_action="RETURN_TO_SOURCE",
+        )
+
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        header.status = 'CANCELLED'
+        header.cancelled_by = current_admin.id
+        header.cancelled_at = now_utc
+        header.decision_reason = reason
+        header.updated_at = now_utc
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Transfer_{header.id}",
+            action_type="TRANSFER_CANCELLED",
+            old_value="IN_TRANSIT",
+            new_value=reason
+        ))
+
+        response_payload = {
+            "message": "تم إلغاء الحوالة وإرجاع البضاعة للمصدر بنجاح.",
+            "header_id": int(header.id),
+            "transfer_reference": str(header.reference_number),
+            "status": "CANCELLED",
+        }
+        complete_idempotent_operation(
+            idempotency_record,
+            response_payload,
+        )
+        await db.commit()
+        return response_payload
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(e))
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="حدث تعارض متزامن أثناء إلغاء الحوالة. لم يتم حفظ عملية جزئية."
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"خطأ في إلغاء الحوالة: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء إلغاء الحوالة."
+        )
+
+
+# ====================================================
+# 10.20 رفض الحوالة وإرجاع المخزون من IN_TRANSIT إلى المصدر
+# ====================================================
+@router.post("/warehouse/unified/transfer/{header_id}/reject", status_code=200)
+async def unified_transfer_reject(
+    header_id: int,
+    payload: UnifiedTransferDecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver)
+):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.reject', header_id, 'destination')
+
+    company_id = current_admin.company_id
+    reason = _validate_transfer_decision_reason(
+        payload.decision_reason,
+        action_label="الرفض"
+    )
+
+    try:
+        request_hash = _stable_request_hash(
+            payload,
+            context={"transfer_header_id": int(header_id)},
+        )
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="WAREHOUSE_TRANSFER_REJECT",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        header = await _load_locked_in_transit_transfer(
+            db,
+            company_id,
+            header_id,
+            action_label="رفض"
+        )
+
+        special_permission = SPECIAL_TRANSFER_PERMISSION.get(
+            str(header.transfer_purpose).upper()
+        )
+        if special_permission is not None:
+            await access.require(special_permission)
+
+        if header.dispatched_by == current_admin.id:
+            raise HTTPException(
+                status_code=403,
+                detail="مرفوض رقابياً: لا يمكن للمُرسل رفض نفس الحوالة بصفته مستلماً."
+            )
+
+        await _verify_location_ownership(
+            db,
+            company_id,
+            header.destination_location_id,
+            allowed_types=['WAREHOUSE', 'VEHICLE']
+        )
+
+        await _move_transfer_lines_from_transit(
+            db,
+            company_id=company_id,
+            header=header,
+            performed_by=current_admin.id,
+            destination_location_id=header.source_location_id,
+            reference_type='TRANSFER_REJECTED',
+            idempotency_prefix='TRN-REJ',
+            notes=reason,
+            terminal_action="RETURN_TO_SOURCE",
+        )
+
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        header.status = 'REJECTED'
+        header.received_by = current_admin.id
+        header.rejected_at = now_utc
+        header.decision_reason = reason
+        header.updated_at = now_utc
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Transfer_{header.id}",
+            action_type="TRANSFER_REJECTED",
+            old_value="IN_TRANSIT",
+            new_value=reason
+        ))
+
+        response_payload = {
+            "message": "تم رفض الحوالة وإرجاع البضاعة لعهدة المصدر.",
+            "header_id": int(header.id),
+            "transfer_reference": str(header.reference_number),
+            "status": "REJECTED",
+        }
+        complete_idempotent_operation(
+            idempotency_record,
+            response_payload,
+        )
+        await db.commit()
+        return response_payload
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(e))
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="حدث تعارض متزامن أثناء رفض الحوالة. لم يتم حفظ عملية جزئية."
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"خطأ في رفض الحوالة: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء رفض الحوالة."
+        )
+
+
+# =================================================================================
 
