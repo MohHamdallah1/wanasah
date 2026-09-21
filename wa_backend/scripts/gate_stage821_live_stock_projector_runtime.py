@@ -343,6 +343,30 @@ async def seed() -> dict[str, int]:
         b_branch = await branch(b, "B Branch")
         a_wh = await warehouse(a, a_branch, "A Warehouse")
         b_wh = await warehouse(b, b_branch, "B Warehouse")
+        a_scrap = int(
+            (
+                await su.execute(
+                    text(
+                        """
+                        INSERT INTO inventory_locations
+                            (company_id, branch_id, name, code,
+                             location_type, vehicle_id, system_role,
+                             is_system_managed, version, is_active,
+                             created_at, updated_at)
+                        VALUES
+                            (:c, :b, 'A Scrap', :code, 'SCRAP',
+                             NULL, NULL, false, 1, true, NOW(), NOW())
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        "c": a,
+                        "b": a_branch,
+                        "code": f"SCRAP-{uuid4().hex[:10]}",
+                    },
+                )
+            ).scalar_one()
+        )
 
         a_product = await product(a, "A Product")
         b_product = await product(b, "B Product")
@@ -406,6 +430,7 @@ async def seed() -> dict[str, int]:
             "b": b,
             "a_wh": a_wh,
             "b_wh": b_wh,
+            "a_scrap": a_scrap,
             "a_variant": a_variant,
             "b_variant": b_variant,
             "b_variant_unprojected": b_variant_unprojected,
@@ -787,7 +812,65 @@ async def main() -> None:
         record("projection RLS read isolation", visible_b == 0, f"visible={visible_b}")
         record("projection RLS write isolation", cross_write_blocked)
 
-        # 9: a failed transaction must roll back both truth and projection.
+        # 9: SCRAP is a valid inventory location but is intentionally
+        # outside the warehouse-centric Live Stock projection.
+        async with SessionApp() as app:
+            await app.begin()
+            await set_tenant(app, a)
+            scrap_before = await projection_row(
+                app,
+                a,
+                a_wh,
+                a_variant,
+            )
+            await apply_live_stock_balance_impacts(
+                app,
+                company_id=a,
+                impacts=[
+                    {
+                        "inventory_balance_id": 1,
+                        "location_id": ids["a_scrap"],
+                        "location_type": "SCRAP",
+                        "vehicle_id": None,
+                        "product_variant_id": a_variant,
+                        "batch_id": ids["a_bal1"],
+                        "stock_status": "DISPOSAL_PENDING",
+                        "on_hand_before": 0,
+                        "on_hand_after": 2,
+                        "reserved_before": 0,
+                        "reserved_after": 0,
+                        "variant_name": "A Variant",
+                        "lifecycle_status": "ACTIVE",
+                        "operational_hold": "NONE",
+                        "expiry_control_mode": "REQUIRED",
+                        "batch_is_active": True,
+                        "batch_disposition": "RELEASED",
+                        "production_date": None,
+                        "expiry_date": None,
+                    }
+                ],
+            )
+            scrap_after = await projection_row(
+                app,
+                a,
+                a_wh,
+                a_variant,
+            )
+            await app.rollback()
+        record(
+            "SCRAP impact is accepted and remains outside Live Stock projection",
+            scrap_before is not None
+            and scrap_after is not None
+            and int(scrap_after.revision) == int(scrap_before.revision)
+            and scrap_after.warehouse_on_hand == scrap_before.warehouse_on_hand
+            and scrap_after.vehicle_packs == scrap_before.vehicle_packs,
+            (
+                f"revision_before={None if scrap_before is None else scrap_before.revision} "
+                f"revision_after={None if scrap_after is None else scrap_after.revision}"
+            ),
+        )
+
+        # 10: a failed transaction must roll back both truth and projection.
         async with SessionApp() as app:
             await app.begin()
             await set_tenant(app, a)
@@ -944,7 +1027,7 @@ async def main() -> None:
             ),
         )
 
-        # 12: concurrent different-batch writes on one projection key must converge.
+        # 13: concurrent different-batch writes on one projection key must converge.
         ready = 0
         ready_lock = asyncio.Lock()
         both_ready = asyncio.Event()
