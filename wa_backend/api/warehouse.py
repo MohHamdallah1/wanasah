@@ -3186,21 +3186,32 @@ async def get_warehouse_inventory_families(
         actor=current_admin,
     )
 
-    clean_search = (search or "").strip().lower()
+    clean_search = " ".join((search or "").strip().lower().split())
     if clean_search and len(clean_search) < 2:
         raise HTTPException(
             status_code=400,
-            detail="البحث في عائلات المنتجات يتطلب حرفين على الأقل.",
+            detail={
+                "code": "LIVE_STOCK_FAMILY_SEARCH_TOO_SHORT",
+                "message": "Family search requires at least two characters.",
+                "context": {},
+            },
         )
 
     filters = [Product.company_id == company_id]
     if clean_search:
-        pattern = f"%{_escape_like(clean_search)}%"
-        filters.append(
+        family_tokens = clean_search.split()
+        filters.extend(
             or_(
-                func.lower(Product.name).like(pattern, escape="\\"),
-                func.lower(Product.code).like(pattern, escape="\\"),
+                func.lower(Product.name).like(
+                    f"%{_escape_like(token)}%",
+                    escape="\\",
+                ),
+                func.lower(Product.code).like(
+                    f"%{_escape_like(token)}%",
+                    escape="\\",
+                ),
             )
+            for token in family_tokens
         )
 
     rows = (
@@ -3270,21 +3281,33 @@ async def get_warehouse_inventory(
             location_id=location_id,
         )
 
-        clean_search = (search or "").strip().lower()
+        clean_search = " ".join((search or "").strip().lower().split())
         if clean_search and len(clean_search) < 2:
             raise HTTPException(
                 status_code=400,
-                detail="البحث في المخزون يتطلب حرفين على الأقل.",
+                detail={
+                    "code": "LIVE_STOCK_SEARCH_TOO_SHORT",
+                    "message": "Inventory search requires at least two characters.",
+                    "context": {},
+                },
             )
         if only_alerts and stock_state not in {"all", "low_stock"}:
             raise HTTPException(
                 status_code=400,
-                detail="لا يجوز دمج only_alerts مع حالة رصيد مختلفة.",
+                detail={
+                    "code": "LIVE_STOCK_ALERT_FILTER_CONFLICT",
+                    "message": "Alert-only mode cannot be combined with another stock state.",
+                    "context": {},
+                },
             )
         if family_id is not None and family_id <= 0:
             raise HTTPException(
                 status_code=400,
-                detail="عائلة المنتج غير صالحة.",
+                detail={
+                    "code": "LIVE_STOCK_FAMILY_INVALID",
+                    "message": "The selected product family is invalid.",
+                    "context": {},
+                },
             )
 
         effective_stock_state = (
@@ -3303,18 +3326,23 @@ async def get_warehouse_inventory(
 
         search_condition = None
         if clean_search:
-            like_pattern = f"%{_escape_like(clean_search)}%"
-            search_condition = or_(
-                func.lower(ProductVariant.name).like(
-                    like_pattern,
-                    escape="\\",
-                ),
-                func.lower(
-                    func.coalesce(ProductVariant.sku, "")
-                ).like(
-                    like_pattern,
-                    escape="\\",
-                ),
+            search_tokens = clean_search.split()
+            search_condition = and_(
+                *[
+                    or_(
+                        func.lower(ProductVariant.name).like(
+                            f"%{_escape_like(token)}%",
+                            escape="\\",
+                        ),
+                        func.lower(
+                            func.coalesce(ProductVariant.sku, "")
+                        ).like(
+                            f"%{_escape_like(token)}%",
+                            escape="\\",
+                        ),
+                    )
+                    for token in search_tokens
+                ]
             )
 
         scope = (
