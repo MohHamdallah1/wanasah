@@ -1223,6 +1223,9 @@
   background: #fff;
   font-size: 0.85rem;
   box-shadow: 0 8px 20px -20px rgb(23 63 66 / 0.75);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .live-stock-search input:focus {
