@@ -307,19 +307,27 @@ export const resources = {
         button: "الحد الأدنى للمخزون",
         title: "إدارة الحد الأدنى للمخزون",
         description:
-          "حدد مستوى التنبيه للمستودع الحالي حسب كل المنتجات أو عائلة أو منتج واحد.",
+          "حدد الحد الأدنى للمخزون في المستودع الحالي لكل المنتجات أو لعائلات ومنتجات تختارها.",
         scopeAll: "كل المنتجات",
+        scopeAllHint:
+          "سيشمل التعديل جميع منتجات المستودع الحالي. اختر طريقة التطبيق بالأسفل قبل التنفيذ.",
         scopeFamily: "عائلة محددة",
         scopeProduct: "منتج محدد",
         searchFamily: "ابحث عن عائلة...",
         searchProduct: "ابحث عن منتج أو SKU...",
-        valueLabel: "الحد الأدنى",
+        valueLabel: "الحد الأدنى للمخزون",
         unitHint:
           "يُطبّق الرقم بوحدة العرض الخاصة بكل منتج؛ كرتونة للمنتجات المعروضة بالكرتونة وحبة للمنتجات المعروضة بالحبة.",
         onlyUnset: "فقط غير المحدد",
         onlyUnsetHint: "يحافظ على الحدود التي تم ضبطها سابقاً.",
         overwrite: "استبدال الحالي",
         overwriteHint: "يحدّث الحد الأدنى حتى لو كان محدداً مسبقاً.",
+        applyToSelection: "تحديث العناصر المحددة",
+        applyToSelectionHint:
+          "يضع الرقم الجديد على كامل النطاق المختار، ويستبدل الحد السابق إن وجد.",
+        fillMissingOnly: "إضافة للمنتجات بدون حد",
+        fillMissingOnlyHint:
+          "لا يغيّر أي حد موجود مسبقاً؛ يضبط فقط المنتجات التي لم يُحدد لها حد.",
         preview: "معاينة",
         previewOptional: "معاينة (اختياري)",
         apply: "تطبيق",
@@ -333,6 +341,10 @@ export const resources = {
         previewConflict:
           "{{count}} منتج لديه تعارض يمنع التطبيق الآمن. عدّل الإعداد قبل التنفيذ.",
         applied: "تم تحديث الحد الأدنى لـ {{count}} منتج.",
+        noChangesExisting:
+          "لم يتغير شيء: {{count}} منتج لديه حد مسبقاً. اختر «تحديث العناصر المحددة» إذا أردت تغيير الحدود الحالية.",
+        noChangesSame:
+          "لا يوجد تغيير: القيمة المدخلة مطابقة للحد الحالي في النطاق المختار.",
         errors: {
           preview: "تعذر معاينة تطبيق الحد الأدنى.",
           apply: "تعذر تطبيق الحد الأدنى للمخزون.",
@@ -356,15 +368,15 @@ export const resources = {
         withVehicles: "مع المركبات",
         withVehiclesHint:
           "بضاعة خرجت فعليًا من المستودع وأصبحت في مركبات مرتبطة بهذا المستودع. لا تدخل ضمن إجمالي الموجود داخل المستودع.",
-        companyCosts: "التكلفة على مستوى الشركة",
+        companyCosts: "التكاليف",
         resultCount: "{{total}} منتج",
         costs: "التكلفة",
         costsHint:
           "بيانات التكلفة مالية على مستوى الشركة وليست تكلفة مستقلة لهذا المستودع. لا تظهر في هذه الشاشة عندما لا توجد لهذا المنتج بضاعة مرتبطة بالمستودع المحدد.",
-        lastCompanyPurchase: "آخر شراء للشركة",
+        lastCompanyPurchase: "تكلفة آخر شراء",
         lastCompanyPurchaseHint:
           "آخر تكلفة شراء فعلية مسجلة لهذا المنتج على مستوى الشركة، بالوحدة التي تم الشراء بها.",
-        companyAverage: "متوسط الشركة",
+        companyAverage: "متوسط التكلفة",
         companyAverageHint:
           "متوسط التكلفة المالي الحالي للمنتج على مستوى الشركة. يظهر هنا فقط عندما توجد بضاعة مرتبطة بالمستودع المحدد.",
         unavailable: "غير متاح للبيع",
@@ -912,8 +924,10 @@ export const resources = {
         button: "Minimum stock",
         title: "Manage minimum stock",
         description:
-          "Set the alert level for the current warehouse across all products, one family, or one product.",
+          "Set minimum stock for the current warehouse across all products or selected families and products.",
         scopeAll: "All products",
+        scopeAllHint:
+          "The update will include every product in the current warehouse. Choose how existing values should be handled below.",
         scopeFamily: "Selected family",
         scopeProduct: "Selected product",
         searchFamily: "Search family...",
@@ -925,6 +939,12 @@ export const resources = {
         onlyUnsetHint: "Keeps thresholds that were already configured.",
         overwrite: "Replace current",
         overwriteHint: "Updates the minimum even when a value already exists.",
+        applyToSelection: "Update selected items",
+        applyToSelectionHint:
+          "Applies the new value to the entire selected scope and replaces an existing minimum when present.",
+        fillMissingOnly: "Set only missing minimums",
+        fillMissingOnlyHint:
+          "Keeps existing minimums unchanged and sets a value only where no minimum exists.",
         preview: "Preview",
         previewOptional: "Preview (optional)",
         apply: "Apply",
@@ -938,6 +958,10 @@ export const resources = {
         previewConflict:
           "{{count}} products have conflicts that block a safe update. Resolve them before applying.",
         applied: "Minimum stock updated for {{count}} products.",
+        noChangesExisting:
+          "Nothing changed: {{count}} products already have a minimum. Choose “Update selected items” to change existing values.",
+        noChangesSame:
+          "Nothing changed: the entered value already matches the current minimum in the selected scope.",
         errors: {
           preview: "Could not preview the minimum-stock update.",
           apply: "Could not apply minimum stock.",
@@ -961,15 +985,15 @@ export const resources = {
         withVehicles: "With vehicles",
         withVehiclesHint:
           "Stock that has physically left the warehouse and is now held by vehicles linked to this warehouse. It is not included in the warehouse total.",
-        companyCosts: "Company-wide cost",
+        companyCosts: "Costs",
         resultCount: "Products: {{total}}",
         costs: "Cost",
         costsHint:
           "Cost data is financial evidence at company level, not a separate cost for this warehouse. It is hidden on this screen when the product has no inventory associated with the selected warehouse.",
-        lastCompanyPurchase: "Latest company purchase",
+        lastCompanyPurchase: "Latest purchase cost",
         lastCompanyPurchaseHint:
           "The latest actual purchase cost recorded for this product at company level, in the unit used for that purchase.",
-        companyAverage: "Company average",
+        companyAverage: "Average cost",
         companyAverageHint:
           "The current company-wide financial average cost for this product. It is shown here only when inventory is associated with the selected warehouse.",
         unavailable: "Unavailable for sale",
