@@ -289,6 +289,9 @@ export default function MainInventory() {
       : [],
   );
   const stockItemsRef = useRef<WarehouseProduct[]>(stockItems);
+  const [stockPageReady, setStockPageReady] = useState(
+    initialLiveSnapshot?.hasPage === true,
+  );
   useEffect(() => {
     stockItemsRef.current = stockItems;
   }, [stockItems]);
@@ -371,6 +374,7 @@ export default function MainInventory() {
       if (snapshot?.hasPage) {
         stockItemsRef.current = snapshot.items;
         setStockItems(snapshot.items);
+        setStockPageReady(true);
         setStockMatchingTotal(snapshot.matchingTotal);
         setStockNextCursor(snapshot.nextCursor);
         setLastSync(
@@ -381,6 +385,7 @@ export default function MainInventory() {
       } else {
         stockItemsRef.current = [];
         setStockItems([]);
+        setStockPageReady(false);
         setStockMatchingTotal(null);
         setStockNextCursor(null);
         setLastSync(null);
@@ -642,6 +647,7 @@ export default function MainInventory() {
 
       stockItemsRef.current = nextItems;
       setStockItems(nextItems);
+      setStockPageReady(true);
       if (defaultView && requestCursor === null) {
         patchLiveStockWarmSnapshot(
           warmScopeKey,
@@ -682,6 +688,7 @@ export default function MainInventory() {
       if (warmSnapshot?.hasPage !== true) {
         stockItemsRef.current = [];
         setStockItems([]);
+        setStockPageReady(false);
         setStockNextCursor(null);
         setStockMatchingTotal(null);
       }
@@ -773,6 +780,7 @@ export default function MainInventory() {
   const resetStockPagination = useCallback(() => {
     stockItemsRef.current = [];
     setStockItems([]);
+    setStockPageReady(false);
     setStockCursor(null);
     setStockNextCursor(null);
     setStockMatchingTotal(null);
@@ -940,6 +948,13 @@ export default function MainInventory() {
     }
   }, [activeTab, loadingLocations, locationError, locations.length, warehouseSetup]);
 
+  const canShowWarmLiveDuringAccessRefresh =
+    activeTab === "live" &&
+    selectedLocationId !== null &&
+    locationAccess.isPending &&
+    stockPageReady &&
+    !locationAccess.isError;
+
   if (loadingLocations && warehouseSetup === null) {
     return (
       <div className="flex items-center justify-center h-full w-full text-slate-500 font-bold">
@@ -1099,7 +1114,9 @@ export default function MainInventory() {
       )}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
-        {selectedLocationId !== null && locationAccess.isPending && (
+        {selectedLocationId !== null &&
+          locationAccess.isPending &&
+          !canShowWarmLiveDuringAccessRefresh && (
           <div className="inventory-empty-state flex flex-1 items-center justify-center gap-2 px-6 text-center font-bold text-slate-500">
             <RefreshCcw className="h-5 w-5 animate-spin" />
             {t("common.loading")}
@@ -1128,7 +1145,13 @@ export default function MainInventory() {
           </div>
         )}
 
-        {!locationAccess.isPending && activeTab === "live" && tabAllowed("live") && selectedLocationId !== null && (
+        {activeTab === "live" &&
+          selectedLocationId !== null &&
+          !locationAccess.isError &&
+          (
+            canShowWarmLiveDuringAccessRefresh ||
+            (!locationAccess.isPending && tabAllowed("live"))
+          ) && (
           <Tab1LiveStock
             locationId={selectedLocationId}
             locations={locations}
@@ -1137,6 +1160,7 @@ export default function MainInventory() {
             isAuditLocked={displayAuditLocked}
             products={stockItems}
             loading={loadingStock}
+            pageReady={stockPageReady}
             onLocationChange={handleLocationChange}
             onRefresh={() => {
               refreshStock();
