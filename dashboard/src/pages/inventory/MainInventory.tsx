@@ -22,6 +22,7 @@ import {
   type WarehouseProduct,
 } from "./liveStock/contracts";
 import {
+  clearInventoryWarmScope,
   inventoryWarmScopeKey,
   patchLiveStockWarmSnapshot,
   readInventoryShellWarmSnapshot,
@@ -323,10 +324,12 @@ export default function MainInventory() {
       : null,
   );
 
-  const displayAuditLocked = auditLockState === true;
-  // Unknown/error status stays fail-closed for mutations, while the
-  // visual lock chip is shown only after a real locked status is known.
-  const effectiveAuditLocked = auditLockState !== false;
+  const displayAuditLocked =
+    canReadStatus && auditLockState === true;
+  // If status is readable, unknown/error stays fail-closed. Roles that
+  // legitimately cannot read warehouse status keep the previous behavior.
+  const effectiveAuditLocked =
+    canReadStatus ? auditLockState !== false : false;
 
   const hydrateDefaultLiveStock = useCallback(
     (locationId: number | null) => {
@@ -495,6 +498,7 @@ export default function MainInventory() {
 
     if (!canAny('location.read')) {
       locationRequestSeq.current += 1;
+      clearInventoryWarmScope(warmScopeKey);
       setLocations([]);
       setWarehouseSetup(null);
       setLocationsTruncated(false);
@@ -507,7 +511,13 @@ export default function MainInventory() {
     }
 
     void fetchLocations();
-  }, [access.isSuccess, canAny, fetchLocations, prepareLocationChange]);
+  }, [
+    access.isSuccess,
+    canAny,
+    fetchLocations,
+    prepareLocationChange,
+    warmScopeKey,
+  ]);
 
   const handleLocationChange = useCallback(
     (value: string) => {
@@ -789,7 +799,7 @@ export default function MainInventory() {
     const requestSeq = ++statusRequestSeq.current;
 
     if (selectedLocationId === null || !canReadStatus) {
-      setAuditLockState(null);
+      setAuditLockState(false);
       setLoadingStatus(false);
       return;
     }
