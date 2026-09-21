@@ -281,12 +281,26 @@ export const resources = {
         tabsLabel: "شاشات المخزون",
         tabs: {
           live: "الرصيد الحي",
+          batches: "الدفعات والصلاحية",
           inbound: "توريد بضاعة",
           transfers: "الحوالات",
           ledger: "سجل الحركات",
           stocktake: "جرد وتسوية",
           warehouses: "إدارة المستودعات",
           permissions: "الصلاحيات",
+        },
+      },
+      inventoryBatches: {
+        searchPlaceholder: "ابحث عن منتج أو SKU...",
+        noProducts: "لا توجد منتجات مطابقة.",
+        chooseProduct: "اختر منتجاً لعرض دفعاته وصلاحيته.",
+        loadMoreProducts: "تحميل منتجات إضافية",
+        batchCount: "{{count}} دفعة",
+        status: "الحالة",
+        restrictions: "القيود والحالات",
+        errors: {
+          products: "تعذر تحميل منتجات المستودع.",
+          details: "تعذر تحميل تفاصيل الدفعات.",
         },
       },
       inventoryLive: {
@@ -843,6 +857,19 @@ export const resources = {
           stocktake: "Stocktake & adjustment",
           warehouses: "Warehouse management",
           permissions: "Permissions",
+        },
+      },
+      inventoryBatches: {
+        searchPlaceholder: "Search product or SKU...",
+        noProducts: "No matching products.",
+        chooseProduct: "Choose a product to view its batches and expiry details.",
+        loadMoreProducts: "Load more products",
+        batchCount: "{{count}} batches",
+        status: "Status",
+        restrictions: "Restrictions & states",
+        errors: {
+          products: "Could not load warehouse products.",
+          details: "Could not load batch details.",
         },
       },
       inventoryLive: {
