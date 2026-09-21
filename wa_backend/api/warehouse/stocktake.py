@@ -21,10 +21,11 @@ from services import (
     InventoryMutationError,
     acquire_inventory_location_guard,
     get_company_local_date,
+    post_approved_stocktake_adjustments,
     validate_vehicle_recon_work_session,
 )
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
-from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
+from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
     DispatchRoute,
@@ -2199,4 +2200,113 @@ async def get_stocktake_review(
             batch_number, expiry_date,
         ) in rows],
     }
+
+
+# ====================================================
+# 11.27 اعتماد الجرد وترحيل الفروقات عبر محرك المخزون الموحد
+# ====================================================
+@router.post("/warehouse/unified/stocktake/{session_id}/approve", status_code=200)
+async def approve_stocktake_session(
+    session_id: int,
+    payload: StocktakeApprovalRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """Optimistic approval ثم posting حصراً عبر post_approved_stocktake_adjustments."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.approve', session_id)
+
+    company_id = current_admin.company_id
+
+    password_ok = await asyncio.to_thread(
+        bcrypt.checkpw,
+        payload.password.encode('utf-8'),
+        current_admin.password_hash.encode('utf-8'),
+    )
+    if not password_ok:
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session_id}",
+            action_type="STOCKTAKE_APPROVAL_REJECTED",
+            old_value="PENDING_REVIEW",
+            new_value="Wrong password",
+        ))
+        await db.commit()
+        raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الاعتماد وتوثيق المحاولة.")
+
+    try:
+        location_id = await _probe_stocktake_location_id(db, company_id, session_id)
+        await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
+
+        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
+        if session.status != 'PENDING_REVIEW':
+            raise HTTPException(status_code=409, detail=f"لا يمكن اعتماد جلسة بحالة ({session.status}).")
+
+        latest_attempt = await _latest_stocktake_attempt(db, company_id, session.id)
+        if latest_attempt is None:
+            raise HTTPException(status_code=409, detail="لا توجد محاولة عد مثبتة لاعتمادها.")
+        if latest_attempt.id != payload.count_attempt_id:
+            raise HTTPException(
+                status_code=409,
+                detail="محاولة العد التي راجعتها لم تعد الأحدث؛ أعد فتح شاشة المراجعة.",
+            )
+
+        approved_at = _utc_naive_now()
+        session.status = 'APPROVED'
+        session.approved_by = current_admin.id
+        session.approved_at = approved_at
+        session.updated_at = approved_at
+        if payload.notes:
+            session.notes = f"{session.notes or ''} | Approval: {payload.notes}".strip(" |")
+        await db.flush()
+
+        movements = await post_approved_stocktake_adjustments(
+            db,
+            company_id=company_id,
+            stocktake_session_id=session.id,
+            stocktake_count_attempt_id=latest_attempt.id,
+            performed_by=current_admin.id,
+        )
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_APPROVED_AND_POSTED",
+            old_value=json.dumps({
+                "status": "PENDING_REVIEW",
+                "attempt_id": latest_attempt.id,
+                "attempt_number": latest_attempt.attempt_number,
+            }, ensure_ascii=False),
+            new_value=json.dumps({
+                "status": "POSTED",
+                "approved_by": current_admin.id,
+                "movement_count": len(movements),
+            }, ensure_ascii=False),
+        ))
+        await db.commit()
+
+        return {
+            "message": "تم اعتماد الجرد وترحيل الفروقات وفك الأقفال بنجاح.",
+            "attempt_id": latest_attempt.id,
+            "attempt_number": latest_attempt.attempt_number,
+            "movement_count": len(movements),
+            "status": "POSTED",
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except IntegrityError as e:
+        await db.rollback()
+        logger.warning(f"تعارض متزامن أثناء اعتماد الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=409, detail="حدث تعارض متزامن أثناء الاعتماد؛ لم تُحفظ حالة جزئية.")
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في اعتماد الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء اعتماد الجرد.")
 
