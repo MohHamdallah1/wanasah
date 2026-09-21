@@ -123,6 +123,20 @@ const isDuplicateShopResponse = (
   );
 };
 
+const parseCreatedShopId = (data: unknown): string => {
+  if (typeof data !== "object" || data === null) {
+    throw new Error("استجابة إنشاء المحل غير صالحة.");
+  }
+  const shopId = (data as Record<string, unknown>).shop_id;
+  if (
+    (typeof shopId !== "string" && typeof shopId !== "number") ||
+    String(shopId).trim() === ""
+  ) {
+    throw new Error("استجابة إنشاء المحل لا تحتوي معرفاً صالحاً.");
+  }
+  return String(shopId);
+};
+
 const normalizeShops = (data: unknown): Shop[] => {
   if (!Array.isArray(data)) return [];
   return data.map((raw) => {
@@ -1007,7 +1021,7 @@ export default function DispatchBoard() {
           method: "POST",
           body: JSON.stringify({ ...apiPayload, force_save: false })
         });
-        const newShop = { ...localShopState, id: String(data.shop_id), sequence: 999, archived: false };
+        const newShop = { ...localShopState, id: parseCreatedShopId(data), sequence: 999, archived: false };
         setShops(prev => [...prev, newShop]);
         setZones(prev => sortZones(prev.map(z => z.id === localShopState.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
         setIsShopModalOpen(false);
@@ -1046,7 +1060,7 @@ export default function DispatchBoard() {
       // +++ استخدام الكائن المحلي النظيف (Camel Case) المحفوظ في التحذير +++
       const newShop = {
         ...duplicateWarning.localState,
-        id: String(data.shop_id),
+        id: parseCreatedShopId(data),
         sequence: 999,
         archived: false
       };

@@ -85,10 +85,35 @@ const nullableCount = (
 ): number | null =>
   value === null ? null : int(value, code);
 
+export type LiveStockStockState =
+  | "all"
+  | "on_hand"
+  | "sellable"
+  | "out_of_stock"
+  | "low_stock";
+
+export type LiveStockIndicator =
+  | "reserved"
+  | "unavailable"
+  | "damaged"
+  | "recalled"
+  | "vehicle"
+  | "minimum_unset";
+
+export type LiveStockSort = "name_asc" | "name_desc";
+
+export interface LiveStockFamilyOption {
+  id: number;
+  name: string;
+  code: string;
+}
+
 export interface WarehouseProduct {
   id: number;
   name: string;
   sku: string | null;
+  product_id: number;
+  family_name: string;
 
   base_uom_id: number;
   base_uom_code: string;
@@ -139,6 +164,99 @@ export interface WarehouseInventorySummary {
 
 export interface WarehouseInventoryAlertSummary {
   alert_count: number;
+}
+
+export type MinimumStockScope = "ALL" | "FAMILY" | "PRODUCT";
+export type MinimumStockApplyMode = "ONLY_UNSET" | "OVERWRITE";
+
+export interface BulkMinimumStockPlan {
+  location_id: number;
+  scope: MinimumStockScope;
+  family_ids: number[];
+  product_variant_ids: number[];
+  minimum_quantity: Quantity;
+  unit_mode: "DISPLAY_UOM_PER_PRODUCT";
+  apply_mode: MinimumStockApplyMode;
+  matched_count: number;
+  affected_count: number;
+  skipped_existing_count: number;
+  inactive_conflict_count: number;
+  target_conflict_count: number;
+  invalid_quantity_count: number;
+  conflict_samples: {
+    inactive: number[];
+    target: number[];
+    invalid_quantity: number[];
+  };
+  changed?: boolean;
+}
+
+export function parseBulkMinimumStockPlan(raw: unknown): BulkMinimumStockPlan {
+  const code = "STOCK_MINIMUM_BULK_RESPONSE_INVALID";
+  const row = record(raw, code);
+  const scope = str(row.scope, code, 20);
+  const applyMode = str(row.apply_mode, code, 20);
+  const unitMode = str(row.unit_mode, code, 40);
+
+  if (!["ALL", "FAMILY", "PRODUCT"].includes(scope)) {
+    return contractError(code);
+  }
+  if (!["ONLY_UNSET", "OVERWRITE"].includes(applyMode)) {
+    return contractError(code);
+  }
+  if (unitMode !== "DISPLAY_UOM_PER_PRODUCT") {
+    return contractError(code);
+  }
+
+  const samples = record(row.conflict_samples, code);
+  const parseIds = (value: unknown): number[] => {
+    if (!Array.isArray(value) || value.length > 10) {
+      return contractError(code);
+    }
+    return value.map((item) => int(item, code, 1));
+  };
+
+  const parseSelectionIds = (value: unknown): number[] => {
+    if (!Array.isArray(value) || value.length > 200) {
+      return contractError(code);
+    }
+    const ids = value.map((item) => int(item, code, 1));
+    if (new Set(ids).size !== ids.length) {
+      return contractError(code);
+    }
+    return ids;
+  };
+
+  return {
+    location_id: int(row.location_id, code, 1),
+    scope: scope as MinimumStockScope,
+    family_ids: parseSelectionIds(row.family_ids),
+    product_variant_ids: parseSelectionIds(row.product_variant_ids),
+    minimum_quantity: parseQuantity(
+      row.minimum_quantity,
+      "minimum_quantity",
+      { allowZero: true },
+    ),
+    unit_mode: "DISPLAY_UOM_PER_PRODUCT",
+    apply_mode: applyMode as MinimumStockApplyMode,
+    matched_count: int(row.matched_count, code),
+    affected_count: int(row.affected_count, code),
+    skipped_existing_count: int(row.skipped_existing_count, code),
+    inactive_conflict_count: int(row.inactive_conflict_count, code),
+    target_conflict_count: int(row.target_conflict_count, code),
+    invalid_quantity_count: int(row.invalid_quantity_count, code),
+    conflict_samples: {
+      inactive: parseIds(samples.inactive),
+      target: parseIds(samples.target),
+      invalid_quantity: parseIds(samples.invalid_quantity),
+    },
+    changed:
+      row.changed === undefined
+        ? undefined
+        : typeof row.changed === "boolean"
+          ? row.changed
+          : contractError(code),
+  };
 }
 
 export interface WarehouseBatchInventoryItem {
@@ -220,6 +338,8 @@ export function parseLiveStockPage(
       id,
       name: str(row.name, code),
       sku: nullableStr(row.sku, code, 100),
+      product_id: int(row.product_id, code, 1),
+      family_name: str(row.family_name, code, 150),
       base_uom_id: int(row.base_uom_id, code, 1),
       base_uom_code: str(row.base_uom_code, code, 20),
       base_uom_name: str(row.base_uom_name, code, 50),
@@ -328,6 +448,25 @@ export function parseLiveStockPage(
     alert_count: nullableCount(page.alert_count, code),
     alert_samples: [...samples] as string[],
   };
+}
+
+export function parseLiveStockFamilies(
+  raw: unknown,
+): { items: LiveStockFamilyOption[]; has_more: boolean } {
+  const code = "LIVE_STOCK_FAMILIES_INVALID";
+  const payload = record(raw, code);
+  if (!Array.isArray(payload.items) || typeof payload.has_more !== "boolean") {
+    return contractError(code);
+  }
+  const items = payload.items.map((value) => {
+    const row = record(value, code);
+    return {
+      id: int(row.id, code, 1),
+      name: str(row.name, code, 150),
+      code: str(row.code, code, 100),
+    };
+  });
+  return { items, has_more: payload.has_more };
 }
 
 export function parseLiveStockSummary(

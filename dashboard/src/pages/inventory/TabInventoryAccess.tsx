@@ -8,6 +8,108 @@ interface User { id: number; full_name: string; is_admin: boolean; is_active: bo
 interface Location { id: number; name: string; code: string; location_type: string }
 interface Grant { id: number; role_id: number; location_id: number | null }
 interface Page<T> { items: T[]; next_id: number | null }
+interface PermissionCatalog { permissions: string[]; company_only: string[] }
+
+const asRecord = (value: unknown, label: string): Record<string, unknown> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${label} غير صالح.`);
+  }
+  return value as Record<string, unknown>;
+};
+
+const asPositiveInt = (value: unknown, label: string): number => {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} غير صالح.`);
+  }
+  return value;
+};
+
+const asText = (value: unknown, label: string): string => {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} غير صالح.`);
+  }
+  return value;
+};
+
+const asBoolean = (value: unknown, label: string): boolean => {
+  if (typeof value !== 'boolean') throw new Error(`${label} غير صالح.`);
+  return value;
+};
+
+const asStringArray = (value: unknown, label: string): string[] => {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new Error(`${label} غير صالح.`);
+  }
+  return [...value];
+};
+
+const parsePage = <T,>(
+  raw: unknown,
+  label: string,
+  parseItem: (value: unknown) => T,
+): Page<T> => {
+  const page = asRecord(raw, label);
+  if (!Array.isArray(page.items)) throw new Error(`${label} غير صالح.`);
+  const nextId =
+    page.next_id === null
+      ? null
+      : asPositiveInt(page.next_id, `${label} next_id`);
+  return { items: page.items.map(parseItem), next_id: nextId };
+};
+
+const parseRolePage = (raw: unknown): Page<Role> =>
+  parsePage(raw, 'صفحة الأدوار', (value) => {
+    const row = asRecord(value, 'الدور');
+    return {
+      id: asPositiveInt(row.id, 'معرف الدور'),
+      name: asText(row.name, 'اسم الدور'),
+      permissions: asStringArray(row.permissions, 'صلاحيات الدور'),
+      is_system_role: asBoolean(row.is_system_role, 'نوع الدور'),
+    };
+  });
+
+const parseUserPage = (raw: unknown): Page<User> =>
+  parsePage(raw, 'صفحة المستخدمين', (value) => {
+    const row = asRecord(value, 'المستخدم');
+    return {
+      id: asPositiveInt(row.id, 'معرف المستخدم'),
+      full_name: asText(row.full_name, 'اسم المستخدم'),
+      is_admin: asBoolean(row.is_admin, 'صفة المدير'),
+      is_active: asBoolean(row.is_active, 'حالة المستخدم'),
+    };
+  });
+
+const parseLocationPage = (raw: unknown): Page<Location> =>
+  parsePage(raw, 'صفحة المواقع', (value) => {
+    const row = asRecord(value, 'الموقع');
+    return {
+      id: asPositiveInt(row.id, 'معرف الموقع'),
+      name: asText(row.name, 'اسم الموقع'),
+      code: asText(row.code, 'كود الموقع'),
+      location_type: asText(row.location_type, 'نوع الموقع'),
+    };
+  });
+
+const parseGrantPage = (raw: unknown): Page<Grant> =>
+  parsePage(raw, 'صفحة المنح', (value) => {
+    const row = asRecord(value, 'المنح');
+    return {
+      id: asPositiveInt(row.id, 'معرف المنح'),
+      role_id: asPositiveInt(row.role_id, 'معرف الدور'),
+      location_id:
+        row.location_id === null
+          ? null
+          : asPositiveInt(row.location_id, 'معرف الموقع'),
+    };
+  });
+
+const parsePermissionCatalog = (raw: unknown): PermissionCatalog => {
+  const row = asRecord(raw, 'دليل الصلاحيات');
+  return {
+    permissions: asStringArray(row.permissions, 'الصلاحيات'),
+    company_only: asStringArray(row.company_only, 'صلاحيات الشركة'),
+  };
+};
 
 const LABELS: Record<string, string> = {
   'location.read': 'رؤية الموقع', 'location.create': 'إنشاء مستودع',
@@ -40,15 +142,15 @@ export function TabInventoryAccess() {
   const [busy, setBusy] = useState(false);
   const queryPrefix = ['inventory-access-admin', localStorage.getItem('company_id'), localStorage.getItem('driver_id')];
   const roles = useQuery<Page<Role>>({ queryKey: [...queryPrefix, 'roles', roleAfter],
-    queryFn: ({signal}) => fetcher(`/inventory/access/roles?after_id=${roleAfter}`, {signal}) });
+    queryFn: async ({signal}) => parseRolePage(await fetcher(`/inventory/access/roles?after_id=${roleAfter}`, {signal})) });
   const users = useQuery<Page<User>>({ queryKey: [...queryPrefix, 'users', userAfter],
-    queryFn: ({signal}) => fetcher(`/inventory/access/users?after_id=${userAfter}`, {signal}) });
+    queryFn: async ({signal}) => parseUserPage(await fetcher(`/inventory/access/users?after_id=${userAfter}`, {signal})) });
   const locations = useQuery<Page<Location>>({ queryKey: [...queryPrefix, 'locations', locationAfter],
-    queryFn: ({signal}) => fetcher(`/inventory/access/locations?after_id=${locationAfter}`, {signal}) });
-  const catalog = useQuery<{permissions: string[]; company_only: string[]}>({ queryKey: [...queryPrefix, 'catalog'],
-    queryFn: ({signal}) => fetcher('/inventory/access/catalog', {signal}) });
+    queryFn: async ({signal}) => parseLocationPage(await fetcher(`/inventory/access/locations?after_id=${locationAfter}`, {signal})) });
+  const catalog = useQuery<PermissionCatalog>({ queryKey: [...queryPrefix, 'catalog'],
+    queryFn: async ({signal}) => parsePermissionCatalog(await fetcher('/inventory/access/catalog', {signal})) });
   const grants = useQuery<Page<Grant>>({ queryKey: [...queryPrefix, 'grants', userId, scope, grantAfter], enabled: Boolean(userId),
-    queryFn: ({signal}) => fetcher(`/inventory/access/users/${userId}/grants?scope=${scope}&after_id=${grantAfter}`, {signal}) });
+    queryFn: async ({signal}) => parseGrantPage(await fetcher(`/inventory/access/users/${userId}/grants?scope=${scope}&after_id=${grantAfter}`, {signal})) });
   const mutate = async (url: string, method: string, body?: unknown) => {
     if (busy) return;
     setBusy(true);

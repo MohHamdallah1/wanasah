@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy import Integer, and_, any_, bindparam, case, func, or_, select, true, tuple_, union, union_all, update
-from typing import Optional, List
+from typing import Literal, Optional, List, Literal
 from database import get_db
 from api.dependencies import get_current_driver
 from inventory_access import (InventoryAccess, require_stocktake, require_transfer,
@@ -2636,32 +2636,33 @@ async def _require_live_stock_warehouse_read(
     return bool(permission_row.company_wide_allowed)
 
 
+def _live_stock_ordering(*, sort: str):
+    if sort == "name_desc":
+        return (
+            ProductVariant.name.desc(),
+            ProductVariant.id.desc(),
+        )
+    return (
+        ProductVariant.name.asc(),
+        ProductVariant.id.asc(),
+    )
+
+
 def _build_visible_inventory_stmt(
     *, company_id: int, location_id: int, access: InventoryAccess,
     company_wide_inventory_read: bool,
     candidate_filters=(), limit: Optional[int] = None,
+    sort: str = "name_asc",
 ):
-    """Exact Live Stock visibility with projection-backed warehouse presence.
-
-    Active variants are always visible. Non-active variants are visible when
-    warehouse stock exists in the projection or when stock exists on a vehicle
-    the current actor is allowed to read and whose latest route belongs to the
-    selected warehouse.
-    """
+    """Exact Live Stock visibility with projection-backed warehouse presence."""
     extra_candidate_filters = tuple(candidate_filters)
     candidate_filters = [
         ProductVariant.company_id == company_id,
         *extra_candidate_filters,
     ]
-    ordering = (
-        (ProductVariant.name, ProductVariant.id)
-        if limit is not None
-        else ()
-    )
-    # Fast path is valid only when there is no search/cursor filter beyond
-    # the mandatory tenant predicate.  Previously this condition checked the
-    # post-normalized list, which always contained company_id and therefore
-    # made the optimized UNION ALL path unreachable.
+    ordering = _live_stock_ordering(sort=sort) if limit is not None else ()
+    descending = sort == "name_desc"
+
     if company_wide_inventory_read and not extra_candidate_filters:
         stream_limit = limit + 1 if limit is not None else None
         active_stream = (
@@ -2673,8 +2674,19 @@ def _build_visible_inventory_stmt(
                 ProductVariant.company_id == company_id,
                 ProductVariant.lifecycle_status == "ACTIVE",
             )
-            .order_by(ProductVariant.name, ProductVariant.id)
+            .order_by(*ordering)
             .limit(stream_limit)
+        )
+        projection_order = (
+            (
+                InventoryLiveStockProjection.variant_name.desc(),
+                InventoryLiveStockProjection.product_variant_id.desc(),
+            )
+            if descending
+            else (
+                InventoryLiveStockProjection.variant_name.asc(),
+                InventoryLiveStockProjection.product_variant_id.asc(),
+            )
         )
         nonactive_stream = (
             select(
@@ -2697,19 +2709,21 @@ def _build_visible_inventory_stmt(
                     ),
                 ),
             )
-            .order_by(
-                InventoryLiveStockProjection.variant_name,
-                InventoryLiveStockProjection.product_variant_id,
-            )
+            .order_by(*projection_order)
             .limit(stream_limit)
         )
         merged = union_all(
             active_stream,
             nonactive_stream,
         ).subquery("visible_inventory_fast_candidates")
+        merged_order = (
+            (merged.c.variant_name.desc(), merged.c.id.desc())
+            if descending
+            else (merged.c.variant_name.asc(), merged.c.id.asc())
+        )
         return (
             select(merged.c.id, merged.c.variant_name)
-            .order_by(merged.c.variant_name, merged.c.id)
+            .order_by(*merged_order)
             .limit(stream_limit)
         )
 
@@ -2745,7 +2759,6 @@ def _build_visible_inventory_stmt(
             .order_by(*ordering)
             .limit(limit + 1 if limit is not None else None)
         )
-
 
     active_candidates = (
         select(
@@ -2834,15 +2847,23 @@ def _build_visible_inventory_stmt(
         warehouse_candidates,
         vehicle_candidates,
     ).subquery("visible_inventory_candidates")
+    visible_order = (
+        (
+            visible_candidates.c.variant_name.desc(),
+            visible_candidates.c.id.desc(),
+        )
+        if descending
+        else (
+            visible_candidates.c.variant_name.asc(),
+            visible_candidates.c.id.asc(),
+        )
+    )
     return (
         select(
             visible_candidates.c.id,
             visible_candidates.c.variant_name,
         )
-        .order_by(
-            *((visible_candidates.c.variant_name, visible_candidates.c.id)
-              if limit is not None else ())
-        )
+        .order_by(*visible_order)
         .limit(limit + 1 if limit is not None else None)
     )
 
@@ -2874,6 +2895,131 @@ def _build_inventory_alert_variants_stmt(
             InventoryLiveStockProjection.is_low_stock.is_(True),
             *variant_filters,
         )
+    )
+
+
+def _live_stock_filtered_variant_ids_stmt(
+    *,
+    company_id: int,
+    location_id: int,
+    access: InventoryAccess,
+    company_wide_inventory_read: bool,
+    stock_state: str,
+    has_reserved: bool,
+    has_unavailable: bool,
+    has_damaged: bool,
+    has_recalled: bool,
+    has_vehicle: bool,
+    minimum_unset: bool,
+):
+    variant = aliased(ProductVariant, name="live_stock_filter_variant")
+    projection = aliased(
+        InventoryLiveStockProjection,
+        name="live_stock_filter_projection",
+    )
+
+    projected_on_hand = func.coalesce(projection.warehouse_on_hand, 0)
+    projected_reserved = func.coalesce(projection.warehouse_reserved, 0)
+    projected_sellable_on_hand = func.coalesce(
+        projection.warehouse_sellable_on_hand, 0
+    )
+    projected_sellable_reserved = func.coalesce(
+        projection.warehouse_sellable_reserved, 0
+    )
+    projected_blocked = func.coalesce(projection.blocked_status_packs, 0)
+    projected_damaged = func.coalesce(projection.damaged_packs, 0)
+    projected_recalled = func.coalesce(projection.recalled_packs, 0)
+
+    effective_sellable = case(
+        (
+            and_(
+                variant.lifecycle_status == "ACTIVE",
+                variant.operational_hold == "NONE",
+            ),
+            projected_sellable_on_hand - projected_sellable_reserved,
+        ),
+        else_=0,
+    )
+    warehouse_total = (
+        projected_on_hand + projected_blocked + projected_damaged
+    )
+    unavailable = (
+        warehouse_total - projected_reserved - effective_sellable
+    )
+
+    conditions = []
+    if stock_state == "on_hand":
+        conditions.append(warehouse_total > 0)
+    elif stock_state == "sellable":
+        conditions.append(effective_sellable > 0)
+    elif stock_state == "out_of_stock":
+        conditions.append(effective_sellable <= 0)
+    elif stock_state == "low_stock":
+        conditions.append(projection.is_low_stock.is_(True))
+
+    if has_reserved:
+        conditions.append(projected_reserved > 0)
+    if has_unavailable:
+        conditions.append(unavailable > 0)
+    if has_damaged:
+        conditions.append(projected_damaged > 0)
+    if has_recalled:
+        conditions.append(projected_recalled > 0)
+    if minimum_unset:
+        conditions.append(func.coalesce(projection.minimum_quantity, 0) == 0)
+
+    if has_vehicle:
+        if company_wide_inventory_read:
+            conditions.append(func.coalesce(projection.vehicle_packs, 0) > 0)
+        else:
+            readable_vehicle_locations = _readable_vehicle_locations_subquery(
+                company_id=company_id,
+                access=access,
+            )
+            latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
+                company_id=company_id,
+                readable_vehicle_locations=readable_vehicle_locations,
+            )
+            readable_vehicle_variants = (
+                select(InventoryBalance.product_variant_id)
+                .join(
+                    readable_vehicle_locations,
+                    readable_vehicle_locations.c.id
+                    == InventoryBalance.location_id,
+                )
+                .join(
+                    latest_vehicle_sources,
+                    and_(
+                        latest_vehicle_sources.c.vehicle_id
+                        == readable_vehicle_locations.c.vehicle_id,
+                        latest_vehicle_sources.c.source_location_id
+                        == location_id,
+                    ),
+                )
+                .where(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.stock_status != "DAMAGED",
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+                .distinct()
+            )
+            conditions.append(variant.id.in_(readable_vehicle_variants))
+
+    return (
+        select(variant.id)
+        .outerjoin(
+            projection,
+            and_(
+                projection.company_id == variant.company_id,
+                projection.product_variant_id == variant.id,
+                projection.warehouse_location_id == location_id,
+            ),
+        )
+        .where(
+            variant.company_id == company_id,
+            *conditions,
+        )
+        .correlate(None)
     )
 
 
@@ -3020,6 +3166,77 @@ async def get_warehouse_inventory_summary(
 
 
 @router.get(
+    "/warehouse/inventory/families",
+    status_code=200,
+)
+async def get_warehouse_inventory_families(
+    location_id: int,
+    search: Optional[str] = Query(default=None, max_length=100),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    company_id = current_admin.company_id
+    await _require_live_stock_warehouse_read(
+        db,
+        company_id=company_id,
+        location_id=location_id,
+        access=access,
+        actor=current_admin,
+    )
+
+    clean_search = " ".join((search or "").strip().lower().split())
+    if clean_search and len(clean_search) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "LIVE_STOCK_FAMILY_SEARCH_TOO_SHORT",
+                "message": "Family search requires at least two characters.",
+                "context": {},
+            },
+        )
+
+    filters = [Product.company_id == company_id]
+    if clean_search:
+        family_tokens = clean_search.split()
+        filters.extend(
+            or_(
+                func.lower(Product.name).like(
+                    f"%{_escape_like(token)}%",
+                    escape="\\",
+                ),
+                func.lower(Product.code).like(
+                    f"%{_escape_like(token)}%",
+                    escape="\\",
+                ),
+            )
+            for token in family_tokens
+        )
+
+    rows = (
+        await db.execute(
+            select(Product.id, Product.name, Product.code)
+            .where(*filters)
+            .order_by(Product.name.asc(), Product.id.asc())
+            .limit(limit + 1)
+        )
+    ).all()
+    page = rows[:limit]
+    return {
+        "items": [
+            {
+                "id": int(row.id),
+                "name": str(row.name),
+                "code": str(row.code),
+            }
+            for row in page
+        ],
+        "has_more": len(rows) > limit,
+    }
+
+
+@router.get(
     "/warehouse/inventory/cursor",
     response_model=WarehouseInventoryCursorPage,
     status_code=200,
@@ -3030,6 +3247,17 @@ async def get_warehouse_inventory(
     limit: int = Query(default=50, ge=1, le=200),
     search: Optional[str] = Query(default=None, min_length=2, max_length=100),
     only_alerts: bool = False,
+    stock_state: Literal[
+        "all", "on_hand", "sellable", "out_of_stock", "low_stock"
+    ] = "all",
+    family_id: Optional[int] = None,
+    has_reserved: bool = False,
+    has_unavailable: bool = False,
+    has_damaged: bool = False,
+    has_recalled: bool = False,
+    has_vehicle: bool = False,
+    minimum_unset: bool = False,
+    sort: Literal["name_asc", "name_desc"] = "name_asc",
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_driver),
 ):
@@ -3053,58 +3281,137 @@ async def get_warehouse_inventory(
             location_id=location_id,
         )
 
-        clean_search = (search or "").strip().lower()
+        clean_search = " ".join((search or "").strip().lower().split())
         if clean_search and len(clean_search) < 2:
             raise HTTPException(
                 status_code=400,
-                detail="البحث في المخزون يتطلب حرفين على الأقل.",
+                detail={
+                    "code": "LIVE_STOCK_SEARCH_TOO_SHORT",
+                    "message": "Inventory search requires at least two characters.",
+                    "context": {},
+                },
             )
+        if only_alerts and stock_state not in {"all", "low_stock"}:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "LIVE_STOCK_ALERT_FILTER_CONFLICT",
+                    "message": "Alert-only mode cannot be combined with another stock state.",
+                    "context": {},
+                },
+            )
+        if family_id is not None and family_id <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "LIVE_STOCK_FAMILY_INVALID",
+                    "message": "The selected product family is invalid.",
+                    "context": {},
+                },
+            )
+
+        effective_stock_state = (
+            "low_stock" if only_alerts else stock_state
+        )
+        indicator_filters_active = any(
+            (
+                has_reserved,
+                has_unavailable,
+                has_damaged,
+                has_recalled,
+                has_vehicle,
+                minimum_unset,
+            )
+        )
 
         search_condition = None
         if clean_search:
-            like_pattern = f"%{_escape_like(clean_search)}%"
-            search_condition = or_(
-                func.lower(ProductVariant.name).like(
-                    like_pattern,
-                    escape="\\",
-                ),
-                func.lower(
-                    func.coalesce(ProductVariant.sku, "")
-                ).like(
-                    like_pattern,
-                    escape="\\",
-                ),
+            search_tokens = clean_search.split()
+            search_condition = and_(
+                *[
+                    or_(
+                        func.lower(ProductVariant.name).like(
+                            f"%{_escape_like(token)}%",
+                            escape="\\",
+                        ),
+                        func.lower(
+                            func.coalesce(ProductVariant.sku, "")
+                        ).like(
+                            f"%{_escape_like(token)}%",
+                            escape="\\",
+                        ),
+                    )
+                    for token in search_tokens
+                ]
             )
 
         scope = (
-            f"inventory|{company_id}|{location_id}|"
-            f"{clean_search}|{int(only_alerts)}"
+            f"inventory|{company_id}|{location_id}|{clean_search}|"
+            f"{effective_stock_state}|{family_id or 0}|"
+            f"{int(has_reserved)}{int(has_unavailable)}"
+            f"{int(has_damaged)}{int(has_recalled)}"
+            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
         )
         candidate_filters = []
         if search_condition is not None:
             candidate_filters.append(search_condition)
+        if family_id is not None:
+            candidate_filters.append(ProductVariant.product_id == family_id)
+
+        use_alert_fast_path = (
+            effective_stock_state == "low_stock"
+            and not indicator_filters_active
+        )
+        if (
+            not use_alert_fast_path
+            and (
+                effective_stock_state != "all"
+                or indicator_filters_active
+            )
+        ):
+            filtered_ids = _live_stock_filtered_variant_ids_stmt(
+                company_id=company_id,
+                location_id=location_id,
+                access=access,
+                company_wide_inventory_read=company_wide_inventory_read,
+                stock_state=effective_stock_state,
+                has_reserved=has_reserved,
+                has_unavailable=has_unavailable,
+                has_damaged=has_damaged,
+                has_recalled=has_recalled,
+                has_vehicle=has_vehicle,
+                minimum_unset=minimum_unset,
+            )
+            candidate_filters.append(ProductVariant.id.in_(filtered_ids))
+
         if cursor is not None:
             cursor_name, cursor_id = _decode_variant_cursor(
                 cursor,
                 expected_kind="warehouse-inventory",
                 expected_scope=scope,
             )
+            cursor_key = tuple_(ProductVariant.name, ProductVariant.id)
+            cursor_value = tuple_(cursor_name, cursor_id)
             candidate_filters.append(
-                tuple_(ProductVariant.name, ProductVariant.id)
-                > tuple_(cursor_name, cursor_id)
+                cursor_key < cursor_value
+                if sort == "name_desc"
+                else cursor_key > cursor_value
             )
 
-        if only_alerts:
-            # Search and seek are part of the policy-driven source query so the
-            # database never materializes the full alert population first.
+        if use_alert_fast_path:
             alerts = _build_inventory_alert_variants_stmt(
                 company_id=company_id,
                 location_id=location_id,
                 variant_filters=candidate_filters,
             ).cte("scoped_alerts").prefix_with("MATERIALIZED")
+            alert_order = (
+                (alerts.c.variant_name.desc(), alerts.c.id.desc())
+                if sort == "name_desc"
+                else (alerts.c.variant_name.asc(), alerts.c.id.asc())
+            )
             candidate_stmt = (
                 select(alerts.c.id, alerts.c.variant_name)
-                .order_by(alerts.c.variant_name, alerts.c.id)
+                .order_by(*alert_order)
                 .limit(limit + 1)
             )
         else:
@@ -3115,6 +3422,7 @@ async def get_warehouse_inventory(
                 company_wide_inventory_read=company_wide_inventory_read,
                 candidate_filters=candidate_filters,
                 limit=limit,
+                sort=sort,
             )
 
         # Compatibility fields remain nullable; no exact totals on list reads.
@@ -3287,6 +3595,8 @@ async def get_warehouse_inventory(
                 ProductVariant.id.label("variant_id"),
                 ProductVariant.name.label("variant_name"),
                 ProductVariant.sku.label("sku"),
+                ProductVariant.product_id.label("product_id"),
+                Product.name.label("family_name"),
                 ProductVariant.base_uom_id.label("base_uom_id"),
                 ProductVariant.quantity_scale.label("quantity_scale"),
                 ProductVariant.quantity_step.label("quantity_step"),
@@ -3345,6 +3655,13 @@ async def get_warehouse_inventory(
                     ProductVariant.company_id == company_id,
                     ProductVariant.id
                     == detail_key_scope.c.product_variant_id,
+                ),
+            )
+            .join(
+                Product,
+                and_(
+                    Product.company_id == ProductVariant.company_id,
+                    Product.id == ProductVariant.product_id,
                 ),
             )
             .join(UOM, UOM.id == ProductVariant.base_uom_id)
@@ -3504,6 +3821,8 @@ async def get_warehouse_inventory(
                 "id": variant_id,
                 "name": str(row["variant_name"]),
                 "sku": row["sku"],
+                "product_id": int(row["product_id"]),
+                "family_name": str(row["family_name"]),
                 "base_uom_id": int(row["base_uom_id"]),
                 "base_uom_code": str(row["base_uom_code"]),
                 "base_uom_name": str(row["base_uom_name"]),
@@ -3559,6 +3878,15 @@ async def get_warehouse_inventory(
             raise RuntimeError(
                 "Inventory page identity invariant violated."
             )
+
+        result_by_id = {
+            int(item["id"]): item
+            for item in result
+        }
+        result = [
+            result_by_id[variant_id]
+            for variant_id in page_variant_ids
+        ]
 
         next_cursor = None
         if has_more:

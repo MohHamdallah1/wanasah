@@ -6,11 +6,10 @@ import { buildVariantPayload, parseMutationMessage } from '@/pages/inventory/cat
 import {
   buildInboundItems,
   inboundStorageKeys,
-  parseInboundDraftProducts,
   parseInboundDrafts,
   parseInboundResponse,
 } from '@/pages/inventory/inbound/contracts';
-import { parseLiveStockPage } from '@/pages/inventory/liveStock/contracts';
+import { parseLiveStockFamilies, parseLiveStockPage } from '@/pages/inventory/liveStock/contracts';
 import {
   buildLedgerAdjustmentPayload,
   parseLedgerMutationResponse,
@@ -59,10 +58,15 @@ describe('catalog product and UOM contract', () => {
 
 describe('inbound contract and draft isolation', () => {
   const draft = JSON.stringify({'7': [{
-    row_id: 'row-1', quantity:'27.125', batch_number: ' B-1 ',
+    row_id: 'row-1', quantity:'27.125', uom_id:'1', unit_cost:'1.250000', batch_number: ' B-1 ',
     production_date: '2026-01-01', expiry_date: '2027-01-01',
   }]});
   const product = {id:7,product_id:3,name:'صنف',sku:'SKU-7',gtin:null,base_uom:{id:1,code:'EACH',name:'حبة'},quantity_scale:3,quantity_step:'0.125',lot_control_mode:'REQUIRED' as const,expiry_control_mode:'REQUIRED' as const,lifecycle_status:'ACTIVE' as const,operational_hold:'NONE' as const,lifecycle_revision:1,version:1,published_at:'2026-09-12T00:00:00',retired_at:null,archived_at:null};
+  const inboundOptions = new Map([[7, {
+    product_variant_id: 7,
+    base_uom_id: 1,
+    uoms: [{ id: 1, code: 'EACH', name: 'حبة', factor_to_base: '1' }],
+  }]]);
 
   it('partitions UX state by tenant, actor, and location', () => {
     expect(inboundStorageKeys(1, 7, 100).drafts).not.toBe(inboundStorageKeys(1, 7, 101).drafts);
@@ -71,26 +75,45 @@ describe('inbound contract and draft isolation', () => {
   });
 
   it('builds the strict backend batch payload from fresh product metadata', () => {
-    const items = buildInboundItems(parseInboundDrafts(draft), new Map([['7', product]]));
+    const items = buildInboundItems(
+      parseInboundDrafts(draft),
+      new Map([['7', product]]),
+      inboundOptions,
+    );
     expect(items).toEqual([{
-      product_variant_id:7,quantity:'27.125',uom_id:1,batch_number:'B-1',
+      product_variant_id:7,quantity:'27.125',uom_id:1,unit_cost:'1.250000',batch_number:'B-1',
       production_date: '2026-01-01', expiry_date: '2027-01-01',
     }]);
-    expect(parseInboundResponse({message: 'تم'})).toEqual({message: 'تم'});
+    expect(() => parseInboundResponse({message: 'تم'})).not.toThrow();
   });
 
-  it('fails closed for malformed persisted drafts and product snapshots', () => {
+  it('fails closed for malformed persisted drafts and missing fresh product metadata', () => {
     expect(parseInboundDrafts('{bad')).toEqual({});
     expect(parseInboundDrafts(JSON.stringify({'7': [{...JSON.parse(draft)['7'][0], quantity:'1.0000001'}]}))).toEqual({});
-    expect(parseInboundDraftProducts(JSON.stringify({'7': {...product, id: 8}}))).toEqual({});
+    expect(parseInboundDrafts(JSON.stringify({'7': [{...JSON.parse(draft)['7'][0], uom_id: 1}]}))).toEqual({});
+    expect(() => buildInboundItems(parseInboundDrafts(draft), new Map(), inboundOptions)).toThrow();
   });
 });
 
 describe('live stock response contract', () => {
   const item = {
-    id:7,name:'صنف',sku:'SKU-7',base_uom_id:1,base_uom_code:'EACH',base_uom_name:'حبة',quantity_scale:3,quantity_step:'0.125',
-    available_quantity:'27.125',reserved_quantity:'3',blocked_quantity:'2',total_quantity:'32.125',damaged_quantity:'1',minimum_quantity:'10',
+    id:7,name:'صنف',sku:'SKU-7',product_id:3,family_name:'عائلة',base_uom_id:1,base_uom_code:'EACH',base_uom_name:'حبة',
+    display_uom_id:1,display_uom_code:'EACH',display_uom_name:'حبة',display_factor_to_base:'1',
+    currency_code:'JOD',average_cost_display:null,last_purchase_cost:null,last_purchase_uom_code:null,last_purchase_date:null,
+    quantity_scale:3,quantity_step:'0.125',on_hand_quantity:'32.125',reserved_quantity:'3',
+    available_for_sale_quantity:'27.125',unavailable_quantity:'2',vehicle_quantity:'0',recalled_quantity:'0',
+    available_quantity:'27.125',blocked_quantity:'2',total_quantity:'32.125',damaged_quantity:'1',minimum_quantity:'10',
   };
+
+  it('parses searchable product-family options for Live Stock filters', () => {
+    expect(parseLiveStockFamilies({
+      items: [{id: 3, name: 'عائلة', code: 'FAM-3'}],
+      has_more: false,
+    })).toEqual({
+      items: [{id: 3, name: 'عائلة', code: 'FAM-3'}],
+      has_more: false,
+    });
+  });
 
   it('accepts the exact cursor page and preserves base-unit quantities', () => {
     expect(parseLiveStockPage({
@@ -125,8 +148,11 @@ describe('live stock response contract', () => {
 describe('unified ledger response contract', () => {
   const entry = {
     id:44,product_variant_id:7,product_name:'صنف',base_uom_id:1,base_uom_code:'EACH',quantity_scale:3,quantity_step:'0.125',
-    type:'INBOUND_SUPPLIER',quantity:'27.125',balance_before:'0',balance_after:'27.125',admin_name:'مدير',reference:'INV-1',notes:null,
-    date: '2026-09-10T05:00:00+00:00',
+    type:'INBOUND_SUPPLIER',quantity:'27.125',balance_before:'0',balance_after:'27.125',balance_scope:'PRODUCT_LOCATION' as const,
+    batch_number:null,display_uom_id:1,display_uom_code:'EACH',display_uom_name:'حبة',display_factor_to_base:'1',
+    currency_code:'JOD',cost_method:null,input_quantity:null,input_uom_code:null,input_uom_name:null,
+    input_unit_cost:null,total_cost:null,average_cost_after:null,average_cost_uom_code:null,average_cost_uom_name:null,
+    admin_name:'مدير',reference:'INV-1',notes:null,date:'2026-09-10T05:00:00+00:00',
   };
 
   it('parses a location-scoped cursor page without losing movement snapshots', () => {

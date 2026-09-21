@@ -2,10 +2,11 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { TabInventoryAccess } from "./TabInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft } from "lucide-react";
+import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft, Layers3 } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { Tab1LiveStock } from "./Tab1LiveStock";
+import { TabBatches } from "./TabBatches";
 import { Tab2Inbound } from "./Tab2Inbound";
 import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
@@ -16,6 +17,8 @@ import "./inventory.css";
 import {
   parseLiveStockSummary,
   parseLiveStockPage,
+  type LiveStockIndicator,
+  type LiveStockStockState,
   type WarehouseProduct,
 } from "./liveStock/contracts";
 
@@ -24,6 +27,7 @@ import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء ال�
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
   { id: "live", labelKey: "inventoryShell.tabs.live", icon: Package },
+  { id: "batches", labelKey: "inventoryShell.tabs.batches", icon: Layers3 },
   { id: "inbound", labelKey: "inventoryShell.tabs.inbound", icon: FilePlus },
   { id: "transfers", labelKey: "inventoryShell.tabs.transfers", icon: ArrowRightLeft },
   { id: "ledger", labelKey: "inventoryShell.tabs.ledger", icon: History },
@@ -32,9 +36,11 @@ const TABS = [
   { id: "permissions", labelKey: "inventoryShell.tabs.permissions", icon: Lock },
 ] as const;
 
+const LIVE_STOCK_PAGE_SIZE = 50;
+
 type TabId = typeof TABS[number]["id"];
 const TAB_PERMISSION: Record<TabId, string> = {
-  live: 'inventory.read', inbound: 'inbound.create', transfers: 'transfer.read',
+  live: 'inventory.read', batches: 'inventory.read', inbound: 'inbound.create', transfers: 'transfer.read',
   ledger: 'ledger.read', stocktake: 'stocktake.read', warehouses: 'location.read', permissions: '',
 };
 
@@ -62,17 +68,25 @@ interface WarehouseLocationPage {
   total: number | null;
 }
 
+type InventoryContractError = Error & { code: string };
+
+const inventoryContractError = (code: string): never => {
+  const error = new Error(code) as InventoryContractError;
+  error.code = code;
+  throw error;
+};
+
 const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("تنسيق صفحة المستودعات غير صالح.");
+    inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const page = value as Record<string, unknown>;
   if (!Array.isArray(page.items) || page.items.length > 200) {
-    throw new Error("قائمة المستودعات غير صالحة.");
+    inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const items = page.items.map((item) => {
     if (typeof item !== "object" || item === null || Array.isArray(item)) {
-      throw new Error("عنصر مستودع غير صالح.");
+      inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
     const row = item as Record<string, unknown>;
     if (
@@ -80,25 +94,25 @@ const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
       typeof row.name !== "string" || !row.name.trim() ||
       typeof row.code !== "string" || !row.code.trim()
     ) {
-      throw new Error("بيانات مستودع غير مكتملة.");
+      inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
     return { id: row.id, name: row.name, code: row.code };
   });
   const nextCursor = typeof page.next_cursor === "string" ? page.next_cursor : null;
   if (typeof page.has_more !== "boolean" || page.has_more !== (nextCursor !== null)) {
-    throw new Error("ترقيم صفحة المستودعات غير متسق.");
+    inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const total = page.total === null
     ? null
     : typeof page.total === "number" && Number.isSafeInteger(page.total) && page.total >= 0
       ? page.total
-      : (() => { throw new Error("إجمالي المستودعات غير صالح."); })();
+      : (() => inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID"))();
   return { items, next_cursor: nextCursor, has_more: page.has_more, total };
 };
 
 const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("حالة إعداد المستودعات غير صالحة.");
+    inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
   }
   const row = value as Record<string, unknown>;
   if (
@@ -111,7 +125,7 @@ const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
     row.accessible_warehouse_count > row.active_warehouse_count ||
     row.warehouse_ready !== (row.active_warehouse_count > 0)
   ) {
-    throw new Error("حالة إعداد المستودعات غير متسقة.");
+    inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
   }
   return {
     warehouse_ready: row.warehouse_ready,
@@ -124,8 +138,6 @@ const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
 const isTabId = (value: string | null): value is TabId =>
   TABS.some((tab) => tab.id === value);
 
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "حدث خطأ غير متوقع";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function MainInventory() {
@@ -191,10 +203,14 @@ export default function MainInventory() {
   const [stockMatchingTotal, setStockMatchingTotal] = useState<number | null>(null);
   const [stockAlertCount, setStockAlertCount] = useState<number | null>(null);
   const [stockCursor, setStockCursor] = useState<string | null>(null);
-  const [stockCursorHistory, setStockCursorHistory] = useState<Array<string | null>>([]);
   const [stockNextCursor, setStockNextCursor] = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState("");
-  const [stockOnlyAlerts, setStockOnlyAlerts] = useState(false);
+  const [stockState, setStockState] =
+    useState<LiveStockStockState>("all");
+  const [stockIndicators, setStockIndicators] =
+    useState<LiveStockIndicator[]>([]);
+  const [stockFamilyId, setStockFamilyId] =
+    useState<number | null>(null);
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
   const stockRequestSeq = useRef(0);
   const stockAbortRef = useRef<AbortController | null>(null);
@@ -224,7 +240,7 @@ export default function MainInventory() {
       const page = parseWarehouseLocationPage(locationsRaw);
       const setup = parseWarehouseSetupStatus(setupRaw);
       if (page.items.length !== setup.accessible_warehouse_count && !page.has_more) {
-        throw new Error("عدد المستودعات المتاحة لا يطابق حالة الإعداد.");
+        inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
       }
 
       setLocations(page.items);
@@ -246,13 +262,13 @@ export default function MainInventory() {
         setSelectedLocationId(savedId);
       } else if (currentIsValid) {
         localStorage.setItem(selectedLocationStorageKey, String(currentId));
-      } else if (page.items.length === 1) {
-        const onlyLocationId = page.items[0].id;
+      } else if (page.items.length > 0) {
+        const firstLocationId = page.items[0].id;
 
-        setSelectedLocationId(onlyLocationId);
+        setSelectedLocationId(firstLocationId);
         localStorage.setItem(
           selectedLocationStorageKey,
-          String(onlyLocationId),
+          String(firstLocationId),
         );
       } else {
         if (savedRaw !== null) localStorage.removeItem(selectedLocationStorageKey);
@@ -266,13 +282,18 @@ export default function MainInventory() {
       setLocationsTruncated(false);
       setSelectedLocationId(null);
       setLocationError(true);
-      toast.error("فشل جلب مستودعات الشركة: " + getErrorMessage(error));
+      toast.error(
+        apiErrorMessage(
+          error,
+          t("inventoryShell.errors.locationsLoadFailed"),
+        ),
+      );
     } finally {
       if (requestSeq === locationRequestSeq.current) {
         setLoadingLocations(false);
       }
     }
-  }, [authFetch, selectedLocationStorageKey]);
+  }, [authFetch, selectedLocationStorageKey, t]);
 
   useEffect(() => {
     if (!access.isSuccess) return;
@@ -321,12 +342,33 @@ export default function MainInventory() {
     try {
       const params = new URLSearchParams({
         location_id: String(selectedLocationId),
-        limit: "50",
+        limit: String(LIVE_STOCK_PAGE_SIZE),
       });
 
       if (stockCursor) params.set("cursor", stockCursor);
       if (stockSearch) params.set("search", stockSearch);
-      if (stockOnlyAlerts) params.set("only_alerts", "true");
+      if (stockState !== "all") params.set("stock_state", stockState);
+      if (stockFamilyId !== null) {
+        params.set("family_id", String(stockFamilyId));
+      }
+      if (stockIndicators.includes("reserved")) {
+        params.set("has_reserved", "true");
+      }
+      if (stockIndicators.includes("unavailable")) {
+        params.set("has_unavailable", "true");
+      }
+      if (stockIndicators.includes("damaged")) {
+        params.set("has_damaged", "true");
+      }
+      if (stockIndicators.includes("recalled")) {
+        params.set("has_recalled", "true");
+      }
+      if (stockIndicators.includes("vehicle")) {
+        params.set("has_vehicle", "true");
+      }
+      if (stockIndicators.includes("minimum_unset")) {
+        params.set("minimum_unset", "true");
+      }
 
       const raw = await authFetch(
         `/warehouse/inventory/cursor?${params.toString()}`,
@@ -335,7 +377,14 @@ export default function MainInventory() {
 
       if (requestSeq !== stockRequestSeq.current) return;
       const data = parseLiveStockPage(raw);
-      setStockItems(data.items);
+      setStockItems((current) => {
+        if (!stockCursor) return data.items;
+        const seen = new Set(current.map((item) => item.id));
+        return [
+          ...current,
+          ...data.items.filter((item) => !seen.has(item.id)),
+        ];
+      });
       setStockNextCursor(data.next_cursor);
 
       if (typeof data.total === "number") {
@@ -369,7 +418,9 @@ export default function MainInventory() {
     selectedLocationId,
     stockCursor,
     stockSearch,
-    stockOnlyAlerts,
+    stockState,
+    stockIndicators,
+    stockFamilyId,
     canReadStock,
     t,
   ]);
@@ -422,8 +473,8 @@ export default function MainInventory() {
   ]);
 
   const resetStockPagination = useCallback(() => {
+    setStockItems([]);
     setStockCursor(null);
-    setStockCursorHistory([]);
     setStockNextCursor(null);
     setStockMatchingTotal(null);
   }, []);
@@ -434,27 +485,39 @@ export default function MainInventory() {
   }, [resetStockPagination]);
 
   const handleStockSearchChange = useCallback((value: string) => {
+    if (value === stockSearch) return;
     resetStockPagination();
     setStockSearch(value);
-  }, [resetStockPagination]);
+  }, [resetStockPagination, stockSearch]);
 
-  const handleStockAlertsChange = useCallback((value: boolean) => {
-    resetStockPagination();
-    setStockOnlyAlerts(value);
-  }, [resetStockPagination]);
+  const handleStockStateChange = useCallback(
+    (value: LiveStockStockState) => {
+      resetStockPagination();
+      setStockState(value);
+    },
+    [resetStockPagination],
+  );
 
-  const handleStockNext = useCallback(() => {
-    if (!stockNextCursor) return;
-    setStockCursorHistory((prev) => [...prev, stockCursor]);
+  const handleStockIndicatorsChange = useCallback(
+    (value: LiveStockIndicator[]) => {
+      resetStockPagination();
+      setStockIndicators(value);
+    },
+    [resetStockPagination],
+  );
+
+  const handleStockFamilyChange = useCallback(
+    (value: number | null) => {
+      resetStockPagination();
+      setStockFamilyId(value);
+    },
+    [resetStockPagination],
+  );
+
+  const handleStockLoadMore = useCallback(() => {
+    if (!stockNextCursor || loadingStock) return;
     setStockCursor(stockNextCursor);
-  }, [stockCursor, stockNextCursor]);
-
-  const handleStockPrevious = useCallback(() => {
-    if (stockCursorHistory.length === 0) return;
-    const previousCursor = stockCursorHistory[stockCursorHistory.length - 1] ?? null;
-    setStockCursorHistory((prev) => prev.slice(0, -1));
-    setStockCursor(previousCursor);
-  }, [stockCursorHistory]);
+  }, [loadingStock, stockNextCursor]);
 
   // حالة القفل مرتبطة دائماً بالمستودع المحدد.
   const fetchStatus = useCallback(async () => {
@@ -477,7 +540,7 @@ export default function MainInventory() {
 
       if (requestSeq !== statusRequestSeq.current) return;
       if (typeof raw !== "object" || raw === null || !("status" in raw)) {
-        throw new Error("تنسيق حالة المستودع غير صالح.");
+        inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
       }
 
       const data = raw as WarehouseStatusPayload;
@@ -486,8 +549,10 @@ export default function MainInventory() {
       if (requestSeq !== statusRequestSeq.current) return;
 
       toast.error(
-        "خطأ حرج: تعذر التأكد من حالة قفل المستودع المحدد: " +
-          getErrorMessage(error)
+        apiErrorMessage(
+          error,
+          t("inventoryShell.errors.statusCheckFailed"),
+        ),
       );
       setIsAuditLocked(true);
     } finally {
@@ -495,7 +560,7 @@ export default function MainInventory() {
         setLoadingStatus(false);
       }
     }
-  }, [authFetch, selectedLocationId, canReadStatus]);
+  }, [authFetch, selectedLocationId, canReadStatus, t]);
 
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -504,6 +569,7 @@ export default function MainInventory() {
 
   useEffect(() => {
     stockRequestSeq.current += 1;
+    setLoadingStock(selectedLocationId !== null);
     stockAbortRef.current?.abort();
     stockAbortRef.current = null;
     setStockItems([]);
@@ -514,9 +580,10 @@ export default function MainInventory() {
     stockSummaryAbortRef.current?.abort();
     stockSummaryAbortRef.current = null;
     setStockSearch("");
-    setStockOnlyAlerts(false);
+    setStockState("all");
+    setStockIndicators([]);
+    setStockFamilyId(null);
     setStockCursor(null);
-    setStockCursorHistory([]);
     setStockNextCursor(null);
     setLastSync(null);
 
@@ -528,7 +595,7 @@ export default function MainInventory() {
       stockSummaryAbortRef.current?.abort();
       stockSummaryAbortRef.current = null;
     };
-  }, [selectedLocationId, canReadStock]);
+  }, [selectedLocationId]);
 
   useEffect(() => {
     if (selectedLocationId !== null) {
@@ -559,7 +626,7 @@ export default function MainInventory() {
     return (
       <div className="flex items-center justify-center h-full w-full text-slate-500 font-bold">
         <RefreshCcw className="w-5 h-5 ml-2 animate-spin" />
-        جاري جلب مستودعات الشركة...
+        {t("inventoryShell.loadingWarehouses")}
       </div>
     );
   }
@@ -569,16 +636,16 @@ export default function MainInventory() {
       <div className="flex flex-col items-center justify-center h-full w-full bg-slate-50/50 rounded-3xl border border-red-200 p-8 text-center">
         <Package className="w-10 h-10 text-red-500 mb-4" />
         <h2 className="text-xl font-black text-slate-800 mb-2">
-          تعذر جلب مستودعات الشركة
+          {t("inventoryShell.locationsLoadTitle")}
         </h2>
         <p className="text-slate-500 font-bold max-w-md">
-          تم إيقاف واجهة المخزون احترازياً حتى نتأكد من المواقع التابعة للشركة الحالية.
+          {t("inventoryShell.locationsLoadGuard")}
         </p>
         <button
           onClick={() => void fetchLocations()}
           className="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2"
         >
-          <RefreshCcw className="w-5 h-5" /> إعادة المحاولة
+          <RefreshCcw className="w-5 h-5" /> {t("inventoryShell.retry")}
         </button>
       </div>
     );
@@ -692,8 +759,26 @@ export default function MainInventory() {
         </div>
       )}
 
-      {locationsTruncated && <p role="status" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">يعرض محدد التشغيل أول 200 مستودع متاح. استخدم إدارة المستودعات للبحث عن موقع آخر.</p>}
-      {locationAccess.isError && selectedLocationId !== null && <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">الموقع غير متاح أو تغيرت صلاحياتك. <button type="button" className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800" onClick={() => { void fetchLocations(); void locationAccess.refetch(); }}>تحديث المواقع والصلاحيات</button></p>}
+      {locationsTruncated && (
+        <p role="status" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
+          {t("inventoryShell.locationsTruncated")}
+        </p>
+      )}
+      {locationAccess.isError && selectedLocationId !== null && (
+        <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
+          {t("inventoryShell.accessChanged")}
+          <button
+            type="button"
+            className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800"
+            onClick={() => {
+              void fetchLocations();
+              void locationAccess.refetch();
+            }}
+          >
+            {t("inventoryShell.refreshAccess")}
+          </button>
+        </p>
+      )}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
         {selectedLocationId !== null && locationAccess.isPending && (
@@ -706,10 +791,10 @@ export default function MainInventory() {
           <div className="inventory-empty-state flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center font-bold">
             <p>
               {warehouseSetup?.warehouse_ready === false
-                ? "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً."
+                ? t("inventoryShell.noWarehouseCreated")
                 : warehouseSetup?.accessible_warehouse_count === 0
-                  ? "توجد مستودعات فعالة للشركة، لكن حسابك لا يملك وصولاً إلى أي منها."
-                  : "لا يوجد مستودع محدد لهذه العملية. اختر مستودعاً فعالاً."}
+                  ? t("inventoryShell.noAccessibleWarehouse")
+                  : t("inventoryShell.noWarehouseSelected")}
             </p>
             {locations.length > 0 && (
               <select aria-label={t("inventoryShell.warehouseSelectLabel")} className="inventory-location-select px-3 py-2 text-sm font-bold" value="" onChange={(e) => handleLocationChange(e.target.value)}>
@@ -719,7 +804,7 @@ export default function MainInventory() {
             )}
             {warehouseSetup?.warehouse_ready === false && warehouseSetup.can_create && tabAllowed("warehouses") && (
               <button type="button" onClick={() => setActiveTab("warehouses")} className="rounded-xl bg-blue-600 px-4 py-2 text-white">
-                فتح إدارة المستودعات
+                {t("inventoryShell.openWarehouseManagement")}
               </button>
             )}
           </div>
@@ -741,14 +826,22 @@ export default function MainInventory() {
             }}
             alertCount={stockAlertCount}
             matchingTotal={stockMatchingTotal}
-            pageNumber={stockCursorHistory.length + 1}
             hasMore={!!stockNextCursor}
-            hasPrevious={stockCursorHistory.length > 0}
-            onlyAlerts={stockOnlyAlerts}
+            stockState={stockState}
+            indicators={stockIndicators}
+            familyId={stockFamilyId}
+            canManageMinimum={isCompanyAdmin}
             onSearchChange={handleStockSearchChange}
-            onOnlyAlertsChange={handleStockAlertsChange}
-            onNext={handleStockNext}
-            onPrevious={handleStockPrevious}
+            onStockStateChange={handleStockStateChange}
+            onIndicatorsChange={handleStockIndicatorsChange}
+            onFamilyChange={handleStockFamilyChange}
+            onLoadMore={handleStockLoadMore}
+          />
+        )}
+        {!locationAccess.isPending && activeTab === "batches" && tabAllowed("batches") && selectedLocationId !== null && (
+          <TabBatches
+            key={selectedLocationId}
+            locationId={selectedLocationId}
           />
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
