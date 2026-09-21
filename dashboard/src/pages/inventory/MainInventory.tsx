@@ -17,7 +17,6 @@ import {
   parseLiveStockSummary,
   parseLiveStockPage,
   type LiveStockIndicator,
-  type LiveStockSort,
   type LiveStockStockState,
   type WarehouseProduct,
 } from "./liveStock/contracts";
@@ -204,8 +203,6 @@ export default function MainInventory() {
     useState<LiveStockIndicator[]>([]);
   const [stockFamilyId, setStockFamilyId] =
     useState<number | null>(null);
-  const [stockSort, setStockSort] =
-    useState<LiveStockSort>("name_asc");
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
   const stockRequestSeq = useRef(0);
   const stockAbortRef = useRef<AbortController | null>(null);
@@ -257,13 +254,13 @@ export default function MainInventory() {
         setSelectedLocationId(savedId);
       } else if (currentIsValid) {
         localStorage.setItem(selectedLocationStorageKey, String(currentId));
-      } else if (page.items.length === 1) {
-        const onlyLocationId = page.items[0].id;
+      } else if (page.items.length > 0) {
+        const firstLocationId = page.items[0].id;
 
-        setSelectedLocationId(onlyLocationId);
+        setSelectedLocationId(firstLocationId);
         localStorage.setItem(
           selectedLocationStorageKey,
-          String(onlyLocationId),
+          String(firstLocationId),
         );
       } else {
         if (savedRaw !== null) localStorage.removeItem(selectedLocationStorageKey);
@@ -359,7 +356,6 @@ export default function MainInventory() {
       if (stockIndicators.includes("minimum_unset")) {
         params.set("minimum_unset", "true");
       }
-      if (stockSort !== "name_asc") params.set("sort", stockSort);
 
       const raw = await authFetch(
         `/warehouse/inventory/cursor?${params.toString()}`,
@@ -412,7 +408,6 @@ export default function MainInventory() {
     stockState,
     stockIndicators,
     stockFamilyId,
-    stockSort,
     canReadStock,
     t,
   ]);
@@ -505,14 +500,6 @@ export default function MainInventory() {
     [resetStockPagination],
   );
 
-  const handleStockSortChange = useCallback(
-    (value: LiveStockSort) => {
-      resetStockPagination();
-      setStockSort(value);
-    },
-    [resetStockPagination],
-  );
-
   const handleStockLoadMore = useCallback(() => {
     if (!stockNextCursor || loadingStock) return;
     setStockCursor(stockNextCursor);
@@ -579,7 +566,6 @@ export default function MainInventory() {
     setStockState("all");
     setStockIndicators([]);
     setStockFamilyId(null);
-    setStockSort("name_asc");
     setStockCursor(null);
     setStockNextCursor(null);
     setLastSync(null);
@@ -592,7 +578,7 @@ export default function MainInventory() {
       stockSummaryAbortRef.current?.abort();
       stockSummaryAbortRef.current = null;
     };
-  }, [selectedLocationId, canReadStock]);
+  }, [selectedLocationId]);
 
   useEffect(() => {
     if (selectedLocationId !== null) {
@@ -809,13 +795,11 @@ export default function MainInventory() {
             stockState={stockState}
             indicators={stockIndicators}
             familyId={stockFamilyId}
-            sort={stockSort}
             canManageMinimum={isCompanyAdmin}
             onSearchChange={handleStockSearchChange}
             onStockStateChange={handleStockStateChange}
             onIndicatorsChange={handleStockIndicatorsChange}
             onFamilyChange={handleStockFamilyChange}
-            onSortChange={handleStockSortChange}
             onLoadMore={handleStockLoadMore}
           />
         )}
