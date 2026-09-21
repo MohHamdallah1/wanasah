@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import event, select, text, true
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from fastapi import HTTPException
-import api.warehouse as w
+import api.warehouse.live_stock as w
 from context import tenant_context
 from database import engine as runtime_engine
 from models import (Company, Driver, Product, ProductVariant, ProductBatch, InventoryBalance,
