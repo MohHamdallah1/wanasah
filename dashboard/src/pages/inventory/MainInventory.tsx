@@ -263,6 +263,10 @@ export default function MainInventory() {
       ? initialLiveSnapshot.items
       : [],
   );
+  const stockItemsRef = useRef<WarehouseProduct[]>(stockItems);
+  useEffect(() => {
+    stockItemsRef.current = stockItems;
+  }, [stockItems]);
   const [stockTotal, setStockTotal] = useState<number | null>(
     initialLiveSnapshot?.hasSummary
       ? initialLiveSnapshot.stockTotal
@@ -332,6 +336,7 @@ export default function MainInventory() {
       );
 
       if (snapshot?.hasPage) {
+        stockItemsRef.current = snapshot.items;
         setStockItems(snapshot.items);
         setStockMatchingTotal(snapshot.matchingTotal);
         setStockNextCursor(snapshot.nextCursor);
@@ -341,6 +346,7 @@ export default function MainInventory() {
             : null,
         );
       } else {
+        stockItemsRef.current = [];
         setStockItems([]);
         setStockMatchingTotal(null);
         setStockNextCursor(null);
@@ -579,38 +585,37 @@ export default function MainInventory() {
       if (requestSeq !== stockRequestSeq.current) return;
       const data = parseLiveStockPage(raw);
       const syncedAt = new Date();
-      setStockItems((current) => {
-        const nextItems = !requestCursor
-          ? data.items
-          : (() => {
-              const seen = new Set(
-                current.map((item) => item.id),
-              );
-              return [
-                ...current,
-                ...data.items.filter(
-                  (item) => !seen.has(item.id),
-                ),
-              ];
-            })();
+      const nextItems = !requestCursor
+        ? data.items
+        : (() => {
+            const seen = new Set(
+              stockItemsRef.current.map((item) => item.id),
+            );
+            return [
+              ...stockItemsRef.current,
+              ...data.items.filter(
+                (item) => !seen.has(item.id),
+              ),
+            ];
+          })();
 
-        if (defaultView && requestCursor === null) {
-          patchLiveStockWarmSnapshot(
-            warmScopeKey,
-            requestLocationId,
-            {
-              hasPage: true,
-              items: nextItems,
-              nextCursor: data.next_cursor,
-              lastSyncMs: syncedAt.getTime(),
-              ...(typeof data.total === "number"
-                ? { matchingTotal: data.total }
-                : {}),
-            },
-          );
-        }
-        return nextItems;
-      });
+      stockItemsRef.current = nextItems;
+      setStockItems(nextItems);
+      if (defaultView && requestCursor === null) {
+        patchLiveStockWarmSnapshot(
+          warmScopeKey,
+          requestLocationId,
+          {
+            hasPage: true,
+            items: nextItems,
+            nextCursor: data.next_cursor,
+            lastSyncMs: syncedAt.getTime(),
+            ...(typeof data.total === "number"
+              ? { matchingTotal: data.total }
+              : {}),
+          },
+        );
+      }
       setStockNextCursor(data.next_cursor);
 
       if (typeof data.total === "number") {
@@ -634,6 +639,7 @@ export default function MainInventory() {
           )
         : null;
       if (warmSnapshot?.hasPage !== true) {
+        stockItemsRef.current = [];
         setStockItems([]);
         setStockNextCursor(null);
         setStockMatchingTotal(null);
@@ -724,6 +730,7 @@ export default function MainInventory() {
   ]);
 
   const resetStockPagination = useCallback(() => {
+    stockItemsRef.current = [];
     setStockItems([]);
     setStockCursor(null);
     setStockNextCursor(null);
@@ -786,13 +793,15 @@ export default function MainInventory() {
       setLoadingStatus(false);
       return;
     }
+    const requestLocationId = selectedLocationId;
+
 
     setLoadingStatus(true);
 
     try {
       const raw = await authFetch(
         `/warehouse/status?location_id=${encodeURIComponent(
-          String(selectedLocationId)
+          String(requestLocationId)
         )}`
       );
 
@@ -806,7 +815,7 @@ export default function MainInventory() {
       setAuditLockState(locked);
       patchLiveStockWarmSnapshot(
         warmScopeKey,
-        selectedLocationId,
+        requestLocationId,
         {
           hasStatus: true,
           auditLocked: locked,
