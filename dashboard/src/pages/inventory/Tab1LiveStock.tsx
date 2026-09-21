@@ -718,11 +718,6 @@ export function Tab1LiveStock({
                                 {product.name}
                               </span>
                             </div>
-                            {product.sku && (
-                              <div className="mt-0.5 text-[10px] font-bold text-slate-400">
-                                {product.sku}
-                              </div>
-                            )}
                             <div className="live-stock-minimum-row">
                               <span>
                                 {t("inventoryLive.minimumStockLabel")}:{" "}
