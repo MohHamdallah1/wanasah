@@ -166,6 +166,95 @@ export interface WarehouseInventoryAlertSummary {
   alert_count: number;
 }
 
+export type MinimumStockScope = "ALL" | "FAMILY" | "PRODUCT";
+export type MinimumStockApplyMode = "ONLY_UNSET" | "OVERWRITE";
+
+export interface BulkMinimumStockPlan {
+  location_id: number;
+  scope: MinimumStockScope;
+  family_id: number | null;
+  product_variant_id: number | null;
+  minimum_quantity: Quantity;
+  unit_mode: "DISPLAY_UOM_PER_PRODUCT";
+  apply_mode: MinimumStockApplyMode;
+  matched_count: number;
+  affected_count: number;
+  skipped_existing_count: number;
+  inactive_conflict_count: number;
+  target_conflict_count: number;
+  invalid_quantity_count: number;
+  conflict_samples: {
+    inactive: number[];
+    target: number[];
+    invalid_quantity: number[];
+  };
+  changed?: boolean;
+}
+
+export function parseBulkMinimumStockPlan(raw: unknown): BulkMinimumStockPlan {
+  const code = "STOCK_MINIMUM_BULK_RESPONSE_INVALID";
+  const row = record(raw, code);
+  const scope = str(row.scope, code, 20);
+  const applyMode = str(row.apply_mode, code, 20);
+  const unitMode = str(row.unit_mode, code, 40);
+
+  if (!["ALL", "FAMILY", "PRODUCT"].includes(scope)) {
+    return contractError(code);
+  }
+  if (!["ONLY_UNSET", "OVERWRITE"].includes(applyMode)) {
+    return contractError(code);
+  }
+  if (unitMode !== "DISPLAY_UOM_PER_PRODUCT") {
+    return contractError(code);
+  }
+
+  const samples = record(row.conflict_samples, code);
+  const parseIds = (value: unknown): number[] => {
+    if (!Array.isArray(value) || value.length > 10) {
+      return contractError(code);
+    }
+    return value.map((item) => int(item, code, 1));
+  };
+
+  const familyId =
+    row.family_id === null ? null : int(row.family_id, code, 1);
+  const productVariantId =
+    row.product_variant_id === null
+      ? null
+      : int(row.product_variant_id, code, 1);
+
+  return {
+    location_id: int(row.location_id, code, 1),
+    scope: scope as MinimumStockScope,
+    family_id: familyId,
+    product_variant_id: productVariantId,
+    minimum_quantity: parseQuantity(
+      row.minimum_quantity,
+      "minimum_quantity",
+      { allowZero: true },
+    ),
+    unit_mode: "DISPLAY_UOM_PER_PRODUCT",
+    apply_mode: applyMode as MinimumStockApplyMode,
+    matched_count: int(row.matched_count, code),
+    affected_count: int(row.affected_count, code),
+    skipped_existing_count: int(row.skipped_existing_count, code),
+    inactive_conflict_count: int(row.inactive_conflict_count, code),
+    target_conflict_count: int(row.target_conflict_count, code),
+    invalid_quantity_count: int(row.invalid_quantity_count, code),
+    conflict_samples: {
+      inactive: parseIds(samples.inactive),
+      target: parseIds(samples.target),
+      invalid_quantity: parseIds(samples.invalid_quantity),
+    },
+    changed:
+      row.changed === undefined
+        ? undefined
+        : typeof row.changed === "boolean"
+          ? row.changed
+          : contractError(code),
+  };
+}
+
 export interface WarehouseBatchInventoryItem {
   batch_id: number;
   batch_number: string;
