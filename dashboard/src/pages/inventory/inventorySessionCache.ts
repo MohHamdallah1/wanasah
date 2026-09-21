@@ -173,6 +173,16 @@ export const patchLiveStockWarmSnapshot = (
   return cloneLive(next);
 };
 
+export const dropLiveStockWarmSnapshot = (
+  scopeKey: string | null,
+  locationId: number | null,
+): void => {
+  if (!scopeKey || locationId === null) return;
+  const entry = CACHE.get(scopeKey);
+  if (!entry) return;
+  entry.liveByLocation.delete(locationId);
+};
+
 export const clearInventoryWarmScope = (
   scopeKey: string | null,
 ): void => {
