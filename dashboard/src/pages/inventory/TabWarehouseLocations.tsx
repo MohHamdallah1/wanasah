@@ -190,7 +190,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [authenticatedFetch, cursor, search]);
+  }, [authenticatedFetch, cursor, search, t]);
 
   useEffect(() => {
     void fetchPage();
