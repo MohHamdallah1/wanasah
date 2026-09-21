@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
 from database import get_db
-from inventory_access import InventoryAccess
-from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, VehicleReconCandidateCursorPage
+from inventory_access import InventoryAccess, require_stocktake
+from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, VehicleReconCandidateCursorPage
 
 from models import (
     DispatchRoute,
@@ -1152,5 +1152,202 @@ async def list_active_stocktake_sessions(
         "next_cursor": next_cursor,
         "has_more": has_more,
         "total": total,
+    }
+
+
+# ====================================================
+# 11.22 جلب سياق جلسة الجرد والتحقق من ارتباطها بالمستودع
+# ====================================================
+@router.get(
+    "/warehouse/unified/stocktake/{session_id}/context",
+    response_model=StocktakeSessionContextResponse,
+    status_code=200,
+)
+async def get_stocktake_session_context(
+    session_id: int,
+    anchor_location_id: int = Query(
+        ...,
+        ge=1,
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(
+        get_current_driver
+    ),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('location.read', anchor_location_id)
+    await require_stocktake(access, 'stocktake.read', session_id)
+
+    company_id = current_admin.company_id
+
+    anchor_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id
+                == company_id,
+                InventoryLocation.id
+                == anchor_location_id,
+                InventoryLocation.location_type
+                == "WAREHOUSE",
+                InventoryLocation.is_active.is_(
+                    True
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if anchor_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "مستودع سياق الجرد غير موجود "
+                "أو غير فعال أو لا يتبع شركتك."
+            ),
+        )
+
+    session = (
+        await db.execute(
+            select(
+                StocktakeSession.id,
+                StocktakeSession.stocktake_type,
+                StocktakeSession.status,
+                StocktakeSession.location_id,
+                StocktakeSession.related_work_session_id,
+            ).filter(
+                StocktakeSession.company_id
+                == company_id,
+                StocktakeSession.id
+                == session_id,
+            )
+        )
+    ).one_or_none()
+
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "جلسة الجرد غير موجودة "
+                "أو لا تتبع شركتك."
+            ),
+        )
+
+    stocktake_type = str(
+        session.stocktake_type
+    )
+    actual_location_id = int(
+        session.location_id
+    )
+    related_work_session_id = (
+        int(
+            session
+            .related_work_session_id
+        )
+        if session
+        .related_work_session_id
+        is not None
+        else None
+    )
+
+    if stocktake_type in {
+        "FULL_COUNT",
+        "CYCLE_COUNT",
+    }:
+        if (
+            actual_location_id
+            != anchor_location_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "جلسة الجرد لا تتبع "
+                    "المستودع المحدد."
+                ),
+            )
+    elif stocktake_type == "VEHICLE_RECON":
+        if related_work_session_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "VEHICLE_RECON بلا "
+                    "related_work_session_id صالح."
+                ),
+            )
+
+        vehicle_id = (
+            await db.execute(
+                select(
+                    InventoryLocation.vehicle_id
+                ).filter(
+                    InventoryLocation.company_id
+                    == company_id,
+                    InventoryLocation.id
+                    == actual_location_id,
+                    InventoryLocation.location_type
+                    == "VEHICLE",
+                    InventoryLocation.is_active
+                    .is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if vehicle_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "موقع VEHICLE_RECON "
+                    "ليس موقع سيارة فعالاً."
+                ),
+            )
+
+        route_source = (
+            await db.execute(
+                select(
+                    DispatchRoute
+                    .source_location_id
+                )
+                .filter(
+                    DispatchRoute.company_id
+                    == company_id,
+                    DispatchRoute.work_session_id
+                    == related_work_session_id,
+                    DispatchRoute.vehicle_id
+                    == vehicle_id,
+                    DispatchRoute
+                    .source_location_id
+                    == anchor_location_id,
+                )
+                .order_by(
+                    DispatchRoute.id.desc()
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if route_source is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "جلسة السيارة لا ترتبط "
+                    "بالمستودع المحدد."
+                ),
+            )
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail="نوع جلسة الجرد غير مدعوم.",
+        )
+
+    return {
+        "session_id": int(session.id),
+        "stocktake_type":
+            stocktake_type,
+        "status":
+            str(session.status),
+        "location_id":
+            actual_location_id,
+        "related_work_session_id":
+            related_work_session_id,
+        "source_location_id":
+            int(anchor_location_id),
     }
 
