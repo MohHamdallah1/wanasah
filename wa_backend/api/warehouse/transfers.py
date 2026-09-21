@@ -8,7 +8,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,12 +42,17 @@ from schemas import (
     WarehouseTransferDetail,
     SpecialTransferDispatchRequest,
     SpecialTransferDispatchResponse,
+    UnifiedDispatchRequest,
 )
 from quantity import canonical_quantity
 from product_lifecycle import (
+    INBOUND_NEW,
+    REPLENISHMENT_NEW,
     WAREHOUSE_BALANCING,
     acquire_product_lifecycle_guards,
+    evaluate_product_capability,
     product_capability_predicate,
+    product_location_allows,
 )
 
 from services import (
@@ -55,6 +60,8 @@ from services import (
     InventoryRuleError,
     SPECIAL_TRANSFER_PERMISSION,
     TRANSFER_DESTINATION_POLICY_CODE,
+    acquire_inventory_location_guards,
+    allocate_fefo_inventory_batch,
     apply_inventory_movement,
     apply_inventory_movements_batch,
     begin_idempotent_operation,
@@ -64,6 +71,7 @@ from services import (
     ensure_system_transit_location,
     get_company_local_date,
     inventory_business_error,
+    resolve_retiring_warehouse_balancing_override_context,
     resolve_special_transfer_direction_context,
     validate_special_transfer_source_items_locked,
 )
@@ -1684,4 +1692,563 @@ async def special_transfer_dispatch(
 
 # Stage 4E generic TRANSIT endpoint owns only REPLENISHMENT and
 # WAREHOUSE_BALANCING. Special purposes use the dedicated policy-bound command.
+
+
+# ====================================================
+# 10.14 سياسة أغراض الحوالة العامة وتنفيذ Dispatch
+# ====================================================
+_GENERIC_TRANSFER_PURPOSE_CAPABILITY = {
+    "REPLENISHMENT": REPLENISHMENT_NEW,
+    "WAREHOUSE_BALANCING": WAREHOUSE_BALANCING,
+}
+
+
+# ====================================================
+# 10.14 إنشاء حوالة عامة REPLENISHMENT/WAREHOUSE_BALANCING ونقلها إلى IN_TRANSIT
+# ====================================================
+@router.post("/warehouse/unified/transfer/dispatch", status_code=200)
+async def unified_transfer_dispatch(
+    payload: UnifiedDispatchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver)
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('transfer.send', payload.source_location_id)
+    await access.require('transfer.destination', payload.destination_location_id)
+    if any(item.is_fefo_override for item in payload.items):
+        await access.require('inventory.fefo_override', payload.source_location_id)
+
+    company_id = current_admin.company_id
+
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="WAREHOUSE_TRANSFER_DISPATCH",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        await _verify_location_ownership(
+            db,
+            company_id,
+            payload.source_location_id,
+            payload.destination_location_id,
+            allowed_types=['WAREHOUSE', 'VEHICLE']
+        )
+
+        requested_variant_ids = {item.product_variant_id for item in payload.items}
+        await acquire_product_lifecycle_guards(
+            db, company_id, requested_variant_ids, exclusive=False,
+        )
+        location_types = dict((await db.execute(
+            select(InventoryLocation.id, InventoryLocation.location_type).where(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id.in_([payload.source_location_id, payload.destination_location_id]),
+            )
+        )).all())
+
+        transfer_purpose = str(payload.transfer_purpose).upper()
+        lifecycle_capability = _GENERIC_TRANSFER_PURPOSE_CAPABILITY.get(
+            transfer_purpose
+        )
+        if lifecycle_capability is None:
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "TRANSFER_PURPOSE_WORKFLOW_REQUIRED",
+                    "غرض الحوالة المطلوب يحتاج Workflow واتجاهاً مخصصاً ولا يجوز تمريره عبر الحوالة العامة.",
+                    context={"transfer_purpose": transfer_purpose},
+                ),
+            )
+
+        source_type = location_types.get(payload.source_location_id)
+        destination_type = location_types.get(payload.destination_location_id)
+        if source_type != "WAREHOUSE" or destination_type != "WAREHOUSE":
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "TRANSFER_DIRECTION_BLOCKED",
+                    "REPLENISHMENT/WAREHOUSE_BALANCING في المسار العام يتطلبان WAREHOUSE -> WAREHOUSE.",
+                    context={
+                        "transfer_purpose": transfer_purpose,
+                        "source_location_type": source_type,
+                        "destination_location_type": destination_type,
+                    },
+                ),
+            )
+
+        variant_uom_rows = (
+            await db.execute(
+                select(
+                    ProductVariant.id,
+                    ProductVariant.base_uom_id,
+                    ProductVariant.lifecycle_status,
+                    ProductVariant.operational_hold,
+                    ProductVariant.lifecycle_revision,
+                ).filter(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id.in_(requested_variant_ids),
+                )
+            )
+        ).all()
+        variant_uoms = {}
+        variant_context = {}
+        retiring_balancing_variant_ids = []
+
+        for row in variant_uom_rows:
+            lifecycle_status = str(row.lifecycle_status or "").upper()
+            operational_hold = str(row.operational_hold or "").upper()
+
+            retiring_balancing_candidate = (
+                transfer_purpose == "WAREHOUSE_BALANCING"
+                and lifecycle_status == "RETIRING"
+            )
+
+            if retiring_balancing_candidate:
+                # This is the single owner-approved RETIRING exception.
+                # RECALL remains a hard safety block.
+                if operational_hold == "RECALL":
+                    raise HTTPException(
+                        status_code=409,
+                        detail=inventory_business_error(
+                            "PRODUCT_RECALL_WAREHOUSE_BALANCING_BLOCKED",
+                            "الصنف المستدعى لا يقبل WAREHOUSE_BALANCING جديداً.",
+                            context={
+                                "product_variant_id": int(row.id),
+                                "transfer_purpose": transfer_purpose,
+                            },
+                        ),
+                    )
+                retiring_balancing_variant_ids.append(int(row.id))
+            else:
+                decision = evaluate_product_capability(
+                    lifecycle_status,
+                    operational_hold,
+                    lifecycle_capability,
+                )
+                if not decision.allowed:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": decision.code,
+                            "message": "حالة الصنف لا تسمح بالحوالة المطلوبة.",
+                            "context": {
+                                "product_variant_id": int(row.id),
+                                "transfer_purpose": transfer_purpose,
+                            },
+                        },
+                    )
+
+            variant_uoms[int(row.id)] = int(row.base_uom_id)
+            variant_context[int(row.id)] = row
+
+        if set(variant_uoms) != requested_variant_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="يوجد صنف غير صالح أو غير فعال أو لا يتبع شركتك ضمن الحوالة."
+            )
+
+        retiring_balancing_policy = None
+        if retiring_balancing_variant_ids:
+            await access.require("transfer.warehouse_balancing_override")
+            try:
+                retiring_balancing_policy = (
+                    await resolve_retiring_warehouse_balancing_override_context(
+                        db,
+                        company_id=company_id,
+                    )
+                )
+            except InventoryRuleError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=exc.as_detail(),
+                ) from exc
+
+        assignment_rows = (await db.execute(
+            select(
+                ProductLocation.location_id,
+                ProductLocation.product_variant_id,
+                ProductLocation.operational_flags,
+            ).where(
+                ProductLocation.company_id == company_id,
+                ProductLocation.product_variant_id.in_(requested_variant_ids),
+                ProductLocation.location_id.in_([payload.source_location_id, payload.destination_location_id]),
+            )
+        )).all()
+        assignments = {
+            (int(row.location_id), int(row.product_variant_id)): row.operational_flags
+            for row in assignment_rows
+        }
+        missing_source = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if not product_location_allows(
+                assignments.get((payload.source_location_id, variant_id)),
+                lifecycle_capability,
+            )
+        )
+        missing_destination = sorted(
+            variant_id for variant_id in requested_variant_ids
+            if location_types.get(payload.destination_location_id) == 'WAREHOUSE'
+            and not product_location_allows(
+                assignments.get((payload.destination_location_id, variant_id)),
+                INBOUND_NEW,
+            )
+        )
+        if missing_source or missing_destination:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "PRODUCT_LOCATION_REQUIRED",
+                    "message": "الحوالة تتطلب ربطاً تشغيلياً صريحاً للصنف بالموقع.",
+                    "context": {
+                        "source_location_id": payload.source_location_id,
+                        "destination_location_id": payload.destination_location_id,
+                        "source_product_variant_ids": missing_source,
+                        "destination_product_variant_ids": missing_destination,
+                    },
+                },
+            )
+        for item in payload.items:
+            if item.uom_id != variant_uoms[item.product_variant_id]:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "UOM_MISMATCH", "message": "كمية الحوالة يجب أن تستخدم وحدة أساس الصنف.", "context": {"product_variant_id": item.product_variant_id, "expected_uom_id": variant_uoms[item.product_variant_id]}},
+                )
+
+        transit_location = await ensure_system_transit_location(db, company_id)
+        transit_location_id = int(transit_location.id)
+
+        await acquire_inventory_location_guards(
+            db,
+            company_id,
+            [payload.source_location_id, payload.destination_location_id, transit_location_id],
+        )
+        await _verify_location_ownership(
+            db,
+            company_id,
+            payload.source_location_id,
+            payload.destination_location_id,
+            allowed_types=['WAREHOUSE', 'VEHICLE'],
+        )
+
+        ordered_items = sorted(
+            payload.items,
+            key=lambda item: (int(item.product_variant_id), int(item.override_batch_id or 0))
+        )
+
+        override_items = [item for item in ordered_items if item.is_fefo_override]
+        normal_items = [item for item in ordered_items if not item.is_fefo_override]
+
+        as_of_date = await get_company_local_date(db, company_id)
+
+        reason_map = {}
+        override_batch_pairs = set()
+        if override_items:
+            reason_ids = {int(item.override_reason_id) for item in override_items}
+            reason_map = {
+                row.id: row.description
+                for row in (
+                    await db.execute(
+                        select(OverrideReason.id, OverrideReason.description).filter(
+                            OverrideReason.company_id == company_id,
+                            OverrideReason.id.in_(reason_ids),
+                            OverrideReason.is_active.is_(True),
+                        )
+                    )
+                ).all()
+            }
+            if set(reason_map) != reason_ids:
+                raise HTTPException(status_code=400, detail="أحد أسباب تجاوز FEFO غير موجود أو غير فعال في شركتك.")
+
+            override_batch_pairs = {
+                (int(item.product_variant_id), int(item.override_batch_id))
+                for item in override_items
+            }
+            valid_override_pairs = set(
+                (
+                    await db.execute(
+                        select(
+                            ProductBatch.product_variant_id,
+                            ProductBatch.id,
+                        )
+                        .join(
+                            ProductVariant,
+                            and_(
+                                ProductVariant.company_id
+                                == ProductBatch.company_id,
+                                ProductVariant.id
+                                == ProductBatch.product_variant_id,
+                            ),
+                        )
+                        .join(
+                            InventoryBalance,
+                            and_(
+                                InventoryBalance.company_id
+                                == ProductBatch.company_id,
+                                InventoryBalance.product_variant_id
+                                == ProductBatch.product_variant_id,
+                                InventoryBalance.batch_id == ProductBatch.id,
+                            ),
+                        )
+                        .outerjoin(
+                            InventoryStockPolicy,
+                            and_(
+                                InventoryStockPolicy.company_id
+                                == ProductBatch.company_id,
+                                InventoryStockPolicy.location_id
+                                == payload.source_location_id,
+                                InventoryStockPolicy.product_variant_id
+                                == ProductBatch.product_variant_id,
+                                InventoryStockPolicy.is_active.is_(True),
+                            ),
+                        )
+                        .filter(
+                            ProductBatch.company_id == company_id,
+                            tuple_(
+                                ProductBatch.product_variant_id,
+                                ProductBatch.id,
+                            ).in_(sorted(override_batch_pairs)),
+                            batch_sellability_predicate(
+                                as_of_date,
+                                expiry_control_mode=(
+                                    ProductVariant.expiry_control_mode
+                                ),
+                                minimum_remaining_shelf_life_days=(
+                                    InventoryStockPolicy.minimum_remaining_shelf_life_days
+                                ),
+                            ),
+                            InventoryBalance.company_id == company_id,
+                            InventoryBalance.location_id
+                            == payload.source_location_id,
+                            InventoryBalance.stock_status == "AVAILABLE",
+                            InventoryBalance.on_hand_quantity
+                            > InventoryBalance.reserved_quantity,
+                        )
+                        .order_by(
+                            ProductBatch.product_variant_id.asc(),
+                            ProductBatch.id.asc(),
+                        )
+                        .with_for_update(
+                            read=True,
+                            of=ProductBatch,
+                        )
+                    )
+                ).all()
+            )
+            if valid_override_pairs != override_batch_pairs:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "إحدى دفعات تجاوز FEFO غير مؤهلة للبيع/التحميل "
+                        "بسبب disposition/expiry/shelf-life أو لا تتبع الصنف/الشركة."
+                    )
+                )
+
+        normal_allocations = {}
+        if normal_items:
+            normal_allocations = await allocate_fefo_inventory_batch(
+                db,
+                company_id=company_id,
+                location_id=payload.source_location_id,
+                requests={int(item.product_variant_id): item.quantity for item in normal_items},
+                as_of_date=as_of_date,
+                require_full=True,
+            )
+
+        override_expected = {}
+        if override_items:
+            override_expected = await allocate_fefo_inventory_batch(
+                db,
+                company_id=company_id,
+                location_id=payload.source_location_id,
+                requests={int(item.product_variant_id): item.quantity for item in override_items},
+                as_of_date=as_of_date,
+                require_full=False,
+            )
+
+        transfer_ref = f"TRN-{uuid.uuid4().hex.upper()}"
+        balancing_policy_id = (
+            int(retiring_balancing_policy["tenant_policy_id"])
+            if retiring_balancing_policy is not None
+            else None
+        )
+        balancing_policy_revision = (
+            int(retiring_balancing_policy["tenant_policy_revision"])
+            if retiring_balancing_policy is not None
+            else None
+        )
+
+        header = InventoryTransferHeader(
+            company_id=company_id,
+            reference_number=transfer_ref,
+            source_location_id=payload.source_location_id,
+            destination_location_id=payload.destination_location_id,
+            transit_location_id=transit_location_id,
+            workflow_type='TRANSIT',
+            status='IN_TRANSIT',
+            transfer_purpose=transfer_purpose,
+            commercial_context={
+                "schema_version": 1,
+                "commercial_context_id": None,
+                "tenant_policy_code": (
+                    TRANSFER_DESTINATION_POLICY_CODE
+                    if retiring_balancing_policy is not None
+                    else None
+                ),
+                "tenant_policy_id": balancing_policy_id,
+                "tenant_policy_revision": balancing_policy_revision,
+                "retiring_warehouse_balancing_override": (
+                    retiring_balancing_policy is not None
+                ),
+                "retiring_product_variant_ids": (
+                    sorted(retiring_balancing_variant_ids)
+                    if retiring_balancing_policy is not None
+                    else []
+                ),
+                "source_location_type": source_type,
+                "destination_location_type": destination_type,
+                "transfer_purpose": transfer_purpose,
+            },
+            tenant_policy_id=balancing_policy_id,
+            tenant_policy_revision=balancing_policy_revision,
+            dispatched_by=current_admin.id,
+            notes=payload.notes or None
+        )
+        db.add(header)
+        await db.flush()
+
+        if retiring_balancing_policy is not None:
+            db.add(SystemAuditLog(
+                company_id=company_id,
+                admin_id=current_admin.id,
+                target_id=f"Transfer_{header.id}",
+                action_type="RETIRING_WAREHOUSE_BALANCING_OVERRIDE",
+                old_value=None,
+                new_value=json.dumps(
+                    {
+                        "transfer_purpose": transfer_purpose,
+                        "tenant_policy_id": balancing_policy_id,
+                        "tenant_policy_revision": balancing_policy_revision,
+                        "product_variant_ids": sorted(
+                            retiring_balancing_variant_ids
+                        ),
+                        "source_location_id": int(
+                            payload.source_location_id
+                        ),
+                        "destination_location_id": int(
+                            payload.destination_location_id
+                        ),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            ))
+
+        transfer_lines = []
+        movement_specs = []
+        for item in ordered_items:
+            if item.is_fefo_override:
+                allocations = [(int(item.override_batch_id), item.quantity)]
+                expected_rows = override_expected.get(int(item.product_variant_id), [])
+                expected_batch_id = expected_rows[0][0] if expected_rows else None
+                override_reason_id = int(item.override_reason_id)
+                override_actor_id = current_admin.id
+                override_note = str(reason_map[override_reason_id] or "")[:255]
+                db.add(SystemAuditLog(
+                    company_id=company_id,
+                    admin_id=current_admin.id,
+                    target_id=f"Transfer_{header.id}",
+                    action_type="FEFO_OVERRIDE",
+                    old_value=(
+                        f"Expected FEFO Batch: {expected_batch_id}"
+                        if expected_batch_id is not None
+                        else "Expected FEFO Batch: unavailable"
+                    ),
+                    new_value=f"Chosen Batch: {item.override_batch_id}, Reason ID: {item.override_reason_id}"
+                ))
+            else:
+                allocations = normal_allocations.get(int(item.product_variant_id), [])
+                override_reason_id = None
+                override_actor_id = None
+                override_note = None
+
+            for batch_id, take_qty in allocations:
+                variant_state = variant_context[int(item.product_variant_id)]
+                transfer_lines.append(InventoryTransferLine(
+                    company_id=company_id,
+                    transfer_header_id=header.id,
+                    product_variant_id=item.product_variant_id,
+                    batch_id=batch_id,
+                    quantity=take_qty,
+                    source_stock_status="AVAILABLE",
+                    lifecycle_revision_snapshot=int(variant_state.lifecycle_revision),
+                    lifecycle_status_snapshot=str(variant_state.lifecycle_status),
+                    operational_hold_snapshot=str(variant_state.operational_hold),
+                    fefo_override_reason_id=override_reason_id,
+                    fefo_overridden_by=override_actor_id,
+                    fefo_override_note=override_note
+                ))
+                movement_specs.append({
+                    "product_variant_id": item.product_variant_id,
+                    "batch_id": batch_id,
+                    "quantity": take_qty,
+                    "movement_kind": 'PHYSICAL',
+                    "reference_type": 'TRANSFER_DISPATCH',
+                    "reference_id": transfer_ref,
+                    "idempotency_key": f"TRN-DISP-{header.id}-{item.product_variant_id}-{batch_id}",
+                    "source_location_id": payload.source_location_id,
+                    "destination_location_id": transit_location_id,
+                    "source_stock_status": 'AVAILABLE',
+                    "destination_stock_status": 'AVAILABLE',
+                    "transfer_header_id": header.id,
+                    "notes": payload.notes or None,
+                })
+
+        if not movement_specs:
+            raise HTTPException(status_code=409, detail="الحوالة لم تنتج أي حركة مخزون صالحة.")
+
+        db.add_all(transfer_lines)
+        await apply_inventory_movements_batch(
+            db,
+            company_id=company_id,
+            performed_by=current_admin.id,
+            movements=movement_specs,
+        )
+
+        response_payload = {
+            "message": "تم تحميل البضاعة بنجاح وهي الآن في الطريق.",
+            "transfer_reference": transfer_ref,
+            "header_id": header.id,
+            "transfer_purpose": transfer_purpose,
+        }
+        complete_idempotent_operation(
+            idempotency_record,
+            response_payload,
+        )
+        await db.commit()
+        return response_payload
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(e))
+    except IntegrityError as e:
+        await db.rollback()
+        logger.warning(f"تعارض متزامن أثناء إنشاء الحوالة: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=409, detail="حدث تعارض متزامن أثناء إنشاء الحوالة. لم يتم حفظ أي جزء منها.")
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في إنشاء الحوالة: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء معالجة الحوالة.")
 
