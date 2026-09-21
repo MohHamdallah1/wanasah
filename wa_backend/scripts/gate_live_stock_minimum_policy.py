@@ -25,6 +25,8 @@ api = read("wa_backend/api/inventory_stock_policy.py")
 main = read("wa_backend/main.py")
 live = read("dashboard/src/pages/inventory/Tab1LiveStock.tsx")
 quantity = read("dashboard/src/pages/inventory/quantity.ts")
+manager = read("dashboard/src/pages/inventory/StockMinimumManager.tsx")
+seed = read("wa_backend/scripts/seed_live_stock_demo.py")
 
 check(
     "inventory_stock_policy" in main
@@ -98,9 +100,42 @@ check(
     "search/filter group is ordered before the warehouse context group",
 )
 check(
-    "convertBaseQuantityToUom" in quantity
-    and "numerator % factorScaled !== 0n" in quantity,
-    "minimum editor converts base quantity to display UOM without floating-point rounding",
+    "formatCommercialQuantity" in quantity
+    and "remainder === 0n" in quantity,
+    "Live Stock commercial quantity formatting preserves carton-plus-loose-unit remainders",
+)
+check(
+    '"/warehouse/inventory/minimum-stock/bulk/preview"' in api
+    and '"/warehouse/inventory/minimum-stock/bulk"' in api
+    and 'operation="LIVE_STOCK_MINIMUM_BULK_UPDATE"' in api,
+    "bulk minimum-stock workflow has preview, apply and idempotency",
+)
+check(
+    'scope: Literal["ALL", "FAMILY", "PRODUCT"]' in api
+    and 'apply_mode: Literal["ONLY_UNSET", "OVERWRITE"]' in api,
+    "bulk minimum-stock scope and overwrite semantics are explicit",
+)
+check(
+    "pg_advisory_xact_lock" in api
+    and "LIVE_STOCK_MINIMUM_BULK_UPDATED" in api
+    and "for offset in range(0, len(keys), 5000)" in api,
+    "bulk updates serialize, audit and refresh projection keys in bounded chunks",
+)
+check(
+    "StockMinimumManager" in live
+    and "scopeAll" in manager
+    and "scopeFamily" in manager
+    and "scopeProduct" in manager
+    and "ONLY_UNSET" in manager
+    and "OVERWRITE" in manager,
+    "Live Stock exposes one centralized minimum-stock manager for all/family/product scopes",
+)
+check(
+    "2520" in seed
+    and "DEMO_FAMILIES" in seed
+    and "batch_count = 1 + (index % 3)" in seed
+    and "index % 9 != 0" in seed,
+    "rich demo data covers loose units, families, multiple batches and unset minimums",
 )
 
 print(f"CHECKS={checks}")
