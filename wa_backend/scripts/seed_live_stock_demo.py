@@ -12,8 +12,18 @@ from dotenv import load_dotenv
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-DEMO_PRODUCT_CODE = "__UI_LIVE_STOCK_DEMO__"
+DEMO_PRODUCT_CODE_PREFIX = "__UI_LIVE_STOCK_DEMO__"
 DEMO_SKU_PREFIX = "UI-LIVE-"
+DEMO_FAMILIES = (
+    ("مشروبات", "BEV"),
+    ("وجبات خفيفة", "SNK"),
+    ("حلويات", "SWT"),
+    ("مواد غذائية", "FOD"),
+    ("عناية شخصية", "PCR"),
+    ("منظفات", "CLN"),
+    ("معلبات", "CAN"),
+    ("ألبان", "DRY"),
+)
 
 
 def find_backend_root() -> Path:
@@ -36,6 +46,7 @@ BACKEND_ROOT = find_backend_root()
 sys.path.insert(0, str(BACKEND_ROOT))
 load_dotenv(BACKEND_ROOT / ".env", override=False)
 
+from domains.live_stock_projection.service import refresh_live_stock_keys  # noqa: E402
 from models import (  # noqa: E402
     Company,
     Driver,
@@ -101,28 +112,35 @@ async def list_targets() -> None:
                 )
 
 
-async def get_demo_product(session, company_id: int):
-    return await session.scalar(
-        select(Product).where(
-            Product.company_id == company_id,
-            Product.code == DEMO_PRODUCT_CODE,
-        )
+async def get_demo_products(session, company_id: int) -> list[Product]:
+    return list(
+        (
+            await session.scalars(
+                select(Product)
+                .where(
+                    Product.company_id == company_id,
+                    Product.code.like(f"{DEMO_PRODUCT_CODE_PREFIX}%"),
+                )
+                .order_by(Product.id.asc())
+            )
+        ).all()
     )
 
 
 async def cleanup(company_id: int, commit: bool) -> None:
     async with Session() as session:
-        product = await get_demo_product(session, company_id)
-        if product is None:
+        products = await get_demo_products(session, company_id)
+        if not products:
             print("CLEANUP_NOTHING_TO_DO")
             return
 
+        product_ids = [int(product.id) for product in products]
         variant_ids = list(
             (
                 await session.scalars(
                     select(ProductVariant.id).where(
                         ProductVariant.company_id == company_id,
-                        ProductVariant.product_id == product.id,
+                        ProductVariant.product_id.in_(product_ids),
                         ProductVariant.sku.like(f"{DEMO_SKU_PREFIX}%"),
                     )
                 )
@@ -150,13 +168,37 @@ async def cleanup(company_id: int, commit: bool) -> None:
                 )
             )
 
-        await session.delete(product)
+        await session.execute(
+            delete(Product).where(
+                Product.company_id == company_id,
+                Product.id.in_(product_ids),
+            )
+        )
+
         if commit:
             await session.commit()
-            print(f"CLEANUP_OK company_id={company_id} variants={len(variant_ids)}")
+            print(
+                f"CLEANUP_OK company_id={company_id} "
+                f"families={len(product_ids)} variants={len(variant_ids)}"
+            )
         else:
             await session.rollback()
-            print(f"CLEANUP_DRY_RUN company_id={company_id} variants={len(variant_ids)}")
+            print(
+                f"CLEANUP_DRY_RUN company_id={company_id} "
+                f"families={len(product_ids)} variants={len(variant_ids)}"
+            )
+
+
+def _split_quantity(total: Decimal, batch_count: int) -> list[Decimal]:
+    if batch_count <= 1:
+        return [total]
+    if batch_count == 2:
+        first = (total * Decimal("0.62")).quantize(Decimal("1"))
+        return [first, total - first]
+
+    first = (total * Decimal("0.50")).quantize(Decimal("1"))
+    second = (total * Decimal("0.30")).quantize(Decimal("1"))
+    return [first, second, total - first - second]
 
 
 async def seed(
@@ -189,8 +231,8 @@ async def seed(
                 f"Warehouse {location_id} is not an active warehouse for company {company_id}"
             )
 
-        existing = await get_demo_product(session, company_id)
-        if existing is not None:
+        existing = await get_demo_products(session, company_id)
+        if existing:
             raise RuntimeError(
                 "Demo data already exists. Run --cleanup first, then seed again."
             )
@@ -209,25 +251,41 @@ async def seed(
         if each is None or carton is None:
             raise RuntimeError("EACH/CARTON UOM is missing")
 
-        product = Product(
-            company_id=company_id,
-            code=DEMO_PRODUCT_CODE,
-            name="اختبار واجهة المخزون الحي",
-            description="بيانات تطوير مؤقتة لاختبار السكرول والترقيم والتنبيهات.",
-            brand="UI TEST",
-            category="DEMO",
-        )
-        session.add(product)
+        family_count = min(len(DEMO_FAMILIES), max(1, count))
+        families: list[Product] = []
+        for family_index in range(family_count):
+            family_name, family_code = DEMO_FAMILIES[family_index]
+            product = Product(
+                company_id=company_id,
+                code=f"{DEMO_PRODUCT_CODE_PREFIX}{family_index + 1:02d}",
+                name=f"{family_name} تجريبية",
+                description=(
+                    "بيانات تطوير مؤقتة لاختبار المخزون الحي والعائلات "
+                    "والوحدات والدفعات والصلاحية والحالات."
+                ),
+                brand=f"UI {family_code}",
+                category="DEMO",
+            )
+            session.add(product)
+            families.append(product)
+
         await session.flush()
 
         today = utc_now().date()
+        projection_keys: list[tuple[int, int]] = []
+        carton_factors = (50, 24, 12, 6)
+        remainders = (20, 0, 7, 1, 11, 23, 3, 5)
 
         for index in range(1, count + 1):
+            family = families[(index - 1) % family_count]
+            carton_factor = carton_factors[(index - 1) % len(carton_factors)]
+            base_units_only = index % 11 == 0
+
             variant = ProductVariant(
                 company_id=company_id,
-                product_id=product.id,
+                product_id=family.id,
                 base_uom_id=each.id,
-                name=f"منتج تجريبي {index:04d}",
+                name=f"{family.name} {index:04d}",
                 sku=f"{DEMO_SKU_PREFIX}{index:04d}",
                 quantity_scale=0,
                 quantity_step=Decimal("1"),
@@ -236,10 +294,12 @@ async def seed(
                 lifecycle_status="ACTIVE",
                 operational_hold="NONE",
                 published_at=utc_now(),
-                packs_per_carton=50,
+                packs_per_carton=carton_factor,
             )
             session.add(variant)
             await session.flush()
+
+            projection_keys.append((location_id, int(variant.id)))
 
             session.add(
                 ProductLocation(
@@ -253,42 +313,107 @@ async def seed(
                     created_by=actor.id,
                 )
             )
-            session.add(
-                ProductUomConversion(
+
+            if not base_units_only:
+                session.add(
+                    ProductUomConversion(
+                        company_id=company_id,
+                        product_variant_id=variant.id,
+                        from_uom_id=carton.id,
+                        to_uom_id=each.id,
+                        numerator=Decimal(str(carton_factor)),
+                        denominator=Decimal("1"),
+                        quantity_scale=0,
+                    )
+                )
+
+            # The first row is intentionally 50 cartons + 20 eaches when factor=50.
+            if index == 1:
+                total_available = Decimal("2520")
+            else:
+                whole_cartons = 8 + (index % 95)
+                remainder = remainders[(index - 1) % len(remainders)]
+                remainder = min(remainder, carton_factor - 1)
+                total_available = (
+                    Decimal(str(whole_cartons * carton_factor + remainder))
+                )
+
+            batch_count = 1 + (index % 3)
+            available_parts = _split_quantity(total_available, batch_count)
+
+            for batch_index, available_part in enumerate(available_parts, start=1):
+                expiry_offset = 365 - ((index * 9 + batch_index * 17) % 420)
+                disposition = "RELEASED"
+                stock_status = "AVAILABLE"
+
+                if batch_index == batch_count and index % 13 == 0:
+                    disposition = "RECALLED"
+                    stock_status = "RECALLED"
+                elif batch_index == batch_count and index % 17 == 0:
+                    disposition = "QUARANTINED"
+                    stock_status = "QUARANTINED"
+
+                batch = ProductBatch(
                     company_id=company_id,
                     product_variant_id=variant.id,
-                    from_uom_id=carton.id,
-                    to_uom_id=each.id,
-                    numerator=Decimal("50"),
-                    denominator=Decimal("1"),
-                    quantity_scale=0,
+                    batch_number=f"DEMO-{index:04d}-{batch_index:02d}",
+                    production_date=today - timedelta(days=30 + batch_index * 12),
+                    expiry_date=today + timedelta(days=expiry_offset),
+                    disposition=disposition,
+                    disposition_reason=(
+                        "بيانات تطوير لاختبار السحب"
+                        if disposition == "RECALLED"
+                        else "بيانات تطوير لاختبار الحجر"
+                        if disposition == "QUARANTINED"
+                        else None
+                    ),
+                    is_active=True,
                 )
-            )
+                session.add(batch)
+                await session.flush()
 
-            batch = ProductBatch(
-                company_id=company_id,
-                product_variant_id=variant.id,
-                batch_number="DEMO-01",
-                production_date=today - timedelta(days=30),
-                expiry_date=today + timedelta(days=365),
-                disposition="RELEASED",
-                is_active=True,
-            )
-            session.add(batch)
-            await session.flush()
+                if stock_status == "AVAILABLE":
+                    reserved = (
+                        min(Decimal("13"), available_part)
+                        if index % 5 == 0 and batch_index == 1
+                        else Decimal("0")
+                    )
+                    session.add(
+                        InventoryBalance(
+                            company_id=company_id,
+                            location_id=location_id,
+                            product_variant_id=variant.id,
+                            batch_id=batch.id,
+                            stock_status="AVAILABLE",
+                            on_hand_quantity=available_part,
+                            reserved_quantity=reserved,
+                        )
+                    )
+                else:
+                    session.add(
+                        InventoryBalance(
+                            company_id=company_id,
+                            location_id=location_id,
+                            product_variant_id=variant.id,
+                            batch_id=batch.id,
+                            stock_status=stock_status,
+                            on_hand_quantity=max(Decimal("1"), available_part),
+                            reserved_quantity=Decimal("0"),
+                        )
+                    )
 
-            reserved = Decimal("100") if index % 5 == 0 else Decimal("0")
-            session.add(
-                InventoryBalance(
-                    company_id=company_id,
-                    location_id=location_id,
-                    product_variant_id=variant.id,
-                    batch_id=batch.id,
-                    stock_status="AVAILABLE",
-                    on_hand_quantity=Decimal("5100"),
-                    reserved_quantity=reserved,
+            # Add independent restricted stock examples without hiding the sellable remainder.
+            first_batch = await session.scalar(
+                select(ProductBatch)
+                .where(
+                    ProductBatch.company_id == company_id,
+                    ProductBatch.product_variant_id == variant.id,
                 )
+                .order_by(ProductBatch.id.asc())
+                .limit(1)
             )
+            if first_batch is None:
+                raise RuntimeError("Demo batch creation failed")
 
             if index % 7 == 0:
                 session.add(
@@ -296,74 +421,82 @@ async def seed(
                         company_id=company_id,
                         location_id=location_id,
                         product_variant_id=variant.id,
-                        batch_id=batch.id,
+                        batch_id=first_batch.id,
                         stock_status="BLOCKED",
-                        on_hand_quantity=Decimal("50"),
+                        on_hand_quantity=Decimal("5"),
                         reserved_quantity=Decimal("0"),
                     )
                 )
-            if index % 13 == 0:
+            if index % 19 == 0:
                 session.add(
                     InventoryBalance(
                         company_id=company_id,
                         location_id=location_id,
                         product_variant_id=variant.id,
-                        batch_id=batch.id,
-                        stock_status="RECALLED",
-                        on_hand_quantity=Decimal("25"),
-                        reserved_quantity=Decimal("0"),
-                    )
-                )
-            if index % 17 == 0:
-                session.add(
-                    InventoryBalance(
-                        company_id=company_id,
-                        location_id=location_id,
-                        product_variant_id=variant.id,
-                        batch_id=batch.id,
+                        batch_id=first_batch.id,
                         stock_status="DAMAGED",
-                        on_hand_quantity=Decimal("10"),
+                        on_hand_quantity=Decimal("3"),
                         reserved_quantity=Decimal("0"),
                     )
                 )
 
-            is_alert = index <= alerts
-            session.add(
-                InventoryStockPolicy(
-                    company_id=company_id,
-                    location_id=location_id,
-                    product_variant_id=variant.id,
-                    minimum_quantity=Decimal("6000") if is_alert else Decimal("1000"),
-                    target_quantity=Decimal("7500") if is_alert else Decimal("6000"),
-                    minimum_remaining_shelf_life_days=0,
-                    is_active=True,
+            # Leave every ninth product without a policy to exercise the "unset" filter.
+            if index % 9 != 0:
+                is_alert = index <= alerts
+                if base_units_only:
+                    minimum = Decimal("40") if is_alert else Decimal("10")
+                    target = Decimal("120") if is_alert else Decimal("80")
+                else:
+                    minimum_cartons = Decimal("60") if is_alert else Decimal("5")
+                    target_cartons = Decimal("90") if is_alert else Decimal("30")
+                    minimum = minimum_cartons * Decimal(str(carton_factor))
+                    target = target_cartons * Decimal(str(carton_factor))
+
+                session.add(
+                    InventoryStockPolicy(
+                        company_id=company_id,
+                        location_id=location_id,
+                        product_variant_id=variant.id,
+                        minimum_quantity=minimum,
+                        target_quantity=target,
+                        minimum_remaining_shelf_life_days=0,
+                        is_active=True,
+                    )
                 )
-            )
+
+        await session.flush()
+        await refresh_live_stock_keys(
+            session,
+            company_id=company_id,
+            keys=projection_keys,
+        )
 
         if commit:
             await session.commit()
             print(
                 f"SEED_OK company_id={company_id} location_id={location_id} "
-                f"count={count} alerts={alerts}"
+                f"families={family_count} count={count} alerts={alerts}"
             )
             print(
-                f"DEMO_PAGES={(count + 49) // 50} "
-                "(current Live Stock API limit is 50 rows per page)"
+                "RICH_DEMO=carton_remainders,multiple_families,multiple_batches,"
+                "reserved,blocked,recalled,quarantined,damaged,unset_minimum"
             )
-            if alerts:
-                print("Refresh Live Stock with an empty search to see the alert filter banner.")
+            print(
+                "EXAMPLE_FIRST_PRODUCT=2520 EACH => 50 CARTON + 20 EACH "
+                "(when CARTON factor is 50)"
+            )
         else:
             await session.rollback()
             print(
                 f"SEED_DRY_RUN_OK company_id={company_id} location_id={location_id} "
-                f"count={count} alerts={alerts}"
+                f"families={family_count} count={count} alerts={alerts}"
             )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Non-destructive Live Stock UI demo seeder. "
+            "Non-destructive rich Live Stock UI demo seeder. "
             "It never drops or rebuilds the schema."
         )
     )
