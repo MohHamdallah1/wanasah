@@ -359,7 +359,7 @@
 }
 
 .live-stock-filter-popover {
-  width: min(20rem, calc(100vw - 2rem));
+  width: min(26rem, calc(100vw - 2rem));
   padding: 0.55rem;
   border-color: #dbe4e7;
   border-radius: 1rem;
@@ -476,7 +476,7 @@
 .live-stock-family-button {
   display: inline-flex;
   min-height: 2.75rem;
-  max-width: 11rem;
+  max-width: 14rem;
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
@@ -595,6 +595,24 @@
   border-color: #9bc9c0;
   color: #126457;
   background: #edf8f5;
+}
+
+.live-stock-family-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.live-stock-family-clear {
+  display: inline-grid;
+  width: 2.45rem;
+  height: 2.45rem;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #ead2d0;
+  border-radius: 0.7rem;
+  color: #b42318;
+  background: #fff7f6;
 }
 
 .live-stock-family-search,
@@ -1186,7 +1204,7 @@
   }
 
   .live-stock-family-button {
-    max-width: 8rem;
+    max-width: 10rem;
   }
 
   .live-stock-sort-select--toolbar {
