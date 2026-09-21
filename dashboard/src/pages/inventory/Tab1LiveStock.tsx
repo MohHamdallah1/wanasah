@@ -236,6 +236,24 @@ export function Tab1LiveStock({
     return () => observer.disconnect();
   }, [hasMore, loading, onLoadMore]);
 
+  const formatDate = useCallback(
+    (value: string | null): string => {
+      if (!value) return "—";
+      try {
+        return new Intl.DateTimeFormat(locale, {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          numberingSystem: "latn",
+          timeZone: "UTC",
+        }).format(new Date(`${value}T00:00:00Z`));
+      } catch {
+        return value;
+      }
+    },
+    [locale],
+  );
+
   const openMinimumEditor = useCallback(
     (product: WarehouseProduct) => {
       const converted = convertBaseQuantityToUom(
