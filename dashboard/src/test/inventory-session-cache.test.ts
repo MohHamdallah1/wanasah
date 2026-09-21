@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { WarehouseProduct } from "@/pages/inventory/liveStock/contracts";
 import {
   clearInventoryWarmScope,
   inventoryWarmScopeKey,
@@ -12,7 +13,7 @@ import {
 const stockItem = {
   id: 7,
   name: "صنف",
-} as never;
+} as unknown as WarehouseProduct;
 
 describe("inventory in-memory warm cache", () => {
   it("partitions snapshots by tenant/actor and warehouse", () => {
