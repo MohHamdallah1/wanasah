@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -25,7 +25,7 @@ from services import (
     validate_vehicle_recon_work_session,
 )
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
-from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCycleBatchCursorPage, StocktakeRecountRequest, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
+from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCancelRequest, StocktakeCycleBatchCursorPage, StocktakeRecountRequest, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
     DispatchRoute,
@@ -2409,4 +2409,104 @@ async def recount_stocktake_session(
         await db.rollback()
         logger.error(f"خطأ في تفويض إعادة العد: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء تفويض إعادة العد.")
+
+
+# ====================================================
+# 11.29 إلغاء جلسة الجرد وتحرير الأقفال مع حفظ سجل التدقيق
+# ====================================================
+@router.post("/warehouse/unified/stocktake/{session_id}/cancel", status_code=200)
+async def cancel_stocktake_session(
+    session_id: int,
+    payload: StocktakeCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """إلغاء موثق مع تحرير كامل Metadata للقفل."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.cancel', session_id)
+
+    company_id = current_admin.company_id
+    if not current_admin.is_admin:
+        raise HTTPException(status_code=403, detail="إلغاء الجرد يتطلب صلاحية مشرف.")
+
+    password_ok = await asyncio.to_thread(
+        bcrypt.checkpw,
+        payload.password.encode('utf-8'),
+        current_admin.password_hash.encode('utf-8'),
+    )
+    if not password_ok:
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session_id}",
+            action_type="STOCKTAKE_CANCEL_REJECTED",
+            old_value="ACTIVE_STOCKTAKE",
+            new_value="Wrong password",
+        ))
+        await db.commit()
+        raise HTTPException(status_code=403, detail="كلمة المرور غير صحيحة؛ تم رفض الإلغاء وتوثيق المحاولة.")
+
+    try:
+        location_id = await _probe_stocktake_location_id(db, company_id, session_id)
+        await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
+
+        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
+        if session.status in {'POSTED', 'CANCELLED'}:
+            raise HTTPException(status_code=409, detail=f"لا يمكن إلغاء جلسة بحالة ({session.status}).")
+
+        previous_status = session.status
+        now = _utc_naive_now()
+        release_result = await db.execute(
+            update(InventoryLock).where(
+                InventoryLock.company_id == company_id,
+                InventoryLock.stocktake_session_id == session.id,
+                InventoryLock.released_at.is_(None),
+            ).values(
+                released_by=current_admin.id,
+                released_at=now,
+                release_reason="STOCKTAKE_CANCELLED",
+            )
+        )
+        released_lock_count = int(release_result.rowcount or 0)
+
+        session.status = 'CANCELLED'
+        session.cancelled_by = current_admin.id
+        session.cancelled_at = now
+        session.cancellation_reason = payload.reason
+        session.pending_recount_authorized_by = None
+        session.pending_recount_reason = None
+        session.pending_independent_recount_required = False
+        session.updated_at = now
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_CANCELLED",
+            old_value=previous_status,
+            new_value=json.dumps({
+                "status": "CANCELLED",
+                "reason": payload.reason,
+                "released_lock_count": released_lock_count,
+            }, ensure_ascii=False),
+        ))
+        await db.commit()
+
+        return {
+            "message": "تم إلغاء جلسة الجرد وفك الأقفال مع حفظ سجل التدقيق.",
+            "released_lock_count": released_lock_count,
+            "status": "CANCELLED",
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.warning(f"تعارض متزامن أثناء إلغاء الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=409, detail="حدث تعارض متزامن أثناء إلغاء الجرد.")
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في إلغاء الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء إلغاء الجرد.")
 
