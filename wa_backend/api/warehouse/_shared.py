@@ -2,6 +2,7 @@ from datetime import timezone, datetime
 import base64
 import hashlib
 import json
+from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import Integer, any_, bindparam
@@ -100,3 +101,39 @@ def _decode_variant_cursor(
             status_code=400,
             detail="Cursor الصفحة غير صالح أو لا يطابق معايير الاستعلام الحالي.",
         ) from exc
+
+
+# ====================================================
+# بصمة طلب ثابتة لعمليات Idempotency المشتركة
+# ====================================================
+# إنشاء بصمة ثابتة للطلب مع اعتبار ترتيب items غير مؤثر منطقياً.
+def _stable_request_hash(
+    payload,
+    *,
+    context: Optional[dict] = None,
+) -> str:
+    body = payload.model_dump(mode="json", exclude={"request_id"})
+
+    items = body.get("items")
+    if isinstance(items, list):
+        body["items"] = sorted(
+            items,
+            key=lambda item: json.dumps(
+                item,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ),
+        )
+
+    if context:
+        body["_context"] = dict(context)
+
+    canonical = json.dumps(
+        body,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
