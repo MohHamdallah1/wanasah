@@ -48,11 +48,9 @@ from domains.live_stock_projection.service import (
     remove_live_stock_warehouse_projection,
 )
 
-# Staging-only dependency: remains sourced from the untouched monolith until
-# _stable_request_hash is moved once to _shared.py in its dedicated stage.
-from api.warehouse import _stable_request_hash
 
-from ._shared import _escape_like
+
+from ._shared import _escape_like, _stable_request_hash
 
 
 logger = logging.getLogger("wanasah_logger")
