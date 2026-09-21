@@ -20,10 +20,11 @@ from inventory_access import InventoryAccess, require_stocktake
 from services import (
     InventoryMutationError,
     acquire_inventory_location_guard,
+    get_company_local_date,
     validate_vehicle_recon_work_session,
 )
-from quantity import canonical_quantity
-from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
+from quantity import QuantityError, canonical_quantity, validate_variant_quantity
+from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
     DispatchRoute,
@@ -34,8 +35,10 @@ from models import (
     ProductBatch,
     ProductVariant,
     StocktakeCountAttempt,
+    StocktakeCountAttemptLine,
     StocktakeLine,
     StocktakeSession,
+    SystemAuditLog,
     SystemSetting,
     UOM,
     WorkSession,
@@ -1699,4 +1702,321 @@ async def get_stocktake_count_sheet(
         line, product_name, base_uom_id, quantity_scale, quantity_step,
         base_uom_code, base_uom_name, batch_number, expiry_date,
     ) in rows]
+
+
+# ====================================================
+# 11.25 تثبيت محاولة العد ومعالجة الفروقات والأسطر المكتشفة
+# ====================================================
+@router.post("/warehouse/unified/stocktake/{session_id}/count", status_code=200)
+async def submit_stocktake_count(
+    session_id: int,
+    payload: UnifiedStocktakeCountRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """Attempt immutable + DISCOVERED lines معروفة في ProductBatch."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.count', session_id)
+
+    company_id = current_admin.company_id
+
+    try:
+        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
+        if session.status not in {'COUNTING', 'RECOUNT_REQUIRED'}:
+            raise HTTPException(status_code=409, detail=f"لا يمكن تثبيت عد بحالة ({session.status}).")
+
+        previous_attempt = await _latest_stocktake_attempt(db, company_id, session.id)
+        if session.status == 'COUNTING' and previous_attempt is not None:
+            raise HTTPException(status_code=409, detail="توجد محاولة سابقة؛ Attempt جديد يتطلب Recount موثقاً.")
+
+        if session.status == 'RECOUNT_REQUIRED':
+            if session.pending_recount_authorized_by is None or not session.pending_recount_reason:
+                raise HTTPException(status_code=409, detail="إعادة العد لا تحمل تفويضاً موثقاً.")
+            if previous_attempt is None:
+                raise HTTPException(status_code=409, detail="RECOUNT_REQUIRED بدون محاولة سابقة.")
+            if session.pending_independent_recount_required and previous_attempt.counted_by == current_admin.id:
+                raise HTTPException(status_code=403, detail="إعادة العد المستقلة يجب أن ينفذها مستخدم آخر.")
+
+        existing_lines = (
+            await db.execute(
+                select(StocktakeLine)
+                .filter_by(company_id=company_id, stocktake_session_id=session.id)
+                .order_by(
+                    StocktakeLine.product_variant_id.asc(),
+                    StocktakeLine.batch_id.asc(),
+                    StocktakeLine.stock_status.asc(),
+                    StocktakeLine.id.asc(),
+                )
+            )
+        ).scalars().all()
+        line_map = {
+            (line.product_variant_id, line.batch_id, line.stock_status): line
+            for line in existing_lines
+        }
+        if len(line_map) != len(existing_lines):
+            raise HTTPException(status_code=409, detail="جلسة الجرد تحتوي أسطر Snapshot مكررة.")
+
+        submitted_variant_ids = {item.product_variant_id for item in payload.items}
+        variant_rows = (
+            await db.execute(
+                select(
+                    ProductVariant.id,
+                    ProductVariant.base_uom_id,
+                    ProductVariant.quantity_scale,
+                    ProductVariant.quantity_step,
+                ).where(
+                    ProductVariant.company_id == company_id,
+                    ProductVariant.id.in_(submitted_variant_ids),
+                )
+            )
+        ).all()
+        variant_rules = {
+            row.id: (row.base_uom_id, row.quantity_scale, row.quantity_step)
+            for row in variant_rows
+        }
+        if set(variant_rules) != submitted_variant_ids:
+            raise HTTPException(status_code=422, detail="محاولة العد تحتوي صنفاً غير معروف أو لا يتبع شركتك.")
+
+        submitted_map = {}
+        for item in payload.items:
+            base_uom_id, quantity_scale, quantity_step = variant_rules[item.product_variant_id]
+            if item.uom_id != base_uom_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="كمية العد يجب أن ترسل بوحدة الأساس الخاصة بالصنف.",
+                )
+            submitted_map[(item.product_variant_id, item.batch_id, item.stock_status)] = (
+                validate_variant_quantity(
+                    item.actual_quantity,
+                    quantity_scale=quantity_scale,
+                    quantity_step=quantity_step,
+                    field_name="actual_quantity",
+                    allow_zero=True,
+                )
+            )
+        missing_keys = set(line_map) - set(submitted_map)
+        if missing_keys:
+            raise HTTPException(
+                status_code=422,
+                detail=f"يوجد {len(missing_keys)} سطر لم يتم عده؛ السطر غير المرسل لا يُعامل كصفر.",
+            )
+
+        discovered_keys = set(submitted_map) - set(line_map)
+        if discovered_keys:
+            zero_discovered = [
+                key
+                for key in discovered_keys
+                if submitted_map[key] <= 0
+            ]
+            if zero_discovered:
+                raise HTTPException(
+                    status_code=422,
+                    detail="DISCOVERED جديد يجب أن يحمل كمية فعلية أكبر من صفر.",
+                )
+
+            as_of_date = await get_company_local_date(db, company_id)
+
+            batch_rows = (
+                await db.execute(
+                    select(
+                        ProductBatch.id,
+                        ProductBatch.product_variant_id,
+                        ProductBatch.production_date,
+                        ProductBatch.expiry_date,
+                        ProductBatch.is_active,
+                        ProductVariant.lifecycle_status.in_(['ACTIVE', 'RETIRING']).label("variant_is_countable"),
+                    )
+                    .join(
+                        ProductVariant,
+                        and_(
+                            ProductVariant.company_id == ProductBatch.company_id,
+                            ProductVariant.id == ProductBatch.product_variant_id,
+                        ),
+                    )
+                    .filter(
+                        ProductBatch.company_id == company_id,
+                        ProductBatch.id.in_({
+                            batch_id
+                            for _, batch_id, _ in discovered_keys
+                        }),
+                    )
+                )
+            ).all()
+
+            batch_map = {
+                (product_variant_id, batch_id): (
+                    production_date,
+                    expiry_date,
+                    batch_is_active,
+                    variant_is_countable,
+                )
+                for (
+                    batch_id,
+                    product_variant_id,
+                    production_date,
+                    expiry_date,
+                    batch_is_active,
+                    variant_is_countable,
+                ) in batch_rows
+            }
+
+            for product_variant_id, batch_id, stock_status in sorted(discovered_keys):
+                batch_meta = batch_map.get(
+                    (product_variant_id, batch_id)
+                )
+
+                if batch_meta is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="DISCOVERED صنف/دفعة غير معروف أو لا يتبع شركتك.",
+                    )
+
+                (
+                    production_date,
+                    expiry_date,
+                    batch_is_active,
+                    variant_is_countable,
+                ) = batch_meta
+
+                if (
+                    production_date is not None
+                    and production_date > as_of_date
+                ):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="DISCOVERED يشير إلى دفعة بتاريخ إنتاج مستقبلي وغير صالح.",
+                    )
+
+                if stock_status == 'AVAILABLE':
+                    if not batch_is_active or not variant_is_countable:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="DISCOVERED بحالة AVAILABLE يتطلب صنفاً ودفعة فعالين.",
+                        )
+
+                if session.stocktake_type == 'CYCLE_COUNT':
+                    if product_variant_id != session.scope_product_variant_id:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="DISCOVERED خارج نطاق صنف CYCLE_COUNT.",
+                        )
+
+                    if (
+                        session.scope_batch_id is not None
+                        and batch_id != session.scope_batch_id
+                    ):
+                        raise HTTPException(
+                            status_code=422,
+                            detail="DISCOVERED خارج نطاق دفعة CYCLE_COUNT.",
+                        )
+
+                line = StocktakeLine(
+                    company_id=company_id,
+                    stocktake_session_id=session.id,
+                    product_variant_id=product_variant_id,
+                    batch_id=batch_id,
+                    stock_status=stock_status,
+                    line_origin='DISCOVERED',
+                    expected_quantity=0,
+                    discovered_by=current_admin.id,
+                    discovered_at=_utc_naive_now(),
+                    notes="تم اكتشافه أثناء العد الفعلي.",
+                )
+                db.add(line)
+                line_map[
+                    (product_variant_id, batch_id, stock_status)
+                ] = line
+
+            await db.flush()
+
+        all_lines = sorted(
+            line_map.values(),
+            key=lambda line: (line.product_variant_id, line.batch_id, line.stock_status, line.id),
+        )
+        if len(all_lines) > _MAX_STOCKTAKE_LINES:
+            raise HTTPException(status_code=422, detail="محاولة العد تتجاوز الحد الآمن البالغ 10000 سطر.")
+
+        attempt_number = previous_attempt.attempt_number + 1 if previous_attempt is not None else 1
+        is_recount = session.status == 'RECOUNT_REQUIRED'
+        attempt = StocktakeCountAttempt(
+            company_id=company_id,
+            stocktake_session_id=session.id,
+            attempt_number=attempt_number,
+            recount_of_attempt_id=previous_attempt.id if is_recount else None,
+            counted_by=current_admin.id,
+            authorized_by=session.pending_recount_authorized_by if is_recount else None,
+            recount_reason=session.pending_recount_reason if is_recount else None,
+        )
+        db.add(attempt)
+        await db.flush()
+
+        attempt_line_values = []
+        for line in all_lines:
+            key = (line.product_variant_id, line.batch_id, line.stock_status)
+            expected_quantity = Decimal(line.expected_quantity)
+            actual_quantity = submitted_map[key]
+            variance_quantity = actual_quantity - expected_quantity
+            db.add(StocktakeCountAttemptLine(
+                company_id=company_id,
+                stocktake_session_id=session.id,
+                count_attempt_id=attempt.id,
+                stocktake_line_id=line.id,
+                expected_quantity=expected_quantity,
+                actual_quantity=actual_quantity,
+                variance_quantity=variance_quantity,
+            ))
+            attempt_line_values.append((expected_quantity, variance_quantity))
+
+        requires_independent = await _requires_independent_stocktake_recount(
+            db, company_id, attempt_line_values
+        )
+        attempt.requires_independent_recount = requires_independent
+
+        session.status = 'PENDING_REVIEW'
+        session.pending_recount_authorized_by = None
+        session.pending_recount_reason = None
+        session.pending_independent_recount_required = False
+        session.updated_at = _utc_naive_now()
+        if payload.notes:
+            session.notes = f"{session.notes or ''} | Attempt #{attempt_number}: {payload.notes}".strip(" |")
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_COUNT_SUBMITTED",
+            old_value=f"previous_attempt={previous_attempt.id if previous_attempt else None}",
+            new_value=json.dumps({
+                "attempt_id": attempt.id,
+                "attempt_number": attempt_number,
+                "counted_by": current_admin.id,
+                "recount_of_attempt_id": attempt.recount_of_attempt_id,
+                "requires_independent_recount": requires_independent,
+                "line_count": len(all_lines),
+            }, ensure_ascii=False),
+        ))
+        await db.commit()
+
+        return {
+            "message": "تم تثبيت محاولة العد بنجاح.",
+            "attempt_id": attempt.id,
+            "attempt_number": attempt_number,
+            "requires_independent_recount": requires_independent,
+            "status": "PENDING_REVIEW",
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.warning(f"تعارض متزامن أثناء تثبيت الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=409, detail="حدث تعارض متزامن أثناء تثبيت العد؛ لم يُحفظ Attempt جزئي.")
+    except QuantityError as e:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في تثبيت الجرد: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء تثبيت محاولة الجرد.")
 
