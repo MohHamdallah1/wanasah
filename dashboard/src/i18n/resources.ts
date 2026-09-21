@@ -881,6 +881,7 @@ export const resources = {
         tabsLabel: "Inventory screens",
         tabs: {
           live: "Live stock",
+          batches: "Batches & expiry",
           inbound: "Inbound receipt",
           transfers: "Transfers",
           ledger: "Movement ledger",
