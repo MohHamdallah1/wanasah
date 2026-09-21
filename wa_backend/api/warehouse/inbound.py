@@ -3,6 +3,7 @@ from decimal import Decimal
 import hashlib
 import logging
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, func, select, tuple_
