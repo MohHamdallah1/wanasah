@@ -12,6 +12,10 @@ from schemas import WarehouseStatusResponse
 router = APIRouter()
 
 
+# =================================================================================
+# 5. جلب حالة قفل المستودع
+# =================================================================================
+# جلب حالة قفل مستودع محدد اعتماداً على الأقفال الفعلية للمحرك الموحد.
 @router.get("/warehouse/status", response_model=WarehouseStatusResponse, status_code=200)
 async def get_warehouse_status(
     location_id: int,
