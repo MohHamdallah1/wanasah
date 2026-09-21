@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WAREHOUSE = ROOT / "api" / "warehouse.py"
+WAREHOUSE = ROOT / "api" / "warehouse" / "live_stock.py"
 MODELS = ROOT / "models.py"
 TRANSITION_MIGRATION = (
     ROOT
