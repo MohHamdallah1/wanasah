@@ -752,7 +752,9 @@ export function Tab1LiveStock({
                       </td>
 
                       <td className="px-4 py-3.5 text-center font-black tabular-nums text-emerald-700">
-                        {available.primary}
+                        <span className="live-stock-sellable-chip">
+                          {available.primary}
+                        </span>
                       </td>
 
                       <td className="px-4 py-3.5 text-center font-black tabular-nums">
