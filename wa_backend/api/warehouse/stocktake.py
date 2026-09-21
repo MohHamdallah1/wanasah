@@ -22,6 +22,7 @@ from services import (
     acquire_inventory_location_guard,
     validate_vehicle_recon_work_session,
 )
+from quantity import canonical_quantity
 from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
@@ -36,6 +37,7 @@ from models import (
     StocktakeLine,
     StocktakeSession,
     SystemSetting,
+    UOM,
     WorkSession,
 )
 
@@ -1609,4 +1611,92 @@ async def start_unified_stocktake(
 
 
 # Blind Count: لا يتم إرجاع expected_quantity.
+
+
+# ====================================================
+# 11.24 جلب ورقة العد العمياء لجلسة الجرد
+# ====================================================
+@router.get("/warehouse/unified/stocktake/{session_id}/count-sheet", status_code=200)
+async def get_stocktake_count_sheet(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.count', session_id)
+
+    company_id = current_admin.company_id
+    session = await _load_stocktake_session(db, company_id, session_id)
+
+    if session.status not in {'COUNTING', 'RECOUNT_REQUIRED'}:
+        raise HTTPException(status_code=409, detail=f"لا يمكن فتح ورقة العد بحالة ({session.status}).")
+
+    if session.status == 'RECOUNT_REQUIRED' and session.pending_independent_recount_required:
+        previous_attempt = await _latest_stocktake_attempt(db, company_id, session.id)
+        if previous_attempt is not None and previous_attempt.counted_by == current_admin.id:
+            raise HTTPException(status_code=403, detail="إعادة العد المستقلة يجب أن ينفذها مستخدم آخر.")
+
+    rows = (
+        await db.execute(
+            select(
+                StocktakeLine,
+                ProductVariant.name,
+                ProductVariant.base_uom_id,
+                ProductVariant.quantity_scale,
+                ProductVariant.quantity_step,
+                UOM.code,
+                UOM.name,
+                ProductBatch.batch_number,
+                ProductBatch.expiry_date,
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == StocktakeLine.company_id,
+                    ProductVariant.id == StocktakeLine.product_variant_id,
+                ),
+            )
+            .join(
+                UOM,
+                UOM.id == ProductVariant.base_uom_id,
+            )
+            .join(
+                ProductBatch,
+                and_(
+                    ProductBatch.company_id == StocktakeLine.company_id,
+                    ProductBatch.product_variant_id == StocktakeLine.product_variant_id,
+                    ProductBatch.id == StocktakeLine.batch_id,
+                ),
+            )
+            .filter(
+                StocktakeLine.company_id == company_id,
+                StocktakeLine.stocktake_session_id == session.id,
+            )
+            .order_by(
+                ProductVariant.name.asc(),
+                ProductBatch.expiry_date.asc(),
+                ProductBatch.id.asc(),
+                StocktakeLine.stock_status.asc(),
+            )
+        )
+    ).all()
+
+    return [{
+        "stocktake_line_id": line.id,
+        "product_variant_id": line.product_variant_id,
+        "batch_id": line.batch_id,
+        "stock_status": line.stock_status,
+        "line_origin": line.line_origin,
+        "product_name": product_name,
+        "base_uom_id": base_uom_id,
+        "base_uom_code": base_uom_code,
+        "base_uom_name": base_uom_name,
+        "quantity_scale": quantity_scale,
+        "quantity_step": canonical_quantity(quantity_step),
+        "batch_number": batch_number,
+        "expiry_date": expiry_date.isoformat(),
+    } for (
+        line, product_name, base_uom_id, quantity_scale, quantity_step,
+        base_uom_code, base_uom_name, batch_number, expiry_date,
+    ) in rows]
 
