@@ -37,7 +37,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from context import tenant_context  # noqa: E402
 from database import AsyncSessionLocal, engine  # noqa: E402
 from models import Driver  # noqa: E402
-from api.warehouse import (  # noqa: E402
+from api.warehouse.live_stock import (  # noqa: E402
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
     get_warehouse_inventory_summary,
