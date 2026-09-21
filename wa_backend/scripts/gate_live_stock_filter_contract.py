@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "wa_backend"
-WAREHOUSE = BACKEND / "api" / "warehouse.py"
+WAREHOUSE = BACKEND / "api" / "warehouse" / "live_stock.py"
 SCHEMAS = BACKEND / "schemas.py"
 LIVE = ROOT / "dashboard" / "src" / "pages" / "inventory" / "Tab1LiveStock.tsx"
 MAIN = ROOT / "dashboard" / "src" / "pages" / "inventory" / "MainInventory.tsx"
