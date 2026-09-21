@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -7,17 +6,13 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  CalendarDays,
   Check,
-  ChevronDown,
   FilterX,
   Info,
   ListFilter,
-  PackageOpen,
   Pencil,
   RefreshCcw,
   Search,
-  ShieldAlert,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -39,13 +34,10 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import {
-  parseBatchDetailResponse,
   parseLiveStockFamilies,
   type LiveStockFamilyOption,
   type LiveStockIndicator,
   type LiveStockStockState,
-  type WarehouseBatchDetailResponse,
-  type WarehouseBatchInventoryItem,
   type WarehouseProduct,
 } from "./liveStock/contracts";
 import {
@@ -84,21 +76,6 @@ type MinimumStockEditor = {
   uomCode: string;
   value: string;
   requestId: string;
-};
-
-const statusTone = (
-  status: WarehouseBatchInventoryItem["disposition"],
-): string => {
-  switch (status) {
-    case "RECALLED":
-      return "border-red-200 bg-red-50 text-red-700";
-    case "BLOCKED":
-      return "border-orange-200 bg-orange-50 text-orange-700";
-    case "QUARANTINED":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    default:
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
 };
 
 function HeaderHelp({
@@ -152,15 +129,6 @@ export function Tab1LiveStock({
   const locale = i18n.resolvedLanguage || i18n.language || "en";
 
   const [searchInput, setSearchInput] = useState("");
-  const [expandedProductId, setExpandedProductId] =
-    useState<number | null>(null);
-  const [batchDetails, setBatchDetails] = useState<
-    Record<number, WarehouseBatchDetailResponse>
-  >({});
-  const [batchLoadingId, setBatchLoadingId] =
-    useState<number | null>(null);
-  const [batchErrorId, setBatchErrorId] =
-    useState<number | null>(null);
   const [minimumEditor, setMinimumEditor] =
     useState<MinimumStockEditor | null>(null);
   const [savingMinimum, setSavingMinimum] = useState(false);
@@ -169,33 +137,21 @@ export function Tab1LiveStock({
     useState<LiveStockFamilyOption[]>([]);
   const [familyLoading, setFamilyLoading] = useState(false);
 
-  const batchRequestSeq = useRef(0);
-  const batchAbortRef = useRef<AbortController | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const emittedSearchRef = useRef("");
 
   useEffect(() => {
     setSearchInput("");
-    setExpandedProductId(null);
-    setBatchDetails({});
-    setBatchLoadingId(null);
-    setBatchErrorId(null);
     setMinimumEditor(null);
     setSavingMinimum(false);
     setFamilySearch("");
     setFamilyOptions([]);
     setFamilyLoading(false);
     emittedSearchRef.current = "";
-    batchRequestSeq.current += 1;
-    batchAbortRef.current?.abort();
-    batchAbortRef.current = null;
 
     return () => {
-      batchRequestSeq.current += 1;
-      batchAbortRef.current?.abort();
-      batchAbortRef.current = null;
-    };
+          };
   }, [locationId]);
 
   useEffect(() => {
@@ -279,128 +235,6 @@ export function Tab1LiveStock({
     observer.observe(target);
     return () => observer.disconnect();
   }, [hasMore, loading, onLoadMore]);
-
-  const formatDate = useCallback(
-    (value: string | null): string => {
-      if (!value) return "—";
-      try {
-        return new Intl.DateTimeFormat(locale, {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          numberingSystem: "latn",
-          timeZone: "UTC",
-        }).format(new Date(`${value}T00:00:00Z`));
-      } catch {
-        return value;
-      }
-    },
-    [locale],
-  );
-
-  const loadBatchDetails = useCallback(
-    async (product: WarehouseProduct) => {
-      if (expandedProductId === product.id) {
-        batchRequestSeq.current += 1;
-        batchAbortRef.current?.abort();
-        batchAbortRef.current = null;
-        setExpandedProductId(null);
-        setBatchLoadingId(null);
-        setBatchErrorId(null);
-        return;
-      }
-
-      setExpandedProductId(product.id);
-      setBatchErrorId(null);
-
-      if (batchDetails[product.id]) {
-        return;
-      }
-
-      const requestSeq = ++batchRequestSeq.current;
-      batchAbortRef.current?.abort();
-      const controller = new AbortController();
-      batchAbortRef.current = controller;
-      setBatchLoadingId(product.id);
-
-      try {
-        const raw = await authFetch(
-          `/warehouse/inventory/${encodeURIComponent(
-            String(product.id),
-          )}/batches?location_id=${encodeURIComponent(
-            String(locationId),
-          )}`,
-          { signal: controller.signal },
-        );
-
-        if (requestSeq !== batchRequestSeq.current) return;
-
-        const parsed = parseBatchDetailResponse(raw);
-        if (
-          parsed.location_id !== locationId ||
-          parsed.product_variant_id !== product.id ||
-          parsed.currency_code.toUpperCase() !==
-            product.currency_code.toUpperCase()
-        ) {
-          const error = new Error(
-            "LIVE_STOCK_BATCH_RESPONSE_INVALID",
-          ) as Error & { code: string };
-          error.code = "LIVE_STOCK_BATCH_RESPONSE_INVALID";
-          throw error;
-        }
-
-        setBatchDetails((current) => ({
-          ...current,
-          [product.id]: parsed,
-        }));
-      } catch (error: unknown) {
-        if (requestSeq !== batchRequestSeq.current) return;
-        if (
-          error instanceof Error &&
-          error.name === "AbortError"
-        ) {
-          return;
-        }
-
-        setBatchErrorId(product.id);
-        toast.error(
-          apiErrorMessage(
-            error,
-            t("inventoryLive.errors.batchLoadFailed"),
-          ),
-        );
-      } finally {
-        if (batchAbortRef.current === controller) {
-          batchAbortRef.current = null;
-        }
-        if (requestSeq === batchRequestSeq.current) {
-          setBatchLoadingId(null);
-        }
-      }
-    },
-    [
-      authFetch,
-      batchDetails,
-      expandedProductId,
-      locationId,
-      t,
-    ],
-  );
-
-  const retryBatchDetails = useCallback(
-    (product: WarehouseProduct) => {
-      setBatchDetails((current) => {
-        const next = { ...current };
-        delete next[product.id];
-        return next;
-      });
-      setExpandedProductId(null);
-      queueMicrotask(() => {
-        void loadBatchDetails(product);
-      });
-    },
-    [loadBatchDetails],
-  );
 
   const openMinimumEditor = useCallback(
     (product: WarehouseProduct) => {
@@ -922,24 +756,13 @@ export function Tab1LiveStock({
                       )
                     : null;
 
-                const expanded =
-                  expandedProductId === product.id;
-                const details =
-                  batchDetails[product.id];
-                const loadingBatches =
-                  batchLoadingId === product.id;
-                const batchFailed =
-                  batchErrorId === product.id;
-
                 return (
-                  <Fragment key={product.id}>
-                    <tr
+                  <tr
+                      key={product.id}
                       className={`live-stock-row border-b border-slate-100/80 transition-colors ${
-                        expanded
-                          ? "bg-sky-50/45"
-                          : isAlert
-                            ? "bg-red-50/45 hover:bg-red-50/75"
-                            : "bg-white hover:bg-slate-50/65"
+                        isAlert
+                          ? "bg-red-50/45 hover:bg-red-50/75"
+                          : "bg-white hover:bg-slate-50/65"
                       }`}
                     >
                       <td className="live-stock-number-cell">
@@ -957,36 +780,6 @@ export function Tab1LiveStock({
 
                       <td className="live-product-cell px-4 py-3.5">
                         <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void loadBatchDetails(product)
-                            }
-                            className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition-all ${
-                              expanded
-                                ? "border-sky-200 bg-sky-100 text-sky-700"
-                                : "border-slate-200 bg-white text-slate-500 hover:border-sky-200 hover:text-sky-700"
-                            }`}
-                            aria-expanded={expanded}
-                            aria-label={t(
-                              expanded
-                                ? "inventoryLive.closeBatchDetails"
-                                : "inventoryLive.openBatchDetails",
-                            )}
-                            title={t(
-                              expanded
-                                ? "inventoryLive.closeBatchDetails"
-                                : "inventoryLive.openBatchDetails",
-                            )}
-                          >
-                            <ChevronDown
-                              className={`h-4 w-4 transition-transform ${
-                                expanded
-                                  ? "rotate-180"
-                                  : ""
-                              }`}
-                            />
-                          </button>
 
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 font-black text-slate-800">
@@ -1003,11 +796,11 @@ export function Tab1LiveStock({
                                 {product.name}
                               </span>
                             </div>
-                            <div className="mt-0.5 text-[10px] font-bold text-slate-400">
-                              {t(
-                                "inventoryLive.batchDetailsHint",
-                              )}
-                            </div>
+                            {product.sku && (
+                              <div className="mt-0.5 text-[10px] font-bold text-slate-400">
+                                {product.sku}
+                              </div>
+                            )}
                             <div className="live-stock-minimum-row">
                               <span>
                                 {t("inventoryLive.minimumStockLabel")}:{" "}
@@ -1151,425 +944,6 @@ export function Tab1LiveStock({
 
 
                     </tr>
-
-                    {expanded && (
-                      <tr className="border-b border-sky-100 bg-[linear-gradient(135deg,rgba(240,249,255,0.92),rgba(248,250,252,0.96))]">
-                        <td colSpan={10} className="live-batch-panel p-0">
-                          <div className="px-5 py-4">
-                            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <div className="flex items-center gap-2 text-sm font-black text-slate-800">
-                                  <PackageOpen className="h-4 w-4 text-sky-700" />
-                                  {t(
-                                    "inventoryLive.batchPanelTitle",
-                                  )}
-                                </div>
-                                <p className="mt-1 max-w-3xl text-[11px] font-semibold leading-5 text-slate-500">
-                                  {t(
-                                    "inventoryLive.batchPanelHint",
-                                  )}
-                                </p>
-                              </div>
-                            </div>
-
-                            {loadingBatches && (
-                              <div className="flex min-h-28 items-center justify-center gap-2 rounded-2xl border border-sky-100 bg-white/75 text-sm font-bold text-slate-500">
-                                <RefreshCcw className="h-4 w-4 animate-spin" />
-                                {t(
-                                  "inventoryLive.loadingBatches",
-                                )}
-                              </div>
-                            )}
-
-                            {!loadingBatches &&
-                              batchFailed && (
-                                <div className="flex min-h-28 flex-col items-center justify-center gap-3 rounded-2xl border border-red-100 bg-red-50/60 px-4 text-center">
-                                  <span className="text-sm font-black text-red-700">
-                                    {t(
-                                      "inventoryLive.errors.batchLoadFailed",
-                                    )}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      retryBatchDetails(
-                                        product,
-                                      )
-                                    }
-                                    className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-black text-red-700"
-                                  >
-                                    <RefreshCcw className="h-3.5 w-3.5" />
-                                    {t("common.retry")}
-                                  </button>
-                                </div>
-                              )}
-
-                            {!loadingBatches &&
-                              !batchFailed &&
-                              details &&
-                              details.batches.length ===
-                                0 && (
-                                <div className="flex min-h-28 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70 text-sm font-bold text-slate-400">
-                                  {t(
-                                    "inventoryLive.noBatchesInWarehouse",
-                                  )}
-                                </div>
-                              )}
-
-                            {!loadingBatches &&
-                              !batchFailed &&
-                              details &&
-                              details.batches.length >
-                                0 && (
-                                <div className="grid gap-3 xl:grid-cols-2">
-                                  {details.batches.map(
-                                    (batch) => {
-                                      const batchOnHand =
-                                        renderQuantity(
-                                          batch.on_hand_quantity,
-                                        );
-                                      const batchReserved =
-                                        renderQuantity(
-                                          batch.reserved_quantity,
-                                        );
-                                      const batchAvailable =
-                                        renderQuantity(
-                                          batch.available_for_sale_quantity,
-                                        );
-                                      const batchUnavailable =
-                                        renderQuantity(
-                                          batch.unavailable_quantity,
-                                        );
-
-                                      const statusChips = [
-                                        {
-                                          key: "restricted",
-                                          value:
-                                            batch.restricted_quantity,
-                                          label: t(
-                                            "inventoryLive.restricted",
-                                          ),
-                                          tone: "border-amber-200 bg-amber-50 text-amber-700",
-                                        },
-                                        {
-                                          key: "quarantined",
-                                          value:
-                                            batch.quarantined_quantity,
-                                          label: t(
-                                            "inventoryLive.quarantined",
-                                          ),
-                                          tone: "border-yellow-200 bg-yellow-50 text-yellow-700",
-                                        },
-                                        {
-                                          key: "blocked",
-                                          value:
-                                            batch.blocked_quantity,
-                                          label: t(
-                                            "inventoryLive.blocked",
-                                          ),
-                                          tone: "border-orange-200 bg-orange-50 text-orange-700",
-                                        },
-                                        {
-                                          key: "recalled",
-                                          value:
-                                            batch.recalled_quantity,
-                                          label: t(
-                                            "inventoryLive.recalled",
-                                          ),
-                                          tone: "border-red-200 bg-red-50 text-red-700",
-                                        },
-                                        {
-                                          key: "damaged",
-                                          value:
-                                            batch.damaged_quantity,
-                                          label: t(
-                                            "inventoryLive.damaged",
-                                          ),
-                                          tone: "border-rose-200 bg-rose-50 text-rose-700",
-                                        },
-                                        {
-                                          key: "disposal",
-                                          value:
-                                            batch.disposal_pending_quantity,
-                                          label: t(
-                                            "inventoryLive.disposalPending",
-                                          ),
-                                          tone: "border-slate-300 bg-slate-100 text-slate-700",
-                                        },
-                                      ].filter(
-                                        (item) =>
-                                          compareQuantity(
-                                            item.value,
-                                            "0",
-                                          ) > 0,
-                                      );
-
-                                      const batchCostUom =
-                                        batch.latest_purchase_uom_code
-                                          ? t(
-                                              `uom.${batch.latest_purchase_uom_code}`,
-                                              {
-                                                defaultValue:
-                                                  t(
-                                                    "inventoryCommon.unit",
-                                                  ),
-                                              },
-                                            )
-                                          : null;
-
-                                      return (
-                                        <article
-                                          key={
-                                            batch.batch_id
-                                          }
-                                          className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-[0_14px_32px_-28px_rgba(15,31,54,0.75)]"
-                                        >
-                                          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                                            <div>
-                                              <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
-                                                {t(
-                                                  "inventoryLive.batchNumber",
-                                                )}
-                                              </div>
-                                              <div className="mt-0.5 font-black text-slate-900">
-                                                {
-                                                  batch.batch_number
-                                                }
-                                              </div>
-                                            </div>
-
-                                            <span
-                                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${statusTone(
-                                                batch.disposition,
-                                              )}`}
-                                            >
-                                              {t(
-                                                `inventoryLive.batchDisposition.${batch.disposition}`,
-                                              )}
-                                            </span>
-                                          </div>
-
-                                          <div className="grid gap-3 px-4 py-3 md:grid-cols-[1.05fr_1fr]">
-                                            <div className="space-y-3">
-                                              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                                                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                                  <div className="flex items-center gap-1 font-black text-slate-500">
-                                                    <CalendarDays className="h-3.5 w-3.5" />
-                                                    {t(
-                                                      "inventoryLive.productionDate",
-                                                    )}
-                                                  </div>
-                                                  <div className="mt-1 font-black tabular-nums text-slate-800">
-                                                    {formatDate(
-                                                      batch.production_date,
-                                                    )}
-                                                  </div>
-                                                </div>
-
-                                                <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                                  <div className="flex items-center gap-1 font-black text-slate-500">
-                                                    <CalendarDays className="h-3.5 w-3.5" />
-                                                    {t(
-                                                      "inventoryLive.expiryDate",
-                                                    )}
-                                                  </div>
-                                                  <div className="mt-1 font-black tabular-nums text-slate-800">
-                                                    {formatDate(
-                                                      batch.expiry_date,
-                                                    )}
-                                                  </div>
-                                                  {batch.days_to_expiry !==
-                                                    null && (
-                                                    <div
-                                                      className={`mt-1 text-[10px] font-black ${
-                                                        batch.days_to_expiry <
-                                                        0
-                                                          ? "text-red-600"
-                                                          : batch.days_to_expiry ===
-                                                              0
-                                                            ? "text-orange-600"
-                                                            : "text-slate-400"
-                                                      }`}
-                                                    >
-                                                      {batch.days_to_expiry <
-                                                      0
-                                                        ? t(
-                                                            "inventoryLive.expiredSince",
-                                                            {
-                                                              count:
-                                                                Math.abs(
-                                                                  batch.days_to_expiry,
-                                                                ),
-                                                            },
-                                                          )
-                                                        : batch.days_to_expiry ===
-                                                            0
-                                                          ? t(
-                                                              "inventoryLive.expiresToday",
-                                                            )
-                                                          : t(
-                                                              "inventoryLive.daysRemaining",
-                                                              {
-                                                                count:
-                                                                  batch.days_to_expiry,
-                                                              },
-                                                            )}
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              </div>
-
-                                              <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80 text-center">
-                                                <div className="border-e border-slate-200 px-2 py-2">
-                                                  <div className="text-[9px] font-black text-slate-400">
-                                                    {t(
-                                                      "inventoryLive.onHand",
-                                                    )}
-                                                  </div>
-                                                  <div className="mt-0.5 text-xs font-black text-slate-800">
-                                                    {
-                                                      batchOnHand.primary
-                                                    }
-                                                  </div>
-                                                </div>
-                                                <div className="border-e border-slate-200 px-2 py-2">
-                                                  <div className="text-[9px] font-black text-slate-400">
-                                                    {t(
-                                                      "inventoryLive.reserved",
-                                                    )}
-                                                  </div>
-                                                  <div className="mt-0.5 text-xs font-black text-violet-700">
-                                                    {
-                                                      batchReserved.primary
-                                                    }
-                                                  </div>
-                                                </div>
-                                                <div className="px-2 py-2">
-                                                  <div className="text-[9px] font-black text-slate-400">
-                                                    {t(
-                                                      "inventoryLive.availableForSale",
-                                                    )}
-                                                  </div>
-                                                  <div className="mt-0.5 text-xs font-black text-emerald-700">
-                                                    {
-                                                      batchAvailable.primary
-                                                    }
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            </div>
-
-                                            <div className="flex flex-col gap-3">
-                                              <div className="rounded-xl border border-cyan-100 bg-cyan-50/55 px-3 py-2.5">
-                                                <div className="text-[10px] font-black text-cyan-700">
-                                                  {t(
-                                                    "inventoryLive.latestBatchPurchase",
-                                                  )}
-                                                </div>
-                                                <div className="mt-1 font-black tabular-nums text-slate-900">
-                                                  {batch.latest_purchase_cost &&
-                                                  batchCostUom
-                                                    ? formatMoneyExact(
-                                                        batch.latest_purchase_cost,
-                                                        details.currency_code,
-                                                        locale,
-                                                      )
-                                                    : "—"}
-                                                </div>
-                                                {batch.latest_purchase_cost &&
-                                                  batchCostUom && (
-                                                    <div className="mt-0.5 text-[10px] font-bold text-slate-500">
-                                                      {t(
-                                                        "inventoryLive.perUnit",
-                                                        {
-                                                          unit: batchCostUom,
-                                                        },
-                                                      )}
-                                                      {batch.latest_purchase_date
-                                                        ? ` · ${formatDate(
-                                                            batch.latest_purchase_date,
-                                                          )}`
-                                                        : ""}
-                                                    </div>
-                                                  )}
-                                                <div className="mt-1 text-[10px] font-bold text-slate-400">
-                                                  {batch.purchase_event_count >
-                                                  0
-                                                    ? t(
-                                                        "inventoryLive.batchPurchaseEvents",
-                                                        {
-                                                          count:
-                                                            batch.purchase_event_count,
-                                                        },
-                                                      )
-                                                    : t(
-                                                        "inventoryLive.noBatchPurchaseEvidence",
-                                                      )}
-                                                </div>
-                                              </div>
-
-                                              <div className="rounded-xl border border-slate-200 bg-slate-50/75 px-3 py-2.5">
-                                                <div className="flex items-center justify-between gap-2">
-                                                  <span className="text-[10px] font-black text-slate-500">
-                                                    {t(
-                                                      "inventoryLive.unavailable",
-                                                    )}
-                                                  </span>
-                                                  <span className="text-xs font-black tabular-nums text-amber-700">
-                                                    {
-                                                      batchUnavailable.primary
-                                                    }
-                                                  </span>
-                                                </div>
-
-                                                {statusChips.length >
-                                                0 ? (
-                                                  <div className="mt-2 flex flex-wrap gap-1.5">
-                                                    {statusChips.map(
-                                                      (
-                                                        item,
-                                                      ) => (
-                                                        <span
-                                                          key={
-                                                            item.key
-                                                          }
-                                                          className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${item.tone}`}
-                                                        >
-                                                          {
-                                                            item.label
-                                                          }
-                                                          :{" "}
-                                                          {
-                                                            renderQuantity(
-                                                              item.value,
-                                                            )
-                                                              .primary
-                                                          }
-                                                        </span>
-                                                      ),
-                                                    )}
-                                                  </div>
-                                                ) : (
-                                                  <div className="mt-2 text-[10px] font-bold text-slate-400">
-                                                    {t(
-                                                      "inventoryLive.noRestrictedStock",
-                                                    )}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </article>
-                                      );
-                                    },
-                                  )}
-                                </div>
-                              )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
                 );
               })}
             </tbody>
