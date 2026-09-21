@@ -505,17 +505,6 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
           <div className="inventory-minimum-mode">
             <button
               type="button"
-              data-active={applyMode === "ONLY_UNSET"}
-              onClick={() => setApplyMode("ONLY_UNSET")}
-            >
-              {applyMode === "ONLY_UNSET" && <Check className="h-3.5 w-3.5" />}
-              <span>
-                <strong>{t("inventoryMinimum.fillMissingOnly")}</strong>
-                <small>{t("inventoryMinimum.fillMissingOnlyHint")}</small>
-              </span>
-            </button>
-            <button
-              type="button"
               data-active={applyMode === "OVERWRITE"}
               onClick={() => setApplyMode("OVERWRITE")}
             >
@@ -523,6 +512,17 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
               <span>
                 <strong>{t("inventoryMinimum.applyToSelection")}</strong>
                 <small>{t("inventoryMinimum.applyToSelectionHint")}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              data-active={applyMode === "ONLY_UNSET"}
+              onClick={() => setApplyMode("ONLY_UNSET")}
+            >
+              {applyMode === "ONLY_UNSET" && <Check className="h-3.5 w-3.5" />}
+              <span>
+                <strong>{t("inventoryMinimum.fillMissingOnly")}</strong>
+                <small>{t("inventoryMinimum.fillMissingOnlyHint")}</small>
               </span>
             </button>
           </div>
