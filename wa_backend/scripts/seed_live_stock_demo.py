@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 DEMO_PRODUCT_CODE_PREFIX = "__UI_LIVE_STOCK_DEMO__"
-DEMO_SKU_PREFIX = "UI-LIVE-"
+DEMO_SKU_PREFIX = "UI-"
 DEMO_FAMILIES = (
     ("مشروبات", "BEV"),
     ("وجبات خفيفة", "SNK"),
@@ -141,7 +141,6 @@ async def cleanup(company_id: int, commit: bool) -> None:
                     select(ProductVariant.id).where(
                         ProductVariant.company_id == company_id,
                         ProductVariant.product_id.in_(product_ids),
-                        ProductVariant.sku.like(f"{DEMO_SKU_PREFIX}%"),
                     )
                 )
             ).all()
@@ -286,7 +285,11 @@ async def seed(
                 product_id=family.id,
                 base_uom_id=each.id,
                 name=f"{family.name} {index:04d}",
-                sku=f"{DEMO_SKU_PREFIX}{index:04d}",
+                sku=(
+                    f"{DEMO_SKU_PREFIX}"
+                    f"{DEMO_FAMILIES[(index - 1) % family_count][1]}-"
+                    f"{index:04d}"
+                ),
                 quantity_scale=0,
                 quantity_step=Decimal("1"),
                 lot_control_mode="REQUIRED",
@@ -502,6 +505,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--cleanup", action="store_true")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete only this script's demo families, then seed them again.",
+    )
     parser.add_argument("--company-id", type=int)
     parser.add_argument("--location-id", type=int)
     parser.add_argument("--count", type=int, default=120)
@@ -524,6 +532,18 @@ async def run() -> None:
             if args.company_id is None:
                 raise RuntimeError("--cleanup requires --company-id")
             await cleanup(args.company_id, args.confirm_dev)
+            return
+        if args.reset:
+            if args.company_id is None or args.location_id is None:
+                raise RuntimeError("--reset requires --company-id and --location-id")
+            await cleanup(args.company_id, args.confirm_dev)
+            await seed(
+                args.company_id,
+                args.location_id,
+                args.count,
+                args.alerts,
+                args.confirm_dev,
+            )
             return
         if args.company_id is None or args.location_id is None:
             raise RuntimeError(
