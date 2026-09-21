@@ -43,7 +43,6 @@ import {
   parseLiveStockFamilies,
   type LiveStockFamilyOption,
   type LiveStockIndicator,
-  type LiveStockSort,
   type LiveStockStockState,
   type WarehouseBatchDetailResponse,
   type WarehouseBatchInventoryItem,
@@ -69,7 +68,6 @@ interface Props {
   stockState: LiveStockStockState;
   indicators: LiveStockIndicator[];
   familyId: number | null;
-  sort: LiveStockSort;
   canManageMinimum: boolean;
   onLocationChange: (value: string) => void;
   onRefresh: () => void;
@@ -77,7 +75,6 @@ interface Props {
   onStockStateChange: (value: LiveStockStockState) => void;
   onIndicatorsChange: (value: LiveStockIndicator[]) => void;
   onFamilyChange: (value: number | null) => void;
-  onSortChange: (value: LiveStockSort) => void;
   onLoadMore: () => void;
 }
 
@@ -141,7 +138,6 @@ export function Tab1LiveStock({
   stockState,
   indicators,
   familyId,
-  sort,
   canManageMinimum,
   onLocationChange,
   onRefresh,
@@ -149,7 +145,6 @@ export function Tab1LiveStock({
   onStockStateChange,
   onIndicatorsChange,
   onFamilyChange,
-  onSortChange,
   onLoadMore,
 }: Props) {
   const authFetch = useAuthFetch();
@@ -642,23 +637,27 @@ export function Tab1LiveStock({
                 dir={i18n.dir()}
                 className="live-stock-family-popover"
               >
-                <input
-                  type="search"
-                  value={familySearch}
-                  onChange={(event) => setFamilySearch(event.target.value)}
-                  placeholder={t("inventoryLive.familySearch")}
-                  className="live-stock-family-search"
-                />
+                <div className="live-stock-family-search-row">
+                  <input
+                    type="search"
+                    value={familySearch}
+                    onChange={(event) => setFamilySearch(event.target.value)}
+                    placeholder={t("inventoryLive.familySearch")}
+                    className="live-stock-family-search"
+                  />
+                  {familyId !== null && (
+                    <button
+                      type="button"
+                      className="live-stock-family-clear"
+                      onClick={() => onFamilyChange(null)}
+                      title={t("inventoryLive.clearFamily")}
+                      aria-label={t("inventoryLive.clearFamily")}
+                    >
+                      <FilterX className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 <div className="live-stock-family-list custom-scrollbar">
-                  <button
-                    type="button"
-                    className="live-stock-family-option"
-                    data-active={familyId === null}
-                    onClick={() => onFamilyChange(null)}
-                  >
-                    {t("inventoryLive.allFamilies")}
-                    {familyId === null && <Check className="h-3.5 w-3.5" />}
-                  </button>
                   {familyLoading ? (
                     <div className="live-stock-family-empty">
                       {t("common.loading")}
@@ -685,23 +684,6 @@ export function Tab1LiveStock({
                 </div>
               </PopoverContent>
             </Popover>
-
-            <select
-              value={sort}
-              onChange={(event) =>
-                onSortChange(event.target.value as LiveStockSort)
-              }
-              className="live-stock-sort-select live-stock-sort-select--toolbar"
-              aria-label={t("inventoryLive.sortTitle")}
-              title={t("inventoryLive.sortTitle")}
-            >
-              <option value="name_asc">
-                {t("inventoryLive.sortNameAsc")}
-              </option>
-              <option value="name_desc">
-                {t("inventoryLive.sortNameDesc")}
-              </option>
-            </select>
           </div>
 
           <div className="live-stock-context-panel">
