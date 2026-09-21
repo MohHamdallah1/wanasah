@@ -35,7 +35,10 @@ describe("inventory in-memory warm cache", () => {
     });
 
     expect(readLiveStockWarmSnapshot(scopeA, 100)?.items).toHaveLength(1);
-    expect(readLiveStockWarmSnapshot(scopeB, 100)?.items).toHaveLength(0);
+    expect(readLiveStockWarmSnapshot(scopeB, 100)).toMatchObject({
+      hasPage: true,
+      items: [],
+    });
     expect(readLiveStockWarmSnapshot(scopeA, 101)).toBeNull();
 
     clearInventoryWarmScope(scopeA);
