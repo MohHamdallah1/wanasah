@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 import base64
 import hashlib
 import json
@@ -12,13 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
 from database import get_db
-from inventory_access import InventoryAccess
+from inventory_access import InventoryAccess, require_transfer, transfer_filter
 from models import (
     Driver,
     InventoryBalance,
     InventoryLocation,
     InventoryLock,
     InventoryStockPolicy,
+    InventoryTransferHeader,
+    InventoryTransferLine,
     OverrideReason,
     ProductBatch,
     ProductLocation,
@@ -33,6 +36,8 @@ from schemas import (
     UnifiedTransferLocationItem,
     UnifiedTransferOverrideOptionsResponse,
     UnifiedTransferSourceInventoryCursorPage,
+    WarehouseTransferCursorPage,
+    WarehouseTransferDetail,
 )
 from quantity import canonical_quantity
 from product_lifecycle import WAREHOUSE_BALANCING, product_capability_predicate
@@ -973,3 +978,427 @@ async def get_unified_transfer_override_options(
     }
 
 
+
+# ====================================================
+# 10.10-10.12 استعلامات الحوالات وتهيئة الاستجابة
+# ====================================================
+_TRANSFER_QUERY_STATUSES = frozenset({
+    'DRAFT',
+    'PENDING',
+    'IN_TRANSIT',
+    'ACCEPTED',
+    'REJECTED',
+    'POSTED',
+    'CANCELLED',
+})
+
+
+# ====================================================
+# 10.10 تحويل رؤوس الحوالات إلى عقد الاستجابة مع الأسماء والمجاميع
+# ====================================================
+async def _serialize_transfer_headers(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    headers: list[InventoryTransferHeader],
+) -> list[dict]:
+    if not headers:
+        return []
+
+    header_ids = [int(header.id) for header in headers]
+    location_ids = sorted({
+        int(location_id)
+        for header in headers
+        for location_id in (
+            header.source_location_id,
+            header.destination_location_id,
+        )
+    })
+    actor_ids = sorted({
+        int(actor_id)
+        for header in headers
+        for actor_id in (
+            header.dispatched_by,
+            header.received_by,
+            header.cancelled_by,
+        )
+        if actor_id is not None
+    })
+
+    location_map = {
+        int(row.id): str(row.name)
+        for row in (
+            await db.execute(
+                select(
+                    InventoryLocation.id,
+                    InventoryLocation.name,
+                ).filter(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id.in_(location_ids),
+                )
+            )
+        ).all()
+    }
+    if set(location_map) != set(location_ids):
+        raise RuntimeError(
+            "Transfer invariant violated: source/destination location missing."
+        )
+
+    actor_map = {}
+    if actor_ids:
+        actor_map = {
+            int(row.id): str(row.full_name)
+            for row in (
+                await db.execute(
+                    select(
+                        Driver.id,
+                        Driver.full_name,
+                    ).filter(
+                        Driver.company_id == company_id,
+                        Driver.id.in_(actor_ids),
+                    )
+                )
+            ).all()
+        }
+        if set(actor_map) != set(actor_ids):
+            raise RuntimeError(
+                "Transfer invariant violated: referenced actor missing."
+            )
+
+    aggregates = {
+        int(header_id): (int(line_count), Decimal(total_quantity or 0))
+        for header_id, line_count, total_quantity in (
+            await db.execute(
+                select(
+                    InventoryTransferLine.transfer_header_id,
+                    func.count(InventoryTransferLine.id),
+                    func.sum(InventoryTransferLine.quantity),
+                ).filter(
+                    InventoryTransferLine.company_id == company_id,
+                    InventoryTransferLine.transfer_header_id.in_(header_ids),
+                ).group_by(
+                    InventoryTransferLine.transfer_header_id,
+                )
+            )
+        ).all()
+    }
+
+    result = []
+    for header in headers:
+        line_count, total_quantity = aggregates.get(
+            int(header.id),
+            (0, Decimal("0")),
+        )
+        result.append({
+            "id": int(header.id),
+            "reference_number": str(header.reference_number),
+            "source_location_id": int(header.source_location_id),
+            "source_location_name": location_map[int(header.source_location_id)],
+            "destination_location_id": int(header.destination_location_id),
+            "destination_location_name": location_map[int(header.destination_location_id)],
+            "transfer_purpose": str(header.transfer_purpose),
+            "status": str(header.status),
+            "dispatched_by": int(header.dispatched_by),
+            "dispatched_by_name": actor_map[int(header.dispatched_by)],
+            "received_by": (
+                int(header.received_by)
+                if header.received_by is not None
+                else None
+            ),
+            "received_by_name": (
+                actor_map[int(header.received_by)]
+                if header.received_by is not None
+                else None
+            ),
+            "cancelled_by": (
+                int(header.cancelled_by)
+                if header.cancelled_by is not None
+                else None
+            ),
+            "cancelled_by_name": (
+                actor_map[int(header.cancelled_by)]
+                if header.cancelled_by is not None
+                else None
+            ),
+            "line_count": line_count,
+            "total_quantity": canonical_quantity(total_quantity),
+            "notes": header.notes,
+            "decision_reason": header.decision_reason,
+            "created_at": header.created_at,
+            "updated_at": header.updated_at,
+            "accepted_at": header.accepted_at,
+            "rejected_at": header.rejected_at,
+            "cancelled_at": header.cancelled_at,
+            "posted_at": header.posted_at,
+        })
+
+    return result
+
+
+# ====================================================
+# 10.11 جلب قائمة الحوالات الموحدة باستخدام Cursor والفلاتر
+# ====================================================
+@router.get(
+    "/warehouse/unified/transfers",
+    response_model=WarehouseTransferCursorPage,
+    status_code=200,
+)
+async def list_unified_transfers(
+    status: Optional[str] = Query(default=None, max_length=50),
+    location_id: Optional[int] = Query(default=None, ge=1),
+    direction: str = Query(default="all", max_length=20),
+    search: Optional[str] = Query(default=None, min_length=2, max_length=100),
+    cursor: Optional[str] = Query(default=None, max_length=512),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('transfer.read', location_id, any_location=location_id is None)
+
+    company_id = current_admin.company_id
+
+    normalized_status = (status or "").strip().upper()
+    normalized_direction = (direction or "all").strip().lower()
+    normalized_search = (search or "").strip().lower()
+
+    if normalized_status and normalized_status not in _TRANSFER_QUERY_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail="حالة الحوالة المطلوبة غير صالحة.",
+        )
+    if normalized_direction not in {"all", "source", "destination"}:
+        raise HTTPException(
+            status_code=422,
+            detail="direction يجب أن يكون all/source/destination.",
+        )
+
+    if location_id is not None:
+        location_exists = (
+            await db.execute(
+                select(InventoryLocation.id).filter(
+                    InventoryLocation.company_id == company_id,
+                    InventoryLocation.id == location_id,
+                    InventoryLocation.location_type.in_(
+                        ['WAREHOUSE', 'VEHICLE', 'SCRAP']
+                    ),
+                )
+            )
+        ).scalar_one_or_none()
+        if location_exists is None:
+            raise HTTPException(
+                status_code=404,
+                detail="الموقع غير موجود أو لا يتبع شركتك.",
+            )
+
+    scope = (
+        f"transfers|{company_id}|{normalized_status}|"
+        f"{location_id or 0}|{normalized_direction}|{normalized_search}"
+    )
+
+    stmt = select(InventoryTransferHeader).filter(
+        InventoryTransferHeader.company_id == company_id,
+        transfer_filter(access),
+        InventoryTransferHeader.workflow_type == 'TRANSIT',
+    )
+
+    if normalized_status:
+        stmt = stmt.filter(
+            InventoryTransferHeader.status == normalized_status,
+        )
+
+    if location_id is not None:
+        if normalized_direction == "source":
+            stmt = stmt.filter(
+                InventoryTransferHeader.source_location_id == location_id,
+            )
+        elif normalized_direction == "destination":
+            stmt = stmt.filter(
+                InventoryTransferHeader.destination_location_id == location_id,
+            )
+        else:
+            stmt = stmt.filter(
+                or_(
+                    InventoryTransferHeader.source_location_id == location_id,
+                    InventoryTransferHeader.destination_location_id == location_id,
+                )
+            )
+
+    if normalized_search:
+        pattern = f"%{_escape_like(normalized_search)}%"
+        stmt = stmt.filter(
+            func.lower(InventoryTransferHeader.reference_number).like(
+                pattern,
+                escape="\\",
+            )
+        )
+
+    total = None
+    if cursor is None:
+        count_stmt = select(func.count()).select_from(
+            stmt.with_only_columns(
+                InventoryTransferHeader.id,
+                maintain_column_froms=True,
+            ).order_by(None).subquery()
+        )
+        total = int((await db.execute(count_stmt)).scalar_one())
+
+    if cursor is not None:
+        cursor_created_at, cursor_id = _decode_transfer_cursor(
+            cursor,
+            expected_scope=scope,
+        )
+        stmt = stmt.filter(
+            or_(
+                InventoryTransferHeader.created_at < cursor_created_at,
+                and_(
+                    InventoryTransferHeader.created_at == cursor_created_at,
+                    InventoryTransferHeader.id < cursor_id,
+                ),
+            )
+        )
+
+    rows = (
+        await db.execute(
+            stmt.order_by(
+                InventoryTransferHeader.created_at.desc(),
+                InventoryTransferHeader.id.desc(),
+            ).limit(limit + 1)
+        )
+    ).scalars().all()
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    items = await _serialize_transfer_headers(
+        db,
+        company_id=company_id,
+        headers=rows,
+    )
+
+    next_cursor = None
+    if has_more and rows:
+        last = rows[-1]
+        next_cursor = _encode_transfer_cursor(
+            last.created_at,
+            last.id,
+            scope=scope,
+        )
+
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+    }
+
+
+# ====================================================
+# 10.12 جلب تفاصيل حوالة موحدة مع أسطرها
+# ====================================================
+@router.get(
+    "/warehouse/unified/transfers/{header_id}",
+    response_model=WarehouseTransferDetail,
+    status_code=200,
+)
+async def get_unified_transfer_detail(
+    header_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.read', header_id)
+
+    company_id = current_admin.company_id
+
+    header = (
+        await db.execute(
+            select(InventoryTransferHeader).filter(
+                InventoryTransferHeader.company_id == company_id,
+                InventoryTransferHeader.id == header_id,
+                InventoryTransferHeader.workflow_type == 'TRANSIT',
+            )
+        )
+    ).scalar_one_or_none()
+
+    if header is None:
+        raise HTTPException(
+            status_code=404,
+            detail="الحوالة غير موجودة أو لا تتبع شركتك.",
+        )
+
+    serialized = await _serialize_transfer_headers(
+        db,
+        company_id=company_id,
+        headers=[header],
+    )
+
+    line_rows = (
+        await db.execute(
+            select(
+                InventoryTransferLine,
+                ProductVariant.name,
+                ProductVariant.base_uom_id,
+                ProductBatch.batch_number,
+                ProductBatch.expiry_date,
+            ).join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == InventoryTransferLine.company_id,
+                    ProductVariant.id == InventoryTransferLine.product_variant_id,
+                ),
+            ).join(
+                ProductBatch,
+                and_(
+                    ProductBatch.company_id == InventoryTransferLine.company_id,
+                    ProductBatch.product_variant_id
+                    == InventoryTransferLine.product_variant_id,
+                    ProductBatch.id == InventoryTransferLine.batch_id,
+                ),
+            ).filter(
+                InventoryTransferLine.company_id == company_id,
+                InventoryTransferLine.transfer_header_id == header.id,
+            ).order_by(
+                InventoryTransferLine.product_variant_id.asc(),
+                InventoryTransferLine.batch_id.asc(),
+                InventoryTransferLine.id.asc(),
+            )
+        )
+    ).all()
+
+    lines = [
+        {
+            "id": int(line.id),
+            "product_variant_id": int(line.product_variant_id),
+            "product_name": str(product_name),
+            "batch_id": int(line.batch_id),
+            "batch_number": str(batch_number),
+            "expiry_date": expiry_date,
+            "quantity": canonical_quantity(line.quantity),
+            "uom_id": int(base_uom_id),
+            "fefo_override_reason_id": (
+                int(line.fefo_override_reason_id)
+                if line.fefo_override_reason_id is not None
+                else None
+            ),
+            "fefo_overridden_by": (
+                int(line.fefo_overridden_by)
+                if line.fefo_overridden_by is not None
+                else None
+            ),
+            "fefo_override_note": line.fefo_override_note,
+        }
+        for line, product_name, base_uom_id, batch_number, expiry_date in line_rows
+    ]
+
+    if not lines:
+        raise RuntimeError(
+            "Transfer invariant violated: transit transfer has no lines."
+        )
+
+    return {
+        "transfer": serialized[0],
+        "lines": lines,
+    }
+
+
+# STAGE4E2B2_SPECIAL_TRANSFER_EXECUTION
