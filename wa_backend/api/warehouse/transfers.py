@@ -43,6 +43,7 @@ from schemas import (
     SpecialTransferDispatchRequest,
     SpecialTransferDispatchResponse,
     UnifiedDispatchRequest,
+    UnifiedReceiveRequest,
 )
 from quantity import canonical_quantity
 from product_lifecycle import (
@@ -59,6 +60,7 @@ from services import (
     InventoryMutationError,
     InventoryRuleError,
     SPECIAL_TRANSFER_PERMISSION,
+    SPECIAL_TRANSFER_PURPOSES,
     TRANSFER_DESTINATION_POLICY_CODE,
     acquire_inventory_location_guards,
     allocate_fefo_inventory_batch,
@@ -71,8 +73,11 @@ from services import (
     ensure_system_transit_location,
     get_company_local_date,
     inventory_business_error,
+    resolve_inflight_transfer_destination_statuses,
     resolve_retiring_warehouse_balancing_override_context,
     resolve_special_transfer_direction_context,
+    resolve_special_transfer_terminal_statuses,
+    validate_special_transfer_policy_snapshot,
     validate_special_transfer_source_items_locked,
 )
 
@@ -2251,4 +2256,382 @@ async def unified_transfer_dispatch(
         await db.rollback()
         logger.error(f"خطأ في إنشاء الحوالة: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء معالجة الحوالة.")
+
+
+# ====================================================
+# 10.15 تحميل حوالة IN_TRANSIT وقفلها قبل القرار النهائي
+# ====================================================
+async def _load_locked_in_transit_transfer(
+    db: AsyncSession,
+    company_id: int,
+    header_id: int,
+    *,
+    action_label: str
+) -> InventoryTransferHeader:
+    """تحميل حوالة TRANSIT لنفس الشركة وقفلها قبل تنفيذ قرار نهائي."""
+    header = (
+        await db.execute(
+            select(InventoryTransferHeader).filter_by(
+                id=header_id,
+                company_id=company_id
+            ).with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if header is None:
+        raise HTTPException(
+            status_code=404,
+            detail="الحوالة غير موجودة أو لا تتبع شركتك."
+        )
+
+    if header.workflow_type != 'TRANSIT' or header.status != 'IN_TRANSIT':
+        raise HTTPException(
+            status_code=409,
+            detail=f"لا يمكن {action_label} الحوالة بحالتها الحالية ({header.status})."
+        )
+
+    if header.transit_location_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="الحوالة لا تحمل موقع IN_TRANSIT صالحاً."
+        )
+
+    if str(header.transfer_purpose).upper() in SPECIAL_TRANSFER_PURPOSES:
+        await validate_special_transfer_policy_snapshot(
+            db,
+            company_id=company_id,
+            header=header,
+        )
+
+    return header
+
+
+# ====================================================
+# 10.16 التحقق من سبب قرار الحوالة النهائي
+# ====================================================
+def _validate_transfer_decision_reason(
+    decision_reason: str,
+    *,
+    action_label: str
+) -> str:
+    reason = decision_reason.strip()
+    if not reason or len(reason) > 2000:
+        raise HTTPException(
+            status_code=422,
+            detail=f"سبب {action_label} مطلوب ويجب ألا يتجاوز 2000 حرف."
+        )
+    return reason
+
+
+# ====================================================
+# 10.17 نقل أسطر الحوالة من IN_TRANSIT إلى الوجهة النهائية الآمنة
+# ====================================================
+async def _move_transfer_lines_from_transit(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    header: InventoryTransferHeader,
+    performed_by: int,
+    destination_location_id: int,
+    reference_type: str,
+    idempotency_prefix: str,
+    notes: Optional[str],
+    terminal_action: str,
+) -> dict[int, str]:
+    """Complete an already-valid TRANSIT document into a current safe terminal bucket."""
+    transit_location_id = int(header.transit_location_id)
+    transfer_purpose = str(header.transfer_purpose).upper()
+    is_special = transfer_purpose in SPECIAL_TRANSFER_PURPOSES
+    normalized_terminal_action = str(terminal_action or "").strip().upper()
+
+    if normalized_terminal_action not in {"RECEIVE", "RETURN_TO_SOURCE"}:
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "TRANSFER_TERMINAL_ACTION_INVALID",
+                "نوع قرار إنهاء الحوالة غير صالح.",
+            ),
+        )
+
+    if is_special and normalized_terminal_action == "RECEIVE":
+        destination_allowed_types = (
+            ["WAREHOUSE", "SCRAP"]
+            if transfer_purpose == "DISPOSAL"
+            else ["WAREHOUSE"]
+        )
+    else:
+        destination_allowed_types = ["WAREHOUSE", "VEHICLE"]
+
+    await _verify_location_ownership(
+        db,
+        company_id,
+        transit_location_id,
+        allowed_types=['IN_TRANSIT']
+    )
+    await _verify_location_ownership(
+        db,
+        company_id,
+        destination_location_id,
+        allowed_types=destination_allowed_types,
+    )
+
+    # Lock order: idempotency -> product lifecycle -> locations -> rows/balances.
+    variant_ids = sorted(set(
+        (
+            await db.execute(
+                select(InventoryTransferLine.product_variant_id).filter_by(
+                    company_id=company_id,
+                    transfer_header_id=header.id,
+                )
+            )
+        ).scalars().all()
+    ))
+    if not variant_ids:
+        raise HTTPException(
+            status_code=409,
+            detail="الحوالة لا تحتوي على أسطر مخزون صالحة.",
+        )
+
+    await acquire_product_lifecycle_guards(
+        db,
+        company_id,
+        variant_ids,
+        exclusive=False,
+    )
+
+    await acquire_inventory_location_guards(
+        db,
+        company_id,
+        [transit_location_id, destination_location_id],
+    )
+    await _verify_location_ownership(
+        db,
+        company_id,
+        transit_location_id,
+        allowed_types=['IN_TRANSIT'],
+    )
+    await _verify_location_ownership(
+        db,
+        company_id,
+        destination_location_id,
+        allowed_types=destination_allowed_types,
+    )
+
+    lines = (
+        await db.execute(
+            select(InventoryTransferLine).filter_by(
+                company_id=company_id,
+                transfer_header_id=header.id
+            ).order_by(
+                InventoryTransferLine.product_variant_id.asc(),
+                InventoryTransferLine.batch_id.asc(),
+                InventoryTransferLine.id.asc()
+            ).with_for_update()
+        )
+    ).scalars().all()
+
+    if not lines:
+        raise HTTPException(
+            status_code=409,
+            detail="الحوالة لا تحتوي على أسطر مخزون صالحة."
+        )
+
+    if is_special:
+        terminal_statuses = await resolve_special_transfer_terminal_statuses(
+            db,
+            company_id=company_id,
+            destination_location_id=destination_location_id,
+            transfer_purpose=transfer_purpose,
+            terminal_action=normalized_terminal_action,
+            lines=lines,
+        )
+    else:
+        terminal_statuses = await resolve_inflight_transfer_destination_statuses(
+            db,
+            company_id=company_id,
+            destination_location_id=destination_location_id,
+            transfer_purpose=transfer_purpose,
+            lines=lines,
+        )
+
+    movement_specs = []
+    for line in lines:
+        source_status = str(line.source_stock_status).upper()
+        final_status = terminal_statuses[int(line.id)]
+
+        # PHYSICAL preserves portion status by DB invariant.  Any safety downgrade
+        # is a second explicit STATUS_CHANGE through the same Unified Engine.
+        movement_specs.append({
+            "product_variant_id": line.product_variant_id,
+            "batch_id": line.batch_id,
+            "quantity": line.quantity,
+            "movement_kind": 'PHYSICAL',
+            "reference_type": reference_type,
+            "reference_id": header.reference_number,
+            "idempotency_key": f"{idempotency_prefix}-{header.id}-{line.id}",
+            "source_location_id": transit_location_id,
+            "destination_location_id": destination_location_id,
+            "source_stock_status": source_status,
+            "destination_stock_status": source_status,
+            "transfer_header_id": header.id,
+            "notes": notes,
+        })
+        if final_status != source_status:
+            movement_specs.append({
+                "product_variant_id": line.product_variant_id,
+                "batch_id": line.batch_id,
+                "quantity": line.quantity,
+                "movement_kind": 'STATUS_CHANGE',
+                "reference_type": (
+                    "SPECIAL_TRANSFER_TERMINAL_STATUS"
+                    if is_special
+                    else "TRANSFER_TERMINAL_STATUS"
+                ),
+                "reference_id": header.reference_number,
+                "idempotency_key": (
+                    f"{idempotency_prefix}-STATUS-{header.id}-{line.id}"
+                ),
+                "source_location_id": destination_location_id,
+                "destination_location_id": destination_location_id,
+                "source_stock_status": source_status,
+                "destination_stock_status": final_status,
+                "transfer_header_id": header.id,
+                "notes": (
+                    f"Safe terminal status for {header.transfer_purpose}: "
+                    f"{source_status}->{final_status}"
+                ),
+            })
+
+    await apply_inventory_movements_batch(
+        db,
+        company_id=company_id,
+        performed_by=performed_by,
+        movements=movement_specs,
+    )
+    return terminal_statuses
+
+
+# ====================================================
+# 10.18 استلام الحوالة وترحيلها إلى POSTED
+# ====================================================
+@router.post("/warehouse/unified/transfer/receive", status_code=200)
+async def unified_transfer_receive(
+    payload: UnifiedReceiveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver)
+):
+    access = InventoryAccess(db, current_admin)
+    await require_transfer(access, 'transfer.receive', payload.transfer_header_id, 'destination')
+
+    company_id = current_admin.company_id
+
+    try:
+        request_hash = _stable_request_hash(payload)
+        idempotency_record, replay_response = await begin_idempotent_operation(
+            db,
+            company_id=company_id,
+            actor_id=current_admin.id,
+            operation="WAREHOUSE_TRANSFER_RECEIVE",
+            request_id=str(payload.request_id),
+            request_hash=request_hash,
+        )
+        if replay_response is not None:
+            await db.rollback()
+            return replay_response
+
+        header = await _load_locked_in_transit_transfer(
+            db,
+            company_id,
+            payload.transfer_header_id,
+            action_label="استلام"
+        )
+
+        special_permission = SPECIAL_TRANSFER_PERMISSION.get(
+            str(header.transfer_purpose).upper()
+        )
+        if special_permission is not None:
+            await access.require(special_permission)
+
+        if header.destination_location_id != payload.destination_location_id:
+            raise HTTPException(
+                status_code=409,
+                detail="الوجهة المرسلة لا تطابق الوجهة الأصلية للحوالة."
+            )
+
+        if header.dispatched_by == current_admin.id:
+            raise HTTPException(
+                status_code=403,
+                detail="مرفوض رقابياً: لا يمكن للمُرسل تأكيد استلام نفس الحوالة."
+            )
+
+        await _move_transfer_lines_from_transit(
+            db,
+            company_id=company_id,
+            header=header,
+            performed_by=current_admin.id,
+            destination_location_id=payload.destination_location_id,
+            reference_type='TRANSFER_RECEIPT',
+            idempotency_prefix='TRN-REC',
+            notes=header.notes,
+            terminal_action="RECEIVE",
+        )
+
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        header.received_by = current_admin.id
+        header.accepted_at = now_utc
+        header.posted_at = now_utc
+        header.updated_at = now_utc
+        header.status = 'POSTED'
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Transfer_{header.id}",
+            action_type="TRANSFER_RECEIVED",
+            old_value="IN_TRANSIT",
+            new_value=f"POSTED by Admin {current_admin.id}"
+        ))
+
+        response_payload = {
+            "message": "تم تأكيد الاستلام وترحيل الحوالة بنجاح.",
+            "header_id": int(header.id),
+            "transfer_reference": str(header.reference_number),
+            "status": "POSTED",
+        }
+        complete_idempotent_operation(
+            idempotency_record,
+            response_payload,
+        )
+        await db.commit()
+        return response_payload
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except InventoryMutationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=403, detail=str(e))
+    except IntegrityError as e:
+        await db.rollback()
+        logger.warning(
+            f"تعارض متزامن أثناء استلام الحوالة: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="حدث تعارض متزامن أثناء الاستلام. لم يتم حفظ عملية جزئية."
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"خطأ في استلام الحوالة: {str(e)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="خطأ داخلي أثناء استلام الحوالة."
+        )
 
