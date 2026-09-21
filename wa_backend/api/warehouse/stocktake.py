@@ -6,12 +6,29 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import and_, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.dependencies import get_current_driver
+from database import get_db
 from inventory_access import InventoryAccess
-from models import Driver, InventoryLock, StocktakeCountAttempt, StocktakeSession, SystemSetting
+from schemas import StocktakeCycleBatchCursorPage
+
+from models import (
+    Driver,
+    InventoryBalance,
+    InventoryLocation,
+    InventoryLock,
+    ProductBatch,
+    ProductVariant,
+    StocktakeCountAttempt,
+    StocktakeSession,
+    SystemSetting,
+)
+
+
+from ._shared import _escape_like
 
 
 router = APIRouter()
@@ -339,4 +356,186 @@ async def _latest_stocktake_attempt(
             .limit(1)
         )
     ).scalar_one_or_none()
+
+
+# ====================================================
+# 11.13 إنشاء بصمة نطاق Cursor لدفعات الجرد الدوري
+# ====================================================
+def _stocktake_cycle_batch_cursor_scope_hash(scope: str) -> str:
+    return hashlib.sha256(scope.encode("utf-8")).hexdigest()[:24]
+
+
+# ====================================================
+# 11.14 ترميز Cursor لدفعات الجرد الدوري
+# ====================================================
+def _encode_stocktake_cycle_batch_cursor(batch_id: int, *, scope: str) -> str:
+    raw = json.dumps(
+        {
+            "v": 1,
+            "kind": "stocktake-cycle-batch",
+            "scope": _stocktake_cycle_batch_cursor_scope_hash(scope),
+            "id": int(batch_id),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+# ====================================================
+# 11.15 فك Cursor دفعات الجرد الدوري والتحقق من نطاقه
+# ====================================================
+def _decode_stocktake_cycle_batch_cursor(cursor: str, *, expected_scope: str) -> int:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode((cursor + padding).encode("ascii"))
+        payload = json.loads(raw.decode("utf-8"))
+        if (
+            not isinstance(payload, dict)
+            or payload.get("v") != 1
+            or payload.get("kind") != "stocktake-cycle-batch"
+            or payload.get("scope")
+            != _stocktake_cycle_batch_cursor_scope_hash(expected_scope)
+        ):
+            raise ValueError
+        batch_id = payload.get("id")
+        if type(batch_id) is not int or batch_id <= 0:
+            raise ValueError
+        return batch_id
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Cursor دفعات الجرد الدوري غير صالح أو لا يطابق النطاق الحالي.",
+        ) from exc
+
+
+# ====================================================
+# 11.16 جلب دفعات الصنف المتاحة للجرد الدوري باستخدام Cursor
+# ====================================================
+@router.get(
+    "/warehouse/unified/stocktake/cycle-batches",
+    response_model=StocktakeCycleBatchCursorPage,
+    status_code=200,
+)
+async def list_stocktake_cycle_batches(
+    location_id: int = Query(..., ge=1),
+    product_variant_id: int = Query(..., ge=1),
+    search: Optional[str] = Query(default=None, min_length=2, max_length=100),
+    cursor: Optional[str] = Query(default=None, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('stocktake.start', location_id)
+
+    company_id = current_admin.company_id
+
+    location_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id == location_id,
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.location_type.in_(["WAREHOUSE", "VEHICLE"]),
+            )
+        )
+    ).scalar_one_or_none()
+    if location_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail="موقع الجرد غير موجود أو غير فعال أو لا يتبع شركتك.",
+        )
+
+    variant_exists = (
+        await db.execute(
+            select(ProductVariant.id).filter(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id == product_variant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if variant_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail="الصنف غير موجود أو لا يتبع شركتك.",
+        )
+
+    clean_search = search.strip() if search else ""
+    scope = f"{company_id}|{location_id}|{product_variant_id}|{clean_search}"
+    stocked_batch_ids = select(InventoryBalance.batch_id).filter(
+        InventoryBalance.company_id == company_id,
+        InventoryBalance.location_id == location_id,
+        InventoryBalance.product_variant_id == product_variant_id,
+        InventoryBalance.batch_id.is_not(None),
+        InventoryBalance.on_hand_quantity > 0,
+    ).distinct()
+
+    filters = [
+        ProductBatch.company_id == company_id,
+        ProductBatch.product_variant_id == product_variant_id,
+        ProductBatch.id.in_(stocked_batch_ids),
+    ]
+    if clean_search:
+        escaped = _escape_like(clean_search)
+        filters.append(
+            ProductBatch.batch_number.ilike(f"%{escaped}%", escape="\\")
+        )
+
+    total = None
+    if cursor is None:
+        total = int(
+            (
+                await db.execute(
+                    select(func.count(ProductBatch.id)).filter(*filters)
+                )
+            ).scalar_one()
+        )
+
+    stmt = select(
+        ProductBatch.id,
+        ProductBatch.product_variant_id,
+        ProductBatch.batch_number,
+        ProductBatch.production_date,
+        ProductBatch.expiry_date,
+        ProductBatch.is_active,
+    ).filter(*filters)
+
+    if cursor is not None:
+        cursor_id = _decode_stocktake_cycle_batch_cursor(
+            cursor,
+            expected_scope=scope,
+        )
+        stmt = stmt.filter(ProductBatch.id < cursor_id)
+
+    rows = (
+        await db.execute(
+            stmt.order_by(ProductBatch.id.desc()).limit(limit + 1)
+        )
+    ).all()
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    next_cursor = None
+    if has_more and page_rows:
+        next_cursor = _encode_stocktake_cycle_batch_cursor(
+            int(page_rows[-1].id),
+            scope=scope,
+        )
+
+    return {
+        "items": [
+            {
+                "id": int(row.id),
+                "product_variant_id": int(row.product_variant_id),
+                "batch_number": str(row.batch_number),
+                "production_date": row.production_date,
+                "expiry_date": row.expiry_date,
+                "is_active": bool(row.is_active),
+            }
+            for row in page_rows
+        ],
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+    }
 
