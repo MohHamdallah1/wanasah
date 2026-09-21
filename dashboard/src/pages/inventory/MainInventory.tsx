@@ -23,6 +23,7 @@ import {
 } from "./liveStock/contracts";
 import {
   clearInventoryWarmScope,
+  dropLiveStockWarmSnapshot,
   inventoryWarmScopeKey,
   patchLiveStockWarmSnapshot,
   readInventoryShellWarmSnapshot,
@@ -241,6 +242,29 @@ export default function MainInventory() {
       if (first) setActiveTab(first.id);
     }
   }, [access.isSuccess,locationAccess.isSuccess,selectedLocationId,activeTab,tabAllowed,]);
+  useEffect(() => {
+    if (
+      !locationAccess.isError ||
+      selectedLocationId === null
+    ) {
+      return;
+    }
+    const error = locationAccess.error as
+      | { status?: unknown }
+      | null;
+    if (error?.status === 403) {
+      dropLiveStockWarmSnapshot(
+        warmScopeKey,
+        selectedLocationId,
+      );
+    }
+  }, [
+    locationAccess.error,
+    locationAccess.isError,
+    selectedLocationId,
+    warmScopeKey,
+  ]);
+
   const [locationError, setLocationError] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(
     initialWarmShell === null,
