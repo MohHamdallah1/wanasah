@@ -126,8 +126,6 @@ export function Tab1LiveStock({
     setFamilyLoading(false);
     emittedSearchRef.current = "";
 
-    return () => {
-          };
   }, [locationId]);
 
   useEffect(() => {
