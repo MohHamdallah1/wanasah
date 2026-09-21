@@ -309,7 +309,10 @@ export default function MainInventory() {
       : null,
   );
   const [loadingStatus, setLoadingStatus] = useState(false);
-  const [loadingStock, setLoadingStock] = useState(false);
+  const [loadingStock, setLoadingStock] = useState(
+    initialSelectedLocationId !== null &&
+      initialLiveSnapshot?.hasPage !== true,
+  );
   const [lastSync, setLastSync] = useState<Date | null>(
     initialLiveSnapshot?.lastSyncMs
       ? new Date(initialLiveSnapshot.lastSyncMs)
@@ -366,6 +369,7 @@ export default function MainInventory() {
 
   const prepareLocationChange = useCallback(
     (locationId: number | null) => {
+      statusRequestSeq.current += 1;
       stockRequestSeq.current += 1;
       stockAbortRef.current?.abort();
       stockAbortRef.current = null;
@@ -590,7 +594,7 @@ export default function MainInventory() {
               ];
             })();
 
-        if (defaultView) {
+        if (defaultView && requestCursor === null) {
           patchLiveStockWarmSnapshot(
             warmScopeKey,
             requestLocationId,
@@ -827,7 +831,12 @@ export default function MainInventory() {
 
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
+    void fetchStatus();
+  }, [fetchStatus]);
+
+  useEffect(() => {
     return () => {
+      statusRequestSeq.current += 1;
       stockRequestSeq.current += 1;
       stockAbortRef.current?.abort();
       stockAbortRef.current = null;
