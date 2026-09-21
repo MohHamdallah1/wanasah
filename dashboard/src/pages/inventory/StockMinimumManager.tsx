@@ -47,7 +47,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<MinimumStockScope>("ALL");
   const [applyMode, setApplyMode] =
-    useState<MinimumStockApplyMode>("ONLY_UNSET");
+    useState<MinimumStockApplyMode>("OVERWRITE");
   const [minimum, setMinimum] = useState("10");
   const [plan, setPlan] = useState<BulkMinimumStockPlan | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -89,14 +89,14 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
     if (!open || scope !== "FAMILY") return;
 
     const controller = new AbortController();
+    setFamilyLoading(true);
     const timer = window.setTimeout(() => {
       const clean = familySearch.trim();
       if (clean.length === 1) {
         setFamilies([]);
+        setFamilyLoading(false);
         return;
       }
-
-      setFamilyLoading(true);
       const params = new URLSearchParams({
         location_id: String(locationId),
         limit: "100",
@@ -135,14 +135,14 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
     if (!open || scope !== "PRODUCT") return;
 
     const controller = new AbortController();
+    setProductLoading(true);
     const timer = window.setTimeout(() => {
       const clean = productSearch.trim();
       if (clean.length === 1) {
         setProducts([]);
+        setProductLoading(false);
         return;
       }
-
-      setProductLoading(true);
       const params = new URLSearchParams({
         location_id: String(locationId),
         limit: "50",
@@ -253,6 +253,24 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
         },
       );
       const applied = parseBulkMinimumStockPlan(raw);
+
+      if (applied.affected_count === 0) {
+        setPlan(applied);
+        if (
+          applyMode === "ONLY_UNSET" &&
+          applied.skipped_existing_count > 0
+        ) {
+          toast.info(
+            t("inventoryMinimum.noChangesExisting", {
+              count: applied.skipped_existing_count,
+            }),
+          );
+        } else {
+          toast.info(t("inventoryMinimum.noChangesSame"));
+        }
+        return;
+      }
+
       toast.success(
         t("inventoryMinimum.applied", {
           count: applied.affected_count,
@@ -273,6 +291,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
     }
   }, [
     applying,
+    applyMode,
     authFetch,
     hasConflict,
     onApplied,
@@ -314,9 +333,9 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
 
       <DialogContent
         dir={i18n.dir()}
-        className="inventory-minimum-dialog sm:max-w-lg"
+        className="inventory-minimum-dialog"
       >
-        <DialogHeader>
+        <DialogHeader className="inventory-minimum-header">
           <DialogTitle>{t("inventoryMinimum.title")}</DialogTitle>
           <DialogDescription>
             {t("inventoryMinimum.description")}
@@ -344,7 +363,15 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
             ))}
           </div>
 
-          {scope === "FAMILY" && (
+          <div className="inventory-minimum-target-area">
+            {scope === "ALL" && (
+              <div className="inventory-minimum-all-scope">
+                <strong>{t("inventoryMinimum.scopeAll")}</strong>
+                <span>{t("inventoryMinimum.scopeAllHint")}</span>
+              </div>
+            )}
+
+            {scope === "FAMILY" && (
             <div className="inventory-minimum-picker">
               <div className="inventory-minimum-picker-head">
                 <div className="inventory-minimum-search">
@@ -459,6 +486,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
               </div>
             </div>
           )}
+          </div>
 
           <div className="inventory-minimum-value-row">
             <label>
@@ -482,8 +510,8 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
             >
               {applyMode === "ONLY_UNSET" && <Check className="h-3.5 w-3.5" />}
               <span>
-                <strong>{t("inventoryMinimum.onlyUnset")}</strong>
-                <small>{t("inventoryMinimum.onlyUnsetHint")}</small>
+                <strong>{t("inventoryMinimum.fillMissingOnly")}</strong>
+                <small>{t("inventoryMinimum.fillMissingOnlyHint")}</small>
               </span>
             </button>
             <button
@@ -493,8 +521,8 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
             >
               {applyMode === "OVERWRITE" && <Check className="h-3.5 w-3.5" />}
               <span>
-                <strong>{t("inventoryMinimum.overwrite")}</strong>
-                <small>{t("inventoryMinimum.overwriteHint")}</small>
+                <strong>{t("inventoryMinimum.applyToSelection")}</strong>
+                <small>{t("inventoryMinimum.applyToSelectionHint")}</small>
               </span>
             </button>
           </div>
