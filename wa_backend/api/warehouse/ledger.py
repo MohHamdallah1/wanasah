@@ -35,10 +35,15 @@ logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
 
 
+# =================================================================================
+# 4. جلب سجل حركات المستودع (Ledger) - InventoryMovement هو المصدر الوحيد
+# =================================================================================
+# إنشاء بصمة ثابتة لنطاق Cursor الخاص بسجل الحركات.
 def _ledger_cursor_scope_hash(scope: str) -> str:
     return hashlib.sha256(scope.encode("utf-8")).hexdigest()[:24]
 
 
+# ترميز Cursor سجل الحركات وربطه بنطاق البحث والفلاتر الحالية.
 def _encode_ledger_cursor(
     created_at: datetime,
     movement_id: int,
@@ -59,6 +64,7 @@ def _encode_ledger_cursor(
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
+# فك Cursor سجل الحركات والتحقق من مطابقته لنطاق البحث الحالي.
 def _decode_ledger_cursor(
     cursor: str,
     *,
@@ -95,6 +101,7 @@ def _decode_ledger_cursor(
 
 
 
+# تحميل وحدة العرض التجارية الدقيقة للمنتجات الظاهرة في سجل الحركات.
 async def _load_inventory_display_uoms(
     db: AsyncSession,
     *,
@@ -157,6 +164,7 @@ async def _load_inventory_display_uoms(
     }
 
 
+# إعادة بناء رصيد المنتج في الموقع قبل وبعد كل حركة ضمن صفحة السجل.
 async def _ledger_product_location_snapshots(
     db: AsyncSession,
     *,
@@ -282,6 +290,8 @@ async def _ledger_product_location_snapshots(
     return result
 
 
+# Legacy list ledger endpoint removed after Dashboard cursor migration.
+# Cursor API لسجل الحركات؛ الـCursor مربوط بالـTenant والفلاتر الحالية.
 @router.get(
     "/warehouse/ledger/cursor",
     response_model=WarehouseLedgerCursorPage,
