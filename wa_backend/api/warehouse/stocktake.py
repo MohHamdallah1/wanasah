@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from inventory_access import InventoryAccess
-from models import Driver, InventoryLock, StocktakeSession, SystemSetting
+from models import Driver, InventoryLock, StocktakeCountAttempt, StocktakeSession, SystemSetting
 
 
 router = APIRouter()
@@ -288,4 +288,55 @@ def _inventory_lock_overlap_predicate(
             ),
         ),
     )
+
+
+# ====================================================
+# 11.10 تحميل جلسة الجرد والتحقق من انتمائها للشركة
+# ====================================================
+async def _load_stocktake_session(
+    db: AsyncSession,
+    company_id: int,
+    session_id: int,
+    *,
+    for_update: bool = False,
+) -> StocktakeSession:
+    stmt = select(StocktakeSession).filter_by(id=session_id, company_id=company_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    session = (await db.execute(stmt)).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة أو لا تتبع شركتك.")
+    return session
+
+
+# ====================================================
+# 11.11 جلب موقع جلسة الجرد بسرعة للتحقق من الصلاحيات
+# ====================================================
+async def _probe_stocktake_location_id(db: AsyncSession, company_id: int, session_id: int) -> int:
+    location_id = (
+        await db.execute(
+            select(StocktakeSession.location_id).filter_by(id=session_id, company_id=company_id)
+        )
+    ).scalar_one_or_none()
+    if location_id is None:
+        raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة أو لا تتبع شركتك.")
+    return int(location_id)
+
+
+# ====================================================
+# 11.12 تحميل أحدث محاولة عد لجلسة الجرد
+# ====================================================
+async def _latest_stocktake_attempt(
+    db: AsyncSession,
+    company_id: int,
+    session_id: int,
+) -> Optional[StocktakeCountAttempt]:
+    return (
+        await db.execute(
+            select(StocktakeCountAttempt)
+            .filter_by(company_id=company_id, stocktake_session_id=session_id)
+            .order_by(StocktakeCountAttempt.attempt_number.desc(), StocktakeCountAttempt.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
 
