@@ -25,7 +25,7 @@ from services import (
     validate_vehicle_recon_work_session,
 )
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
-from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCycleBatchCursorPage, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
+from schemas import StocktakeActiveSessionCursorPage, StocktakeApprovalRequest, StocktakeCycleBatchCursorPage, StocktakeRecountRequest, StocktakeSessionContextResponse, UnifiedStocktakeCountRequest, UnifiedStocktakeStartRequest, VehicleReconCandidateCursorPage
 
 from models import (
     DispatchRoute,
@@ -2309,4 +2309,104 @@ async def approve_stocktake_session(
         await db.rollback()
         logger.error(f"خطأ في اعتماد الجرد: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء اعتماد الجرد.")
+
+
+# ====================================================
+# 11.28 تفويض إعادة العد مع حفظ المحاولة السابقة
+# ====================================================
+@router.post("/warehouse/unified/stocktake/{session_id}/recount", status_code=200)
+async def recount_stocktake_session(
+    session_id: int,
+    payload: StocktakeRecountRequest,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    """تفويض Recount مرتبط بمحاولة العد التي شاهدها المشرف."""
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.recount', session_id)
+
+    company_id = current_admin.company_id
+
+    try:
+        session = await _load_stocktake_session(db, company_id, session_id, for_update=True)
+        if session.status != 'PENDING_REVIEW':
+            raise HTTPException(status_code=409, detail="لا يمكن طلب إعادة العد إلا لجلسة بانتظار المراجعة.")
+
+        latest_attempt = await _latest_stocktake_attempt(db, company_id, session.id)
+        if latest_attempt is None:
+            raise HTTPException(status_code=409, detail="لا توجد محاولة عد مثبتة لإعادة عدها.")
+        if latest_attempt.id != payload.count_attempt_id:
+            raise HTTPException(status_code=409, detail="محاولة العد التي راجعتها لم تعد الأحدث؛ أعد فتح المراجعة.")
+
+        authorizer = await _verify_stocktake_admin_credentials(
+            db,
+            company_id,
+            payload.authorizer_username,
+            payload.authorizer_password,
+            session.location_id,
+        )
+        if authorizer is None:
+            db.add(SystemAuditLog(
+                company_id=company_id,
+                admin_id=current_admin.id,
+                target_id=f"Stocktake_{session.id}",
+                action_type="STOCKTAKE_RECOUNT_AUTH_REJECTED",
+                old_value=f"attempt={latest_attempt.id}",
+                new_value="Invalid authorizer credentials",
+            ))
+            await db.commit()
+            raise HTTPException(status_code=403, detail="بيانات المستخدم المخول غير صحيحة؛ تم رفض العملية وتوثيقها.")
+
+        if latest_attempt.requires_independent_recount and authorizer.id == latest_attempt.counted_by:
+            raise HTTPException(
+                status_code=409,
+                detail="العجز المادي يتطلب تفويض مستخدم مخول آخر غير منفذ العد الحالي.",
+            )
+
+        session.status = 'RECOUNT_REQUIRED'
+        session.pending_recount_authorized_by = authorizer.id
+        session.pending_recount_reason = payload.reason
+        session.pending_independent_recount_required = latest_attempt.requires_independent_recount
+        session.updated_at = _utc_naive_now()
+
+        db.add(SystemAuditLog(
+            company_id=company_id,
+            admin_id=current_admin.id,
+            target_id=f"Stocktake_{session.id}",
+            action_type="STOCKTAKE_RECOUNT_AUTHORIZED",
+            old_value=json.dumps({
+                "status": "PENDING_REVIEW",
+                "attempt_id": latest_attempt.id,
+                "attempt_number": latest_attempt.attempt_number,
+                "counted_by": latest_attempt.counted_by,
+                "requires_independent_recount": latest_attempt.requires_independent_recount,
+            }, ensure_ascii=False),
+            new_value=json.dumps({
+                "status": "RECOUNT_REQUIRED",
+                "authorized_by": authorizer.id,
+                "reason": payload.reason,
+                "independent_required": latest_attempt.requires_independent_recount,
+            }, ensure_ascii=False),
+        ))
+        await db.commit()
+
+        return {
+            "message": "تم تفويض إعادة العد مع حفظ المحاولة السابقة كاملة.",
+            "previous_attempt_id": latest_attempt.id,
+            "previous_attempt_number": latest_attempt.attempt_number,
+            "requires_independent_counter": latest_attempt.requires_independent_recount,
+            "status": "RECOUNT_REQUIRED",
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+    except IntegrityError as e:
+        await db.rollback()
+        logger.warning(f"تعارض متزامن أثناء تفويض Recount: {e}", exc_info=True)
+        raise HTTPException(status_code=409, detail="حدث تعارض متزامن أثناء تفويض إعادة العد.")
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"خطأ في تفويض إعادة العد: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="خطأ داخلي أثناء تفويض إعادة العد.")
 
