@@ -31,6 +31,12 @@ interface Props {
 
 const PAGE_SIZE = 50;
 
+const codedError = (code: string): Error & { code: string } => {
+  const error = new Error(code) as Error & { code: string };
+  error.code = code;
+  return error;
+};
+
 const dispositionTone = (
   value: WarehouseBatchInventoryItem["disposition"],
 ): string => {
@@ -193,7 +199,7 @@ export function TabBatches({ locationId }: Props) {
         parsed.currency_code.toUpperCase() !==
           selectedProduct.currency_code.toUpperCase()
       ) {
-        throw new Error("BATCH_DETAIL_SCOPE_MISMATCH");
+        throw codedError("LIVE_STOCK_BATCH_SCOPE_MISMATCH");
       }
       setDetails(parsed);
     } catch (error: unknown) {
