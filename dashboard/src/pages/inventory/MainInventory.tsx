@@ -472,9 +472,10 @@ export default function MainInventory() {
   }, [resetStockPagination]);
 
   const handleStockSearchChange = useCallback((value: string) => {
+    if (value === stockSearch) return;
     resetStockPagination();
     setStockSearch(value);
-  }, [resetStockPagination]);
+  }, [resetStockPagination, stockSearch]);
 
   const handleStockStateChange = useCallback(
     (value: LiveStockStockState) => {
@@ -553,6 +554,7 @@ export default function MainInventory() {
 
   useEffect(() => {
     stockRequestSeq.current += 1;
+    setLoadingStock(selectedLocationId !== null);
     stockAbortRef.current?.abort();
     stockAbortRef.current = null;
     setStockItems([]);
