@@ -112,8 +112,12 @@ check(
 )
 check(
     'scope: Literal["ALL", "FAMILY", "PRODUCT"]' in api
-    and 'apply_mode: Literal["ONLY_UNSET", "OVERWRITE"]' in api,
-    "bulk minimum-stock scope and overwrite semantics are explicit",
+    and 'family_ids: list[int]' in api
+    and 'product_variant_ids: list[int]' in api
+    and 'apply_mode: Literal["ONLY_UNSET", "OVERWRITE"]' in api
+    and 'ProductVariant.product_id.in_(payload.family_ids)' in api
+    and 'ProductVariant.id.in_(payload.product_variant_ids)' in api,
+    "bulk minimum-stock scope supports safe multi-select family/product targeting",
 )
 check(
     "pg_advisory_xact_lock" in api
@@ -126,9 +130,21 @@ check(
     and "scopeAll" in manager
     and "scopeFamily" in manager
     and "scopeProduct" in manager
+    and "familyIds" in manager
+    and "productIds" in manager
+    and "toggleId" in manager
     and "ONLY_UNSET" in manager
     and "OVERWRITE" in manager,
-    "Live Stock exposes one centralized minimum-stock manager for all/family/product scopes",
+    "Live Stock exposes one centralized multi-select minimum-stock manager",
+)
+check(
+    'if (!scopeReady || !quantityReady || applying || hasConflict) return;' in manager
+    and '!plan ||' not in manager,
+    "minimum-stock preview is optional and direct apply remains available",
+)
+check(
+    "product.sku" not in live,
+    "SKU stays available in contracts/search but is not rendered in Live Stock rows",
 )
 check(
     "2520" in seed
