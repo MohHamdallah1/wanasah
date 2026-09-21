@@ -1,0 +1,469 @@
+{
+  "baseline_commit": "6f437e7606210bb6328dc97da7f275ee52f5146a",
+  "baseline_path": "wa_backend/api/warehouse.py",
+  "route_count": 45,
+  "registration_order_note": "Runtime registration order. Stacked FastAPI decorators are recorded bottom-up, matching Python decorator application order.",
+  "module_include_order": [
+    "locations",
+    "inbound",
+    "live_stock",
+    "ledger",
+    "status",
+    "inbound_adjustments",
+    "transfer_policy",
+    "transfers",
+    "stocktake"
+  ],
+  "routes": [
+    {
+      "order": 1,
+      "method": "GET",
+      "path": "/warehouse/setup-status",
+      "function": "get_warehouse_setup_status",
+      "status_code": "200",
+      "response_model": "WarehouseSetupStatusResponse",
+      "expected_module": "locations",
+      "baseline_line": 654
+    },
+    {
+      "order": 2,
+      "method": "GET",
+      "path": "/warehouse/locations/manage",
+      "function": "manage_warehouse_locations",
+      "status_code": "200",
+      "response_model": "WarehouseLocationCursorPage",
+      "expected_module": "locations",
+      "baseline_line": 695
+    },
+    {
+      "order": 3,
+      "method": "GET",
+      "path": "/warehouse/locations",
+      "function": "manage_warehouse_locations",
+      "status_code": "200",
+      "response_model": "WarehouseLocationCursorPage",
+      "expected_module": "locations",
+      "baseline_line": 690
+    },
+    {
+      "order": 4,
+      "method": "POST",
+      "path": "/warehouse/locations",
+      "function": "create_warehouse_location",
+      "status_code": "201",
+      "response_model": "WarehouseLocationMutationResponse",
+      "expected_module": "locations",
+      "baseline_line": 799
+    },
+    {
+      "order": 5,
+      "method": "PATCH",
+      "path": "/warehouse/locations/{location_id}",
+      "function": "update_warehouse_location",
+      "status_code": "200",
+      "response_model": "WarehouseLocationMutationResponse",
+      "expected_module": "locations",
+      "baseline_line": 934
+    },
+    {
+      "order": 6,
+      "method": "POST",
+      "path": "/warehouse/locations/{location_id}/activate",
+      "function": "activate_warehouse_location",
+      "status_code": "200",
+      "response_model": "WarehouseLocationMutationResponse",
+      "expected_module": "locations",
+      "baseline_line": 1080
+    },
+    {
+      "order": 7,
+      "method": "POST",
+      "path": "/warehouse/locations/{location_id}/deactivate",
+      "function": "deactivate_warehouse_location",
+      "status_code": "200",
+      "response_model": "WarehouseLocationMutationResponse",
+      "expected_module": "locations",
+      "baseline_line": 1198
+    },
+    {
+      "order": 8,
+      "method": "POST",
+      "path": "/warehouse/inbound/options",
+      "function": "warehouse_inbound_options",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "inbound",
+      "baseline_line": 1861
+    },
+    {
+      "order": 9,
+      "method": "GET",
+      "path": "/warehouse/costing-policy",
+      "function": "warehouse_costing_policy",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "inbound",
+      "baseline_line": 1915
+    },
+    {
+      "order": 10,
+      "method": "PUT",
+      "path": "/warehouse/costing-policy",
+      "function": "update_warehouse_costing_policy",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "inbound",
+      "baseline_line": 1938
+    },
+    {
+      "order": 11,
+      "method": "POST",
+      "path": "/warehouse/inbound",
+      "function": "warehouse_inbound",
+      "status_code": "201",
+      "response_model": "MessageResponse",
+      "expected_module": "inbound",
+      "baseline_line": 1987
+    },
+    {
+      "order": 12,
+      "method": "GET",
+      "path": "/warehouse/inventory/alerts/summary",
+      "function": "get_warehouse_inventory_alert_summary",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryAlertSummaryResponse",
+      "expected_module": "live_stock",
+      "baseline_line": 3026
+    },
+    {
+      "order": 13,
+      "method": "GET",
+      "path": "/warehouse/inventory/summary",
+      "function": "get_warehouse_inventory_summary",
+      "status_code": null,
+      "response_model": "WarehouseInventorySummaryResponse",
+      "expected_module": "live_stock",
+      "baseline_line": 3054
+    },
+    {
+      "order": 14,
+      "method": "GET",
+      "path": "/warehouse/inventory/families",
+      "function": "get_warehouse_inventory_families",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "live_stock",
+      "baseline_line": 3168
+    },
+    {
+      "order": 15,
+      "method": "GET",
+      "path": "/warehouse/inventory/cursor",
+      "function": "get_warehouse_inventory",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryCursorPage",
+      "expected_module": "live_stock",
+      "baseline_line": 3239
+    },
+    {
+      "order": 16,
+      "method": "GET",
+      "path": "/warehouse/inventory/{product_variant_id}/batches",
+      "function": "get_warehouse_inventory_batches",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryBatchDetailResponse",
+      "expected_module": "live_stock",
+      "baseline_line": 3923
+    },
+    {
+      "order": 17,
+      "method": "GET",
+      "path": "/warehouse/ledger/cursor",
+      "function": "get_warehouse_ledger_cursor",
+      "status_code": "200",
+      "response_model": "WarehouseLedgerCursorPage",
+      "expected_module": "ledger",
+      "baseline_line": 4347
+    },
+    {
+      "order": 18,
+      "method": "GET",
+      "path": "/warehouse/status",
+      "function": "get_warehouse_status",
+      "status_code": "200",
+      "response_model": "WarehouseStatusResponse",
+      "expected_module": "status",
+      "baseline_line": 4920
+    },
+    {
+      "order": 19,
+      "method": "POST",
+      "path": "/warehouse/ledger/{entry_id}/adjust",
+      "function": "adjust_warehouse_entry",
+      "status_code": "200",
+      "response_model": "MessageResponse",
+      "expected_module": "inbound_adjustments",
+      "baseline_line": 4963
+    },
+    {
+      "order": 20,
+      "method": "GET",
+      "path": "/warehouse/operational-policy/transfer-destinations",
+      "function": "get_transfer_destination_policy",
+      "status_code": "200",
+      "response_model": "TransferDestinationPolicyStateResponse",
+      "expected_module": "transfer_policy",
+      "baseline_line": 5399
+    },
+    {
+      "order": 21,
+      "method": "PUT",
+      "path": "/warehouse/operational-policy/transfer-destinations/draft",
+      "function": "save_transfer_destination_policy",
+      "status_code": "200",
+      "response_model": "TransferDestinationPolicyMutationResponse",
+      "expected_module": "transfer_policy",
+      "baseline_line": 5430
+    },
+    {
+      "order": 22,
+      "method": "POST",
+      "path": "/warehouse/operational-policy/transfer-destinations/{policy_id}/publish",
+      "function": "publish_transfer_destination_policy_endpoint",
+      "status_code": "200",
+      "response_model": "TransferDestinationPolicyMutationResponse",
+      "expected_module": "transfer_policy",
+      "baseline_line": 5513
+    },
+    {
+      "order": 23,
+      "method": "POST",
+      "path": "/warehouse/batches/{batch_id}/disposition",
+      "function": "change_batch_disposition",
+      "status_code": "200",
+      "response_model": "BatchDispositionMutationResponse",
+      "expected_module": "transfers",
+      "baseline_line": 5644
+    },
+    {
+      "order": 24,
+      "method": "POST",
+      "path": "/warehouse/inventory/status-change",
+      "function": "change_inventory_status",
+      "status_code": "200",
+      "response_model": "InventoryStatusChangeResponse",
+      "expected_module": "transfers",
+      "baseline_line": 5747
+    },
+    {
+      "order": 25,
+      "method": "GET",
+      "path": "/warehouse/unified/transfer/locations",
+      "function": "list_unified_transfer_locations",
+      "status_code": "200",
+      "response_model": "List[UnifiedTransferLocationItem]",
+      "expected_module": "transfers",
+      "baseline_line": 5879
+    },
+    {
+      "order": 26,
+      "method": "GET",
+      "path": "/warehouse/unified/transfer/source-inventory",
+      "function": "get_unified_transfer_source_inventory",
+      "status_code": "200",
+      "response_model": "UnifiedTransferSourceInventoryCursorPage",
+      "expected_module": "transfers",
+      "baseline_line": 5965
+    },
+    {
+      "order": 27,
+      "method": "GET",
+      "path": "/warehouse/unified/transfer/override-options",
+      "function": "get_unified_transfer_override_options",
+      "status_code": "200",
+      "response_model": "UnifiedTransferOverrideOptionsResponse",
+      "expected_module": "transfers",
+      "baseline_line": 6213
+    },
+    {
+      "order": 28,
+      "method": "GET",
+      "path": "/warehouse/unified/transfers",
+      "function": "list_unified_transfers",
+      "status_code": "200",
+      "response_model": "WarehouseTransferCursorPage",
+      "expected_module": "transfers",
+      "baseline_line": 6575
+    },
+    {
+      "order": 29,
+      "method": "GET",
+      "path": "/warehouse/unified/transfers/{header_id}",
+      "function": "get_unified_transfer_detail",
+      "status_code": "200",
+      "response_model": "WarehouseTransferDetail",
+      "expected_module": "transfers",
+      "baseline_line": 6729
+    },
+    {
+      "order": 30,
+      "method": "POST",
+      "path": "/warehouse/unified/transfer/special/dispatch",
+      "function": "special_transfer_dispatch",
+      "status_code": "200",
+      "response_model": "SpecialTransferDispatchResponse",
+      "expected_module": "transfers",
+      "baseline_line": 6836
+    },
+    {
+      "order": 31,
+      "method": "POST",
+      "path": "/warehouse/unified/transfer/dispatch",
+      "function": "unified_transfer_dispatch",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "transfers",
+      "baseline_line": 7106
+    },
+    {
+      "order": 32,
+      "method": "POST",
+      "path": "/warehouse/unified/transfer/receive",
+      "function": "unified_transfer_receive",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "transfers",
+      "baseline_line": 7897
+    },
+    {
+      "order": 33,
+      "method": "POST",
+      "path": "/warehouse/unified/transfer/{header_id}/cancel",
+      "function": "unified_transfer_cancel",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "transfers",
+      "baseline_line": 8019
+    },
+    {
+      "order": 34,
+      "method": "POST",
+      "path": "/warehouse/unified/transfer/{header_id}/reject",
+      "function": "unified_transfer_reject",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "transfers",
+      "baseline_line": 8133
+    },
+    {
+      "order": 35,
+      "method": "GET",
+      "path": "/warehouse/unified/stocktake/cycle-batches",
+      "function": "list_stocktake_cycle_batches",
+      "status_code": "200",
+      "response_model": "StocktakeCycleBatchCursorPage",
+      "expected_module": "stocktake",
+      "baseline_line": 8418
+    },
+    {
+      "order": 36,
+      "method": "GET",
+      "path": "/warehouse/unified/stocktake/vehicle-recon-candidates",
+      "function": "list_vehicle_recon_candidates",
+      "status_code": "200",
+      "response_model": "VehicleReconCandidateCursorPage",
+      "expected_module": "stocktake",
+      "baseline_line": 8622
+    },
+    {
+      "order": 37,
+      "method": "GET",
+      "path": "/warehouse/unified/stocktakes/active",
+      "function": "list_active_stocktake_sessions",
+      "status_code": "200",
+      "response_model": "StocktakeActiveSessionCursorPage",
+      "expected_module": "stocktake",
+      "baseline_line": 8974
+    },
+    {
+      "order": 38,
+      "method": "GET",
+      "path": "/warehouse/unified/stocktake/{session_id}/context",
+      "function": "get_stocktake_session_context",
+      "status_code": "200",
+      "response_model": "StocktakeSessionContextResponse",
+      "expected_module": "stocktake",
+      "baseline_line": 9141
+    },
+    {
+      "order": 39,
+      "method": "POST",
+      "path": "/warehouse/unified/stocktake/start",
+      "function": "start_unified_stocktake",
+      "status_code": "201",
+      "response_model": null,
+      "expected_module": "stocktake",
+      "baseline_line": 9335
+    },
+    {
+      "order": 40,
+      "method": "GET",
+      "path": "/warehouse/unified/stocktake/{session_id}/count-sheet",
+      "function": "get_stocktake_count_sheet",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "stocktake",
+      "baseline_line": 9578
+    },
+    {
+      "order": 41,
+      "method": "POST",
+      "path": "/warehouse/unified/stocktake/{session_id}/count",
+      "function": "submit_stocktake_count",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "stocktake",
+      "baseline_line": 9663
+    },
+    {
+      "order": 42,
+      "method": "GET",
+      "path": "/warehouse/unified/stocktake/{session_id}/review",
+      "function": "get_stocktake_review",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "stocktake",
+      "baseline_line": 9977
+    },
+    {
+      "order": 43,
+      "method": "POST",
+      "path": "/warehouse/unified/stocktake/{session_id}/approve",
+      "function": "approve_stocktake_session",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "stocktake",
+      "baseline_line": 10154
+    },
+    {
+      "order": 44,
+      "method": "POST",
+      "path": "/warehouse/unified/stocktake/{session_id}/recount",
+      "function": "recount_stocktake_session",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "stocktake",
+      "baseline_line": 10260
+    },
+    {
+      "order": 45,
+      "method": "POST",
+      "path": "/warehouse/unified/stocktake/{session_id}/cancel",
+      "function": "cancel_stocktake_session",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "stocktake",
+      "baseline_line": 10357
+    }
+  ]
+}

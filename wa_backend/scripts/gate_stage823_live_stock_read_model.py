@@ -16,7 +16,7 @@ if str(BACKEND) not in sys.path:
 
 from api.auth import create_access_token
 from api.dependencies import get_current_driver
-from api.warehouse import (
+from api.warehouse.live_stock import (
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
     get_warehouse_inventory_summary,

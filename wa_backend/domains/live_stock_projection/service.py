@@ -1453,7 +1453,12 @@ async def apply_live_stock_balance_impacts(
             "product_variant_id",
         )
         location_type = str(raw.get("location_type") or "").upper()
-        if location_type not in {"WAREHOUSE", "VEHICLE", "IN_TRANSIT"}:
+        if location_type not in {
+            "WAREHOUSE",
+            "VEHICLE",
+            "IN_TRANSIT",
+            "SCRAP",
+        }:
             raise LiveStockProjectionError(
                 f"Unsupported inventory location type: {location_type}"
             )
@@ -1504,6 +1509,8 @@ async def apply_live_stock_balance_impacts(
                 continue
             key = (int(source), variant_id)
         else:
+            # IN_TRANSIT and SCRAP are valid inventory locations but are
+            # intentionally outside the warehouse-centric Live Stock read model.
             continue
         impacts_by_key[key].append(impact)
 

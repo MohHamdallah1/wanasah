@@ -6,7 +6,8 @@ checks = []
 def check(condition: bool, label: str) -> None:
     checks.append((bool(condition), label))
 
-warehouse = (ROOT / "wa_backend/api/warehouse.py").read_text(encoding="utf-8")
+ledger_source = (ROOT / "wa_backend/api/warehouse/ledger.py").read_text(encoding="utf-8")
+live_stock_source = (ROOT / "wa_backend/api/warehouse/live_stock.py").read_text(encoding="utf-8")
 schemas = (ROOT / "wa_backend/schemas.py").read_text(encoding="utf-8")
 inbound = (ROOT / "dashboard/src/pages/inventory/Tab2Inbound.tsx").read_text(encoding="utf-8")
 contracts = (ROOT / "dashboard/src/pages/inventory/inbound/contracts.ts").read_text(encoding="utf-8")
@@ -21,13 +22,13 @@ check(inbound.count("commercialUoms") >= 2 and "variantOptions?.uoms.filter" in 
 check("defaults.batch_number" in contracts, "batch default resolved in payload builder")
 check("seenBatchUoms" in contracts and "INBOUND_DUPLICATE_BATCH_UOM_LINE" in contracts, "same batch supports distinct UOM lines")
 check(
-    '"balance_scope": (' in warehouse
-    and '"PRODUCT_LOCATION"' in warehouse
-    and "aggregate_snapshot is not None" in warehouse,
+    '"balance_scope": (' in ledger_source
+    and '"PRODUCT_LOCATION"' in ledger_source
+    and "aggregate_snapshot is not None" in ledger_source,
     "ledger balance is product/location scoped",
 )
-check("_ledger_product_location_snapshots" in warehouse, "ledger reconstructs product/location totals")
-check("InventoryCostEvent" in warehouse and "InventoryCostState" in warehouse, "cost evidence and current state sources")
+check("_ledger_product_location_snapshots" in ledger_source, "ledger reconstructs product/location totals")
+check("InventoryCostEvent" in ledger_source and "InventoryCostState" in live_stock_source, "cost evidence and current state sources")
 check("display_uom_code" in schemas and "display_factor_to_base" in schemas, "commercial display UOM contract")
 check("formatCommercialQuantity" in live, "commercial quantity display")
 check("defaultValue: p.display_uom_name" not in live, "live UOM labels cannot fall back to backend language")
@@ -37,7 +38,11 @@ check("locationAccess.isPending" in main_inventory and 't("common.loading")' in 
 check("parseDriverDataList(data)" in operations, "operations response validated before setState")
 check(resources.count("OPERATIONS_RESPONSE_INVALID") >= 2, "operations error translated ar/en")
 check(resources.count("defaultBatchTitle") >= 2, "batch-default UI translated ar/en")
-check(resources.count("averageCostHint") >= 2, "cost visibility translated ar/en")
+check(
+    resources.count("lastCompanyPurchaseHint") >= 2
+    and resources.count("companyAverageHint") >= 2,
+    "cost visibility translated ar/en",
+)
 check(resources.count("inventoryCommon") >= 2 and resources.count('unit: "') >= 2, "generic unit fallback translated ar/en")
 check(resources.count("addReceiptLine") >= 2, "mixed-UOM add-line action translated ar/en")
 check(resources.count("INBOUND_DUPLICATE_BATCH_UOM_LINE") >= 2, "mixed-UOM duplicate error translated ar/en")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-WAREHOUSE = ROOT / "wa_backend" / "api" / "warehouse.py"
+WAREHOUSE = ROOT / "wa_backend" / "api" / "warehouse" / "inbound.py"
 PLAN = ROOT / "INVENTORY_COMMERCIAL_FOUNDATION_PLAN.md"
 RULES = ROOT / ".rules"
 SIMPLE_PRODUCTS = ROOT / "wa_backend" / "domains" / "simple_products" / "service.py"

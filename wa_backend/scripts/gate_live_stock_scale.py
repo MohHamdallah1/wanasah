@@ -47,7 +47,7 @@ import database as database_runtime  # noqa: E402
 from database import AsyncSessionLocal, engine  # noqa: E402
 from models import Company, Driver, InventoryBalance, InventoryStockPolicy, ProductVariant  # noqa: E402
 from api.auth import create_access_token  # noqa: E402
-from api.warehouse import (  # noqa: E402
+from api.warehouse.live_stock import (  # noqa: E402
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
     get_warehouse_inventory_summary,

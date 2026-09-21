@@ -37,7 +37,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from context import tenant_context  # noqa: E402
 from database import AsyncSessionLocal, engine  # noqa: E402
 from models import Driver  # noqa: E402
-from api.warehouse import get_warehouse_inventory  # noqa: E402
+from api.warehouse.live_stock import get_warehouse_inventory  # noqa: E402
 
 
 SQL_SAMPLES: list[tuple[float, str]] = []

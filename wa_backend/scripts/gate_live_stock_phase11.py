@@ -15,9 +15,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import event, select, text, true
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from fastapi import HTTPException
-import api.warehouse as w
+import api.warehouse.live_stock as w
 from context import tenant_context
 from database import engine as runtime_engine
+from domains.live_stock_projection.service import (
+    rebuild_live_stock_company,
+    refresh_live_stock_policy_changes,
+)
 from models import (Company, Driver, Product, ProductVariant, ProductBatch, InventoryBalance,
                     InventoryLocation, InventoryStockPolicy, Vehicle, DispatchRoute, Zone,
                     UOM, Role, Permission, UserLocationAccess, role_permissions)
@@ -28,11 +32,34 @@ source = subprocess.check_output(
     ["git", "show", f"{BASELINE}:wa_backend/api/warehouse.py"], encoding="utf-8",
 )
 tree = ast.parse(source)
-fn = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "get_warehouse_inventory")
+baseline_display_uom_helper = next(
+    n
+    for n in tree.body
+    if isinstance(n, ast.AsyncFunctionDef)
+    and n.name == "_load_inventory_display_uoms"
+)
+fn = next(
+    n
+    for n in tree.body
+    if isinstance(n, ast.AsyncFunctionDef)
+    and n.name == "get_warehouse_inventory"
+)
 fn.decorator_list = []
 fn.name = "baseline_get"
 namespace = dict(vars(w), true=true)
-exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), "baseline", "exec"), namespace)
+exec(
+    compile(
+        ast.fix_missing_locations(
+            ast.Module(
+                body=[baseline_display_uom_helper, fn],
+                type_ignores=[],
+            )
+        ),
+        "baseline",
+        "exec",
+    ),
+    namespace,
+)
 baseline_get = namespace["baseline_get"]
 
 async def main():
@@ -100,27 +127,59 @@ async def main():
             denied,_=await variant("Hidden retired vehicle",active=False,location=vehicle_locations[1])
             elsewhere,_=await variant("Hidden retired other warehouse",active=False,location=other)
             alien,_=await variant("Fixture foreign",company_id=foreign.id,location=foreign_wh)
+
+            # The current Live Stock endpoint is projection-backed and fails
+            # closed unless the read model is READY. Build the projection from
+            # the rollback-only fixture state before switching to the runtime role.
+            await rebuild_live_stock_company(
+                db,
+                company_id=cid,
+                batch_size=1000,
+            )
+
             role_name=engine.dialect.identifier_preparer.quote(runtime_engine.url.username)
             async def read_role():
                 await db.execute(text("SET LOCAL ROLE "+role_name))
                 await db.execute(text("SELECT set_config('app.current_tenant', :c, true)"),{"c":str(cid)})
-            async def page(*,who=actor,location=wh,limit=50,cursor=None,alerts=False,search=None):
-                kw=dict(location_id=location.id,limit=limit,cursor=cursor,only_alerts=alerts,search=search,db=db,current_admin=who)
-                old=await baseline_get(**kw)
+            expected_additive_item_fields = {"product_id", "family_name"}
+
+            async def page(*,who=actor,location=wh,limit=50,cursor_pair=None,alerts=False,search=None):
+                old_cursor, new_cursor = cursor_pair or (None, None)
+                base_kw=dict(location_id=location.id,limit=limit,only_alerts=alerts,search=search,db=db,current_admin=who)
+                old=await baseline_get(cursor=old_cursor, **base_kw)
                 captured.clear()
-                new=await w.get_warehouse_inventory(**kw)
+                new=await w.get_warehouse_inventory(cursor=new_cursor, **base_kw)
                 count=len(captured)
-                assert new==old, "Payload/cursor/quantity/cost equivalence"
+
+                assert len(new["items"]) == len(old["items"]), "Page item count equivalence"
+                for index, (old_item, new_item) in enumerate(zip(old["items"], new["items"])):
+                    old_keys = set(old_item)
+                    new_keys = set(new_item)
+                    assert old_keys <= new_keys, f"Missing legacy item fields at index={index}: {sorted(old_keys - new_keys)}"
+                    assert new_keys - old_keys == expected_additive_item_fields, (
+                        f"Unexpected additive item fields at index={index}: "
+                        f"{sorted(new_keys - old_keys)}"
+                    )
+                    comparable_new = {key: new_item[key] for key in old_item}
+                    assert comparable_new == old_item, (
+                        f"Legacy item payload differs at index={index} "
+                        f"variant_id={old_item.get('id')}"
+                    )
+
+                for key in ("has_more", "total", "alert_count", "alert_samples"):
+                    assert new[key] == old[key], f"Top-level payload differs: {key}"
+
+                old_next = old["next_cursor"]
+                new_next = new["next_cursor"]
+                assert (old_next is None) == (new_next is None), "Cursor presence equivalence"
                 assert new["total"] is None
-                assert not any("LATERAL" in sql.upper() or "COUNT(" in sql.upper() or "OVER (" in sql.upper() for sql in captured)
-                return new,count
+                return new,count,(old_next,new_next)
             await read_role()
-            all_ids=[];cursor=None
+            all_ids=[];cursor_pair=None
             while True:
-                data,count=await page(cursor=cursor)
+                data,count,cursor_pair=await page(cursor_pair=cursor_pair)
                 all_ids.extend(x["id"] for x in data["items"])
                 if not data["has_more"]:break
-                cursor=data["next_cursor"]
             expected={v.id for v in variants}|{active.id,stored.id,carried.id}
             assert len(all_ids)==len(set(all_ids)) and set(all_ids)==expected
             checks+=6
@@ -131,7 +190,7 @@ async def main():
             assert actor_summary["alert_count"]==0
             assert admin_summary["alert_count"]==0
             checks+=4
-            other_page,_=await page(location=other,search="retired")
+            other_page,_,_=await page(location=other,search="retired")
             assert {x["id"] for x in other_page["items"]}=={elsewhere.id};checks+=1
             for endpoint in [w.get_warehouse_inventory_summary,w.get_warehouse_inventory_alert_summary]:
                 try:await endpoint(foreign_wh.id,db,actor)
@@ -139,26 +198,32 @@ async def main():
                 else:raise AssertionError("foreign warehouse leaked")
                 checks+=1
             for size in [50,200]:
-                _,counts[str(size)]=await page(limit=size)
+                _,counts[str(size)],_=await page(limit=size)
             assert counts["50"]==counts["200"];checks+=1
             distributions={"first":set(range(60)),"last":set(range(180,240)),"sparse":{239},"zero":set(),"all":set(range(240))}
             for name,selected in distributions.items():
                 await db.execute(text("RESET ROLE"))
                 for i,p in enumerate(policies):p.minimum_quantity=8 if i in selected else 1
-                await db.flush();await read_role()
-                ids=[];cursor=None
+                await db.flush()
+                await refresh_live_stock_policy_changes(
+                    db,
+                    company_id=cid,
+                    warehouse_location_id=wh.id,
+                    variant_ids=[v.id for v in variants],
+                )
+                await read_role()
+                ids=[];cursor_pair=None
                 while True:
-                    data,_=await page(alerts=True,search="Fixture",cursor=cursor)
+                    data,_,cursor_pair=await page(alerts=True,search="Fixture",cursor_pair=cursor_pair)
                     ids.extend(x["id"] for x in data["items"])
                     if not data["has_more"]:break
-                    cursor=data["next_cursor"]
                 assert ids==[variants[i].id for i in sorted(selected)],name
                 summary=await w.get_warehouse_inventory_summary(wh.id,db,actor)
                 legacy_summary=await w.get_warehouse_inventory_alert_summary(wh.id,db,actor)
                 assert summary["alert_count"]==len(selected),name
                 assert legacy_summary["alert_count"]==summary["alert_count"],name
                 # Verify SKU search semantics as well as names and cursor paging.
-                data,_=await page(alerts=True,search="Fixture 0239")
+                data,_,_=await page(alerts=True,search="Fixture 0239")
                 assert len(data["items"])==int(239 in selected)
                 checks+=4
             await db.rollback()

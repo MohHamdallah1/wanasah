@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FILES = {
     "service": ROOT / "domains" / "live_stock_projection" / "service.py",
-    "warehouse": ROOT / "api" / "warehouse.py",
+    "warehouse": ROOT / "api" / "warehouse" / "locations.py",
     "foundation_gate": ROOT / "scripts" / "gate_stage82_live_stock_projection_foundation.py",
     "worker_app": ROOT / "workers" / "app.py",
     "worker_maintenance": ROOT / "workers" / "tasks" / "maintenance.py",
