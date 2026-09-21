@@ -5,6 +5,7 @@ import asyncio
 import importlib
 import importlib.util
 import json
+import selectors
 import sys
 from collections import Counter
 from pathlib import Path
@@ -296,6 +297,22 @@ async def _verify_lifespan(app: Any) -> None:
         )
 
 
+def _run_lifespan(app: Any) -> None:
+    if sys.platform == "win32":
+        # psycopg async connections are incompatible with the default
+        # ProactorEventLoop on Windows. Keep this compatibility override
+        # isolated to the optional lifespan gate instead of mutating the
+        # application's global event-loop policy.
+        def _windows_selector_loop() -> asyncio.AbstractEventLoop:
+            return asyncio.SelectorEventLoop(selectors.SelectSelector())
+
+        with asyncio.Runner(loop_factory=_windows_selector_loop) as runner:
+            runner.run(_verify_lifespan(app))
+        return
+
+    asyncio.run(_verify_lifespan(app))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -335,7 +352,7 @@ def main() -> None:
     )
 
     if args.with_lifespan:
-        asyncio.run(_verify_lifespan(app))
+        _run_lifespan(app)
 
 
 if __name__ == "__main__":
