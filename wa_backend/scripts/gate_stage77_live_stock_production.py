@@ -14,7 +14,7 @@ def check(condition: bool, label: str) -> None:
 def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
-warehouse = read("wa_backend/api/warehouse.py")
+warehouse = read("wa_backend/api/warehouse/live_stock.py")
 schemas = read("wa_backend/schemas.py")
 contracts = read("dashboard/src/pages/inventory/liveStock/contracts.ts")
 live = read("dashboard/src/pages/inventory/Tab1LiveStock.tsx")
