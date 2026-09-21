@@ -44,7 +44,7 @@ from services import (
     validate_special_transfer_source_items_locked,
 )
 from product_lifecycle import acquire_product_lifecycle_guards
-from api.warehouse import (
+from api.warehouse.transfers import (
     special_transfer_dispatch,
     unified_transfer_dispatch,
     unified_transfer_receive,
@@ -521,7 +521,7 @@ def run_subgate(path: Path, label: str) -> None:
 
 def static_contract_tests() -> None:
     print("\n[1] Static contract / source-surface invariants")
-    warehouse_src = (_backend_dir / "api" / "warehouse.py").read_text(encoding="utf-8")
+    warehouse_src = (_backend_dir / "api" / "warehouse" / "transfers.py").read_text(encoding="utf-8")
     services_src = (_backend_dir / "services.py").read_text(encoding="utf-8")
     access_src = (_backend_dir / "inventory_access.py").read_text(encoding="utf-8")
 
