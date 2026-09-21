@@ -38,7 +38,11 @@ check("locationAccess.isPending" in main_inventory and 't("common.loading")' in 
 check("parseDriverDataList(data)" in operations, "operations response validated before setState")
 check(resources.count("OPERATIONS_RESPONSE_INVALID") >= 2, "operations error translated ar/en")
 check(resources.count("defaultBatchTitle") >= 2, "batch-default UI translated ar/en")
-check(resources.count("averageCostHint") >= 2, "cost visibility translated ar/en")
+check(
+    resources.count("lastCompanyPurchaseHint") >= 2
+    and resources.count("companyAverageHint") >= 2,
+    "cost visibility translated ar/en",
+)
 check(resources.count("inventoryCommon") >= 2 and resources.count('unit: "') >= 2, "generic unit fallback translated ar/en")
 check(resources.count("addReceiptLine") >= 2, "mixed-UOM add-line action translated ar/en")
 check(resources.count("INBOUND_DUPLICATE_BATCH_UOM_LINE") >= 2, "mixed-UOM duplicate error translated ar/en")
