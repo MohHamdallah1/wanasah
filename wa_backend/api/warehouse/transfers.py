@@ -82,13 +82,12 @@ from services import (
     validate_special_transfer_source_items_locked,
 )
 
-# Staging-only dependency: remains sourced from the untouched monolith until
-# _stable_request_hash is moved once to _shared.py in its dedicated stage.
-from api.warehouse import _stable_request_hash
+
 from ._shared import (
     _decode_variant_cursor,
     _encode_variant_cursor,
     _escape_like,
+    _stable_request_hash,
 )
 
 
