@@ -40,8 +40,8 @@ from fastapi import HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from api.warehouse import (
-    deactivate_warehouse_location,
+from api.warehouse.locations import deactivate_warehouse_location
+from api.warehouse.transfer_policy import (
     publish_transfer_destination_policy_endpoint,
     save_transfer_destination_policy,
 )
