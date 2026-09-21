@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { WarehouseProduct } from "@/pages/inventory/liveStock/contracts";
 import {
   clearInventoryWarmScope,
+  dropLiveStockWarmSnapshot,
   inventoryWarmScopeKey,
   patchLiveStockWarmSnapshot,
   readInventoryShellWarmSnapshot,
@@ -39,6 +40,27 @@ describe("inventory in-memory warm cache", () => {
 
     clearInventoryWarmScope(scopeA);
     clearInventoryWarmScope(scopeB);
+  });
+
+  it("drops only the revoked warehouse snapshot", () => {
+    const scope = inventoryWarmScopeKey("9", "21");
+    expect(scope).not.toBeNull();
+
+    patchLiveStockWarmSnapshot(scope, 301, {
+      hasPage: true,
+      items: [stockItem],
+    });
+    patchLiveStockWarmSnapshot(scope, 302, {
+      hasPage: true,
+      items: [stockItem],
+    });
+
+    dropLiveStockWarmSnapshot(scope, 301);
+
+    expect(readLiveStockWarmSnapshot(scope, 301)).toBeNull();
+    expect(readLiveStockWarmSnapshot(scope, 302)?.hasPage).toBe(true);
+
+    clearInventoryWarmScope(scope);
   });
 
   it("keeps page, summary, and lock readiness independent", () => {
