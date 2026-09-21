@@ -14,7 +14,7 @@ BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 load_dotenv(BACKEND / ".env", override=False)
 
-from api.warehouse import _ensure_first_inbound_product_locations
+from api.warehouse.inbound import _ensure_first_inbound_product_locations
 
 MIGRATION_URL = os.environ["DATABASE_URL_MIGRATION"]
 APP_URL = os.environ["DATABASE_URL"]
