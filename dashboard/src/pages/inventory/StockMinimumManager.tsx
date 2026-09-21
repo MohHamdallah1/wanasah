@@ -35,6 +35,11 @@ const cleanMinimum = (value: string): string | null => {
   return /^\d+(?:\.\d{1,6})?$/.test(trimmed) ? trimmed : null;
 };
 
+const toggleId = (values: number[], id: number): number[] =>
+  values.includes(id)
+    ? values.filter((value) => value !== id)
+    : [...values, id].sort((a, b) => a - b);
+
 export function StockMinimumManager({ locationId, onApplied }: Props) {
   const authFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
@@ -51,31 +56,33 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
   const [familySearch, setFamilySearch] = useState("");
   const [families, setFamilies] = useState<LiveStockFamilyOption[]>([]);
   const [familyLoading, setFamilyLoading] = useState(false);
-  const [familyId, setFamilyId] = useState<number | null>(null);
+  const [familyIds, setFamilyIds] = useState<number[]>([]);
 
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<WarehouseProduct[]>([]);
   const [productLoading, setProductLoading] = useState(false);
-  const [productId, setProductId] = useState<number | null>(null);
-
-  const selectedFamily = useMemo(
-    () => families.find((item) => item.id === familyId) ?? null,
-    [families, familyId],
-  );
-  const selectedProduct = useMemo(
-    () => products.find((item) => item.id === productId) ?? null,
-    [products, productId],
-  );
+  const [productIds, setProductIds] = useState<number[]>([]);
 
   const invalidatePlan = useCallback(() => setPlan(null), []);
 
   useEffect(() => {
     invalidatePlan();
-  }, [scope, applyMode, minimum, familyId, productId, invalidatePlan]);
+  }, [
+    scope,
+    applyMode,
+    minimum,
+    familyIds,
+    productIds,
+    invalidatePlan,
+  ]);
 
   useEffect(() => {
     if (!open) return;
     setPlan(null);
+    setFamilyIds([]);
+    setProductIds([]);
+    setFamilySearch("");
+    setProductSearch("");
   }, [locationId, open]);
 
   useEffect(() => {
@@ -92,7 +99,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
       setFamilyLoading(true);
       const params = new URLSearchParams({
         location_id: String(locationId),
-        limit: "50",
+        limit: "100",
       });
       if (clean.length >= 2) params.set("search", clean);
 
@@ -174,18 +181,18 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
     () => ({
       location_id: locationId,
       scope,
-      family_id: scope === "FAMILY" ? familyId : null,
-      product_variant_id: scope === "PRODUCT" ? productId : null,
+      family_ids: scope === "FAMILY" ? familyIds : [],
+      product_variant_ids: scope === "PRODUCT" ? productIds : [],
       minimum_quantity: minimum.trim(),
       apply_mode: applyMode,
     }),
-    [applyMode, familyId, locationId, minimum, productId, scope],
+    [applyMode, familyIds, locationId, minimum, productIds, scope],
   );
 
   const scopeReady =
     scope === "ALL" ||
-    (scope === "FAMILY" && familyId !== null) ||
-    (scope === "PRODUCT" && productId !== null);
+    (scope === "FAMILY" && familyIds.length > 0) ||
+    (scope === "PRODUCT" && productIds.length > 0);
   const quantityReady = cleanMinimum(minimum) !== null;
 
   const preview = useCallback(async () => {
@@ -232,7 +239,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
       plan.invalid_quantity_count > 0);
 
   const apply = useCallback(async () => {
-    if (!plan || hasConflict || applying) return;
+    if (!scopeReady || !quantityReady || applying || hasConflict) return;
     setApplying(true);
     try {
       const raw = await authFetch(
@@ -264,14 +271,34 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
     } finally {
       setApplying(false);
     }
-  }, [applying, authFetch, hasConflict, onApplied, payload, plan, t]);
+  }, [
+    applying,
+    authFetch,
+    hasConflict,
+    onApplied,
+    payload,
+    quantityReady,
+    scopeReady,
+    t,
+  ]);
 
   const scopeLabel =
     scope === "ALL"
       ? t("inventoryMinimum.scopeAll")
       : scope === "FAMILY"
-        ? selectedFamily?.name ?? t("inventoryMinimum.scopeFamily")
-        : selectedProduct?.name ?? t("inventoryMinimum.scopeProduct");
+        ? t("inventoryMinimum.selectedFamilies", {
+            count: familyIds.length,
+          })
+        : t("inventoryMinimum.selectedProducts", {
+            count: productIds.length,
+          });
+
+  const selectedCount =
+    scope === "FAMILY"
+      ? familyIds.length
+      : scope === "PRODUCT"
+        ? productIds.length
+        : 0;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -309,11 +336,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
                 key={value}
                 type="button"
                 data-active={scope === value}
-                onClick={() => {
-                  setScope(value);
-                  if (value !== "FAMILY") setFamilyId(null);
-                  if (value !== "PRODUCT") setProductId(null);
-                }}
+                onClick={() => setScope(value)}
               >
                 {scope === value && <Check className="h-3.5 w-3.5" />}
                 {t(`inventoryMinimum.${label}`)}
@@ -323,35 +346,56 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
 
           {scope === "FAMILY" && (
             <div className="inventory-minimum-picker">
-              <div className="inventory-minimum-search">
-                <Search className="h-3.5 w-3.5" />
-                <input
-                  type="search"
-                  value={familySearch}
-                  onChange={(event) => setFamilySearch(event.target.value)}
-                  placeholder={t("inventoryMinimum.searchFamily")}
-                />
+              <div className="inventory-minimum-picker-head">
+                <div className="inventory-minimum-search">
+                  <Search className="h-3.5 w-3.5" />
+                  <input
+                    type="search"
+                    value={familySearch}
+                    onChange={(event) => setFamilySearch(event.target.value)}
+                    placeholder={t("inventoryMinimum.searchFamily")}
+                  />
+                </div>
+                <span className="inventory-minimum-selected-count">
+                  {t("inventoryMinimum.selectedCount", {
+                    count: familyIds.length,
+                  })}
+                </span>
+                {familyIds.length > 0 && (
+                  <button
+                    type="button"
+                    className="inventory-minimum-clear-selection"
+                    onClick={() => setFamilyIds([])}
+                  >
+                    {t("inventoryMinimum.clearSelection")}
+                  </button>
+                )}
               </div>
               <div className="inventory-minimum-options custom-scrollbar">
                 {familyLoading ? (
                   <span>{t("common.loading")}</span>
                 ) : (
-                  families.map((family) => (
-                    <button
-                      key={family.id}
-                      type="button"
-                      data-active={family.id === familyId}
-                      onClick={() => setFamilyId(family.id)}
-                    >
-                      <span>
-                        <strong>{family.name}</strong>
-                        <small>{family.code}</small>
-                      </span>
-                      {family.id === familyId && (
-                        <Check className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  ))
+                  families.map((family) => {
+                    const selected = familyIds.includes(family.id);
+                    return (
+                      <button
+                        key={family.id}
+                        type="button"
+                        data-active={selected}
+                        onClick={() =>
+                          setFamilyIds((current) =>
+                            toggleId(current, family.id),
+                          )
+                        }
+                      >
+                        <span>
+                          <strong>{family.name}</strong>
+                          <small>{family.code}</small>
+                        </span>
+                        {selected && <Check className="h-3.5 w-3.5" />}
+                      </button>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -359,37 +403,58 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
 
           {scope === "PRODUCT" && (
             <div className="inventory-minimum-picker">
-              <div className="inventory-minimum-search">
-                <Search className="h-3.5 w-3.5" />
-                <input
-                  type="search"
-                  value={productSearch}
-                  onChange={(event) => setProductSearch(event.target.value)}
-                  placeholder={t("inventoryMinimum.searchProduct")}
-                />
+              <div className="inventory-minimum-picker-head">
+                <div className="inventory-minimum-search">
+                  <Search className="h-3.5 w-3.5" />
+                  <input
+                    type="search"
+                    value={productSearch}
+                    onChange={(event) => setProductSearch(event.target.value)}
+                    placeholder={t("inventoryMinimum.searchProduct")}
+                  />
+                </div>
+                <span className="inventory-minimum-selected-count">
+                  {t("inventoryMinimum.selectedCount", {
+                    count: productIds.length,
+                  })}
+                </span>
+                {productIds.length > 0 && (
+                  <button
+                    type="button"
+                    className="inventory-minimum-clear-selection"
+                    onClick={() => setProductIds([])}
+                  >
+                    {t("inventoryMinimum.clearSelection")}
+                  </button>
+                )}
               </div>
               <div className="inventory-minimum-options custom-scrollbar">
                 {productLoading ? (
                   <span>{t("common.loading")}</span>
                 ) : (
-                  products.map((product) => (
-                    <button
-                      key={product.id}
-                      type="button"
-                      data-active={product.id === productId}
-                      onClick={() => setProductId(product.id)}
-                    >
-                      <span>
-                        <strong>{product.name}</strong>
-                        <small>
-                          {product.sku} · {product.family_name}
-                        </small>
-                      </span>
-                      {product.id === productId && (
-                        <Check className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  ))
+                  products.map((product) => {
+                    const selected = productIds.includes(product.id);
+                    return (
+                      <button
+                        key={product.id}
+                        type="button"
+                        data-active={selected}
+                        onClick={() =>
+                          setProductIds((current) =>
+                            toggleId(current, product.id),
+                          )
+                        }
+                      >
+                        <span>
+                          <strong>{product.name}</strong>
+                          <small>
+                            {product.sku} · {product.family_name}
+                          </small>
+                        </span>
+                        {selected && <Check className="h-3.5 w-3.5" />}
+                      </button>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -433,6 +498,12 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
               </span>
             </button>
           </div>
+
+          {selectedCount > 0 && (
+            <div className="inventory-minimum-selection-summary">
+              {scopeLabel}
+            </div>
+          )}
 
           {plan && (
             <div
@@ -489,17 +560,17 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
           >
             {previewing
               ? t("common.loading")
-              : t("inventoryMinimum.preview")}
+              : t("inventoryMinimum.previewOptional")}
           </button>
           <button
             type="button"
             className="inventory-minimum-apply"
             onClick={() => void apply()}
             disabled={
-              !plan ||
+              !scopeReady ||
+              !quantityReady ||
               hasConflict ||
-              applying ||
-              plan.affected_count === 0
+              applying
             }
           >
             {applying
