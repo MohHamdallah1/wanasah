@@ -338,6 +338,8 @@ export default function MainInventory() {
       : null,
   );
   const [loadingStatus, setLoadingStatus] = useState(false);
+  const [verifiedStatusLocationId, setVerifiedStatusLocationId] =
+    useState<number | null>(null);
   const [loadingStock, setLoadingStock] = useState(
     initialSelectedLocationId !== null &&
       initialLiveSnapshot?.hasPage !== true,
@@ -350,10 +352,14 @@ export default function MainInventory() {
 
   const displayAuditLocked =
     canReadStatus && auditLockState === true;
-  // If status is readable, unknown/error stays fail-closed. Roles that
-  // legitimately cannot read warehouse status keep the previous behavior.
+  // Warm status is visual only. Mutation safety requires a fresh status
+  // response for the currently selected warehouse before treating it
+  // as unlocked.
   const effectiveAuditLocked =
-    canReadStatus ? auditLockState !== false : false;
+    canReadStatus
+      ? verifiedStatusLocationId !== selectedLocationId ||
+        auditLockState !== false
+      : false;
 
   const hydrateDefaultLiveStock = useCallback(
     (locationId: number | null) => {
@@ -403,6 +409,7 @@ export default function MainInventory() {
   const prepareLocationChange = useCallback(
     (locationId: number | null) => {
       statusRequestSeq.current += 1;
+      setVerifiedStatusLocationId(null);
       stockRequestSeq.current += 1;
       stockAbortRef.current?.abort();
       stockAbortRef.current = null;
@@ -822,14 +829,25 @@ export default function MainInventory() {
   const fetchStatus = useCallback(async () => {
     const requestSeq = ++statusRequestSeq.current;
 
-    if (selectedLocationId === null || !canReadStatus) {
+    if (selectedLocationId === null) {
       setAuditLockState(false);
+      setVerifiedStatusLocationId(null);
       setLoadingStatus(false);
       return;
     }
+    if (locationAccess.isPending) {
+      setLoadingStatus(true);
+      return;
+    }
+    if (!canReadStatus) {
+      setAuditLockState(false);
+      setVerifiedStatusLocationId(null);
+      setLoadingStatus(false);
+      return;
+    }
+
     const requestLocationId = selectedLocationId;
-
-
+    setVerifiedStatusLocationId(null);
     setLoadingStatus(true);
 
     try {
@@ -847,6 +865,7 @@ export default function MainInventory() {
       const data = raw as WarehouseStatusPayload;
       const locked = data.status === "AUDIT_LOCK";
       setAuditLockState(locked);
+      setVerifiedStatusLocationId(requestLocationId);
       patchLiveStockWarmSnapshot(
         warmScopeKey,
         requestLocationId,
@@ -870,7 +889,14 @@ export default function MainInventory() {
         setLoadingStatus(false);
       }
     }
-  }, [authFetch, selectedLocationId, canReadStatus, t, warmScopeKey]);
+  }, [
+    authFetch,
+    selectedLocationId,
+    canReadStatus,
+    locationAccess.isPending,
+    t,
+    warmScopeKey,
+  ]);
 
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
