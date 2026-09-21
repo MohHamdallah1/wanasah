@@ -173,6 +173,7 @@ export function Tab1LiveStock({
   const batchAbortRef = useRef<AbortController | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const emittedSearchRef = useRef("");
 
   useEffect(() => {
     setSearchInput("");
@@ -185,6 +186,7 @@ export function Tab1LiveStock({
     setFamilySearch("");
     setFamilyOptions([]);
     setFamilyLoading(false);
+    emittedSearchRef.current = "";
     batchRequestSeq.current += 1;
     batchAbortRef.current?.abort();
     batchAbortRef.current = null;
@@ -199,7 +201,10 @@ export function Tab1LiveStock({
   useEffect(() => {
     const handler = window.setTimeout(() => {
       const clean = searchInput.trim();
-      onSearchChange(clean.length >= 2 ? clean : "");
+      const nextSearch = clean.length >= 2 ? clean : "";
+      if (nextSearch === emittedSearchRef.current) return;
+      emittedSearchRef.current = nextSearch;
+      onSearchChange(nextSearch);
     }, 300);
     return () => window.clearTimeout(handler);
   }, [searchInput, onSearchChange]);
