@@ -34,6 +34,12 @@ HISTORICAL_MONOLITH_REFERENCE_ALLOWLIST = {
     "scripts/gate_warehouse_split_integrity.py",
 }
 
+# Frozen benchmark evidence from before the package cutover. It is intentionally
+# non-runtime and must preserve the exact historical import it measured.
+HISTORICAL_STALE_IMPORT_ALLOWLIST = {
+    "perf_reports/phase1_baseline/profile_live_stock_explain.py",
+}
+
 
 def fail(message: str) -> None:
     print(f"WAREHOUSE_FINAL_FORENSIC=FAIL: {message}")
@@ -106,10 +112,25 @@ def verify_python_sources() -> None:
     if syntax_errors:
         fail("Python syntax errors: " + " | ".join(syntax_errors))
 
-    if stale_imports:
+    unexpected_stale_imports = [
+        item
+        for item in stale_imports
+        if item.split(":", 1)[0]
+        not in HISTORICAL_STALE_IMPORT_ALLOWLIST
+    ]
+    found_stale_import_paths = {
+        item.split(":", 1)[0]
+        for item in stale_imports
+    }
+    missing_historical_stale_imports = sorted(
+        HISTORICAL_STALE_IMPORT_ALLOWLIST
+        - found_stale_import_paths
+    )
+    if unexpected_stale_imports or missing_historical_stale_imports:
         fail(
-            "stale exact api.warehouse imports remain: "
-            + " | ".join(stale_imports)
+            "stale exact api.warehouse import set drifted: "
+            f"unexpected={unexpected_stale_imports}, "
+            f"missing_historical={missing_historical_stale_imports}"
         )
 
     unexpected_refs = sorted(
@@ -176,8 +197,9 @@ def main() -> None:
 
     print(
         "WAREHOUSE_FINAL_FORENSIC=PASS "
-        "(package_files=11; stale_imports=0; "
-        "historical_refs=3; split_gates=3)"
+        "(package_files=11; runtime_stale_imports=0; "
+        "historical_stale_imports=1; historical_refs=3; "
+        "split_gates=3)"
     )
 
 
