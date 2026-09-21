@@ -5,6 +5,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy import Integer, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
 
 from api.dependencies import get_current_driver
