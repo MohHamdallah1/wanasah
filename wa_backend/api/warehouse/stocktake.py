@@ -3,14 +3,15 @@ import base64
 import bcrypt
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from inventory_access import InventoryAccess
-from models import Driver, SystemSetting
+from models import Driver, InventoryLock, StocktakeSession, SystemSetting
 
 
 router = APIRouter()
@@ -203,3 +204,88 @@ async def _requires_independent_stocktake_recount(
 
 # =================================================================================
 # دوال مساعدة للمستودع (Helper Functions)
+
+# [المرحلة السادسة] محرك الجرد القانوني (Stocktake Engine)
+# =================================================================================
+
+_STOCKTAKE_ACTIVE_STATUSES = ('DRAFT', 'COUNTING', 'PENDING_REVIEW', 'RECOUNT_REQUIRED', 'APPROVED')
+_MAX_STOCKTAKE_LINES = 10_000
+
+
+# ====================================================
+# 11.6 إنشاء توقيت UTC naive موحد للجرد
+# ====================================================
+def _utc_naive_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ====================================================
+# 11.7 تحويل التوقيت إلى ISO UTC
+# ====================================================
+def _iso_utc(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat()
+
+
+# ====================================================
+# 11.8 بناء شرط تداخل جلسات الجرد
+# ====================================================
+def _stocktake_session_overlap_predicate(
+    stocktake_type: str,
+    product_variant_id: Optional[int],
+    batch_id: Optional[int],
+):
+    if stocktake_type in {'FULL_COUNT', 'VEHICLE_RECON'}:
+        return None
+    if batch_id is None:
+        return or_(
+            StocktakeSession.stocktake_type.in_(['FULL_COUNT', 'VEHICLE_RECON']),
+            and_(
+                StocktakeSession.stocktake_type == 'CYCLE_COUNT',
+                StocktakeSession.scope_product_variant_id == product_variant_id,
+            ),
+        )
+    return or_(
+        StocktakeSession.stocktake_type.in_(['FULL_COUNT', 'VEHICLE_RECON']),
+        and_(
+            StocktakeSession.stocktake_type == 'CYCLE_COUNT',
+            StocktakeSession.scope_product_variant_id == product_variant_id,
+            or_(
+                StocktakeSession.scope_batch_id.is_(None),
+                StocktakeSession.scope_batch_id == batch_id,
+            ),
+        ),
+    )
+
+
+# ====================================================
+# 11.9 بناء شرط تداخل أقفال المخزون
+# ====================================================
+def _inventory_lock_overlap_predicate(
+    stocktake_type: str,
+    product_variant_id: Optional[int],
+    batch_id: Optional[int],
+):
+    if stocktake_type in {'FULL_COUNT', 'VEHICLE_RECON'}:
+        return None
+    if batch_id is None:
+        return or_(
+            InventoryLock.product_variant_id.is_(None),
+            InventoryLock.product_variant_id == product_variant_id,
+        )
+    return or_(
+        InventoryLock.product_variant_id.is_(None),
+        and_(
+            InventoryLock.product_variant_id == product_variant_id,
+            or_(
+                InventoryLock.batch_id.is_(None),
+                InventoryLock.batch_id == batch_id,
+            ),
+        ),
+    )
+
