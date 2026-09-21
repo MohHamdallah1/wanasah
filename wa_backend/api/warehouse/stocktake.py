@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_current_driver
 from database import get_db
 from inventory_access import InventoryAccess
-from schemas import StocktakeCycleBatchCursorPage, VehicleReconCandidateCursorPage
+from schemas import StocktakeActiveSessionCursorPage, StocktakeCycleBatchCursorPage, VehicleReconCandidateCursorPage
 
 from models import (
     DispatchRoute,
@@ -967,6 +967,188 @@ async def list_vehicle_recon_candidates(
 
     return {
         "items": items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+    }
+
+
+# ====================================================
+# 11.21 حالات جلسات الجرد النشطة والاستعلام عنها
+# ====================================================
+_ACTIVE_STOCKTAKE_STATUSES = frozenset({
+    "DRAFT",
+    "COUNTING",
+    "PENDING_REVIEW",
+    "RECOUNT_REQUIRED",
+    "APPROVED",
+})
+
+
+# ====================================================
+# 11.21 جلب جلسات الجرد النشطة للموقع باستخدام Cursor
+# ====================================================
+@router.get(
+    "/warehouse/unified/stocktakes/active",
+    response_model=StocktakeActiveSessionCursorPage,
+    status_code=200,
+)
+async def list_active_stocktake_sessions(
+    location_id: int = Query(..., ge=1),
+    cursor: Optional[str] = Query(default=None, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await access.require('stocktake.read', location_id)
+
+    company_id = current_admin.company_id
+
+    location_exists = (
+        await db.execute(
+            select(InventoryLocation.id).filter(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id == location_id,
+                InventoryLocation.is_active.is_(True),
+                InventoryLocation.location_type.in_(["WAREHOUSE", "VEHICLE"]),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if location_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "موقع الجرد غير موجود أو غير فعال "
+                "أو لا يتبع شركتك."
+            ),
+        )
+
+    scope = f"{company_id}|{location_id}|active"
+
+    base_filters = (
+        StocktakeSession.company_id == company_id,
+        StocktakeSession.location_id == location_id,
+        StocktakeSession.status.in_(_ACTIVE_STOCKTAKE_STATUSES),
+    )
+
+    stmt = (
+        select(
+            StocktakeSession.id,
+            StocktakeSession.reference_number,
+            StocktakeSession.stocktake_type,
+            StocktakeSession.status,
+            StocktakeSession.location_id,
+            StocktakeSession.scope_product_variant_id,
+            ProductVariant.name.label("scope_product_name"),
+            StocktakeSession.scope_batch_id,
+            ProductBatch.batch_number.label("scope_batch_number"),
+            StocktakeSession.related_work_session_id,
+            StocktakeSession.started_by,
+            Driver.full_name.label("started_by_name"),
+            StocktakeSession.pending_independent_recount_required,
+            StocktakeSession.snapshot_cutoff_at,
+            StocktakeSession.created_at,
+            StocktakeSession.updated_at,
+        )
+        .outerjoin(
+            ProductVariant,
+            and_(
+                ProductVariant.company_id == StocktakeSession.company_id,
+                ProductVariant.id == StocktakeSession.scope_product_variant_id,
+            ),
+        )
+        .outerjoin(
+            ProductBatch,
+            and_(
+                ProductBatch.company_id == StocktakeSession.company_id,
+                ProductBatch.product_variant_id
+                == StocktakeSession.scope_product_variant_id,
+                ProductBatch.id == StocktakeSession.scope_batch_id,
+            ),
+        )
+        .join(
+            Driver,
+            and_(
+                Driver.company_id == StocktakeSession.company_id,
+                Driver.id == StocktakeSession.started_by,
+            ),
+        )
+        .filter(*base_filters)
+    )
+
+    total = None
+    if cursor is None:
+        total = int(
+            (
+                await db.execute(
+                    select(func.count(StocktakeSession.id))
+                    .filter(*base_filters)
+                )
+            ).scalar_one()
+        )
+
+    if cursor is not None:
+        cursor_id = _decode_stocktake_cursor(
+            cursor,
+            expected_scope=scope,
+        )
+        stmt = stmt.filter(StocktakeSession.id < cursor_id)
+
+    rows = (
+        await db.execute(
+            stmt.order_by(StocktakeSession.id.desc())
+            .limit(limit + 1)
+        )
+    ).all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+
+    next_cursor = None
+    if has_more and page_rows:
+        next_cursor = _encode_stocktake_cursor(
+            int(page_rows[-1].id),
+            scope=scope,
+        )
+
+    return {
+        "items": [
+            {
+                "id": int(row.id),
+                "reference_number": str(row.reference_number),
+                "stocktake_type": str(row.stocktake_type),
+                "status": str(row.status),
+                "location_id": int(row.location_id),
+                "scope_product_variant_id": (
+                    int(row.scope_product_variant_id)
+                    if row.scope_product_variant_id is not None
+                    else None
+                ),
+                "scope_product_name": row.scope_product_name,
+                "scope_batch_id": (
+                    int(row.scope_batch_id)
+                    if row.scope_batch_id is not None
+                    else None
+                ),
+                "scope_batch_number": row.scope_batch_number,
+                "related_work_session_id": (
+                    int(row.related_work_session_id)
+                    if row.related_work_session_id is not None
+                    else None
+                ),
+                "started_by": int(row.started_by),
+                "started_by_name": str(row.started_by_name),
+                "pending_independent_recount_required": bool(
+                    row.pending_independent_recount_required
+                ),
+                "snapshot_cutoff_at": row.snapshot_cutoff_at,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+            for row in page_rows
+        ],
         "next_cursor": next_cursor,
         "has_more": has_more,
         "total": total,
