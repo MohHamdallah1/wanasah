@@ -1377,6 +1377,18 @@
   font-weight: 700;
 }
 
+.live-stock-sellable-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.65rem;
+  padding: 0.18rem 0.45rem;
+  border: 1px solid rgb(245 158 11 / 0.20);
+  border-radius: 0.5rem;
+  background: rgb(251 191 36 / 0.14);
+  white-space: nowrap;
+}
+
 .live-stock-row > td:nth-child(5) {
   color: #566b76;
 }
