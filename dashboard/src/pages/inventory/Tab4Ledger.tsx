@@ -24,6 +24,14 @@ interface Props {
 
 const PAGE_SIZE = 20;
 
+type LedgerUiContractError = Error & { code: string };
+
+const ledgerUiContractError = (code: string): never => {
+  const error = new Error(code) as LedgerUiContractError;
+  error.code = code;
+  throw error;
+};
+
 export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
@@ -136,14 +144,14 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
       setNextCursor(null);
       setHasMore(false);
       setTotal(null);
-      toast.error(apiErrorMessage(e, "تعذر جلب سجل الحركات."));
+      toast.error(apiErrorMessage(e, t("inventoryLedger.errors.loadFailed")));
     } finally {
       if (pageAbortRef.current === requestController) {
         pageAbortRef.current = null;
       }
       if (sequence === requestSequence.current) setLoading(false);
     }
-  }, [authenticatedFetch, buildUrl]);
+  }, [authenticatedFetch, buildUrl, t]);
 
   const resetAndLoad = useCallback(() => {
     requestSequence.current += 1;
@@ -196,18 +204,18 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
 
       for (const item of data.items) {
         if (movementIds.has(item.id)) {
-          throw new Error("تفاصيل المرجع تحتوي حركة مكررة بين الصفحات.");
+          ledgerUiContractError("LEDGER_REFERENCE_DUPLICATE_MOVEMENT");
         }
         movementIds.add(item.id);
       }
       all.push(...data.items);
 
       if (!data.has_more) return all;
-      if (!data.next_cursor) throw new Error("Cursor تفاصيل المرجع غير متسق.");
+      if (!data.next_cursor) ledgerUiContractError("LEDGER_REFERENCE_CURSOR_INVALID");
       cursor = data.next_cursor;
     }
 
-    throw new Error("عدد حركات المرجع تجاوز 10,000 حركة؛ استخدم تقريراً مخصصاً.");
+    ledgerUiContractError("LEDGER_REFERENCE_TOO_LARGE");
   }, [authenticatedFetch, buildUrl]);
 
   const openReference = async (reference: string) => {
@@ -225,7 +233,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
     } catch (e: unknown) {
       if (sequence !== referenceRequestSequence.current) return;
       if (e instanceof Error && e.name === "AbortError") return;
-      toast.error(apiErrorMessage(e, "تعذر جلب تفاصيل المرجع."));
+      toast.error(apiErrorMessage(e, t("inventoryLedger.errors.referenceDetailsFailed")));
       setSelectedReference(null);
     } finally {
       if (referenceAbortRef.current === requestController) {
@@ -237,7 +245,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
 
   const openAdjustment = async (entry: LedgerEntry) => {
     if (!access.can('ledger.adjust')) {
-      toast.error('لا تملك صلاحية تصحيح التوريد في هذا المستودع.');
+      toast.error(t("inventoryLedger.errors.adjustmentPermission"));
       return;
     }
     if (!entry.reference) return;
@@ -260,7 +268,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
     } catch (e: unknown) {
       if (sequence !== referenceRequestSequence.current) return;
       if (e instanceof Error && e.name === "AbortError") return;
-      toast.error(apiErrorMessage(e, "تعذر حساب صافي فاتورة التوريد."));
+      toast.error(apiErrorMessage(e, t("inventoryLedger.errors.receiptNetFailed")));
     } finally {
       if (referenceAbortRef.current === requestController) {
         referenceAbortRef.current = null;
@@ -338,7 +346,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading && (
-                <tr><td colSpan={12} className="text-center py-12 text-slate-400 font-bold">جارٍ التحميل...</td></tr>
+                <tr><td colSpan={12} className="text-center py-12 text-slate-400 font-bold">{t("common.loading")}</td></tr>
               )}
               {!loading && entries.length === 0 && (
                 <tr><td colSpan={12} className="text-center py-12 text-slate-400">لا توجد حركات مطابقة</td></tr>
@@ -457,7 +465,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
         maxWidth="max-w-2xl"
       >
         {referenceLoading ? (
-          <div className="py-12 text-center text-sm font-bold text-slate-400">جارٍ تحميل جميع حركات المرجع...</div>
+          <div className="py-12 text-center text-sm font-bold text-slate-400">{t("inventoryLedger.loadingReference")}</div>
         ) : (
           <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[60vh] overflow-y-auto">
             <table className="w-full text-sm">
@@ -507,14 +515,14 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
                   setAdjPassword("");
                   onInventoryChanged();
                 } catch (e: unknown) {
-                  toast.error(apiErrorMessage(e, "حدث خطأ أثناء التصحيح."));
+                  toast.error(apiErrorMessage(e, t("inventoryLedger.errors.adjustmentFailed")));
                 } finally {
                   setAdjSubmitting(false);
                 }
               }}
               className="flex-1 bg-purple-600 text-white py-2 rounded-xl font-bold hover:bg-purple-700 disabled:opacity-50"
             >
-              {adjSubmitting ? "جاري المعالجة..." : "تأكيد التعديل"}
+              {adjSubmitting ? t("common.saving") : t("inventoryLedger.confirmAdjustment")}
             </button>
           </div>
         }
