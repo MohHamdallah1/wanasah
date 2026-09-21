@@ -505,6 +505,15 @@ export const resources = {
         averageAfter: "متوسط التكلفة بعد الحركة",
         supervisor: "المشرف",
         totalCost: "إجمالي التكلفة",
+        loadingReference: "جارٍ تحميل جميع حركات المرجع...",
+        confirmAdjustment: "تأكيد التعديل",
+        errors: {
+          loadFailed: "تعذر جلب سجل الحركات.",
+          referenceDetailsFailed: "تعذر جلب تفاصيل المرجع.",
+          receiptNetFailed: "تعذر حساب صافي فاتورة التوريد.",
+          adjustmentFailed: "حدث خطأ أثناء التصحيح.",
+          adjustmentPermission: "لا تملك صلاحية تصحيح التوريد في هذا المستودع.",
+        },
       },
       uom: {
         CARTON: "كرتونة",
@@ -1158,6 +1167,15 @@ export const resources = {
         averageAfter: "Average cost after movement",
         supervisor: "Supervisor",
         totalCost: "Total cost",
+        loadingReference: "Loading all movements for this reference...",
+        confirmAdjustment: "Confirm adjustment",
+        errors: {
+          loadFailed: "Could not load the movement ledger.",
+          referenceDetailsFailed: "Could not load reference details.",
+          receiptNetFailed: "Could not calculate the receipt net quantity.",
+          adjustmentFailed: "An error occurred while applying the adjustment.",
+          adjustmentPermission: "You do not have permission to adjust inbound receipts in this warehouse.",
+        },
       },
       uom: {
         CARTON: "Carton",
