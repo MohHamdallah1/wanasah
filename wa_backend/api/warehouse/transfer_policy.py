@@ -25,9 +25,9 @@ from services import (
     save_transfer_destination_policy_draft,
 )
 
-# Staging-only dependency: remains sourced from the untouched monolith until
-# _stable_request_hash is moved once to _shared.py in its dedicated stage.
-from api.warehouse import _stable_request_hash
+
+
+from ._shared import _stable_request_hash
 
 
 router = APIRouter()
