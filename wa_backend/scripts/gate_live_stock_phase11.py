@@ -16,9 +16,12 @@ from sqlalchemy import event, select, text, true
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from fastapi import HTTPException
 import api.warehouse.live_stock as w
-from api.warehouse.ledger import _load_inventory_display_uoms
 from context import tenant_context
 from database import engine as runtime_engine
+from domains.live_stock_projection.service import (
+    rebuild_live_stock_company,
+    refresh_live_stock_policy_changes,
+)
 from models import (Company, Driver, Product, ProductVariant, ProductBatch, InventoryBalance,
                     InventoryLocation, InventoryStockPolicy, Vehicle, DispatchRoute, Zone,
                     UOM, Role, Permission, UserLocationAccess, role_permissions)
@@ -29,15 +32,34 @@ source = subprocess.check_output(
     ["git", "show", f"{BASELINE}:wa_backend/api/warehouse.py"], encoding="utf-8",
 )
 tree = ast.parse(source)
-fn = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "get_warehouse_inventory")
+baseline_display_uom_helper = next(
+    n
+    for n in tree.body
+    if isinstance(n, ast.AsyncFunctionDef)
+    and n.name == "_load_inventory_display_uoms"
+)
+fn = next(
+    n
+    for n in tree.body
+    if isinstance(n, ast.AsyncFunctionDef)
+    and n.name == "get_warehouse_inventory"
+)
 fn.decorator_list = []
 fn.name = "baseline_get"
-namespace = dict(
-    vars(w),
-    true=true,
-    _load_inventory_display_uoms=_load_inventory_display_uoms,
+namespace = dict(vars(w), true=true)
+exec(
+    compile(
+        ast.fix_missing_locations(
+            ast.Module(
+                body=[baseline_display_uom_helper, fn],
+                type_ignores=[],
+            )
+        ),
+        "baseline",
+        "exec",
+    ),
+    namespace,
 )
-exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), "baseline", "exec"), namespace)
 baseline_get = namespace["baseline_get"]
 
 async def main():
@@ -105,6 +127,16 @@ async def main():
             denied,_=await variant("Hidden retired vehicle",active=False,location=vehicle_locations[1])
             elsewhere,_=await variant("Hidden retired other warehouse",active=False,location=other)
             alien,_=await variant("Fixture foreign",company_id=foreign.id,location=foreign_wh)
+
+            # The current Live Stock endpoint is projection-backed and fails
+            # closed unless the read model is READY. Build the projection from
+            # the rollback-only fixture state before switching to the runtime role.
+            await rebuild_live_stock_company(
+                db,
+                company_id=cid,
+                batch_size=1000,
+            )
+
             role_name=engine.dialect.identifier_preparer.quote(runtime_engine.url.username)
             async def read_role():
                 await db.execute(text("SET LOCAL ROLE "+role_name))
@@ -150,7 +182,14 @@ async def main():
             for name,selected in distributions.items():
                 await db.execute(text("RESET ROLE"))
                 for i,p in enumerate(policies):p.minimum_quantity=8 if i in selected else 1
-                await db.flush();await read_role()
+                await db.flush()
+                await refresh_live_stock_policy_changes(
+                    db,
+                    company_id=cid,
+                    warehouse_location_id=wh.id,
+                    variant_ids=[v.id for v in variants],
+                )
+                await read_role()
                 ids=[];cursor=None
                 while True:
                     data,_=await page(alerts=True,search="Fixture",cursor=cursor)
