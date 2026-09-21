@@ -30,6 +30,12 @@ interface Props {
   onApplied: () => void;
 }
 
+const codedError = (code: string): Error & { code: string } => {
+  const error = new Error(code) as Error & { code: string };
+  error.code = code;
+  return error;
+};
+
 const cleanMinimum = (value: string): string | null => {
   const trimmed = value.trim();
   return /^\d+(?:\.\d{1,6})?$/.test(trimmed) ? trimmed : null;
@@ -208,7 +214,7 @@ export function StockMinimumManager({ locationId, onApplied }: Props) {
       );
       const parsed = parseBulkMinimumStockPlan(raw);
       if (parsed.location_id !== locationId) {
-        throw new Error("STOCK_MINIMUM_BULK_RESPONSE_INVALID");
+        throw codedError("STOCK_MINIMUM_BULK_RESPONSE_INVALID");
       }
       setPlan(parsed);
     } catch (error: unknown) {
