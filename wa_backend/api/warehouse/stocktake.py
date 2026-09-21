@@ -2020,3 +2020,183 @@ async def submit_stocktake_count(
         logger.error(f"خطأ في تثبيت الجرد: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي أثناء تثبيت محاولة الجرد.")
 
+
+# ====================================================
+# 11.26 مراجعة أحدث محاولة عد وسجل المحاولات وفروقات الجرد
+# ====================================================
+@router.get("/warehouse/unified/stocktake/{session_id}/review", status_code=200)
+async def get_stocktake_review(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    await require_stocktake(access, 'stocktake.review', session_id)
+
+    company_id = current_admin.company_id
+    if not current_admin.is_admin:
+        raise HTTPException(status_code=403, detail="مراجعة الجرد تتطلب صلاحية مشرف.")
+
+    session = await _load_stocktake_session(db, company_id, session_id)
+    if session.status != 'PENDING_REVIEW':
+        raise HTTPException(status_code=409, detail=f"الجلسة ليست بانتظار المراجعة؛ حالتها ({session.status}).")
+
+    attempts = (
+        await db.execute(
+            select(StocktakeCountAttempt)
+            .filter_by(company_id=company_id, stocktake_session_id=session.id)
+            .order_by(StocktakeCountAttempt.attempt_number.asc(), StocktakeCountAttempt.id.asc())
+        )
+    ).scalars().all()
+    if not attempts:
+        raise HTTPException(status_code=409, detail="لا توجد محاولة عد مثبتة لهذه الجلسة.")
+
+    latest_attempt = attempts[-1]
+    attempts_by_id = {attempt.id: attempt for attempt in attempts}
+    parent_attempt = attempts_by_id.get(latest_attempt.recount_of_attempt_id)
+    independent_recount_satisfied = (
+        not latest_attempt.requires_independent_recount
+        or (
+            parent_attempt is not None
+            and parent_attempt.requires_independent_recount
+            and parent_attempt.counted_by != latest_attempt.counted_by
+            and parent_attempt.attempt_number == latest_attempt.attempt_number - 1
+        )
+    )
+
+    user_ids = {
+        user_id
+        for attempt in attempts
+        for user_id in (attempt.counted_by, attempt.authorized_by)
+        if user_id is not None
+    }
+    users_map = {}
+    if user_ids:
+        users_map = {
+            user_id: full_name
+            for user_id, full_name in (
+                await db.execute(
+                    select(Driver.id, Driver.full_name).filter(
+                        Driver.company_id == company_id,
+                        Driver.id.in_(user_ids),
+                    )
+                )
+            ).all()
+        }
+
+    rows = (
+        await db.execute(
+            select(
+                StocktakeCountAttemptLine,
+                StocktakeLine,
+                ProductVariant.name,
+                ProductVariant.base_uom_id,
+                ProductVariant.quantity_scale,
+                ProductVariant.quantity_step,
+                UOM.code,
+                UOM.name,
+                ProductBatch.batch_number,
+                ProductBatch.expiry_date,
+            )
+            .join(
+                StocktakeLine,
+                and_(
+                    StocktakeLine.company_id == StocktakeCountAttemptLine.company_id,
+                    StocktakeLine.stocktake_session_id == StocktakeCountAttemptLine.stocktake_session_id,
+                    StocktakeLine.id == StocktakeCountAttemptLine.stocktake_line_id,
+                ),
+            )
+            .join(
+                ProductVariant,
+                and_(
+                    ProductVariant.company_id == StocktakeLine.company_id,
+                    ProductVariant.id == StocktakeLine.product_variant_id,
+                ),
+            )
+            .join(
+                UOM,
+                UOM.id == ProductVariant.base_uom_id,
+            )
+            .join(
+                ProductBatch,
+                and_(
+                    ProductBatch.company_id == StocktakeLine.company_id,
+                    ProductBatch.product_variant_id == StocktakeLine.product_variant_id,
+                    ProductBatch.id == StocktakeLine.batch_id,
+                ),
+            )
+            .filter(
+                StocktakeCountAttemptLine.company_id == company_id,
+                StocktakeCountAttemptLine.stocktake_session_id == session.id,
+                StocktakeCountAttemptLine.count_attempt_id == latest_attempt.id,
+            )
+            .order_by(
+                ProductVariant.name.asc(),
+                ProductBatch.expiry_date.asc(),
+                ProductBatch.id.asc(),
+                StocktakeLine.stock_status.asc(),
+            )
+        )
+    ).all()
+
+    return {
+        "session_id": session.id,
+        "reference_number": session.reference_number,
+        "stocktake_type": session.stocktake_type,
+        "status": session.status,
+        "location_id": session.location_id,
+        "scope_product_variant_id": session.scope_product_variant_id,
+        "scope_batch_id": session.scope_batch_id,
+        "related_work_session_id": session.related_work_session_id,
+        "snapshot_cutoff_at": _iso_utc(session.snapshot_cutoff_at),
+        "independent_recount_satisfied": independent_recount_satisfied,
+        "latest_attempt": {
+            "id": latest_attempt.id,
+            "attempt_number": latest_attempt.attempt_number,
+            "counted_by": latest_attempt.counted_by,
+            "counted_by_name": users_map.get(latest_attempt.counted_by, "غير معروف"),
+            "authorized_by": latest_attempt.authorized_by,
+            "authorized_by_name": users_map.get(latest_attempt.authorized_by) if latest_attempt.authorized_by else None,
+            "recount_of_attempt_id": latest_attempt.recount_of_attempt_id,
+            "recount_reason": latest_attempt.recount_reason,
+            "requires_independent_recount": latest_attempt.requires_independent_recount,
+            "submitted_at": _iso_utc(latest_attempt.submitted_at),
+        },
+        "attempt_history": [{
+            "id": attempt.id,
+            "attempt_number": attempt.attempt_number,
+            "counted_by": attempt.counted_by,
+            "counted_by_name": users_map.get(attempt.counted_by, "غير معروف"),
+            "authorized_by": attempt.authorized_by,
+            "authorized_by_name": users_map.get(attempt.authorized_by) if attempt.authorized_by else None,
+            "recount_of_attempt_id": attempt.recount_of_attempt_id,
+            "recount_reason": attempt.recount_reason,
+            "requires_independent_recount": attempt.requires_independent_recount,
+            "submitted_at": _iso_utc(attempt.submitted_at),
+        } for attempt in attempts],
+        "lines": [{
+            "attempt_line_id": attempt_line.id,
+            "stocktake_line_id": stocktake_line.id,
+            "product_variant_id": stocktake_line.product_variant_id,
+            "batch_id": stocktake_line.batch_id,
+            "stock_status": stocktake_line.stock_status,
+            "line_origin": stocktake_line.line_origin,
+            "product_name": product_name,
+            "base_uom_id": base_uom_id,
+            "base_uom_code": base_uom_code,
+            "base_uom_name": base_uom_name,
+            "quantity_scale": quantity_scale,
+            "quantity_step": canonical_quantity(quantity_step),
+            "batch_number": batch_number,
+            "expiry_date": expiry_date.isoformat(),
+            "expected_quantity": canonical_quantity(attempt_line.expected_quantity),
+            "actual_quantity": canonical_quantity(attempt_line.actual_quantity),
+            "variance_quantity": canonical_quantity(attempt_line.variance_quantity),
+            "notes": attempt_line.notes,
+        } for (
+            attempt_line, stocktake_line, product_name, base_uom_id,
+            quantity_scale, quantity_step, base_uom_code, base_uom_name,
+            batch_number, expiry_date,
+        ) in rows],
+    }
+
