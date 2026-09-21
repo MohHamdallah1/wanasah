@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuthFetch } from '@/hooks/useAuthFetch';
+import { apiErrorMessage } from '@/lib/apiErrors';
 
 interface Role { id: number; name: string; permissions: string[]; is_system_role: boolean }
 interface User { id: number; full_name: string; is_admin: boolean; is_active: boolean }
@@ -10,104 +12,111 @@ interface Grant { id: number; role_id: number; location_id: number | null }
 interface Page<T> { items: T[]; next_id: number | null }
 interface PermissionCatalog { permissions: string[]; company_only: string[] }
 
-const asRecord = (value: unknown, label: string): Record<string, unknown> => {
+type InventoryAccessAdminContractError = Error & { code: string };
+
+const accessAdminContractError = (): never => {
+  const error = new Error('INVENTORY_ACCESS_ADMIN_RESPONSE_INVALID') as InventoryAccessAdminContractError;
+  error.code = 'INVENTORY_ACCESS_ADMIN_RESPONSE_INVALID';
+  throw error;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${label} غير صالح.`);
+    accessAdminContractError();
   }
   return value as Record<string, unknown>;
 };
 
-const asPositiveInt = (value: unknown, label: string): number => {
+const asPositiveInt = (value: unknown): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${label} غير صالح.`);
+    accessAdminContractError();
   }
   return value;
 };
 
-const asText = (value: unknown, label: string): string => {
+const asText = (value: unknown): string => {
   if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${label} غير صالح.`);
+    accessAdminContractError();
   }
   return value;
 };
 
-const asBoolean = (value: unknown, label: string): boolean => {
-  if (typeof value !== 'boolean') throw new Error(`${label} غير صالح.`);
+const asBoolean = (value: unknown): boolean => {
+  if (typeof value !== 'boolean') accessAdminContractError();
   return value;
 };
 
-const asStringArray = (value: unknown, label: string): string[] => {
+const asStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-    throw new Error(`${label} غير صالح.`);
+    accessAdminContractError();
   }
   return [...value];
 };
 
 const parsePage = <T,>(
   raw: unknown,
-  label: string,
   parseItem: (value: unknown) => T,
 ): Page<T> => {
-  const page = asRecord(raw, label);
-  if (!Array.isArray(page.items)) throw new Error(`${label} غير صالح.`);
+  const page = asRecord(raw);
+  if (!Array.isArray(page.items)) accessAdminContractError();
   const nextId =
     page.next_id === null
       ? null
-      : asPositiveInt(page.next_id, `${label} next_id`);
+      : asPositiveInt(page.next_id);
   return { items: page.items.map(parseItem), next_id: nextId };
 };
 
 const parseRolePage = (raw: unknown): Page<Role> =>
-  parsePage(raw, 'صفحة الأدوار', (value) => {
-    const row = asRecord(value, 'الدور');
+  parsePage(raw, (value) => {
+    const row = asRecord(value);
     return {
-      id: asPositiveInt(row.id, 'معرف الدور'),
-      name: asText(row.name, 'اسم الدور'),
-      permissions: asStringArray(row.permissions, 'صلاحيات الدور'),
-      is_system_role: asBoolean(row.is_system_role, 'نوع الدور'),
+      id: asPositiveInt(row.id),
+      name: asText(row.name),
+      permissions: asStringArray(row.permissions),
+      is_system_role: asBoolean(row.is_system_role),
     };
   });
 
 const parseUserPage = (raw: unknown): Page<User> =>
-  parsePage(raw, 'صفحة المستخدمين', (value) => {
-    const row = asRecord(value, 'المستخدم');
+  parsePage(raw, (value) => {
+    const row = asRecord(value);
     return {
-      id: asPositiveInt(row.id, 'معرف المستخدم'),
-      full_name: asText(row.full_name, 'اسم المستخدم'),
-      is_admin: asBoolean(row.is_admin, 'صفة المدير'),
-      is_active: asBoolean(row.is_active, 'حالة المستخدم'),
+      id: asPositiveInt(row.id),
+      full_name: asText(row.full_name),
+      is_admin: asBoolean(row.is_admin),
+      is_active: asBoolean(row.is_active),
     };
   });
 
 const parseLocationPage = (raw: unknown): Page<Location> =>
-  parsePage(raw, 'صفحة المواقع', (value) => {
-    const row = asRecord(value, 'الموقع');
+  parsePage(raw, (value) => {
+    const row = asRecord(value);
     return {
-      id: asPositiveInt(row.id, 'معرف الموقع'),
-      name: asText(row.name, 'اسم الموقع'),
-      code: asText(row.code, 'كود الموقع'),
-      location_type: asText(row.location_type, 'نوع الموقع'),
+      id: asPositiveInt(row.id),
+      name: asText(row.name),
+      code: asText(row.code),
+      location_type: asText(row.location_type),
     };
   });
 
 const parseGrantPage = (raw: unknown): Page<Grant> =>
-  parsePage(raw, 'صفحة المنح', (value) => {
-    const row = asRecord(value, 'المنح');
+  parsePage(raw, (value) => {
+    const row = asRecord(value);
     return {
-      id: asPositiveInt(row.id, 'معرف المنح'),
-      role_id: asPositiveInt(row.role_id, 'معرف الدور'),
+      id: asPositiveInt(row.id),
+      role_id: asPositiveInt(row.role_id),
       location_id:
         row.location_id === null
           ? null
-          : asPositiveInt(row.location_id, 'معرف الموقع'),
+          : asPositiveInt(row.location_id),
     };
   });
 
 const parsePermissionCatalog = (raw: unknown): PermissionCatalog => {
-  const row = asRecord(raw, 'دليل الصلاحيات');
+  const row = asRecord(raw);
   return {
-    permissions: asStringArray(row.permissions, 'الصلاحيات'),
-    company_only: asStringArray(row.company_only, 'صلاحيات الشركة'),
+    permissions: asStringArray(row.permissions),
+    company_only: asStringArray(row.company_only),
   };
 };
 
@@ -127,6 +136,7 @@ const LABELS: Record<string, string> = {
 
 export function TabInventoryAccess() {
   const fetcher = useAuthFetch();
+  const { t } = useTranslation();
   const cache = useQueryClient();
   const [roleAfter, setRoleAfter] = useState(0);
   const [userAfter, setUserAfter] = useState(0);
@@ -158,8 +168,8 @@ export function TabInventoryAccess() {
       await fetcher(url, {method, ...(body === undefined ? {} : {body: JSON.stringify(body)})});
       await cache.invalidateQueries({queryKey: ['inventory-access-admin']});
       await cache.invalidateQueries({queryKey: ['inventory-access']});
-      toast.success('تم حفظ الصلاحيات.');
-    } catch (error) { toast.error(error instanceof Error ? error.message : 'تعذر حفظ الصلاحيات.'); }
+      toast.success(t('inventoryAccessAdmin.saved'));
+    } catch (error) { toast.error(apiErrorMessage(error, t('inventoryAccessAdmin.errors.saveFailed'))); }
     finally { setBusy(false); }
   };
   const paging = (next: number | null | undefined, current: number, set: (n:number)=>void) => (
@@ -178,7 +188,7 @@ export function TabInventoryAccess() {
       </div>
     </header>
 
-    {error && <p role="alert" className="inventory-alert-banner p-3 text-sm font-bold">{error instanceof Error ? error.message : 'تعذر تحميل بيانات الصلاحيات.'}</p>}
+    {error && <p role="alert" className="inventory-alert-banner p-3 text-sm font-bold">{apiErrorMessage(error, t('inventoryAccessAdmin.errors.loadFailed'))}</p>}
 
     <div className="inventory-access-grid">
       <section className="glass-card inventory-access-panel p-5 rounded-2xl space-y-4">
