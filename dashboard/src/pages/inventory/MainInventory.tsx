@@ -68,17 +68,25 @@ interface WarehouseLocationPage {
   total: number | null;
 }
 
+type InventoryContractError = Error & { code: string };
+
+const inventoryContractError = (code: string): never => {
+  const error = new Error(code) as InventoryContractError;
+  error.code = code;
+  throw error;
+};
+
 const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("تنسيق صفحة المستودعات غير صالح.");
+    inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const page = value as Record<string, unknown>;
   if (!Array.isArray(page.items) || page.items.length > 200) {
-    throw new Error("قائمة المستودعات غير صالحة.");
+    inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const items = page.items.map((item) => {
     if (typeof item !== "object" || item === null || Array.isArray(item)) {
-      throw new Error("عنصر مستودع غير صالح.");
+      inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
     const row = item as Record<string, unknown>;
     if (
@@ -86,25 +94,25 @@ const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
       typeof row.name !== "string" || !row.name.trim() ||
       typeof row.code !== "string" || !row.code.trim()
     ) {
-      throw new Error("بيانات مستودع غير مكتملة.");
+      inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
     return { id: row.id, name: row.name, code: row.code };
   });
   const nextCursor = typeof page.next_cursor === "string" ? page.next_cursor : null;
   if (typeof page.has_more !== "boolean" || page.has_more !== (nextCursor !== null)) {
-    throw new Error("ترقيم صفحة المستودعات غير متسق.");
+    inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const total = page.total === null
     ? null
     : typeof page.total === "number" && Number.isSafeInteger(page.total) && page.total >= 0
       ? page.total
-      : (() => { throw new Error("إجمالي المستودعات غير صالح."); })();
+      : (() => inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID"))();
   return { items, next_cursor: nextCursor, has_more: page.has_more, total };
 };
 
 const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("حالة إعداد المستودعات غير صالحة.");
+    inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
   }
   const row = value as Record<string, unknown>;
   if (
@@ -117,7 +125,7 @@ const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
     row.accessible_warehouse_count > row.active_warehouse_count ||
     row.warehouse_ready !== (row.active_warehouse_count > 0)
   ) {
-    throw new Error("حالة إعداد المستودعات غير متسقة.");
+    inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
   }
   return {
     warehouse_ready: row.warehouse_ready,
@@ -130,8 +138,6 @@ const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
 const isTabId = (value: string | null): value is TabId =>
   TABS.some((tab) => tab.id === value);
 
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "حدث خطأ غير متوقع";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function MainInventory() {
@@ -234,7 +240,7 @@ export default function MainInventory() {
       const page = parseWarehouseLocationPage(locationsRaw);
       const setup = parseWarehouseSetupStatus(setupRaw);
       if (page.items.length !== setup.accessible_warehouse_count && !page.has_more) {
-        throw new Error("عدد المستودعات المتاحة لا يطابق حالة الإعداد.");
+        inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
       }
 
       setLocations(page.items);
@@ -276,13 +282,18 @@ export default function MainInventory() {
       setLocationsTruncated(false);
       setSelectedLocationId(null);
       setLocationError(true);
-      toast.error("فشل جلب مستودعات الشركة: " + getErrorMessage(error));
+      toast.error(
+        apiErrorMessage(
+          error,
+          t("inventoryShell.errors.locationsLoadFailed"),
+        ),
+      );
     } finally {
       if (requestSeq === locationRequestSeq.current) {
         setLoadingLocations(false);
       }
     }
-  }, [authFetch, selectedLocationStorageKey]);
+  }, [authFetch, selectedLocationStorageKey, t]);
 
   useEffect(() => {
     if (!access.isSuccess) return;
@@ -529,7 +540,7 @@ export default function MainInventory() {
 
       if (requestSeq !== statusRequestSeq.current) return;
       if (typeof raw !== "object" || raw === null || !("status" in raw)) {
-        throw new Error("تنسيق حالة المستودع غير صالح.");
+        inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
       }
 
       const data = raw as WarehouseStatusPayload;
@@ -538,8 +549,10 @@ export default function MainInventory() {
       if (requestSeq !== statusRequestSeq.current) return;
 
       toast.error(
-        "خطأ حرج: تعذر التأكد من حالة قفل المستودع المحدد: " +
-          getErrorMessage(error)
+        apiErrorMessage(
+          error,
+          t("inventoryShell.errors.statusCheckFailed"),
+        ),
       );
       setIsAuditLocked(true);
     } finally {
@@ -547,7 +560,7 @@ export default function MainInventory() {
         setLoadingStatus(false);
       }
     }
-  }, [authFetch, selectedLocationId, canReadStatus]);
+  }, [authFetch, selectedLocationId, canReadStatus, t]);
 
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -613,7 +626,7 @@ export default function MainInventory() {
     return (
       <div className="flex items-center justify-center h-full w-full text-slate-500 font-bold">
         <RefreshCcw className="w-5 h-5 ml-2 animate-spin" />
-        جاري جلب مستودعات الشركة...
+        {t("inventoryShell.loadingWarehouses")}
       </div>
     );
   }
@@ -623,16 +636,16 @@ export default function MainInventory() {
       <div className="flex flex-col items-center justify-center h-full w-full bg-slate-50/50 rounded-3xl border border-red-200 p-8 text-center">
         <Package className="w-10 h-10 text-red-500 mb-4" />
         <h2 className="text-xl font-black text-slate-800 mb-2">
-          تعذر جلب مستودعات الشركة
+          {t("inventoryShell.locationsLoadTitle")}
         </h2>
         <p className="text-slate-500 font-bold max-w-md">
-          تم إيقاف واجهة المخزون احترازياً حتى نتأكد من المواقع التابعة للشركة الحالية.
+          {t("inventoryShell.locationsLoadGuard")}
         </p>
         <button
           onClick={() => void fetchLocations()}
           className="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2"
         >
-          <RefreshCcw className="w-5 h-5" /> إعادة المحاولة
+          <RefreshCcw className="w-5 h-5" /> {t("inventoryShell.retry")}
         </button>
       </div>
     );
@@ -746,8 +759,26 @@ export default function MainInventory() {
         </div>
       )}
 
-      {locationsTruncated && <p role="status" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">يعرض محدد التشغيل أول 200 مستودع متاح. استخدم إدارة المستودعات للبحث عن موقع آخر.</p>}
-      {locationAccess.isError && selectedLocationId !== null && <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">الموقع غير متاح أو تغيرت صلاحياتك. <button type="button" className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800" onClick={() => { void fetchLocations(); void locationAccess.refetch(); }}>تحديث المواقع والصلاحيات</button></p>}
+      {locationsTruncated && (
+        <p role="status" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
+          {t("inventoryShell.locationsTruncated")}
+        </p>
+      )}
+      {locationAccess.isError && selectedLocationId !== null && (
+        <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
+          {t("inventoryShell.accessChanged")}
+          <button
+            type="button"
+            className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800"
+            onClick={() => {
+              void fetchLocations();
+              void locationAccess.refetch();
+            }}
+          >
+            {t("inventoryShell.refreshAccess")}
+          </button>
+        </p>
+      )}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
         {selectedLocationId !== null && locationAccess.isPending && (
@@ -760,10 +791,10 @@ export default function MainInventory() {
           <div className="inventory-empty-state flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center font-bold">
             <p>
               {warehouseSetup?.warehouse_ready === false
-                ? "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً."
+                ? t("inventoryShell.noWarehouseCreated")
                 : warehouseSetup?.accessible_warehouse_count === 0
-                  ? "توجد مستودعات فعالة للشركة، لكن حسابك لا يملك وصولاً إلى أي منها."
-                  : "لا يوجد مستودع محدد لهذه العملية. اختر مستودعاً فعالاً."}
+                  ? t("inventoryShell.noAccessibleWarehouse")
+                  : t("inventoryShell.noWarehouseSelected")}
             </p>
             {locations.length > 0 && (
               <select aria-label={t("inventoryShell.warehouseSelectLabel")} className="inventory-location-select px-3 py-2 text-sm font-bold" value="" onChange={(e) => handleLocationChange(e.target.value)}>
@@ -773,7 +804,7 @@ export default function MainInventory() {
             )}
             {warehouseSetup?.warehouse_ready === false && warehouseSetup.can_create && tabAllowed("warehouses") && (
               <button type="button" onClick={() => setActiveTab("warehouses")} className="rounded-xl bg-blue-600 px-4 py-2 text-white">
-                فتح إدارة المستودعات
+                {t("inventoryShell.openWarehouseManagement")}
               </button>
             )}
           </div>
