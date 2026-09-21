@@ -357,7 +357,7 @@ async def seed(
                     company_id=company_id,
                     product_variant_id=variant.id,
                     batch_number=f"DEMO-{index:04d}-{batch_index:02d}",
-                    production_date=today - timedelta(days=30 + batch_index * 12),
+                    production_date=today - timedelta(days=540 + batch_index * 30),
                     expiry_date=today + timedelta(days=expiry_offset),
                     disposition=disposition,
                     disposition_reason=(
@@ -415,7 +415,7 @@ async def seed(
             if first_batch is None:
                 raise RuntimeError("Demo batch creation failed")
 
-            if index % 7 == 0:
+            if index % 7 == 0 and first_batch.disposition == "RELEASED":
                 session.add(
                     InventoryBalance(
                         company_id=company_id,
@@ -427,7 +427,7 @@ async def seed(
                         reserved_quantity=Decimal("0"),
                     )
                 )
-            if index % 19 == 0:
+            if index % 19 == 0 and first_batch.disposition == "RELEASED":
                 session.add(
                     InventoryBalance(
                         company_id=company_id,
