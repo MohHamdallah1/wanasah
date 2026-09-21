@@ -21,6 +21,13 @@ import {
   type LiveStockStockState,
   type WarehouseProduct,
 } from "./liveStock/contracts";
+import {
+  inventoryWarmScopeKey,
+  patchLiveStockWarmSnapshot,
+  readInventoryShellWarmSnapshot,
+  readLiveStockWarmSnapshot,
+  writeInventoryShellWarmSnapshot,
+} from "./inventorySessionCache";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch"; // +++ استدعاء الدستور الموحد +++
 
@@ -153,6 +160,40 @@ export default function MainInventory() {
     ? `inventory_selected_location:${companyId}`
     : "inventory_selected_location:anonymous";
 
+  const driverId = localStorage.getItem("driver_id") || "";
+  const warmScopeKey = inventoryWarmScopeKey(companyId, driverId);
+  const [initialWarmShell] = useState(() =>
+    readInventoryShellWarmSnapshot(warmScopeKey),
+  );
+  const [initialSelectedLocationId] = useState<number | null>(() => {
+    const cachedLocations = initialWarmShell?.locations ?? [];
+    const savedRaw = localStorage.getItem(selectedLocationStorageKey);
+    const savedId = savedRaw ? Number(savedRaw) : null;
+    if (
+      savedId !== null &&
+      Number.isSafeInteger(savedId) &&
+      cachedLocations.some((location) => location.id === savedId)
+    ) {
+      return savedId;
+    }
+
+    const cachedId = initialWarmShell?.selectedLocationId ?? null;
+    if (
+      cachedId !== null &&
+      cachedLocations.some((location) => location.id === cachedId)
+    ) {
+      return cachedId;
+    }
+
+    return cachedLocations[0]?.id ?? null;
+  });
+  const [initialLiveSnapshot] = useState(() =>
+    readLiveStockWarmSnapshot(
+      warmScopeKey,
+      initialSelectedLocationId,
+    ),
+  );
+
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const saved = localStorage.getItem(activeTabStorageKey);
     return isTabId(saved) ? saved : "live";
@@ -164,10 +205,16 @@ export default function MainInventory() {
   }, [activeTab, activeTabStorageKey]);
   
   // +++ حالة اختيار المستودع +++
-  const [locations, setLocations] = useState<WarehouseLocationOption[]>([]);
-  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
-  const selectedLocationIdRef = useRef<number | null>(null);
-  useEffect(() => { selectedLocationIdRef.current = selectedLocationId; }, [selectedLocationId]);
+  const [locations, setLocations] = useState<WarehouseLocationOption[]>(
+    initialWarmShell?.locations ?? [],
+  );
+  const [selectedLocationId, setSelectedLocationId] =
+    useState<number | null>(initialSelectedLocationId);
+  const selectedLocationIdRef =
+    useRef<number | null>(initialSelectedLocationId);
+  useEffect(() => {
+    selectedLocationIdRef.current = selectedLocationId;
+  }, [selectedLocationId]);
   const access = useInventoryAccess();
   const locationAccess = useInventoryAccess(selectedLocationId);
   const canReadStock = locationAccess.can('inventory.read');
@@ -194,16 +241,52 @@ export default function MainInventory() {
     }
   }, [access.isSuccess,locationAccess.isSuccess,selectedLocationId,activeTab,tabAllowed,]);
   const [locationError, setLocationError] = useState(false);
-  const [loadingLocations, setLoadingLocations] = useState(true);
-  const [warehouseSetup, setWarehouseSetup] = useState<WarehouseSetupStatus | null>(null);
-  const [locationsTruncated, setLocationsTruncated] = useState(false);
+  const [loadingLocations, setLoadingLocations] = useState(
+    initialWarmShell === null,
+  );
+  const [warehouseSetup, setWarehouseSetup] =
+    useState<WarehouseSetupStatus | null>(
+      initialWarmShell?.setup ?? null,
+    );
+  const [locationsTruncated, setLocationsTruncated] = useState(
+    initialWarmShell?.locationsTruncated ?? false,
+  );
+  const warehouseSetupRef = useRef<WarehouseSetupStatus | null>(
+    initialWarmShell?.setup ?? null,
+  );
+  useEffect(() => {
+    warehouseSetupRef.current = warehouseSetup;
+  }, [warehouseSetup]);
   
-  const [stockItems, setStockItems] = useState<WarehouseProduct[]>([]);
-  const [stockTotal, setStockTotal] = useState<number | null>(null);
-  const [stockMatchingTotal, setStockMatchingTotal] = useState<number | null>(null);
-  const [stockAlertCount, setStockAlertCount] = useState<number | null>(null);
+  const [stockItems, setStockItems] = useState<WarehouseProduct[]>(
+    initialLiveSnapshot?.hasPage
+      ? initialLiveSnapshot.items
+      : [],
+  );
+  const [stockTotal, setStockTotal] = useState<number | null>(
+    initialLiveSnapshot?.hasSummary
+      ? initialLiveSnapshot.stockTotal
+      : null,
+  );
+  const [stockMatchingTotal, setStockMatchingTotal] =
+    useState<number | null>(
+      initialLiveSnapshot?.hasPage
+        ? initialLiveSnapshot.matchingTotal
+        : null,
+    );
+  const [stockAlertCount, setStockAlertCount] =
+    useState<number | null>(
+      initialLiveSnapshot?.hasSummary
+        ? initialLiveSnapshot.alertCount
+        : null,
+    );
   const [stockCursor, setStockCursor] = useState<string | null>(null);
-  const [stockNextCursor, setStockNextCursor] = useState<string | null>(null);
+  const [stockNextCursor, setStockNextCursor] =
+    useState<string | null>(
+      initialLiveSnapshot?.hasPage
+        ? initialLiveSnapshot.nextCursor
+        : null,
+    );
   const [stockSearch, setStockSearch] = useState("");
   const [stockState, setStockState] =
     useState<LiveStockStockState>("all");
@@ -220,10 +303,101 @@ export default function MainInventory() {
   const statusRequestSeq = useRef(0);
 
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
-  const [isAuditLocked, setIsAuditLocked] = useState(true);
+  const [auditLockState, setAuditLockState] = useState<boolean | null>(
+    initialLiveSnapshot?.hasStatus
+      ? initialLiveSnapshot.auditLocked
+      : null,
+  );
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [loadingStock, setLoadingStock] = useState(false);
-  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [lastSync, setLastSync] = useState<Date | null>(
+    initialLiveSnapshot?.lastSyncMs
+      ? new Date(initialLiveSnapshot.lastSyncMs)
+      : null,
+  );
+
+  const displayAuditLocked = auditLockState === true;
+  // Unknown/error status stays fail-closed for mutations, while the
+  // visual lock chip is shown only after a real locked status is known.
+  const effectiveAuditLocked = auditLockState !== false;
+
+  const hydrateDefaultLiveStock = useCallback(
+    (locationId: number | null) => {
+      const snapshot = readLiveStockWarmSnapshot(
+        warmScopeKey,
+        locationId,
+      );
+
+      if (snapshot?.hasPage) {
+        setStockItems(snapshot.items);
+        setStockMatchingTotal(snapshot.matchingTotal);
+        setStockNextCursor(snapshot.nextCursor);
+        setLastSync(
+          snapshot.lastSyncMs
+            ? new Date(snapshot.lastSyncMs)
+            : null,
+        );
+      } else {
+        setStockItems([]);
+        setStockMatchingTotal(null);
+        setStockNextCursor(null);
+        setLastSync(null);
+      }
+
+      if (snapshot?.hasSummary) {
+        setStockTotal(snapshot.stockTotal);
+        setStockAlertCount(snapshot.alertCount);
+      } else {
+        setStockTotal(null);
+        setStockAlertCount(null);
+      }
+
+      setAuditLockState(
+        snapshot?.hasStatus
+          ? snapshot.auditLocked
+          : null,
+      );
+      setLoadingStock(
+        locationId !== null && snapshot?.hasPage !== true,
+      );
+    },
+    [warmScopeKey],
+  );
+
+  const prepareLocationChange = useCallback(
+    (locationId: number | null) => {
+      stockRequestSeq.current += 1;
+      stockAbortRef.current?.abort();
+      stockAbortRef.current = null;
+      stockSummaryRequestSeq.current += 1;
+      stockSummaryAbortRef.current?.abort();
+      stockSummaryAbortRef.current = null;
+
+      setStockSearch("");
+      setStockState("all");
+      setStockIndicators([]);
+      setStockFamilyId(null);
+      setStockCursor(null);
+      hydrateDefaultLiveStock(locationId);
+    },
+    [hydrateDefaultLiveStock],
+  );
+
+  useEffect(() => {
+    if (!warmScopeKey || warehouseSetup === null) return;
+    writeInventoryShellWarmSnapshot(warmScopeKey, {
+      locations,
+      setup: warehouseSetup,
+      locationsTruncated,
+      selectedLocationId,
+    });
+  }, [
+    locations,
+    locationsTruncated,
+    selectedLocationId,
+    warehouseSetup,
+    warmScopeKey,
+  ]);
 
   const fetchLocations = useCallback(async () => {
     const requestSeq = ++locationRequestSeq.current;
@@ -252,36 +426,47 @@ export default function MainInventory() {
       const currentId = selectedLocationIdRef.current;
       const savedIsValid =
         savedId !== null &&
-        Number.isInteger(savedId) &&
+        Number.isSafeInteger(savedId) &&
         page.items.some((location) => location.id === savedId);
       const currentIsValid =
         currentId !== null &&
         page.items.some((location) => location.id === currentId);
 
-      if (savedIsValid) {
-        setSelectedLocationId(savedId);
-      } else if (currentIsValid) {
-        localStorage.setItem(selectedLocationStorageKey, String(currentId));
-      } else if (page.items.length > 0) {
-        const firstLocationId = page.items[0].id;
+      const nextLocationId = savedIsValid
+        ? savedId
+        : currentIsValid
+          ? currentId
+          : page.items[0]?.id ?? null;
 
-        setSelectedLocationId(firstLocationId);
+      if (nextLocationId !== currentId) {
+        prepareLocationChange(nextLocationId);
+        selectedLocationIdRef.current = nextLocationId;
+        setSelectedLocationId(nextLocationId);
+      }
+
+      if (nextLocationId !== null) {
         localStorage.setItem(
           selectedLocationStorageKey,
-          String(firstLocationId),
+          String(nextLocationId),
         );
-      } else {
-        if (savedRaw !== null) localStorage.removeItem(selectedLocationStorageKey);
-        setSelectedLocationId(null);
+      } else if (savedRaw !== null) {
+        localStorage.removeItem(selectedLocationStorageKey);
       }
     } catch (error: unknown) {
       if (requestSeq !== locationRequestSeq.current) return;
 
-      setLocations([]);
-      setWarehouseSetup(null);
-      setLocationsTruncated(false);
-      setSelectedLocationId(null);
-      setLocationError(true);
+      if (warehouseSetupRef.current === null) {
+        setLocations([]);
+        setWarehouseSetup(null);
+        setLocationsTruncated(false);
+        prepareLocationChange(null);
+        selectedLocationIdRef.current = null;
+        setSelectedLocationId(null);
+        setLocationError(true);
+      } else {
+        // Background revalidation must not destroy a valid warm view.
+        setLocationError(false);
+      }
       toast.error(
         apiErrorMessage(
           error,
@@ -293,7 +478,7 @@ export default function MainInventory() {
         setLoadingLocations(false);
       }
     }
-  }, [authFetch, selectedLocationStorageKey, t]);
+  }, [authFetch, prepareLocationChange, selectedLocationStorageKey, t]);
 
   useEffect(() => {
     if (!access.isSuccess) return;
@@ -303,6 +488,8 @@ export default function MainInventory() {
       setLocations([]);
       setWarehouseSetup(null);
       setLocationsTruncated(false);
+      prepareLocationChange(null);
+      selectedLocationIdRef.current = null;
       setSelectedLocationId(null);
       setLocationError(false);
       setLoadingLocations(false);
@@ -310,7 +497,7 @@ export default function MainInventory() {
     }
 
     void fetchLocations();
-  }, [access.isSuccess, canAny, fetchLocations]);
+  }, [access.isSuccess, canAny, fetchLocations, prepareLocationChange]);
 
   const handleLocationChange = useCallback(
     (value: string) => {
@@ -323,15 +510,25 @@ export default function MainInventory() {
         return;
       }
 
+      prepareLocationChange(nextId);
+      selectedLocationIdRef.current = nextId;
       setSelectedLocationId(nextId);
       localStorage.setItem(selectedLocationStorageKey, String(nextId));
     },
-    [locations, selectedLocationStorageKey]
+    [locations, prepareLocationChange, selectedLocationStorageKey]
   );
 
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
     if (selectedLocationId === null || !canReadStock) return;
+
+    const requestLocationId = selectedLocationId;
+    const requestCursor = stockCursor;
+    const defaultView =
+      !stockSearch &&
+      stockState === "all" &&
+      stockIndicators.length === 0 &&
+      stockFamilyId === null;
 
     const requestSeq = ++stockRequestSeq.current;
     stockAbortRef.current?.abort();
@@ -341,7 +538,7 @@ export default function MainInventory() {
 
     try {
       const params = new URLSearchParams({
-        location_id: String(selectedLocationId),
+        location_id: String(requestLocationId),
         limit: String(LIVE_STOCK_PAGE_SIZE),
       });
 
@@ -377,22 +574,46 @@ export default function MainInventory() {
 
       if (requestSeq !== stockRequestSeq.current) return;
       const data = parseLiveStockPage(raw);
+      const syncedAt = new Date();
       setStockItems((current) => {
-        if (!stockCursor) return data.items;
-        const seen = new Set(current.map((item) => item.id));
-        return [
-          ...current,
-          ...data.items.filter((item) => !seen.has(item.id)),
-        ];
+        const nextItems = !requestCursor
+          ? data.items
+          : (() => {
+              const seen = new Set(
+                current.map((item) => item.id),
+              );
+              return [
+                ...current,
+                ...data.items.filter(
+                  (item) => !seen.has(item.id),
+                ),
+              ];
+            })();
+
+        if (defaultView) {
+          patchLiveStockWarmSnapshot(
+            warmScopeKey,
+            requestLocationId,
+            {
+              hasPage: true,
+              items: nextItems,
+              nextCursor: data.next_cursor,
+              lastSyncMs: syncedAt.getTime(),
+              ...(typeof data.total === "number"
+                ? { matchingTotal: data.total }
+                : {}),
+            },
+          );
+        }
+        return nextItems;
       });
       setStockNextCursor(data.next_cursor);
 
       if (typeof data.total === "number") {
         setStockMatchingTotal(data.total);
-
       }
 
-      setLastSync(new Date());
+      setLastSync(syncedAt);
     } catch (error: unknown) {
       if (requestSeq !== stockRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
@@ -402,9 +623,17 @@ export default function MainInventory() {
           t("inventoryLive.errors.loadFailed"),
         ),
       );
-      setStockItems([]);
-      setStockNextCursor(null);
-      setStockMatchingTotal(null);
+      const warmSnapshot = defaultView
+        ? readLiveStockWarmSnapshot(
+            warmScopeKey,
+            requestLocationId,
+          )
+        : null;
+      if (warmSnapshot?.hasPage !== true) {
+        setStockItems([]);
+        setStockNextCursor(null);
+        setStockMatchingTotal(null);
+      }
     } finally {
       if (stockAbortRef.current === requestController) {
         stockAbortRef.current = null;
@@ -423,6 +652,7 @@ export default function MainInventory() {
     stockFamilyId,
     canReadStock,
     t,
+    warmScopeKey,
   ]);
 
   const fetchStockSummary = useCallback(async () => {
@@ -432,6 +662,7 @@ export default function MainInventory() {
       return;
     }
 
+    const requestLocationId = selectedLocationId;
     const requestSeq = ++stockSummaryRequestSeq.current;
     stockSummaryAbortRef.current?.abort();
     const requestController = new AbortController();
@@ -440,7 +671,7 @@ export default function MainInventory() {
     try {
       const raw = await authFetch(
         `/warehouse/inventory/summary?location_id=${encodeURIComponent(
-          String(selectedLocationId),
+          String(requestLocationId),
         )}`,
         { signal: requestController.signal },
       );
@@ -449,11 +680,26 @@ export default function MainInventory() {
       const data = parseLiveStockSummary(raw);
       setStockTotal(data.stock_total);
       setStockAlertCount(data.alert_count);
+      patchLiveStockWarmSnapshot(
+        warmScopeKey,
+        requestLocationId,
+        {
+          hasSummary: true,
+          stockTotal: data.stock_total,
+          alertCount: data.alert_count,
+        },
+      );
     } catch (error: unknown) {
       if (requestSeq !== stockSummaryRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      setStockTotal(null);
-      setStockAlertCount(null);
+      const warmSnapshot = readLiveStockWarmSnapshot(
+        warmScopeKey,
+        requestLocationId,
+      );
+      if (warmSnapshot?.hasSummary !== true) {
+        setStockTotal(null);
+        setStockAlertCount(null);
+      }
       toast.error(
         apiErrorMessage(
           error,
@@ -470,6 +716,7 @@ export default function MainInventory() {
     selectedLocationId,
     canReadStock,
     t,
+    warmScopeKey,
   ]);
 
   const resetStockPagination = useCallback(() => {
@@ -480,9 +727,16 @@ export default function MainInventory() {
   }, []);
 
   const refreshStock = useCallback(() => {
-    resetStockPagination();
+    stockRequestSeq.current += 1;
+    stockAbortRef.current?.abort();
+    stockAbortRef.current = null;
+    stockSummaryRequestSeq.current += 1;
+    stockSummaryAbortRef.current?.abort();
+    stockSummaryAbortRef.current = null;
+    setStockCursor(null);
+    setLoadingStock(selectedLocationId !== null);
     setStockRefreshKey((value) => value + 1);
-  }, [resetStockPagination]);
+  }, [selectedLocationId]);
 
   const handleStockSearchChange = useCallback((value: string) => {
     if (value === stockSearch) return;
@@ -524,7 +778,7 @@ export default function MainInventory() {
     const requestSeq = ++statusRequestSeq.current;
 
     if (selectedLocationId === null || !canReadStatus) {
-      setIsAuditLocked(false);
+      setAuditLockState(null);
       setLoadingStatus(false);
       return;
     }
@@ -544,7 +798,16 @@ export default function MainInventory() {
       }
 
       const data = raw as WarehouseStatusPayload;
-      setIsAuditLocked(data.status === "AUDIT_LOCK");
+      const locked = data.status === "AUDIT_LOCK";
+      setAuditLockState(locked);
+      patchLiveStockWarmSnapshot(
+        warmScopeKey,
+        selectedLocationId,
+        {
+          hasStatus: true,
+          auditLocked: locked,
+        },
+      );
     } catch (error: unknown) {
       if (requestSeq !== statusRequestSeq.current) return;
 
@@ -554,39 +817,16 @@ export default function MainInventory() {
           t("inventoryShell.errors.statusCheckFailed"),
         ),
       );
-      setIsAuditLocked(true);
+      setAuditLockState(true);
     } finally {
       if (requestSeq === statusRequestSeq.current) {
         setLoadingStatus(false);
       }
     }
-  }, [authFetch, selectedLocationId, canReadStatus, t]);
+  }, [authFetch, selectedLocationId, canReadStatus, t, warmScopeKey]);
 
   // ── on mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    fetchStatus();
-  }, [fetchStatus]);
-
-  useEffect(() => {
-    stockRequestSeq.current += 1;
-    setLoadingStock(selectedLocationId !== null);
-    stockAbortRef.current?.abort();
-    stockAbortRef.current = null;
-    setStockItems([]);
-    setStockTotal(null);
-    setStockMatchingTotal(null);
-    setStockAlertCount(null);
-    stockSummaryRequestSeq.current += 1;
-    stockSummaryAbortRef.current?.abort();
-    stockSummaryAbortRef.current = null;
-    setStockSearch("");
-    setStockState("all");
-    setStockIndicators([]);
-    setStockFamilyId(null);
-    setStockCursor(null);
-    setStockNextCursor(null);
-    setLastSync(null);
-
     return () => {
       stockRequestSeq.current += 1;
       stockAbortRef.current?.abort();
@@ -595,7 +835,7 @@ export default function MainInventory() {
       stockSummaryAbortRef.current?.abort();
       stockSummaryAbortRef.current = null;
     };
-  }, [selectedLocationId]);
+  }, []);
 
   useEffect(() => {
     if (selectedLocationId !== null) {
@@ -622,7 +862,7 @@ export default function MainInventory() {
     }
   }, [activeTab, loadingLocations, locationError, locations.length, warehouseSetup]);
 
-  if (loadingLocations) {
+  if (loadingLocations && warehouseSetup === null) {
     return (
       <div className="flex items-center justify-center h-full w-full text-slate-500 font-bold">
         <RefreshCcw className="w-5 h-5 ml-2 animate-spin" />
@@ -653,7 +893,7 @@ export default function MainInventory() {
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <div data-live-view={activeTab === "live"} className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0 animate-in fade-in duration-200">
+    <div data-live-view={activeTab === "live"} className="inventory-workspace flex flex-col gap-4 w-full h-full flex-1 min-h-0">
 
       <InventoryTopDock
         items={TABS.filter((tab) => tabAllowed(tab.id)).map(
@@ -712,7 +952,7 @@ export default function MainInventory() {
                         ).format(stockTotal)}
                   </span>
                 </span>
-                {isAuditLocked && (
+                {displayAuditLocked && (
                   <span className="inventory-shared-lock-chip">
                     {t("inventoryShell.locked")}
                   </span>
@@ -816,7 +1056,7 @@ export default function MainInventory() {
             locations={locations}
             stockTotal={stockTotal}
             lastSync={lastSync}
-            isAuditLocked={isAuditLocked}
+            isAuditLocked={displayAuditLocked}
             products={stockItems}
             loading={loadingStock}
             onLocationChange={handleLocationChange}
@@ -850,7 +1090,7 @@ export default function MainInventory() {
             companyId={locationAccess.data.company_id}
             actorId={locationAccess.data.driver_id}
             locationId={selectedLocationId} // +++ تمرير الموقع لعملية الإدخال +++
-            isAuditLocked={isAuditLocked}
+            isAuditLocked={effectiveAuditLocked}
             authenticatedFetch={authFetch}
             onSuccess={async () => {
               refreshStock();
@@ -863,7 +1103,7 @@ export default function MainInventory() {
             key={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}:${selectedLocationId}`}
             locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
             companyId={`${locationAccess.data.company_id}:${locationAccess.data.driver_id}`}
-            isAuditLocked={isAuditLocked}
+            isAuditLocked={effectiveAuditLocked}
             authenticatedFetch={authFetch}
             onStocktakeChanged={async () => {
               refreshStock();
