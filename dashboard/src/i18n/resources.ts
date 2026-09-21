@@ -311,8 +311,8 @@ export const resources = {
         scopeAll: "كل المنتجات",
         scopeAllHint:
           "سيشمل التعديل جميع منتجات المستودع الحالي. اختر طريقة التطبيق بالأسفل قبل التنفيذ.",
-        scopeFamily: "عائلة محددة",
-        scopeProduct: "منتج محدد",
+        scopeFamily: "عائلات محددة",
+        scopeProduct: "منتجات محددة",
         searchFamily: "ابحث عن عائلة...",
         searchProduct: "ابحث عن منتج أو SKU...",
         valueLabel: "الحد الأدنى للمخزون",
@@ -928,8 +928,8 @@ export const resources = {
         scopeAll: "All products",
         scopeAllHint:
           "The update will include every product in the current warehouse. Choose how existing values should be handled below.",
-        scopeFamily: "Selected family",
-        scopeProduct: "Selected product",
+        scopeFamily: "Selected families",
+        scopeProduct: "Selected products",
         searchFamily: "Search family...",
         searchProduct: "Search product or SKU...",
         valueLabel: "Minimum stock",
