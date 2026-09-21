@@ -278,6 +278,27 @@ export const resources = {
         locked: "مقفل",
         lastUpdated: "آخر تحديث",
         refreshNow: "تحديث الآن",
+        loadingWarehouses: "جارٍ جلب مستودعات الشركة...",
+        locationsLoadTitle: "تعذر جلب مستودعات الشركة",
+        locationsLoadGuard:
+          "تم إيقاف واجهة المخزون احترازياً حتى نتأكد من المواقع التابعة للشركة الحالية.",
+        retry: "إعادة المحاولة",
+        locationsTruncated:
+          "يعرض محدد التشغيل أول 200 مستودع متاح. استخدم إدارة المستودعات للبحث عن موقع آخر.",
+        accessChanged: "الموقع غير متاح أو تغيرت صلاحياتك.",
+        refreshAccess: "تحديث المواقع والصلاحيات",
+        noWarehouseCreated:
+          "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً.",
+        noAccessibleWarehouse:
+          "توجد مستودعات فعالة للشركة، لكن حسابك لا يملك وصولاً إلى أي منها.",
+        noWarehouseSelected:
+          "لا يوجد مستودع محدد لهذه العملية. اختر مستودعاً فعالاً.",
+        openWarehouseManagement: "فتح إدارة المستودعات",
+        errors: {
+          locationsLoadFailed: "تعذر تحميل مستودعات الشركة.",
+          statusCheckFailed:
+            "تعذر التحقق من حالة قفل المستودع. تم إبقاء الواجهة في الوضع الآمن.",
+        },
         tabsLabel: "شاشات المخزون",
         tabs: {
           live: "الرصيد الحي",
@@ -531,6 +552,13 @@ export const resources = {
           STOCK_MINIMUM_POLICY_INACTIVE: "سياسة هذا المنتج غير فعالة حالياً.",
           STOCK_MINIMUM_EXCEEDS_TARGET: "الحد الأدنى لا يجوز أن يتجاوز الكمية المستهدفة الحالية.",
           STOCK_MINIMUM_IDEMPOTENCY_CONFLICT: "تعارض طلب تعديل الحد الأدنى مع طلب سابق.",
+          STOCK_MINIMUM_SCOPE_INVALID: "اختيار نطاق الحد الأدنى غير صالح.",
+          STOCK_MINIMUM_BULK_CONFLICT: "تعذر تطبيق الحد الأدنى على كامل النطاق بأمان. راجع التعارضات أولاً.",
+          LIVE_STOCK_PROJECTION_UNAVAILABLE: "تعذر تحديث الرصيد الحي حالياً. أعد المحاولة بعد قليل.",
+          LIVE_STOCK_SEARCH_TOO_SHORT: "أدخل حرفين على الأقل للبحث في المخزون.",
+          LIVE_STOCK_FAMILY_SEARCH_TOO_SHORT: "أدخل حرفين على الأقل للبحث في عائلات المنتجات.",
+          LIVE_STOCK_ALERT_FILTER_CONFLICT: "لا يمكن دمج فلتر التنبيهات مع حالة رصيد أخرى.",
+          LIVE_STOCK_FAMILY_INVALID: "عائلة المنتج المحددة غير صالحة.",
           LIVE_STOCK_BATCH_DETAILS_FAILED: "تعذر تحميل تفاصيل الدفعات.",
           OPERATIONS_RESPONSE_INVALID: "استجابة غرفة العمليات غير صالحة أو غير مكتملة.",
           INBOUND_DUPLICATE_BATCH_UOM_LINE: "لا تكرر نفس المنتج ونفس الدفعة ونفس وحدة الشراء في أكثر من سطر. استخدم سطراً إضافياً فقط لوحدة شراء مختلفة.",
@@ -895,6 +923,27 @@ export const resources = {
         locked: "Locked",
         lastUpdated: "Last updated",
         refreshNow: "Refresh now",
+        loadingWarehouses: "Loading company warehouses...",
+        locationsLoadTitle: "Could not load company warehouses",
+        locationsLoadGuard:
+          "Inventory has been paused until the current company's locations can be verified.",
+        retry: "Retry",
+        locationsTruncated:
+          "The selector shows the first 200 accessible warehouses. Use Warehouse Management to find another location.",
+        accessChanged: "This location is unavailable or your permissions changed.",
+        refreshAccess: "Refresh locations and permissions",
+        noWarehouseCreated:
+          "The company has no active warehouse yet. Create one in Warehouse Management first.",
+        noAccessibleWarehouse:
+          "The company has active warehouses, but your account cannot access any of them.",
+        noWarehouseSelected:
+          "No warehouse is selected for this operation. Choose an active warehouse.",
+        openWarehouseManagement: "Open Warehouse Management",
+        errors: {
+          locationsLoadFailed: "Could not load company warehouses.",
+          statusCheckFailed:
+            "Could not verify the warehouse lock state. The interface remains in safe mode.",
+        },
         tabsLabel: "Inventory screens",
         tabs: {
           live: "Live stock",
@@ -1148,6 +1197,13 @@ export const resources = {
           STOCK_MINIMUM_POLICY_INACTIVE: "This product stock policy is currently inactive.",
           STOCK_MINIMUM_EXCEEDS_TARGET: "Minimum stock cannot exceed the current target quantity.",
           STOCK_MINIMUM_IDEMPOTENCY_CONFLICT: "This minimum-stock request conflicts with an earlier request.",
+          STOCK_MINIMUM_SCOPE_INVALID: "The selected minimum-stock scope is invalid.",
+          STOCK_MINIMUM_BULK_CONFLICT: "Minimum stock could not be applied safely to the entire scope. Review the conflicts first.",
+          LIVE_STOCK_PROJECTION_UNAVAILABLE: "Live stock cannot be refreshed right now. Try again shortly.",
+          LIVE_STOCK_SEARCH_TOO_SHORT: "Enter at least two characters to search inventory.",
+          LIVE_STOCK_FAMILY_SEARCH_TOO_SHORT: "Enter at least two characters to search product families.",
+          LIVE_STOCK_ALERT_FILTER_CONFLICT: "Alert-only filtering cannot be combined with another stock state.",
+          LIVE_STOCK_FAMILY_INVALID: "The selected product family is invalid.",
           LIVE_STOCK_BATCH_DETAILS_FAILED: "Batch details could not be loaded.",
           OPERATIONS_RESPONSE_INVALID: "The operations response is invalid or incomplete.",
           INBOUND_DUPLICATE_BATCH_UOM_LINE: "Do not repeat the same product, batch, and purchasing unit on multiple lines. Add another line only for a different purchasing unit.",
