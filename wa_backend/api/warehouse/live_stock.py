@@ -1658,9 +1658,10 @@ async def get_warehouse_inventory_batches(
             .exists()
         )
 
-        batch_page_candidates = (
+        batch_candidate_stmt = (
             select(
                 ProductBatch.id.label("batch_id"),
+                ProductBatch.expiry_date,
             )
             .where(
                 ProductBatch.company_id == company_id,
@@ -1673,161 +1674,172 @@ async def get_warehouse_inventory_batches(
                 ProductBatch.id.asc(),
             )
             .limit(limit + 1)
-            .subquery("inventory_batch_page_candidates")
         )
 
-        batch_stmt = (
-            select(
-                ProductBatch.id.label("batch_id"),
-                ProductBatch.batch_number,
-                ProductBatch.production_date,
-                ProductBatch.expiry_date,
-                ProductBatch.disposition,
-                func.sum(
-                    InventoryBalance.on_hand_quantity
-                ).label("on_hand_total"),
-                func.sum(
-                    InventoryBalance.reserved_quantity
-                ).label("reserved_total"),
-                func.sum(
-                    case(
-                        (
-                            and_(
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                batch_is_sellable,
-                            ),
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("sellable_on_hand"),
-                func.sum(
-                    case(
-                        (
-                            and_(
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                batch_is_sellable,
-                            ),
-                            InventoryBalance.reserved_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("sellable_reserved"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "QUARANTINED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("quarantined_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "BLOCKED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("blocked_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "RECALLED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("recalled_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "DAMAGED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("damaged_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status
-                            == "DISPOSAL_PENDING",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("disposal_pending_quantity"),
+        candidate_rows = (
+            await db.execute(batch_candidate_stmt)
+        ).all()
+        has_more = len(candidate_rows) > limit
+        page_candidates = candidate_rows[:limit]
+        batch_ids = [
+            int(row.batch_id)
+            for row in page_candidates
+        ]
+
+        next_cursor = None
+        if has_more and page_candidates:
+            last_candidate = page_candidates[-1]
+            next_cursor = _encode_batch_cursor(
+                expiry_date=last_candidate.expiry_date,
+                batch_id=int(last_candidate.batch_id),
+                scope=batch_cursor_scope,
             )
-            .select_from(batch_page_candidates)
-            .join(
-                ProductBatch,
-                and_(
-                    ProductBatch.company_id == company_id,
-                    ProductBatch.product_variant_id
-                    == product_variant_id,
-                    ProductBatch.id
-                    == batch_page_candidates.c.batch_id,
-                ),
-            )
-            .join(
-                InventoryBalance,
-                and_(
+
+        batch_rows = []
+        if batch_ids:
+            batch_stmt = (
+                select(
+                    ProductBatch.id.label("batch_id"),
+                    ProductBatch.batch_number,
+                    ProductBatch.production_date,
+                    ProductBatch.expiry_date,
+                    ProductBatch.disposition,
+                    func.sum(
+                        InventoryBalance.on_hand_quantity
+                    ).label("on_hand_total"),
+                    func.sum(
+                        InventoryBalance.reserved_quantity
+                    ).label("reserved_total"),
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    InventoryBalance.stock_status
+                                    == "AVAILABLE",
+                                    batch_is_sellable,
+                                ),
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("sellable_on_hand"),
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    InventoryBalance.stock_status
+                                    == "AVAILABLE",
+                                    batch_is_sellable,
+                                ),
+                                InventoryBalance.reserved_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("sellable_reserved"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "QUARANTINED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("quarantined_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "BLOCKED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("blocked_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "RECALLED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("recalled_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "DAMAGED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("damaged_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "DISPOSAL_PENDING",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("disposal_pending_quantity"),
+                )
+                .join(
+                    ProductBatch,
+                    and_(
+                        ProductBatch.company_id
+                        == InventoryBalance.company_id,
+                        ProductBatch.product_variant_id
+                        == InventoryBalance.product_variant_id,
+                        ProductBatch.id == InventoryBalance.batch_id,
+                    ),
+                )
+                .join(
+                    ProductVariant,
+                    and_(
+                        ProductVariant.company_id
+                        == InventoryBalance.company_id,
+                        ProductVariant.id
+                        == InventoryBalance.product_variant_id,
+                    ),
+                )
+                .outerjoin(
+                    InventoryStockPolicy,
+                    and_(
+                        InventoryStockPolicy.company_id
+                        == InventoryBalance.company_id,
+                        InventoryStockPolicy.location_id == location_id,
+                        InventoryStockPolicy.product_variant_id
+                        == InventoryBalance.product_variant_id,
+                        InventoryStockPolicy.is_active.is_(True),
+                    ),
+                )
+                .filter(
                     InventoryBalance.company_id == company_id,
                     InventoryBalance.location_id == location_id,
                     InventoryBalance.product_variant_id
                     == product_variant_id,
-                    InventoryBalance.batch_id == ProductBatch.id,
+                    InventoryBalance.batch_id.in_(batch_ids),
                     InventoryBalance.on_hand_quantity > 0,
-                ),
+                )
+                .group_by(
+                    ProductBatch.id,
+                    ProductBatch.batch_number,
+                    ProductBatch.production_date,
+                    ProductBatch.expiry_date,
+                    ProductBatch.disposition,
+                )
+                .order_by(
+                    ProductBatch.expiry_date.asc().nulls_last(),
+                    ProductBatch.id.asc(),
+                )
             )
-            .join(
-                ProductVariant,
-                and_(
-                    ProductVariant.company_id
-                    == InventoryBalance.company_id,
-                    ProductVariant.id
-                    == InventoryBalance.product_variant_id,
-                ),
-            )
-            .outerjoin(
-                InventoryStockPolicy,
-                and_(
-                    InventoryStockPolicy.company_id
-                    == InventoryBalance.company_id,
-                    InventoryStockPolicy.location_id == location_id,
-                    InventoryStockPolicy.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    InventoryStockPolicy.is_active.is_(True),
-                ),
-            )
-            .group_by(
-                ProductBatch.id,
-                ProductBatch.batch_number,
-                ProductBatch.production_date,
-                ProductBatch.expiry_date,
-                ProductBatch.disposition,
-            )
-            .order_by(
-                ProductBatch.expiry_date.asc().nulls_last(),
-                ProductBatch.id.asc(),
-            )
-        )
 
-        batch_candidates = (await db.execute(batch_stmt)).all()
-        has_more = len(batch_candidates) > limit
-        batch_rows = batch_candidates[:limit]
-        batch_ids = [int(row.batch_id) for row in batch_rows]
+            batch_rows = (await db.execute(batch_stmt)).all()
 
-        next_cursor = None
-        if has_more and batch_rows:
-            last_batch = batch_rows[-1]
-            next_cursor = _encode_batch_cursor(
-                expiry_date=last_batch.expiry_date,
-                batch_id=int(last_batch.batch_id),
-                scope=batch_cursor_scope,
-            )
 
         latest_purchase_by_batch = {}
         purchase_count_by_batch = {}
