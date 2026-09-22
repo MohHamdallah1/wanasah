@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Date, Integer, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
+from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
 
 from api.dependencies import get_current_driver
 from database import get_db
@@ -892,25 +892,21 @@ async def get_warehouse_inventory(
             )
         )
 
-        search_condition = None
+        search_variant_ids = None
         if clean_search:
-            search_tokens = clean_search.split()
-            search_condition = and_(
-                *[
-                    or_(
-                        func.lower(ProductVariant.name).like(
-                            f"%{_escape_like(token)}%",
-                            escape="\\",
-                        ),
-                        func.lower(
-                            func.coalesce(ProductVariant.sku, "")
-                        ).like(
-                            f"%{_escape_like(token)}%",
-                            escape="\\",
-                        ),
-                    )
-                    for token in search_tokens
-                ]
+            search_patterns = [
+                f"%{_escape_like(token)}%"
+                for token in clean_search.split()
+            ]
+            search_variant_ids = select(
+                func.public.live_stock_search_variant_ids(
+                    company_id,
+                    bindparam(
+                        "live_stock_search_patterns",
+                        search_patterns,
+                        type_=ARRAY(String()),
+                    ),
+                )
             )
 
         scope = (
@@ -921,8 +917,10 @@ async def get_warehouse_inventory(
             f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
         )
         candidate_filters = []
-        if search_condition is not None:
-            candidate_filters.append(search_condition)
+        if search_variant_ids is not None:
+            candidate_filters.append(
+                ProductVariant.id.in_(search_variant_ids)
+            )
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
 
