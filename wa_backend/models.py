@@ -2261,6 +2261,13 @@ class ProductBatch(Base):
         UniqueConstraint('company_id', 'product_variant_id', 'batch_number', name='uq_product_batch_number'),
         UniqueConstraint('company_id', 'id', name='uq_product_batches_company_id'),
         UniqueConstraint('company_id', 'product_variant_id', 'id', name='uq_product_batches_variant_id'),
+        Index(
+            'ix_product_batches_batch_page_seek',
+            'company_id',
+            'product_variant_id',
+            'expiry_date',
+            'id',
+        ),
         ForeignKeyConstraint(
             ['company_id', 'product_variant_id'],
             ['product_variants.company_id', 'product_variants.id'],

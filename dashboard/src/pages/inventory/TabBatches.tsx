@@ -30,6 +30,7 @@ interface Props {
 }
 
 const PAGE_SIZE = 50;
+const BATCH_PAGE_SIZE = 100;
 
 const codedError = (code: string): Error & { code: string } => {
   const error = new Error(code) as Error & { code: string };
@@ -66,6 +67,7 @@ export function TabBatches({ locationId }: Props) {
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [details, setDetails] = useState<WarehouseBatchDetailResponse | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [loadingMoreDetails, setLoadingMoreDetails] = useState(false);
   const [detailsFailed, setDetailsFailed] = useState(false);
 
   const productRequestSeq = useRef(0);
@@ -86,6 +88,7 @@ export function TabBatches({ locationId }: Props) {
     setNextCursor(null);
     setSelectedProductId(null);
     setDetails(null);
+    setLoadingMoreDetails(false);
     setDetailsFailed(false);
 
     productRequestSeq.current += 1;
@@ -106,6 +109,7 @@ export function TabBatches({ locationId }: Props) {
       setNextCursor(null);
       setSelectedProductId(null);
       setDetails(null);
+      setLoadingMoreDetails(false);
       setDetailsFailed(false);
       setSearch(next);
     }, 300);
@@ -169,9 +173,12 @@ export function TabBatches({ locationId }: Props) {
     void fetchProducts();
   }, [fetchProducts]);
 
-  const fetchDetails = useCallback(async () => {
+  const fetchDetails = useCallback(async (
+    pageCursor: string | null = null,
+  ) => {
     if (!selectedProduct) {
       setDetails(null);
+      setLoadingMoreDetails(false);
       setDetailsFailed(false);
       return;
     }
@@ -180,14 +187,25 @@ export function TabBatches({ locationId }: Props) {
     detailAbortRef.current?.abort();
     const controller = new AbortController();
     detailAbortRef.current = controller;
-    setLoadingDetails(true);
-    setDetailsFailed(false);
+    if (pageCursor) {
+      setLoadingMoreDetails(true);
+    } else {
+      setLoadingMoreDetails(false);
+      setLoadingDetails(true);
+      setDetailsFailed(false);
+    }
 
     try {
+      const params = new URLSearchParams({
+        location_id: String(locationId),
+        limit: String(BATCH_PAGE_SIZE),
+      });
+      if (pageCursor) params.set("cursor", pageCursor);
+
       const raw = await authFetch(
         `/warehouse/inventory/${encodeURIComponent(
           String(selectedProduct.id),
-        )}/batches?location_id=${encodeURIComponent(String(locationId))}`,
+        )}/batches?${params.toString()}`,
         { signal: controller.signal },
       );
       if (requestSeq !== detailRequestSeq.current) return;
@@ -201,12 +219,28 @@ export function TabBatches({ locationId }: Props) {
       ) {
         throw codedError("LIVE_STOCK_BATCH_SCOPE_MISMATCH");
       }
-      setDetails(parsed);
+
+      setDetails((current) => {
+        if (!pageCursor || current === null) return parsed;
+
+        const seen = new Set(
+          current.batches.map((batch) => batch.batch_id),
+        );
+        const appended = parsed.batches.filter(
+          (batch) => !seen.has(batch.batch_id),
+        );
+        return {
+          ...parsed,
+          batches: [...current.batches, ...appended],
+        };
+      });
     } catch (error: unknown) {
       if (requestSeq !== detailRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      setDetails(null);
-      setDetailsFailed(true);
+      if (!pageCursor) {
+        setDetails(null);
+        setDetailsFailed(true);
+      }
       toast.error(
         apiErrorMessage(error, t("inventoryBatches.errors.details")),
       );
@@ -215,13 +249,17 @@ export function TabBatches({ locationId }: Props) {
         detailAbortRef.current = null;
       }
       if (requestSeq === detailRequestSeq.current) {
-        setLoadingDetails(false);
+        if (pageCursor) {
+          setLoadingMoreDetails(false);
+        } else {
+          setLoadingDetails(false);
+        }
       }
     }
   }, [authFetch, locationId, selectedProduct, t]);
 
   useEffect(() => {
-    void fetchDetails();
+    void fetchDetails(null);
   }, [fetchDetails]);
 
   const formatDate = useCallback(
@@ -343,9 +381,12 @@ export function TabBatches({ locationId }: Props) {
               </div>
               {details && (
                 <span className="inventory-batches-count">
-                  {t("inventoryBatches.batchCount", {
-                    count: details.batches.length,
-                  })}
+                  {t(
+                    details.has_more
+                      ? "inventoryBatches.loadedBatchCount"
+                      : "inventoryBatches.batchCount",
+                    { count: details.batches.length },
+                  )}
                 </span>
               )}
             </header>
@@ -516,6 +557,23 @@ export function TabBatches({ locationId }: Props) {
                       })}
                     </tbody>
                   </table>
+                  {details.has_more && details.next_cursor && (
+                    <div className="inventory-batches-page-more">
+                      <button
+                        type="button"
+                        className="inventory-batches-load-more"
+                        disabled={loadingMoreDetails}
+                        onClick={() => {
+                          const next = details.next_cursor;
+                          if (next) void fetchDetails(next);
+                        }}
+                      >
+                        {loadingMoreDetails
+                          ? t("common.loading")
+                          : t("inventoryBatches.loadMoreBatches")}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
           </>

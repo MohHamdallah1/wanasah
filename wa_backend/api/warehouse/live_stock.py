@@ -1,6 +1,6 @@
 from decimal import Decimal
 import logging
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -44,7 +44,9 @@ from schemas import (
 )
 
 from ._shared import (
+    _decode_batch_cursor,
     _decode_variant_cursor,
+    _encode_batch_cursor,
     _encode_variant_cursor,
     _escape_like,
     _warehouse_array_membership,
@@ -1495,6 +1497,14 @@ async def get_warehouse_inventory(
 async def get_warehouse_inventory_batches(
     product_variant_id: int,
     location_id: int,
+    cursor: Annotated[
+        Optional[str],
+        Query(max_length=1024),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=200),
+    ] = 100,
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_driver),
 ):
@@ -1502,6 +1512,20 @@ async def get_warehouse_inventory_batches(
     company_id = current_admin.company_id
 
     try:
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise HTTPException(
+                status_code=422,
+                detail="Batch page limit must be between 1 and 200.",
+            )
+        if cursor is not None and (
+            not isinstance(cursor, str)
+            or not cursor
+            or len(cursor) > 1024
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Batch cursor format is invalid.",
+            )
         location_access_row = (
             await db.execute(
                 select(
@@ -1595,142 +1619,229 @@ async def get_warehouse_inventory_batches(
             ),
         )
 
-        batch_stmt = (
-            select(
-                ProductBatch.id.label("batch_id"),
-                ProductBatch.batch_number,
-                ProductBatch.production_date,
-                ProductBatch.expiry_date,
-                ProductBatch.disposition,
-                func.sum(
-                    InventoryBalance.on_hand_quantity
-                ).label("on_hand_total"),
-                func.sum(
-                    InventoryBalance.reserved_quantity
-                ).label("reserved_total"),
-                func.sum(
-                    case(
-                        (
-                            and_(
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                batch_is_sellable,
-                            ),
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("sellable_on_hand"),
-                func.sum(
-                    case(
-                        (
-                            and_(
-                                InventoryBalance.stock_status == "AVAILABLE",
-                                batch_is_sellable,
-                            ),
-                            InventoryBalance.reserved_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("sellable_reserved"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "QUARANTINED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("quarantined_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "BLOCKED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("blocked_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "RECALLED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("recalled_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status == "DAMAGED",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("damaged_quantity"),
-                func.sum(
-                    case(
-                        (
-                            InventoryBalance.stock_status
-                            == "DISPOSAL_PENDING",
-                            InventoryBalance.on_hand_quantity,
-                        ),
-                        else_=0,
-                    )
-                ).label("disposal_pending_quantity"),
+        batch_cursor_scope = (
+            f"company={company_id}|location={location_id}|"
+            f"variant={product_variant_id}"
+        )
+        batch_cursor_predicate = true()
+        if cursor:
+            cursor_expiry_date, cursor_batch_id = _decode_batch_cursor(
+                cursor,
+                expected_scope=batch_cursor_scope,
             )
-            .join(
-                ProductBatch,
-                and_(
-                    ProductBatch.company_id
-                    == InventoryBalance.company_id,
-                    ProductBatch.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    ProductBatch.id == InventoryBalance.batch_id,
-                ),
-            )
-            .join(
-                ProductVariant,
-                and_(
-                    ProductVariant.company_id
-                    == InventoryBalance.company_id,
-                    ProductVariant.id
-                    == InventoryBalance.product_variant_id,
-                ),
-            )
-            .outerjoin(
-                InventoryStockPolicy,
-                and_(
-                    InventoryStockPolicy.company_id
-                    == InventoryBalance.company_id,
-                    InventoryStockPolicy.location_id == location_id,
-                    InventoryStockPolicy.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    InventoryStockPolicy.is_active.is_(True),
-                ),
-            )
-            .filter(
+            if cursor_expiry_date is None:
+                batch_cursor_predicate = and_(
+                    ProductBatch.expiry_date.is_(None),
+                    ProductBatch.id > cursor_batch_id,
+                )
+            else:
+                batch_cursor_predicate = or_(
+                    ProductBatch.expiry_date > cursor_expiry_date,
+                    and_(
+                        ProductBatch.expiry_date == cursor_expiry_date,
+                        ProductBatch.id > cursor_batch_id,
+                    ),
+                    ProductBatch.expiry_date.is_(None),
+                )
+
+        batch_presence = (
+            select(1)
+            .select_from(InventoryBalance)
+            .where(
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == location_id,
                 InventoryBalance.product_variant_id
                 == product_variant_id,
+                InventoryBalance.batch_id == ProductBatch.id,
                 InventoryBalance.on_hand_quantity > 0,
             )
-            .group_by(
-                ProductBatch.id,
-                ProductBatch.batch_number,
-                ProductBatch.production_date,
+            .exists()
+        )
+
+        batch_candidate_stmt = (
+            select(
+                ProductBatch.id.label("batch_id"),
                 ProductBatch.expiry_date,
-                ProductBatch.disposition,
+            )
+            .prefix_with("/* inventory_batch_candidates */")
+            .where(
+                ProductBatch.company_id == company_id,
+                ProductBatch.product_variant_id == product_variant_id,
+                batch_presence,
+                batch_cursor_predicate,
             )
             .order_by(
                 ProductBatch.expiry_date.asc().nulls_last(),
                 ProductBatch.id.asc(),
             )
+            .limit(limit + 1)
         )
 
-        batch_rows = (await db.execute(batch_stmt)).all()
-        batch_ids = [int(row.batch_id) for row in batch_rows]
+        candidate_rows = (
+            await db.execute(batch_candidate_stmt)
+        ).all()
+        has_more = len(candidate_rows) > limit
+        page_candidates = candidate_rows[:limit]
+        batch_ids = [
+            int(row.batch_id)
+            for row in page_candidates
+        ]
+
+        next_cursor = None
+        if has_more and page_candidates:
+            last_candidate = page_candidates[-1]
+            next_cursor = _encode_batch_cursor(
+                expiry_date=last_candidate.expiry_date,
+                batch_id=int(last_candidate.batch_id),
+                scope=batch_cursor_scope,
+            )
+
+        batch_rows = []
+        if batch_ids:
+            batch_stmt = (
+                select(
+                    ProductBatch.id.label("batch_id"),
+                    ProductBatch.batch_number,
+                    ProductBatch.production_date,
+                    ProductBatch.expiry_date,
+                    ProductBatch.disposition,
+                    func.sum(
+                        InventoryBalance.on_hand_quantity
+                    ).label("on_hand_total"),
+                    func.sum(
+                        InventoryBalance.reserved_quantity
+                    ).label("reserved_total"),
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    InventoryBalance.stock_status
+                                    == "AVAILABLE",
+                                    batch_is_sellable,
+                                ),
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("sellable_on_hand"),
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    InventoryBalance.stock_status
+                                    == "AVAILABLE",
+                                    batch_is_sellable,
+                                ),
+                                InventoryBalance.reserved_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("sellable_reserved"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "QUARANTINED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("quarantined_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "BLOCKED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("blocked_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "RECALLED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("recalled_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "DAMAGED",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("damaged_quantity"),
+                    func.sum(
+                        case(
+                            (
+                                InventoryBalance.stock_status
+                                == "DISPOSAL_PENDING",
+                                InventoryBalance.on_hand_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("disposal_pending_quantity"),
+                )
+                .prefix_with("/* inventory_batch_aggregate */")
+                .join(
+                    ProductBatch,
+                    and_(
+                        ProductBatch.id == InventoryBalance.batch_id,
+                        ProductBatch.company_id == company_id,
+                        ProductBatch.product_variant_id
+                        == product_variant_id,
+                    ),
+                )
+                .join(
+                    ProductVariant,
+                    and_(
+                        ProductVariant.company_id
+                        == InventoryBalance.company_id,
+                        ProductVariant.id
+                        == InventoryBalance.product_variant_id,
+                    ),
+                )
+                .outerjoin(
+                    InventoryStockPolicy,
+                    and_(
+                        InventoryStockPolicy.company_id
+                        == InventoryBalance.company_id,
+                        InventoryStockPolicy.location_id == location_id,
+                        InventoryStockPolicy.product_variant_id
+                        == InventoryBalance.product_variant_id,
+                        InventoryStockPolicy.is_active.is_(True),
+                    ),
+                )
+                .filter(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.location_id == location_id,
+                    InventoryBalance.product_variant_id
+                    == product_variant_id,
+                    InventoryBalance.batch_id.in_(batch_ids),
+                    ProductBatch.id.in_(batch_ids),
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+                .group_by(
+                    ProductBatch.id,
+                    ProductBatch.batch_number,
+                    ProductBatch.production_date,
+                    ProductBatch.expiry_date,
+                    ProductBatch.disposition,
+                )
+                .order_by(
+                    ProductBatch.expiry_date.asc().nulls_last(),
+                    ProductBatch.id.asc(),
+                )
+            )
+
+            batch_rows = (await db.execute(batch_stmt)).all()
+
 
         latest_purchase_by_batch = {}
         purchase_count_by_batch = {}
@@ -1946,6 +2057,8 @@ async def get_warehouse_inventory_batches(
             "product_variant_id": product_variant_id,
             "currency_code": str(currency_code).upper(),
             "batches": batches,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
         }
 
     except HTTPException:

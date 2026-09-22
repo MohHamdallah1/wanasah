@@ -43,11 +43,23 @@ check(
 )
 
 check(
-    "/batches?location_id=" in batches
+    "/batches?${params.toString()}" in batches
+    and "limit: String(BATCH_PAGE_SIZE)" in batches
+    and 'if (pageCursor) params.set("cursor", pageCursor)' in batches
     and "parseBatchDetailResponse" in batches
     and "parsed.location_id !== locationId" in batches
     and "parsed.product_variant_id !== selectedProduct.id" in batches,
-    "batch page reuses the existing backend endpoint and validates warehouse/product scope",
+    "batch page uses bounded cursor requests and validates warehouse/product scope",
+)
+
+check(
+    "details.has_more && details.next_cursor" in batches
+    and "inventoryBatches.loadMoreBatches" in batches
+    and "current.batches.map" in batches
+    and "next_cursor: string | null" in contracts
+    and "has_more: boolean" in contracts
+    and "page.has_more !== (nextCursor !== null)" in contracts,
+    "batch page appends bounded pages with a fail-closed cursor contract",
 )
 
 check(

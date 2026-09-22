@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+from datetime import date
 from typing import Optional
 
 from fastapi import HTTPException
@@ -99,6 +100,82 @@ def _decode_variant_cursor(
         raise HTTPException(
             status_code=400,
             detail="Cursor الصفحة غير صالح أو لا يطابق معايير الاستعلام الحالي.",
+        ) from exc
+
+
+# إنشاء بصمة ثابتة لنطاق Cursor تفاصيل دفعات منتج واحد.
+def _batch_cursor_scope_hash(scope: str) -> str:
+    return hashlib.sha256(scope.encode("utf-8")).hexdigest()[:24]
+
+
+# ترميز Cursor الدفعات وفق ترتيب expiry_date ASC NULLS LAST ثم batch_id ASC.
+def _encode_batch_cursor(
+    *,
+    expiry_date: date | None,
+    batch_id: int,
+    scope: str,
+) -> str:
+    raw = json.dumps(
+        {
+            "v": 1,
+            "kind": "warehouse-inventory-batches",
+            "scope": _batch_cursor_scope_hash(scope),
+            "expiry": (
+                expiry_date.isoformat()
+                if expiry_date is not None
+                else None
+            ),
+            "id": int(batch_id),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+# فك Cursor الدفعات والتحقق من نوعه ونطاقه وقيمة مفتاح الترتيب.
+def _decode_batch_cursor(
+    cursor: str,
+    *,
+    expected_scope: str,
+) -> tuple[date | None, int]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode((cursor + padding).encode("ascii"))
+        payload = json.loads(raw.decode("utf-8"))
+
+        if (
+            not isinstance(payload, dict)
+            or payload.get("v") != 1
+            or payload.get("kind") != "warehouse-inventory-batches"
+            or payload.get("scope")
+            != _batch_cursor_scope_hash(expected_scope)
+        ):
+            raise ValueError
+
+        raw_expiry = payload.get("expiry")
+        if raw_expiry is None:
+            expiry_date = None
+        elif (
+            isinstance(raw_expiry, str)
+            and len(raw_expiry) == 10
+        ):
+            expiry_date = date.fromisoformat(raw_expiry)
+        else:
+            raise ValueError
+
+        batch_id = payload.get("id")
+        if type(batch_id) is not int or batch_id <= 0:
+            raise ValueError
+
+        return expiry_date, batch_id
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Cursor صفحة الدفعات غير صالح أو لا يطابق "
+                "المستودع والمنتج الحاليين."
+            ),
         ) from exc
 
 

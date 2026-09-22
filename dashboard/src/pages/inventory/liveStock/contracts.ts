@@ -290,6 +290,8 @@ export interface WarehouseBatchDetailResponse {
   product_variant_id: number;
   currency_code: string;
   batches: WarehouseBatchInventoryItem[];
+  next_cursor: string | null;
+  has_more: boolean;
 }
 
 export function parseLiveStockPage(
@@ -497,7 +499,8 @@ export function parseBatchDetailResponse(
   const page = record(raw, code);
   if (
     !Array.isArray(page.batches) ||
-    page.batches.length > 500
+    page.batches.length > 200 ||
+    typeof page.has_more !== "boolean"
   ) {
     return contractError(code);
   }
@@ -618,6 +621,14 @@ export function parseBatchDetailResponse(
     };
   });
 
+  const nextCursor =
+    page.next_cursor === null
+      ? null
+      : str(page.next_cursor, code, 1024);
+  if (page.has_more !== (nextCursor !== null)) {
+    return contractError(code);
+  }
+
   return {
     location_id: int(page.location_id, code, 1),
     product_variant_id: int(
@@ -627,5 +638,7 @@ export function parseBatchDetailResponse(
     ),
     currency_code: str(page.currency_code, code, 10),
     batches,
+    next_cursor: nextCursor,
+    has_more: page.has_more,
   };
 }
