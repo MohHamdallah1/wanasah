@@ -1663,6 +1663,7 @@ async def get_warehouse_inventory_batches(
                 ProductBatch.id.label("batch_id"),
                 ProductBatch.expiry_date,
             )
+            .prefix_with("/* inventory_batch_candidates */")
             .where(
                 ProductBatch.company_id == company_id,
                 ProductBatch.product_variant_id == product_variant_id,
@@ -1787,6 +1788,7 @@ async def get_warehouse_inventory_batches(
                         )
                     ).label("disposal_pending_quantity"),
                 )
+                .prefix_with("/* inventory_batch_aggregate */")
                 .join(
                     ProductBatch,
                     and_(
