@@ -190,6 +190,7 @@ export function TabBatches({ locationId }: Props) {
     if (pageCursor) {
       setLoadingMoreDetails(true);
     } else {
+      setLoadingMoreDetails(false);
       setLoadingDetails(true);
       setDetailsFailed(false);
     }
