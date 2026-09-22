@@ -51,6 +51,37 @@ from scripts.inspect_inventory_batches_pagination_plan import (  # noqa: E402
 EXPERIMENT_INDEX = "ix_experiment_product_batches_page_seek"
 
 
+async def ddl_capability(db) -> tuple[str, str, bool]:
+    row = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    current_user AS current_user,
+                    owner.rolname AS table_owner,
+                    current_setting('is_superuser') = 'on' AS is_superuser
+                FROM pg_class AS rel
+                JOIN pg_namespace AS ns
+                  ON ns.oid = rel.relnamespace
+                JOIN pg_roles AS owner
+                  ON owner.oid = rel.relowner
+                WHERE ns.nspname = current_schema()
+                  AND rel.relname = 'product_batches'
+                  AND rel.relkind = 'r'
+                """
+            )
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        raise RuntimeError("product_batches table metadata was not found.")
+
+    return (
+        str(row["current_user"]),
+        str(row["table_owner"]),
+        bool(row["is_superuser"]),
+    )
+
+
 async def index_exists(db) -> bool:
     return bool(
         await db.scalar(
@@ -89,6 +120,23 @@ async def async_main(args: argparse.Namespace) -> None:
             raise RuntimeError(
                 f"Experiment index already exists: {EXPERIMENT_INDEX}"
             )
+
+        current_user, table_owner, is_superuser = (
+            await ddl_capability(db)
+        )
+        if current_user != table_owner and not is_superuser:
+            print(
+                "INDEX_DDL_UNAVAILABLE "
+                f"current_user={current_user} "
+                f"table_owner={table_owner} "
+                f"is_superuser={str(is_superuser).lower()}"
+            )
+            print(
+                "INVENTORY_BATCH_SEEK_INDEX_EXPERIMENT=SKIP "
+                "reason=ddl_requires_table_owner "
+                "database_unchanged=true"
+            )
+            return
 
         await add_scale_fixture(
             db=db,
