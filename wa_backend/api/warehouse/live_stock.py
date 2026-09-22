@@ -833,20 +833,6 @@ async def get_warehouse_inventory(
     company_id = current_admin.company_id
 
     try:
-        if type(limit) is not int or not 1 <= limit <= 200:
-            raise HTTPException(
-                status_code=422,
-                detail="Batch page limit must be between 1 and 200.",
-            )
-        if cursor is not None and (
-            not isinstance(cursor, str)
-            or not cursor
-            or len(cursor) > 1024
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="Batch cursor format is invalid.",
-            )
         company_wide_inventory_read = (
             await _require_live_stock_warehouse_read(
                 db,
@@ -1526,6 +1512,20 @@ async def get_warehouse_inventory_batches(
     company_id = current_admin.company_id
 
     try:
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise HTTPException(
+                status_code=422,
+                detail="Batch page limit must be between 1 and 200.",
+            )
+        if cursor is not None and (
+            not isinstance(cursor, str)
+            or not cursor
+            or len(cursor) > 1024
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Batch cursor format is invalid.",
+            )
         location_access_row = (
             await db.execute(
                 select(
