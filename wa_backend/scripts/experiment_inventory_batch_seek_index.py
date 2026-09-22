@@ -5,7 +5,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 
 def find_backend_root() -> Path:
@@ -41,6 +41,7 @@ from scripts.gate_inventory_batches_roundtrip import (  # noqa: E402
     resolve_target,
 )
 from scripts.inspect_inventory_batches_pagination_plan import (  # noqa: E402
+    capture_batch_sql,
     capture_endpoint_query,
     explain,
     print_plan,
@@ -184,9 +185,19 @@ def parse_args() -> argparse.Namespace:
 
 
 async def _run() -> None:
+    event.listen(
+        engine.sync_engine,
+        "before_cursor_execute",
+        capture_batch_sql,
+    )
     try:
         await async_main(parse_args())
     finally:
+        event.remove(
+            engine.sync_engine,
+            "before_cursor_execute",
+            capture_batch_sql,
+        )
         await engine.dispose()
 
 
