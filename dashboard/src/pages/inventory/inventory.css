@@ -1703,6 +1703,18 @@
   font-weight: 850;
 }
 
+.inventory-batches-page-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.8rem;
+}
+
+.inventory-batches-page-more .inventory-batches-load-more {
+  min-width: 10rem;
+  padding: 0.45rem 0.9rem;
+}
+
+
 .inventory-batches-details {
   display: flex;
   min-width: 0;
