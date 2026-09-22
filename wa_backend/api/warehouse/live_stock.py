@@ -1,6 +1,6 @@
 from decimal import Decimal
 import logging
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -44,7 +44,9 @@ from schemas import (
 )
 
 from ._shared import (
+    _decode_batch_cursor,
     _decode_variant_cursor,
+    _encode_batch_cursor,
     _encode_variant_cursor,
     _escape_like,
     _warehouse_array_membership,
@@ -1495,6 +1497,14 @@ async def get_warehouse_inventory(
 async def get_warehouse_inventory_batches(
     product_variant_id: int,
     location_id: int,
+    cursor: Annotated[
+        Optional[str],
+        Query(max_length=1024),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=200),
+    ] = 100,
     db: AsyncSession = Depends(get_db),
     current_admin: Driver = Depends(get_current_driver),
 ):
@@ -1594,6 +1604,31 @@ async def get_warehouse_inventory_batches(
                 InventoryStockPolicy.minimum_remaining_shelf_life_days
             ),
         )
+
+        batch_cursor_scope = (
+            f"company={company_id}|location={location_id}|"
+            f"variant={product_variant_id}"
+        )
+        batch_cursor_predicate = true()
+        if cursor:
+            cursor_expiry_date, cursor_batch_id = _decode_batch_cursor(
+                cursor,
+                expected_scope=batch_cursor_scope,
+            )
+            if cursor_expiry_date is None:
+                batch_cursor_predicate = and_(
+                    ProductBatch.expiry_date.is_(None),
+                    ProductBatch.id > cursor_batch_id,
+                )
+            else:
+                batch_cursor_predicate = or_(
+                    ProductBatch.expiry_date > cursor_expiry_date,
+                    and_(
+                        ProductBatch.expiry_date == cursor_expiry_date,
+                        ProductBatch.id > cursor_batch_id,
+                    ),
+                    ProductBatch.expiry_date.is_(None),
+                )
 
         batch_stmt = (
             select(
@@ -1715,6 +1750,7 @@ async def get_warehouse_inventory_batches(
                 InventoryBalance.product_variant_id
                 == product_variant_id,
                 InventoryBalance.on_hand_quantity > 0,
+                batch_cursor_predicate,
             )
             .group_by(
                 ProductBatch.id,
@@ -1727,10 +1763,22 @@ async def get_warehouse_inventory_batches(
                 ProductBatch.expiry_date.asc().nulls_last(),
                 ProductBatch.id.asc(),
             )
+            .limit(limit + 1)
         )
 
-        batch_rows = (await db.execute(batch_stmt)).all()
+        batch_candidates = (await db.execute(batch_stmt)).all()
+        has_more = len(batch_candidates) > limit
+        batch_rows = batch_candidates[:limit]
         batch_ids = [int(row.batch_id) for row in batch_rows]
+
+        next_cursor = None
+        if has_more and batch_rows:
+            last_batch = batch_rows[-1]
+            next_cursor = _encode_batch_cursor(
+                expiry_date=last_batch.expiry_date,
+                batch_id=int(last_batch.batch_id),
+                scope=batch_cursor_scope,
+            )
 
         latest_purchase_by_batch = {}
         purchase_count_by_batch = {}
@@ -1946,6 +1994,8 @@ async def get_warehouse_inventory_batches(
             "product_variant_id": product_variant_id,
             "currency_code": str(currency_code).upper(),
             "batches": batches,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
         }
 
     except HTTPException:
