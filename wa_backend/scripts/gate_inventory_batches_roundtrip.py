@@ -748,7 +748,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--product-variant-id", type=int)
     parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=3)
-    parser.add_argument("--max-sql-statements", type=int, default=3)
+    parser.add_argument("--max-sql-statements", type=int, default=4)
 
     args = parser.parse_args()
     if args.company_id <= 0:
