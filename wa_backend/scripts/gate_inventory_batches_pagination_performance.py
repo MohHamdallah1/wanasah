@@ -377,8 +377,33 @@ async def async_main(args: argparse.Namespace) -> None:
                 "Scale first page did not expose continuation."
             )
 
+        baseline_scale_elapsed = [
+            sample.elapsed_ms for sample in scale_baseline
+        ]
+        current_scale_elapsed = [
+            sample.elapsed_ms for sample in scale_current
+        ]
+        baseline_scale_sql = [
+            sample.sql_ms for sample in scale_baseline
+        ]
+        current_scale_sql = [
+            sample.sql_ms for sample in scale_current
+        ]
+        baseline_p50 = percentile(baseline_scale_elapsed, 0.50)
+        current_p50 = percentile(current_scale_elapsed, 0.50)
+        baseline_p95 = percentile(baseline_scale_elapsed, 0.95)
+        current_p95 = percentile(current_scale_elapsed, 0.95)
+        baseline_sql_p95 = percentile(baseline_scale_sql, 0.95)
+        current_sql_p95 = percentile(current_scale_sql, 0.95)
+
         print(
-            "INVENTORY_BATCHES_PAGINATION_PERF=PASS "
+            "SCALE_COMPARISON "
+            f"p50_ratio={current_p50 / baseline_p50:.3f} "
+            f"p95_ratio={current_p95 / baseline_p95:.3f} "
+            f"sql_p95_ratio={current_sql_p95 / baseline_sql_p95:.3f}"
+        )
+        print(
+            "INVENTORY_BATCHES_PAGINATION_BENCHMARK=COMPLETE "
             "fixtures_rolled_back=true"
         )
     finally:
