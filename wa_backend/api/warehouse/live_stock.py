@@ -833,6 +833,20 @@ async def get_warehouse_inventory(
     company_id = current_admin.company_id
 
     try:
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise HTTPException(
+                status_code=422,
+                detail="Batch page limit must be between 1 and 200.",
+            )
+        if cursor is not None and (
+            not isinstance(cursor, str)
+            or not cursor
+            or len(cursor) > 1024
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Batch cursor format is invalid.",
+            )
         company_wide_inventory_read = (
             await _require_live_stock_warehouse_read(
                 db,
@@ -1630,6 +1644,38 @@ async def get_warehouse_inventory_batches(
                     ProductBatch.expiry_date.is_(None),
                 )
 
+        batch_presence = (
+            select(1)
+            .select_from(InventoryBalance)
+            .where(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.product_variant_id
+                == product_variant_id,
+                InventoryBalance.batch_id == ProductBatch.id,
+                InventoryBalance.on_hand_quantity > 0,
+            )
+            .exists()
+        )
+
+        batch_page_candidates = (
+            select(
+                ProductBatch.id.label("batch_id"),
+            )
+            .where(
+                ProductBatch.company_id == company_id,
+                ProductBatch.product_variant_id == product_variant_id,
+                batch_presence,
+                batch_cursor_predicate,
+            )
+            .order_by(
+                ProductBatch.expiry_date.asc().nulls_last(),
+                ProductBatch.id.asc(),
+            )
+            .limit(limit + 1)
+            .subquery("inventory_batch_page_candidates")
+        )
+
         batch_stmt = (
             select(
                 ProductBatch.id.label("batch_id"),
@@ -1714,14 +1760,26 @@ async def get_warehouse_inventory_batches(
                     )
                 ).label("disposal_pending_quantity"),
             )
+            .select_from(batch_page_candidates)
             .join(
                 ProductBatch,
                 and_(
-                    ProductBatch.company_id
-                    == InventoryBalance.company_id,
+                    ProductBatch.company_id == company_id,
                     ProductBatch.product_variant_id
-                    == InventoryBalance.product_variant_id,
-                    ProductBatch.id == InventoryBalance.batch_id,
+                    == product_variant_id,
+                    ProductBatch.id
+                    == batch_page_candidates.c.batch_id,
+                ),
+            )
+            .join(
+                InventoryBalance,
+                and_(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.location_id == location_id,
+                    InventoryBalance.product_variant_id
+                    == product_variant_id,
+                    InventoryBalance.batch_id == ProductBatch.id,
+                    InventoryBalance.on_hand_quantity > 0,
                 ),
             )
             .join(
@@ -1744,14 +1802,6 @@ async def get_warehouse_inventory_batches(
                     InventoryStockPolicy.is_active.is_(True),
                 ),
             )
-            .filter(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id == location_id,
-                InventoryBalance.product_variant_id
-                == product_variant_id,
-                InventoryBalance.on_hand_quantity > 0,
-                batch_cursor_predicate,
-            )
             .group_by(
                 ProductBatch.id,
                 ProductBatch.batch_number,
@@ -1763,7 +1813,6 @@ async def get_warehouse_inventory_batches(
                 ProductBatch.expiry_date.asc().nulls_last(),
                 ProductBatch.id.asc(),
             )
-            .limit(limit + 1)
         )
 
         batch_candidates = (await db.execute(batch_stmt)).all()
