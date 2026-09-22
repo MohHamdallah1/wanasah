@@ -1499,20 +1499,44 @@ async def get_warehouse_inventory_batches(
     current_admin: Driver = Depends(get_current_driver),
 ):
     access = InventoryAccess(db, current_admin)
-    await access.require("inventory.read", location_id)
-
     company_id = current_admin.company_id
 
     try:
-        location_exists = await db.scalar(
-            select(InventoryLocation.id).filter(
-                InventoryLocation.id == location_id,
-                InventoryLocation.company_id == company_id,
-                InventoryLocation.location_type == "WAREHOUSE",
-                InventoryLocation.is_active.is_(True),
+        location_access_row = (
+            await db.execute(
+                select(
+                    InventoryLocation.location_type,
+                    InventoryLocation.is_active,
+                    access.allows(
+                        "inventory.read",
+                        location_id,
+                    ).label("can_read"),
+                ).where(
+                    InventoryLocation.id == location_id,
+                    InventoryLocation.company_id == company_id,
+                )
             )
-        )
-        if location_exists is None:
+        ).one_or_none()
+
+        if location_access_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="الموقع غير موجود أو غير متاح.",
+            )
+
+        if not bool(location_access_row.can_read):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "لا تملك صلاحية تنفيذ هذه العملية "
+                    "ضمن الموقع المحدد."
+                ),
+            )
+
+        if (
+            location_access_row.location_type != "WAREHOUSE"
+            or not bool(location_access_row.is_active)
+        ):
             raise HTTPException(
                 status_code=404,
                 detail=inventory_business_error(
