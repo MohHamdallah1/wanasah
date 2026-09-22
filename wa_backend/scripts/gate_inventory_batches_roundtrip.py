@@ -7,9 +7,11 @@ import math
 import sys
 import time
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import event, func, select, text
@@ -42,7 +44,13 @@ if str(BACKEND_ROOT) not in sys.path:
 from api.warehouse.live_stock import get_warehouse_inventory_batches  # noqa: E402
 from context import tenant_context  # noqa: E402
 from database import AsyncSessionLocal, engine  # noqa: E402
-from models import Driver, InventoryBalance, InventoryLocation, ProductVariant  # noqa: E402
+from models import (  # noqa: E402
+    Driver,
+    InventoryBalance,
+    InventoryLocation,
+    ProductBatch,
+    ProductVariant,
+)
 
 
 SQL_BUCKET: contextvars.ContextVar[list[tuple[str, float]] | None] = (
@@ -328,9 +336,26 @@ def validate_payload(
     batches = payload.get("batches")
     if not isinstance(batches, list):
         raise RuntimeError("Batch response batches contract changed.")
+    if len(batches) > 200:
+        raise RuntimeError("Batch response exceeded the hard page bound.")
     if not batches:
         raise RuntimeError(
             "Selected benchmark product produced no batch rows."
+        )
+
+    has_more = payload.get("has_more")
+    next_cursor = payload.get("next_cursor")
+    if type(has_more) is not bool:
+        raise RuntimeError("Batch response has_more contract changed.")
+    if next_cursor is not None and (
+        not isinstance(next_cursor, str)
+        or not next_cursor
+        or len(next_cursor) > 1024
+    ):
+        raise RuntimeError("Batch response next_cursor contract changed.")
+    if has_more != (next_cursor is not None):
+        raise RuntimeError(
+            "Batch response cursor/has_more invariant changed."
         )
 
     required = {
@@ -577,7 +602,199 @@ async def assert_existing_empty_variant_200(
             raise RuntimeError(
                 "Empty-batches response lost company currency metadata."
             )
+        if payload.get("has_more") is not False:
+            raise RuntimeError(
+                "Empty-batches response must be terminal."
+            )
+        if payload.get("next_cursor") is not None:
+            raise RuntimeError(
+                "Empty-batches response must not expose a next cursor."
+            )
     finally:
+        tenant_context.reset(tenant_token)
+        await db.close()
+
+
+async def assert_bounded_cursor_pagination(
+    *,
+    company_id: int,
+    driver_id: int,
+    location_id: int,
+    product_variant_id: int,
+) -> None:
+    db, driver, tenant_token = await prepare_session(
+        company_id,
+        driver_id,
+    )
+    try:
+        prefix = f"page-gate-{uuid4().hex[:12]}"
+        fixture_batches = []
+        base_expiry = date(2035, 1, 1)
+
+        for index in range(205):
+            batch = ProductBatch(
+                company_id=company_id,
+                product_variant_id=product_variant_id,
+                batch_number=f"{prefix}-{index:03d}",
+                production_date=None,
+                expiry_date=(
+                    None
+                    if index >= 203
+                    else base_expiry + timedelta(days=index)
+                ),
+                disposition="RELEASED",
+            )
+            db.add(batch)
+            fixture_batches.append(batch)
+
+        await db.flush()
+
+        db.add_all(
+            [
+                InventoryBalance(
+                    company_id=company_id,
+                    location_id=location_id,
+                    product_variant_id=product_variant_id,
+                    batch_id=int(batch.id),
+                    stock_status="AVAILABLE",
+                    on_hand_quantity=1,
+                    reserved_quantity=0,
+                )
+                for batch in fixture_batches
+            ]
+        )
+        await db.flush()
+
+        expected_total = int(
+            await db.scalar(
+                select(
+                    func.count(
+                        func.distinct(InventoryBalance.batch_id)
+                    )
+                ).where(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.location_id == location_id,
+                    InventoryBalance.product_variant_id
+                    == product_variant_id,
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+            )
+            or 0
+        )
+        if expected_total < 205:
+            raise RuntimeError(
+                "Pagination fixture did not create the expected batch scale."
+            )
+
+        cursor = None
+        rows: list[dict[str, Any]] = []
+        page_lengths: list[int] = []
+        first_cursor: str | None = None
+        max_pages = (expected_total + 99) // 100
+
+        for page_index in range(max_pages + 1):
+            payload = await get_warehouse_inventory_batches(
+                product_variant_id=product_variant_id,
+                location_id=location_id,
+                cursor=cursor,
+                limit=100,
+                db=db,
+                current_admin=driver,
+            )
+            validate_payload(
+                payload,
+                location_id=location_id,
+                product_variant_id=product_variant_id,
+            )
+
+            page_rows = payload["batches"]
+            page_lengths.append(len(page_rows))
+            rows.extend(page_rows)
+
+            if page_index == 0:
+                first_cursor = payload["next_cursor"]
+
+            if not payload["has_more"]:
+                break
+
+            cursor = payload["next_cursor"]
+        else:
+            raise RuntimeError(
+                "Batch cursor pagination did not terminate."
+            )
+
+        if len(page_lengths) < 3:
+            raise RuntimeError(
+                "Scale pagination did not span at least three pages."
+            )
+        if page_lengths[0] != 100 or page_lengths[1] != 100:
+            raise RuntimeError(
+                "Batch pagination did not enforce the requested page size."
+            )
+        if any(length < 1 or length > 100 for length in page_lengths):
+            raise RuntimeError(
+                "Batch pagination emitted an invalid page length."
+            )
+        if len(rows) != expected_total:
+            raise RuntimeError(
+                "Batch pagination lost or duplicated rows across pages."
+            )
+
+        ids = [int(row["batch_id"]) for row in rows]
+        if len(ids) != len(set(ids)):
+            raise RuntimeError(
+                "Batch cursor pagination returned duplicate batch ids."
+            )
+
+        def ordering_key(row: dict[str, Any]):
+            expiry = row["expiry_date"]
+            return (
+                expiry is None,
+                expiry if expiry is not None else date.max,
+                int(row["batch_id"]),
+            )
+
+        if rows != sorted(rows, key=ordering_key):
+            raise RuntimeError(
+                "Batch cursor pagination violated expiry/id ordering."
+            )
+
+        if not first_cursor:
+            raise RuntimeError(
+                "First bounded batch page did not expose a cursor."
+            )
+        tampered_cursor = (
+            ("A" if first_cursor[0] != "A" else "B")
+            + first_cursor[1:]
+        )
+        try:
+            await get_warehouse_inventory_batches(
+                product_variant_id=product_variant_id,
+                location_id=location_id,
+                cursor=tampered_cursor,
+                limit=100,
+                db=db,
+                current_admin=driver,
+            )
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise RuntimeError(
+                    "Tampered batch cursor no longer returns 400."
+                ) from exc
+        else:
+            raise RuntimeError(
+                "Tampered batch cursor unexpectedly succeeded."
+            )
+
+        print(
+            "PAGINATION "
+            f"rows={expected_total} "
+            f"pages={page_lengths} "
+            "cursor_tamper=400 "
+            "rollback_only=true"
+        )
+    finally:
+        await db.rollback()
         tenant_context.reset(tenant_token)
         await db.close()
 
@@ -680,6 +897,13 @@ async def async_main(args: argparse.Namespace) -> None:
         location_id=location_id,
     )
 
+    await assert_bounded_cursor_pagination(
+        company_id=args.company_id,
+        driver_id=driver_id,
+        location_id=location_id,
+        product_variant_id=product_variant_id,
+    )
+
     await assert_missing_location_404(
         company_id=args.company_id,
         driver_id=driver_id,
@@ -723,7 +947,7 @@ async def async_main(args: argparse.Namespace) -> None:
         f"sql_p95={percentile(sql_times, 0.95):.2f}ms"
     )
     print("SQL_SEQUENCE=" + " -> ".join(sequence))
-    print("CHECKS=7")
+    print("CHECKS=8")
     print(f"FAILURES={len(failures)}")
 
     if failures:
