@@ -29,8 +29,19 @@ schemas = SCHEMAS.read_text(encoding="utf-8")
 live = LIVE.read_text(encoding="utf-8")
 main = MAIN.read_text(encoding="utf-8")
 contracts = CONTRACTS.read_text(encoding="utf-8")
+SEARCH_MIGRATION = (
+    BACKEND
+    / "alembic"
+    / "versions"
+    / "d4a7c9e2f1b5_live_stock_native_trgm_search.py"
+)
+search_migration = SEARCH_MIGRATION.read_text(encoding="utf-8")
 
-for path, source in ((WAREHOUSE, warehouse), (SCHEMAS, schemas)):
+for path, source in (
+    (WAREHOUSE, warehouse),
+    (SCHEMAS, schemas),
+    (SEARCH_MIGRATION, search_migration),
+):
     try:
         ast.parse(source)
     except SyntaxError as exc:
@@ -132,15 +143,39 @@ check(
     "unchanged empty search cannot clear a freshly loaded Live Stock page",
 )
 check(
-    "const firstLocationId = page.items[0].id;" in main
-    and "setSelectedLocationId(firstLocationId);" in main,
+    "const nextLocationId = savedIsValid" in main
+    and ": currentIsValid" in main
+    and ": page.items[0]?.id ?? null;" in main
+    and "setSelectedLocationId(nextLocationId);" in main,
     "Live Stock automatically selects the first accessible warehouse when no valid preference exists",
 )
 check(
-    'search_tokens = clean_search.split()' in warehouse
-    and 'for token in search_tokens' in warehouse
-    and 'func.coalesce(ProductVariant.sku, "")' in warehouse,
-    "Live Stock search treats whitespace-separated terms as order-independent AND tokens across product name/SKU",
+    'search_patterns = [' in warehouse
+    and 'f"%{_escape_like(token)}%"' in warehouse
+    and 'func.public.live_stock_search_variant_ids(' in warehouse
+    and 'ProductVariant.id.in_(search_variant_ids)' in warehouse,
+    "Live Stock search delegates exact escaped substring matching to the tenant-scoped native search function",
+)
+check(
+    'USING gin (' in search_migration
+    and 'company_id,' in search_migration
+    and 'gin_trgm_ops' in search_migration
+    and 'SECURITY DEFINER' in search_migration
+    and 'SET search_path = pg_catalog, pg_temp' in search_migration
+    and 'SET row_security = off' in search_migration
+    and "'app.current_tenant'" in search_migration
+    and 'expected_company_id IS DISTINCT FROM tenant_id' in search_migration
+    and 'REVOKE ALL ON FUNCTION' in search_migration
+    and 'GRANT EXECUTE ON FUNCTION' in search_migration,
+    "native trigram search function is tenant-bound and security-definer hardened",
+)
+check(
+    'ProductVariant.company_id == company_id' in warehouse
+    and 'InventoryLiveStockProjection.company_id' in warehouse
+    and '== ProductVariant.company_id' in warehouse
+    and 'InventoryLiveStockProjection.warehouse_location_id' in warehouse
+    and '== location_id' in warehouse,
+    "Live Stock outer query keeps explicit tenant and selected-warehouse isolation",
 )
 check(
     "LIVE_STOCK_SEARCH_TOO_SHORT" in warehouse
