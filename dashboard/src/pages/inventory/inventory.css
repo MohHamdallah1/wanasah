@@ -1211,9 +1211,9 @@
 
 .live-stock-search {
   position: relative;
-  width: min(100%, 24rem);
-  flex: 0 1 24rem;
-  min-width: 12rem;
+  width: min(100%, 18rem);
+  flex: 0 0 18rem;
+  min-width: 11rem;
 }
 
 .live-stock-search input {
