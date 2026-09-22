@@ -1673,8 +1673,7 @@ async def get_warehouse_inventory_batches(
                 ProductBatch.id.asc(),
             )
             .limit(limit + 1)
-            .cte("inventory_batch_page_candidates")
-            .prefix_with("MATERIALIZED", dialect="postgresql")
+            .subquery("inventory_batch_page_candidates")
         )
 
         batch_stmt = (
