@@ -43,6 +43,7 @@ interface Props {
   isAuditLocked: boolean;
   products: WarehouseProduct[];
   loading: boolean;
+  pageReady: boolean;
   alertCount: number | null;
   matchingTotal: number | null;
   hasMore: boolean;
@@ -91,6 +92,7 @@ export function Tab1LiveStock({
   isAuditLocked,
   products,
   loading,
+  pageReady,
   alertCount,
   hasMore,
   stockState,
@@ -265,7 +267,7 @@ export function Tab1LiveStock({
                   setSearchInput(event.target.value)
                 }
                 maxLength={100}
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none transition-all"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pe-4 ps-9 text-xs shadow-sm outline-none"
               />
             </div>
 
@@ -524,10 +526,10 @@ export function Tab1LiveStock({
 
         <div
           ref={tableScrollRef}
-          className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto transition-all duration-300 ${
-            loading
-              ? "pointer-events-none select-none opacity-50 grayscale-[20%]"
-              : "opacity-100"
+          className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto ${
+            loading && !pageReady && products.length === 0
+              ? "pointer-events-none select-none"
+              : ""
           }`}
         >
           <table className="live-stock-table" aria-label={t("inventoryShell.tabs.live")} aria-busy={loading}>
@@ -607,7 +609,7 @@ export function Tab1LiveStock({
                     colSpan={10}
                     className="py-14 text-center text-sm font-bold text-slate-400"
                   >
-                    {loading
+                    {loading && !pageReady
                       ? t("common.loading")
                       : t("inventoryLive.noMatches")}
                   </td>
