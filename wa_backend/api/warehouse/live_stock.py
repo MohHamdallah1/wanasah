@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Integer, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
+from sqlalchemy import Date, Integer, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
 
 from api.dependencies import get_current_driver
 from database import get_db
@@ -30,7 +30,6 @@ from models import (
 from quantity import canonical_quantity
 from services import (
     batch_sellability_predicate,
-    get_company_local_date,
     inventory_business_error,
 )
 from domains.live_stock_projection.service import (
@@ -1522,13 +1521,28 @@ async def get_warehouse_inventory_batches(
                 ),
             )
 
-        variant_exists = await db.scalar(
-            select(ProductVariant.id).filter(
-                ProductVariant.id == product_variant_id,
-                ProductVariant.company_id == company_id,
+        variant_company_row = (
+            await db.execute(
+                select(
+                    ProductVariant.id.label("variant_id"),
+                    Company.currency_code.label("currency_code"),
+                    func.timezone(
+                        Company.timezone,
+                        func.current_timestamp(),
+                    ).cast(Date).label("as_of_date"),
+                )
+                .join(
+                    Company,
+                    Company.id == ProductVariant.company_id,
+                )
+                .where(
+                    ProductVariant.id == product_variant_id,
+                    ProductVariant.company_id == company_id,
+                    Company.id == company_id,
+                )
             )
-        )
-        if variant_exists is None:
+        ).one_or_none()
+        if variant_company_row is None:
             raise HTTPException(
                 status_code=404,
                 detail=inventory_business_error(
@@ -1537,7 +1551,17 @@ async def get_warehouse_inventory_batches(
                 ),
             )
 
-        as_of_date = await get_company_local_date(db, company_id)
+        currency_code = variant_company_row.currency_code
+        if not currency_code:
+            raise RuntimeError(
+                "Company currency is unavailable."
+            )
+
+        as_of_date = variant_company_row.as_of_date
+        if as_of_date is None:
+            raise RuntimeError(
+                "Company timezone is unavailable."
+            )
 
         batch_is_sellable = batch_sellability_predicate(
             as_of_date,
@@ -1688,74 +1712,86 @@ async def get_warehouse_inventory_batches(
         purchase_count_by_batch = {}
 
         if batch_ids:
-            latest_purchase_rows = (
-                await db.execute(
-                    select(
-                        InventoryCostEvent.batch_id.label("batch_id"),
-                        InventoryCostEvent.input_unit_cost.label(
-                            "input_unit_cost"
-                        ),
-                        UOM.code.label("input_uom_code"),
-                        InventoryCostEvent.created_at.label(
-                            "created_at"
-                        ),
-                    )
-                    .join(
-                        UOM,
-                        UOM.id == InventoryCostEvent.input_uom_id,
-                    )
-                    .filter(
-                        InventoryCostEvent.company_id == company_id,
-                        InventoryCostEvent.product_variant_id
-                        == product_variant_id,
-                        InventoryCostEvent.batch_id.in_(batch_ids),
-                        InventoryCostEvent.event_type == "PURCHASE_IN",
-                    )
-                    .distinct(InventoryCostEvent.batch_id)
-                    .order_by(
-                        InventoryCostEvent.batch_id,
-                        InventoryCostEvent.created_at.desc(),
-                        InventoryCostEvent.id.desc(),
-                    )
+            purchase_count_subquery = (
+                select(
+                    InventoryCostEvent.batch_id.label("batch_id"),
+                    func.count(InventoryCostEvent.id).label(
+                        "event_count"
+                    ),
                 )
-            ).all()
-            latest_purchase_by_batch = {
-                int(row.batch_id): row
-                for row in latest_purchase_rows
-            }
+                .filter(
+                    InventoryCostEvent.company_id == company_id,
+                    InventoryCostEvent.product_variant_id
+                    == product_variant_id,
+                    InventoryCostEvent.batch_id.in_(batch_ids),
+                    InventoryCostEvent.event_type == "PURCHASE_IN",
+                )
+                .group_by(InventoryCostEvent.batch_id)
+                .subquery("purchase_counts")
+            )
 
-            purchase_count_rows = (
+            latest_purchase_subquery = (
+                select(
+                    InventoryCostEvent.batch_id.label("batch_id"),
+                    InventoryCostEvent.input_unit_cost.label(
+                        "input_unit_cost"
+                    ),
+                    UOM.code.label("input_uom_code"),
+                    InventoryCostEvent.created_at.label(
+                        "created_at"
+                    ),
+                )
+                .join(
+                    UOM,
+                    UOM.id == InventoryCostEvent.input_uom_id,
+                )
+                .filter(
+                    InventoryCostEvent.company_id == company_id,
+                    InventoryCostEvent.product_variant_id
+                    == product_variant_id,
+                    InventoryCostEvent.batch_id.in_(batch_ids),
+                    InventoryCostEvent.event_type == "PURCHASE_IN",
+                )
+                .distinct(InventoryCostEvent.batch_id)
+                .order_by(
+                    InventoryCostEvent.batch_id,
+                    InventoryCostEvent.created_at.desc(),
+                    InventoryCostEvent.id.desc(),
+                )
+                .subquery("latest_purchase")
+            )
+
+            purchase_rows = (
                 await db.execute(
                     select(
-                        InventoryCostEvent.batch_id.label("batch_id"),
-                        func.count(InventoryCostEvent.id).label(
-                            "event_count"
+                        purchase_count_subquery.c.batch_id,
+                        purchase_count_subquery.c.event_count,
+                        latest_purchase_subquery.c.batch_id.label(
+                            "latest_batch_id"
                         ),
+                        latest_purchase_subquery.c.input_unit_cost,
+                        latest_purchase_subquery.c.input_uom_code,
+                        latest_purchase_subquery.c.created_at,
                     )
-                    .filter(
-                        InventoryCostEvent.company_id == company_id,
-                        InventoryCostEvent.product_variant_id
-                        == product_variant_id,
-                        InventoryCostEvent.batch_id.in_(batch_ids),
-                        InventoryCostEvent.event_type == "PURCHASE_IN",
+                    .select_from(
+                        purchase_count_subquery.outerjoin(
+                            latest_purchase_subquery,
+                            latest_purchase_subquery.c.batch_id
+                            == purchase_count_subquery.c.batch_id,
+                        )
                     )
-                    .group_by(InventoryCostEvent.batch_id)
                 )
             ).all()
+
             purchase_count_by_batch = {
                 int(row.batch_id): int(row.event_count)
-                for row in purchase_count_rows
+                for row in purchase_rows
             }
-
-        currency_code = await db.scalar(
-            select(Company.currency_code).where(
-                Company.id == company_id
-            )
-        )
-        if not currency_code:
-            raise RuntimeError(
-                "Company currency is unavailable."
-            )
+            latest_purchase_by_batch = {
+                int(row.batch_id): row
+                for row in purchase_rows
+                if row.latest_batch_id is not None
+            }
 
         batches = []
         for row in batch_rows:
