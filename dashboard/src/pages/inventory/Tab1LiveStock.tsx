@@ -116,6 +116,8 @@ export function Tab1LiveStock({
   const [familyOptions, setFamilyOptions] =
     useState<LiveStockFamilyOption[]>([]);
   const [familyLoading, setFamilyLoading] = useState(false);
+  const [selectedFamilyOption, setSelectedFamilyOption] =
+    useState<LiveStockFamilyOption | null>(null);
 
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -126,6 +128,7 @@ export function Tab1LiveStock({
     setFamilySearch("");
     setFamilyOptions([]);
     setFamilyLoading(false);
+    setSelectedFamilyOption(null);
     emittedSearchRef.current = "";
 
   }, [locationId]);
@@ -151,6 +154,7 @@ export function Tab1LiveStock({
     const clean = familySearch.trim();
     if (clean.length === 1) {
       setFamilyOptions([]);
+      setFamilyLoading(false);
       return;
     }
     const controller = new AbortController();
@@ -249,7 +253,10 @@ export function Tab1LiveStock({
   const selectedFamily =
     familyId === null
       ? null
-      : familyOptions.find((family) => family.id === familyId) ?? null;
+      : familyOptions.find((family) => family.id === familyId) ??
+        (selectedFamilyOption?.id === familyId
+          ? selectedFamilyOption
+          : null);
 
   return (
     <div className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-3">
@@ -405,7 +412,10 @@ export function Tab1LiveStock({
                     <button
                       type="button"
                       className="live-stock-family-clear"
-                      onClick={() => onFamilyChange(null)}
+                      onClick={() => {
+                        setSelectedFamilyOption(null);
+                        onFamilyChange(null);
+                      }}
                       title={t("inventoryLive.clearFamily")}
                       aria-label={t("inventoryLive.clearFamily")}
                     >
@@ -425,7 +435,10 @@ export function Tab1LiveStock({
                         type="button"
                         className="live-stock-family-option"
                         data-active={familyId === family.id}
-                        onClick={() => onFamilyChange(family.id)}
+                        onClick={() => {
+                          setSelectedFamilyOption(family);
+                          onFamilyChange(family.id);
+                        }}
                       >
                         <span>
                           <strong>{family.name}</strong>
