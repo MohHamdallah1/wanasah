@@ -8,6 +8,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
@@ -410,6 +411,100 @@ async def timed_endpoint_call(
         await db.close()
 
 
+async def assert_missing_location_404(
+    *,
+    company_id: int,
+    driver_id: int,
+    product_variant_id: int,
+) -> None:
+    token = tenant_context.set(company_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            await _set_tenant(db, company_id)
+            max_location_id = await db.scalar(
+                select(func.max(InventoryLocation.id)).where(
+                    InventoryLocation.company_id == company_id
+                )
+            )
+    finally:
+        tenant_context.reset(token)
+
+    missing_location_id = int(max_location_id or 0) + 1
+    db, driver, tenant_token = await prepare_session(
+        company_id,
+        driver_id,
+    )
+    try:
+        try:
+            await get_warehouse_inventory_batches(
+                product_variant_id=product_variant_id,
+                location_id=missing_location_id,
+                db=db,
+                current_admin=driver,
+            )
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise RuntimeError(
+                    "Missing warehouse no longer returns 404."
+                ) from exc
+        else:
+            raise RuntimeError(
+                "Missing warehouse unexpectedly succeeded."
+            )
+    finally:
+        tenant_context.reset(tenant_token)
+        await db.close()
+
+
+async def assert_denied_actor_403(
+    *,
+    company_id: int,
+    location_id: int,
+    product_variant_id: int,
+) -> None:
+    token = tenant_context.set(company_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            await _set_tenant(db, company_id)
+            max_driver_id = await db.scalar(
+                select(func.max(Driver.id)).where(
+                    Driver.company_id == company_id
+                )
+            )
+    finally:
+        tenant_context.reset(token)
+
+    denied_actor = SimpleNamespace(
+        id=int(max_driver_id or 0) + 1,
+        company_id=company_id,
+        is_admin=False,
+    )
+
+    db = AsyncSessionLocal()
+    tenant_token = tenant_context.set(company_id)
+    try:
+        await _set_tenant(db, company_id)
+        try:
+            await get_warehouse_inventory_batches(
+                product_variant_id=product_variant_id,
+                location_id=location_id,
+                db=db,
+                current_admin=denied_actor,
+            )
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise RuntimeError(
+                    "Denied inventory reader no longer returns 403."
+                ) from exc
+        else:
+            raise RuntimeError(
+                "Denied inventory reader unexpectedly succeeded."
+            )
+    finally:
+        tenant_context.reset(tenant_token)
+        await db.close()
+
+
 async def assert_missing_variant_404(
     *,
     company_id: int,
@@ -502,6 +597,17 @@ async def async_main(args: argparse.Namespace) -> None:
         location_id=location_id,
     )
 
+    await assert_missing_location_404(
+        company_id=args.company_id,
+        driver_id=driver_id,
+        product_variant_id=product_variant_id,
+    )
+    await assert_denied_actor_403(
+        company_id=args.company_id,
+        location_id=location_id,
+        product_variant_id=product_variant_id,
+    )
+
     counts = [sample.sql_count for sample in samples]
     latencies = [sample.elapsed_ms for sample in samples]
     sql_times = [sample.sql_ms for sample in samples]
@@ -534,7 +640,7 @@ async def async_main(args: argparse.Namespace) -> None:
         f"sql_p95={percentile(sql_times, 0.95):.2f}ms"
     )
     print("SQL_SEQUENCE=" + " -> ".join(sequence))
-    print("CHECKS=4")
+    print("CHECKS=6")
     print(f"FAILURES={len(failures)}")
 
     if failures:
@@ -559,7 +665,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--product-variant-id", type=int)
     parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=3)
-    parser.add_argument("--max-sql-statements", type=int, default=10)
+    parser.add_argument("--max-sql-statements", type=int, default=4)
 
     args = parser.parse_args()
     if args.company_id <= 0:
