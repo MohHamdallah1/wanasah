@@ -505,6 +505,83 @@ async def assert_denied_actor_403(
         await db.close()
 
 
+async def assert_existing_empty_variant_200(
+    *,
+    company_id: int,
+    driver_id: int,
+    location_id: int,
+) -> None:
+    token = tenant_context.set(company_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            await _set_tenant(db, company_id)
+            positive_batch_exists = (
+                select(1)
+                .where(
+                    InventoryBalance.company_id == company_id,
+                    InventoryBalance.location_id == location_id,
+                    InventoryBalance.product_variant_id
+                    == ProductVariant.id,
+                    InventoryBalance.batch_id.isnot(None),
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+                .exists()
+            )
+            empty_variant_id = await db.scalar(
+                select(ProductVariant.id)
+                .where(
+                    ProductVariant.company_id == company_id,
+                    ~positive_batch_exists,
+                )
+                .order_by(ProductVariant.id.asc())
+                .limit(1)
+            )
+    finally:
+        tenant_context.reset(token)
+
+    if empty_variant_id is None:
+        raise RuntimeError(
+            "No existing product variant without positive batched stock "
+            "was available for the empty-batches semantic gate."
+        )
+
+    db, driver, tenant_token = await prepare_session(
+        company_id,
+        driver_id,
+    )
+    try:
+        payload = await get_warehouse_inventory_batches(
+            product_variant_id=int(empty_variant_id),
+            location_id=location_id,
+            db=db,
+            current_admin=driver,
+        )
+        if payload.get("location_id") != location_id:
+            raise RuntimeError(
+                "Empty-batches response location scope changed."
+            )
+        if payload.get("product_variant_id") != int(empty_variant_id):
+            raise RuntimeError(
+                "Empty-batches response product scope changed."
+            )
+        if payload.get("batches") != []:
+            raise RuntimeError(
+                "Existing product without positive batched stock must "
+                "return an empty batches list."
+            )
+        currency_code = payload.get("currency_code")
+        if (
+            not isinstance(currency_code, str)
+            or not currency_code.strip()
+        ):
+            raise RuntimeError(
+                "Empty-batches response lost company currency metadata."
+            )
+    finally:
+        tenant_context.reset(tenant_token)
+        await db.close()
+
+
 async def assert_missing_variant_404(
     *,
     company_id: int,
@@ -597,6 +674,12 @@ async def async_main(args: argparse.Namespace) -> None:
         location_id=location_id,
     )
 
+    await assert_existing_empty_variant_200(
+        company_id=args.company_id,
+        driver_id=driver_id,
+        location_id=location_id,
+    )
+
     await assert_missing_location_404(
         company_id=args.company_id,
         driver_id=driver_id,
@@ -640,7 +723,7 @@ async def async_main(args: argparse.Namespace) -> None:
         f"sql_p95={percentile(sql_times, 0.95):.2f}ms"
     )
     print("SQL_SEQUENCE=" + " -> ".join(sequence))
-    print("CHECKS=6")
+    print("CHECKS=7")
     print(f"FAILURES={len(failures)}")
 
     if failures:
