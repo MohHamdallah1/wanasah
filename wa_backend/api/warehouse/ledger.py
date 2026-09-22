@@ -18,6 +18,7 @@ from models import (
     Driver,
     InventoryBalance,
     InventoryCostEvent,
+    InventoryLocation,
     InventoryMovement,
     InventoryMovementImpact,
     ProductBatch,
