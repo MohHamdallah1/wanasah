@@ -51,6 +51,25 @@ describe("Live Stock visual stability regressions", () => {
     );
   });
 
+  it("settles family search loading and preserves the active family label", () => {
+    const live = normalizeWhitespace(
+      readSource("../pages/inventory/Tab1LiveStock.tsx"),
+    );
+
+    expect(live).toContain(
+      'if (clean.length === 1) { setFamilyOptions([]); setFamilyLoading(false); return; }',
+    );
+    expect(live).toContain(
+      'const [selectedFamilyOption, setSelectedFamilyOption] = useState<LiveStockFamilyOption | null>(null);',
+    );
+    expect(live).toContain(
+      'selectedFamilyOption?.id === familyId',
+    );
+    expect(live).toContain(
+      'setSelectedFamilyOption(family); onFamilyChange(family.id);',
+    );
+  });
+
   it("keeps a warm warehouse page mounted during access revalidation", () => {
     const main = normalizeWhitespace(
       readSource("../pages/inventory/MainInventory.tsx"),
