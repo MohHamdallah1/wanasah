@@ -43,7 +43,13 @@ check(
     "latest purchase mapping",
 )
 check('"/warehouse/inventory/{product_variant_id}/batches"' in warehouse, "lazy batch details endpoint")
-check('await access.require("inventory.read", location_id)' in warehouse, "batch details location permission")
+check(
+    'access.allows(' in warehouse
+    and '"inventory.read",' in warehouse
+    and '.label("can_read")' in warehouse
+    and 'status_code=403' in warehouse,
+    "batch details location permission",
+)
 check("InventoryBalance.location_id == location_id" in warehouse, "batch details warehouse scope")
 check("InventoryBalance.company_id == company_id" in warehouse, "batch details tenant scope")
 check("restricted = unavailable - explicit_unavailable" in warehouse, "batch unavailable breakdown")
