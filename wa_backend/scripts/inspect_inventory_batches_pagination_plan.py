@@ -85,16 +85,17 @@ def capture_batch_sql(
         )
 
 
-async def capture_endpoint_batch_query(
+async def capture_endpoint_query(
     endpoint,
     *,
+    target_label: str,
     db,
     driver,
     location_id: int,
     product_variant_id: int,
     paginated: bool,
 ) -> CapturedSQL:
-    capture_token = CAPTURE_TARGET.set("batch_aggregate")
+    capture_token = CAPTURE_TARGET.set(target_label)
     captured_token = CAPTURED.set(None)
     try:
         if paginated:
@@ -266,16 +267,27 @@ async def async_main(args: argparse.Namespace) -> None:
             count=args.fixture_batches,
         )
 
-        baseline_sql = await capture_endpoint_batch_query(
+        baseline_sql = await capture_endpoint_query(
             BASELINE_ENDPOINT,
+            target_label="batch_aggregate",
             db=db,
             driver=driver,
             location_id=location_id,
             product_variant_id=product_variant_id,
             paginated=False,
         )
-        paginated_sql = await capture_endpoint_batch_query(
+        candidate_sql = await capture_endpoint_query(
             live_stock.get_warehouse_inventory_batches,
+            target_label="batch_candidates",
+            db=db,
+            driver=driver,
+            location_id=location_id,
+            product_variant_id=product_variant_id,
+            paginated=True,
+        )
+        paginated_sql = await capture_endpoint_query(
+            live_stock.get_warehouse_inventory_batches,
+            target_label="batch_aggregate",
             db=db,
             driver=driver,
             location_id=location_id,
@@ -284,6 +296,7 @@ async def async_main(args: argparse.Namespace) -> None:
         )
 
         baseline_plan = await explain(db, baseline_sql)
+        candidate_plan = await explain(db, candidate_sql)
         paginated_plan = await explain(db, paginated_sql)
 
         print(
@@ -294,6 +307,7 @@ async def async_main(args: argparse.Namespace) -> None:
             f"fixture_batches={args.fixture_batches}"
         )
         print_plan("BASELINE", baseline_plan)
+        print_plan("CANDIDATES", candidate_plan)
         print_plan("PAGINATED", paginated_plan)
         print("INVENTORY_BATCHES_EXPLAIN=PASS fixtures_rolled_back=true")
     finally:
