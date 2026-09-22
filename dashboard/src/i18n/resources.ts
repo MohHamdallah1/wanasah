@@ -316,7 +316,9 @@ export const resources = {
         noProducts: "لا توجد منتجات مطابقة.",
         chooseProduct: "اختر منتجاً لعرض دفعاته وصلاحيته.",
         loadMoreProducts: "تحميل منتجات إضافية",
+        loadMoreBatches: "تحميل دفعات إضافية",
         batchCount: "{{count}} دفعة",
+        loadedBatchCount: "تم تحميل {{count}} دفعة",
         status: "الحالة",
         restrictions: "القيود والحالات",
         errors: {
@@ -1003,7 +1005,9 @@ export const resources = {
         noProducts: "No matching products.",
         chooseProduct: "Choose a product to view its batches and expiry details.",
         loadMoreProducts: "Load more products",
+        loadMoreBatches: "Load more batches",
         batchCount: "{{count}} batches",
+        loadedBatchCount: "{{count}} batches loaded",
         status: "Status",
         restrictions: "Restrictions & states",
         errors: {
