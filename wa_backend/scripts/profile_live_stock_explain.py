@@ -403,7 +403,8 @@ async def async_main(args: argparse.Namespace) -> None:
             continue
         print(
             f"RANK={item['rank']} ORIGINAL_MS={item['original_duration_ms']:.1f} "
-            f"PLAN_MS={float(item.get('execution_time_ms') or 0):.1f} "
+            f"PLANNING_MS={float(item.get('planning_time_ms') or 0):.1f} "
+            f"EXPLAIN_EXEC_MS={float(item.get('execution_time_ms') or 0):.1f} "
             f"FINDINGS={len(item.get('findings') or [])}"
         )
         for finding in (item.get("findings") or [])[:8]:
