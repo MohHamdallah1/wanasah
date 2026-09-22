@@ -64,6 +64,11 @@ SQL_BUCKET: contextvars.ContextVar[list[tuple[str, float]] | None] = (
 def _sql_label(statement: str) -> str:
     normalized = " ".join(statement.lower().split())
 
+    if "inventory_batch_candidates" in normalized:
+        return "batch_candidates"
+    if "inventory_batch_aggregate" in normalized:
+        return "batch_aggregate"
+
     if "inventory_cost_events" in normalized:
         if "count(" in normalized:
             return "purchase_count"
@@ -972,7 +977,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--product-variant-id", type=int)
     parser.add_argument("--runs", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=3)
-    parser.add_argument("--max-sql-statements", type=int, default=4)
+    parser.add_argument("--max-sql-statements", type=int, default=5)
 
     args = parser.parse_args()
     if args.company_id <= 0:
