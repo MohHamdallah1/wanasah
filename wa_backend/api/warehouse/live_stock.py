@@ -1502,7 +1502,7 @@ async def get_warehouse_inventory_batches(
     company_id = current_admin.company_id
 
     try:
-        request_context_row = (
+        location_access_row = (
             await db.execute(
                 select(
                     InventoryLocation.location_type,
@@ -1511,41 +1511,20 @@ async def get_warehouse_inventory_batches(
                         "inventory.read",
                         location_id,
                     ).label("can_read"),
-                    ProductVariant.id.label("variant_id"),
-                    Company.currency_code.label("currency_code"),
-                    func.timezone(
-                        Company.timezone,
-                        func.current_timestamp(),
-                    ).cast(Date).label("as_of_date"),
-                )
-                .select_from(InventoryLocation)
-                .join(
-                    Company,
-                    Company.id == InventoryLocation.company_id,
-                )
-                .outerjoin(
-                    ProductVariant,
-                    and_(
-                        ProductVariant.company_id
-                        == InventoryLocation.company_id,
-                        ProductVariant.id == product_variant_id,
-                    ),
-                )
-                .where(
+                ).where(
                     InventoryLocation.id == location_id,
                     InventoryLocation.company_id == company_id,
-                    Company.id == company_id,
                 )
             )
         ).one_or_none()
 
-        if request_context_row is None:
+        if location_access_row is None:
             raise HTTPException(
                 status_code=404,
                 detail="الموقع غير موجود أو غير متاح.",
             )
 
-        if not bool(request_context_row.can_read):
+        if not bool(location_access_row.can_read):
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -1555,8 +1534,8 @@ async def get_warehouse_inventory_batches(
             )
 
         if (
-            request_context_row.location_type != "WAREHOUSE"
-            or not bool(request_context_row.is_active)
+            location_access_row.location_type != "WAREHOUSE"
+            or not bool(location_access_row.is_active)
         ):
             raise HTTPException(
                 status_code=404,
@@ -1566,7 +1545,28 @@ async def get_warehouse_inventory_batches(
                 ),
             )
 
-        if request_context_row.variant_id is None:
+        variant_company_row = (
+            await db.execute(
+                select(
+                    ProductVariant.id.label("variant_id"),
+                    Company.currency_code.label("currency_code"),
+                    func.timezone(
+                        Company.timezone,
+                        func.current_timestamp(),
+                    ).cast(Date).label("as_of_date"),
+                )
+                .join(
+                    Company,
+                    Company.id == ProductVariant.company_id,
+                )
+                .where(
+                    ProductVariant.id == product_variant_id,
+                    ProductVariant.company_id == company_id,
+                    Company.id == company_id,
+                )
+            )
+        ).one_or_none()
+        if variant_company_row is None:
             raise HTTPException(
                 status_code=404,
                 detail=inventory_business_error(
@@ -1575,13 +1575,13 @@ async def get_warehouse_inventory_batches(
                 ),
             )
 
-        currency_code = request_context_row.currency_code
+        currency_code = variant_company_row.currency_code
         if not currency_code:
             raise RuntimeError(
                 "Company currency is unavailable."
             )
 
-        as_of_date = request_context_row.as_of_date
+        as_of_date = variant_company_row.as_of_date
         if as_of_date is None:
             raise RuntimeError(
                 "Company timezone is unavailable."
