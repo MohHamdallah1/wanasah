@@ -72,9 +72,10 @@ def capture_batch_sql(
     context,
     executemany,
 ):
-    if CAPTURE_TARGET.get() != "batch_aggregate":
+    target_label = CAPTURE_TARGET.get()
+    if target_label is None:
         return
-    if _sql_label(statement) != "batch_aggregate":
+    if _sql_label(statement) != target_label:
         return
     if CAPTURED.get() is None:
         CAPTURED.set(
@@ -116,7 +117,9 @@ async def capture_endpoint_query(
             )
         captured = CAPTURED.get()
         if captured is None:
-            raise RuntimeError("Could not capture batch aggregate SQL.")
+            raise RuntimeError(
+                f"Could not capture SQL for target label: {target_label}"
+            )
         return captured
     finally:
         CAPTURED.reset(captured_token)
@@ -247,6 +250,19 @@ def print_plan(label: str, plan: dict[str, Any]) -> None:
 
 
 async def async_main(args: argparse.Namespace) -> None:
+    if _sql_label(
+        "SELECT /* inventory_batch_candidates */ 1"
+    ) != "batch_candidates":
+        raise RuntimeError(
+            "SQL classifier no longer recognizes batch_candidates."
+        )
+    if _sql_label(
+        "SELECT /* inventory_batch_aggregate */ 1"
+    ) != "batch_aggregate":
+        raise RuntimeError(
+            "SQL classifier no longer recognizes batch_aggregate."
+        )
+
     driver_id = await resolve_driver_id(args.company_id, args.driver_id)
     location_id, product_variant_id = await resolve_target(
         args.company_id,
