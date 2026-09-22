@@ -31,9 +31,6 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import engine  # noqa: E402
 
 
-TABLES = ("product_batches", "inventory_balances")
-
-
 async def main() -> None:
     async with engine.connect() as conn:
         indexes = (
@@ -59,11 +56,13 @@ async def main() -> None:
                     JOIN pg_namespace AS ns
                       ON ns.oid = tbl.relnamespace
                     WHERE ns.nspname = current_schema()
-                      AND tbl.relname = ANY(:tables)
+                      AND tbl.relname IN (
+                          'product_batches',
+                          'inventory_balances'
+                      )
                     ORDER BY tbl.relname, idx.relname
                     """
-                ),
-                {"tables": list(TABLES)},
+                )
             )
         ).mappings().all()
 
@@ -86,11 +85,13 @@ async def main() -> None:
                     JOIN pg_namespace AS ns
                       ON ns.oid = rel.relnamespace
                     WHERE ns.nspname = current_schema()
-                      AND rel.relname = ANY(:tables)
+                      AND rel.relname IN (
+                          'product_batches',
+                          'inventory_balances'
+                      )
                     ORDER BY rel.relname, con.conname
                     """
-                ),
-                {"tables": list(TABLES)},
+                )
             )
         ).mappings().all()
 
@@ -106,11 +107,13 @@ async def main() -> None:
                         idx_tup_fetch
                     FROM pg_stat_user_indexes
                     WHERE schemaname = current_schema()
-                      AND relname = ANY(:tables)
+                      AND relname IN (
+                          'product_batches',
+                          'inventory_balances'
+                      )
                     ORDER BY relname, indexrelname
                     """
-                ),
-                {"tables": list(TABLES)},
+                )
             )
         ).mappings().all()
 
@@ -126,11 +129,13 @@ async def main() -> None:
                         last_autoanalyze
                     FROM pg_stat_user_tables
                     WHERE schemaname = current_schema()
-                      AND relname = ANY(:tables)
+                      AND relname IN (
+                          'product_batches',
+                          'inventory_balances'
+                      )
                     ORDER BY relname
                     """
-                ),
-                {"tables": list(TABLES)},
+                )
             )
         ).mappings().all()
 
