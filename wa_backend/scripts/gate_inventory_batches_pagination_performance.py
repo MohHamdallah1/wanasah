@@ -295,7 +295,8 @@ async def async_main(args: argparse.Namespace) -> None:
             f"company_id={args.company_id} "
             f"driver_id={driver_id} "
             f"location_id={location_id} "
-            f"product_variant_id={product_variant_id}"
+            f"product_variant_id={product_variant_id} "
+            f"fixture_batches={args.fixture_batches}"
         )
 
         small_baseline, small_current = await benchmark_pair(
@@ -307,6 +308,15 @@ async def async_main(args: argparse.Namespace) -> None:
             warmup=args.warmup,
         )
         print_summary("SMALL", small_baseline, small_current)
+
+        small_baseline_rows = {
+            sample.row_count for sample in small_baseline
+        }
+        if len(small_baseline_rows) != 1:
+            raise RuntimeError(
+                "Stable baseline row count changed during small benchmark."
+            )
+        pre_fixture_rows = next(iter(small_baseline_rows))
 
         await add_scale_fixture(
             db=db,
@@ -325,6 +335,25 @@ async def async_main(args: argparse.Namespace) -> None:
             warmup=args.warmup,
         )
         print_summary("SCALE", scale_baseline, scale_current)
+
+        expected_scale_rows = pre_fixture_rows + args.fixture_batches
+        scale_baseline_rows = {
+            sample.row_count for sample in scale_baseline
+        }
+        if scale_baseline_rows != {expected_scale_rows}:
+            raise RuntimeError(
+                "Scale fixture cardinality mismatch: "
+                f"expected={expected_scale_rows} "
+                f"observed={sorted(scale_baseline_rows)} "
+                f"fixture_batches={args.fixture_batches}"
+            )
+        print(
+            "SCALE_FIXTURE "
+            f"before={pre_fixture_rows} "
+            f"added={args.fixture_batches} "
+            f"expected={expected_scale_rows} "
+            f"observed={expected_scale_rows}"
+        )
 
         if not all(
             sample.sql_count == 5
