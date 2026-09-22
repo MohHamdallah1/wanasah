@@ -1545,50 +1545,13 @@ async def get_warehouse_inventory_batches(
                 ),
             )
 
-        variant_company_row = (
-            await db.execute(
-                select(
-                    ProductVariant.id.label("variant_id"),
-                    Company.currency_code.label("currency_code"),
-                    func.timezone(
-                        Company.timezone,
-                        func.current_timestamp(),
-                    ).cast(Date).label("as_of_date"),
-                )
-                .join(
-                    Company,
-                    Company.id == ProductVariant.company_id,
-                )
-                .where(
-                    ProductVariant.id == product_variant_id,
-                    ProductVariant.company_id == company_id,
-                    Company.id == company_id,
-                )
-            )
-        ).one_or_none()
-        if variant_company_row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=inventory_business_error(
-                    "LIVE_STOCK_PRODUCT_NOT_FOUND",
-                    "The selected product is unavailable.",
-                ),
-            )
-
-        currency_code = variant_company_row.currency_code
-        if not currency_code:
-            raise RuntimeError(
-                "Company currency is unavailable."
-            )
-
-        as_of_date = variant_company_row.as_of_date
-        if as_of_date is None:
-            raise RuntimeError(
-                "Company timezone is unavailable."
-            )
+        as_of_date_expr = func.timezone(
+            Company.timezone,
+            func.current_timestamp(),
+        ).cast(Date)
 
         batch_is_sellable = batch_sellability_predicate(
-            as_of_date,
+            as_of_date_expr,
             expiry_control_mode=ProductVariant.expiry_control_mode,
             minimum_remaining_shelf_life_days=(
                 InventoryStockPolicy.minimum_remaining_shelf_life_days
@@ -1597,6 +1560,9 @@ async def get_warehouse_inventory_batches(
 
         batch_stmt = (
             select(
+                ProductVariant.id.label("variant_id"),
+                Company.currency_code.label("currency_code"),
+                as_of_date_expr.label("as_of_date"),
                 ProductBatch.id.label("batch_id"),
                 ProductBatch.batch_number,
                 ProductBatch.production_date,
@@ -1679,7 +1645,24 @@ async def get_warehouse_inventory_batches(
                     )
                 ).label("disposal_pending_quantity"),
             )
+            .select_from(ProductVariant)
             .join(
+                Company,
+                Company.id == ProductVariant.company_id,
+            )
+            .outerjoin(
+                InventoryBalance,
+                and_(
+                    InventoryBalance.company_id
+                    == ProductVariant.company_id,
+                    InventoryBalance.product_variant_id
+                    == ProductVariant.id,
+                    InventoryBalance.location_id == location_id,
+                    InventoryBalance.batch_id.isnot(None),
+                    InventoryBalance.on_hand_quantity > 0,
+                ),
+            )
+            .outerjoin(
                 ProductBatch,
                 and_(
                     ProductBatch.company_id
@@ -1687,15 +1670,6 @@ async def get_warehouse_inventory_batches(
                     ProductBatch.product_variant_id
                     == InventoryBalance.product_variant_id,
                     ProductBatch.id == InventoryBalance.batch_id,
-                ),
-            )
-            .join(
-                ProductVariant,
-                and_(
-                    ProductVariant.company_id
-                    == InventoryBalance.company_id,
-                    ProductVariant.id
-                    == InventoryBalance.product_variant_id,
                 ),
             )
             .outerjoin(
@@ -1709,14 +1683,15 @@ async def get_warehouse_inventory_batches(
                     InventoryStockPolicy.is_active.is_(True),
                 ),
             )
-            .filter(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id == location_id,
-                InventoryBalance.product_variant_id
-                == product_variant_id,
-                InventoryBalance.on_hand_quantity > 0,
+            .where(
+                ProductVariant.id == product_variant_id,
+                ProductVariant.company_id == company_id,
+                Company.id == company_id,
             )
             .group_by(
+                ProductVariant.id,
+                Company.currency_code,
+                Company.timezone,
                 ProductBatch.id,
                 ProductBatch.batch_number,
                 ProductBatch.production_date,
@@ -1729,7 +1704,34 @@ async def get_warehouse_inventory_batches(
             )
         )
 
-        batch_rows = (await db.execute(batch_stmt)).all()
+        batch_query_rows = (await db.execute(batch_stmt)).all()
+        if not batch_query_rows:
+            raise HTTPException(
+                status_code=404,
+                detail=inventory_business_error(
+                    "LIVE_STOCK_PRODUCT_NOT_FOUND",
+                    "The selected product is unavailable.",
+                ),
+            )
+
+        metadata_row = batch_query_rows[0]
+        currency_code = metadata_row.currency_code
+        if not currency_code:
+            raise RuntimeError(
+                "Company currency is unavailable."
+            )
+
+        as_of_date = metadata_row.as_of_date
+        if as_of_date is None:
+            raise RuntimeError(
+                "Company timezone is unavailable."
+            )
+
+        batch_rows = [
+            row
+            for row in batch_query_rows
+            if row.batch_id is not None
+        ]
         batch_ids = [int(row.batch_id) for row in batch_rows]
 
         latest_purchase_by_batch = {}
