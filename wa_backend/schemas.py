@@ -1484,8 +1484,10 @@ class WarehouseInventoryBatchDetailResponse(BaseModel):
     currency_code: str = Field(..., min_length=1, max_length=10)
     batches: List[WarehouseInventoryBatchItem] = Field(
         default_factory=list,
-        max_length=500,
+        max_length=200,
     )
+    next_cursor: Optional[str] = Field(None, max_length=1024)
+    has_more: bool
 
 
 class WarehouseLedgerItem(BaseModel):
