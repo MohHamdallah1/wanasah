@@ -1644,33 +1644,31 @@ async def get_warehouse_inventory_batches(
                     ProductBatch.expiry_date.is_(None),
                 )
 
+        batch_presence = (
+            select(1)
+            .select_from(InventoryBalance)
+            .where(
+                InventoryBalance.company_id == company_id,
+                InventoryBalance.location_id == location_id,
+                InventoryBalance.product_variant_id
+                == product_variant_id,
+                InventoryBalance.batch_id == ProductBatch.id,
+                InventoryBalance.on_hand_quantity > 0,
+            )
+            .exists()
+        )
+
         batch_candidate_stmt = (
             select(
                 ProductBatch.id.label("batch_id"),
                 ProductBatch.expiry_date,
             )
             .prefix_with("/* inventory_batch_candidates */")
-            .select_from(InventoryBalance)
-            .join(
-                ProductBatch,
-                and_(
-                    ProductBatch.id == InventoryBalance.batch_id,
-                    ProductBatch.company_id == company_id,
-                    ProductBatch.product_variant_id
-                    == product_variant_id,
-                ),
-            )
             .where(
-                InventoryBalance.company_id == company_id,
-                InventoryBalance.location_id == location_id,
-                InventoryBalance.product_variant_id
-                == product_variant_id,
-                InventoryBalance.on_hand_quantity > 0,
+                ProductBatch.company_id == company_id,
+                ProductBatch.product_variant_id == product_variant_id,
+                batch_presence,
                 batch_cursor_predicate,
-            )
-            .group_by(
-                ProductBatch.id,
-                ProductBatch.expiry_date,
             )
             .order_by(
                 ProductBatch.expiry_date.asc().nulls_last(),
