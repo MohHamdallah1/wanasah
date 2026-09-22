@@ -327,11 +327,11 @@ async def async_main(args: argparse.Namespace) -> None:
         print_summary("SCALE", scale_baseline, scale_current)
 
         if not all(
-            sample.sql_count == 4
+            sample.sql_count == 5
             for sample in small_current + scale_current
         ):
             raise RuntimeError(
-                "Paginated endpoint no longer holds the four-query budget."
+                "Paginated endpoint no longer holds the five-query bounded budget."
             )
         if not all(
             sample.row_count <= 100
