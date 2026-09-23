@@ -13,6 +13,7 @@ import {
 } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  authFetch: vi.fn(),
   refetch: vi.fn(),
   invalidateQueries: vi.fn(),
   mutation: {
@@ -102,7 +103,7 @@ vi.mock(
   "@/hooks/useAuthFetch",
   () => ({
     useAuthFetch: () =>
-      vi.fn(),
+      mocks.authFetch,
   }),
 );
 
@@ -137,6 +138,7 @@ describe(
   "Products table exact presentation",
   () => {
     beforeEach(async () => {
+      mocks.authFetch.mockReset();
       mocks.refetch.mockReset();
       mocks.invalidateQueries.mockReset();
       localStorage.clear();
