@@ -64,7 +64,7 @@ export const resources = {
         subtitle:
           "أضف المنتج وسعره في عملية واحدة، والنظام يتكفل بالتفاصيل الداخلية.",
         searchPlaceholder:
-          "ابحث باسم المنتج أو العائلة...",
+          "ابحث بالمنتج أو العائلة أو SKU أو الباركود...",
         addProduct: "إضافة منتج",
         importFile: "استيراد ملف",
         families: "العائلات",
@@ -187,8 +187,12 @@ export const resources = {
           "العائلة تجمع أحجام أو نكهات أو نسخ المنتج تحت اسم واحد، بينما يبقى كل صنف مستقلاً بالسعر والمخزون والباركود.",
         newFamilyPlaceholder: "اسم العائلة",
         addFamily: "إضافة العائلة",
+        familySearchPlaceholder: "ابحث عن عائلة...",
+        familyPrevious: "السابق",
+        familyNext: "التالي",
         variantCount: "{{count}} صنف",
         noFamilies: "لا توجد عائلات بعد.",
+        noMatchingFamilies: "لا توجد عائلات مطابقة للبحث.",
         importTitle: "استيراد المنتجات",
         importIntro:
           "يدعم CSV وExcel. ترتيب الأعمدة لا يهم، وإذا لم نتعرف على عمود لن نخمن؛ سنطلب منك ربطه قبل الاستيراد.",
@@ -352,6 +356,8 @@ export const resources = {
           listLoadTitle: "تعذر تحميل المنتجات",
           listLoadDescription:
             "فشل طلب المنتجات، لذلك لن نعرض حالة فارغة مضللة. تحقق من الاتصال ثم أعد المحاولة.",
+          familiesLoad:
+            "تعذر تحميل العائلات. أعد المحاولة.",
           nameRequired: "اسم المنتج مطلوب.",
           packageUnitsInvalid:
             "عدد الحبات داخل العبوة يجب أن يكون رقماً صحيحاً أكبر من 1.",
@@ -942,7 +948,7 @@ export const resources = {
         subtitle:
           "Create the product and its price in one flow; the system handles the internal complexity.",
         searchPlaceholder:
-          "Search by product or family...",
+          "Search by product, family, SKU, or barcode...",
         addProduct: "Add product",
         importFile: "Import file",
         families: "Families",
@@ -1067,8 +1073,12 @@ export const resources = {
           "A family groups sizes, flavors, or variants under one name while each item keeps its own price, stock, and barcode.",
         newFamilyPlaceholder: "Family name",
         addFamily: "Add family",
+        familySearchPlaceholder: "Search families...",
+        familyPrevious: "Previous",
+        familyNext: "Next",
         variantCount: "{{count}} variants",
         noFamilies: "No families yet.",
+        noMatchingFamilies: "No families match this search.",
         importTitle: "Import products",
         importIntro:
           "CSV and Excel are supported. Column order does not matter; unclear columns are never guessed and will be mapped before import.",
@@ -1229,6 +1239,8 @@ export const resources = {
           listLoadTitle: "Products could not be loaded",
           listLoadDescription:
             "The products request failed, so an empty catalog is not shown. Check the connection and try again.",
+          familiesLoad:
+            "Could not load families. Try again.",
           nameRequired:
             "Product name is required.",
           packageUnitsInvalid:
