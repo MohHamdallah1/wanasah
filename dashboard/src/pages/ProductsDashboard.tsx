@@ -16,6 +16,7 @@ import {
   Copy,
   FileSpreadsheet,
   FolderTree,
+  LockKeyhole,
   PackagePlus,
   RefreshCw,
   Search,
@@ -2293,6 +2294,20 @@ export default function ProductsDashboard() {
                 )}
               </button>
             ) : null}
+
+            <button
+              type="button"
+              disabled
+              title={t(
+                "products.advancedPricingHint"
+              )}
+              className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-400"
+            >
+              <LockKeyhole className="h-4 w-4" />
+              {t(
+                "products.advancedPricing"
+              )}
+            </button>
 
             {canManageFamilies ? (
               <button
