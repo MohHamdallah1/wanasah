@@ -574,7 +574,11 @@ export function parseProductFamilies(
     };
   });
 
-  return { items };
+  return {
+    items,
+    next_cursor: nextCursor,
+    has_more: page.has_more,
+  };
 }
 
 export function parsePackageUoms(
@@ -778,10 +782,35 @@ export interface ProductBarcodeRecord {
 
 export function parseProductBarcodes(
   raw: unknown,
-): { items: ProductBarcodeRecord[] } {
+): {
+  items: ProductBarcodeRecord[];
+  next_cursor: string | null;
+  has_more: boolean;
+} {
   const code = "PRODUCT_BARCODES_RESPONSE_INVALID";
   const page = record(raw, code);
-  if (!Array.isArray(page.items) || page.items.length > 500) {
+  if (
+    !Array.isArray(page.items) ||
+    page.items.length > 200 ||
+    typeof page.has_more !== "boolean"
+  ) {
+    return contractError(code);
+  }
+  const nextCursor = nullableStr(
+    page.next_cursor,
+    code,
+    512,
+  );
+  if (
+    page.has_more &&
+    nextCursor === null
+  ) {
+    return contractError(code);
+  }
+  if (
+    !page.has_more &&
+    nextCursor !== null
+  ) {
     return contractError(code);
   }
 
@@ -841,6 +870,8 @@ export function parseProductBarcodeMutation(
   return {
     barcode: parseProductBarcodes({
       items: [row.barcode],
+      next_cursor: null,
+      has_more: false,
     }).items[0],
   };
 }
