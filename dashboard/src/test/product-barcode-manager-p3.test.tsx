@@ -214,6 +214,8 @@ describe("ProductBarcodeManager runtime behavior", () => {
             "B-CODE",
           ),
         ],
+        next_cursor: null,
+        has_more: false,
       });
       await second.promise;
     });
@@ -233,6 +235,8 @@ describe("ProductBarcodeManager runtime behavior", () => {
             "A-CODE",
           ),
         ],
+        next_cursor: null,
+        has_more: false,
       });
       await first.promise;
     });
@@ -293,9 +297,17 @@ describe("ProductBarcodeManager runtime behavior", () => {
     mocks.authFetch
       .mockResolvedValueOnce({
         items: [],
+        next_cursor: null,
+        has_more: false,
       })
       .mockRejectedValueOnce(
-        new Error("timeout"),
+        Object.assign(
+          new Error("timeout"),
+          {
+            status: 408,
+            code: "REQUEST_TIMEOUT",
+          },
+        ),
       )
       .mockResolvedValueOnce({
         message: "ignored backend copy",
@@ -303,6 +315,8 @@ describe("ProductBarcodeManager runtime behavior", () => {
       })
       .mockResolvedValueOnce({
         items: [created],
+        next_cursor: null,
+        has_more: false,
       });
 
     render(
@@ -385,5 +399,157 @@ describe("ProductBarcodeManager runtime behavior", () => {
     expect(
       retryMutation.valid_to,
     ).toBeNull();
+  });
+
+  it("locks changed input after an ambiguous create and restores the exact pending command after remount", async () => {
+    mocks.authFetch
+      .mockResolvedValueOnce({
+        items: [],
+        next_cursor: null,
+        has_more: false,
+      })
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error("timeout"),
+          {
+            status: 408,
+            code: "REQUEST_TIMEOUT",
+          },
+        ),
+      );
+
+    const props = {
+      product: product(10, "A"),
+      companyId: 1,
+      driverId: 2,
+      onClose: vi.fn(),
+      onChanged: vi.fn(),
+    };
+
+    const firstRender = render(
+      <ProductBarcodeManager
+        {...props}
+      />,
+    );
+    const input =
+      await screen.findByLabelText(
+        "products.barcodeManager.value",
+      );
+    fireEvent.change(input, {
+      target: {
+        value: "LOCKED-CODE",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name: "products.barcodeManager.save",
+        },
+      ),
+    );
+
+    expect(
+      await screen.findByText(
+        "products.barcodeManager.pendingRetry",
+      ),
+    ).toBeInTheDocument();
+    expect(input).toBeDisabled();
+    expect(input).toHaveValue(
+      "LOCKED-CODE",
+    );
+
+    firstRender.unmount();
+
+    mocks.authFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        items: [],
+        next_cursor: null,
+        has_more: false,
+      });
+
+    render(
+      <ProductBarcodeManager
+        {...props}
+      />,
+    );
+
+    const restored =
+      await screen.findByLabelText(
+        "products.barcodeManager.value",
+      );
+    expect(restored).toBeDisabled();
+    expect(restored).toHaveValue(
+      "LOCKED-CODE",
+    );
+    expect(
+      screen.getByRole(
+        "button",
+        {
+          name: "products.barcodeManager.retryPending",
+        },
+      ),
+    ).toBeEnabled();
+  });
+
+  it("loads barcode history by bounded pages", async () => {
+    const firstPage = barcode(
+      1,
+      10,
+      "FIRST",
+    );
+    const secondPage = barcode(
+      2,
+      10,
+      "SECOND",
+    );
+    mocks.authFetch
+      .mockResolvedValueOnce({
+        items: [firstPage],
+        next_cursor: "Mg",
+        has_more: true,
+      })
+      .mockResolvedValueOnce({
+        items: [secondPage],
+        next_cursor: null,
+        has_more: false,
+      });
+
+    render(
+      <ProductBarcodeManager
+        product={product(10, "A")}
+        companyId={1}
+        driverId={2}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "FIRST",
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name: "products.barcodeManager.loadMore",
+        },
+      ),
+    );
+
+    expect(
+      await screen.findByText(
+        "SECOND",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      mocks.authFetch.mock.calls[1][0],
+    ).toContain(
+      "cursor=Mg",
+    );
   });
 });
