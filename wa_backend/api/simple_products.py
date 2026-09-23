@@ -920,6 +920,17 @@ async def list_simple_products(
                             variant.packs_per_carton
                         )
                     ),
+                    "base_uom_id": (
+                        int(shape.base_uom.id)
+                        if shape is not None
+                        else int(variant.base_uom_id)
+                    ),
+                    "package_uom_id": (
+                        int(shape.package_uom.id)
+                        if shape is not None
+                        and shape.package_uom is not None
+                        else None
+                    ),
                     "package_uom_code": (
                         str(shape.package_uom.code)
                         if shape is not None
