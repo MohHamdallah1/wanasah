@@ -164,9 +164,17 @@ describe("ProductBarcodeManager runtime behavior", () => {
 
   it("ignores an older product response after the selected product changes", async () => {
     const first =
-      deferred<{ items: ProductBarcodeRecord[] }>();
+      deferred<{
+        items: ProductBarcodeRecord[];
+        next_cursor: string | null;
+        has_more: boolean;
+      }>();
     const second =
-      deferred<{ items: ProductBarcodeRecord[] }>();
+      deferred<{
+        items: ProductBarcodeRecord[];
+        next_cursor: string | null;
+        has_more: boolean;
+      }>();
 
     mocks.authFetch
       .mockImplementationOnce(
