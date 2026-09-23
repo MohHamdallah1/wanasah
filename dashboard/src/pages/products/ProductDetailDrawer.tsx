@@ -10,9 +10,11 @@ type Props = {
   pricingVisible: boolean;
   canEditPrice: boolean;
   canEditTracking: boolean;
+  canManageBarcodes: boolean;
   onClose: () => void;
   onEditPrice: (product: SimpleProduct) => void;
   onEditTracking: (product: SimpleProduct) => void;
+  onManageBarcodes: (product: SimpleProduct) => void;
 };
 
 export function ProductDetailDrawer({
@@ -20,9 +22,11 @@ export function ProductDetailDrawer({
   pricingVisible,
   canEditPrice,
   canEditTracking,
+  canManageBarcodes,
   onClose,
   onEditPrice,
   onEditTracking,
+  onManageBarcodes,
 }: Props) {
   const { t, i18n } = useTranslation();
 
@@ -293,7 +297,8 @@ export function ProductDetailDrawer({
         </div>
 
         {canEditPrice ||
-        canEditTracking ? (
+        canEditTracking ||
+        canManageBarcodes ? (
           <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
             {canEditPrice &&
             pricingVisible &&
@@ -307,6 +312,20 @@ export function ProductDetailDrawer({
               >
                 {t(
                   "products.editPrice"
+                )}
+              </button>
+            ) : null}
+
+            {canManageBarcodes ? (
+              <button
+                type="button"
+                onClick={() =>
+                  onManageBarcodes(product)
+                }
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+              >
+                {t(
+                  "products.barcodeManager.action"
                 )}
               </button>
             ) : null}
