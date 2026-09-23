@@ -281,6 +281,22 @@ describe("Products P3 detail foundation", () => {
     );
   });
 
+  it("keeps Products table presentation on exact decimal strings instead of Number conversion", () => {
+    const page = readSource(
+      "../pages/ProductsDashboard.tsx",
+    );
+
+    expect(page).toContain(
+      "formatLocaleDecimal",
+    );
+    expect(page).toContain(
+      "formatPackageUnits",
+    );
+    expect(page).not.toContain(
+      "const numeric =\n      Number(value)",
+    );
+  });
+
   it("formats P3 decimal and money values with locale-aware exact string presentation", () => {
     expect(
       formatLocaleDecimal(
