@@ -1464,11 +1464,15 @@ async def main() -> None:
             )
             record(
                 "payload measurement remains bounded to requested page size",
-                int(q10["payload_bytes"]) > 0
+                int(q10["item_count"]) == 10
+                and int(q100["item_count"]) == 100
+                and int(q10["payload_bytes"]) > 0
                 and int(q100["payload_bytes"])
                 > int(q10["payload_bytes"]),
                 (
+                    f"items10={q10['item_count']} "
                     f"bytes10={q10['payload_bytes']} "
+                    f"items100={q100['item_count']} "
                     f"bytes100={q100['payload_bytes']}"
                 ),
             )
