@@ -133,6 +133,12 @@ export const resources = {
           save: "إضافة الباركود",
           added: "تمت إضافة الباركود.",
           deactivated: "تم تعطيل الباركود مع الاحتفاظ بسجله.",
+          loadMore: "تحميل المزيد",
+          pendingRetry:
+            "هناك محاولة سابقة نتيجتها غير مؤكدة. الحقول مقفلة حتى تعيد نفس الطلب بأمان.",
+          retryPending: "إعادة إرسال الطلب المعلّق",
+          sharedPackageHint:
+            "باركود العبوة مرتبط حالياً بباركود وحدة الأساس. إضافة باركود عبوة مستقل تتطلب أولاً تغيير سياسة الباركود من الإدارة المتقدمة.",
           historyHint:
             "لا نحذف تاريخ الباركود. عند الاستبدال عطّل السجل القديم ثم أضف السجل الجديد.",
           loadFailed: "تعذر تحميل باركودات المنتج.",
@@ -1000,6 +1006,12 @@ export const resources = {
           save: "Add barcode",
           added: "Barcode added.",
           deactivated: "Barcode deactivated and its history was preserved.",
+          loadMore: "Load more",
+          pendingRetry:
+            "A previous attempt has an unknown outcome. Fields are locked until the same command is retried safely.",
+          retryPending: "Retry pending command",
+          sharedPackageHint:
+            "The package barcode currently shares the base-unit barcode. A distinct package barcode requires changing the barcode policy in advanced management first.",
           historyHint:
             "Barcode history is preserved. To replace a barcode, deactivate the old record and add a new one.",
           loadFailed: "Could not load product barcodes.",
