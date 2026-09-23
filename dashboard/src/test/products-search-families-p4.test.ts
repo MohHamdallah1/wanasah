@@ -161,6 +161,18 @@ describe(
       expect(manager).toContain(
         "setHistory( [] )",
       );
+      expect(manager).toContain(
+        "getOrCreateDurableCommand",
+      );
+      expect(manager).toContain(
+        "isAmbiguousRequestError",
+      );
+      expect(manager).not.toContain(
+        "getOrCreateDurableRequestId",
+      );
+      expect(service).not.toContain(
+        "normalized_after_name",
+      );
       expect(page).not.toContain(
         "/simple-products/families?limit=200",
       );
