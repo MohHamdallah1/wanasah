@@ -1348,14 +1348,14 @@ Do not work on all items randomly.
 
 ## Phase P3 — Product UX foundation
 
-- [ ] Product Detail Drawer.
-- [ ] Quick Create + Advanced.
+- [x] Product Detail Drawer.
+- [x] Quick Create + Advanced.
 - [x] Tracking controls.
-- [ ] Error/retry states.
-- [ ] granular permissions.
-- [ ] lifecycle visibility.
-- [ ] barcode visibility/management.
-- [ ] simple-compatible explanation.
+- [x] Error/retry states.
+- [x] granular permissions.
+- [x] lifecycle visibility.
+- [x] barcode visibility/management.
+- [x] simple-compatible explanation.
 
 ## Phase P4 — Search / families
 
@@ -1369,6 +1369,7 @@ Do not work on all items randomly.
 - [ ] Replace float-based money handling.
 - [ ] Review package/UOM edit safety.
 - [ ] Connect advanced management where appropriate.
+- [ ] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
 
 ## Phase P6 — Bulk import
 
