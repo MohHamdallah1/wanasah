@@ -486,7 +486,7 @@ export function parseSimpleProductPage(
   const next =
     page.next_cursor === null
       ? null
-      : str(page.next_cursor, code, 512);
+      : str(page.next_cursor, code, 2048);
   if (page.has_more !== (next !== null)) {
     return contractError(code);
   }
