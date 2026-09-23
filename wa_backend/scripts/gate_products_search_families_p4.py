@@ -1154,7 +1154,7 @@ async def main() -> None:
 
             family_search_page = (
                 await list_families_endpoint(
-                    search="Gamma",
+                    search="Gamma P4 Family",
                     cursor=None,
                     limit=2,
                     db=app,
