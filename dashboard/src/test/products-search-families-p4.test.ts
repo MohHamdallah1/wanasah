@@ -264,6 +264,12 @@ describe(
         "FROM public.product_barcodes AS pb",
       );
       expect(migration).toContain(
+        "UNION",
+      );
+      expect(migration).toContain(
+        "INTERSECT",
+      );
+      expect(migration).toContain(
         "pb.is_active IS TRUE",
       );
       expect(migration).toContain(
