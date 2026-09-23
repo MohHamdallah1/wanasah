@@ -1259,13 +1259,17 @@ async def load_sale_shapes(
             == Decimal(factor)
         ]
 
-        if factor == 1 and not candidates:
-            result[variant_id] = SaleShape(
-                base_uom=base_uom,
-                package_uom=None,
-                units_per_package=1,
-            )
-        elif len(candidates) == 1:
+        if factor == 1:
+            if not candidates:
+                result[variant_id] = SaleShape(
+                    base_uom=base_uom,
+                    package_uom=None,
+                    units_per_package=1,
+                )
+            # A distinct 1:1 package conversion is valid catalog data,
+            # but it is not a safe simple-product package shape.
+            continue
+        if len(candidates) == 1:
             result[variant_id] = SaleShape(
                 base_uom=base_uom,
                 package_uom=candidates[0][1],
