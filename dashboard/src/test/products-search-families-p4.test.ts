@@ -217,51 +217,66 @@ describe(
       );
     });
 
-    it("searches product identity through name family SKU and active barcode with AND token semantics", () => {
+    it("searches product identity through the RLS-safe native trigram function", () => {
       const api = compact(
         readSource(
           "../../../wa_backend/api/simple_products.py",
         ),
       );
+      const migration = compact(
+        readSource(
+          "../../../wa_backend/alembic/versions/c1f4e8a2d6b9_simple_products_native_trgm_search.py",
+        ),
+      );
 
       expect(api).toContain(
-        "for token in search_tokens:",
+        "simple_products_search_variant_ids(",
       );
       expect(api).toContain(
-        'literal_column("\' \'::text")',
+        "simple_products_search_patterns",
       );
       expect(api).toContain(
-        'search_variant.name.op("||")',
+        "ARRAY(String())",
       );
       expect(api).toContain(
-        "search_variant.sku",
-      );
-      expect(api).toContain(
-        "union_all(",
+        "_escaped_like(token)",
       );
       expect(api).toContain(
         "ProductVariant.id.in_(",
       );
-      expect(api).toContain(
-        "ProductBarcode.product_variant_id == ProductVariant.id",
+
+      expect(migration).toContain(
+        "SECURITY DEFINER",
       );
-      expect(api).toContain(
-        "ProductBarcode.company_id == int(company_id)",
+      expect(migration).toContain(
+        "SET row_security = off",
       );
-      expect(api).toContain(
-        "ProductBarcode.is_active.is_(True)",
+      expect(migration).toContain(
+        "expected_company_id IS DISTINCT FROM tenant_id",
       );
-      expect(api).toContain(
-        "ProductBarcode.valid_from <= as_of",
+      expect(migration).toContain(
+        "FROM public.product_variants AS pv",
       );
-      expect(api).toContain(
-        "ProductBarcode.valid_to > as_of",
+      expect(migration).toContain(
+        "FROM public.products AS p",
       );
-      expect(api).toContain(
-        "ProductBarcode.barcode",
+      expect(migration).toContain(
+        "FROM public.product_barcodes AS pb",
       );
-      expect(api).toContain(
-        "_escaped_like(token)",
+      expect(migration).toContain(
+        "pb.is_active IS TRUE",
+      );
+      expect(migration).toContain(
+        "pb.valid_from <= $2",
+      );
+      expect(migration).toContain(
+        "pb.valid_to > $2",
+      );
+      expect(migration).toContain(
+        "REVOKE ALL ON FUNCTION",
+      );
+      expect(migration).toContain(
+        "GRANT EXECUTE ON FUNCTION",
       );
     });
 
