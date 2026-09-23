@@ -47,10 +47,20 @@ const asBoolean = (value: unknown): boolean => {
 };
 
 const asStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+  const items: unknown[] =
+    Array.isArray(value)
+      ? value
+      : accessAdminContractError();
+  if (
+    !items.every(
+      (item) => typeof item === 'string'
+    )
+  ) {
     accessAdminContractError();
   }
-  return value.map((item) => item as string);
+  return items.map(
+    (item) => item as string
+  );
 };
 
 const parsePage = <T,>(
