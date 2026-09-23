@@ -276,6 +276,10 @@ export default function ProductsDashboard() {
     setCreateTrackingExpanded,
   ] = useState(false);
   const [
+    createAdvancedExpanded,
+    setCreateAdvancedExpanded,
+  ] = useState(false);
+  const [
     draft,
     setDraft,
   ] =
@@ -654,6 +658,7 @@ export default function ProductsDashboard() {
     setImportExpiryControlMode(null);
     setImportTrackingExpanded(false);
     setCreateTrackingExpanded(false);
+    setCreateAdvancedExpanded(false);
     setTrackingDefaultsOpen(false);
     setTrackingDefaultsLot(null);
     setTrackingDefaultsExpiry(null);
@@ -1189,6 +1194,9 @@ export default function ProductsDashboard() {
             emptyDraft
           );
           setCreateTrackingExpanded(
+            false
+          );
+          setCreateAdvancedExpanded(
             false
           );
           setCreateOpen(false);
@@ -2095,6 +2103,9 @@ export default function ProductsDashboard() {
       setCreateTrackingExpanded(
         false
       );
+      setCreateAdvancedExpanded(
+        false
+      );
       setDraft(emptyDraft);
       if (
         draftStorageKey
@@ -2284,6 +2295,9 @@ export default function ProductsDashboard() {
                     type="button"
                     onClick={() => {
                       setCreateTrackingExpanded(
+                        false
+                      );
+                      setCreateAdvancedExpanded(
                         false
                       );
                       setCreateOpen(
@@ -2928,90 +2942,11 @@ export default function ProductsDashboard() {
                   </p>
                 </div>
 
-                {!createTrackingExpanded ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCreateTrackingExpanded(
-                        true
-                      )
-                    }
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                  >
-                    {t(
-                      "products.tracking.createChange"
-                    )}
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    <ProductTrackingFields
-                      lotControlMode={
-                        draft.lot_control_mode
-                      }
-                      expiryControlMode={
-                        draft.expiry_control_mode
-                      }
-                      onLotControlModeChange={(
-                        value
-                      ) =>
-                        setDraft(
-                          (current) => ({
-                            ...current,
-                            lot_control_mode:
-                              value,
-                          })
-                        )
-                      }
-                      onExpiryControlModeChange={(
-                        value
-                      ) =>
-                        setDraft(
-                          (current) => ({
-                            ...current,
-                            expiry_control_mode:
-                              value,
-                          })
-                        )
-                      }
-                    />
-
-                    <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
-                      {t(
-                        "products.tracking.createOnlyThisProduct"
-                      )}
-                    </p>
-
-                    {!createTrackingUsesCompanyDefaults ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const defaults =
-                            trackingDefaultsQuery.data;
-                          if (!defaults) {
-                            return;
-                          }
-                          setDraft(
-                            (current) => ({
-                              ...current,
-                              lot_control_mode:
-                                defaults.lot_control_mode,
-                              expiry_control_mode:
-                                defaults.expiry_control_mode,
-                            })
-                          );
-                          setCreateTrackingExpanded(
-                            false
-                          );
-                        }}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                      >
-                        {t(
-                          "products.tracking.createReset"
-                        )}
-                      </button>
-                    ) : null}
-                  </div>
-                )}
+                <p className="text-[11px] font-semibold leading-5 text-slate-500">
+                  {t(
+                    "products.quickCreate.trackingAdvancedHint"
+                  )}
+                </p>
               </div>
             )}
           </div>
@@ -3226,14 +3161,149 @@ export default function ProductsDashboard() {
             </div>
           ) : null}
 
-          <details className="rounded-2xl border border-slate-200 bg-white p-3">
-            <summary className="cursor-pointer text-xs font-black text-slate-600">
-              {t(
-                "products.barcodeSection"
-              )}
-            </summary>
+          <section className="rounded-2xl border border-slate-200 bg-white">
+            <button
+              type="button"
+              onClick={() =>
+                setCreateAdvancedExpanded(
+                  (current) => !current
+                )
+              }
+              aria-expanded={
+                createAdvancedExpanded
+              }
+              className="flex w-full items-center justify-between gap-4 p-4 text-start"
+            >
+              <span>
+                <span className="block text-sm font-black text-slate-900">
+                  {t(
+                    "products.quickCreate.advancedTitle"
+                  )}
+                </span>
+                <span className="mt-1 block text-[11px] font-semibold leading-5 text-slate-500">
+                  {t(
+                    "products.quickCreate.advancedHint"
+                  )}
+                </span>
+              </span>
+              <span className="shrink-0 text-xs font-black text-slate-600">
+                {t(
+                  createAdvancedExpanded
+                    ? "products.quickCreate.hideAdvanced"
+                    : "products.quickCreate.showAdvanced"
+                )}
+              </span>
+            </button>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {createAdvancedExpanded ? (
+              <div className="space-y-4 border-t border-slate-100 p-4">
+                <div className="rounded-xl bg-slate-50 p-3 text-[11px] font-semibold leading-5 text-slate-600">
+                  {t(
+                    "products.quickCreate.systemManagedHint"
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800">
+                      {t(
+                        "products.tracking.createTitle"
+                      )}
+                    </h4>
+                    <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                      {t(
+                        "products.tracking.createOnlyThisProduct"
+                      )}
+                    </p>
+                  </div>
+
+                  {!createTrackingExpanded ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCreateTrackingExpanded(
+                          true
+                        )
+                      }
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                    >
+                      {t(
+                        "products.tracking.createChange"
+                      )}
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <ProductTrackingFields
+                        lotControlMode={
+                          draft.lot_control_mode
+                        }
+                        expiryControlMode={
+                          draft.expiry_control_mode
+                        }
+                        onLotControlModeChange={(
+                          value
+                        ) =>
+                          setDraft(
+                            (current) => ({
+                              ...current,
+                              lot_control_mode:
+                                value,
+                            })
+                          )
+                        }
+                        onExpiryControlModeChange={(
+                          value
+                        ) =>
+                          setDraft(
+                            (current) => ({
+                              ...current,
+                              expiry_control_mode:
+                                value,
+                            })
+                          )
+                        }
+                      />
+
+                      {!createTrackingUsesCompanyDefaults ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const defaults =
+                              trackingDefaultsQuery.data;
+                            if (!defaults) {
+                              return;
+                            }
+                            setDraft(
+                              (current) => ({
+                                ...current,
+                                lot_control_mode:
+                                  defaults.lot_control_mode,
+                                expiry_control_mode:
+                                  defaults.expiry_control_mode,
+                              })
+                            );
+                            setCreateTrackingExpanded(
+                              false
+                            );
+                          }}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                        >
+                          {t(
+                            "products.tracking.createReset"
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-100 pt-4">
+                  <h4 className="text-xs font-black text-slate-800">
+                    {t(
+                      "products.barcodeSection"
+                    )}
+                  </h4>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="text-xs font-bold text-slate-500">
                 {t(
                   "products.unitBarcode"
@@ -3316,8 +3386,11 @@ export default function ProductsDashboard() {
                   />
                 </label>
               ) : null}
-            </div>
-          </details>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </section>
         </div>
       </Modal>
 
