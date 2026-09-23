@@ -4,7 +4,6 @@ import {
   within,
 } from "@testing-library/react";
 import {
-  afterEach,
   beforeEach,
   describe,
   expect,
@@ -128,7 +127,35 @@ vi.mock(
   }),
 );
 
-import i18n from "../i18n";
+vi.mock(
+  "react-i18next",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("react-i18next")
+      >();
+
+    return {
+      ...actual,
+      useTranslation: () => ({
+        t: (
+          key: string,
+          options?: {
+            defaultValue?: string;
+          },
+        ) =>
+          options?.defaultValue ??
+          key,
+        i18n: {
+          language: "ar",
+          resolvedLanguage: "ar-JO",
+          dir: () => "rtl",
+        },
+      }),
+    };
+  },
+);
+
 import {
   formatLocaleDecimal,
 } from "../lib/localeNumbers";
@@ -143,15 +170,6 @@ describe(
       mocks.invalidateQueries.mockReset();
       localStorage.clear();
       sessionStorage.clear();
-      await i18n.changeLanguage(
-        "ar",
-      );
-    });
-
-    afterEach(async () => {
-      await i18n.changeLanguage(
-        "en",
-      );
     });
 
     it("renders high-precision prices exactly and localizes package units in Arabic", () => {
@@ -160,8 +178,7 @@ describe(
       );
 
       const locale =
-        i18n.resolvedLanguage ??
-        i18n.language;
+        "ar-JO";
       const packagePrice =
         formatLocaleDecimal(
           "1000000000000.123456",
