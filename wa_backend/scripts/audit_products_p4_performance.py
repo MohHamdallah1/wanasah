@@ -481,8 +481,7 @@ async def verify_search_index_compatibility(
             """
             SELECT id
             FROM public.product_variants
-            WHERE company_id = :company_id
-              AND lower(
+            WHERE lower(
                     ((name)::text || ' '::text)
                     || (sku)::text
                   ) LIKE :pattern
@@ -495,8 +494,7 @@ async def verify_search_index_compatibility(
             """
             SELECT id
             FROM public.products
-            WHERE company_id = :company_id
-              AND lower((name)::text) LIKE :pattern
+            WHERE lower((name)::text) LIKE :pattern
             """,
             "%familyhit%",
         ),
@@ -506,8 +504,7 @@ async def verify_search_index_compatibility(
             """
             SELECT product_variant_id
             FROM public.product_barcodes
-            WHERE company_id = :company_id
-              AND is_active IS TRUE
+            WHERE is_active IS TRUE
               AND lower((barcode)::text) LIKE :pattern
             """,
             "%barcode-hit%",
@@ -531,7 +528,6 @@ async def verify_search_index_compatibility(
                     + query_sql
                 ),
                 {
-                    "company_id": company_id,
                     "pattern": pattern,
                 },
             )
