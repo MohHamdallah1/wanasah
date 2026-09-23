@@ -114,7 +114,11 @@ const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
     ) {
       inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
-    return { id, name, code };
+    return {
+      id: id as number,
+      name: name as string,
+      code: code as string,
+    };
   });
 
   const nextCursor =
@@ -141,7 +145,7 @@ const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
   return {
     items,
     next_cursor: nextCursor,
-    has_more: hasMore,
+    has_more: hasMore as boolean,
     total,
   };
 };
@@ -172,10 +176,10 @@ const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
   }
 
   return {
-    warehouse_ready: warehouseReady,
-    active_warehouse_count: activeWarehouseCount,
-    accessible_warehouse_count: accessibleWarehouseCount,
-    can_create: canCreate,
+    warehouse_ready: warehouseReady as boolean,
+    active_warehouse_count: activeWarehouseCount as number,
+    accessible_warehouse_count: accessibleWarehouseCount as number,
+    can_create: canCreate as boolean,
   };
 };
 
