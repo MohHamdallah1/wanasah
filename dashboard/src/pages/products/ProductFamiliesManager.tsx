@@ -205,11 +205,16 @@ export function ProductFamiliesManager({
     if (!isOpen) {
       return;
     }
+
+    const nextSearch =
+      searchInput.trim();
+    if (nextSearch === search) {
+      return;
+    }
+
     const timer =
       window.setTimeout(() => {
-        setSearch(
-          searchInput.trim()
-        );
+        setSearch(nextSearch);
         setCursor(null);
         setHistory([]);
         setEditingFamily(null);
@@ -219,6 +224,7 @@ export function ProductFamiliesManager({
       window.clearTimeout(timer);
   }, [
     isOpen,
+    search,
     searchInput,
   ]);
 
