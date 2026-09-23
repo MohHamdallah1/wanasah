@@ -77,7 +77,7 @@ async def main() -> None:
         company_id = ids["company_id"]
 
         family_token = _family_next_cursor(
-            name="Alpha Family",
+            sort_name="alpha family",
             family_id=101,
             company_id=company_id,
             search="  alpha  ",
@@ -150,7 +150,7 @@ async def main() -> None:
 
         long_family_name = "ع" * 150
         long_family_token = _family_next_cursor(
-            name=long_family_name,
+            sort_name=long_family_name,
             family_id=202,
             company_id=company_id,
             search=None,
@@ -210,8 +210,11 @@ async def main() -> None:
                     "VALUES "
                     "(:company_id, :variant_id, :uom_id, "
                     ":barcode, 'INTERNAL', true, "
-                    "NOW() - INTERVAL '1 minute', NULL, "
-                    "true, 1, NOW(), NOW())"
+                    "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC') "
+                    "- INTERVAL '1 minute', NULL, "
+                    "true, 1, "
+                    "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'), "
+                    "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))"
                 ),
                 {
                     "company_id": company_id,
@@ -234,8 +237,11 @@ async def main() -> None:
                     "VALUES "
                     "(:company_id, :variant_id, :uom_id, "
                     ":barcode, 'INTERNAL', false, "
-                    "NOW() + INTERVAL '1 day', NULL, "
-                    "true, 1, NOW(), NOW())"
+                    "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC') "
+                    "+ INTERVAL '1 day', NULL, "
+                    "true, 1, "
+                    "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'), "
+                    "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))"
                 ),
                 {
                     "company_id": company_id,
