@@ -746,19 +746,31 @@ async def families(
         after_id=after_id,
         limit=limit + 1,
     )
-    page = rows[:limit]
+    page_rows = rows[:limit]
     has_more = len(rows) > limit
+    page = [
+        {
+            key: value
+            for key, value in row.items()
+            if key != "_sort_name"
+        }
+        for row in page_rows
+    ]
     return {
         "items": page,
         "next_cursor": (
             _family_next_cursor(
-                name=str(page[-1]["name"]),
-                family_id=int(page[-1]["id"]),
+                name=str(
+                    page_rows[-1]["_sort_name"]
+                ),
+                family_id=int(
+                    page_rows[-1]["id"]
+                ),
                 company_id=company_id,
                 search=search,
                 limit=limit,
             )
-            if has_more and page
+            if has_more and page_rows
             else None
         ),
         "has_more": has_more,
