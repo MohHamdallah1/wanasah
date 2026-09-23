@@ -50,13 +50,13 @@ import {
   parseProductTrackingMutation,
   parseSimpleProductPage,
   type PackageUom,
-  type ProductFamily,
   type ProductImportState,
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
+import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
@@ -354,42 +354,8 @@ export default function ProductsDashboard() {
     setFamiliesOpen,
   ] = useState(false);
   const [
-    familySearchInput,
-    setFamilySearchInput,
-  ] = useState("");
-  const [
-    familySearch,
-    setFamilySearch,
-  ] = useState("");
-  const [
-    familyCursor,
-    setFamilyCursor,
-  ] = useState<string | null>(
-    null
-  );
-  const [
-    familyHistory,
-    setFamilyHistory,
-  ] = useState<
-    Array<string | null>
-  >([]);
-  const [
     familyOptionSearch,
     setFamilyOptionSearch,
-  ] = useState("");
-  const [
-    newFamilyName,
-    setNewFamilyName,
-  ] = useState("");
-  const [
-    editingFamily,
-    setEditingFamily,
-  ] = useState<ProductFamily | null>(
-    null
-  );
-  const [
-    editingFamilyName,
-    setEditingFamilyName,
   ] = useState("");
 
   const [
@@ -477,27 +443,6 @@ export default function ProductsDashboard() {
         timer
       );
   }, [searchInput]);
-
-  useEffect(() => {
-    if (!familiesOpen) {
-      return;
-    }
-    const timer =
-      window.setTimeout(() => {
-        setFamilySearch(
-          familySearchInput.trim()
-        );
-        setFamilyCursor(null);
-        setFamilyHistory([]);
-        setEditingFamily(null);
-        setEditingFamilyName("");
-      }, 250);
-    return () =>
-      window.clearTimeout(timer);
-  }, [
-    familiesOpen,
-    familySearchInput,
-  ]);
 
   useEffect(() => {
     if (!createOpen) {
@@ -637,32 +582,6 @@ export default function ProductsDashboard() {
     [search, cursor]
   );
 
-  const familyParams = useMemo(
-    () => {
-      const value =
-        new URLSearchParams({
-          limit: "50",
-        });
-      if (familySearch) {
-        value.set(
-          "search",
-          familySearch
-        );
-      }
-      if (familyCursor) {
-        value.set(
-          "cursor",
-          familyCursor
-        );
-      }
-      return value.toString();
-    },
-    [
-      familySearch,
-      familyCursor,
-    ]
-  );
-
   const familyOptionParams =
     useMemo(
       () => {
@@ -698,30 +617,6 @@ export default function ProductsDashboard() {
         parseSimpleProductPage(
           await authFetch(
             `/simple-products?${params}`,
-            { signal }
-          )
-        ),
-    });
-
-  const familiesQuery =
-    useQuery({
-      queryKey: [
-        "simple-product-families",
-        companyId,
-        "manager",
-        familySearch,
-        familyCursor,
-      ],
-      enabled: Boolean(
-        companyId &&
-        familiesOpen
-      ),
-      queryFn: async ({
-        signal,
-      }) =>
-        parseProductFamilies(
-          await authFetch(
-            `/simple-products/families?${familyParams}`,
             { signal }
           )
         ),
@@ -803,10 +698,6 @@ export default function ProductsDashboard() {
     setTrackingEdit(null);
     setTrackingEditLot(null);
     setTrackingEditExpiry(null);
-    setFamilySearchInput("");
-    setFamilySearch("");
-    setFamilyCursor(null);
-    setFamilyHistory([]);
     setFamilyOptionSearch("");
   }, [companyId]);
 
@@ -861,9 +752,6 @@ export default function ProductsDashboard() {
 
   const page =
     productsQuery.data;
-  const families =
-    familiesQuery.data
-      ?.items ?? [];
   const familyOptions =
     familyOptionsQuery.data
       ?.items ?? [];
@@ -1454,177 +1342,6 @@ export default function ProductsDashboard() {
             error,
             t(
               "products.errors.priceFailed"
-            )
-          )
-        ),
-    });
-
-  const createFamilyMutation =
-    useMutation({
-      mutationFn:
-        async (): Promise<MutationResult> => {
-          const name =
-            newFamilyName.trim();
-          if (!name) {
-            throw new Error(
-              t(
-                "products.newFamilyPlaceholder"
-              )
-            );
-          }
-
-          const body = {
-            name,
-          };
-          const scope =
-            operationScope(
-              "family-create"
-            );
-          const requestId =
-            await getOrCreateDurableRequestId(
-              scope,
-              body
-            );
-          const result =
-            await authFetch(
-              "/simple-products/families",
-              {
-                method: "POST",
-                body: JSON.stringify(
-                  {
-                    request_id:
-                      requestId,
-                    ...body,
-                  }
-                ),
-              }
-            );
-          return {
-            result,
-            requestId,
-            scope,
-          };
-        },
-      onSuccess: async ({
-        requestId,
-        scope,
-      }) => {
-        completeDurableOperation(
-          scope,
-          requestId
-        );
-        setNewFamilyName("");
-        setFamilyCursor(null);
-        setFamilyHistory([]);
-        toast.success(
-          t(
-            "products.familyCreated"
-          )
-        );
-        await queryClient.invalidateQueries(
-          {
-            queryKey: [
-              "simple-product-families",
-            ],
-          }
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.familyFailed"
-            )
-          )
-        ),
-    });
-
-  const updateFamilyMutation =
-    useMutation({
-      mutationFn:
-        async (): Promise<
-          MutationResult | undefined
-        > => {
-          if (
-            !editingFamily ||
-            !editingFamilyName.trim()
-          ) {
-            return undefined;
-          }
-
-          const body = {
-            expected_version:
-              editingFamily.version,
-            name:
-              editingFamilyName.trim(),
-          };
-          const scope =
-            operationScope(
-              "family-rename",
-              editingFamily.id
-            );
-          const requestId =
-            await getOrCreateDurableRequestId(
-              scope,
-              body
-            );
-          const result =
-            await authFetch(
-              `/simple-products/families/${editingFamily.id}`,
-              {
-                method: "PATCH",
-                body: JSON.stringify(
-                  {
-                    request_id:
-                      requestId,
-                    ...body,
-                  }
-                ),
-              }
-            );
-          return {
-            result,
-            requestId,
-            scope,
-          };
-        },
-      onSuccess: async (
-        completed
-      ) => {
-        if (completed) {
-          completeDurableOperation(
-            completed.scope,
-            completed.requestId
-          );
-        }
-        setEditingFamily(
-          null
-        );
-        setEditingFamilyName(
-          ""
-        );
-        setFamilyCursor(null);
-        setFamilyHistory([]);
-        toast.success(
-          t(
-            "products.familyUpdated"
-          )
-        );
-        await queryClient.invalidateQueries(
-          {
-            queryKey: [
-              "simple-product-families",
-            ],
-          }
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.familyFailed"
             )
           )
         ),
@@ -3584,293 +3301,14 @@ export default function ProductsDashboard() {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={
-          familiesOpen
+      <ProductFamiliesManager
+        isOpen={familiesOpen}
+        companyId={companyId}
+        driverId={driverId}
+        onClose={() =>
+          setFamiliesOpen(false)
         }
-        onClose={() => {
-          if (
-            !createFamilyMutation.isPending &&
-            !updateFamilyMutation.isPending
-          ) {
-            setFamiliesOpen(
-              false
-            );
-          }
-        }}
-        title={t(
-          "products.familiesTitle"
-        )}
-        maxWidth="max-w-2xl"
-      >
-        <div className="space-y-4">
-          <p className="rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-6 text-slate-600">
-            {t(
-              "products.familiesDescription"
-            )}
-          </p>
-
-          <div className="relative">
-            <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="search"
-              value={
-                familySearchInput
-              }
-              maxLength={100}
-              onChange={(
-                event
-              ) =>
-                setFamilySearchInput(
-                  event.target.value
-                )
-              }
-              placeholder={t(
-                "products.familySearchPlaceholder"
-              )}
-              className="w-full rounded-xl border border-slate-200 py-2.5 pe-10 ps-3 text-sm font-bold outline-none"
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <input
-              value={
-                newFamilyName
-              }
-              onChange={(
-                event
-              ) =>
-                setNewFamilyName(
-                  event.target.value
-                )
-              }
-              placeholder={t(
-                "products.newFamilyPlaceholder"
-              )}
-              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold"
-            />
-            <button
-              type="button"
-              disabled={
-                createFamilyMutation.isPending ||
-                !isOnline
-              }
-              onClick={() =>
-                createFamilyMutation.mutate()
-              }
-              className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40"
-            >
-              {t(
-                "products.addFamily"
-              )}
-            </button>
-          </div>
-
-          <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200">
-            {familiesQuery.isLoading ? (
-              <p className="p-8 text-center text-xs font-bold text-slate-400">
-                {t(
-                  "common.loading"
-                )}
-              </p>
-            ) : familiesQuery.isError ? (
-              <div className="p-6 text-center">
-                <p className="text-xs font-black text-rose-800">
-                  {t(
-                    "products.errors.familiesLoad"
-                  )}
-                </p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void familiesQuery.refetch()
-                  }
-                  className="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-700"
-                >
-                  {t(
-                    "common.retry"
-                  )}
-                </button>
-              </div>
-            ) : !families.length ? (
-              <p className="p-8 text-center text-xs font-bold text-slate-400">
-                {t(
-                  familySearch
-                    ? "products.noMatchingFamilies"
-                    : "products.noFamilies"
-                )}
-              </p>
-            ) : (
-              families.map(
-                (family) => (
-                  <div
-                    key={
-                      family.id
-                    }
-                    className="flex items-center gap-3 border-b border-slate-100 p-3 last:border-b-0"
-                  >
-                    {editingFamily?.id ===
-                    family.id ? (
-                      <input
-                        autoFocus
-                        value={
-                          editingFamilyName
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setEditingFamilyName(
-                            event
-                              .target
-                              .value
-                          )
-                        }
-                        className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold"
-                      />
-                    ) : (
-                      <div className="min-w-0 flex-1">
-                        <strong className="block truncate text-sm text-slate-900">
-                          {
-                            family.name
-                          }
-                        </strong>
-                        <span className="text-[10px] font-bold text-slate-400">
-                          {t(
-                            "products.variantCount",
-                            {
-                              count:
-                                family.variant_count,
-                            }
-                          )}
-                        </span>
-                      </div>
-                    )}
-
-                    {editingFamily?.id ===
-                    family.id ? (
-                      <>
-                        <button
-                          type="button"
-                          disabled={
-                            updateFamilyMutation.isPending ||
-                            !isOnline
-                          }
-                          onClick={() =>
-                            updateFamilyMutation.mutate()
-                          }
-                          className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
-                        >
-                          {t(
-                            "common.save"
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingFamily(
-                              null
-                            );
-                            setEditingFamilyName(
-                              ""
-                            );
-                          }}
-                          className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
-                        >
-                          {t(
-                            "common.cancel"
-                          )}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingFamily(
-                            family
-                          );
-                          setEditingFamilyName(
-                            family.name
-                          );
-                        }}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
-                      >
-                        {t(
-                          "common.edit"
-                        )}
-                      </button>
-                    )}
-                  </div>
-                )
-              )
-            )}
-          </div>
-
-          {familyHistory.length > 0 ||
-          familiesQuery.data
-            ?.next_cursor ? (
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                disabled={
-                  !familyHistory.length ||
-                  familiesQuery.isFetching
-                }
-                onClick={() => {
-                  const previous =
-                    familyHistory.at(
-                      -1
-                    ) ?? null;
-                  setFamilyHistory(
-                    (current) =>
-                      current.slice(
-                        0,
-                        -1
-                      )
-                  );
-                  setFamilyCursor(
-                    previous
-                  );
-                }}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
-              >
-                {t(
-                  "products.familyPrevious"
-                )}
-              </button>
-              <button
-                type="button"
-                disabled={
-                  !familiesQuery.data
-                    ?.next_cursor ||
-                  familiesQuery.isFetching
-                }
-                onClick={() => {
-                  const next =
-                    familiesQuery.data
-                      ?.next_cursor;
-                  if (!next) {
-                    return;
-                  }
-                  setFamilyHistory(
-                    (current) => [
-                      ...current,
-                      familyCursor,
-                    ]
-                  );
-                  setFamilyCursor(
-                    next
-                  );
-                }}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
-              >
-                {t(
-                  "products.familyNext"
-                )}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </Modal>
+      />
 
       <Modal
         isOpen={importOpen}
