@@ -192,6 +192,42 @@ describe(
       );
     });
 
+    it("keeps the price-filter plan-cache override surgical and reset", () => {
+      const api = compact(
+        readSource(
+          "../../../wa_backend/api/simple_products.py",
+        ),
+      );
+
+      expect(api).toContain(
+        "force_custom_price_plan = ( has_price is not None and book is not None )",
+      );
+      expect(api).toContain(
+        "SET LOCAL plan_cache_mode = 'force_custom_plan'",
+      );
+      expect(api).toContain(
+        "SET LOCAL plan_cache_mode = 'auto'",
+      );
+      expect(
+        api.indexOf(
+          "SET LOCAL plan_cache_mode = 'force_custom_plan'",
+        ),
+      ).toBeLessThan(
+        api.indexOf(
+          "stmt.order_by( *ordering ).limit(limit + 1)",
+        ),
+      );
+      expect(
+        api.indexOf(
+          "SET LOCAL plan_cache_mode = 'auto'",
+        ),
+      ).toBeGreaterThan(
+        api.indexOf(
+          "stmt.order_by( *ordering ).limit(limit + 1)",
+        ),
+      );
+    });
+
     it("validates family mutation responses at the frontend boundary", () => {
       expect(
         parseProductFamilyMutation({
