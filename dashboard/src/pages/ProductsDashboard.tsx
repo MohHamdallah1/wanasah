@@ -2516,55 +2516,19 @@ export default function ProductsDashboard() {
                     ) : null}
 
                     <td className="px-5 py-4">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDetailProduct(
-                              item
-                            )
-                          }
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-                        >
-                          {t(
-                            "products.details.open"
-                          )}
-                        </button>
-
-                        {canManage &&
-                        pricingVisible &&
-                        item.simple_compatible ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openPriceEditor(
-                                item
-                              )
-                            }
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-                          >
-                            {t(
-                              "products.editPrice"
-                            )}
-                          </button>
-                        ) : null}
-
-                        {canManageCatalog ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openTrackingEditor(
-                                item
-                              )
-                            }
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-                          >
-                            {t(
-                              "products.trackingEditor.action"
-                            )}
-                          </button>
-                        ) : null}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDetailProduct(
+                            item
+                          )
+                        }
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                      >
+                        {t(
+                          "products.details.open"
+                        )}
+                      </button>
                     </td>
                   </tr>
                 )
