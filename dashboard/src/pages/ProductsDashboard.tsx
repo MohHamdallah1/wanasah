@@ -236,7 +236,7 @@ export default function ProductsDashboard() {
   const canManageFamilies =
     canManageCatalog;
   const canEditSimplePrice =
-    canCreateSimpleProduct;
+    canManagePricing;
 
   const numberFormatter =
     useMemo(
