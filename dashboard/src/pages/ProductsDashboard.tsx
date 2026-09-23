@@ -34,6 +34,9 @@ import {
   apiErrorMessage,
 } from "@/lib/apiErrors";
 import {
+  formatLocaleDecimal,
+} from "@/lib/localeNumbers";
+import {
   abandonDurableOperation,
   completeDurableOperation,
   durableScope,
@@ -239,25 +242,6 @@ export default function ProductsDashboard() {
     canManageCatalog;
   const canEditSimplePrice =
     canManagePricing;
-
-  const numberFormatter =
-    useMemo(
-      () =>
-        new Intl.NumberFormat(
-          i18n.language.startsWith(
-            "ar"
-          )
-            ? "ar-JO"
-            : "en-US",
-          {
-            minimumFractionDigits:
-              3,
-            maximumFractionDigits:
-              6,
-          }
-        ),
-      [i18n.language]
-    );
 
   const [
     searchInput,
@@ -744,9 +728,6 @@ export default function ProductsDashboard() {
   const packageUoms =
     packageUomsQuery.data
       ?.items ?? [];
-  const currency =
-    page?.currency_code ||
-    "—";
   const pricingVisible =
     Boolean(
       page?.pricing_visible &&
@@ -781,22 +762,33 @@ export default function ProductsDashboard() {
             .expiry_control_mode
     );
 
+  const locale =
+    i18n.resolvedLanguage ??
+    i18n.language;
+
   const formatMoney = (
     value: string | null
-  ) => {
-    if (value === null) {
-      return "—";
-    }
-    const numeric =
-      Number(value);
-    return Number.isFinite(
-      numeric
-    )
-      ? numberFormatter.format(
-          numeric
-        )
-      : value;
-  };
+  ) =>
+    value === null
+      ? "—"
+      : formatLocaleDecimal(
+          value,
+          locale,
+          3,
+          6,
+        );
+
+  const formatPackageUnits = (
+    value: number | null
+  ) =>
+    value === null
+      ? "—"
+      : formatLocaleDecimal(
+          String(value),
+          locale,
+          0,
+          0,
+        );
 
   const operationScope = (
     operation: string,
@@ -2537,7 +2529,9 @@ export default function ProductsDashboard() {
 
                     <td className="px-5 py-4 font-black tabular-nums">
                       {item.package_uom_code
-                        ? item.units_per_package
+                        ? formatPackageUnits(
+                            item.units_per_package
+                          )
                         : "—"}
                     </td>
 
