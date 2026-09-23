@@ -164,7 +164,7 @@ import ProductsDashboard from "../pages/ProductsDashboard";
 describe(
   "Products table exact presentation",
   () => {
-    beforeEach(async () => {
+    beforeEach(() => {
       mocks.authFetch.mockReset();
       mocks.refetch.mockReset();
       mocks.invalidateQueries.mockReset();
