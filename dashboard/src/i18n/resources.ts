@@ -84,6 +84,26 @@ export const resources = {
           action: "الإجراء",
         },
         editPrice: "تعديل السعر",
+        details: {
+          open: "عرض التفاصيل",
+          title: "تفاصيل المنتج",
+          identity: "هوية المنتج",
+          lifecycle: "حالة المنتج",
+          lifecycleModes: {
+            ACTIVE: "نشط",
+            RETIRING: "قيد الإيقاف",
+          },
+          package: "العبوة",
+          tracking: "التتبع",
+          barcodes: "الباركود",
+          pricing: "التسعير",
+          compatibility: "التوافق",
+          simpleCompatible:
+            "هذا المنتج متوافق مع مسار المنتجات المبسط ويمكن إدارته من هذه الصفحة.",
+          advancedOnly:
+            "هذا المنتج يحتوي إعدادات متقدمة؛ اعرض تفاصيله هنا واستخدم الإدارة المتقدمة عند الحاجة للتعديل.",
+          notSet: "غير محدد",
+        },
         addTitle: "إضافة منتج",
         productName: "اسم المنتج",
         productNamePlaceholder:
@@ -894,6 +914,26 @@ export const resources = {
           action: "Action",
         },
         editPrice: "Edit price",
+        details: {
+          open: "View details",
+          title: "Product details",
+          identity: "Product identity",
+          lifecycle: "Product status",
+          lifecycleModes: {
+            ACTIVE: "Active",
+            RETIRING: "Retiring",
+          },
+          package: "Packaging",
+          tracking: "Tracking",
+          barcodes: "Barcodes",
+          pricing: "Pricing",
+          compatibility: "Compatibility",
+          simpleCompatible:
+            "This product is compatible with the simple product workflow and can be managed from this page.",
+          advancedOnly:
+            "This product has advanced settings; review its details here and use advanced management when an edit is required.",
+          notSet: "Not set",
+        },
         addTitle: "Add product",
         productName: "Product name",
         productNamePlaceholder:
