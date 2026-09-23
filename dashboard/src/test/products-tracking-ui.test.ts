@@ -42,12 +42,14 @@ describe("products tracking UI contracts", () => {
   it("parses versioned product rows and tracking mutation responses", () => {
     const page = parseSimpleProductPage({
       currency_code: "JOD",
+      pricing_visible: true,
       items: [
         {
           id: 10,
           product_id: 4,
           name: "Sample",
           family_name: "Sample",
+          sku: "SKU-10",
           units_per_package: 50,
           package_uom_code: "CARTON",
           currency_code: "JOD",
