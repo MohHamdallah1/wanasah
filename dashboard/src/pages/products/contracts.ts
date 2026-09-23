@@ -204,6 +204,8 @@ export interface SimpleProduct {
   family_name: string;
   sku: string;
   units_per_package: number;
+  base_uom_id: number;
+  package_uom_id: number | null;
   package_uom_code: string | null;
   currency_code: string;
   package_price: string | null;
@@ -338,6 +340,19 @@ export function parseSimpleProductPage(
         code,
         1,
       ),
+      base_uom_id: int(
+        row.base_uom_id,
+        code,
+        1,
+      ),
+      package_uom_id:
+        row.package_uom_id === null
+          ? null
+          : int(
+              row.package_uom_id,
+              code,
+              1,
+            ),
       package_uom_code: nullableStr(
         row.package_uom_code,
         code,
@@ -678,4 +693,84 @@ export function parseProductImportErrorPage(
     items,
     next_after_row: next,
   };
+}
+
+
+export type ProductBarcodeType =
+  | "EAN8"
+  | "EAN13"
+  | "UPC_A"
+  | "GTIN14"
+  | "GS1_128"
+  | "INTERNAL";
+
+export interface ProductBarcodeRecord {
+  id: number;
+  product_variant_id: number;
+  uom: {
+    id: number;
+    code: string;
+    name: string;
+  };
+  barcode: string;
+  barcode_type: ProductBarcodeType;
+  is_primary: boolean;
+  valid_from: string;
+  valid_to: string | null;
+  is_active: boolean;
+  version: number;
+}
+
+export function parseProductBarcodes(
+  raw: unknown,
+): { items: ProductBarcodeRecord[] } {
+  const code = "PRODUCT_BARCODES_RESPONSE_INVALID";
+  const page = record(raw, code);
+  if (!Array.isArray(page.items) || page.items.length > 500) {
+    return contractError(code);
+  }
+
+  const ids = new Set<number>();
+  const items = page.items.map((rawItem) => {
+    const row = record(rawItem, code);
+    const uom = record(row.uom, code);
+    const id = int(row.id, code, 1);
+    if (ids.has(id)) return contractError(code);
+    ids.add(id);
+
+    const barcodeType = row.barcode_type;
+    if (
+      barcodeType !== "EAN8" &&
+      barcodeType !== "EAN13" &&
+      barcodeType !== "UPC_A" &&
+      barcodeType !== "GTIN14" &&
+      barcodeType !== "GS1_128" &&
+      barcodeType !== "INTERNAL"
+    ) {
+      return contractError(code);
+    }
+
+    return {
+      id,
+      product_variant_id: int(
+        row.product_variant_id,
+        code,
+        1,
+      ),
+      uom: {
+        id: int(uom.id, code, 1),
+        code: str(uom.code, code, 30),
+        name: str(uom.name, code, 100),
+      },
+      barcode: str(row.barcode, code, 128),
+      barcode_type: barcodeType,
+      is_primary: bool(row.is_primary, code),
+      valid_from: str(row.valid_from, code, 64),
+      valid_to: nullableStr(row.valid_to, code, 64),
+      is_active: bool(row.is_active, code),
+      version: int(row.version, code, 1),
+    };
+  });
+
+  return { items };
 }
