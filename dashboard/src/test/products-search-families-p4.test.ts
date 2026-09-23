@@ -206,7 +206,13 @@ describe(
         "SET LOCAL plan_cache_mode = 'force_custom_plan'",
       );
       expect(api).toContain(
-        "SET LOCAL plan_cache_mode = 'auto'",
+        "previous_plan_cache_mode = str(",
+      );
+      expect(api).toContain(
+        "SHOW plan_cache_mode",
+      );
+      expect(api).toContain(
+        "SELECT set_config( 'plan_cache_mode', :previous_plan_cache_mode, true )",
       );
       expect(
         api.indexOf(
@@ -219,7 +225,7 @@ describe(
       );
       expect(
         api.indexOf(
-          "SET LOCAL plan_cache_mode = 'auto'",
+          "SELECT set_config( 'plan_cache_mode', :previous_plan_cache_mode, true )",
         ),
       ).toBeGreaterThan(
         api.indexOf(
