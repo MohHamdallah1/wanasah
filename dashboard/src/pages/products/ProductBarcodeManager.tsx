@@ -142,6 +142,13 @@ export function ProductBarcodeManager({
     DurableCommand<BarcodeCreateBody> | null
   >(null);
 
+  const productId =
+    product?.id ?? null;
+  const baseUomId =
+    product?.base_uom_id ?? null;
+  const packageUomId =
+    product?.package_uom_id ?? null;
+
   const createScope = useCallback(
     (productId: number) =>
       companyId !== null &&
@@ -326,11 +333,14 @@ export function ProductBarcodeManager({
     setIsPrimary(false);
     setPendingCreate(null);
 
-    if (!product) {
+    if (
+      productId === null ||
+      baseUomId === null
+    ) {
       return;
     }
     const scope =
-      createScope(product.id);
+      createScope(productId);
     if (!scope) {
       return;
     }
@@ -357,10 +367,10 @@ export function ProductBarcodeManager({
       pending.payload;
     const restoredTarget =
       payload.uom_id ===
-      product.base_uom_id
+      baseUomId
         ? "base"
         : payload.uom_id ===
-            product.package_uom_id
+            packageUomId
           ? "package"
           : null;
     if (!restoredTarget) {
@@ -387,11 +397,9 @@ export function ProductBarcodeManager({
         pending.createdAt,
     });
   }, [
-    companyId,
-    driverId,
-    product?.id,
-    product?.base_uom_id,
-    product?.package_uom_id,
+    productId,
+    baseUomId,
+    packageUomId,
     createScope,
   ]);
 
