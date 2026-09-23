@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { parseSimpleProductPage } from "../pages/products/contracts";
+import {
+  parsePackageUoms,
+  parseProductFamilies,
+  parseProductImportAccepted,
+  parseProductImportErrorPage,
+  parseProductImportState,
+  parseSimpleProductPage,
+} from "../pages/products/contracts";
 
 
 const readSource = (relativePath: string): string =>
@@ -89,6 +96,136 @@ describe("products P2 read contract", () => {
     expect(page.pricing_visible).toBe(true);
     expect(page.items[0].package_price).toBe("10.000000");
     expect(page.items[0].unit_price).toBe("0.200000");
+  });
+
+  it("parses families and UOM reference responses strictly", () => {
+    expect(
+      parseProductFamilies({
+        items: [
+          {
+            id: 1,
+            name: "Lolo",
+            version: 2,
+            variant_count: 3,
+          },
+        ],
+      }).items[0].variant_count,
+    ).toBe(3);
+
+    expect(
+      parsePackageUoms({
+        items: [
+          {
+            id: 2,
+            code: "CARTON",
+          },
+        ],
+      }).items[0].code,
+    ).toBe("CARTON");
+
+    expect(() =>
+      parseProductFamilies({
+        items: [
+          {
+            id: 1,
+            name: "Lolo",
+            version: 0,
+            variant_count: 3,
+          },
+        ],
+      }),
+    ).toThrow("PRODUCT_FAMILIES_RESPONSE_INVALID");
+  });
+
+  it("parses import acceptance, status and error pages at the boundary", () => {
+    const jobId =
+      "123e4567-e89b-42d3-a456-426614174000";
+
+    const accepted =
+      parseProductImportAccepted({
+        job_id: jobId,
+        status: "QUEUED",
+        replayed: false,
+        default_lot_control_mode: "OPTIONAL",
+        default_expiry_control_mode: "NONE",
+      });
+    expect(accepted.job_id).toBe(jobId);
+
+    const state =
+      parseProductImportState({
+        job_id: jobId,
+        status: "NEEDS_MAPPING",
+        file_name: "products.csv",
+        total_rows: 10,
+        processed_rows: 0,
+        valid_rows: 0,
+        failed_rows: 0,
+        detected_headers: ["name"],
+        suggested_mapping: {
+          name: "name",
+        },
+        column_mapping: {},
+        default_lot_control_mode: "OPTIONAL",
+        default_expiry_control_mode: "NONE",
+        error_summary: {},
+        errors: [],
+      });
+    expect(state.status).toBe("NEEDS_MAPPING");
+
+    const errors =
+      parseProductImportErrorPage({
+        items: [
+          {
+            row_number: 2,
+            code: "INVALID_NAME",
+            message: "Invalid",
+          },
+        ],
+        next_after_row: null,
+      });
+    expect(errors.items[0].row_number).toBe(2);
+
+    expect(() =>
+      parseProductImportState({
+        job_id: jobId,
+        status: "UNKNOWN",
+        file_name: "products.csv",
+        total_rows: 0,
+        processed_rows: 0,
+        valid_rows: 0,
+        failed_rows: 0,
+        detected_headers: [],
+        suggested_mapping: {},
+        column_mapping: {},
+        default_lot_control_mode: "OPTIONAL",
+        default_expiry_control_mode: "NONE",
+        error_summary: {},
+        errors: [],
+      }),
+    ).toThrow("PRODUCT_IMPORT_STATE_RESPONSE_INVALID");
+  });
+
+  it("allows catalog-only users to reach Products navigation and route", () => {
+    const layout = normalizeWhitespace(
+      readSource(
+        "../components/operations/DashboardLayout.tsx",
+      ),
+    );
+    const sidebar = normalizeWhitespace(
+      readSource(
+        "../components/operations/OperationsSidebar.tsx",
+      ),
+    );
+
+    expect(layout).toContain(
+      'location.pathname === "/products" && !access.canAny("catalog.read")',
+    );
+    expect(layout).not.toContain(
+      'access.canAny("catalog.read") && access.canAny("pricing.view")',
+    );
+    expect(sidebar).toContain(
+      'item.path === "/products" && access.canAny( "catalog.read" )',
+    );
   });
 
   it("keeps dashboard caches tenant scoped and pricing UI permission aware", () => {
