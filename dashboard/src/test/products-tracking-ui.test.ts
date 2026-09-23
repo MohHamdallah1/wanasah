@@ -199,15 +199,24 @@ describe("products tracking UI contracts", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const row = normalizeWhitespace(
+      readSource("../pages/products/ProductTableRow.tsx"),
+    );
 
     expect(page).toContain(
       'const canManageCatalog = access.isCompanyAdmin || access.canAny( "catalog.manage" );',
     );
     expect(page).toContain(
-      "{canManageCatalog ? (",
+      "canEditTracking={ canManageCatalog }",
     );
     expect(page).toContain(
-      "openTrackingEditor( item )",
+      "onEditTracking={ openTrackingEditor }",
+    );
+    expect(row).toContain(
+      "{canEditTracking ? (",
+    );
+    expect(row).toContain(
+      "onEditTracking(item)",
     );
   });
 
