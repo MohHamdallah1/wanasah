@@ -226,7 +226,10 @@ describe("Products P3 detail foundation", () => {
       "valid_to: null",
     );
     expect(manager).toContain(
-      "getOrCreateDurableRequestId",
+      "getOrCreateDurableCommand",
+    );
+    expect(manager).toContain(
+      "readDurableCommand",
     );
     expect(manager).toContain(
       "completeDurableOperation",
@@ -260,6 +263,18 @@ describe("Products P3 detail foundation", () => {
     );
     expect(catalogBackend).toContain(
       "not payload.is_active and valid_to is None",
+    );
+    expect(catalogBackend).toContain(
+      "limit: int = Query(100, ge=1, le=200)",
+    );
+    expect(manager).toContain(
+      '"products.barcodeManager.loadMore"',
+    );
+    expect(manager).toContain(
+      "!product.package_uses_base_barcode",
+    );
+    expect(manager).toContain(
+      '"products.barcodeManager.pendingRetry"',
     );
   });
 
