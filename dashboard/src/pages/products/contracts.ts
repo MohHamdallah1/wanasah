@@ -251,6 +251,12 @@ export interface ProductFamily {
   variant_count: number;
 }
 
+export interface ProductFamilyPage {
+  items: ProductFamily[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
 export interface PackageUom {
   id: number;
   code: string;
@@ -544,12 +550,13 @@ export function parseProductTrackingMutation(
 
 export function parseProductFamilies(
   raw: unknown,
-): { items: ProductFamily[] } {
+): ProductFamilyPage {
   const code = "PRODUCT_FAMILIES_RESPONSE_INVALID";
   const page = record(raw, code);
   if (
     !Array.isArray(page.items) ||
-    page.items.length > 200
+    page.items.length > 200 ||
+    typeof page.has_more !== "boolean"
   ) {
     return contractError(code);
   }
@@ -574,7 +581,23 @@ export function parseProductFamilies(
     };
   });
 
-  return { items };
+  const nextCursor = nullableStr(
+    page.next_cursor,
+    code,
+    512,
+  );
+  if (
+    page.has_more !==
+    (nextCursor !== null)
+  ) {
+    return contractError(code);
+  }
+
+  return {
+    items,
+    next_cursor: nextCursor,
+    has_more: page.has_more,
+  };
 }
 
 export function parsePackageUoms(
