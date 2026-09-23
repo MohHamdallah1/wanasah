@@ -16,7 +16,6 @@ import {
   Copy,
   FileSpreadsheet,
   FolderTree,
-  LockKeyhole,
   PackagePlus,
   RefreshCw,
   Search,
