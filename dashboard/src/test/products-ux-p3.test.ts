@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  formatLocaleDecimal,
+  formatLocaleMoney,
+} from "../lib/localeNumbers";
 
 const readSource = (relativePath: string): string =>
   readFileSync(
@@ -60,7 +64,7 @@ describe("Products P3 detail foundation", () => {
       "{pricingVisible ? (",
     );
     expect(drawer).toContain(
-      "canEditPrice && pricingVisible && product.simple_compatible",
+      "canEditPrice && product.simple_compatible",
     );
     expect(drawer).toContain(
       "{canEditTracking ? (",
@@ -84,7 +88,7 @@ describe("Products P3 detail foundation", () => {
       "canEditTracking={ canManageCatalog }",
     );
     expect(page).toContain(
-      "canEditPrice={ canEditSimplePrice && pricingVisible }",
+      "canEditPrice={ canEditSimplePrice }",
     );
   });
 
@@ -214,8 +218,66 @@ describe("Products P3 detail foundation", () => {
       "is_active: false",
     );
     expect(manager).toContain(
-      "valid_to: new Date().toISOString()",
+      "valid_to: null",
     );
+    expect(manager).toContain(
+      "getOrCreateDurableRequestId",
+    );
+    expect(manager).toContain(
+      "completeDurableOperation",
+    );
+    expect(manager).toContain(
+      "durableScope",
+    );
+    expect(manager).not.toContain(
+      "crypto.randomUUID()",
+    );
+    expect(manager).toContain(
+      "new AbortController()",
+    );
+    expect(manager).toContain(
+      "requestSequence.current",
+    );
+    expect(manager).toContain(
+      "item.product_variant_id !== productId",
+    );
+    expect(manager).toContain(
+      "loadReady && !loadError",
+    );
+    expect(manager).toContain(
+      '"products.barcodeManager.added"',
+    );
+    expect(manager).toContain(
+      '"products.barcodeManager.deactivated"',
+    );
+  });
+
+  it("formats P3 decimal and money values with locale-aware exact string presentation", () => {
+    expect(
+      formatLocaleDecimal(
+        "1234.500000",
+        "en-US",
+        3,
+        6,
+      ),
+    ).toBe("1,234.500");
+
+    const arabic =
+      formatLocaleDecimal(
+        "1234.500000",
+        "ar-JO",
+        3,
+        6,
+      );
+    expect(arabic).toContain("١");
+    expect(arabic).toContain("٫");
+    expect(
+      formatLocaleMoney(
+        "12.345000",
+        "JOD",
+        "en-US",
+      ),
+    ).toBe("12.345 JOD");
   });
 
   it("keeps the new P3 surface locale-driven and direction-aware", () => {
@@ -224,6 +286,9 @@ describe("Products P3 detail foundation", () => {
     );
     const translations = readSource(
       "../i18n/resources.ts",
+    );
+    const modal = readSource(
+      "../components/ui/modal.tsx",
     );
 
     expect(drawer).toContain(
@@ -234,6 +299,18 @@ describe("Products P3 detail foundation", () => {
     );
     expect(drawer).not.toContain(
       'dir="ltr"',
+    );
+    expect(drawer).toContain(
+      "formatLocaleMoney",
+    );
+    expect(drawer).toContain(
+      "formatLocaleDecimal",
+    );
+    expect(modal).toContain(
+      "dir={i18n.dir()}",
+    );
+    expect(modal).toContain(
+      'aria-label={t("common.close")}',
     );
     expect(translations).toContain(
       'open: "عرض التفاصيل"',
