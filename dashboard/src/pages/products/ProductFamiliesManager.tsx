@@ -28,6 +28,7 @@ import {
 } from "@/lib/durableOperations";
 import {
   parseProductFamilies,
+  parseProductFamilyMutation,
   type ProductFamily,
 } from "@/pages/products/contracts";
 
@@ -222,18 +223,20 @@ export function ProductFamiliesManager({
                 scope,
                 body
               );
-            await authFetch(
-              "/simple-products/families",
-              {
-                method: "POST",
-                body: JSON.stringify(
-                  {
-                    request_id:
-                      command.requestId,
-                    ...command.payload,
-                  }
-                ),
-              }
+            parseProductFamilyMutation(
+              await authFetch(
+                "/simple-products/families",
+                {
+                  method: "POST",
+                  body: JSON.stringify(
+                    {
+                      request_id:
+                        command.requestId,
+                      ...command.payload,
+                    }
+                  ),
+                }
+              )
             );
             return {
               requestId:
@@ -324,18 +327,20 @@ export function ProductFamiliesManager({
                 scope,
                 body
               );
-            await authFetch(
-              `/simple-products/families/${editingFamily.id}`,
-              {
-                method: "PATCH",
-                body: JSON.stringify(
-                  {
-                    request_id:
-                      command.requestId,
-                    ...command.payload,
-                  }
-                ),
-              }
+            parseProductFamilyMutation(
+              await authFetch(
+                `/simple-products/families/${editingFamily.id}`,
+                {
+                  method: "PATCH",
+                  body: JSON.stringify(
+                    {
+                      request_id:
+                        command.requestId,
+                      ...command.payload,
+                    }
+                  ),
+                }
+              )
             );
             return {
               requestId:
