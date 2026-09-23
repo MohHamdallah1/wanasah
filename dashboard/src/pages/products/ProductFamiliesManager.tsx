@@ -25,6 +25,7 @@ import {
   completeDurableOperation,
   durableScope,
   getOrCreateDurableCommand,
+  readDurableCommand,
 } from "@/lib/durableOperations";
 import {
   parseProductFamilies,
@@ -42,6 +43,75 @@ type Props = {
 type MutationResult = {
   requestId: string;
   scope: string;
+};
+
+type FamilyCreateCommandPayload = {
+  name: string;
+};
+
+type FamilyRenameCommandPayload = {
+  expected_version: number;
+  name: string;
+};
+
+const localCodedError = (
+  code: string,
+): Error & { code: string } => {
+  const error = new Error() as Error & {
+    code: string;
+  };
+  error.code = code;
+  return error;
+};
+
+const validFamilyCreatePayload = (
+  value: unknown,
+): value is FamilyCreateCommandPayload => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const row = value as Record<
+    string,
+    unknown
+  >;
+  return (
+    Object.keys(row).length === 1 &&
+    typeof row.name === "string" &&
+    row.name.trim().length > 0 &&
+    row.name.trim().length <= 150
+  );
+};
+
+const validFamilyRenamePayload = (
+  value: unknown,
+): value is FamilyRenameCommandPayload => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const row = value as Record<
+    string,
+    unknown
+  >;
+  return (
+    Object.keys(row).length === 2 &&
+    typeof row.name === "string" &&
+    row.name.trim().length > 0 &&
+    row.name.trim().length <= 150 &&
+    typeof row.expected_version ===
+      "number" &&
+    Number.isSafeInteger(
+      row.expected_version
+    ) &&
+    row.expected_version > 0
+  );
 };
 
 const shouldRetainDurableFamilyCommand = (
@@ -99,6 +169,14 @@ export function ProductFamiliesManager({
     setNewFamilyName,
   ] = useState("");
   const [
+    createCommandPending,
+    setCreateCommandPending,
+  ] = useState(false);
+  const [
+    createCommandBlocked,
+    setCreateCommandBlocked,
+  ] = useState(false);
+  const [
     editingFamily,
     setEditingFamily,
   ] = useState<ProductFamily | null>(
@@ -108,6 +186,20 @@ export function ProductFamiliesManager({
     editingFamilyName,
     setEditingFamilyName,
   ] = useState("");
+  const [
+    editingExpectedVersion,
+    setEditingExpectedVersion,
+  ] = useState<number | null>(
+    null
+  );
+  const [
+    renameCommandPending,
+    setRenameCommandPending,
+  ] = useState(false);
+  const [
+    renameCommandBlocked,
+    setRenameCommandBlocked,
+  ] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -136,9 +228,84 @@ export function ProductFamiliesManager({
     setCursor(null);
     setHistory([]);
     setNewFamilyName("");
+    setCreateCommandPending(false);
+    setCreateCommandBlocked(false);
     setEditingFamily(null);
     setEditingFamilyName("");
+    setEditingExpectedVersion(null);
+    setRenameCommandPending(false);
+    setRenameCommandBlocked(false);
   }, [companyId]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !companyId ||
+      !driverId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const scope = durableScope(
+      companyId,
+      driverId,
+      "family-create",
+    );
+
+    void (async () => {
+      try {
+        const command =
+          await readDurableCommand<unknown>(
+            scope,
+          );
+        if (cancelled || !command) {
+          return;
+        }
+        if (
+          !validFamilyCreatePayload(
+            command.payload,
+          )
+        ) {
+          throw localCodedError(
+            "DURABLE_OPERATION_CORRUPT",
+          );
+        }
+        setNewFamilyName(
+          command.payload.name,
+        );
+        setCreateCommandPending(
+          true,
+        );
+        setCreateCommandBlocked(
+          false,
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setCreateCommandPending(false);
+        setCreateCommandBlocked(true);
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.errors.familyFailed",
+            ),
+          ),
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOpen,
+    companyId,
+    driverId,
+    t,
+  ]);
 
   const params = useMemo(
     () => {
@@ -226,9 +393,10 @@ export function ProductFamiliesManager({
             );
           }
 
-          const body = {
-            name,
-          };
+          const body:
+            FamilyCreateCommandPayload = {
+              name,
+            };
           const scope =
             operationScope(
               "family-create"
@@ -261,12 +429,22 @@ export function ProductFamiliesManager({
             };
           } catch (error) {
             if (
-              !shouldRetainDurableFamilyCommand(
+              shouldRetainDurableFamilyCommand(
                 error
               )
             ) {
+              setCreateCommandPending(
+                true
+              );
+            } else {
               abandonDurableOperation(
                 scope
+              );
+              setCreateCommandPending(
+                false
+              );
+              setCreateCommandBlocked(
+                false
               );
             }
             throw error;
@@ -281,6 +459,8 @@ export function ProductFamiliesManager({
           requestId
         );
         setNewFamilyName("");
+        setCreateCommandPending(false);
+        setCreateCommandBlocked(false);
         setCursor(null);
         setHistory([]);
         toast.success(
@@ -320,12 +500,14 @@ export function ProductFamiliesManager({
             return undefined;
           }
 
-          const body = {
-            expected_version:
-              editingFamily.version,
-            name:
-              editingFamilyName.trim(),
-          };
+          const body:
+            FamilyRenameCommandPayload = {
+              expected_version:
+                editingExpectedVersion ??
+                editingFamily.version,
+              name:
+                editingFamilyName.trim(),
+            };
           const scope =
             operationScope(
               "family-rename",
@@ -359,12 +541,22 @@ export function ProductFamiliesManager({
             };
           } catch (error) {
             if (
-              !shouldRetainDurableFamilyCommand(
+              shouldRetainDurableFamilyCommand(
                 error
               )
             ) {
+              setRenameCommandPending(
+                true
+              );
+            } else {
               abandonDurableOperation(
                 scope
+              );
+              setRenameCommandPending(
+                false
+              );
+              setRenameCommandBlocked(
+                false
               );
             }
             throw error;
@@ -381,6 +573,9 @@ export function ProductFamiliesManager({
         }
         setEditingFamily(null);
         setEditingFamilyName("");
+        setEditingExpectedVersion(null);
+        setRenameCommandPending(false);
+        setRenameCommandBlocked(false);
         setCursor(null);
         setHistory([]);
         toast.success(
@@ -410,6 +605,73 @@ export function ProductFamiliesManager({
   const families =
     familiesQuery.data
       ?.items ?? [];
+
+  const openFamilyEditor =
+    async (
+      family: ProductFamily,
+    ) => {
+      setEditingFamily(family);
+      setEditingFamilyName(
+        family.name,
+      );
+      setEditingExpectedVersion(
+        family.version,
+      );
+      setRenameCommandPending(false);
+      setRenameCommandBlocked(false);
+
+      if (
+        !companyId ||
+        !driverId
+      ) {
+        setRenameCommandBlocked(true);
+        return;
+      }
+
+      const scope = durableScope(
+        companyId,
+        driverId,
+        "family-rename",
+        family.id,
+      );
+      try {
+        const command =
+          await readDurableCommand<unknown>(
+            scope,
+          );
+        if (!command) {
+          return;
+        }
+        if (
+          !validFamilyRenamePayload(
+            command.payload,
+          )
+        ) {
+          throw localCodedError(
+            "DURABLE_OPERATION_CORRUPT",
+          );
+        }
+        setEditingFamilyName(
+          command.payload.name,
+        );
+        setEditingExpectedVersion(
+          command.payload
+            .expected_version,
+        );
+        setRenameCommandPending(true);
+      } catch (error) {
+        setRenameCommandBlocked(true);
+        setEditingExpectedVersion(null);
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.errors.familyFailed",
+            ),
+          ),
+        );
+      }
+    };
 
   return (
     <Modal
@@ -460,6 +722,10 @@ export function ProductFamiliesManager({
               newFamilyName
             }
             maxLength={150}
+            disabled={
+              createCommandPending ||
+              createCommandBlocked
+            }
             onChange={(
               event
             ) =>
@@ -476,6 +742,7 @@ export function ProductFamiliesManager({
             type="button"
             disabled={
               createFamilyMutation.isPending ||
+              createCommandBlocked ||
               !isOnline
             }
             onClick={() =>
@@ -488,6 +755,20 @@ export function ProductFamiliesManager({
             )}
           </button>
         </div>
+
+        {createCommandPending ? (
+          <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
+            {t(
+              "products.familyPendingRetry"
+            )}
+          </p>
+        ) : createCommandBlocked ? (
+          <p className="rounded-xl bg-rose-50 p-3 text-[11px] font-semibold leading-5 text-rose-900">
+            {t(
+              "products.familyPendingBlocked"
+            )}
+          </p>
+        ) : null}
 
         <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200">
           {familiesQuery.isLoading ? (
@@ -540,6 +821,10 @@ export function ProductFamiliesManager({
                         editingFamilyName
                       }
                       maxLength={150}
+                      disabled={
+                        renameCommandPending ||
+                        renameCommandBlocked
+                      }
                       onChange={(
                         event
                       ) =>
@@ -577,6 +862,7 @@ export function ProductFamiliesManager({
                         type="button"
                         disabled={
                           updateFamilyMutation.isPending ||
+                          renameCommandBlocked ||
                           !isOnline
                         }
                         onClick={() =>
@@ -597,6 +883,15 @@ export function ProductFamiliesManager({
                           setEditingFamilyName(
                             ""
                           );
+                          setEditingExpectedVersion(
+                            null
+                          );
+                          setRenameCommandPending(
+                            false
+                          );
+                          setRenameCommandBlocked(
+                            false
+                          );
                         }}
                         className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
                       >
@@ -608,14 +903,11 @@ export function ProductFamiliesManager({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => {
-                        setEditingFamily(
+                      onClick={() =>
+                        void openFamilyEditor(
                           family
-                        );
-                        setEditingFamilyName(
-                          family.name
-                        );
-                      }}
+                        )
+                      }
                       className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
                     >
                       {t(
