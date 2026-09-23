@@ -125,15 +125,15 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
     }
 
     return {
-      id,
-      name,
-      code,
-      branch_id: branchId,
-      branch_name: branchName,
-      is_active: isActive,
-      version,
-      created_at: createdAt,
-      updated_at: updatedAt,
+      id: id as number,
+      name: name as string,
+      code: code as string,
+      branch_id: branchId as number | null,
+      branch_name: branchName as string | null,
+      is_active: isActive as boolean,
+      version: version as number,
+      created_at: createdAt as string,
+      updated_at: updatedAt as string,
     };
   });
 
@@ -162,7 +162,7 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
   return {
     items,
     next_cursor: nextCursor,
-    has_more: hasMore,
+    has_more: hasMore as boolean,
     total,
   };
 };
