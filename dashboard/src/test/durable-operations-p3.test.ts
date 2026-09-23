@@ -28,7 +28,11 @@ describe("durable command P3 guarantees", () => {
 
   it("retains unresolved payload-bearing commands beyond seven days", async () => {
     const start = 1_000_000;
-    vi.spyOn(Date, "now").mockReturnValue(start);
+    const nowSpy =
+      vi.spyOn(
+        Date,
+        "now",
+      ).mockReturnValue(start);
 
     const scope = durableScope(
       1,
@@ -51,7 +55,7 @@ describe("durable command P3 guarantees", () => {
         payload,
       );
 
-    vi.spyOn(Date, "now").mockReturnValue(
+    nowSpy.mockReturnValue(
       start +
         8 * 24 * 60 * 60 * 1000,
     );
