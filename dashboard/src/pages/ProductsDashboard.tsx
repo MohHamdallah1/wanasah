@@ -1512,6 +1512,8 @@ export default function ProductsDashboard() {
           requestId
         );
         setNewFamilyName("");
+        setFamilyCursor(null);
+        setFamilyHistory([]);
         toast.success(
           t(
             "products.familyCreated"
@@ -1600,6 +1602,8 @@ export default function ProductsDashboard() {
         setEditingFamilyName(
           ""
         );
+        setFamilyCursor(null);
+        setFamilyHistory([]);
         toast.success(
           t(
             "products.familyUpdated"
@@ -2928,7 +2932,7 @@ export default function ProductsDashboard() {
                 className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none"
               />
               <datalist id="product-family-options">
-                {families.map(
+                {familyOptions.map(
                   (family) => (
                     <option
                       key={
@@ -3603,6 +3607,27 @@ export default function ProductsDashboard() {
             )}
           </p>
 
+          <div className="relative">
+            <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={
+                familySearchInput
+              }
+              onChange={(
+                event
+              ) =>
+                setFamilySearchInput(
+                  event.target.value
+                )
+              }
+              placeholder={t(
+                "products.familySearchPlaceholder"
+              )}
+              className="w-full rounded-xl border border-slate-200 py-2.5 pe-10 ps-3 text-sm font-bold outline-none"
+            />
+          </div>
+
           <div className="flex gap-2">
             <input
               value={
@@ -3638,10 +3663,37 @@ export default function ProductsDashboard() {
           </div>
 
           <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200">
-            {!families.length ? (
+            {familiesQuery.isLoading ? (
               <p className="p-8 text-center text-xs font-bold text-slate-400">
                 {t(
-                  "products.noFamilies"
+                  "common.loading"
+                )}
+              </p>
+            ) : familiesQuery.isError ? (
+              <div className="p-6 text-center">
+                <p className="text-xs font-black text-rose-800">
+                  {t(
+                    "products.errors.familiesLoad"
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void familiesQuery.refetch()
+                  }
+                  className="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-700"
+                >
+                  {t(
+                    "common.retry"
+                  )}
+                </button>
+              </div>
+            ) : !families.length ? (
+              <p className="p-8 text-center text-xs font-bold text-slate-400">
+                {t(
+                  familySearch
+                    ? "products.noMatchingFamilies"
+                    : "products.noFamilies"
                 )}
               </p>
             ) : (
@@ -3748,6 +3800,71 @@ export default function ProductsDashboard() {
               )
             )}
           </div>
+
+          {familyHistory.length > 0 ||
+          familiesQuery.data
+            ?.next_cursor ? (
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={
+                  !familyHistory.length ||
+                  familiesQuery.isFetching
+                }
+                onClick={() => {
+                  const previous =
+                    familyHistory.at(
+                      -1
+                    ) ?? null;
+                  setFamilyHistory(
+                    (current) =>
+                      current.slice(
+                        0,
+                        -1
+                      )
+                  );
+                  setFamilyCursor(
+                    previous
+                  );
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
+              >
+                {t(
+                  "products.familyPrevious"
+                )}
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !familiesQuery.data
+                    ?.next_cursor ||
+                  familiesQuery.isFetching
+                }
+                onClick={() => {
+                  const next =
+                    familiesQuery.data
+                      ?.next_cursor;
+                  if (!next) {
+                    return;
+                  }
+                  setFamilyHistory(
+                    (current) => [
+                      ...current,
+                      familyCursor,
+                    ]
+                  );
+                  setFamilyCursor(
+                    next
+                  );
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
+              >
+                {t(
+                  "products.familyNext"
+                )}
+              </button>
+            </div>
+          ) : null}
         </div>
       </Modal>
 
