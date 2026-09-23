@@ -41,48 +41,23 @@ import {
   getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
 import {
+  parsePackageUoms,
+  parseProductFamilies,
+  parseProductImportAccepted,
+  parseProductImportErrorPage,
+  parseProductImportState,
   parseProductTrackingDefaults,
   parseProductTrackingMutation,
   parseSimpleProductPage,
+  type PackageUom,
+  type ProductFamily,
+  type ProductImportState,
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
-
-type Family = {
-  id: number;
-  name: string;
-  version: number;
-  variant_count: number;
-};
-
-type PackageUom = {
-  id: number;
-  code: string;
-};
-
-type ImportStatus = {
-  job_id: string;
-  status: string;
-  file_name: string;
-  total_rows: number;
-  processed_rows: number;
-  valid_rows: number;
-  failed_rows: number;
-  detected_headers: string[];
-  suggested_mapping: Record<string, string>;
-  column_mapping: Record<string, string>;
-  default_lot_control_mode: ProductTrackingMode;
-  default_expiry_control_mode: ProductTrackingMode;
-  error_summary: Record<string, unknown>;
-  errors: Array<{
-    row_number: number;
-    code: string | null;
-    message: string | null;
-  }>;
-};
 
 type MutationResult = {
   result: unknown;
@@ -235,6 +210,11 @@ export default function ProductsDashboard() {
     access.canAny(
       "catalog.manage"
     );
+  const canViewPricing =
+    access.isCompanyAdmin ||
+    access.canAny(
+      "pricing.view"
+    );
 
   const canManage =
     access.isCompanyAdmin ||
@@ -368,7 +348,7 @@ export default function ProductsDashboard() {
   const [
     editingFamily,
     setEditingFamily,
-  ] = useState<Family | null>(
+  ] = useState<ProductFamily | null>(
     null
   );
   const [
@@ -396,7 +376,7 @@ export default function ProductsDashboard() {
     importStatus,
     setImportStatus,
   ] =
-    useState<ImportStatus | null>(
+    useState<ProductImportState | null>(
       null
     );
   const [
@@ -584,9 +564,13 @@ export default function ProductsDashboard() {
     useQuery({
       queryKey: [
         "simple-products",
+        companyId,
         search,
         cursor,
       ],
+      enabled: Boolean(
+        companyId
+      ),
       queryFn: async ({
         signal,
       }) =>
@@ -602,16 +586,20 @@ export default function ProductsDashboard() {
     useQuery({
       queryKey: [
         "simple-product-families",
+        companyId,
       ],
+      enabled: Boolean(
+        companyId
+      ),
       queryFn: async ({
         signal,
       }) =>
-        (await authFetch(
-          "/simple-products/families?limit=200",
-          { signal }
-        )) as {
-          items: Family[];
-        },
+        parseProductFamilies(
+          await authFetch(
+            "/simple-products/families?limit=200",
+            { signal }
+          )
+        ),
     });
 
   const packageUomsQuery =
@@ -622,12 +610,12 @@ export default function ProductsDashboard() {
       queryFn: async ({
         signal,
       }) =>
-        (await authFetch(
-          "/simple-products/package-uoms",
-          { signal }
-        )) as {
-          items: PackageUom[];
-        },
+        parsePackageUoms(
+          await authFetch(
+            "/simple-products/package-uoms",
+            { signal }
+          )
+        ),
     });
 
   const trackingDefaultsQuery =
@@ -649,6 +637,11 @@ export default function ProductsDashboard() {
     });
 
   useEffect(() => {
+    setCursor(null);
+    setHistory([]);
+    setPriceEdit(null);
+    setEditPackagePrice("");
+    setEditUnitPrice("");
     setImportLotControlMode(null);
     setImportExpiryControlMode(null);
     setImportTrackingExpanded(false);
@@ -721,6 +714,13 @@ export default function ProductsDashboard() {
   const currency =
     page?.currency_code ||
     "—";
+  const pricingVisible =
+    Boolean(
+      page?.pricing_visible &&
+        canViewPricing
+    );
+  const productTableColumnCount =
+    pricingVisible ? 7 : 5;
 
   const importTrackingUsesCompanyDefaults =
     Boolean(
@@ -1536,21 +1536,15 @@ export default function ProductsDashboard() {
         );
 
         const result =
-          (await authFetch(
-            "/simple-products/imports",
-            {
-              method: "POST",
-              body: form,
-            }
-          )) as {
-            job_id: string;
-            status: string;
-            replayed?: boolean;
-            default_lot_control_mode:
-              ProductTrackingMode;
-            default_expiry_control_mode:
-              ProductTrackingMode;
-          };
+          parseProductImportAccepted(
+            await authFetch(
+              "/simple-products/imports",
+              {
+                method: "POST",
+                body: form,
+              }
+            )
+          );
 
         return {
           result,
@@ -1716,9 +1710,11 @@ export default function ProductsDashboard() {
 
       try {
         const status =
-          (await authFetch(
-            `/simple-products/imports/${importJobId}`
-          )) as ImportStatus;
+          parseProductImportState(
+            await authFetch(
+              `/simple-products/imports/${importJobId}`
+            )
+          );
 
         if (disposed) {
           return;
@@ -1911,18 +1907,11 @@ export default function ProductsDashboard() {
 
       while (true) {
         const result =
-          (await authFetch(
-            `/simple-products/imports/${importJobId}/errors?after_row=${afterRow}&limit=1000`
-          )) as {
-            items: Array<{
-              row_number: number;
-              code: string | null;
-              message: string | null;
-            }>;
-            next_after_row:
-              | number
-              | null;
-          };
+          parseProductImportErrorPage(
+            await authFetch(
+              `/simple-products/imports/${importJobId}/errors?after_row=${afterRow}&limit=1000`
+            )
+          );
 
         allRows.push(
           ...result.items
@@ -2355,16 +2344,20 @@ export default function ProductsDashboard() {
                     "products.columns.tracking"
                   )}
                 </th>
-                <th className="px-5 py-3">
-                  {t(
-                    "products.columns.packagePrice"
-                  )}
-                </th>
-                <th className="px-5 py-3">
-                  {t(
-                    "products.columns.unitPrice"
-                  )}
-                </th>
+                {pricingVisible ? (
+                  <>
+                    <th className="px-5 py-3">
+                      {t(
+                        "products.columns.packagePrice"
+                      )}
+                    </th>
+                    <th className="px-5 py-3">
+                      {t(
+                        "products.columns.unitPrice"
+                      )}
+                    </th>
+                  </>
+                ) : null}
                 <th className="px-5 py-3">
                   {t(
                     "products.columns.action"
@@ -2377,7 +2370,9 @@ export default function ProductsDashboard() {
               {productsQuery.isLoading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={
+                      productTableColumnCount
+                    }
                     className="py-16 text-center font-bold text-slate-400"
                   >
                     {t(
@@ -2391,7 +2386,9 @@ export default function ProductsDashboard() {
               !page?.items.length ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={
+                      productTableColumnCount
+                    }
                     className="py-16 text-center"
                   >
                     <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
@@ -2429,6 +2426,13 @@ export default function ProductsDashboard() {
                           }
                         </div>
                       ) : null}
+                      <div className="mt-1 text-[10px] font-bold text-slate-400">
+                        {t(
+                          "products.fields.sku"
+                        )}
+                        :{" "}
+                        {item.sku}
+                      </div>
                     </td>
 
                     <td className="px-5 py-4 font-bold">
@@ -2470,27 +2474,32 @@ export default function ProductsDashboard() {
                       </div>
                     </td>
 
-                    <td className="px-5 py-4 font-black tabular-nums">
-                      {item.package_uom_code
-                        ? `${formatMoney(
-                            item.package_price
-                          )} ${item.currency_code}`
-                        : "—"}
-                    </td>
+                    {pricingVisible ? (
+                      <>
+                        <td className="px-5 py-4 font-black tabular-nums">
+                          {item.package_uom_code
+                            ? `${formatMoney(
+                                item.package_price
+                              )} ${item.currency_code}`
+                            : "—"}
+                        </td>
 
-                    <td className="px-5 py-4 font-black tabular-nums">
-                      {formatMoney(
-                        item.unit_price
-                      )}{" "}
-                      {
-                        item.currency_code
-                      }
-                    </td>
+                        <td className="px-5 py-4 font-black tabular-nums">
+                          {formatMoney(
+                            item.unit_price
+                          )}{" "}
+                          {
+                            item.currency_code
+                          }
+                        </td>
+                      </>
+                    ) : null}
 
                     <td className="px-5 py-4">
                       {canManageCatalog ? (
                         <div className="flex flex-wrap gap-2">
                           {canManage &&
+                          pricingVisible &&
                           item.simple_compatible ? (
                             <button
                               type="button"

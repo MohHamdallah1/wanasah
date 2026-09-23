@@ -111,11 +111,98 @@ const trackingSource = (
   return value;
 };
 
+const uuid = (
+  value: unknown,
+  code: string,
+): string => {
+  const text = str(value, code, 36);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      text,
+    )
+  ) {
+    return contractError(code);
+  }
+  return text;
+};
+
+const stringArray = (
+  value: unknown,
+  code: string,
+  maxItems = 1000,
+  maxItemLength = 255,
+): string[] => {
+  if (
+    !Array.isArray(value) ||
+    value.length > maxItems
+  ) {
+    return contractError(code);
+  }
+  return value.map((item) =>
+    str(item, code, maxItemLength),
+  );
+};
+
+const stringRecord = (
+  value: unknown,
+  code: string,
+  maxEntries = 1000,
+): Record<string, string> => {
+  const raw = record(value, code);
+  const entries = Object.entries(raw);
+  if (entries.length > maxEntries) {
+    return contractError(code);
+  }
+  const result: Record<string, string> = {};
+  for (const [key, item] of entries) {
+    if (
+      !key.trim() ||
+      key.length > 100
+    ) {
+      return contractError(code);
+    }
+    result[key] = str(item, code, 255);
+  }
+  return result;
+};
+
+export type ProductImportStatus =
+  | "QUEUED"
+  | "PARSING"
+  | "NEEDS_MAPPING"
+  | "VALIDATING"
+  | "VALIDATION_FAILED"
+  | "IMPORTING"
+  | "RETRYING"
+  | "COMPLETED"
+  | "FAILED";
+
+const importStatus = (
+  value: unknown,
+  code: string,
+): ProductImportStatus => {
+  if (
+    value !== "QUEUED" &&
+    value !== "PARSING" &&
+    value !== "NEEDS_MAPPING" &&
+    value !== "VALIDATING" &&
+    value !== "VALIDATION_FAILED" &&
+    value !== "IMPORTING" &&
+    value !== "RETRYING" &&
+    value !== "COMPLETED" &&
+    value !== "FAILED"
+  ) {
+    return contractError(code);
+  }
+  return value;
+};
+
 export interface SimpleProduct {
   id: number;
   product_id: number;
   name: string;
   family_name: string;
+  sku: string;
   units_per_package: number;
   package_uom_code: string | null;
   currency_code: string;
@@ -133,6 +220,7 @@ export interface SimpleProduct {
 
 export interface SimpleProductPage {
   currency_code: string;
+  pricing_visible: boolean;
   items: SimpleProduct[];
   next_cursor: string | null;
   has_more: boolean;
@@ -153,6 +241,54 @@ export interface ProductTrackingMutationResponse {
   changed: boolean;
 }
 
+export interface ProductFamily {
+  id: number;
+  name: string;
+  version: number;
+  variant_count: number;
+}
+
+export interface PackageUom {
+  id: number;
+  code: string;
+}
+
+export interface ProductImportAccepted {
+  job_id: string;
+  status: ProductImportStatus;
+  replayed: boolean;
+  default_lot_control_mode: ProductTrackingMode;
+  default_expiry_control_mode: ProductTrackingMode;
+}
+
+export interface ProductImportError {
+  row_number: number;
+  code: string | null;
+  message: string | null;
+}
+
+export interface ProductImportState {
+  job_id: string;
+  status: ProductImportStatus;
+  file_name: string;
+  total_rows: number;
+  processed_rows: number;
+  valid_rows: number;
+  failed_rows: number;
+  detected_headers: string[];
+  suggested_mapping: Record<string, string>;
+  column_mapping: Record<string, string>;
+  default_lot_control_mode: ProductTrackingMode;
+  default_expiry_control_mode: ProductTrackingMode;
+  error_summary: Record<string, unknown>;
+  errors: ProductImportError[];
+}
+
+export interface ProductImportErrorPage {
+  items: ProductImportError[];
+  next_after_row: number | null;
+}
+
 export function parseSimpleProductPage(
   raw: unknown,
 ): SimpleProductPage {
@@ -166,6 +302,10 @@ export function parseSimpleProductPage(
     return contractError(code);
   }
 
+  const pricingVisible = bool(
+    page.pricing_visible,
+    code,
+  );
   const ids = new Set<number>();
   const items = page.items.map((rawItem) => {
     const row = record(rawItem, code);
@@ -192,6 +332,7 @@ export function parseSimpleProductPage(
       product_id: int(row.product_id, code, 1),
       name: str(row.name, code, 200),
       family_name: str(row.family_name, code, 150),
+      sku: str(row.sku, code, 100),
       units_per_package: int(
         row.units_per_package,
         code,
@@ -207,14 +348,26 @@ export function parseSimpleProductPage(
         code,
         10,
       ),
-      package_price: moneyOrNull(
-        row.package_price,
-        code,
-      ),
-      unit_price: moneyOrNull(
-        row.unit_price,
-        code,
-      ),
+      package_price: (() => {
+        const value = moneyOrNull(
+          row.package_price,
+          code,
+        );
+        if (!pricingVisible && value !== null) {
+          return contractError(code);
+        }
+        return value;
+      })(),
+      unit_price: (() => {
+        const value = moneyOrNull(
+          row.unit_price,
+          code,
+        );
+        if (!pricingVisible && value !== null) {
+          return contractError(code);
+        }
+        return value;
+      })(),
       unit_barcode: nullableStr(
         row.unit_barcode,
         code,
@@ -262,6 +415,7 @@ export function parseSimpleProductPage(
       code,
       10,
     ),
+    pricing_visible: pricingVisible,
     items,
     next_cursor: next,
     has_more: page.has_more,
@@ -314,5 +468,214 @@ export function parseProductTrackingMutation(
       code,
     ),
     changed: bool(row.changed, code),
+  };
+}
+
+
+export function parseProductFamilies(
+  raw: unknown,
+): { items: ProductFamily[] } {
+  const code = "PRODUCT_FAMILIES_RESPONSE_INVALID";
+  const page = record(raw, code);
+  if (
+    !Array.isArray(page.items) ||
+    page.items.length > 200
+  ) {
+    return contractError(code);
+  }
+
+  const ids = new Set<number>();
+  const items = page.items.map((rawItem) => {
+    const row = record(rawItem, code);
+    const id = int(row.id, code, 1);
+    if (ids.has(id)) {
+      return contractError(code);
+    }
+    ids.add(id);
+    return {
+      id,
+      name: str(row.name, code, 150),
+      version: int(row.version, code, 1),
+      variant_count: int(
+        row.variant_count,
+        code,
+        0,
+      ),
+    };
+  });
+
+  return { items };
+}
+
+export function parsePackageUoms(
+  raw: unknown,
+): { items: PackageUom[] } {
+  const code = "PACKAGE_UOMS_RESPONSE_INVALID";
+  const page = record(raw, code);
+  if (
+    !Array.isArray(page.items) ||
+    page.items.length > 32
+  ) {
+    return contractError(code);
+  }
+
+  const ids = new Set<number>();
+  const codes = new Set<string>();
+  const items = page.items.map((rawItem) => {
+    const row = record(rawItem, code);
+    const id = int(row.id, code, 1);
+    const itemCode = str(
+      row.code,
+      code,
+      30,
+    );
+    if (
+      ids.has(id) ||
+      codes.has(itemCode)
+    ) {
+      return contractError(code);
+    }
+    ids.add(id);
+    codes.add(itemCode);
+    return {
+      id,
+      code: itemCode,
+    };
+  });
+
+  return { items };
+}
+
+const parseImportError = (
+  raw: unknown,
+  code: string,
+): ProductImportError => {
+  const row = record(raw, code);
+  return {
+    row_number: int(
+      row.row_number,
+      code,
+      2,
+    ),
+    code: nullableStr(
+      row.code,
+      code,
+      120,
+    ),
+    message: nullableStr(
+      row.message,
+      code,
+      1000,
+    ),
+  };
+};
+
+export function parseProductImportAccepted(
+  raw: unknown,
+): ProductImportAccepted {
+  const code = "PRODUCT_IMPORT_ACCEPTED_RESPONSE_INVALID";
+  const row = record(raw, code);
+  return {
+    job_id: uuid(row.job_id, code),
+    status: importStatus(row.status, code),
+    replayed: bool(row.replayed, code),
+    default_lot_control_mode: trackingMode(
+      row.default_lot_control_mode,
+      code,
+    ),
+    default_expiry_control_mode: trackingMode(
+      row.default_expiry_control_mode,
+      code,
+    ),
+  };
+}
+
+export function parseProductImportState(
+  raw: unknown,
+): ProductImportState {
+  const code = "PRODUCT_IMPORT_STATE_RESPONSE_INVALID";
+  const row = record(raw, code);
+  if (
+    !Array.isArray(row.errors) ||
+    row.errors.length > 50
+  ) {
+    return contractError(code);
+  }
+
+  return {
+    job_id: uuid(row.job_id, code),
+    status: importStatus(row.status, code),
+    file_name: str(row.file_name, code, 255),
+    total_rows: int(row.total_rows, code, 0),
+    processed_rows: int(
+      row.processed_rows,
+      code,
+      0,
+    ),
+    valid_rows: int(row.valid_rows, code, 0),
+    failed_rows: int(row.failed_rows, code, 0),
+    detected_headers: stringArray(
+      row.detected_headers,
+      code,
+      500,
+      255,
+    ),
+    suggested_mapping: stringRecord(
+      row.suggested_mapping,
+      code,
+    ),
+    column_mapping: stringRecord(
+      row.column_mapping,
+      code,
+    ),
+    default_lot_control_mode: trackingMode(
+      row.default_lot_control_mode,
+      code,
+    ),
+    default_expiry_control_mode: trackingMode(
+      row.default_expiry_control_mode,
+      code,
+    ),
+    error_summary: record(
+      row.error_summary,
+      code,
+    ),
+    errors: row.errors.map((item) =>
+      parseImportError(item, code),
+    ),
+  };
+}
+
+export function parseProductImportErrorPage(
+  raw: unknown,
+): ProductImportErrorPage {
+  const code = "PRODUCT_IMPORT_ERRORS_RESPONSE_INVALID";
+  const page = record(raw, code);
+  if (
+    !Array.isArray(page.items) ||
+    page.items.length > 1000
+  ) {
+    return contractError(code);
+  }
+  const items = page.items.map((item) =>
+    parseImportError(item, code),
+  );
+  const next =
+    page.next_after_row === null
+      ? null
+      : int(
+          page.next_after_row,
+          code,
+          2,
+        );
+  if (
+    next !== null &&
+    items.length === 0
+  ) {
+    return contractError(code);
+  }
+  return {
+    items,
+    next_after_row: next,
   };
 }

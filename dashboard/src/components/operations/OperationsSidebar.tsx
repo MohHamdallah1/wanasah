@@ -347,9 +347,6 @@ export function OperationsSidebar({
                   "/products" &&
                   access.canAny(
                     "catalog.read"
-                  ) &&
-                  access.canAny(
-                    "pricing.view"
                   )) ||
                 (item.path ===
                   "/commercial-rules" &&

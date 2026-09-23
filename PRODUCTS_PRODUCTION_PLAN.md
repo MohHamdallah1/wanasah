@@ -1339,12 +1339,12 @@ Do not work on all items randomly.
 
 ## Phase P2 — Read contract and permissions
 
-- [ ] Decouple catalog read from price view.
-- [ ] Add SKU/tracking/lifecycle identity to product read contract.
-- [ ] Add permission-aware pricing.
-- [ ] Add runtime parsers.
-- [ ] Harden cursor scope.
-- [ ] Add tests.
+- [x] Decouple catalog read from price view.
+- [x] Add SKU/tracking/lifecycle identity to product read contract.
+- [x] Add permission-aware pricing.
+- [x] Add runtime parsers.
+- [x] Harden cursor scope.
+- [x] Add tests.
 
 ## Phase P3 — Product UX foundation
 
@@ -1374,7 +1374,7 @@ Do not work on all items randomly.
 
 - [x] Tracking columns/defaults.
 - [ ] Generic localization mapping.
-- [ ] Runtime contracts.
+- [x] Runtime contracts.
 - [x] regression tests.
 
 ## Phase P7 — i18n / accessibility / polish
@@ -1401,13 +1401,25 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Proceed to **Phase P2 — Read contract and permissions** in this order:
+Proceed to **Phase P3 — Product UX foundation**.
 
-1. Decouple catalog/product identity read from mandatory `pricing.view`.
-2. Add SKU / tracking / lifecycle identity to the normal product read contract where missing.
-3. Make pricing fields permission-aware without leaking hidden pricing.
-4. Complete strict runtime parsers for the touched read/mutation contracts.
-5. Harden cursor scope against reuse under a different search/filter state.
-6. Add regression, permission, isolation, and cursor tests.
+Current P3 state:
 
-Do not move to Phase P3 until P2 is complete, gated, reviewed, and merged to `main`.
+- [ ] Product Detail Drawer.
+- [ ] Quick Create + Advanced.
+- [x] Tracking controls.
+- [ ] Error/retry states.
+- [ ] granular permissions.
+- [ ] lifecycle visibility.
+- [ ] barcode visibility/management.
+- [ ] simple-compatible explanation.
+
+Implementation order for P3:
+
+1. Establish the Product Detail Drawer as the canonical detailed product view.
+2. Preserve Quick Create for the common path and move advanced controls into the appropriate detailed/advanced surface.
+3. Surface lifecycle, tracking, barcode, compatibility, and permission state without duplicating backend authority.
+4. Add explicit loading/error/retry states and regression coverage.
+5. Complete P3 gates/review before moving to Phase P4.
+
+Do not start Phase P4 until P3 is complete, reviewed, and merged to `main`.

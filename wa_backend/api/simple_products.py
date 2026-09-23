@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -30,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
+from config import Config
 from database import get_db
 from domains.pricing.core import PricingError
 from domains.product_tracking import (
@@ -368,39 +370,126 @@ def _request_hash(
     ).hexdigest()
 
 
-def _cursor(value: str | None) -> int:
+def _invalid_cursor(
+    exc: Exception | None = None,
+) -> HTTPException:
+    error = HTTPException(
+        400,
+        detail={
+            "code": "INVALID_CURSOR",
+            "message": "Invalid cursor.",
+            "context": {},
+        },
+    )
+    if exc is not None:
+        error.__cause__ = exc
+    return error
+
+
+def _cursor_scope(
+    *,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> str:
+    normalized_search = (
+        search.strip().lower()
+        if search
+        else ""
+    )
+    encoded = json.dumps(
+        {
+            "company_id": int(company_id),
+            "search": normalized_search,
+            "limit": int(limit),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _cursor_signature(payload: bytes) -> bytes:
+    return hmac.new(
+        Config.SECRET_KEY.encode("utf-8"),
+        payload,
+        hashlib.sha256,
+    ).digest()
+
+
+def _cursor(
+    value: str | None,
+    *,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> int:
     if value is None:
         return 0
     try:
-        decoded = base64.urlsafe_b64decode(
-            value + "=" * (-len(value) % 4)
-        ).decode("ascii")
-        parsed = int(decoded)
-    except Exception as exc:
-        raise HTTPException(
-            400,
-            detail={
-                "code": "INVALID_CURSOR",
-                "message": "Invalid cursor.",
-                "context": {},
-            },
-        ) from exc
-    if parsed <= 0:
-        raise HTTPException(
-            400,
-            detail={
-                "code": "INVALID_CURSOR",
-                "message": "Invalid cursor.",
-                "context": {},
-            },
+        payload_part, signature_part = value.split(".", 1)
+        payload = base64.urlsafe_b64decode(
+            payload_part
+            + "=" * (-len(payload_part) % 4)
         )
-    return parsed
+        signature = base64.urlsafe_b64decode(
+            signature_part
+            + "=" * (-len(signature_part) % 4)
+        )
+        if not hmac.compare_digest(
+            signature,
+            _cursor_signature(payload),
+        ):
+            raise ValueError("cursor signature mismatch")
+        data = json.loads(payload.decode("utf-8"))
+        if (
+            not isinstance(data, dict)
+            or set(data)
+            != {"v", "after", "scope"}
+            or data.get("v") != 1
+            or not isinstance(data.get("after"), int)
+            or data["after"] <= 0
+            or data.get("scope")
+            != _cursor_scope(
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            )
+        ):
+            raise ValueError("cursor payload mismatch")
+        return int(data["after"])
+    except Exception as exc:
+        raise _invalid_cursor(exc) from exc
 
 
-def _next_cursor(value: int) -> str:
-    return base64.urlsafe_b64encode(
-        str(value).encode("ascii")
+def _next_cursor(
+    value: int,
+    *,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> str:
+    payload = json.dumps(
+        {
+            "v": 1,
+            "after": int(value),
+            "scope": _cursor_scope(
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    payload_part = base64.urlsafe_b64encode(
+        payload
     ).decode("ascii").rstrip("=")
+    signature_part = base64.urlsafe_b64encode(
+        _cursor_signature(payload)
+    ).decode("ascii").rstrip("=")
+    return f"{payload_part}.{signature_part}"
 
 
 def _audit(
@@ -668,33 +757,48 @@ async def list_simple_products(
         actor,
         "catalog.read",
     )
-    await _require(
-        db,
-        actor,
-        "pricing.view",
-    )
 
     try:
+        company_id = int(actor.company_id)
+        access = InventoryAccess(db, actor)
+        can_view_pricing = bool(
+            await db.scalar(
+                select(
+                    access.allows(
+                        "pricing.view",
+                        any_location=True,
+                    )
+                )
+            )
+        )
         now = datetime.now(timezone.utc)
         company = await load_company(
             db,
-            int(actor.company_id),
+            company_id,
         )
-        assignment = await assert_simple_pricing_mode(
-            db,
-            company_id=int(actor.company_id),
-            as_of=now,
-        )
-        book = await current_default_book(
-            db,
-            company=company,
-            assignment=assignment,
-        )
+        book = None
+        if can_view_pricing:
+            assignment = await assert_simple_pricing_mode(
+                db,
+                company_id=company_id,
+                as_of=now,
+            )
+            book = await current_default_book(
+                db,
+                company=company,
+                assignment=assignment,
+            )
         currency = str(
             book.currency_code
             if book is not None
             else company.currency_code
         ).upper()
+        after_id = _cursor(
+            cursor,
+            company_id=company_id,
+            search=search,
+            limit=limit,
+        )
 
         stmt = (
             select(
@@ -714,8 +818,8 @@ async def list_simple_products(
             )
             .where(
                 ProductVariant.company_id
-                == int(actor.company_id),
-                ProductVariant.id > _cursor(cursor),
+                == company_id,
+                ProductVariant.id > after_id,
                 ProductVariant.lifecycle_status.in_(
                     ("ACTIVE", "RETIRING")
                 ),
@@ -765,25 +869,29 @@ async def list_simple_products(
 
         shapes = await load_sale_shapes(
             db,
-            company_id=int(actor.company_id),
+            company_id=company_id,
             variants=variants,
         )
-        prices = await current_prices(
-            db,
-            company_id=int(actor.company_id),
-            variants=variants,
-            shapes=shapes,
-            as_of=now,
+        prices = (
+            await current_prices(
+                db,
+                company_id=company_id,
+                variants=variants,
+                shapes=shapes,
+                as_of=now,
+            )
+            if can_view_pricing
+            else {}
         )
         barcodes = await current_primary_barcodes(
             db,
-            company_id=int(actor.company_id),
+            company_id=company_id,
             variants=variants,
             shapes=shapes,
         )
         compatible = await simple_compatibility(
             db,
-            company_id=int(actor.company_id),
+            company_id=company_id,
             variants=variants,
         )
 
@@ -804,6 +912,7 @@ async def list_simple_products(
                     "product_id": int(product.id),
                     "name": str(variant.name),
                     "family_name": str(product.name),
+                    "sku": str(variant.sku),
                     "units_per_package": (
                         int(shape.units_per_package)
                         if shape is not None
@@ -861,10 +970,14 @@ async def list_simple_products(
 
         return {
             "currency_code": currency,
+            "pricing_visible": can_view_pricing,
             "items": items,
             "next_cursor": (
                 _next_cursor(
-                    int(page[-1][0].id)
+                    int(page[-1][0].id),
+                    company_id=company_id,
+                    search=search,
+                    limit=limit,
                 )
                 if has_more and page
                 else None
