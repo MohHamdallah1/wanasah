@@ -344,24 +344,30 @@ describe("ProductBarcodeManager runtime behavior", () => {
 
     fireEvent.click(save);
 
+    const mutationCalls = () =>
+      mocks.authFetch.mock.calls.filter(
+        ([url, options]) =>
+          url ===
+            "/catalog/variants/10/barcodes" &&
+          options?.method === "POST",
+      );
+
     await waitFor(() => {
       expect(
-        mocks.authFetch,
-      ).toHaveBeenCalledTimes(3);
+        mutationCalls(),
+      ).toHaveLength(2);
     });
 
     const firstMutation =
       JSON.parse(
         String(
-          mocks.authFetch.mock
-            .calls[1][1]?.body,
+          mutationCalls()[0][1]?.body,
         ),
       );
     const retryMutation =
       JSON.parse(
         String(
-          mocks.authFetch.mock
-            .calls[2][1]?.body,
+          mutationCalls()[1][1]?.body,
         ),
       );
 
