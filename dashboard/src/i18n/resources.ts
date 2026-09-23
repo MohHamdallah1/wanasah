@@ -136,6 +136,8 @@ export const resources = {
           loadMore: "تحميل المزيد",
           pendingRetry:
             "هناك محاولة سابقة نتيجتها غير مؤكدة. الحقول مقفلة حتى تعيد نفس الطلب بأمان.",
+          pendingBlocked:
+            "تعذر التحقق من الطلب المعلّق المحفوظ. تم إيقاف إنشاء باركود جديد حتى تتم تسوية الطلب بدون مخاطرة التكرار.",
           retryPending: "إعادة إرسال الطلب المعلّق",
           sharedPackageHint:
             "باركود العبوة مرتبط حالياً بباركود وحدة الأساس. إضافة باركود عبوة مستقل تتطلب أولاً تغيير سياسة الباركود من الإدارة المتقدمة.",
@@ -1013,6 +1015,8 @@ export const resources = {
           loadMore: "Load more",
           pendingRetry:
             "A previous attempt has an unknown outcome. Fields are locked until the same command is retried safely.",
+          pendingBlocked:
+            "The saved pending command could not be verified. New barcode creation is blocked until the command is safely reconciled.",
           retryPending: "Retry pending command",
           sharedPackageHint:
             "The package barcode currently shares the base-unit barcode. A distinct package barcode requires changing the barcode policy in advanced management first.",
