@@ -235,6 +235,11 @@ export default function ProductsDashboard() {
     access.canAny(
       "catalog.manage"
     );
+  const canViewPricing =
+    access.isCompanyAdmin ||
+    access.canAny(
+      "pricing.view"
+    );
 
   const canManage =
     access.isCompanyAdmin ||
@@ -721,6 +726,13 @@ export default function ProductsDashboard() {
   const currency =
     page?.currency_code ||
     "—";
+  const pricingVisible =
+    Boolean(
+      page?.pricing_visible &&
+        canViewPricing
+    );
+  const productTableColumnCount =
+    pricingVisible ? 7 : 5;
 
   const importTrackingUsesCompanyDefaults =
     Boolean(
@@ -2355,16 +2367,20 @@ export default function ProductsDashboard() {
                     "products.columns.tracking"
                   )}
                 </th>
-                <th className="px-5 py-3">
-                  {t(
-                    "products.columns.packagePrice"
-                  )}
-                </th>
-                <th className="px-5 py-3">
-                  {t(
-                    "products.columns.unitPrice"
-                  )}
-                </th>
+                {pricingVisible ? (
+                  <>
+                    <th className="px-5 py-3">
+                      {t(
+                        "products.columns.packagePrice"
+                      )}
+                    </th>
+                    <th className="px-5 py-3">
+                      {t(
+                        "products.columns.unitPrice"
+                      )}
+                    </th>
+                  </>
+                ) : null}
                 <th className="px-5 py-3">
                   {t(
                     "products.columns.action"
@@ -2377,7 +2393,9 @@ export default function ProductsDashboard() {
               {productsQuery.isLoading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={
+                      productTableColumnCount
+                    }
                     className="py-16 text-center font-bold text-slate-400"
                   >
                     {t(
@@ -2391,7 +2409,9 @@ export default function ProductsDashboard() {
               !page?.items.length ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={
+                      productTableColumnCount
+                    }
                     className="py-16 text-center"
                   >
                     <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
@@ -2429,6 +2449,13 @@ export default function ProductsDashboard() {
                           }
                         </div>
                       ) : null}
+                      <div className="mt-1 text-[10px] font-bold text-slate-400">
+                        {t(
+                          "products.fields.sku"
+                        )}
+                        :{" "}
+                        {item.sku}
+                      </div>
                     </td>
 
                     <td className="px-5 py-4 font-bold">
@@ -2470,27 +2497,32 @@ export default function ProductsDashboard() {
                       </div>
                     </td>
 
-                    <td className="px-5 py-4 font-black tabular-nums">
-                      {item.package_uom_code
-                        ? `${formatMoney(
-                            item.package_price
-                          )} ${item.currency_code}`
-                        : "—"}
-                    </td>
+                    {pricingVisible ? (
+                      <>
+                        <td className="px-5 py-4 font-black tabular-nums">
+                          {item.package_uom_code
+                            ? `${formatMoney(
+                                item.package_price
+                              )} ${item.currency_code}`
+                            : "—"}
+                        </td>
 
-                    <td className="px-5 py-4 font-black tabular-nums">
-                      {formatMoney(
-                        item.unit_price
-                      )}{" "}
-                      {
-                        item.currency_code
-                      }
-                    </td>
+                        <td className="px-5 py-4 font-black tabular-nums">
+                          {formatMoney(
+                            item.unit_price
+                          )}{" "}
+                          {
+                            item.currency_code
+                          }
+                        </td>
+                      </>
+                    ) : null}
 
                     <td className="px-5 py-4">
                       {canManageCatalog ? (
                         <div className="flex flex-wrap gap-2">
                           {canManage &&
+                          pricingVisible &&
                           item.simple_compatible ? (
                             <button
                               type="button"
