@@ -1,6 +1,13 @@
 type DurableRecord = {
   requestId: string;
   payloadHash: string;
+  payload?: unknown;
+  createdAt: number;
+};
+
+export type DurableCommand<T> = {
+  requestId: string;
+  payload: T;
   createdAt: number;
 };
 
@@ -119,6 +126,92 @@ export const getOrCreateDurableRequestId = async (
     JSON.stringify(record)
   );
   return record.requestId;
+};
+
+export const readDurableCommand = <T>(
+  scope: string
+): DurableCommand<T> | null => {
+  const existing = readRecord(scope);
+  if (
+    !existing ||
+    existing.payload === undefined
+  ) {
+    return null;
+  }
+  return {
+    requestId: existing.requestId,
+    payload: existing.payload as T,
+    createdAt: existing.createdAt,
+  };
+};
+
+export const getOrCreateDurableCommand = async <T>(
+  scope: string,
+  payload: T
+): Promise<DurableCommand<T>> => {
+  const payloadHash = await hashPayload(
+    payload
+  );
+  const existing = readRecord(scope);
+
+  if (existing) {
+    if (
+      existing.payloadHash !==
+      payloadHash
+    ) {
+      const error = new Error(
+        "A different durable command is still pending for this scope."
+      ) as Error & {
+        code?: string;
+      };
+      error.code =
+        "DURABLE_OPERATION_PENDING";
+      throw error;
+    }
+
+    const storedPayload =
+      existing.payload === undefined
+        ? canonicalize(payload)
+        : existing.payload;
+    if (
+      existing.payload === undefined
+    ) {
+      localStorage.setItem(
+        scope,
+        JSON.stringify({
+          ...existing,
+          payload: storedPayload,
+        })
+      );
+    }
+    return {
+      requestId:
+        existing.requestId,
+      payload:
+        storedPayload as T,
+      createdAt:
+        existing.createdAt,
+    };
+  }
+
+  const storedPayload =
+    canonicalize(payload) as T;
+  const record: DurableRecord = {
+    requestId:
+      crypto.randomUUID(),
+    payloadHash,
+    payload: storedPayload,
+    createdAt: Date.now(),
+  };
+  localStorage.setItem(
+    scope,
+    JSON.stringify(record)
+  );
+  return {
+    requestId: record.requestId,
+    payload: storedPayload,
+    createdAt: record.createdAt,
+  };
 };
 
 export const completeDurableOperation = (
