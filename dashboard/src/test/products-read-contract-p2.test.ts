@@ -177,6 +177,8 @@ describe("products P2 read contract", () => {
             variant_count: 3,
           },
         ],
+        next_cursor: null,
+        has_more: false,
       }).items[0].variant_count,
     ).toBe(3);
 
@@ -201,6 +203,8 @@ describe("products P2 read contract", () => {
             variant_count: 3,
           },
         ],
+        next_cursor: null,
+        has_more: false,
       }),
     ).toThrow("PRODUCT_FAMILIES_RESPONSE_INVALID");
   });
