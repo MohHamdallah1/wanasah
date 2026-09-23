@@ -31,26 +31,26 @@ const asPositiveInt = (value: unknown): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     accessAdminContractError();
   }
-  return value;
+  return value as number;
 };
 
 const asText = (value: unknown): string => {
   if (typeof value !== 'string' || !value.trim()) {
     accessAdminContractError();
   }
-  return value;
+  return value as string;
 };
 
 const asBoolean = (value: unknown): boolean => {
   if (typeof value !== 'boolean') accessAdminContractError();
-  return value;
+  return value as boolean;
 };
 
 const asStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
     accessAdminContractError();
   }
-  return [...value];
+  return value.map((item) => item as string);
 };
 
 const parsePage = <T,>(
@@ -58,12 +58,16 @@ const parsePage = <T,>(
   parseItem: (value: unknown) => T,
 ): Page<T> => {
   const page = asRecord(raw);
-  if (!Array.isArray(page.items)) accessAdminContractError();
+  const rawItems = page.items;
+  if (!Array.isArray(rawItems)) accessAdminContractError();
   const nextId =
     page.next_id === null
       ? null
       : asPositiveInt(page.next_id);
-  return { items: page.items.map(parseItem), next_id: nextId };
+  return {
+    items: (rawItems as unknown[]).map(parseItem),
+    next_id: nextId,
+  };
 };
 
 const parseRolePage = (raw: unknown): Page<Role> =>
