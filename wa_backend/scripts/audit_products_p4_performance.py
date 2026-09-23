@@ -137,14 +137,21 @@ def repeated_queries(
     samples: list[QuerySample],
 ) -> list[tuple[str, int]]:
     counts = Counter(
-        " ".join(sample.statement.split())
+        (
+            " ".join(sample.statement.split()),
+            repr(sample.parameters),
+        )
         for sample in samples
         if sample.statement.lstrip().upper().startswith("SELECT")
     )
     return sorted(
         (
-            (statement, count)
-            for statement, count in counts.items()
+            (
+                f"{statement} PARAMS={parameters}",
+                count,
+            )
+            for (statement, parameters), count
+            in counts.items()
             if count > 1
         ),
         key=lambda item: (-item[1], item[0]),
@@ -171,10 +178,13 @@ def summarize_plan(raw: Any) -> dict[str, Any]:
     scans: list[str] = []
     indexes: list[str] = []
     rows_removed = 0
+    hot_nodes: list[dict[str, Any]] = []
     for node in walk_plan(root):
         node_type = str(node.get("Node Type", ""))
         relation = node.get("Relation Name")
         index_name = node.get("Index Name")
+        loops = int(node.get("Actual Loops", 0) or 0)
+        node_removed = 0
         if relation and "Scan" in node_type:
             scans.append(f"{node_type}:{relation}")
         if index_name:
@@ -186,7 +196,45 @@ def summarize_plan(raw: Any) -> dict[str, Any]:
         ):
             value = node.get(key)
             if isinstance(value, (int, float)):
-                rows_removed += int(value)
+                removed = int(value)
+                rows_removed += removed
+                node_removed += removed
+        if node_removed:
+            hot_nodes.append(
+                {
+                    "node_type": node_type,
+                    "relation": (
+                        str(relation)
+                        if relation is not None
+                        else None
+                    ),
+                    "index": (
+                        str(index_name)
+                        if index_name is not None
+                        else None
+                    ),
+                    "loops": loops,
+                    "actual_rows": int(
+                        node.get("Actual Rows", 0)
+                        or 0
+                    ),
+                    "removed_per_loop": node_removed,
+                    "estimated_total_removed": (
+                        node_removed * max(loops, 1)
+                    ),
+                    "filter": str(
+                        node.get("Filter", "")
+                    )[:300],
+                    "join_filter": str(
+                        node.get("Join Filter", "")
+                    )[:300],
+                }
+            )
+    hot_nodes.sort(
+        key=lambda item:
+            int(item["estimated_total_removed"]),
+        reverse=True,
+    )
 
     return {
         "planning_ms": float(document.get("Planning Time", 0.0) or 0.0),
@@ -201,6 +249,7 @@ def summarize_plan(raw: Any) -> dict[str, Any]:
         "rows_removed": rows_removed,
         "scans": sorted(set(scans)),
         "indexes": sorted(set(indexes)),
+        "hot_nodes": hot_nodes[:8],
     }
 
 
@@ -584,6 +633,21 @@ async def measure_scenario(
             f"scans={'|'.join(plan['scans']) or '-'} "
             f"indexes={'|'.join(plan['indexes']) or '-'}"
         )
+        for node in plan["hot_nodes"]:
+            print(
+                "PLAN_HOT_NODE "
+                f"scenario={name} "
+                f"node={node['node_type']} "
+                f"relation={node['relation'] or '-'} "
+                f"index={node['index'] or '-'} "
+                f"loops={node['loops']} "
+                f"actual_rows={node['actual_rows']} "
+                f"removed_per_loop={node['removed_per_loop']} "
+                f"estimated_total_removed="
+                f"{node['estimated_total_removed']} "
+                f"filter={node['filter'] or '-'} "
+                f"join_filter={node['join_filter'] or '-'}"
+            )
 
     for statement, count in metrics["repeated"]:
         print(
