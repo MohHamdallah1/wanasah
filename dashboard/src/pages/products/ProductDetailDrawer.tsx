@@ -301,7 +301,6 @@ export function ProductDetailDrawer({
         canManageBarcodes ? (
           <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
             {canEditPrice &&
-            pricingVisible &&
             product.simple_compatible ? (
               <button
                 type="button"
