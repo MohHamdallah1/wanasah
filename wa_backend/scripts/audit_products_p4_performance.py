@@ -190,6 +190,68 @@ async def inspect_search_indexes(session) -> None:
             valid,
         )
 
+    function_row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    p.prosecdef,
+                    p.proconfig
+                FROM pg_proc AS p
+                JOIN pg_namespace AS ns
+                  ON ns.oid = p.pronamespace
+                WHERE ns.nspname = 'public'
+                  AND p.proname =
+                    'simple_products_search_variant_ids'
+                  AND pg_get_function_identity_arguments(p.oid) =
+                    'expected_company_id integer, search_patterns text[], effective_at timestamp without time zone'
+                """
+            )
+        )
+    ).mappings().one_or_none()
+    function_ok = (
+        function_row is not None
+        and bool(function_row["prosecdef"])
+        and "row_security=off"
+        in {
+            str(value)
+            for value in (
+                function_row["proconfig"]
+                or []
+            )
+        }
+    )
+    record(
+        "native Simple Products search function is RLS-safe",
+        function_ok,
+    )
+
+
+async def search_index_scan_counts(
+    session,
+) -> dict[str, int]:
+    rows = list(
+        (
+            await session.execute(
+                text(
+                    """
+                    SELECT
+                        indexrelname,
+                        idx_scan
+                    FROM pg_stat_xact_user_indexes
+                    WHERE indexrelname = ANY(:index_names)
+                    """
+                ),
+                {"index_names": list(SEARCH_INDEXES)},
+            )
+        ).mappings()
+    )
+    return {
+        str(row["indexrelname"]):
+            int(row["idx_scan"] or 0)
+        for row in rows
+    }
+
 
 def normalized_sql(statement: str) -> str:
     return " ".join(statement.lower().split())
@@ -653,6 +715,18 @@ async def measure_scenario(
     runs: int,
     explain: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    track_search_indexes = name in {
+        "name_search",
+        "family_search",
+        "sku_search",
+        "barcode_search",
+    }
+    index_scans_before = (
+        await search_index_scan_counts(app)
+        if track_search_indexes
+        else {}
+    )
+
     await call_endpoint(app, actor, kwargs)
 
     latencies: list[float] = []
@@ -769,6 +843,31 @@ async def measure_scenario(
             "REPEATED_QUERY "
             f"scenario={name} count={count} "
             f"sql={statement[:220]}"
+        )
+
+    if track_search_indexes:
+        index_scans_after = await search_index_scan_counts(
+            app
+        )
+        deltas = {
+            index_name:
+                index_scans_after.get(
+                    index_name,
+                    0,
+                )
+                - index_scans_before.get(
+                    index_name,
+                    0,
+                )
+            for index_name in SEARCH_INDEXES
+        }
+        print(
+            "SEARCH_INDEX_USAGE "
+            f"scenario={name} "
+            + " ".join(
+                f"{index_name}={deltas[index_name]}"
+                for index_name in SEARCH_INDEXES
+            )
         )
 
     return metrics, last_page
