@@ -251,6 +251,18 @@ export interface ProductFamily {
   variant_count: number;
 }
 
+export interface ProductFamilyPage {
+  items: ProductFamily[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface ProductFamilyMutationResponse {
+  id: number;
+  name: string;
+  version: number;
+}
+
 export interface PackageUom {
   id: number;
   code: string;
@@ -474,7 +486,7 @@ export function parseSimpleProductPage(
   const next =
     page.next_cursor === null
       ? null
-      : str(page.next_cursor, code, 512);
+      : str(page.next_cursor, code, 2048);
   if (page.has_more !== (next !== null)) {
     return contractError(code);
   }
@@ -544,12 +556,13 @@ export function parseProductTrackingMutation(
 
 export function parseProductFamilies(
   raw: unknown,
-): { items: ProductFamily[] } {
+): ProductFamilyPage {
   const code = "PRODUCT_FAMILIES_RESPONSE_INVALID";
   const page = record(raw, code);
   if (
     !Array.isArray(page.items) ||
-    page.items.length > 200
+    page.items.length > 200 ||
+    typeof page.has_more !== "boolean"
   ) {
     return contractError(code);
   }
@@ -574,8 +587,42 @@ export function parseProductFamilies(
     };
   });
 
-  return { items };
+  const nextCursor = nullableStr(
+    page.next_cursor,
+    code,
+    2048,
+  );
+  if (
+    page.has_more !==
+    (nextCursor !== null)
+  ) {
+    return contractError(code);
+  }
+
+  return {
+    items,
+    next_cursor: nextCursor,
+    has_more: page.has_more,
+  };
 }
+
+export function parseProductFamilyMutation(
+  raw: unknown,
+): ProductFamilyMutationResponse {
+  const code =
+    "PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID";
+  const row = record(raw, code);
+  return {
+    id: int(row.id, code, 1),
+    name: str(row.name, code, 150),
+    version: int(
+      row.version,
+      code,
+      1,
+    ),
+  };
+}
+
 
 export function parsePackageUoms(
   raw: unknown,
@@ -795,7 +842,7 @@ export function parseProductBarcodes(
   const nextCursor = nullableStr(
     page.next_cursor,
     code,
-    512,
+    2048,
   );
   if (
     page.has_more &&
@@ -818,17 +865,23 @@ export function parseProductBarcodes(
     if (ids.has(id)) return contractError(code);
     ids.add(id);
 
-    const barcodeType = row.barcode_type;
+    const rawBarcodeType = str(
+      row.barcode_type,
+      code,
+      32,
+    );
     if (
-      barcodeType !== "EAN8" &&
-      barcodeType !== "EAN13" &&
-      barcodeType !== "UPC_A" &&
-      barcodeType !== "GTIN14" &&
-      barcodeType !== "GS1_128" &&
-      barcodeType !== "INTERNAL"
+      rawBarcodeType !== "EAN8" &&
+      rawBarcodeType !== "EAN13" &&
+      rawBarcodeType !== "UPC_A" &&
+      rawBarcodeType !== "GTIN14" &&
+      rawBarcodeType !== "GS1_128" &&
+      rawBarcodeType !== "INTERNAL"
     ) {
       return contractError(code);
     }
+    const barcodeType: ProductBarcodeType =
+      rawBarcodeType;
 
     return {
       id,

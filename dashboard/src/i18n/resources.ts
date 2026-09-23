@@ -64,7 +64,48 @@ export const resources = {
         subtitle:
           "أضف المنتج وسعره في عملية واحدة، والنظام يتكفل بالتفاصيل الداخلية.",
         searchPlaceholder:
-          "ابحث باسم المنتج أو العائلة...",
+          "ابحث بالمنتج أو العائلة أو SKU أو الباركود...",
+        filters: {
+          show: "الفلاتر والفرز",
+          hide: "إخفاء الفلاتر",
+          clear: "مسح الفلاتر",
+          all: "الكل",
+          family: "العائلة",
+          familySearch:
+            "ابحث عن عائلة للفلترة...",
+          familyLoadFailed:
+            "تعذر تحميل خيارات العائلات. اضغط لإعادة المحاولة.",
+          lifecycle: "حالة المنتج",
+          trackingType: "نوع التتبع",
+          compatibility: "نوع الإعداد",
+          barcode: "الباركود",
+          price: "السعر",
+          lot: "تتبع الدفعات",
+          expiry: "تتبع الصلاحية",
+          sortBy: "الترتيب حسب",
+          sortDirection: "اتجاه الترتيب",
+          simple: "مبسط",
+          advanced: "متقدم",
+          present: "موجود",
+          missing: "غير موجود",
+          tracked: "مُتتبّع",
+          notTracked: "غير مُتتبّع",
+          ascending: "تصاعدي",
+          descending: "تنازلي",
+          trackingTypes: {
+            NONE: "بدون تتبع",
+            LOT: "دفعات فقط",
+            EXPIRY: "صلاحية فقط",
+            LOT_EXPIRY: "دفعات وصلاحية",
+          },
+          sortFields: {
+            id: "الأقدم / رقم السجل",
+            name: "اسم المنتج",
+            family: "العائلة",
+            sku: "SKU",
+            lifecycle: "حالة المنتج",
+          },
+        },
         addProduct: "إضافة منتج",
         importFile: "استيراد ملف",
         families: "العائلات",
@@ -187,8 +228,16 @@ export const resources = {
           "العائلة تجمع أحجام أو نكهات أو نسخ المنتج تحت اسم واحد، بينما يبقى كل صنف مستقلاً بالسعر والمخزون والباركود.",
         newFamilyPlaceholder: "اسم العائلة",
         addFamily: "إضافة العائلة",
+        familySearchPlaceholder: "ابحث عن عائلة...",
+        familyPrevious: "السابق",
+        familyNext: "التالي",
         variantCount: "{{count}} صنف",
         noFamilies: "لا توجد عائلات بعد.",
+        noMatchingFamilies: "لا توجد عائلات مطابقة للبحث.",
+        familyPendingRetry:
+          "يوجد طلب عائلة سابق لم تُحسم نتيجته. أعد إرسال نفس الطلب لتسويته بأمان.",
+        familyPendingBlocked:
+          "تعذر التحقق من طلب العائلة المعلّق. تم إيقاف إرسال طلب جديد حتى تتم تسويته بدون مخاطرة التكرار.",
         importTitle: "استيراد المنتجات",
         importIntro:
           "يدعم CSV وExcel. ترتيب الأعمدة لا يهم، وإذا لم نتعرف على عمود لن نخمن؛ سنطلب منك ربطه قبل الاستيراد.",
@@ -352,6 +401,8 @@ export const resources = {
           listLoadTitle: "تعذر تحميل المنتجات",
           listLoadDescription:
             "فشل طلب المنتجات، لذلك لن نعرض حالة فارغة مضللة. تحقق من الاتصال ثم أعد المحاولة.",
+          familiesLoad:
+            "تعذر تحميل العائلات. أعد المحاولة.",
           nameRequired: "اسم المنتج مطلوب.",
           packageUnitsInvalid:
             "عدد الحبات داخل العبوة يجب أن يكون رقماً صحيحاً أكبر من 1.",
@@ -701,6 +752,7 @@ export const resources = {
           codeInvalid: "كود المستودع يجب أن يبدأ بحرف أو رقم ويحتوي فقط على A-Z و0-9 و _ و -.",
           systemCodeReserved: "الكود TRANSIT-SYS محجوز للنظام.",
           saveFailed: "تعذر حفظ تغييرات المستودع.",
+          stateFailed: "تعذر تغيير حالة المستودع.",
           deactivationReasonRequired: "سبب تعطيل المستودع مطلوب للتدقيق.",
           reasonTooLong: "سبب العملية لا يجوز أن يتجاوز 1000 حرف.",
         },
@@ -841,6 +893,8 @@ export const resources = {
             "يوجد طلب سابق لنفس العملية لم تُحسم نتيجته بعد. أعد نفس الطلب أو أكمل تسويته قبل إرسال طلب مختلف.",
           DURABLE_OPERATION_CORRUPT:
             "تعذر التحقق من الطلب المعلّق المحفوظ على هذا الجهاز. أُوقفت العملية لحمايتها من التكرار حتى تتم تسويتها.",
+          PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID:
+            "تم استلام رد غير متوقع بعد حفظ العائلة. أُبقي الطلب معلّقاً لمنع تكرار العملية حتى تتم تسويته.",
           INVALID_SERVER_RESPONSE:
             "وصلت استجابة غير صالحة من السيرفر.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:
@@ -942,7 +996,48 @@ export const resources = {
         subtitle:
           "Create the product and its price in one flow; the system handles the internal complexity.",
         searchPlaceholder:
-          "Search by product or family...",
+          "Search by product, family, SKU, or barcode...",
+        filters: {
+          show: "Filters & sorting",
+          hide: "Hide filters",
+          clear: "Clear filters",
+          all: "All",
+          family: "Family",
+          familySearch:
+            "Search families to filter...",
+          familyLoadFailed:
+            "Could not load family options. Click to retry.",
+          lifecycle: "Product status",
+          trackingType: "Tracking type",
+          compatibility: "Configuration type",
+          barcode: "Barcode",
+          price: "Price",
+          lot: "Lot tracking",
+          expiry: "Expiry tracking",
+          sortBy: "Sort by",
+          sortDirection: "Sort direction",
+          simple: "Simple",
+          advanced: "Advanced",
+          present: "Present",
+          missing: "Missing",
+          tracked: "Tracked",
+          notTracked: "Not tracked",
+          ascending: "Ascending",
+          descending: "Descending",
+          trackingTypes: {
+            NONE: "No tracking",
+            LOT: "Lot only",
+            EXPIRY: "Expiry only",
+            LOT_EXPIRY: "Lot and expiry",
+          },
+          sortFields: {
+            id: "Oldest / record ID",
+            name: "Product name",
+            family: "Family",
+            sku: "SKU",
+            lifecycle: "Product status",
+          },
+        },
         addProduct: "Add product",
         importFile: "Import file",
         families: "Families",
@@ -1067,8 +1162,16 @@ export const resources = {
           "A family groups sizes, flavors, or variants under one name while each item keeps its own price, stock, and barcode.",
         newFamilyPlaceholder: "Family name",
         addFamily: "Add family",
+        familySearchPlaceholder: "Search families...",
+        familyPrevious: "Previous",
+        familyNext: "Next",
         variantCount: "{{count}} variants",
         noFamilies: "No families yet.",
+        noMatchingFamilies: "No families match this search.",
+        familyPendingRetry:
+          "A previous family request has an unknown outcome. Retry the exact same request to reconcile it safely.",
+        familyPendingBlocked:
+          "The pending family request could not be verified. New submission is blocked until it can be reconciled without duplication risk.",
         importTitle: "Import products",
         importIntro:
           "CSV and Excel are supported. Column order does not matter; unclear columns are never guessed and will be mapped before import.",
@@ -1229,6 +1332,8 @@ export const resources = {
           listLoadTitle: "Products could not be loaded",
           listLoadDescription:
             "The products request failed, so an empty catalog is not shown. Check the connection and try again.",
+          familiesLoad:
+            "Could not load families. Try again.",
           nameRequired:
             "Product name is required.",
           packageUnitsInvalid:
@@ -1579,6 +1684,7 @@ export const resources = {
           codeInvalid: "Warehouse code must start with a letter or number and contain only A-Z, 0-9, _ and -.",
           systemCodeReserved: "TRANSIT-SYS is reserved for the system.",
           saveFailed: "Could not save warehouse changes.",
+          stateFailed: "Could not change warehouse status.",
           deactivationReasonRequired: "A deactivation reason is required for audit purposes.",
           reasonTooLong: "The operation reason must not exceed 1000 characters.",
         },
@@ -1719,6 +1825,8 @@ export const resources = {
             "A previous command for this operation still has an unknown outcome. Retry that exact command or reconcile it before sending a different one.",
           DURABLE_OPERATION_CORRUPT:
             "The saved pending command on this device could not be verified. The operation was blocked to prevent a duplicate until it is reconciled.",
+          PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID:
+            "An unexpected response was received after saving the family. The command remains pending to prevent a duplicate until it is reconciled.",
           INVALID_SERVER_RESPONSE:
             "The server returned an invalid response.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:

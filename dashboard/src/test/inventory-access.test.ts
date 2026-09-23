@@ -37,7 +37,8 @@ describe('inventory permission contract', () => {
   it.each([
     {...capabilities, company_id: '1'}, {...capabilities, driver_id: 0},
     {...capabilities, is_company_admin: 'true'}, {...capabilities, location_id: -1},
-    {...capabilities, permissions: null}, {...capabilities, location_permissions: [true]},
+    {...capabilities, permissions: null}, {...capabilities, any_permissions: [true]},
+    {...capabilities, location_permissions: [true]},
   ])('rejects malformed authority contracts', raw => {
     expect(() => parseInventoryCapabilities(raw)).toThrow();
   });

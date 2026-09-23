@@ -26,7 +26,17 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import func, or_, select
+from sqlalchemy import (
+    String,
+    and_,
+    bindparam,
+    false,
+    func,
+    or_,
+    select,
+    text,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,13 +66,15 @@ from domains.simple_products.service import (
     parse_optional_money,
     rename_family,
     resolve_price_pair,
-    simple_compatibility,
+    simple_compatibility_clause,
+    simple_price_exists_clause,
     update_prices,
 )
 from inventory_access import InventoryAccess
 from models import (
     Driver,
     Product,
+    ProductBarcode,
     ProductImportJob,
     ProductImportRow,
     ProductVariant,
@@ -386,16 +398,34 @@ def _invalid_cursor(
     return error
 
 
+def _search_tokens(
+    search: str | None,
+) -> tuple[str, ...]:
+    if not search:
+        return ()
+    return tuple(
+        token
+        for token in search.strip().lower().split()
+        if token
+    )
+
+
+def _escaped_like(token: str) -> str:
+    return (
+        token.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
 def _cursor_scope(
     *,
     company_id: int,
     search: str | None,
     limit: int,
 ) -> str:
-    normalized_search = (
-        search.strip().lower()
-        if search
-        else ""
+    normalized_search = " ".join(
+        _search_tokens(search)
     )
     encoded = json.dumps(
         {
@@ -492,6 +522,503 @@ def _next_cursor(
     return f"{payload_part}.{signature_part}"
 
 
+
+_PRODUCT_LIFECYCLES = {"ACTIVE", "RETIRING"}
+_PRODUCT_TRACKING_TYPES = {
+    "NONE",
+    "LOT",
+    "EXPIRY",
+    "LOT_EXPIRY",
+}
+_PRODUCT_SORT_FIELDS = {
+    "id",
+    "name",
+    "family",
+    "sku",
+    "lifecycle",
+}
+_PRODUCT_SORT_DIRECTIONS = {"asc", "desc"}
+
+
+def _product_query_error(
+    *,
+    code: str,
+    field: str,
+    value: Any,
+) -> HTTPException:
+    return HTTPException(
+        422,
+        detail={
+            "code": code,
+            "message": f"Invalid {field}.",
+            "context": {
+                "field": field,
+                "value": value,
+            },
+        },
+    )
+
+
+def _normalized_product_choice(
+    value: str | None,
+    *,
+    field: str,
+    allowed: set[str],
+    uppercase: bool,
+    code: str,
+) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _product_query_error(
+            code=code,
+            field=field,
+            value=value,
+        )
+    clean = value.strip()
+    normalized = (
+        clean.upper()
+        if uppercase
+        else clean.lower()
+    )
+    if normalized not in allowed:
+        raise _product_query_error(
+            code=code,
+            field=field,
+            value=value,
+        )
+    return normalized
+
+
+def _effective_barcode_exists(
+    *,
+    company_id: int,
+    as_of: datetime,
+):
+    matching_barcode_id = (
+        select(ProductBarcode.id)
+        .where(
+            ProductBarcode.company_id
+            == int(company_id),
+            ProductBarcode.product_variant_id
+            == ProductVariant.id,
+            ProductBarcode.is_active.is_(True),
+            ProductBarcode.valid_from <= as_of,
+            or_(
+                ProductBarcode.valid_to.is_(None),
+                ProductBarcode.valid_to > as_of,
+            ),
+        )
+        .order_by(ProductBarcode.id.asc())
+        .limit(1)
+        .correlate(ProductVariant)
+        .scalar_subquery()
+    )
+    return matching_barcode_id.is_not(None)
+
+
+def _tracking_type_clause(
+    tracking_type: str,
+):
+    lot_tracked = (
+        ProductVariant.lot_control_mode != "NONE"
+    )
+    expiry_tracked = (
+        ProductVariant.expiry_control_mode != "NONE"
+    )
+    if tracking_type == "NONE":
+        return and_(
+            ~lot_tracked,
+            ~expiry_tracked,
+        )
+    if tracking_type == "LOT":
+        return and_(
+            lot_tracked,
+            ~expiry_tracked,
+        )
+    if tracking_type == "EXPIRY":
+        return and_(
+            ~lot_tracked,
+            expiry_tracked,
+        )
+    return and_(
+        lot_tracked,
+        expiry_tracked,
+    )
+
+
+def _product_sort_key(
+    sort_by: str,
+):
+    if sort_by == "id":
+        return ProductVariant.id
+    if sort_by == "name":
+        return func.lower(
+            ProductVariant.name
+        )
+    if sort_by == "family":
+        return func.lower(Product.name)
+    if sort_by == "sku":
+        return func.lower(
+            ProductVariant.sku
+        )
+    return ProductVariant.lifecycle_status
+
+
+def _product_cursor_scope(
+    *,
+    company_id: int,
+    search: str | None,
+    family_id: int | None,
+    lifecycle: str | None,
+    tracking_type: str | None,
+    simple_compatible: bool | None,
+    has_barcode: bool | None,
+    has_price: bool | None,
+    lot_tracked: bool | None,
+    expiry_tracked: bool | None,
+    sort_by: str,
+    sort_dir: str,
+    limit: int,
+) -> str:
+    encoded = json.dumps(
+        {
+            "company_id": int(company_id),
+            "search": " ".join(
+                _search_tokens(search)
+            ),
+            "family_id": family_id,
+            "lifecycle": lifecycle,
+            "tracking_type": tracking_type,
+            "simple_compatible":
+                simple_compatible,
+            "has_barcode": has_barcode,
+            "has_price": has_price,
+            "lot_tracked": lot_tracked,
+            "expiry_tracked":
+                expiry_tracked,
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
+            "limit": int(limit),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _product_cursor(
+    value: str | None,
+    *,
+    company_id: int,
+    search: str | None,
+    family_id: int | None,
+    lifecycle: str | None,
+    tracking_type: str | None,
+    simple_compatible: bool | None,
+    has_barcode: bool | None,
+    has_price: bool | None,
+    lot_tracked: bool | None,
+    expiry_tracked: bool | None,
+    sort_by: str,
+    sort_dir: str,
+    limit: int,
+) -> tuple[int | str | None, int | None]:
+    if value is None:
+        return None, None
+    try:
+        payload_part, signature_part = value.split(
+            ".",
+            1,
+        )
+        payload = base64.urlsafe_b64decode(
+            payload_part
+            + "=" * (-len(payload_part) % 4)
+        )
+        signature = base64.urlsafe_b64decode(
+            signature_part
+            + "=" * (-len(signature_part) % 4)
+        )
+        if not hmac.compare_digest(
+            signature,
+            _cursor_signature(payload),
+        ):
+            raise ValueError(
+                "product cursor signature mismatch"
+            )
+        data = json.loads(
+            payload.decode("utf-8")
+        )
+        if (
+            not isinstance(data, dict)
+            or set(data)
+            != {
+                "v",
+                "after_key",
+                "after_id",
+                "scope",
+            }
+            or data.get("v") != 1
+            or not isinstance(
+                data.get("after_id"),
+                int,
+            )
+            or data["after_id"] <= 0
+            or data.get("scope")
+            != _product_cursor_scope(
+                company_id=company_id,
+                search=search,
+                family_id=family_id,
+                lifecycle=lifecycle,
+                tracking_type=tracking_type,
+                simple_compatible=
+                    simple_compatible,
+                has_barcode=has_barcode,
+                has_price=has_price,
+                lot_tracked=lot_tracked,
+                expiry_tracked=
+                    expiry_tracked,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                limit=limit,
+            )
+        ):
+            raise ValueError(
+                "product cursor payload mismatch"
+            )
+        after_key = data.get("after_key")
+        if sort_by == "id":
+            if (
+                not isinstance(after_key, int)
+                or after_key <= 0
+                or after_key != data["after_id"]
+            ):
+                raise ValueError(
+                    "invalid product id cursor key"
+                )
+        elif (
+            not isinstance(after_key, str)
+            or not after_key.strip()
+            or len(after_key) > 200
+        ):
+            raise ValueError(
+                "invalid product text cursor key"
+            )
+        return (
+            after_key,
+            int(data["after_id"]),
+        )
+    except Exception as exc:
+        raise _invalid_cursor(exc) from exc
+
+
+def _product_next_cursor(
+    *,
+    sort_key: int | str,
+    variant_id: int,
+    company_id: int,
+    search: str | None,
+    family_id: int | None,
+    lifecycle: str | None,
+    tracking_type: str | None,
+    simple_compatible: bool | None,
+    has_barcode: bool | None,
+    has_price: bool | None,
+    lot_tracked: bool | None,
+    expiry_tracked: bool | None,
+    sort_by: str,
+    sort_dir: str,
+    limit: int,
+) -> str:
+    if variant_id <= 0:
+        raise ValueError(
+            "Invalid product cursor source."
+        )
+    if sort_by == "id":
+        if (
+            not isinstance(sort_key, int)
+            or sort_key != variant_id
+        ):
+            raise ValueError(
+                "Invalid product id cursor source."
+            )
+    elif (
+        not isinstance(sort_key, str)
+        or not sort_key.strip()
+        or len(sort_key) > 200
+    ):
+        raise ValueError(
+            "Invalid product text cursor source."
+        )
+    payload = json.dumps(
+        {
+            "v": 1,
+            "after_key": sort_key,
+            "after_id": int(variant_id),
+            "scope": _product_cursor_scope(
+                company_id=company_id,
+                search=search,
+                family_id=family_id,
+                lifecycle=lifecycle,
+                tracking_type=tracking_type,
+                simple_compatible=
+                    simple_compatible,
+                has_barcode=has_barcode,
+                has_price=has_price,
+                lot_tracked=lot_tracked,
+                expiry_tracked=
+                    expiry_tracked,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                limit=limit,
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    payload_part = base64.urlsafe_b64encode(
+        payload
+    ).decode("ascii").rstrip("=")
+    signature_part = base64.urlsafe_b64encode(
+        _cursor_signature(payload)
+    ).decode("ascii").rstrip("=")
+    return f"{payload_part}.{signature_part}"
+
+
+def _family_cursor_scope(
+    *,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> str:
+    normalized_search = (
+        search.strip().lower()
+        if search
+        else ""
+    )
+    encoded = json.dumps(
+        {
+            "company_id": int(company_id),
+            "search": normalized_search,
+            "limit": int(limit),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _family_cursor(
+    value: str | None,
+    *,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> tuple[str | None, int | None]:
+    if value is None:
+        return None, None
+    try:
+        payload_part, signature_part = value.split(".", 1)
+        payload = base64.urlsafe_b64decode(
+            payload_part
+            + "=" * (-len(payload_part) % 4)
+        )
+        signature = base64.urlsafe_b64decode(
+            signature_part
+            + "=" * (-len(signature_part) % 4)
+        )
+        if not hmac.compare_digest(
+            signature,
+            _cursor_signature(payload),
+        ):
+            raise ValueError(
+                "family cursor signature mismatch"
+            )
+        data = json.loads(payload.decode("utf-8"))
+        if (
+            not isinstance(data, dict)
+            or set(data)
+            != {
+                "v",
+                "after_name",
+                "after_id",
+                "scope",
+            }
+            or data.get("v") != 1
+            or not isinstance(
+                data.get("after_name"),
+                str,
+            )
+            or not data["after_name"].strip()
+            or len(data["after_name"]) > 150
+            or not isinstance(
+                data.get("after_id"),
+                int,
+            )
+            or data["after_id"] <= 0
+            or data.get("scope")
+            != _family_cursor_scope(
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            )
+        ):
+            raise ValueError(
+                "family cursor payload mismatch"
+            )
+        return (
+            data["after_name"],
+            int(data["after_id"]),
+        )
+    except Exception as exc:
+        raise _invalid_cursor(exc) from exc
+
+
+def _family_next_cursor(
+    *,
+    sort_name: str,
+    family_id: int,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> str:
+    # sort_name is the exact key produced by PostgreSQL lower(name).
+    # Do not recompute it in Python; keyset continuation must use the
+    # same ordering expression that produced the page.
+    if (
+        not sort_name
+        or not sort_name.strip()
+        or len(sort_name) > 150
+        or family_id <= 0
+    ):
+        raise ValueError("Invalid family cursor source.")
+    payload = json.dumps(
+        {
+            "v": 1,
+            "after_name": sort_name,
+            "after_id": int(family_id),
+            "scope": _family_cursor_scope(
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    payload_part = base64.urlsafe_b64encode(
+        payload
+    ).decode("ascii").rstrip("=")
+    signature_part = base64.urlsafe_b64encode(
+        _cursor_signature(payload)
+    ).decode("ascii").rstrip("=")
+    return f"{payload_part}.{signature_part}"
+
+
 def _audit(
     db: AsyncSession,
     actor: Driver,
@@ -570,8 +1097,12 @@ async def families(
         None,
         max_length=100,
     ),
+    cursor: str | None = Query(
+        None,
+        max_length=2048,
+    ),
     limit: int = Query(
-        100,
+        50,
         ge=1,
         le=200,
     ),
@@ -583,13 +1114,49 @@ async def families(
         actor,
         "catalog.read",
     )
+    company_id = int(actor.company_id)
+    after_name, after_id = _family_cursor(
+        cursor,
+        company_id=company_id,
+        search=search,
+        limit=limit,
+    )
+    rows = await list_families(
+        db,
+        company_id=company_id,
+        search=search,
+        after_name=after_name,
+        after_id=after_id,
+        limit=limit + 1,
+    )
+    page_rows = rows[:limit]
+    has_more = len(rows) > limit
+    page = [
+        {
+            key: value
+            for key, value in row.items()
+            if key != "_sort_name"
+        }
+        for row in page_rows
+    ]
     return {
-        "items": await list_families(
-            db,
-            company_id=int(actor.company_id),
-            search=search,
-            limit=limit,
-        )
+        "items": page,
+        "next_cursor": (
+            _family_next_cursor(
+                sort_name=str(
+                    page_rows[-1]["_sort_name"]
+                ),
+                family_id=int(
+                    page_rows[-1]["id"]
+                ),
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            )
+            if has_more and page_rows
+            else None
+        ),
+        "has_more": has_more,
     }
 
 
@@ -742,13 +1309,23 @@ async def list_simple_products(
     ),
     cursor: str | None = Query(
         None,
-        max_length=512,
+        max_length=2048,
     ),
     limit: int = Query(
         50,
         ge=1,
         le=200,
     ),
+    family_id: int | None = None,
+    lifecycle: str | None = None,
+    tracking_type: str | None = None,
+    simple_compatible: bool | None = None,
+    has_barcode: bool | None = None,
+    has_price: bool | None = None,
+    lot_tracked: bool | None = None,
+    expiry_tracked: bool | None = None,
+    sort_by: str = "id",
+    sort_dir: str = "asc",
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
@@ -757,6 +1334,49 @@ async def list_simple_products(
         actor,
         "catalog.read",
     )
+
+    if (
+        family_id is not None
+        and (
+            isinstance(family_id, bool)
+            or family_id <= 0
+        )
+    ):
+        raise _product_query_error(
+            code="SIMPLE_PRODUCT_FILTER_INVALID",
+            field="family_id",
+            value=family_id,
+        )
+    lifecycle_value = _normalized_product_choice(
+        lifecycle,
+        field="lifecycle",
+        allowed=_PRODUCT_LIFECYCLES,
+        uppercase=True,
+        code="SIMPLE_PRODUCT_FILTER_INVALID",
+    )
+    tracking_value = _normalized_product_choice(
+        tracking_type,
+        field="tracking_type",
+        allowed=_PRODUCT_TRACKING_TYPES,
+        uppercase=True,
+        code="SIMPLE_PRODUCT_FILTER_INVALID",
+    )
+    sort_by_value = _normalized_product_choice(
+        sort_by,
+        field="sort_by",
+        allowed=_PRODUCT_SORT_FIELDS,
+        uppercase=False,
+        code="SIMPLE_PRODUCT_SORT_INVALID",
+    )
+    sort_dir_value = _normalized_product_choice(
+        sort_dir,
+        field="sort_dir",
+        allowed=_PRODUCT_SORT_DIRECTIONS,
+        uppercase=False,
+        code="SIMPLE_PRODUCT_SORT_INVALID",
+    )
+    assert sort_by_value is not None
+    assert sort_dir_value is not None
 
     try:
         company_id = int(actor.company_id)
@@ -771,6 +1391,21 @@ async def list_simple_products(
                 )
             )
         )
+        if (
+            has_price is not None
+            and not can_view_pricing
+        ):
+            raise HTTPException(
+                403,
+                detail={
+                    "code":
+                        "SIMPLE_PRODUCT_PRICE_FILTER_FORBIDDEN",
+                    "message":
+                        "Price filtering requires pricing.view.",
+                    "context": {},
+                },
+            )
+
         now = datetime.now(timezone.utc)
         company = await load_company(
             db,
@@ -793,19 +1428,44 @@ async def list_simple_products(
             if book is not None
             else company.currency_code
         ).upper()
-        after_id = _cursor(
+
+        after_key, after_id = _product_cursor(
             cursor,
             company_id=company_id,
             search=search,
+            family_id=family_id,
+            lifecycle=lifecycle_value,
+            tracking_type=tracking_value,
+            simple_compatible=simple_compatible,
+            has_barcode=has_barcode,
+            has_price=has_price,
+            lot_tracked=lot_tracked,
+            expiry_tracked=expiry_tracked,
+            sort_by=sort_by_value,
+            sort_dir=sort_dir_value,
             limit=limit,
         )
+        sort_key = _product_sort_key(
+            sort_by_value
+        )
+        search_tokens = _search_tokens(search)
+        needs_product_join = (
+            sort_by_value == "family"
+        )
 
-        stmt = (
-            select(
-                ProductVariant,
+        selected = [
+            ProductVariant,
+            sort_key.label("_sort_key"),
+        ]
+        if needs_product_join:
+            selected.insert(
+                1,
                 Product,
             )
-            .join(
+
+        stmt = select(*selected)
+        if needs_product_join:
+            stmt = stmt.join(
                 Product,
                 (
                     Product.company_id
@@ -816,38 +1476,176 @@ async def list_simple_products(
                     == ProductVariant.product_id
                 ),
             )
-            .where(
-                ProductVariant.company_id
-                == company_id,
-                ProductVariant.id > after_id,
-                ProductVariant.lifecycle_status.in_(
-                    ("ACTIVE", "RETIRING")
-                ),
+        stmt = stmt.where(
+            ProductVariant.company_id
+            == company_id,
+            ProductVariant.lifecycle_status.in_(
+                ("ACTIVE", "RETIRING")
+            ),
+        )
+
+        if family_id is not None:
+            stmt = stmt.where(
+                ProductVariant.product_id
+                == int(family_id)
+            )
+        if lifecycle_value is not None:
+            stmt = stmt.where(
+                ProductVariant.lifecycle_status
+                == lifecycle_value
+            )
+        if tracking_value is not None:
+            stmt = stmt.where(
+                _tracking_type_clause(
+                    tracking_value
+                )
+            )
+        if lot_tracked is not None:
+            lot_clause = (
+                ProductVariant.lot_control_mode
+                != "NONE"
+            )
+            stmt = stmt.where(
+                lot_clause
+                if lot_tracked
+                else ~lot_clause
+            )
+        if expiry_tracked is not None:
+            expiry_clause = (
+                ProductVariant.expiry_control_mode
+                != "NONE"
+            )
+            stmt = stmt.where(
+                expiry_clause
+                if expiry_tracked
+                else ~expiry_clause
+            )
+
+        compatibility_clause = (
+            simple_compatibility_clause(
+                company_id=company_id,
             )
         )
-        if search:
-            clean = (
-                search.strip()
-                .lower()
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
-            )
-            pattern = f"%{clean}%"
+        if simple_compatible is not None:
             stmt = stmt.where(
-                or_(
-                    func.lower(
-                        ProductVariant.name
-                    ).like(
-                        pattern,
-                        escape="\\",
+                compatibility_clause
+                if simple_compatible
+                else ~compatibility_clause
+            )
+
+        barcode_now = now.replace(
+            tzinfo=None
+        )
+        barcode_exists = _effective_barcode_exists(
+            company_id=company_id,
+            as_of=barcode_now,
+        )
+        if has_barcode is not None:
+            stmt = stmt.where(
+                barcode_exists
+                if has_barcode
+                else ~barcode_exists
+            )
+
+        if has_price is not None:
+            if book is None:
+                if has_price:
+                    stmt = stmt.where(false())
+            else:
+                price_exists = (
+                    simple_price_exists_clause(
+                        company_id=company_id,
+                        price_book_id=int(
+                            book.id
+                        ),
+                        as_of=now,
+                    )
+                )
+                stmt = stmt.where(
+                    price_exists
+                    if has_price
+                    else ~price_exists
+                )
+
+        if search_tokens:
+            search_patterns = [
+                f"%{_escaped_like(token)}%"
+                for token in search_tokens
+            ]
+            search_variant_ids = select(
+                func.public.simple_products_search_variant_ids(
+                    company_id,
+                    bindparam(
+                        "simple_products_search_patterns",
+                        search_patterns,
+                        type_=ARRAY(String()),
                     ),
-                    func.lower(
-                        Product.name
-                    ).like(
-                        pattern,
-                        escape="\\",
-                    ),
+                    barcode_now,
+                )
+            )
+            stmt = stmt.where(
+                ProductVariant.id.in_(
+                    search_variant_ids
+                )
+            )
+
+        if (
+            after_key is not None
+            and after_id is not None
+        ):
+            if sort_dir_value == "asc":
+                stmt = stmt.where(
+                    or_(
+                        sort_key > after_key,
+                        and_(
+                            sort_key == after_key,
+                            ProductVariant.id
+                            > after_id,
+                        ),
+                    )
+                )
+            else:
+                stmt = stmt.where(
+                    or_(
+                        sort_key < after_key,
+                        and_(
+                            sort_key == after_key,
+                            ProductVariant.id
+                            < after_id,
+                        ),
+                    )
+                )
+
+        if sort_dir_value == "asc":
+            ordering = (
+                sort_key.asc(),
+                ProductVariant.id.asc(),
+            )
+        else:
+            ordering = (
+                sort_key.desc(),
+                ProductVariant.id.desc(),
+            )
+
+        force_custom_price_plan = (
+            has_price is not None
+            and book is not None
+        )
+        previous_plan_cache_mode: str | None = None
+        if force_custom_price_plan:
+            previous_plan_cache_mode = str(
+                (
+                    await db.execute(
+                        text(
+                            "SHOW plan_cache_mode"
+                        )
+                    )
+                ).scalar_one()
+            )
+            await db.execute(
+                text(
+                    "SET LOCAL plan_cache_mode = "
+                    "'force_custom_plan'"
                 )
             )
 
@@ -855,16 +1653,77 @@ async def list_simple_products(
             (
                 await db.execute(
                     stmt.order_by(
-                        ProductVariant.id.asc()
+                        *ordering
                     ).limit(limit + 1)
                 )
             ).all()
         )
-        page = rows[:limit]
+
+        if previous_plan_cache_mode is not None:
+            await db.execute(
+                text(
+                    "SELECT set_config("
+                    "'plan_cache_mode', "
+                    ":previous_plan_cache_mode, "
+                    "true"
+                    ")"
+                ),
+                {
+                    "previous_plan_cache_mode":
+                        previous_plan_cache_mode,
+                },
+            )
+        raw_page = rows[:limit]
         has_more = len(rows) > limit
+
+        if needs_product_join:
+            page = [
+                (variant, product, sort_value)
+                for variant, product, sort_value
+                in raw_page
+            ]
+        else:
+            page_variants = [
+                variant
+                for variant, _sort_value
+                in raw_page
+            ]
+            product_ids = sorted(
+                {
+                    int(variant.product_id)
+                    for variant in page_variants
+                }
+            )
+            products_by_id = {
+                int(product.id): product
+                for product in (
+                    await db.scalars(
+                        select(Product).where(
+                            Product.company_id
+                            == company_id,
+                            Product.id.in_(
+                                product_ids
+                            ),
+                        )
+                    )
+                ).all()
+            }
+            page = [
+                (
+                    variant,
+                    products_by_id[
+                        int(variant.product_id)
+                    ],
+                    sort_value,
+                )
+                for variant, sort_value
+                in raw_page
+            ]
+
         variants = [
             variant
-            for variant, _product in page
+            for variant, _product, _sort
+            in page
         ]
 
         shapes = await load_sale_shapes(
@@ -889,15 +1748,17 @@ async def list_simple_products(
             variants=variants,
             shapes=shapes,
         )
-        compatible = await simple_compatibility(
-            db,
-            company_id=company_id,
-            variants=variants,
-        )
+        compatible = {
+            int(variant.id):
+                int(variant.id) in shapes
+            for variant in variants
+        }
 
         items = []
-        for variant, product in page:
-            shape = shapes.get(int(variant.id))
+        for variant, product, _sort in page:
+            shape = shapes.get(
+                int(variant.id)
+            )
             package_price, unit_price = prices.get(
                 int(variant.id),
                 (None, None),
@@ -957,11 +1818,14 @@ async def list_simple_products(
                         else None
                     ),
                     "unit_barcode": unit_barcode,
-                    "package_barcode": package_barcode,
+                    "package_barcode":
+                        package_barcode,
                     "package_uses_base_barcode": bool(
                         variant.package_uses_base_barcode
                     ),
-                    "version": int(variant.version),
+                    "version": int(
+                        variant.version
+                    ),
                     "lot_control_mode": str(
                         variant.lot_control_mode
                     ),
@@ -982,13 +1846,29 @@ async def list_simple_products(
 
         return {
             "currency_code": currency,
-            "pricing_visible": can_view_pricing,
+            "pricing_visible":
+                can_view_pricing,
             "items": items,
             "next_cursor": (
-                _next_cursor(
-                    int(page[-1][0].id),
+                _product_next_cursor(
+                    sort_key=page[-1][2],
+                    variant_id=int(
+                        page[-1][0].id
+                    ),
                     company_id=company_id,
                     search=search,
+                    family_id=family_id,
+                    lifecycle=lifecycle_value,
+                    tracking_type=tracking_value,
+                    simple_compatible=
+                        simple_compatible,
+                    has_barcode=has_barcode,
+                    has_price=has_price,
+                    lot_tracked=lot_tracked,
+                    expiry_tracked=
+                        expiry_tracked,
+                    sort_by=sort_by_value,
+                    sort_dir=sort_dir_value,
                     limit=limit,
                 )
                 if has_more and page

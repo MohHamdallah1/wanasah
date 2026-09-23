@@ -12,6 +12,7 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import {
   durableScope,
   getOrCreateDurableCommand,
+  getOrCreateDurableRequestId,
   readDurableCommand,
 } from "@/lib/durableOperations";
 
@@ -200,6 +201,51 @@ describe("durable command P3 guarantees", () => {
     expect(
       localStorage.getItem(scope),
     ).not.toBeNull();
+  });
+
+  it("safely promotes a legacy request-only record only for the exact same payload", async () => {
+    const scope = durableScope(
+      1,
+      2,
+      "family-create",
+    );
+    const payload = {
+      name: "Legacy Family",
+    };
+
+    const requestId =
+      await getOrCreateDurableRequestId(
+        scope,
+        payload,
+      );
+
+    await expect(
+      readDurableCommand(scope),
+    ).resolves.toBeNull();
+
+    const promoted =
+      await getOrCreateDurableCommand(
+        scope,
+        payload,
+      );
+
+    expect(
+      promoted.requestId,
+    ).toBe(requestId);
+    expect(
+      promoted.payload,
+    ).toEqual(payload);
+
+    await expect(
+      getOrCreateDurableCommand(
+        scope,
+        {
+          name: "Different Family",
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "DURABLE_OPERATION_PENDING",
+    });
   });
 
   it("presents a pending-command conflict through Arabic translation", async () => {

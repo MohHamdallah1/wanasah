@@ -304,11 +304,11 @@ export const readDurableCommand =
     DurableCommand<T> | null
   > => {
     const existing =
-      readRecord(
-        scope,
-        "command",
-      );
-    if (!existing) {
+      readRecord(scope);
+    if (
+      !existing ||
+      existing.kind === "request"
+    ) {
       return null;
     }
 
@@ -345,12 +345,49 @@ export const getOrCreateDurableCommand =
     const payloadHash =
       await hashPayload(payload);
     const existing =
-      readRecord(
-        scope,
-        "command",
-      );
+      readRecord(scope);
 
     if (existing) {
+      if (
+        existing.kind ===
+        "request"
+      ) {
+        if (
+          existing.payloadHash !==
+          payloadHash
+        ) {
+          throw durableError(
+            "DURABLE_OPERATION_PENDING",
+          );
+        }
+
+        const promotedPayload =
+          canonicalize(
+            payload,
+          ) as T;
+        const promoted:
+          DurableRecord = {
+            ...existing,
+            kind: "command",
+            payload:
+              promotedPayload,
+          };
+        localStorage.setItem(
+          scope,
+          JSON.stringify(
+            promoted,
+          ),
+        );
+        return {
+          requestId:
+            promoted.requestId,
+          payload:
+            promotedPayload,
+          createdAt:
+            promoted.createdAt,
+        };
+      }
+
       const storedHash =
         await hashPayload(
           existing.payload,
