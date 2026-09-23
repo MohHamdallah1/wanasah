@@ -1098,7 +1098,11 @@ async def update_simple_product_price(
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
-    await _require_manage(db, actor)
+    await _require(
+        db,
+        actor,
+        "pricing.manage",
+    )
 
     try:
         idem, replay = await begin_idempotent_operation(
