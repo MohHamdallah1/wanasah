@@ -583,6 +583,7 @@ async def list_families(
             Product.id,
             Product.name,
             Product.version,
+            name_key.label("sort_name"),
             func.count(ProductVariant.id).label("variant_count"),
         )
         .outerjoin(
@@ -636,6 +637,7 @@ async def list_families(
             "name": str(row.name),
             "version": int(row.version),
             "variant_count": int(row.variant_count or 0),
+            "_sort_name": str(row.sort_name),
         }
         for row in rows
     ]
