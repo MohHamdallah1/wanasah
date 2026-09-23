@@ -8,6 +8,7 @@ import {
 
 import {
   parseProductFamilies,
+  parseProductFamilyMutation,
 } from "../pages/products/contracts";
 
 const readSource = (
@@ -73,6 +74,31 @@ describe(
         }),
       ).toThrow(
         "PRODUCT_FAMILIES_RESPONSE_INVALID",
+      );
+    });
+
+    it("validates family mutation responses at the frontend boundary", () => {
+      expect(
+        parseProductFamilyMutation({
+          id: 7,
+          name: "Family A",
+          version: 3,
+          variant_count: 4,
+        }),
+      ).toEqual({
+        id: 7,
+        name: "Family A",
+        version: 3,
+      });
+
+      expect(() =>
+        parseProductFamilyMutation({
+          id: 7,
+          name: "Family A",
+          version: 0,
+        }),
+      ).toThrow(
+        "PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID",
       );
     });
 
@@ -163,6 +189,12 @@ describe(
       );
       expect(manager).toContain(
         "getOrCreateDurableCommand",
+      );
+      expect(manager).toContain(
+        "parseProductFamilyMutation",
+      );
+      expect(manager).toContain(
+        "PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID",
       );
       expect(manager).toContain(
         "isAmbiguousRequestError",
