@@ -326,6 +326,13 @@ async def main() -> None:
                 await search_ids("%%")
                 == [],
             )
+            record(
+                "product search never leaks a foreign-tenant identity",
+                await search_ids(
+                    "P2 Foreign Item"
+                )
+                == [],
+            )
 
             first_family_page = (
                 await list_families_endpoint(
@@ -443,6 +450,23 @@ async def main() -> None:
                     0
                 ].get("name")
                 == "Gamma P4 Family",
+            )
+
+            foreign_family_page = (
+                await list_families_endpoint(
+                    search="P2 Foreign Family",
+                    cursor=None,
+                    limit=2,
+                    db=app,
+                    actor=catalog_actor,
+                )
+            )
+            record(
+                "family search never leaks a foreign-tenant family",
+                foreign_family_page.get(
+                    "items"
+                )
+                == [],
             )
 
             await app.rollback()
