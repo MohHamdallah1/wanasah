@@ -329,35 +329,58 @@ export function parseSimpleProductPage(
       return contractError(code);
     }
 
+    const unitsPerPackage = int(
+      row.units_per_package,
+      code,
+      1,
+    );
+    const baseUomId = int(
+      row.base_uom_id,
+      code,
+      1,
+    );
+    const packageUomId =
+      row.package_uom_id === null
+        ? null
+        : int(
+            row.package_uom_id,
+            code,
+            1,
+          );
+    const packageUomCode = nullableStr(
+      row.package_uom_code,
+      code,
+      30,
+    );
+    if (
+      (packageUomId === null) !==
+      (packageUomCode === null)
+    ) {
+      return contractError(code);
+    }
+    if (
+      packageUomId === null &&
+      unitsPerPackage !== 1
+    ) {
+      return contractError(code);
+    }
+    if (
+      packageUomId !== null &&
+      packageUomId === baseUomId
+    ) {
+      return contractError(code);
+    }
+
     return {
       id,
       product_id: int(row.product_id, code, 1),
       name: str(row.name, code, 200),
       family_name: str(row.family_name, code, 150),
       sku: str(row.sku, code, 100),
-      units_per_package: int(
-        row.units_per_package,
-        code,
-        1,
-      ),
-      base_uom_id: int(
-        row.base_uom_id,
-        code,
-        1,
-      ),
-      package_uom_id:
-        row.package_uom_id === null
-          ? null
-          : int(
-              row.package_uom_id,
-              code,
-              1,
-            ),
-      package_uom_code: nullableStr(
-        row.package_uom_code,
-        code,
-        30,
-      ),
+      units_per_package: unitsPerPackage,
+      base_uom_id: baseUomId,
+      package_uom_id: packageUomId,
+      package_uom_code: packageUomCode,
       currency_code: str(
         row.currency_code,
         code,
