@@ -501,6 +501,47 @@ describe("ProductBarcodeManager runtime behavior", () => {
     ).toBeEnabled();
   });
 
+  it("blocks a distinct package barcode while the product shares the base barcode", async () => {
+    const sharedProduct: SimpleProduct = {
+      ...product(10, "A"),
+      units_per_package: 50,
+      legacy_packs_per_carton: 50,
+      package_uom_id: 2,
+      package_uom_code: "CARTON",
+      package_uses_base_barcode: true,
+    };
+
+    mocks.authFetch.mockResolvedValueOnce({
+      items: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    render(
+      <ProductBarcodeManager
+        product={sharedProduct}
+        companyId={1}
+        driverId={2}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "products.barcodeManager.sharedPackageHint",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole(
+        "option",
+        {
+          name: "products.barcodeManager.package",
+        },
+      ),
+    ).not.toBeInTheDocument();
+  });
+
   it("loads barcode history by bounded pages", async () => {
     const firstPage = barcode(
       1,
