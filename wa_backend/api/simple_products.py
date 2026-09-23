@@ -716,7 +716,7 @@ async def families(
     ),
     cursor: str | None = Query(
         None,
-        max_length=512,
+        max_length=2048,
     ),
     limit: int = Query(
         50,
