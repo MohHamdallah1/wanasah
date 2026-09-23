@@ -302,6 +302,11 @@ describe("products P2 read contract", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const row = normalizeWhitespace(
+      readSource(
+        "../pages/products/ProductTableRow.tsx",
+      ),
+    );
 
     expect(page).toContain(
       '"simple-products", companyId, search, cursor',
@@ -315,14 +320,17 @@ describe("products P2 read contract", () => {
     expect(page).toContain(
       "page?.pricing_visible && canViewPricing",
     );
-    expect(page).toContain(
+    expect(row).toContain(
       "{pricingVisible ? (",
     );
-    expect(page).toContain(
+    expect(row).toContain(
       '"products.fields.sku"',
     );
+    expect(row).toContain(
+      "canEditPrice && item.simple_compatible",
+    );
     expect(page).toContain(
-      "canEditSimplePrice && item.simple_compatible",
+      "canEditPrice={ canEditSimplePrice }",
     );
     expect(page).toContain(
       "setCursor(null); setHistory([]);",
