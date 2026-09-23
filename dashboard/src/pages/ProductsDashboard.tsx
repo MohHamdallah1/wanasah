@@ -589,9 +589,13 @@ export default function ProductsDashboard() {
     useQuery({
       queryKey: [
         "simple-products",
+        companyId,
         search,
         cursor,
       ],
+      enabled: Boolean(
+        companyId
+      ),
       queryFn: async ({
         signal,
       }) =>
@@ -607,7 +611,11 @@ export default function ProductsDashboard() {
     useQuery({
       queryKey: [
         "simple-product-families",
+        companyId,
       ],
+      enabled: Boolean(
+        companyId
+      ),
       queryFn: async ({
         signal,
       }) =>
