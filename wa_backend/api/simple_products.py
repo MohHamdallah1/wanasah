@@ -63,6 +63,7 @@ from inventory_access import InventoryAccess
 from models import (
     Driver,
     Product,
+    ProductBarcode,
     ProductImportJob,
     ProductImportRow,
     ProductVariant,
@@ -386,16 +387,34 @@ def _invalid_cursor(
     return error
 
 
+def _search_tokens(
+    search: str | None,
+) -> tuple[str, ...]:
+    if not search:
+        return ()
+    return tuple(
+        token
+        for token in search.strip().lower().split()
+        if token
+    )
+
+
+def _escaped_like(token: str) -> str:
+    return (
+        token.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
 def _cursor_scope(
     *,
     company_id: int,
     search: str | None,
     limit: int,
 ) -> str:
-    normalized_search = (
-        search.strip().lower()
-        if search
-        else ""
+    normalized_search = " ".join(
+        _search_tokens(search)
     )
     encoded = json.dumps(
         {
@@ -492,6 +511,131 @@ def _next_cursor(
     return f"{payload_part}.{signature_part}"
 
 
+def _family_cursor_scope(
+    *,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> str:
+    normalized_search = (
+        search.strip().lower()
+        if search
+        else ""
+    )
+    encoded = json.dumps(
+        {
+            "company_id": int(company_id),
+            "search": normalized_search,
+            "limit": int(limit),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _family_cursor(
+    value: str | None,
+    *,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> tuple[str | None, int | None]:
+    if value is None:
+        return None, None
+    try:
+        payload_part, signature_part = value.split(".", 1)
+        payload = base64.urlsafe_b64decode(
+            payload_part
+            + "=" * (-len(payload_part) % 4)
+        )
+        signature = base64.urlsafe_b64decode(
+            signature_part
+            + "=" * (-len(signature_part) % 4)
+        )
+        if not hmac.compare_digest(
+            signature,
+            _cursor_signature(payload),
+        ):
+            raise ValueError(
+                "family cursor signature mismatch"
+            )
+        data = json.loads(payload.decode("utf-8"))
+        if (
+            not isinstance(data, dict)
+            or set(data)
+            != {
+                "v",
+                "after_name",
+                "after_id",
+                "scope",
+            }
+            or data.get("v") != 1
+            or not isinstance(
+                data.get("after_name"),
+                str,
+            )
+            or not data["after_name"].strip()
+            or len(data["after_name"]) > 150
+            or not isinstance(
+                data.get("after_id"),
+                int,
+            )
+            or data["after_id"] <= 0
+            or data.get("scope")
+            != _family_cursor_scope(
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            )
+        ):
+            raise ValueError(
+                "family cursor payload mismatch"
+            )
+        return (
+            data["after_name"].strip().lower(),
+            int(data["after_id"]),
+        )
+    except Exception as exc:
+        raise _invalid_cursor(exc) from exc
+
+
+def _family_next_cursor(
+    *,
+    name: str,
+    family_id: int,
+    company_id: int,
+    search: str | None,
+    limit: int,
+) -> str:
+    normalized_name = name.strip().lower()
+    if not normalized_name or family_id <= 0:
+        raise ValueError("Invalid family cursor source.")
+    payload = json.dumps(
+        {
+            "v": 1,
+            "after_name": normalized_name,
+            "after_id": int(family_id),
+            "scope": _family_cursor_scope(
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    payload_part = base64.urlsafe_b64encode(
+        payload
+    ).decode("ascii").rstrip("=")
+    signature_part = base64.urlsafe_b64encode(
+        _cursor_signature(payload)
+    ).decode("ascii").rstrip("=")
+    return f"{payload_part}.{signature_part}"
+
+
 def _audit(
     db: AsyncSession,
     actor: Driver,
@@ -570,8 +714,12 @@ async def families(
         None,
         max_length=100,
     ),
+    cursor: str | None = Query(
+        None,
+        max_length=512,
+    ),
     limit: int = Query(
-        100,
+        50,
         ge=1,
         le=200,
     ),
@@ -583,13 +731,37 @@ async def families(
         actor,
         "catalog.read",
     )
+    company_id = int(actor.company_id)
+    after_name, after_id = _family_cursor(
+        cursor,
+        company_id=company_id,
+        search=search,
+        limit=limit,
+    )
+    rows = await list_families(
+        db,
+        company_id=company_id,
+        search=search,
+        after_name=after_name,
+        after_id=after_id,
+        limit=limit + 1,
+    )
+    page = rows[:limit]
+    has_more = len(rows) > limit
     return {
-        "items": await list_families(
-            db,
-            company_id=int(actor.company_id),
-            search=search,
-            limit=limit,
-        )
+        "items": page,
+        "next_cursor": (
+            _family_next_cursor(
+                name=str(page[-1]["name"]),
+                family_id=int(page[-1]["id"]),
+                company_id=company_id,
+                search=search,
+                limit=limit,
+            )
+            if has_more and page
+            else None
+        ),
+        "has_more": has_more,
     }
 
 
@@ -825,15 +997,25 @@ async def list_simple_products(
                 ),
             )
         )
-        if search:
-            clean = (
-                search.strip()
-                .lower()
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
+        for token in _search_tokens(search):
+            pattern = f"%{_escaped_like(token)}%"
+            barcode_match = (
+                select(ProductBarcode.id)
+                .where(
+                    ProductBarcode.company_id
+                    == company_id,
+                    ProductBarcode.product_variant_id
+                    == ProductVariant.id,
+                    ProductBarcode.is_active.is_(True),
+                    func.lower(
+                        ProductBarcode.barcode
+                    ).like(
+                        pattern,
+                        escape="\\",
+                    ),
+                )
+                .exists()
             )
-            pattern = f"%{clean}%"
             stmt = stmt.where(
                 or_(
                     func.lower(
@@ -848,6 +1030,13 @@ async def list_simple_products(
                         pattern,
                         escape="\\",
                     ),
+                    func.lower(
+                        ProductVariant.sku
+                    ).like(
+                        pattern,
+                        escape="\\",
+                    ),
+                    barcode_match,
                 )
             )
 
