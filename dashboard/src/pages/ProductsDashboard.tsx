@@ -507,7 +507,9 @@ export default function ProductsDashboard() {
     const timer =
       window.setTimeout(() => {
         setFamilyOptionSearch(
-          draft.family.trim()
+          draft.family
+            .trim()
+            .slice(0, 100)
         );
       }, 250);
     return () =>
@@ -2467,6 +2469,7 @@ export default function ProductsDashboard() {
             <input
               type="search"
               value={searchInput}
+              maxLength={100}
               onChange={(
                 event
               ) =>
@@ -3614,6 +3617,7 @@ export default function ProductsDashboard() {
               value={
                 familySearchInput
               }
+              maxLength={100}
               onChange={(
                 event
               ) =>
