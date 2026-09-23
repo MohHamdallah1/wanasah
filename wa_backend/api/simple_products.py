@@ -997,6 +997,7 @@ async def list_simple_products(
                 ),
             )
         )
+        barcode_now = now.replace(tzinfo=None)
         for token in _search_tokens(search):
             pattern = f"%{_escaped_like(token)}%"
             barcode_match = (
@@ -1007,6 +1008,13 @@ async def list_simple_products(
                     ProductBarcode.product_variant_id
                     == ProductVariant.id,
                     ProductBarcode.is_active.is_(True),
+                    ProductBarcode.valid_from
+                    <= barcode_now,
+                    or_(
+                        ProductBarcode.valid_to.is_(None),
+                        ProductBarcode.valid_to
+                        > barcode_now,
+                    ),
                     func.lower(
                         ProductBarcode.barcode
                     ).like(
