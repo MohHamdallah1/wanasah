@@ -5,7 +5,9 @@ import sys
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import String, bindparam, func, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.exc import DBAPIError
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -281,6 +283,51 @@ async def main() -> None:
                 raise RuntimeError(
                     "seeded pricing actor is not visible"
                 )
+
+            nested = await app.begin_nested()
+            cross_tenant_search_denied = False
+            cross_tenant_sqlstate = None
+            try:
+                await app.execute(
+                    select(
+                        func.public.simple_products_search_variant_ids(
+                            ids["foreign_company_id"],
+                            bindparam(
+                                "p4_cross_tenant_search_patterns",
+                                ["%catalog%"],
+                                type_=ARRAY(String()),
+                            ),
+                            func.cast(
+                                func.current_timestamp(),
+                                text(
+                                    "timestamp without time zone"
+                                ),
+                            ),
+                        )
+                    )
+                )
+            except DBAPIError as exc:
+                cross_tenant_sqlstate = getattr(
+                    exc.orig,
+                    "sqlstate",
+                    None,
+                )
+                cross_tenant_search_denied = (
+                    cross_tenant_sqlstate == "42501"
+                )
+                await nested.rollback()
+            else:
+                await nested.rollback()
+
+            record(
+                "native product search rejects cross-tenant expected company",
+                cross_tenant_search_denied,
+                (
+                    f"sqlstate={cross_tenant_sqlstate}"
+                    if cross_tenant_sqlstate
+                    else "search unexpectedly succeeded"
+                ),
+            )
 
             async def seed_filter_variant(
                 *,
