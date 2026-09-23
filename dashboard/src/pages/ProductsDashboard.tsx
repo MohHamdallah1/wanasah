@@ -55,6 +55,7 @@ import {
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
+import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
@@ -300,6 +301,12 @@ export default function ProductsDashboard() {
     trackingDefaultsExpiry,
     setTrackingDefaultsExpiry,
   ] = useState<ProductTrackingMode | null>(
+    null
+  );
+  const [
+    detailProduct,
+    setDetailProduct,
+  ] = useState<SimpleProduct | null>(
     null
   );
   const [
@@ -639,6 +646,7 @@ export default function ProductsDashboard() {
   useEffect(() => {
     setCursor(null);
     setHistory([]);
+    setDetailProduct(null);
     setPriceEdit(null);
     setEditPackagePrice("");
     setEditUnitPrice("");
@@ -807,6 +815,18 @@ export default function ProductsDashboard() {
       );
       setTrackingDefaultsOpen(true);
     };
+
+  const openPriceEditor = (
+    product: SimpleProduct
+  ) => {
+    setPriceEdit(product);
+    setEditPackagePrice(
+      product.package_price ?? ""
+    );
+    setEditUnitPrice(
+      product.unit_price ?? ""
+    );
+  };
 
   const openTrackingEditor = (
     product: SimpleProduct
@@ -2496,33 +2516,40 @@ export default function ProductsDashboard() {
                     ) : null}
 
                     <td className="px-5 py-4">
-                      {canManageCatalog ? (
-                        <div className="flex flex-wrap gap-2">
-                          {canManage &&
-                          pricingVisible &&
-                          item.simple_compatible ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPriceEdit(
-                                  item
-                                );
-                                setEditPackagePrice(
-                                  item.package_price ??
-                                    ""
-                                );
-                                setEditUnitPrice(
-                                  item.unit_price ??
-                                    ""
-                                );
-                              }}
-                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-                            >
-                              {t(
-                                "products.editPrice"
-                              )}
-                            </button>
-                          ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDetailProduct(
+                              item
+                            )
+                          }
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                        >
+                          {t(
+                            "products.details.open"
+                          )}
+                        </button>
+
+                        {canManage &&
+                        pricingVisible &&
+                        item.simple_compatible ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openPriceEditor(
+                                item
+                              )
+                            }
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                          >
+                            {t(
+                              "products.editPrice"
+                            )}
+                          </button>
+                        ) : null}
+
+                        {canManageCatalog ? (
                           <button
                             type="button"
                             onClick={() =>
@@ -2536,10 +2563,8 @@ export default function ProductsDashboard() {
                               "products.trackingEditor.action"
                             )}
                           </button>
-                        </div>
-                      ) : (
-                        "—"
-                      )}
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -2605,6 +2630,31 @@ export default function ProductsDashboard() {
           </div>
         ) : null}
       </section>
+
+      <ProductDetailDrawer
+        product={detailProduct}
+        pricingVisible={pricingVisible}
+        canEditPrice={
+          canManage &&
+          pricingVisible
+        }
+        canEditTracking={
+          canManageCatalog
+        }
+        onClose={() =>
+          setDetailProduct(null)
+        }
+        onEditPrice={(product) => {
+          setDetailProduct(null);
+          openPriceEditor(product);
+        }}
+        onEditTracking={(product) => {
+          setDetailProduct(null);
+          openTrackingEditor(
+            product
+          );
+        }}
+      />
 
       {trackingDefaultsOpen &&
       trackingDefaultsLot &&
