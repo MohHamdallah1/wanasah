@@ -307,33 +307,6 @@ async def inspect_search_indexes(session) -> None:
     )
 
 
-async def index_scan_counts(
-    session,
-    index_names: tuple[str, ...],
-) -> dict[str, int]:
-    rows = list(
-        (
-            await session.execute(
-                text(
-                    """
-                    SELECT
-                        indexrelname,
-                        idx_scan
-                    FROM pg_stat_xact_user_indexes
-                    WHERE indexrelname = ANY(:index_names)
-                    """
-                ),
-                {"index_names": list(index_names)},
-            )
-        ).mappings()
-    )
-    return {
-        str(row["indexrelname"]):
-            int(row["idx_scan"] or 0)
-        for row in rows
-    }
-
-
 def normalized_sql(statement: str) -> str:
     return " ".join(statement.lower().split())
 
@@ -495,6 +468,93 @@ async def explain_query(
             await connection.exec_driver_sql(
                 "SET LOCAL enable_seqscan = on"
             )
+
+
+async def verify_search_index_compatibility(
+    ids: dict[str, int],
+) -> None:
+    company_id = int(ids["company_id"])
+    checks = (
+        (
+            "variant name and SKU trigram expression",
+            "ix_product_variants_company_search_trgm",
+            """
+            SELECT id
+            FROM public.product_variants
+            WHERE company_id = :company_id
+              AND lower(
+                    ((name)::text || ' '::text)
+                    || (sku)::text
+                  ) LIKE :pattern
+            """,
+            "%namehit%",
+        ),
+        (
+            "family name trigram expression",
+            "ix_products_company_name_trgm",
+            """
+            SELECT id
+            FROM public.products
+            WHERE company_id = :company_id
+              AND lower((name)::text) LIKE :pattern
+            """,
+            "%familyhit%",
+        ),
+        (
+            "active barcode trigram expression",
+            "ix_product_barcodes_company_active_barcode_trgm",
+            """
+            SELECT product_variant_id
+            FROM public.product_barcodes
+            WHERE company_id = :company_id
+              AND is_active IS TRUE
+              AND lower((barcode)::text) LIKE :pattern
+            """,
+            "%barcode-hit%",
+        ),
+    )
+
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+        await su.execute(
+            text("SET LOCAL enable_seqscan = off")
+        )
+        for (
+            name,
+            expected_index,
+            query_sql,
+            pattern,
+        ) in checks:
+            result = await su.execute(
+                text(
+                    "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+                    + query_sql
+                ),
+                {
+                    "company_id": company_id,
+                    "pattern": pattern,
+                },
+            )
+            plan = summarize_plan(
+                result.scalar_one()
+            )
+            used = expected_index in set(
+                plan["indexes"]
+            )
+            print(
+                "INDEX_COMPATIBILITY "
+                f"name={name} "
+                f"expected={expected_index} "
+                f"used={used} "
+                f"execution_ms={plan['execution_ms']:.3f} "
+                f"scans={'|'.join(plan['scans']) or '-'} "
+                f"indexes={'|'.join(plan['indexes']) or '-'}"
+            )
+            record(
+                f"{name} can use its trigram index",
+                used,
+            )
+        await su.rollback()
 
 
 async def seed_committed_catalog(
@@ -796,30 +856,6 @@ async def measure_scenario(
     runs: int,
     explain: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    track_search_indexes = name in {
-        "name_search",
-        "family_search",
-        "sku_search",
-        "barcode_search",
-    }
-    tracked_indexes = (
-        SEARCH_INDEXES
-        if track_search_indexes
-        else (
-            (BARCODE_FILTER_INDEX,)
-            if name == "common_filters"
-            else ()
-        )
-    )
-    index_scans_before = (
-        await index_scan_counts(
-            app,
-            tracked_indexes,
-        )
-        if tracked_indexes
-        else {}
-    )
-
     await call_endpoint(app, actor, kwargs)
 
     latencies: list[float] = []
@@ -848,7 +884,6 @@ async def measure_scenario(
 
     plan: dict[str, Any] = {}
     forced_index_plan: dict[str, Any] = {}
-    normal_index_scans_after: dict[str, int] = {}
     if explain:
         captured = main_product_query(representative)
         if captured is None:
@@ -856,13 +891,6 @@ async def measure_scenario(
                 f"{name} main product query was not captured."
             )
         plan = await explain_query(app, captured)
-        if tracked_indexes:
-            normal_index_scans_after = (
-                await index_scan_counts(
-                    app,
-                    tracked_indexes,
-                )
-            )
         if name in {
             "name_search",
             "family_search",
@@ -964,40 +992,6 @@ async def measure_scenario(
             f"sql={statement[:220]}"
         )
 
-    if tracked_indexes:
-        index_scans_after = (
-            normal_index_scans_after
-            if normal_index_scans_after
-            else await index_scan_counts(
-                app,
-                tracked_indexes,
-            )
-        )
-        deltas = {
-            index_name:
-                index_scans_after.get(
-                    index_name,
-                    0,
-                )
-                - index_scans_before.get(
-                    index_name,
-                    0,
-                )
-            for index_name in tracked_indexes
-        }
-        print(
-            (
-                "SEARCH_INDEX_USAGE "
-                if track_search_indexes
-                else "FILTER_INDEX_USAGE "
-            )
-            + f"scenario={name} "
-            + " ".join(
-                f"{index_name}={deltas[index_name]}"
-                for index_name in tracked_indexes
-            )
-        )
-
     return metrics, last_page
 
 
@@ -1047,6 +1041,9 @@ async def main() -> None:
             row_count=row_count,
         )
         company_id = int(ids["company_id"])
+        await verify_search_index_compatibility(
+            ids
+        )
 
         async with p2_gate.SessionApp() as app:
             await app.begin()
