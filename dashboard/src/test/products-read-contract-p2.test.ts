@@ -63,6 +63,24 @@ describe("products P2 read contract", () => {
     expect(page.items[0].unit_price).toBeNull();
   });
 
+  it("fails closed on contradictory product UOM identity", () => {
+    expect(() =>
+      parseSimpleProductPage({
+        currency_code: "JOD",
+        pricing_visible: false,
+        items: [
+          {
+            ...baseItem,
+            package_uom_id: 2,
+            package_uom_code: null,
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+      }),
+    ).toThrow("SIMPLE_PRODUCTS_RESPONSE_INVALID");
+  });
+
   it("fails closed if hidden pricing leaks into a catalog-only payload", () => {
     expect(() =>
       parseSimpleProductPage({
