@@ -71,6 +71,17 @@ export const resources = {
         advancedPricing: "التسعير المتقدم",
         advancedPricingHint:
           "سيتم تفعيله لاحقاً",
+        quickCreate: {
+          advancedTitle: "إعدادات متقدمة",
+          advancedHint:
+            "للباركود أو تخصيص التتبع لهذا المنتج. الإعدادات الأساسية تكفي لمعظم المنتجات.",
+          showAdvanced: "عرض الإعدادات",
+          hideAdvanced: "إخفاء الإعدادات",
+          trackingAdvancedHint:
+            "يستخدم المنتج افتراضيات الشركة. افتح الإعدادات المتقدمة فقط إذا احتجت استثناءً لهذا المنتج.",
+          systemManagedHint:
+            "في الإنشاء السريع يولّد النظام SKU ويطبق دورة النشر المعتمدة تلقائياً. يمكنك مراجعة الهوية والحالة بعد الحفظ من تفاصيل المنتج.",
+        },
         emptyTitle: "لا توجد منتجات بعد",
         emptyDescription:
           "أضف منتجاً أو استورد ملفاً.",
@@ -900,6 +911,17 @@ export const resources = {
         advancedPricing: "Advanced pricing",
         advancedPricingHint:
           "Will be enabled later",
+        quickCreate: {
+          advancedTitle: "Advanced settings",
+          advancedHint:
+            "Use these for barcodes or a product-specific tracking override. The basic fields are enough for most products.",
+          showAdvanced: "Show settings",
+          hideAdvanced: "Hide settings",
+          trackingAdvancedHint:
+            "This product uses the company defaults. Open Advanced settings only when this product needs an exception.",
+          systemManagedHint:
+            "Quick Create generates the SKU and applies the approved publish lifecycle automatically. Review identity and status from Product details after saving.",
+        },
         emptyTitle: "No products yet",
         emptyDescription:
           "Add a product or import a file.",
