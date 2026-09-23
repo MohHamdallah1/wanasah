@@ -866,6 +866,21 @@ async def main() -> None:
                 )
                 == [],
             )
+            plan_cache_mode_after_price_filter = str(
+                (
+                    await app.execute(
+                        text("SHOW plan_cache_mode")
+                    )
+                ).scalar_one()
+            )
+            record(
+                "price-filter custom plan override resets to auto",
+                plan_cache_mode_after_price_filter == "auto",
+                (
+                    "plan_cache_mode="
+                    + plan_cache_mode_after_price_filter
+                ),
+            )
             record(
                 "missing-price filter finds unpriced simple product",
                 page_ids(
