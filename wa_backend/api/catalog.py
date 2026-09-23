@@ -724,12 +724,49 @@ async def update_conversion(
 
 
 @router.get("/variants/{variant_id}/barcodes")
-async def list_barcodes(variant_id: int, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
+async def list_barcodes(
+    variant_id: int,
+    cursor: Optional[str] = Query(None, max_length=512),
+    limit: int = Query(100, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
     await _require(db, actor, "catalog.read")
-    if await db.scalar(select(ProductVariant.id).where(ProductVariant.company_id == actor.company_id, ProductVariant.id == variant_id)) is None:
+    if await db.scalar(
+        select(ProductVariant.id).where(
+            ProductVariant.company_id == actor.company_id,
+            ProductVariant.id == variant_id,
+        )
+    ) is None:
         raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
-    rows = (await db.execute(select(ProductBarcode, UOM).join(UOM, UOM.id == ProductBarcode.uom_id).where(ProductBarcode.company_id == actor.company_id, ProductBarcode.product_variant_id == variant_id).order_by(ProductBarcode.id))).all()
-    return {"items": [_barcode_row(row, uom) for row, uom in rows]}
+
+    after_id = _cursor(cursor)
+    rows = (
+        await db.execute(
+            select(ProductBarcode, UOM)
+            .join(UOM, UOM.id == ProductBarcode.uom_id)
+            .where(
+                ProductBarcode.company_id == actor.company_id,
+                ProductBarcode.product_variant_id == variant_id,
+                ProductBarcode.id > after_id,
+            )
+            .order_by(ProductBarcode.id.asc())
+            .limit(limit + 1)
+        )
+    ).all()
+    page, has_more = rows[:limit], len(rows) > limit
+    return {
+        "items": [
+            _barcode_row(row, uom)
+            for row, uom in page
+        ],
+        "next_cursor": (
+            _next_cursor(page[-1][0].id)
+            if has_more and page
+            else None
+        ),
+        "has_more": has_more,
+    }
 
 
 @router.post("/variants/{variant_id}/barcodes", status_code=201)
@@ -793,9 +830,11 @@ async def update_barcode(barcode_id: int, payload: BarcodeUpdate, db: AsyncSessi
             not payload.is_active
             and valid_to is None
         ):
-            valid_to = datetime.now(
+            now = datetime.now(
                 timezone.utc
             ).replace(tzinfo=None)
+            if now > row.valid_from:
+                valid_to = now
         if valid_to is not None and valid_to <= row.valid_from:
             raise _error(422, "BARCODE_VALIDITY_INVALID", "valid_to يجب أن يكون بعد valid_from.")
         old = {"is_primary": row.is_primary, "valid_to": row.valid_to, "is_active": row.is_active, "version": row.version}
