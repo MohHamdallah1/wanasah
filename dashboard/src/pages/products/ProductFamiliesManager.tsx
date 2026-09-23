@@ -44,6 +44,22 @@ type MutationResult = {
   scope: string;
 };
 
+const shouldRetainDurableFamilyCommand = (
+  error: unknown,
+): boolean => {
+  const code =
+    apiErrorCode(error);
+  return (
+    isAmbiguousRequestError(error) ||
+    code ===
+      "DURABLE_OPERATION_PENDING" ||
+    code ===
+      "DURABLE_OPERATION_CORRUPT" ||
+    code ===
+      "PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID"
+  );
+};
+
 export function ProductFamiliesManager({
   isOpen,
   companyId,
@@ -244,16 +260,10 @@ export function ProductFamiliesManager({
               scope,
             };
           } catch (error) {
-            const code =
-              apiErrorCode(error);
             if (
-              !isAmbiguousRequestError(
+              !shouldRetainDurableFamilyCommand(
                 error
-              ) &&
-              code !==
-                "DURABLE_OPERATION_PENDING" &&
-              code !==
-                "DURABLE_OPERATION_CORRUPT"
+              )
             ) {
               abandonDurableOperation(
                 scope
@@ -348,16 +358,10 @@ export function ProductFamiliesManager({
               scope,
             };
           } catch (error) {
-            const code =
-              apiErrorCode(error);
             if (
-              !isAmbiguousRequestError(
+              !shouldRetainDurableFamilyCommand(
                 error
-              ) &&
-              code !==
-                "DURABLE_OPERATION_PENDING" &&
-              code !==
-                "DURABLE_OPERATION_CORRUPT"
+              )
             ) {
               abandonDurableOperation(
                 scope
