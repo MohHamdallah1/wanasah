@@ -520,6 +520,121 @@ describe(
       );
     });
 
+    it("keeps a malformed successful family response pending and blocks a changed payload", async () => {
+      const postBodies: Array<{
+        request_id: string;
+        name: string;
+      }> = [];
+
+      mocks.authFetch.mockImplementation(
+        async (
+          _url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            options?.method ===
+            "POST"
+          ) {
+            postBodies.push(
+              JSON.parse(
+                String(
+                  options.body,
+                ),
+              ),
+            );
+            return {};
+          }
+
+          return {
+            items: [],
+            next_cursor: null,
+            has_more: false,
+          };
+        },
+      );
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      await screen.findByText(
+        "products.noFamilies",
+      );
+
+      const nameInput =
+        screen.getByPlaceholderText(
+          "products.newFamilyPlaceholder",
+        );
+      const addButton =
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.addFamily",
+          },
+        );
+
+      fireEvent.change(
+        nameInput,
+        {
+          target: {
+            value:
+              "Alpha Family",
+          },
+        },
+      );
+      fireEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(
+          mocks.toastError,
+        ).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(
+          addButton,
+        ).not.toBeDisabled();
+      });
+
+      fireEvent.change(
+        nameInput,
+        {
+          target: {
+            value:
+              "Beta Family",
+          },
+        },
+      );
+      fireEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(
+          mocks.toastError
+            .mock.calls.length,
+        ).toBeGreaterThanOrEqual(
+          2,
+        );
+      });
+
+      expect(
+        postBodies,
+      ).toHaveLength(1);
+      expect(
+        postBodies[0].name,
+      ).toBe(
+        "Alpha Family",
+      );
+    });
+
     it("keeps a request failure distinct from an empty family result", async () => {
       mocks.authFetch.mockRejectedValueOnce(
         new Error("network"),
