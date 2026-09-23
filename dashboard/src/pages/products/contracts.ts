@@ -116,6 +116,7 @@ export interface SimpleProduct {
   product_id: number;
   name: string;
   family_name: string;
+  sku: string;
   units_per_package: number;
   package_uom_code: string | null;
   currency_code: string;
@@ -133,6 +134,7 @@ export interface SimpleProduct {
 
 export interface SimpleProductPage {
   currency_code: string;
+  pricing_visible: boolean;
   items: SimpleProduct[];
   next_cursor: string | null;
   has_more: boolean;
@@ -166,6 +168,10 @@ export function parseSimpleProductPage(
     return contractError(code);
   }
 
+  const pricingVisible = bool(
+    page.pricing_visible,
+    code,
+  );
   const ids = new Set<number>();
   const items = page.items.map((rawItem) => {
     const row = record(rawItem, code);
@@ -192,6 +198,7 @@ export function parseSimpleProductPage(
       product_id: int(row.product_id, code, 1),
       name: str(row.name, code, 200),
       family_name: str(row.family_name, code, 150),
+      sku: str(row.sku, code, 100),
       units_per_package: int(
         row.units_per_package,
         code,
@@ -207,14 +214,26 @@ export function parseSimpleProductPage(
         code,
         10,
       ),
-      package_price: moneyOrNull(
-        row.package_price,
-        code,
-      ),
-      unit_price: moneyOrNull(
-        row.unit_price,
-        code,
-      ),
+      package_price: (() => {
+        const value = moneyOrNull(
+          row.package_price,
+          code,
+        );
+        if (!pricingVisible && value !== null) {
+          return contractError(code);
+        }
+        return value;
+      })(),
+      unit_price: (() => {
+        const value = moneyOrNull(
+          row.unit_price,
+          code,
+        );
+        if (!pricingVisible && value !== null) {
+          return contractError(code);
+        }
+        return value;
+      })(),
       unit_barcode: nullableStr(
         row.unit_barcode,
         code,
@@ -262,6 +281,7 @@ export function parseSimpleProductPage(
       code,
       10,
     ),
+    pricing_visible: pricingVisible,
     items,
     next_cursor: next,
     has_more: page.has_more,
