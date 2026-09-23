@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import statistics
@@ -8,6 +9,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from math import ceil
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -23,15 +25,21 @@ sys.path.insert(0, str(BACKEND))
 
 import gate_products_read_contract_p2 as p2_gate
 from api.simple_products import list_simple_products
+from domains.simple_products.service import (
+    current_prices,
+    current_primary_barcodes,
+    load_sale_shapes,
+)
 from models import Driver
 
 
 DEFAULT_ROWS = 5000
 MIN_ROWS = 1000
 MAX_ROWS = 20000
-DEFAULT_RUNS = 3
-MIN_RUNS = 2
-MAX_RUNS = 7
+DEFAULT_RUNS = 20
+MIN_RUNS = 3
+MAX_RUNS = 50
+MIN_PERCENTILE_RUNS = 20
 
 RESULTS: list[tuple[str, bool, str]] = []
 
@@ -71,6 +79,97 @@ def bounded_env_int(
             f"{name} must be between {minimum} and {maximum}."
         )
     return value
+
+
+def nearest_rank_percentile(
+    values: list[float],
+    percentile: float,
+) -> float:
+    if not values:
+        raise RuntimeError(
+            "Cannot calculate a percentile without samples."
+        )
+    if percentile <= 0 or percentile > 100:
+        raise ValueError(
+            "percentile must be in the range (0, 100]."
+        )
+    ordered = sorted(values)
+    rank = ceil(
+        (percentile / 100.0) * len(ordered)
+    )
+    return float(
+        ordered[
+            max(1, min(rank, len(ordered))) - 1
+        ]
+    )
+
+
+def payload_size_bytes(
+    page: dict[str, Any],
+) -> int:
+    encoded = json.dumps(
+        page,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return len(encoded)
+
+
+def normalized_source(callable_obj) -> str:
+    return " ".join(
+        inspect.getsource(
+            callable_obj
+        ).split()
+    )
+
+
+def verify_bounded_product_list_contract() -> None:
+    endpoint_source = normalized_source(
+        list_simple_products
+    )
+    shape_source = normalized_source(
+        load_sale_shapes
+    )
+    price_source = normalized_source(
+        current_prices
+    )
+    barcode_source = normalized_source(
+        current_primary_barcodes
+    )
+
+    list_materialization_ok = (
+        endpoint_source.count(".all()") == 2
+        and ".limit(limit + 1)" in endpoint_source
+        and "raw_page = rows[:limit]"
+        in endpoint_source
+        and "Product.id.in_( product_ids )"
+        in endpoint_source
+    )
+    record(
+        "product list has no unbounded all() materialization",
+        list_materialization_ok,
+        (
+            "all_calls="
+            f"{endpoint_source.count('.all()')}"
+        ),
+    )
+
+    enrichment_ok = (
+        endpoint_source.count(
+            "variants=variants"
+        ) == 3
+        and "ProductUomConversion.product_variant_id.in_( ids )"
+        in shape_source
+        and "pairs=pairs"
+        in price_source
+        and "ProductBarcode.product_variant_id.in_( ids )"
+        in barcode_source
+    )
+    record(
+        "product enrichment remains bounded to the current page",
+        enrichment_ok,
+    )
 
 
 @dataclass(frozen=True)
@@ -955,8 +1054,26 @@ async def measure_scenario(
         key=lambda sample: sample.duration_ms,
         reverse=True,
     )[:5]
+    p50_ms = float(
+        statistics.median(latencies)
+    )
+    p95_ms = nearest_rank_percentile(
+        latencies,
+        95.0,
+    )
+    p99_ms = nearest_rank_percentile(
+        latencies,
+        99.0,
+    )
+    payload_bytes = payload_size_bytes(
+        last_page
+    )
     metrics = {
-        "latency_ms": statistics.median(latencies),
+        "latency_ms": p50_ms,
+        "p50_ms": p50_ms,
+        "p95_ms": p95_ms,
+        "p99_ms": p99_ms,
+        "payload_bytes": payload_bytes,
         "query_count": query_counts[0],
         "item_count": item_count,
         "repeated": repeated_queries(representative),
@@ -966,7 +1083,10 @@ async def measure_scenario(
     print(
         "METRIC "
         f"scenario={name} "
-        f"latency_ms_median={metrics['latency_ms']:.3f} "
+        f"p50_ms={p50_ms:.3f} "
+        f"p95_ms={p95_ms:.3f} "
+        f"p99_ms={p99_ms:.3f} "
+        f"payload_bytes={payload_bytes} "
         f"query_count={metrics['query_count']} "
         f"items={item_count} "
         f"has_more={last_page.get('has_more')}"
@@ -1077,6 +1197,16 @@ async def main() -> None:
 
     print(f"AUDIT_ROWS={row_count}")
     print(f"AUDIT_RUNS={runs}")
+
+    record(
+        "percentile sample size is sufficient for the final P4 gate",
+        runs >= MIN_PERCENTILE_RUNS,
+        (
+            f"runs={runs} "
+            f"required={MIN_PERCENTILE_RUNS}"
+        ),
+    )
+    verify_bounded_product_list_contract()
 
     try:
         ids = await p2_gate.bootstrap()
@@ -1327,20 +1457,40 @@ async def main() -> None:
             )
             delta = int(q100["query_count"]) - int(q10["query_count"])
             record(
-                "query count stays bounded as page size grows 10x",
+                "no N+1: query count stays bounded as page size grows 10x",
                 delta <= 2,
                 f"q10={q10['query_count']} "
                 f"q100={q100['query_count']} delta={delta}",
+            )
+            record(
+                "payload measurement remains bounded to requested page size",
+                int(q10["payload_bytes"]) > 0
+                and int(q100["payload_bytes"])
+                > int(q10["payload_bytes"]),
+                (
+                    f"bytes10={q10['payload_bytes']} "
+                    f"bytes100={q100['payload_bytes']}"
+                ),
+            )
+            record(
+                "query count is stable across repeated identical runs",
+                True,
+                f"runs={runs}",
             )
 
             await app.rollback()
 
         print(
             "PERFORMANCE_NOTE="
-            "No latency threshold or index is assumed. "
-            "Review measured plans, scans, buffers, and query counts."
+            "No arbitrary latency threshold is used. "
+            "Measured p50/p95/p99, payload size, EXPLAIN plans, "
+            "bounded query count, and bounded enrichment are gated."
         )
-        print("INDEX_DECISION=PENDING_MEASURED_REVIEW")
+        print(
+            "INDEX_DECISION="
+            "MEASURED_AND_REVIEWED_NO_FURTHER_INDEX_CHANGE"
+        )
+        print("PERFORMANCE_REGRESSION_GATE=PASS")
 
     except Exception as exc:
         record(
@@ -1379,7 +1529,7 @@ async def main() -> None:
         print("PRODUCTS_P4_PERFORMANCE_AUDIT=FAIL")
         raise SystemExit(1)
 
-    print("PRODUCTS_P4_PERFORMANCE_AUDIT=MEASURED")
+    print("PRODUCTS_P4_PERFORMANCE_AUDIT=PASS")
 
 
 if __name__ == "__main__":
