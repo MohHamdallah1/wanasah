@@ -51,16 +51,24 @@ vi.mock(
 
 vi.mock(
   "react-i18next",
-  () => ({
-    useTranslation: () => ({
-      t: (key: string) => key,
-      i18n: {
-        language: "en",
-        resolvedLanguage: "en",
-        dir: () => "ltr",
-      },
-    }),
-  }),
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("react-i18next")
+      >();
+
+    return {
+      ...actual,
+      useTranslation: () => ({
+        t: (key: string) => key,
+        i18n: {
+          language: "en",
+          resolvedLanguage: "en",
+          dir: () => "ltr",
+        },
+      }),
+    };
+  },
 );
 
 vi.mock(
