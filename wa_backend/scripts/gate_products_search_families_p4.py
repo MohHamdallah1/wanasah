@@ -332,7 +332,7 @@ async def main() -> None:
                                 ":name, :sku, 0, 1, :lot_mode, "
                                 ":expiry_mode, :lifecycle, 'NONE', "
                                 "1, 1, NOW() - INTERVAL '2 days', "
-                                "CASE WHEN :lifecycle = 'RETIRING' "
+                                "CASE WHEN :retiring_lifecycle = 'RETIRING' "
                                 "THEN NOW() - INTERVAL '1 day' "
                                 "ELSE NULL END, NULL, :packs, false, 0, "
                                 "NOW(), NOW()) "
@@ -350,6 +350,8 @@ async def main() -> None:
                                 "expiry_mode":
                                     expiry_mode,
                                 "lifecycle":
+                                    lifecycle,
+                                "retiring_lifecycle":
                                     lifecycle,
                                 "packs":
                                     packs_per_carton,
