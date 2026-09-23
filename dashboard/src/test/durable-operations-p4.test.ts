@@ -21,6 +21,12 @@ describe(
     });
 
     it("promotes a matching legacy request without changing request identity", async () => {
+      const start = 4_000_000;
+      const nowSpy =
+        vi.spyOn(
+          Date,
+          "now",
+        ).mockReturnValue(start);
       const scope = durableScope(
         1,
         2,
@@ -35,6 +41,11 @@ describe(
           scope,
           payload,
         );
+
+      nowSpy.mockReturnValue(
+        start +
+          8 * 24 * 60 * 60 * 1000,
+      );
 
       const command =
         await getOrCreateDurableCommand(
@@ -63,6 +74,12 @@ describe(
     });
 
     it("does not replace a legacy unresolved request when the payload changed", async () => {
+      const start = 5_000_000;
+      const nowSpy =
+        vi.spyOn(
+          Date,
+          "now",
+        ).mockReturnValue(start);
       const scope = durableScope(
         1,
         2,
@@ -76,6 +93,11 @@ describe(
             name: "Alpha Family",
           },
         );
+
+      nowSpy.mockReturnValue(
+        start +
+          8 * 24 * 60 * 60 * 1000,
+      );
 
       await expect(
         getOrCreateDurableCommand(
