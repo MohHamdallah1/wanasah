@@ -24,22 +24,58 @@ export function hasInventoryPermission(data: InventoryCapabilities, code: string
   return data.permissions.includes(code) || data.location_permissions.includes(code);
 }
 
-export function parseInventoryCapabilities(raw: unknown): InventoryCapabilities {
-  if (!raw || typeof raw !== 'object') inventoryAccessContractError('INVENTORY_ACCESS_RESPONSE_INVALID');
-  const value = raw as Record<string, unknown>;
-  for (const key of ['company_id', 'driver_id']) {
-    if (!Number.isSafeInteger(value[key]) || Number(value[key]) <= 0) inventoryAccessContractError('INVENTORY_ACCESS_RESPONSE_INVALID');
+const parsePermissionCodes = (
+  value: unknown,
+  code = 'INVENTORY_ACCESS_RESPONSE_INVALID',
+): string[] => {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === 'string')
+  ) {
+    inventoryAccessContractError(code);
   }
-  if (typeof value.is_company_admin !== 'boolean' ||
-      (value.location_id !== null && (!Number.isSafeInteger(value.location_id) || Number(value.location_id) <= 0))) {
+  return value.map((item) => item as string);
+};
+
+export function parseInventoryCapabilities(raw: unknown): InventoryCapabilities {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     inventoryAccessContractError('INVENTORY_ACCESS_RESPONSE_INVALID');
   }
-  for (const key of ['permissions', 'any_permissions', 'location_permissions']) {
-    if (!Array.isArray(value[key]) || !(value[key] as unknown[]).every(item => typeof item === 'string')) {
-      inventoryAccessContractError('INVENTORY_ACCESS_RESPONSE_INVALID');
-    }
+  const value = raw as Record<string, unknown>;
+  const companyId = value.company_id;
+  const driverId = value.driver_id;
+  const isCompanyAdmin = value.is_company_admin;
+  const locationId = value.location_id;
+
+  if (
+    typeof companyId !== 'number' ||
+    !Number.isSafeInteger(companyId) ||
+    companyId <= 0 ||
+    typeof driverId !== 'number' ||
+    !Number.isSafeInteger(driverId) ||
+    driverId <= 0 ||
+    typeof isCompanyAdmin !== 'boolean' ||
+    (
+      locationId !== null &&
+      (
+        typeof locationId !== 'number' ||
+        !Number.isSafeInteger(locationId) ||
+        locationId <= 0
+      )
+    )
+  ) {
+    inventoryAccessContractError('INVENTORY_ACCESS_RESPONSE_INVALID');
   }
-  return value as unknown as InventoryCapabilities;
+
+  return {
+    company_id: companyId,
+    driver_id: driverId,
+    is_company_admin: isCompanyAdmin,
+    location_id: locationId,
+    permissions: parsePermissionCodes(value.permissions),
+    any_permissions: parsePermissionCodes(value.any_permissions),
+    location_permissions: parsePermissionCodes(value.location_permissions),
+  };
 }
 
 export function useInventoryAccess(locationId: number | null = null) {
@@ -89,10 +125,14 @@ export function useLocationCapabilities(locationIds: number[]) {
       }
       const result: Record<number, string[]> = {};
       for (const [id, codes] of Object.entries(raw.locations)) {
-        if (!ids.includes(Number(id)) || !Array.isArray(codes) || !codes.every(c => typeof c === 'string')) {
+        const numericId = Number(id);
+        if (!ids.includes(numericId)) {
           inventoryAccessContractError('INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID');
         }
-        result[Number(id)] = codes;
+        result[numericId] = parsePermissionCodes(
+          codes,
+          'INVENTORY_LOCATION_CAPABILITIES_RESPONSE_INVALID',
+        );
       }
       return result;
     },
