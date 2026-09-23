@@ -195,6 +195,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/ProductBarcodeManager.tsx",
       ),
     );
+    const catalogBackend = compact(
+      readSource(
+        "../../../wa_backend/api/catalog.py",
+      ),
+    );
 
     expect(page).toContain(
       "canManageBarcodes={ canManageCatalog }",
@@ -249,6 +254,12 @@ describe("Products P3 detail foundation", () => {
     );
     expect(manager).toContain(
       '"products.barcodeManager.deactivated"',
+    );
+    expect(catalogBackend).toContain(
+      "valid_from: Optional[datetime] = None",
+    );
+    expect(catalogBackend).toContain(
+      "not payload.is_active and valid_to is None",
     );
   });
 
