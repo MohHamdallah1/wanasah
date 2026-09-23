@@ -54,6 +54,7 @@ import {
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
+import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
@@ -321,6 +322,12 @@ export default function ProductsDashboard() {
   const [
     detailProduct,
     setDetailProduct,
+  ] = useState<SimpleProduct | null>(
+    null
+  );
+  const [
+    barcodeProduct,
+    setBarcodeProduct,
   ] = useState<SimpleProduct | null>(
     null
   );
@@ -662,6 +669,7 @@ export default function ProductsDashboard() {
     setCursor(null);
     setHistory([]);
     setDetailProduct(null);
+    setBarcodeProduct(null);
     setPriceEdit(null);
     setEditPackagePrice("");
     setEditUnitPrice("");
@@ -2688,6 +2696,9 @@ export default function ProductsDashboard() {
         canEditTracking={
           canManageCatalog
         }
+        canManageBarcodes={
+          canManageCatalog
+        }
         onClose={() =>
           setDetailProduct(null)
         }
@@ -2699,6 +2710,28 @@ export default function ProductsDashboard() {
           setDetailProduct(null);
           openTrackingEditor(
             product
+          );
+        }}
+        onManageBarcodes={(product) => {
+          setDetailProduct(null);
+          setBarcodeProduct(
+            product
+          );
+        }}
+      />
+
+      <ProductBarcodeManager
+        product={barcodeProduct}
+        onClose={() =>
+          setBarcodeProduct(null)
+        }
+        onChanged={async () => {
+          await queryClient.invalidateQueries(
+            {
+              queryKey: [
+                "simple-products",
+              ],
+            }
           );
         }}
       />
