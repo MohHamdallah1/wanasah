@@ -20,6 +20,7 @@ import {
   PackagePlus,
   RefreshCw,
   Search,
+  Settings2,
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -39,6 +40,16 @@ import {
   fileFingerprint,
   getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
+import {
+  parseProductTrackingDefaults,
+  parseProductTrackingMutation,
+  parseSimpleProductPage,
+  type ProductTrackingMode,
+  type SimpleProduct,
+} from "@/pages/products/contracts";
+import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
+import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
+import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
 
 type Family = {
   id: number;
@@ -52,30 +63,6 @@ type PackageUom = {
   code: string;
 };
 
-type SimpleProduct = {
-  id: number;
-  product_id: number;
-  name: string;
-  family_name: string;
-  units_per_package: number;
-  package_uom_code: string | null;
-  currency_code: string;
-  package_price: string | null;
-  unit_price: string | null;
-  unit_barcode: string | null;
-  package_barcode: string | null;
-  package_uses_base_barcode: boolean;
-  lifecycle_status: string;
-  simple_compatible: boolean;
-};
-
-type SimpleProductPage = {
-  currency_code: string;
-  items: SimpleProduct[];
-  next_cursor: string | null;
-  has_more: boolean;
-};
-
 type ImportStatus = {
   job_id: string;
   status: string;
@@ -87,6 +74,8 @@ type ImportStatus = {
   detected_headers: string[];
   suggested_mapping: Record<string, string>;
   column_mapping: Record<string, string>;
+  default_lot_control_mode: ProductTrackingMode;
+  default_expiry_control_mode: ProductTrackingMode;
   error_summary: Record<string, unknown>;
   errors: Array<{
     row_number: number;
@@ -109,7 +98,21 @@ const terminalImportStatuses =
     "NEEDS_MAPPING",
   ]);
 
-const emptyDraft = {
+type ProductDraft = {
+  name: string;
+  family: string;
+  has_package: boolean;
+  package_uom_code: string;
+  units_per_package: string;
+  package_price: string;
+  unit_price: string;
+  unit_barcode: string;
+  package_barcode: string;
+  lot_control_mode: ProductTrackingMode | null;
+  expiry_control_mode: ProductTrackingMode | null;
+};
+
+const emptyDraft: ProductDraft = {
   name: "",
   family: "",
   has_package: true,
@@ -119,10 +122,9 @@ const emptyDraft = {
   unit_price: "",
   unit_barcode: "",
   package_barcode: "",
+  lot_control_mode: null,
+  expiry_control_mode: null,
 };
-
-type ProductDraft =
-  typeof emptyDraft;
 
 const importMappingFields = [
   "name",
@@ -133,6 +135,8 @@ const importMappingFields = [
   "unit_price",
   "unit_barcode",
   "package_barcode",
+  "lot_control_mode",
+  "expiry_control_mode",
 ] as const;
 
 const derivedPrices = (
@@ -226,11 +230,15 @@ export default function ProductsDashboard() {
     access.data?.driver_id ??
     null;
 
+  const canManageCatalog =
+    access.isCompanyAdmin ||
+    access.canAny(
+      "catalog.manage"
+    );
+
   const canManage =
     access.isCompanyAdmin ||
-    (access.canAny(
-      "catalog.manage"
-    ) &&
+    (canManageCatalog &&
       access.canAny(
         "catalog.publish"
       ) &&
@@ -283,6 +291,10 @@ export default function ProductsDashboard() {
     setCreateOpen,
   ] = useState(false);
   const [
+    createTrackingExpanded,
+    setCreateTrackingExpanded,
+  ] = useState(false);
+  const [
     draft,
     setDraft,
   ] =
@@ -293,6 +305,41 @@ export default function ProductsDashboard() {
     useRef<string | null>(
       null
     );
+
+  const [
+    trackingDefaultsOpen,
+    setTrackingDefaultsOpen,
+  ] = useState(false);
+  const [
+    trackingDefaultsLot,
+    setTrackingDefaultsLot,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
+  const [
+    trackingDefaultsExpiry,
+    setTrackingDefaultsExpiry,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
+  const [
+    trackingEdit,
+    setTrackingEdit,
+  ] = useState<SimpleProduct | null>(
+    null
+  );
+  const [
+    trackingEditLot,
+    setTrackingEditLot,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
+  const [
+    trackingEditExpiry,
+    setTrackingEditExpiry,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
 
   const [
     priceEdit,
@@ -363,6 +410,22 @@ export default function ProductsDashboard() {
     setImportPollKey,
   ] = useState(0);
   const [
+    importLotControlMode,
+    setImportLotControlMode,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
+  const [
+    importExpiryControlMode,
+    setImportExpiryControlMode,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
+  const [
+    importTrackingExpanded,
+    setImportTrackingExpanded,
+  ] = useState(false);
+  const [
     dragging,
     setDragging,
   ] = useState(false);
@@ -373,7 +436,7 @@ export default function ProductsDashboard() {
 
   const draftStorageKey =
     companyId && driverId
-      ? `wanasah:product-draft:v1:${companyId}:${driverId}`
+      ? `wanasah:product-draft:v2:${companyId}:${driverId}`
       : null;
   const importSessionKey =
     companyId && driverId
@@ -527,10 +590,12 @@ export default function ProductsDashboard() {
       queryFn: async ({
         signal,
       }) =>
-        (await authFetch(
-          `/simple-products?${params}`,
-          { signal }
-        )) as SimpleProductPage,
+        parseSimpleProductPage(
+          await authFetch(
+            `/simple-products?${params}`,
+            { signal }
+          )
+        ),
     });
 
   const familiesQuery =
@@ -565,6 +630,86 @@ export default function ProductsDashboard() {
         },
     });
 
+  const trackingDefaultsQuery =
+    useQuery({
+      queryKey: [
+        "simple-product-tracking-defaults",
+        companyId,
+      ],
+      enabled: Boolean(companyId),
+      queryFn: async ({
+        signal,
+      }) =>
+        parseProductTrackingDefaults(
+          await authFetch(
+            "/simple-products/tracking/defaults",
+            { signal }
+          )
+        ),
+    });
+
+  useEffect(() => {
+    setImportLotControlMode(null);
+    setImportExpiryControlMode(null);
+    setImportTrackingExpanded(false);
+    setCreateTrackingExpanded(false);
+    setTrackingDefaultsOpen(false);
+    setTrackingDefaultsLot(null);
+    setTrackingDefaultsExpiry(null);
+    setTrackingEdit(null);
+    setTrackingEditLot(null);
+    setTrackingEditExpiry(null);
+  }, [companyId]);
+
+  useEffect(() => {
+    const defaults =
+      trackingDefaultsQuery.data;
+    if (
+      !importOpen ||
+      importJobId ||
+      !defaults
+    ) {
+      return;
+    }
+    setImportLotControlMode(
+      (current) =>
+        current ??
+        defaults.lot_control_mode
+    );
+    setImportExpiryControlMode(
+      (current) =>
+        current ??
+        defaults.expiry_control_mode
+    );
+  }, [
+    importOpen,
+    importJobId,
+    trackingDefaultsQuery.data,
+  ]);
+
+  useEffect(() => {
+    const defaults =
+      trackingDefaultsQuery.data;
+    if (
+      !createOpen ||
+      !defaults
+    ) {
+      return;
+    }
+    setDraft((current) => ({
+      ...current,
+      lot_control_mode:
+        current.lot_control_mode ??
+        defaults.lot_control_mode,
+      expiry_control_mode:
+        current.expiry_control_mode ??
+        defaults.expiry_control_mode,
+    }));
+  }, [
+    createOpen,
+    trackingDefaultsQuery.data,
+  ]);
+
   const page =
     productsQuery.data;
   const families =
@@ -576,6 +721,32 @@ export default function ProductsDashboard() {
   const currency =
     page?.currency_code ||
     "—";
+
+  const importTrackingUsesCompanyDefaults =
+    Boolean(
+      trackingDefaultsQuery.data &&
+        importLotControlMode &&
+        importExpiryControlMode &&
+        importLotControlMode ===
+          trackingDefaultsQuery.data
+            .lot_control_mode &&
+        importExpiryControlMode ===
+          trackingDefaultsQuery.data
+            .expiry_control_mode
+    );
+
+  const createTrackingUsesCompanyDefaults =
+    Boolean(
+      trackingDefaultsQuery.data &&
+        draft.lot_control_mode &&
+        draft.expiry_control_mode &&
+        draft.lot_control_mode ===
+          trackingDefaultsQuery.data
+            .lot_control_mode &&
+        draft.expiry_control_mode ===
+          trackingDefaultsQuery.data
+            .expiry_control_mode
+    );
 
   const formatMoney = (
     value: string | null
@@ -615,6 +786,228 @@ export default function ProductsDashboard() {
       target
     );
   };
+
+  const openTrackingDefaults =
+    () => {
+      const defaults =
+        trackingDefaultsQuery.data;
+      if (!defaults) {
+        toast.error(
+          t(
+            "products.errors.trackingDefaultsLoad"
+          )
+        );
+        return;
+      }
+      setTrackingDefaultsLot(
+        defaults.lot_control_mode
+      );
+      setTrackingDefaultsExpiry(
+        defaults.expiry_control_mode
+      );
+      setTrackingDefaultsOpen(true);
+    };
+
+  const openTrackingEditor = (
+    product: SimpleProduct
+  ) => {
+    setTrackingEdit(product);
+    setTrackingEditLot(
+      product.lot_control_mode
+    );
+    setTrackingEditExpiry(
+      product.expiry_control_mode
+    );
+  };
+
+  const trackingDefaultsMutation =
+    useMutation({
+      mutationFn: async () => {
+        if (
+          !trackingDefaultsLot ||
+          !trackingDefaultsExpiry
+        ) {
+          throw new Error(
+            t(
+              "products.errors.trackingDefaultsRequired"
+            )
+          );
+        }
+
+        const body = {
+          lot_control_mode:
+            trackingDefaultsLot,
+          expiry_control_mode:
+            trackingDefaultsExpiry,
+        };
+        const scope =
+          operationScope(
+            "product-tracking-defaults"
+          );
+        const requestId =
+          await getOrCreateDurableRequestId(
+            scope,
+            body
+          );
+        const data =
+          parseProductTrackingDefaults(
+            await authFetch(
+              "/simple-products/tracking/defaults",
+              {
+                method: "PUT",
+                body: JSON.stringify({
+                  request_id:
+                    requestId,
+                  ...body,
+                }),
+              }
+            )
+          );
+        return {
+          data,
+          requestId,
+          scope,
+        };
+      },
+      onSuccess: async ({
+        data,
+        requestId,
+        scope,
+      }) => {
+        completeDurableOperation(
+          scope,
+          requestId
+        );
+        setTrackingDefaultsOpen(
+          false
+        );
+        setTrackingDefaultsLot(
+          data.lot_control_mode
+        );
+        setTrackingDefaultsExpiry(
+          data.expiry_control_mode
+        );
+        if (
+          !importJobId
+        ) {
+          setImportLotControlMode(
+            data.lot_control_mode
+          );
+          setImportExpiryControlMode(
+            data.expiry_control_mode
+          );
+        }
+        toast.success(
+          t(
+            "products.trackingSettings.saved"
+          )
+        );
+        await queryClient.invalidateQueries(
+          {
+            queryKey: [
+              "simple-product-tracking-defaults",
+            ],
+          }
+        );
+      },
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.errors.trackingDefaultsSave"
+            )
+          )
+        ),
+    });
+
+  const trackingMutation =
+    useMutation({
+      mutationFn: async () => {
+        if (
+          !trackingEdit ||
+          !trackingEditLot ||
+          !trackingEditExpiry
+        ) {
+          throw new Error(
+            t(
+              "products.errors.trackingProductRequired"
+            )
+          );
+        }
+
+        const body = {
+          expected_version:
+            trackingEdit.version,
+          lot_control_mode:
+            trackingEditLot,
+          expiry_control_mode:
+            trackingEditExpiry,
+        };
+        const scope =
+          operationScope(
+            "product-tracking",
+            trackingEdit.id
+          );
+        const requestId =
+          await getOrCreateDurableRequestId(
+            scope,
+            body
+          );
+        const data =
+          parseProductTrackingMutation(
+            await authFetch(
+              `/simple-products/tracking/variants/${trackingEdit.id}`,
+              {
+                method: "PATCH",
+                body: JSON.stringify({
+                  request_id:
+                    requestId,
+                  ...body,
+                }),
+              }
+            )
+          );
+        return {
+          data,
+          requestId,
+          scope,
+        };
+      },
+      onSuccess: async ({
+        requestId,
+        scope,
+      }) => {
+        completeDurableOperation(
+          scope,
+          requestId
+        );
+        setTrackingEdit(null);
+        setTrackingEditLot(null);
+        setTrackingEditExpiry(null);
+        toast.success(
+          t(
+            "products.trackingEditor.saved"
+          )
+        );
+        await queryClient.invalidateQueries(
+          {
+            queryKey: [
+              "simple-products",
+            ],
+          }
+        );
+      },
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.errors.trackingProductSave"
+            )
+          )
+        ),
+    });
 
   const createMutation =
     useMutation({
@@ -665,6 +1058,16 @@ export default function ProductsDashboard() {
                   )
             );
           }
+          if (
+            !draft.lot_control_mode ||
+            !draft.expiry_control_mode
+          ) {
+            throw new Error(
+              t(
+                "products.errors.trackingDefaultsRequired"
+              )
+            );
+          }
 
           const selectedFamily =
             families.find(
@@ -710,6 +1113,10 @@ export default function ProductsDashboard() {
               draft.package_barcode.trim()
                 ? draft.package_barcode.trim()
                 : null,
+            lot_control_mode:
+              draft.lot_control_mode,
+            expiry_control_mode:
+              draft.expiry_control_mode,
           };
 
           const scope =
@@ -760,6 +1167,9 @@ export default function ProductsDashboard() {
           }
           setDraft(
             emptyDraft
+          );
+          setCreateTrackingExpanded(
+            false
           );
           setCreateOpen(false);
           setCursor(null);
@@ -1072,6 +1482,16 @@ export default function ProductsDashboard() {
             )
           );
         }
+        if (
+          !importLotControlMode ||
+          !importExpiryControlMode
+        ) {
+          throw new Error(
+            t(
+              "products.errors.trackingDefaultsRequired"
+            )
+          );
+        }
 
         const fingerprint =
           await fileFingerprint(
@@ -1080,7 +1500,7 @@ export default function ProductsDashboard() {
         const scope =
           operationScope(
             "product-import",
-            fingerprint
+            `${fingerprint}:${importLotControlMode}:${importExpiryControlMode}`
           );
         const requestId =
           await getOrCreateDurableRequestId(
@@ -1089,6 +1509,10 @@ export default function ProductsDashboard() {
               fingerprint,
               name: importFile.name,
               size: importFile.size,
+              default_lot_control_mode:
+                importLotControlMode,
+              default_expiry_control_mode:
+                importExpiryControlMode,
             }
           );
 
@@ -1097,6 +1521,14 @@ export default function ProductsDashboard() {
         form.append(
           "request_id",
           requestId
+        );
+        form.append(
+          "default_lot_control_mode",
+          importLotControlMode
+        );
+        form.append(
+          "default_expiry_control_mode",
+          importExpiryControlMode
         );
         form.append(
           "file",
@@ -1114,6 +1546,10 @@ export default function ProductsDashboard() {
             job_id: string;
             status: string;
             replayed?: boolean;
+            default_lot_control_mode:
+              ProductTrackingMode;
+            default_expiry_control_mode:
+              ProductTrackingMode;
           };
 
         return {
@@ -1133,6 +1569,12 @@ export default function ProductsDashboard() {
         );
         setImportJobId(
           result.job_id
+        );
+        setImportLotControlMode(
+          result.default_lot_control_mode
+        );
+        setImportExpiryControlMode(
+          result.default_expiry_control_mode
         );
         setImportStatus(null);
         if (
@@ -1285,6 +1727,12 @@ export default function ProductsDashboard() {
         setImportStatus(
           status
         );
+        setImportLotControlMode(
+          status.default_lot_control_mode
+        );
+        setImportExpiryControlMode(
+          status.default_expiry_control_mode
+        );
 
         if (
           status.status ===
@@ -1418,6 +1866,15 @@ export default function ProductsDashboard() {
       setImportJobId(null);
       setImportStatus(null);
       setMapping({});
+      setImportLotControlMode(
+        trackingDefaultsQuery.data
+          ?.lot_control_mode ?? null
+      );
+      setImportExpiryControlMode(
+        trackingDefaultsQuery.data
+          ?.expiry_control_mode ?? null
+      );
+      setImportTrackingExpanded(false);
       if (importSessionKey) {
         sessionStorage.removeItem(
           importSessionKey
@@ -1570,6 +2027,12 @@ export default function ProductsDashboard() {
         t(
           "products.fields.packageBarcode"
         ),
+        t(
+          "products.fields.lotControlMode"
+        ),
+        t(
+          "products.fields.expiryControlMode"
+        ),
       ];
       const lines = [
         headers.join(","),
@@ -1582,6 +2045,12 @@ export default function ProductsDashboard() {
           "",
           "6251234567890",
           "",
+          t(
+            "products.tracking.importValues.REQUIRED"
+          ),
+          t(
+            "products.tracking.importValues.REQUIRED"
+          ),
         ].join(","),
       ];
 
@@ -1614,6 +2083,9 @@ export default function ProductsDashboard() {
   const cancelCreate =
     () => {
       setCreateOpen(false);
+      setCreateTrackingExpanded(
+        false
+      );
       setDraft(emptyDraft);
       if (
         draftStorageKey
@@ -1692,6 +2164,10 @@ export default function ProductsDashboard() {
         "products.fields.unitBarcode",
       package_barcode:
         "products.fields.packageBarcode",
+      lot_control_mode:
+        "products.fields.lotControlMode",
+      expiry_control_mode:
+        "products.fields.expiryControlMode",
     } as const;
     return keys[field];
   };
@@ -1741,15 +2217,36 @@ export default function ProductsDashboard() {
               )}
             </button>
 
+            {canManageCatalog ? (
+              <button
+                type="button"
+                disabled={
+                  trackingDefaultsQuery.isLoading
+                }
+                onClick={
+                  openTrackingDefaults
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
+              >
+                <Settings2 className="h-4 w-4" />
+                {t(
+                  "products.trackingSettings.action"
+                )}
+              </button>
+            ) : null}
+
             {canManage ? (
               <>
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    setImportTrackingExpanded(
+                      false
+                    );
                     setImportOpen(
                       true
-                    )
-                  }
+                    );
+                  }}
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
                 >
                   <FileSpreadsheet className="h-4 w-4" />
@@ -1776,11 +2273,14 @@ export default function ProductsDashboard() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      setCreateTrackingExpanded(
+                        false
+                      );
                       setCreateOpen(
                         true
-                      )
-                    }
+                      );
+                    }}
                     className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white"
                   >
                     <PackagePlus className="h-4 w-4" />
@@ -1832,7 +2332,7 @@ export default function ProductsDashboard() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full min-w-[900px] text-start text-sm">
+          <table className="w-full min-w-[1050px] text-start text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black text-slate-500">
               <tr>
                 <th className="px-5 py-3">
@@ -1848,6 +2348,11 @@ export default function ProductsDashboard() {
                 <th className="px-5 py-3">
                   {t(
                     "products.columns.unitsPerPackage"
+                  )}
+                </th>
+                <th className="px-5 py-3">
+                  {t(
+                    "products.columns.tracking"
                   )}
                 </th>
                 <th className="px-5 py-3">
@@ -1872,7 +2377,7 @@ export default function ProductsDashboard() {
               {productsQuery.isLoading ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="py-16 text-center font-bold text-slate-400"
                   >
                     {t(
@@ -1886,7 +2391,7 @@ export default function ProductsDashboard() {
               !page?.items.length ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="py-16 text-center"
                   >
                     <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
@@ -1942,6 +2447,29 @@ export default function ProductsDashboard() {
                         : "—"}
                     </td>
 
+                    <td className="px-5 py-4">
+                      <div className="flex flex-col gap-1 text-[10px] font-bold text-slate-500">
+                        <span>
+                          {t(
+                            "products.tracking.shortLot"
+                          )}
+                          :{" "}
+                          {t(
+                            `products.tracking.shortModes.${item.lot_control_mode}`
+                          )}
+                        </span>
+                        <span>
+                          {t(
+                            "products.tracking.shortExpiry"
+                          )}
+                          :{" "}
+                          {t(
+                            `products.tracking.shortModes.${item.expiry_control_mode}`
+                          )}
+                        </span>
+                      </div>
+                    </td>
+
                     <td className="px-5 py-4 font-black tabular-nums">
                       {item.package_uom_code
                         ? `${formatMoney(
@@ -1960,29 +2488,46 @@ export default function ProductsDashboard() {
                     </td>
 
                     <td className="px-5 py-4">
-                      {canManage &&
-                      item.simple_compatible ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPriceEdit(
-                              item
-                            );
-                            setEditPackagePrice(
-                              item.package_price ??
-                                ""
-                            );
-                            setEditUnitPrice(
-                              item.unit_price ??
-                                ""
-                            );
-                          }}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-                        >
-                          {t(
-                            "products.editPrice"
-                          )}
-                        </button>
+                      {canManageCatalog ? (
+                        <div className="flex flex-wrap gap-2">
+                          {canManage &&
+                          item.simple_compatible ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPriceEdit(
+                                  item
+                                );
+                                setEditPackagePrice(
+                                  item.package_price ??
+                                    ""
+                                );
+                                setEditUnitPrice(
+                                  item.unit_price ??
+                                    ""
+                                );
+                              }}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                            >
+                              {t(
+                                "products.editPrice"
+                              )}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openTrackingEditor(
+                                item
+                              )
+                            }
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                          >
+                            {t(
+                              "products.trackingEditor.action"
+                            )}
+                          </button>
+                        </div>
                       ) : (
                         "—"
                       )}
@@ -2052,6 +2597,79 @@ export default function ProductsDashboard() {
         ) : null}
       </section>
 
+      {trackingDefaultsOpen &&
+      trackingDefaultsLot &&
+      trackingDefaultsExpiry &&
+      trackingDefaultsQuery.data ? (
+        <ProductTrackingSettings
+          open={trackingDefaultsOpen}
+          lotControlMode={
+            trackingDefaultsLot
+          }
+          expiryControlMode={
+            trackingDefaultsExpiry
+          }
+          lotControlSource={
+            trackingDefaultsQuery.data
+              .lot_control_source
+          }
+          expiryControlSource={
+            trackingDefaultsQuery.data
+              .expiry_control_source
+          }
+          saving={
+            trackingDefaultsMutation.isPending
+          }
+          online={isOnline}
+          onLotControlModeChange={
+            setTrackingDefaultsLot
+          }
+          onExpiryControlModeChange={
+            setTrackingDefaultsExpiry
+          }
+          onClose={() =>
+            setTrackingDefaultsOpen(
+              false
+            )
+          }
+          onSave={() =>
+            trackingDefaultsMutation.mutate()
+          }
+        />
+      ) : null}
+
+      {trackingEdit &&
+      trackingEditLot &&
+      trackingEditExpiry ? (
+        <ProductTrackingEditor
+          product={trackingEdit}
+          lotControlMode={
+            trackingEditLot
+          }
+          expiryControlMode={
+            trackingEditExpiry
+          }
+          saving={
+            trackingMutation.isPending
+          }
+          online={isOnline}
+          onLotControlModeChange={
+            setTrackingEditLot
+          }
+          onExpiryControlModeChange={
+            setTrackingEditExpiry
+          }
+          onClose={() => {
+            setTrackingEdit(null);
+            setTrackingEditLot(null);
+            setTrackingEditExpiry(null);
+          }}
+          onSave={() =>
+            trackingMutation.mutate()
+          }
+        />
+      ) : null}
+
       <Modal
         isOpen={createOpen}
         onClose={() => {
@@ -2085,7 +2703,9 @@ export default function ProductsDashboard() {
               type="button"
               disabled={
                 createMutation.isPending ||
-                !isOnline
+                !isOnline ||
+                !draft.lot_control_mode ||
+                !draft.expiry_control_mode
               }
               onClick={() =>
                 createMutation.mutate()
@@ -2180,6 +2800,161 @@ export default function ProductsDashboard() {
                 )}
               </datalist>
             </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="mb-3">
+              <h3 className="text-sm font-black text-slate-900">
+                {t(
+                  "products.tracking.createTitle"
+                )}
+              </h3>
+              <p className="mt-1 text-xs font-semibold leading-6 text-slate-500">
+                {t(
+                  "products.tracking.createHint"
+                )}
+              </p>
+            </div>
+
+            {!draft.lot_control_mode ||
+            !draft.expiry_control_mode ? (
+              trackingDefaultsQuery.isError ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-rose-50 p-3">
+                  <span className="text-xs font-bold text-rose-800">
+                    {t(
+                      "products.errors.trackingDefaultsLoad"
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void trackingDefaultsQuery.refetch()
+                    }
+                    className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                  >
+                    {t(
+                      "common.retry"
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
+                  {t(
+                    "products.trackingDefaultsLoading"
+                  )}
+                </div>
+              )
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-xs font-black leading-6 text-slate-800">
+                    {t(
+                      "products.tracking.createSummary",
+                      {
+                        lot: t(
+                          `products.tracking.lotModes.${draft.lot_control_mode}`
+                        ),
+                        expiry: t(
+                          `products.tracking.expiryModes.${draft.expiry_control_mode}`
+                        ),
+                      }
+                    )}
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                    {t(
+                      createTrackingUsesCompanyDefaults
+                        ? "products.tracking.createCompanyScope"
+                        : "products.tracking.createCustomScope"
+                    )}
+                  </p>
+                </div>
+
+                {!createTrackingExpanded ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCreateTrackingExpanded(
+                        true
+                      )
+                    }
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                  >
+                    {t(
+                      "products.tracking.createChange"
+                    )}
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <ProductTrackingFields
+                      lotControlMode={
+                        draft.lot_control_mode
+                      }
+                      expiryControlMode={
+                        draft.expiry_control_mode
+                      }
+                      onLotControlModeChange={(
+                        value
+                      ) =>
+                        setDraft(
+                          (current) => ({
+                            ...current,
+                            lot_control_mode:
+                              value,
+                          })
+                        )
+                      }
+                      onExpiryControlModeChange={(
+                        value
+                      ) =>
+                        setDraft(
+                          (current) => ({
+                            ...current,
+                            expiry_control_mode:
+                              value,
+                          })
+                        )
+                      }
+                    />
+
+                    <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
+                      {t(
+                        "products.tracking.createOnlyThisProduct"
+                      )}
+                    </p>
+
+                    {!createTrackingUsesCompanyDefaults ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const defaults =
+                            trackingDefaultsQuery.data;
+                          if (!defaults) {
+                            return;
+                          }
+                          setDraft(
+                            (current) => ({
+                              ...current,
+                              lot_control_mode:
+                                defaults.lot_control_mode,
+                              expiry_control_mode:
+                                defaults.expiry_control_mode,
+                            })
+                          );
+                          setCreateTrackingExpanded(
+                            false
+                          );
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                      >
+                        {t(
+                          "products.tracking.createReset"
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -2781,6 +3556,9 @@ export default function ProductsDashboard() {
           if (
             !importMutation.isPending
           ) {
+            setImportTrackingExpanded(
+              false
+            );
             setImportOpen(
               false
             );
@@ -2813,6 +3591,162 @@ export default function ProductsDashboard() {
 
           {!importJobId ? (
             <>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="mb-3">
+                  <h3 className="text-sm font-black text-slate-900">
+                    {t(
+                      "products.importTrackingTitle"
+                    )}
+                  </h3>
+                  <p className="mt-1 text-xs leading-6 text-slate-500">
+                    {t(
+                      "products.importTrackingHint"
+                    )}
+                  </p>
+                </div>
+
+                {trackingDefaultsQuery.isLoading ? (
+                  <div className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
+                    {t(
+                      "products.trackingDefaultsLoading"
+                    )}
+                  </div>
+                ) : trackingDefaultsQuery.isError ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-rose-50 p-3">
+                    <span className="text-xs font-bold text-rose-800">
+                      {t(
+                        "products.errors.trackingDefaultsLoad"
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void trackingDefaultsQuery.refetch()
+                      }
+                      className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                    >
+                      {t(
+                        "common.retry"
+                      )}
+                    </button>
+                  </div>
+                ) : importLotControlMode &&
+                  importExpiryControlMode ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-black leading-6 text-slate-800">
+                        {t(
+                          "products.importTrackingSummary",
+                          {
+                            lot: t(
+                              `products.tracking.lotModes.${importLotControlMode}`
+                            ),
+                            expiry: t(
+                              `products.tracking.expiryModes.${importExpiryControlMode}`
+                            ),
+                          }
+                        )}
+                      </p>
+                      <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                        {t(
+                          importTrackingUsesCompanyDefaults
+                            ? "products.importTrackingCompanyScope"
+                            : "products.importTrackingCustomScope"
+                        )}
+                      </p>
+                    </div>
+
+                    {!importTrackingExpanded ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setImportTrackingExpanded(
+                            true
+                          )
+                        }
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                      >
+                        {t(
+                          "products.importTrackingChange"
+                        )}
+                      </button>
+                    ) : (
+                      <div className="space-y-3">
+                        <ProductTrackingFields
+                          lotControlMode={
+                            importLotControlMode
+                          }
+                          expiryControlMode={
+                            importExpiryControlMode
+                          }
+                          onLotControlModeChange={
+                            setImportLotControlMode
+                          }
+                          onExpiryControlModeChange={
+                            setImportExpiryControlMode
+                          }
+                        />
+
+                        <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
+                          {t(
+                            "products.importTrackingOnlyThisImport"
+                          )}
+                        </p>
+
+                        {!importTrackingUsesCompanyDefaults ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const defaults =
+                                trackingDefaultsQuery.data;
+                              if (!defaults) {
+                                return;
+                              }
+                              setImportLotControlMode(
+                                defaults.lot_control_mode
+                              );
+                              setImportExpiryControlMode(
+                                defaults.expiry_control_mode
+                              );
+                              setImportTrackingExpanded(
+                                false
+                              );
+                            }}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                          >
+                            {t(
+                              "products.importTrackingReset"
+                            )}
+                          </button>
+                        ) : null}
+
+                        <p className="text-[11px] leading-5 text-slate-500">
+                          {t(
+                            "products.importTrackingOverrideHint"
+                          )}
+                        </p>
+                        <p className="text-[11px] leading-5 text-slate-500">
+                          {t(
+                            "products.importTrackingValueHint",
+                            {
+                              none: t(
+                                "products.tracking.importValues.NONE"
+                              ),
+                              optional: t(
+                                "products.tracking.importValues.OPTIONAL"
+                              ),
+                              required: t(
+                                "products.tracking.importValues.REQUIRED"
+                              ),
+                            }
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
               <input
                 ref={fileRef}
                 type="file"
@@ -2891,6 +3825,10 @@ export default function ProductsDashboard() {
                 type="button"
                 disabled={
                   !importFile ||
+                  !importLotControlMode ||
+                  !importExpiryControlMode ||
+                  trackingDefaultsQuery.isLoading ||
+                  trackingDefaultsQuery.isError ||
                   importMutation.isPending ||
                   !isOnline
                 }
@@ -3201,6 +4139,9 @@ export default function ProductsDashboard() {
                     null
                   );
                   setMapping({});
+                  setImportTrackingExpanded(
+                    false
+                  );
                   if (
                     importSessionKey
                   ) {

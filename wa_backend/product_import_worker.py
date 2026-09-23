@@ -17,6 +17,10 @@ from sqlalchemy import delete, func, insert, select, text
 
 from context import tenant_context
 from database import AsyncSessionLocal
+from domains.product_tracking import (
+    ProductTrackingError,
+    normalize_tracking_mode,
+)
 from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
@@ -55,6 +59,8 @@ _CANONICAL_FIELDS = (
     "unit_price",
     "unit_barcode",
     "package_barcode",
+    "lot_control_mode",
+    "expiry_control_mode",
 )
 
 _ALIASES = {
@@ -137,7 +143,66 @@ _ALIASES = {
         "باركود العبوة",
         "باركود الكرتونة",
     },
+    "lot_control_mode": {
+        "lot control",
+        "lot tracking",
+        "batch tracking",
+        "lot control mode",
+        "batch control mode",
+        "تتبع الدفعة",
+        "تتبع الدفعات",
+        "تتبع التشغيلة",
+        "نمط تتبع الدفعة",
+    },
+    "expiry_control_mode": {
+        "expiry control",
+        "expiry tracking",
+        "expiration tracking",
+        "expiry control mode",
+        "expiration control mode",
+        "تتبع الصلاحية",
+        "تتبع تاريخ الصلاحية",
+        "نمط تتبع الصلاحية",
+    },
 }
+
+_TRACKING_VALUE_ALIASES = {
+    "none": "NONE",
+    "no": "NONE",
+    "without": "NONE",
+    "بدون": "NONE",
+    "لا": "NONE",
+    "optional": "OPTIONAL",
+    "اختياري": "OPTIONAL",
+    "required": "REQUIRED",
+    "mandatory": "REQUIRED",
+    "إلزامي": "REQUIRED",
+    "الزامي": "REQUIRED",
+}
+
+
+def _tracking_import_mode(
+    raw_value: Any,
+    *,
+    fallback: str,
+    field_name: str,
+) -> str:
+    if raw_value is None or not str(raw_value).strip():
+        return normalize_tracking_mode(
+            fallback,
+            field_name=field_name,
+        )
+
+    normalized_value = _normalize_header(raw_value)
+    canonical = _TRACKING_VALUE_ALIASES.get(
+        normalized_value,
+        str(raw_value).strip(),
+    )
+    return normalize_tracking_mode(
+        canonical,
+        field_name=field_name,
+    )
+
 
 _PACKAGE_VALUE_ALIASES = {
     "carton": "CARTON",
@@ -529,6 +594,9 @@ def _package_code(
 def normalize_raw_row(
     raw: dict[str, Any],
     mapping: dict[str, str],
+    *,
+    default_lot_control_mode: str,
+    default_expiry_control_mode: str,
 ) -> dict[str, Any]:
     def value(field: str):
         header = mapping.get(field)
@@ -632,6 +700,17 @@ def normalize_raw_row(
             status_code=422,
         )
 
+    lot_control_mode = _tracking_import_mode(
+        value("lot_control_mode"),
+        fallback=default_lot_control_mode,
+        field_name="lot_control_mode",
+    )
+    expiry_control_mode = _tracking_import_mode(
+        value("expiry_control_mode"),
+        fallback=default_expiry_control_mode,
+        field_name="expiry_control_mode",
+    )
+
     return {
         "name": name,
         "family_name": family,
@@ -652,6 +731,8 @@ def normalize_raw_row(
         ),
         "unit_barcode": unit_barcode,
         "package_barcode": package_barcode,
+        "lot_control_mode": lot_control_mode,
+        "expiry_control_mode": expiry_control_mode,
     }
 
 
@@ -983,6 +1064,12 @@ async def _validate_rows(
                         or {}
                     ),
                     mapping,
+                    default_lot_control_mode=str(
+                        job.default_lot_control_mode
+                    ),
+                    default_expiry_control_mode=str(
+                        job.default_expiry_control_mode
+                    ),
                 )
                 row_id = int(row.id)
                 normalized[
@@ -1010,6 +1097,11 @@ async def _validate_rows(
                     ).append(
                         row_id
                     )
+            except ProductTrackingError as exc:
+                errors[int(row.id)] = (
+                    exc.code,
+                    exc.message,
+                )
             except SimpleProductError as exc:
                 errors[int(row.id)] = (
                     exc.code,
@@ -1308,6 +1400,12 @@ async def _import_rows(
                         ),
                         package_barcode=data.get(
                             "package_barcode"
+                        ),
+                        lot_control_mode=str(
+                            data["lot_control_mode"]
+                        ),
+                        expiry_control_mode=str(
+                            data["expiry_control_mode"]
                         ),
                     )
                 )

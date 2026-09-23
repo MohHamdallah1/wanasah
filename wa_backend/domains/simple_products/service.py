@@ -28,6 +28,10 @@ from domains.live_stock_projection.service import (
     LiveStockProjectionError,
     apply_live_stock_active_variant_delta,
 )
+from domains.product_tracking import (
+    ProductTrackingError,
+    resolve_product_tracking_modes,
+)
 from models import (
     Company,
     Driver,
@@ -90,6 +94,8 @@ class SimpleProductSpec:
     family_name: str | None = None
     unit_barcode: str | None = None
     package_barcode: str | None = None
+    lot_control_mode: str | None = None
+    expiry_control_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -911,6 +917,21 @@ async def create_product_structures(
             index=index,
         )
 
+        try:
+            tracking = await resolve_product_tracking_modes(
+                db,
+                company_id=int(actor.company_id),
+                lot_control_mode=spec.lot_control_mode,
+                expiry_control_mode=spec.expiry_control_mode,
+            )
+        except ProductTrackingError as exc:
+            raise SimpleProductError(
+                exc.code,
+                exc.message,
+                status_code=exc.status_code,
+                context=exc.context,
+            ) from exc
+
         unit_barcode, package_barcode, shared_barcode = (
             per_spec_barcodes[index - 1]
         )
@@ -929,8 +950,8 @@ async def create_product_structures(
             sku=_auto_code("SKU", request_id, index),
             quantity_scale=0,
             quantity_step=Decimal("1"),
-            lot_control_mode="REQUIRED",
-            expiry_control_mode="REQUIRED",
+            lot_control_mode=tracking.lot_control_mode,
+            expiry_control_mode=tracking.expiry_control_mode,
             lifecycle_status="DRAFT",
             operational_hold="NONE",
             packs_per_carton=int(shape.units_per_package),

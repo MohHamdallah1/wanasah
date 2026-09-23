@@ -78,6 +78,7 @@ export const resources = {
           product: "المنتج",
           package: "العبوة",
           unitsPerPackage: "الوحدات / العبوة",
+          tracking: "التتبع",
           packagePrice: "سعر العبوة",
           unitPrice: "سعر الحبة",
           action: "الإجراء",
@@ -129,6 +130,102 @@ export const resources = {
         importTitle: "استيراد المنتجات",
         importIntro:
           "يدعم CSV وExcel. ترتيب الأعمدة لا يهم، وإذا لم نتعرف على عمود لن نخمن؛ سنطلب منك ربطه قبل الاستيراد.",
+        importTrackingTitle:
+          "تتبع المنتجات في هذا الاستيراد",
+        importTrackingHint:
+          "سيستخدم هذا الاستيراد افتراضيات شركتك تلقائياً. غيّرها فقط إذا كان هذا الملف يحتاج قاعدة مختلفة.",
+        importTrackingSummary:
+          "الدفعة / التشغيلة: {{lot}} — الصلاحية: {{expiry}}",
+        importTrackingCompanyScope:
+          "يستخدم افتراضيات الشركة الحالية.",
+        importTrackingCustomScope:
+          "تم تخصيص التتبع لهذا الاستيراد فقط.",
+        importTrackingChange:
+          "تغيير لهذا الاستيراد",
+        importTrackingReset:
+          "استخدام افتراضيات الشركة",
+        importTrackingOnlyThisImport:
+          "أي تغيير هنا يخص هذا الاستيراد فقط ولا يغيّر افتراضيات الشركة أو المنتجات الموجودة.",
+        importTrackingOverrideHint:
+          "إذا ربطت أعمدة تتبع الدفعة أو الصلاحية من الملف، فقيمة الصف غير الفارغة تتقدم على اختيار هذا الاستيراد.",
+        importTrackingValueHint:
+          "داخل الملف استخدم القيم: {{none}} / {{optional}} / {{required}}. القيم الفارغة تستخدم اختيار هذا الاستيراد.",
+        trackingDefaultsLoading:
+          "جاري تحميل إعدادات التتبع الافتراضية للشركة...",
+        tracking: {
+          createTitle: "تتبع الدفعات والصلاحية",
+          createHint:
+            "يستخدم المنتج افتراضيات شركتك تلقائياً. غيّرها فقط إذا كان هذا المنتج يحتاج طريقة تتبع مختلفة.",
+          createSummary:
+            "الدفعة / التشغيلة: {{lot}} — الصلاحية: {{expiry}}",
+          createCompanyScope:
+            "يستخدم افتراضيات الشركة الحالية.",
+          createCustomScope:
+            "تم تخصيص التتبع لهذا المنتج فقط.",
+          createChange:
+            "تغيير لهذا المنتج",
+          createReset:
+            "استخدام افتراضيات الشركة",
+          createOnlyThisProduct:
+            "أي تغيير هنا يخص هذا المنتج فقط ولا يغيّر افتراضيات الشركة أو المنتجات الأخرى.",
+          createDefaultHint:
+            "هذا الاختيار يخص المنتج الجديد فقط ولا يغيّر الإعداد الافتراضي لباقي منتجات الشركة.",
+          lotLabel: "رقم الدفعة / التشغيلة من المصنع",
+          lotHelp:
+            "عند استلام هذا المنتج، هل يوجد على العبوة رقم دفعة أو تشغيلة من المصنع وتريد تسجيله؟ هذا الرقم يميز كمية إنتاج عن أخرى عند التتبع أو الاستدعاء.",
+          lotModes: {
+            NONE: "لا — هذا المنتج لا يعتمد رقم دفعة أو تشغيلة",
+            OPTIONAL: "اختياري — سجّله إذا كان موجوداً على المنتج",
+            REQUIRED: "إلزامي — يجب تسجيله عند كل توريد",
+          },
+          importValues: {
+            NONE: "لا",
+            OPTIONAL: "اختياري",
+            REQUIRED: "إلزامي",
+          },
+          shortLot: "دفعة",
+          shortExpiry: "صلاحية",
+          shortModes: {
+            NONE: "بدون",
+            OPTIONAL: "اختياري",
+            REQUIRED: "إلزامي",
+          },
+          lotExample:
+            "مثال: قد يصل نفس الشيبس بتشغيلة A123 ثم B456؛ تسجيل الرقم يسمح بتحديد أي كمية جاءت من كل تشغيلة.",
+          expiryLabel: "تاريخ انتهاء الصلاحية",
+          expiryHelp:
+            "عند استلام هذا المنتج، هل يجب تسجيل تاريخ انتهاء الصلاحية حتى يتابع النظام الانتهاء والتنبيهات وقواعد السماح بالبيع؟",
+          expiryModes: {
+            NONE: "لا — هذا المنتج لا يتطلب تاريخ صلاحية",
+            OPTIONAL: "اختياري — سجّله إذا كان موجوداً",
+            REQUIRED: "إلزامي — يجب تسجيله عند كل توريد",
+          },
+          expiryExample:
+            "مثال: الأغذية غالباً تحتاج تاريخ صلاحية، بينما قطع الغيار والأدوات قد لا يكون لها تاريخ انتهاء أصلاً.",
+        },
+        trackingSettings: {
+          action: "افتراضيات التتبع",
+          title: "افتراضيات تتبع المنتجات الجديدة",
+          descriptionTitle: "متى تُستخدم هذه الافتراضيات؟",
+          description:
+            "تُستخدم كنقطة بداية عند إضافة منتج جديد أو بدء استيراد جديد. لا تغيّر أي منتج موجود، ويمكن تغييرها للمنتج أو الاستيراد نفسه.",
+          save: "حفظ افتراضيات الشركة",
+          saved: "تم حفظ افتراضيات التتبع للشركة.",
+          companySource: "محفوظة للشركة",
+          platformSource: "قيمة النظام المبدئية",
+          sourceSummary:
+            "حالة الإعداد الحالي — الدفعات: {{lot}}، الصلاحية: {{expiry}}.",
+        },
+        trackingEditor: {
+          action: "تعديل التتبع",
+          title: "إعدادات تتبع المنتج",
+          save: "حفظ إعدادات المنتج",
+          saved: "تم تحديث إعدادات تتبع المنتج.",
+          warning:
+            "هذه الإعدادات تحدد ما سيطلبه النظام عند توريد هذا المنتج مستقبلاً. لا تغيّرها لمجرد تعديل العرض.",
+          lockHint:
+            "إذا كان للمنتج سجل دفعات سابق، يمنع النظام التغيير العادي حفاظاً على تاريخ المخزون وسلامة التتبع.",
+        },
         downloadTemplate: "تحميل النموذج",
         dropFile:
           "اسحب الملف هنا أو اضغط للاختيار",
@@ -185,6 +282,8 @@ export const resources = {
           unitPrice: "سعر الحبة",
           unitBarcode: "باركود الحبة",
           packageBarcode: "باركود العبوة",
+          lotControlMode: "تتبع الدفعات",
+          expiryControlMode: "تتبع الصلاحية",
         },
         errors: {
           nameRequired: "اسم المنتج مطلوب.",
@@ -206,6 +305,16 @@ export const resources = {
             "تعذر حفظ العائلة.",
           importFailed:
             "تعذر رفع ملف الاستيراد.",
+          trackingDefaultsLoad:
+            "تعذر تحميل إعدادات التتبع الافتراضية للشركة.",
+          trackingDefaultsRequired:
+            "تعذر تحديد إعدادات التتبع.",
+          trackingDefaultsSave:
+            "تعذر حفظ إعدادات التتبع الافتراضية.",
+          trackingProductRequired:
+            "حدد إعدادات تتبع المنتج قبل الحفظ.",
+          trackingProductSave:
+            "تعذر حفظ إعدادات تتبع المنتج.",
           mappingFailed:
             "تعذر اعتماد ربط الأعمدة.",
           retryFailed:
@@ -586,6 +695,7 @@ export const resources = {
           STOCK_MINIMUM_SCOPE_INVALID: "اختيار نطاق الحد الأدنى غير صالح.",
           STOCK_MINIMUM_BULK_CONFLICT: "تعذر تطبيق الحد الأدنى على كامل النطاق بأمان. راجع التعارضات أولاً.",
           LIVE_STOCK_PROJECTION_UNAVAILABLE: "تعذر تحديث الرصيد الحي حالياً. أعد المحاولة بعد قليل.",
+          LIVE_STOCK_PROJECTION_NOT_READY: "الرصيد الحي قيد التحديث. أعد المحاولة بعد لحظات.",
           LIVE_STOCK_SEARCH_TOO_SHORT: "أدخل حرفين على الأقل للبحث في المخزون.",
           LIVE_STOCK_FAMILY_SEARCH_TOO_SHORT: "أدخل حرفين على الأقل للبحث في عائلات المنتجات.",
           LIVE_STOCK_ALERT_FILTER_CONFLICT: "لا يمكن دمج فلتر التنبيهات مع حالة رصيد أخرى.",
@@ -610,6 +720,15 @@ export const resources = {
           RATE_LIMITED: "تم تجاوز الحد المسموح من الطلبات. حاول مرة أخرى لاحقاً.",
           REQUEST_TOO_LARGE: "حجم الطلب يتجاوز الحد المسموح.",
           INTERNAL_SERVER_ERROR: "حدث خطأ داخلي في الخادم.",
+          SIMPLE_PRODUCTS_RESPONSE_INVALID: "استجابة قائمة المنتجات غير صالحة أو غير مكتملة.",
+          PRODUCT_TRACKING_DEFAULTS_RESPONSE_INVALID: "استجابة إعدادات تتبع المنتجات غير صالحة.",
+          PRODUCT_TRACKING_MUTATION_RESPONSE_INVALID: "استجابة تعديل تتبع المنتج غير صالحة.",
+          PRODUCT_TRACKING_LOCKED: "لا يمكن تغيير إعدادات التتبع بالطريقة العادية لأن للمنتج سجل دفعات سابقاً. استخدم مسار ترحيل معتمد إذا كان التغيير ضرورياً.",
+          PRODUCT_TRACKING_VERSION_CONFLICT: "تم تعديل المنتج منذ فتحه. حدّث قائمة المنتجات ثم أعد المحاولة.",
+          PRODUCT_TRACKING_LIFECYCLE_BLOCKED: "لا يمكن تعديل إعدادات التتبع لمنتج قيد الإيقاف أو مؤرشف.",
+          PRODUCT_TRACKING_VARIANT_NOT_FOUND: "المنتج غير موجود أو لا يتبع هذه الشركة.",
+          PRODUCT_TRACKING_DEFAULTS_CONFLICT: "تعذر حفظ إعدادات التتبع الافتراضية بسبب تعارض في البيانات.",
+          PRODUCT_TRACKING_CONFLICT: "تعذر حفظ إعدادات تتبع المنتج بسبب تعارض في البيانات.",
           PRODUCT_LOCATION_REQUIRED: "هذا المنتج غير مربوط بالمستودع المحدد.",
           PRODUCT_LOCATION_INBOUND_DISABLED: "التوريد لهذا المنتج معطّل في المستودع المحدد.",
           INBOUND_UNIT_COST_INVALID: "أدخل تكلفة شراء صحيحة حتى 6 منازل عشرية.",
@@ -768,6 +887,7 @@ export const resources = {
           package: "Package",
           unitsPerPackage:
             "Units / package",
+          tracking: "Tracking",
           packagePrice: "Package price",
           unitPrice: "Unit price",
           action: "Action",
@@ -820,6 +940,102 @@ export const resources = {
         importTitle: "Import products",
         importIntro:
           "CSV and Excel are supported. Column order does not matter; unclear columns are never guessed and will be mapped before import.",
+        importTrackingTitle:
+          "Tracking for this import",
+        importTrackingHint:
+          "This import uses your company defaults automatically. Change them only when this file needs different tracking rules.",
+        importTrackingSummary:
+          "Batch / lot: {{lot}} — expiry: {{expiry}}",
+        importTrackingCompanyScope:
+          "Using the current company defaults.",
+        importTrackingCustomScope:
+          "Tracking is customized for this import only.",
+        importTrackingChange:
+          "Change for this import",
+        importTrackingReset:
+          "Use company defaults",
+        importTrackingOnlyThisImport:
+          "Changes here apply only to this import and do not change company defaults or existing products.",
+        importTrackingOverrideHint:
+          "When lot or expiry tracking columns are mapped, a non-empty row value overrides this import selection.",
+        importTrackingValueHint:
+          "Inside the file use: {{none}} / {{optional}} / {{required}}. Blank values use this import selection.",
+        trackingDefaultsLoading:
+          "Loading company tracking defaults...",
+        tracking: {
+          createTitle: "Batch and expiry tracking",
+          createHint:
+            "This product uses your company defaults automatically. Change them only when this product needs different tracking rules.",
+          createSummary:
+            "Batch / lot: {{lot}} — expiry: {{expiry}}",
+          createCompanyScope:
+            "Using the current company defaults.",
+          createCustomScope:
+            "Tracking is customized for this product only.",
+          createChange:
+            "Change for this product",
+          createReset:
+            "Use company defaults",
+          createOnlyThisProduct:
+            "Changes here apply only to this product and do not change company defaults or other products.",
+          createDefaultHint:
+            "This choice applies only to the new product and does not change the company default for other products.",
+          lotLabel: "Manufacturer batch / lot number",
+          lotHelp:
+            "When this product is received, is there a manufacturer batch or lot number on the package that staff should record? It distinguishes one production run from another for traceability or recalls.",
+          lotModes: {
+            NONE: "No — this product does not use a batch or lot number",
+            OPTIONAL: "Optional — record it when it appears on the product",
+            REQUIRED: "Required — record it on every receipt",
+          },
+          importValues: {
+            NONE: "No",
+            OPTIONAL: "Optional",
+            REQUIRED: "Required",
+          },
+          shortLot: "Lot",
+          shortExpiry: "Expiry",
+          shortModes: {
+            NONE: "None",
+            OPTIONAL: "Optional",
+            REQUIRED: "Required",
+          },
+          lotExample:
+            "Example: the same chips may arrive as lot A123 and later as lot B456; recording the lot identifies which quantity came from each run.",
+          expiryLabel: "Expiry date",
+          expiryHelp:
+            "When this product is received, should staff record its expiry date so the system can track expiration, alerts, and sellability rules?",
+          expiryModes: {
+            NONE: "No — this product does not require an expiry date",
+            OPTIONAL: "Optional — record it when available",
+            REQUIRED: "Required — record it on every receipt",
+          },
+          expiryExample:
+            "Example: food often needs expiry tracking, while spare parts and tools may have no expiry date at all.",
+        },
+        trackingSettings: {
+          action: "Tracking defaults",
+          title: "Defaults for new products",
+          descriptionTitle: "When are these defaults used?",
+          description:
+            "They are the starting point when adding a new product or starting a new import. They do not change existing products, and each product or import can override them.",
+          save: "Save company defaults",
+          saved: "Company tracking defaults saved.",
+          companySource: "Saved for company",
+          platformSource: "Initial system value",
+          sourceSummary:
+            "Current setting status — batches: {{lot}}, expiry: {{expiry}}.",
+        },
+        trackingEditor: {
+          action: "Edit tracking",
+          title: "Product tracking settings",
+          save: "Save product settings",
+          saved: "Product tracking settings updated.",
+          warning:
+            "These settings control what the system will require when this product is received in the future. Do not change them just to alter how the page looks.",
+          lockHint:
+            "If the product already has batch history, the normal edit is blocked to protect inventory history and traceability.",
+        },
         downloadTemplate: "Download template",
         dropFile:
           "Drop the file here or click to choose",
@@ -873,6 +1089,8 @@ export const resources = {
           unitPrice: "Unit price",
           unitBarcode: "Unit barcode",
           packageBarcode: "Package barcode",
+          lotControlMode: "Batch / lot tracking",
+          expiryControlMode: "Expiry tracking",
         },
         errors: {
           nameRequired:
@@ -895,6 +1113,16 @@ export const resources = {
             "Could not save the family.",
           importFailed:
             "Could not upload the import file.",
+          trackingDefaultsLoad:
+            "Could not load the company tracking defaults.",
+          trackingDefaultsRequired:
+            "Tracking settings could not be resolved.",
+          trackingDefaultsSave:
+            "Could not save the default tracking settings.",
+          trackingProductRequired:
+            "Choose the product tracking settings before saving.",
+          trackingProductSave:
+            "Could not save the product tracking settings.",
           mappingFailed:
             "Could not save the column mapping.",
           retryFailed:
@@ -1275,6 +1503,7 @@ export const resources = {
           STOCK_MINIMUM_SCOPE_INVALID: "The selected minimum-stock scope is invalid.",
           STOCK_MINIMUM_BULK_CONFLICT: "Minimum stock could not be applied safely to the entire scope. Review the conflicts first.",
           LIVE_STOCK_PROJECTION_UNAVAILABLE: "Live stock cannot be refreshed right now. Try again shortly.",
+          LIVE_STOCK_PROJECTION_NOT_READY: "Live stock is being refreshed. Try again in a moment.",
           LIVE_STOCK_SEARCH_TOO_SHORT: "Enter at least two characters to search inventory.",
           LIVE_STOCK_FAMILY_SEARCH_TOO_SHORT: "Enter at least two characters to search product families.",
           LIVE_STOCK_ALERT_FILTER_CONFLICT: "Alert-only filtering cannot be combined with another stock state.",
@@ -1299,6 +1528,15 @@ export const resources = {
           RATE_LIMITED: "The request limit was exceeded. Try again later.",
           REQUEST_TOO_LARGE: "The request is larger than the allowed limit.",
           INTERNAL_SERVER_ERROR: "An internal server error occurred.",
+          SIMPLE_PRODUCTS_RESPONSE_INVALID: "The product-list response is invalid or incomplete.",
+          PRODUCT_TRACKING_DEFAULTS_RESPONSE_INVALID: "The product-tracking defaults response is invalid.",
+          PRODUCT_TRACKING_MUTATION_RESPONSE_INVALID: "The product-tracking update response is invalid.",
+          PRODUCT_TRACKING_LOCKED: "Tracking settings cannot be changed through the normal editor because this product already has batch history. Use an approved migration workflow if a change is required.",
+          PRODUCT_TRACKING_VERSION_CONFLICT: "This product changed after you opened it. Refresh the product list and try again.",
+          PRODUCT_TRACKING_LIFECYCLE_BLOCKED: "Tracking settings cannot be edited for a retiring or archived product.",
+          PRODUCT_TRACKING_VARIANT_NOT_FOUND: "The product was not found or does not belong to this company.",
+          PRODUCT_TRACKING_DEFAULTS_CONFLICT: "Default tracking settings could not be saved because of a data conflict.",
+          PRODUCT_TRACKING_CONFLICT: "Product tracking settings could not be saved because of a data conflict.",
           PRODUCT_LOCATION_REQUIRED: "This product is not assigned to the selected warehouse.",
           PRODUCT_LOCATION_INBOUND_DISABLED: "Inbound is disabled for this product at the selected warehouse.",
           INBOUND_UNIT_COST_INVALID: "Enter a valid purchase cost with at most 6 decimal places.",
