@@ -51,6 +51,7 @@ describe("products tracking UI contracts", () => {
           family_name: "Sample",
           sku: "SKU-10",
           units_per_package: 50,
+          legacy_packs_per_carton: 50,
           base_uom_id: 1,
           package_uom_id: 2,
           package_uom_code: "CARTON",
