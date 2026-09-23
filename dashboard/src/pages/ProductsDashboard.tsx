@@ -354,6 +354,30 @@ export default function ProductsDashboard() {
     setFamiliesOpen,
   ] = useState(false);
   const [
+    familySearchInput,
+    setFamilySearchInput,
+  ] = useState("");
+  const [
+    familySearch,
+    setFamilySearch,
+  ] = useState("");
+  const [
+    familyCursor,
+    setFamilyCursor,
+  ] = useState<string | null>(
+    null
+  );
+  const [
+    familyHistory,
+    setFamilyHistory,
+  ] = useState<
+    Array<string | null>
+  >([]);
+  const [
+    familyOptionSearch,
+    setFamilyOptionSearch,
+  ] = useState("");
+  const [
     newFamilyName,
     setNewFamilyName,
   ] = useState("");
@@ -453,6 +477,45 @@ export default function ProductsDashboard() {
         timer
       );
   }, [searchInput]);
+
+  useEffect(() => {
+    if (!familiesOpen) {
+      return;
+    }
+    const timer =
+      window.setTimeout(() => {
+        setFamilySearch(
+          familySearchInput.trim()
+        );
+        setFamilyCursor(null);
+        setFamilyHistory([]);
+        setEditingFamily(null);
+        setEditingFamilyName("");
+      }, 250);
+    return () =>
+      window.clearTimeout(timer);
+  }, [
+    familiesOpen,
+    familySearchInput,
+  ]);
+
+  useEffect(() => {
+    if (!createOpen) {
+      setFamilyOptionSearch("");
+      return;
+    }
+    const timer =
+      window.setTimeout(() => {
+        setFamilyOptionSearch(
+          draft.family.trim()
+        );
+      }, 250);
+    return () =>
+      window.clearTimeout(timer);
+  }, [
+    createOpen,
+    draft.family,
+  ]);
 
   useEffect(() => {
     if (!draftStorageKey) {
@@ -572,6 +635,50 @@ export default function ProductsDashboard() {
     [search, cursor]
   );
 
+  const familyParams = useMemo(
+    () => {
+      const value =
+        new URLSearchParams({
+          limit: "50",
+        });
+      if (familySearch) {
+        value.set(
+          "search",
+          familySearch
+        );
+      }
+      if (familyCursor) {
+        value.set(
+          "cursor",
+          familyCursor
+        );
+      }
+      return value.toString();
+    },
+    [
+      familySearch,
+      familyCursor,
+    ]
+  );
+
+  const familyOptionParams =
+    useMemo(
+      () => {
+        const value =
+          new URLSearchParams({
+            limit: "20",
+          });
+        if (familyOptionSearch) {
+          value.set(
+            "search",
+            familyOptionSearch
+          );
+        }
+        return value.toString();
+      },
+      [familyOptionSearch]
+    );
+
   const productsQuery =
     useQuery({
       queryKey: [
@@ -599,16 +706,43 @@ export default function ProductsDashboard() {
       queryKey: [
         "simple-product-families",
         companyId,
+        "manager",
+        familySearch,
+        familyCursor,
       ],
       enabled: Boolean(
-        companyId
+        companyId &&
+        familiesOpen
       ),
       queryFn: async ({
         signal,
       }) =>
         parseProductFamilies(
           await authFetch(
-            "/simple-products/families?limit=200",
+            `/simple-products/families?${familyParams}`,
+            { signal }
+          )
+        ),
+    });
+
+  const familyOptionsQuery =
+    useQuery({
+      queryKey: [
+        "simple-product-families",
+        companyId,
+        "options",
+        familyOptionSearch,
+      ],
+      enabled: Boolean(
+        companyId &&
+        createOpen
+      ),
+      queryFn: async ({
+        signal,
+      }) =>
+        parseProductFamilies(
+          await authFetch(
+            `/simple-products/families?${familyOptionParams}`,
             { signal }
           )
         ),
@@ -667,6 +801,11 @@ export default function ProductsDashboard() {
     setTrackingEdit(null);
     setTrackingEditLot(null);
     setTrackingEditExpiry(null);
+    setFamilySearchInput("");
+    setFamilySearch("");
+    setFamilyCursor(null);
+    setFamilyHistory([]);
+    setFamilyOptionSearch("");
   }, [companyId]);
 
   useEffect(() => {
@@ -722,6 +861,9 @@ export default function ProductsDashboard() {
     productsQuery.data;
   const families =
     familiesQuery.data
+      ?.items ?? [];
+  const familyOptions =
+    familyOptionsQuery.data
       ?.items ?? [];
   const packageUoms =
     packageUomsQuery.data
@@ -1077,7 +1219,7 @@ export default function ProductsDashboard() {
           }
 
           const selectedFamily =
-            families.find(
+            familyOptions.find(
               (item) =>
                 item.name
                   .trim()
