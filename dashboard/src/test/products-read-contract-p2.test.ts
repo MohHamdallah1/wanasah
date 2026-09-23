@@ -313,7 +313,13 @@ describe("products P2 read contract", () => {
     );
 
     expect(page).toContain(
-      '"simple-products", companyId, search, cursor',
+      '"simple-products", companyId, params',
+    );
+    expect(page).toContain(
+      'value.set( "search", search )',
+    );
+    expect(page).toContain(
+      'value.set( "cursor", cursor )',
     );
     expect(page).toContain(
       '"simple-product-families", companyId',
