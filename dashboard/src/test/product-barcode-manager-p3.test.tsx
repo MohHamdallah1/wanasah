@@ -272,6 +272,173 @@ describe("ProductBarcodeManager runtime behavior", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not let an older product overwrite a newer product after delayed reconciliation", async () => {
+    const pendingScope =
+      durableScope(
+        1,
+        2,
+        "catalog-barcode-update",
+        100,
+      );
+    await getOrCreateDurableCommand(
+      pendingScope,
+      {
+        expected_version: 1,
+        is_primary: false,
+        valid_to: null,
+        is_active: false,
+      },
+    );
+
+    const storedRaw =
+      localStorage.getItem(
+        pendingScope,
+      );
+    expect(
+      storedRaw,
+    ).not.toBeNull();
+    const stored = JSON.parse(
+      String(storedRaw),
+    ) as {
+      payloadHash: string;
+    };
+    const digestBytes =
+      new Uint8Array(
+        (
+          stored.payloadHash.match(
+            /../g,
+          ) ?? []
+        ).map((value) =>
+          Number.parseInt(
+            value,
+            16,
+          ),
+        ),
+      ).buffer;
+
+    const reconciliationStarted =
+      deferred<void>();
+    const reconciliationRelease =
+      deferred<ArrayBuffer>();
+
+    vi.spyOn(
+      crypto.subtle,
+      "digest",
+    ).mockImplementationOnce(
+      async () => {
+        reconciliationStarted.resolve();
+        return reconciliationRelease.promise;
+      },
+    );
+
+    const first =
+      deferred<{
+        items: ProductBarcodeRecord[];
+        next_cursor: string | null;
+        has_more: boolean;
+      }>();
+    const second =
+      deferred<{
+        items: ProductBarcodeRecord[];
+        next_cursor: string | null;
+        has_more: boolean;
+      }>();
+
+    mocks.authFetch
+      .mockImplementationOnce(
+        () => first.promise,
+      )
+      .mockImplementationOnce(
+        () => second.promise,
+      );
+
+    const onChanged =
+      vi.fn();
+    const { rerender } = render(
+      <ProductBarcodeManager
+        product={product(10, "A")}
+        companyId={1}
+        driverId={2}
+        onClose={vi.fn()}
+        onChanged={onChanged}
+      />,
+    );
+
+    first.resolve({
+      items: [
+        barcode(
+          100,
+          10,
+          "A-CODE",
+        ),
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await reconciliationStarted.promise;
+
+    rerender(
+      <ProductBarcodeManager
+        product={product(20, "B")}
+        companyId={1}
+        driverId={2}
+        onClose={vi.fn()}
+        onChanged={onChanged}
+      />,
+    );
+
+    await act(async () => {
+      second.resolve({
+        items: [
+          barcode(
+            200,
+            20,
+            "B-CODE",
+          ),
+        ],
+        next_cursor: null,
+        has_more: false,
+      });
+      await second.promise;
+    });
+
+    expect(
+      await screen.findByText(
+        "B-CODE",
+      ),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      reconciliationRelease.resolve(
+        digestBytes,
+      );
+      await reconciliationRelease.promise;
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "A-CODE",
+        ),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "B-CODE",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getAllByRole(
+        "button",
+        {
+          name: "products.barcodeManager.deactivate",
+        },
+      ),
+    ).toHaveLength(1);
+  });
+
   it("does not present failed barcode loading as a confirmed empty state", async () => {
     mocks.authFetch.mockRejectedValueOnce(
       new Error("network"),
