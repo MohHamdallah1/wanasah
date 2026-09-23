@@ -264,6 +264,262 @@ describe(
       view.unmount();
     });
 
+    it("retries an ambiguous family create with the exact same request id", async () => {
+      const postBodies: Array<{
+        request_id: string;
+        name: string;
+      }> = [];
+      let postAttempt = 0;
+
+      mocks.authFetch.mockImplementation(
+        async (
+          _url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            options?.method ===
+            "POST"
+          ) {
+            postAttempt += 1;
+            postBodies.push(
+              JSON.parse(
+                String(
+                  options.body,
+                ),
+              ),
+            );
+            if (
+              postAttempt === 1
+            ) {
+              throw Object.assign(
+                new Error(
+                  "network",
+                ),
+                {
+                  code:
+                    "NETWORK_UNAVAILABLE",
+                  status: 0,
+                },
+              );
+            }
+            return {
+              id: 90,
+              name:
+                "Alpha Family",
+              version: 1,
+              variant_count: 0,
+            };
+          }
+
+          return {
+            items: [],
+            next_cursor: null,
+            has_more: false,
+          };
+        },
+      );
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      await screen.findByText(
+        "products.noFamilies",
+      );
+
+      const nameInput =
+        screen.getByPlaceholderText(
+          "products.newFamilyPlaceholder",
+        );
+      const addButton =
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.addFamily",
+          },
+        );
+
+      fireEvent.change(
+        nameInput,
+        {
+          target: {
+            value:
+              "Alpha Family",
+          },
+        },
+      );
+      fireEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(
+          mocks.toastError,
+        ).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(
+          addButton,
+        ).not.toBeDisabled();
+      });
+
+      fireEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(
+          mocks.toastSuccess,
+        ).toHaveBeenCalledWith(
+          "products.familyCreated",
+        );
+      });
+
+      expect(
+        postBodies,
+      ).toHaveLength(2);
+      expect(
+        postBodies[1]
+          .request_id,
+      ).toBe(
+        postBodies[0]
+          .request_id,
+      );
+      expect(
+        postBodies[1].name,
+      ).toBe(
+        "Alpha Family",
+      );
+    });
+
+    it("blocks a changed family create payload after an ambiguous outcome", async () => {
+      const postBodies: Array<{
+        request_id: string;
+        name: string;
+      }> = [];
+
+      mocks.authFetch.mockImplementation(
+        async (
+          _url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            options?.method ===
+            "POST"
+          ) {
+            postBodies.push(
+              JSON.parse(
+                String(
+                  options.body,
+                ),
+              ),
+            );
+            throw Object.assign(
+              new Error("network"),
+              {
+                code:
+                  "NETWORK_UNAVAILABLE",
+                status: 0,
+              },
+            );
+          }
+
+          return {
+            items: [],
+            next_cursor: null,
+            has_more: false,
+          };
+        },
+      );
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      await screen.findByText(
+        "products.noFamilies",
+      );
+
+      const nameInput =
+        screen.getByPlaceholderText(
+          "products.newFamilyPlaceholder",
+        );
+      const addButton =
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.addFamily",
+          },
+        );
+
+      fireEvent.change(
+        nameInput,
+        {
+          target: {
+            value:
+              "Alpha Family",
+          },
+        },
+      );
+      fireEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(
+          postBodies,
+        ).toHaveLength(1);
+      });
+      await waitFor(() => {
+        expect(
+          addButton,
+        ).not.toBeDisabled();
+      });
+
+      fireEvent.change(
+        nameInput,
+        {
+          target: {
+            value:
+              "Beta Family",
+          },
+        },
+      );
+      fireEvent.click(addButton);
+
+      await waitFor(() => {
+        expect(
+          mocks.toastError
+            .mock.calls.length,
+        ).toBeGreaterThanOrEqual(
+          2,
+        );
+      });
+
+      expect(
+        postBodies,
+      ).toHaveLength(1);
+      expect(
+        postBodies[0].name,
+      ).toBe(
+        "Alpha Family",
+      );
+    });
+
     it("keeps a request failure distinct from an empty family result", async () => {
       mocks.authFetch.mockRejectedValueOnce(
         new Error("network"),
