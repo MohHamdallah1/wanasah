@@ -28,6 +28,8 @@ const baseItem = {
   family_name: "Sample family",
   sku: "SKU-10",
   units_per_package: 1,
+  base_uom_id: 1,
+  package_uom_id: null,
   package_uom_code: null,
   currency_code: "JOD",
   package_price: null,
