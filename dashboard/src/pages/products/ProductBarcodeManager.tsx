@@ -141,6 +141,10 @@ export function ProductBarcodeManager({
   ] = useState<
     DurableCommand<BarcodeCreateBody> | null
   >(null);
+  const [
+    pendingCreateBlocked,
+    setPendingCreateBlocked,
+  ] = useState(false);
 
   const productId =
     product?.id ?? null;
@@ -179,7 +183,7 @@ export function ProductBarcodeManager({
 
   const reconcileDeactivation =
     useCallback(
-      (
+      async (
         loaded:
           ProductBarcodeRecord[]
       ) => {
@@ -188,7 +192,7 @@ export function ProductBarcodeManager({
             updateScope(item.id);
           if (!scope) continue;
           const pending =
-            readDurableCommand<
+            await readDurableCommand<
               BarcodeDeactivateBody
             >(scope);
           if (
@@ -270,7 +274,7 @@ export function ProductBarcodeManager({
           return;
         }
 
-        reconcileDeactivation(
+        await reconcileDeactivation(
           parsed.items
         );
         setItems(parsed.items);
@@ -327,80 +331,125 @@ export function ProductBarcodeManager({
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+
     setBarcode("");
     setBarcodeType("INTERNAL");
     setTarget("base");
     setIsPrimary(false);
     setPendingCreate(null);
+    setPendingCreateBlocked(false);
 
     if (
       productId === null ||
       baseUomId === null
     ) {
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
     const scope =
       createScope(productId);
     if (!scope) {
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    const pending =
-      readDurableCommand<unknown>(
-        scope
-      );
-    if (!pending) {
-      return;
-    }
-    if (
-      !isBarcodeCreateBody(
-        pending.payload
-      )
-    ) {
-      abandonDurableOperation(
-        scope
-      );
-      return;
-    }
+    void (async () => {
+      try {
+        const pending =
+          await readDurableCommand<unknown>(
+            scope
+          );
+        if (
+          cancelled ||
+          !pending
+        ) {
+          return;
+        }
+        if (
+          !isBarcodeCreateBody(
+            pending.payload
+          )
+        ) {
+          setPendingCreateBlocked(true);
+          toast.error(
+            apiErrorMessage(
+              Object.assign(
+                new Error(),
+                {
+                  code:
+                    "DURABLE_OPERATION_CORRUPT",
+                },
+              ),
+              t(
+                "products.barcodeManager.saveFailed"
+              )
+            )
+          );
+          return;
+        }
 
-    const payload =
-      pending.payload;
-    const restoredTarget =
-      payload.uom_id ===
-      baseUomId
-        ? "base"
-        : payload.uom_id ===
-            packageUomId
-          ? "package"
-          : null;
-    if (!restoredTarget) {
-      return;
-    }
+        const payload =
+          pending.payload;
+        const restoredTarget =
+          payload.uom_id ===
+          baseUomId
+            ? "base"
+            : payload.uom_id ===
+                packageUomId
+              ? "package"
+              : null;
+        if (!restoredTarget) {
+          setPendingCreateBlocked(true);
+          return;
+        }
 
-    setBarcode(
-      payload.barcode
-    );
-    setBarcodeType(
-      payload.barcode_type
-    );
-    setTarget(
-      restoredTarget
-    );
-    setIsPrimary(
-      payload.is_primary
-    );
-    setPendingCreate({
-      requestId:
-        pending.requestId,
-      payload,
-      createdAt:
-        pending.createdAt,
-    });
+        setBarcode(
+          payload.barcode
+        );
+        setBarcodeType(
+          payload.barcode_type
+        );
+        setTarget(
+          restoredTarget
+        );
+        setIsPrimary(
+          payload.is_primary
+        );
+        setPendingCreate({
+          requestId:
+            pending.requestId,
+          payload,
+          createdAt:
+            pending.createdAt,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setPendingCreateBlocked(true);
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.barcodeManager.saveFailed"
+            )
+          )
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     productId,
     baseUomId,
     packageUomId,
     createScope,
+    t,
   ]);
 
   if (!product) {
@@ -423,7 +472,8 @@ export function ProductBarcodeManager({
 
   const canEditCreate =
     canMutate &&
-    pendingCreate === null;
+    pendingCreate === null &&
+    !pendingCreateBlocked;
 
   const refreshBarcodes = () => {
     setLoadReady(false);
@@ -658,7 +708,7 @@ export function ProductBarcodeManager({
     setBusy(true);
     try {
       const existing =
-        readDurableCommand<
+        await readDurableCommand<
           BarcodeDeactivateBody
         >(scope);
       const command =
@@ -699,7 +749,9 @@ export function ProductBarcodeManager({
           error
         ) &&
         apiErrorCode(error) !==
-          "DURABLE_OPERATION_PENDING"
+          "DURABLE_OPERATION_PENDING" &&
+        apiErrorCode(error) !==
+          "DURABLE_OPERATION_CORRUPT"
       ) {
         abandonDurableOperation(
           scope
