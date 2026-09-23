@@ -193,6 +193,10 @@ export const resources = {
         variantCount: "{{count}} صنف",
         noFamilies: "لا توجد عائلات بعد.",
         noMatchingFamilies: "لا توجد عائلات مطابقة للبحث.",
+        familyPendingRetry:
+          "يوجد طلب عائلة سابق لم تُحسم نتيجته. أعد إرسال نفس الطلب لتسويته بأمان.",
+        familyPendingBlocked:
+          "تعذر التحقق من طلب العائلة المعلّق. تم إيقاف إرسال طلب جديد حتى تتم تسويته بدون مخاطرة التكرار.",
         importTitle: "استيراد المنتجات",
         importIntro:
           "يدعم CSV وExcel. ترتيب الأعمدة لا يهم، وإذا لم نتعرف على عمود لن نخمن؛ سنطلب منك ربطه قبل الاستيراد.",
@@ -1081,6 +1085,10 @@ export const resources = {
         variantCount: "{{count}} variants",
         noFamilies: "No families yet.",
         noMatchingFamilies: "No families match this search.",
+        familyPendingRetry:
+          "A previous family request has an unknown outcome. Retry the exact same request to reconcile it safely.",
+        familyPendingBlocked:
+          "The pending family request could not be verified. New submission is blocked until it can be reconciled without duplication risk.",
         importTitle: "Import products",
         importIntro:
           "CSV and Excel are supported. Column order does not matter; unclear columns are never guessed and will be mapped before import.",
