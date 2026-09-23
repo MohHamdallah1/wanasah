@@ -203,7 +203,10 @@ describe(
         "force_custom_price_plan = ( has_price is not None and book is not None )",
       );
       expect(api).toContain(
-        "SET LOCAL plan_cache_mode = 'force_custom_plan'",
+        '"SET LOCAL plan_cache_mode = "',
+      );
+      expect(api).toContain(
+        '"\'force_custom_plan\'"',
       );
       expect(api).toContain(
         "previous_plan_cache_mode = str(",
@@ -219,7 +222,7 @@ describe(
       );
       expect(
         api.indexOf(
-          "SET LOCAL plan_cache_mode = 'force_custom_plan'",
+          '"SET LOCAL plan_cache_mode = "',
         ),
       ).toBeLessThan(
         api.indexOf(
