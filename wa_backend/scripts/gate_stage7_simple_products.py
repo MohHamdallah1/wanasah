@@ -174,13 +174,16 @@ def static_checks() -> None:
         "Barcode cursor rejects a different product scope",
     )
 
+    payload_part, signature_part = barcode_cursor.split(".", 1)
     tampered_cursor = (
-        barcode_cursor[:-1]
+        payload_part
+        + "."
         + (
             "A"
-            if barcode_cursor[-1] != "A"
+            if signature_part[0] != "A"
             else "B"
         )
+        + signature_part[1:]
     )
     tampered_cursor_rejected = False
     try:
