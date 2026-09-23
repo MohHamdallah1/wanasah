@@ -104,18 +104,31 @@ async def seed() -> dict[str, int]:
     async with SessionSU() as su:
         await su.begin()
 
-        catalog_permission = (
+        inserted_permission = (
             await su.execute(
                 text(
-                    "SELECT id FROM permissions "
-                    "WHERE code = 'catalog.read'"
+                    "INSERT INTO permissions (code) "
+                    "VALUES ('catalog.read') "
+                    "ON CONFLICT (code) DO NOTHING "
+                    "RETURNING id"
                 )
             )
         ).scalar_one_or_none()
-        if catalog_permission is None:
-            raise RuntimeError(
-                "catalog.read permission is missing"
+        permission_created = inserted_permission is not None
+        catalog_permission = (
+            int(inserted_permission)
+            if inserted_permission is not None
+            else int(
+                (
+                    await su.execute(
+                        text(
+                            "SELECT id FROM permissions "
+                            "WHERE code = 'catalog.read'"
+                        )
+                    )
+                ).scalar_one()
             )
+        )
 
         each_uom = (
             await su.execute(
@@ -274,24 +287,47 @@ async def seed() -> dict[str, int]:
         "company_id": company_id,
         "driver_id": driver_id,
         "variant_id": variant_id,
+        "permission_id": int(catalog_permission),
+        "permission_created": int(permission_created),
     }
 
 
 async def cleanup(
     company_id: int | None,
+    *,
+    permission_id: int | None,
+    permission_created: bool,
 ) -> tuple[bool, str]:
-    if company_id is None:
-        return True, ""
     try:
         async with SessionSU() as su:
             await su.begin()
-            await su.execute(
-                text(
-                    "DELETE FROM companies "
-                    "WHERE id = :company_id"
-                ),
-                {"company_id": int(company_id)},
-            )
+            if company_id is not None:
+                await su.execute(
+                    text(
+                        "DELETE FROM companies "
+                        "WHERE id = :company_id"
+                    ),
+                    {"company_id": int(company_id)},
+                )
+            if (
+                permission_created
+                and permission_id is not None
+            ):
+                await su.execute(
+                    text(
+                        "DELETE FROM permissions AS p "
+                        "WHERE p.id = :permission_id "
+                        "AND NOT EXISTS ("
+                        "SELECT 1 FROM role_permissions AS rp "
+                        "WHERE rp.permission_id = p.id"
+                        ")"
+                    ),
+                    {
+                        "permission_id": int(
+                            permission_id
+                        )
+                    },
+                )
             await su.commit()
         return True, ""
     except Exception as exc:
@@ -421,7 +457,11 @@ async def main() -> None:
         )
     finally:
         cleanup_ok, cleanup_detail = await cleanup(
-            ids.get("company_id")
+            ids.get("company_id"),
+            permission_id=ids.get("permission_id"),
+            permission_created=bool(
+                ids.get("permission_created", 0)
+            ),
         )
         record(
             "P2 runtime gate removes seeded tenant",
