@@ -231,10 +231,16 @@ describe(
         'literal_column("\' \'::text")',
       );
       expect(api).toContain(
-        'ProductVariant.name.op("||")',
+        'search_variant.name.op("||")',
       );
       expect(api).toContain(
-        "ProductVariant.sku",
+        "search_variant.sku",
+      );
+      expect(api).toContain(
+        "union_all(",
+      );
+      expect(api).toContain(
+        "ProductVariant.id.in_(",
       );
       expect(api).toContain(
         "ProductBarcode.product_variant_id == ProductVariant.id",
