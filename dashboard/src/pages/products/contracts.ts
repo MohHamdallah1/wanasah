@@ -257,6 +257,12 @@ export interface ProductFamilyPage {
   has_more: boolean;
 }
 
+export interface ProductFamilyMutationResponse {
+  id: number;
+  name: string;
+  version: number;
+}
+
 export interface PackageUom {
   id: number;
   code: string;
@@ -599,6 +605,24 @@ export function parseProductFamilies(
     has_more: page.has_more,
   };
 }
+
+export function parseProductFamilyMutation(
+  raw: unknown,
+): ProductFamilyMutationResponse {
+  const code =
+    "PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID";
+  const row = record(raw, code);
+  return {
+    id: int(row.id, code, 1),
+    name: str(row.name, code, 150),
+    version: int(
+      row.version,
+      code,
+      1,
+    ),
+  };
+}
+
 
 export function parsePackageUoms(
   raw: unknown,
