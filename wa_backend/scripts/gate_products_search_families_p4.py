@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -297,11 +298,10 @@ async def main() -> None:
                                 ["%catalog%"],
                                 type_=ARRAY(String()),
                             ),
-                            func.cast(
-                                func.current_timestamp(),
-                                text(
-                                    "timestamp without time zone"
-                                ),
+                            datetime.now(
+                                timezone.utc
+                            ).replace(
+                                tzinfo=None
                             ),
                         )
                     )
