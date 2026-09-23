@@ -122,6 +122,11 @@ describe(
           "../pages/ProductsDashboard.tsx",
         ),
       );
+      const manager = compact(
+        readSource(
+          "../pages/products/ProductFamiliesManager.tsx",
+        ),
+      );
 
       expect(api).toContain(
         "_family_cursor(",
@@ -135,33 +140,39 @@ describe(
       expect(service).toContain(
         "Product.id > int(after_id)",
       );
-      expect(page).toContain(
+      expect(manager).toContain(
         'limit: "50"',
       );
-      expect(page).toContain(
-        '"manager", familySearch, familyCursor',
+      expect(manager).toContain(
+        '"manager", search, cursor',
       );
       expect(page).toContain(
         '"options", familyOptionSearch',
       );
-      expect(page).toContain(
-        "setFamilyCursor( null )",
+      expect(manager).toContain(
+        "setCursor( null )",
       );
-      expect(page).toContain(
-        "setFamilyHistory( [] )",
+      expect(manager).toContain(
+        "setHistory( [] )",
       );
       expect(page).not.toContain(
+        "/simple-products/families?limit=200",
+      );
+      expect(manager).not.toContain(
         "/simple-products/families?limit=200",
       );
       expect(page).toContain(
         "{familyOptions.map(",
       );
+      expect(page).toContain(
+        "<ProductFamiliesManager",
+      );
     });
 
     it("surfaces family load failure separately from empty search results", () => {
-      const page = compact(
+      const manager = compact(
         readSource(
-          "../pages/ProductsDashboard.tsx",
+          "../pages/products/ProductFamiliesManager.tsx",
         ),
       );
       const translations =
@@ -169,16 +180,16 @@ describe(
           "../i18n/resources.ts",
         );
 
-      expect(page).toContain(
+      expect(manager).toContain(
         "familiesQuery.isError",
       );
-      expect(page).toContain(
+      expect(manager).toContain(
         '"products.errors.familiesLoad"',
       );
-      expect(page).toContain(
+      expect(manager).toContain(
         '"products.noMatchingFamilies"',
       );
-      expect(page).toContain(
+      expect(manager).toContain(
         "void familiesQuery.refetch()",
       );
       expect(translations).toContain(
