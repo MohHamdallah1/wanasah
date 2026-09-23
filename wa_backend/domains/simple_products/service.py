@@ -613,13 +613,12 @@ async def list_families(
             "Family keyset cursor requires name and id together."
         )
     if after_name is not None and after_id is not None:
-        normalized_after_name = after_name.strip().lower()
-        if not normalized_after_name or after_id <= 0:
+        if not after_name.strip() or after_id <= 0:
             raise ValueError("Invalid family keyset cursor.")
         stmt = stmt.where(
             or_(
-                name_key > normalized_after_name,
-                (name_key == normalized_after_name)
+                name_key > after_name,
+                (name_key == after_name)
                 & (Product.id > int(after_id)),
             )
         )
