@@ -275,6 +275,7 @@ export const resources = {
         fields: {
           name: "اسم المنتج",
           family: "العائلة",
+          sku: "SKU",
           packageUom: "نوع العبوة",
           unitsPerPackage:
             "عدد الحبات داخل العبوة",
@@ -1082,6 +1083,7 @@ export const resources = {
         fields: {
           name: "Product name",
           family: "Family",
+          sku: "SKU",
           packageUom: "Package type",
           unitsPerPackage:
             "Units inside package",
