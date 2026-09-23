@@ -936,11 +936,21 @@ Do **not** silently change them.
 Required:
 
 - [ ] Inventory existing products and their tracking modes.
-- [ ] Do not assume existing REQUIRED values were intentional.
-- [ ] Provide a safe review/migration strategy if the company wants to correct them.
+- [x] Do not assume existing REQUIRED values were intentional.
+- [x] Provide a safe review/migration strategy if the company wants to correct them.
 - [x] Products with operational inventory/history require controlled change rules.
 - [x] Avoid mass automatic downgrade of tracking rules.
-- [ ] Migration/audit record required for any bulk correction.
+- [x] Migration/audit record required for any bulk correction.
+
+### Approved legacy tracking review policy
+
+- Existing `REQUIRED / REQUIRED` values are treated as **review candidates**, not automatically incorrect data.
+- Never mass-change existing SKUs automatically.
+- A SKU with no batch/inventory history may be corrected explicitly through the normal tracking authority, preserving optimistic version checks, tenant scope, request identity, and audit evidence.
+- A SKU with batch/inventory history remains blocked from the normal tracking editor through `PRODUCT_TRACKING_LOCKED`.
+- Any future correction for a history-bearing SKU requires a separate controlled migration workflow; it must be explicit, authorized, tenant-scoped, reasoned, idempotent, concurrency-safe, and preserve historical truth.
+- Any future bulk correction must orchestrate explicit per-SKU reviewed decisions and record before/after audit evidence; it must never become a blind SQL downgrade.
+
 
 ---
 
@@ -1316,7 +1326,7 @@ Do not work on all items randomly.
 - [x] Extend service authority.
 - [x] Add backend validation.
 - [x] Define safe transitions after inventory exists.
-- [ ] Define existing-product migration/review plan.
+- [x] Define existing-product migration/review plan.
 - [x] Add tests.
 
 ### Product tracking — five-stage implementation checkpoint
@@ -1391,15 +1401,13 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Finish the only remaining **Phase P1 — Product tracking authority** item:
+Proceed to **Phase P2 — Read contract and permissions** in this order:
 
-- [ ] Define the existing-product migration/review plan for SKUs that were historically created as `REQUIRED / REQUIRED`.
+1. Decouple catalog/product identity read from mandatory `pricing.view`.
+2. Add SKU / tracking / lifecycle identity to the normal product read contract where missing.
+3. Make pricing fields permission-aware without leaking hidden pricing.
+4. Complete strict runtime parsers for the touched read/mutation contracts.
+5. Harden cursor scope against reuse under a different search/filter state.
+6. Add regression, permission, isolation, and cursor tests.
 
-The plan must preserve the verified tracking authority already merged to `main`:
-
-1. Never mass-change existing products automatically.
-2. Products with batch/inventory history remain locked from the normal tracking editor.
-3. Any correction workflow must be explicit, tenant-scoped, audited, version/concurrency-safe, and preserve historical truth.
-4. Decide how companies identify which legacy SKUs need review and how an authorized correction is approved/applied.
-
-After that P1 item is closed, continue with **Phase P2 — Read contract and permissions**.
+Do not move to Phase P3 until P2 is complete, gated, reviewed, and merged to `main`.
