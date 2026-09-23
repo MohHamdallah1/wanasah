@@ -304,11 +304,11 @@ export const readDurableCommand =
     DurableCommand<T> | null
   > => {
     const existing =
-      readRecord(
-        scope,
-        "command",
-      );
-    if (!existing) {
+      readRecord(scope);
+    if (
+      !existing ||
+      existing.kind === "request"
+    ) {
       return null;
     }
 
