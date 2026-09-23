@@ -626,7 +626,10 @@ async def list_families(
 
     rows = (
         await db.execute(
-            stmt.group_by(Product.id)
+            stmt.group_by(
+                Product.id,
+                name_key,
+            )
             .order_by(name_key.asc(), Product.id.asc())
             .limit(limit)
         )
