@@ -26,7 +26,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy import and_, false, func, literal_column, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1565,6 +1565,13 @@ async def list_simple_products(
                     else ~price_exists
                 )
 
+        variant_search_text = func.lower(
+            ProductVariant.name.op("||")(
+                literal_column("' '::text")
+            ).op("||")(
+                ProductVariant.sku
+            )
+        )
         for token in search_tokens:
             pattern = (
                 f"%{_escaped_like(token)}%"
@@ -1578,20 +1585,12 @@ async def list_simple_products(
             )
             stmt = stmt.where(
                 or_(
-                    func.lower(
-                        ProductVariant.name
-                    ).like(
+                    variant_search_text.like(
                         pattern,
                         escape="\\",
                     ),
                     func.lower(
                         Product.name
-                    ).like(
-                        pattern,
-                        escape="\\",
-                    ),
-                    func.lower(
-                        ProductVariant.sku
                     ).like(
                         pattern,
                         escape="\\",
