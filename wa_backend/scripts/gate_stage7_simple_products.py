@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,6 +28,7 @@ def check(condition: bool, label: str) -> None:
 
 
 def static_checks() -> None:
+    from api.catalog import _barcode_update_valid_to
     from domains.product_tracking import (
         INTERNAL_NO_LOT_PREFIX,
         build_internal_no_lot_batch_number,
@@ -111,6 +113,27 @@ def static_checks() -> None:
         no_package.package_price is None
         and no_package.unit_price == Decimal("0.300000"),
         "Unit-only product is supported without an outer package",
+    )
+
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    future_start = now + timedelta(days=1)
+    past_start = (now - timedelta(days=1)).replace(tzinfo=None)
+    check(
+        _barcode_update_valid_to(
+            row_valid_from=future_start.replace(tzinfo=None),
+            requested_valid_to=None,
+            is_active=False,
+            now=now,
+        )
+        is None
+        and _barcode_update_valid_to(
+            row_valid_from=past_start,
+            requested_valid_to=None,
+            is_active=False,
+            now=now,
+        )
+        == now.replace(tzinfo=None),
+        "Future-dated barcodes can be cancelled without invalid validity windows",
     )
 
     headers, rows = parse_source(
