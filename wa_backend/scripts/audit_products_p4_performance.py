@@ -470,10 +470,7 @@ async def explain_query(
             )
 
 
-async def verify_search_index_compatibility(
-    ids: dict[str, int],
-) -> None:
-    company_id = int(ids["company_id"])
+async def verify_search_index_compatibility() -> None:
     checks = (
         (
             "variant name and SKU trigram expression",
@@ -1037,9 +1034,7 @@ async def main() -> None:
             row_count=row_count,
         )
         company_id = int(ids["company_id"])
-        await verify_search_index_compatibility(
-            ids
-        )
+        await verify_search_index_compatibility()
 
         async with p2_gate.SessionApp() as app:
             await app.begin()
