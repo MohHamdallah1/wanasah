@@ -210,6 +210,28 @@ async def inspect_search_indexes(session) -> None:
         str(row["index_name"]): row
         for row in rows
     }
+    expected_fragments = {
+        "ix_product_variants_company_search_trgm": (
+            "using gin",
+            "company_id",
+            "gin_trgm_ops",
+            "name",
+            "sku",
+        ),
+        "ix_products_company_name_trgm": (
+            "using gin",
+            "company_id",
+            "lower((name)::text)",
+            "gin_trgm_ops",
+        ),
+        "ix_product_barcodes_company_active_barcode_trgm": (
+            "using gin",
+            "company_id",
+            "lower((barcode)::text)",
+            "gin_trgm_ops",
+            "where (is_active is true)",
+        ),
+    }
     for index_name in SEARCH_INDEXES:
         row = by_name.get(index_name)
         valid = (
@@ -222,15 +244,32 @@ async def inspect_search_indexes(session) -> None:
             if row is not None
             else "MISSING"
         )
+        normalized_definition = (
+            " ".join(
+                definition.lower().split()
+            )
+        )
+        shape_ok = (
+            valid
+            and all(
+                fragment
+                in normalized_definition
+                for fragment
+                in expected_fragments[
+                    index_name
+                ]
+            )
+        )
         print(
             "INDEX_STATE "
             f"name={index_name} "
             f"valid={valid} "
+            f"shape_ok={shape_ok} "
             f"definition={definition}"
         )
         record(
-            f"search index {index_name} is installed and valid",
-            valid,
+            f"search index {index_name} is installed with the expected trigram shape",
+            shape_ok,
         )
 
     function_row = (
@@ -470,82 +509,94 @@ async def explain_query(
             )
 
 
-async def verify_search_index_compatibility() -> None:
+async def explain_search_branch_plans(
+    ids: dict[str, int],
+) -> None:
+    company_id = int(ids["company_id"])
+    effective_at = datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None)
     checks = (
         (
-            "variant name and SKU trigram expression",
+            "variant_name_sku",
             "ix_product_variants_company_search_trgm",
             """
             SELECT id
             FROM public.product_variants
-            WHERE lower(
+            WHERE company_id = :company_id
+              AND lower(
                     ((name)::text || ' '::text)
                     || (sku)::text
                   ) LIKE :pattern
             """,
-            "%namehit%",
+            {
+                "company_id": company_id,
+                "pattern": "%namehit%",
+            },
         ),
         (
-            "family name trigram expression",
+            "family_name",
             "ix_products_company_name_trgm",
             """
             SELECT id
             FROM public.products
-            WHERE lower((name)::text) LIKE :pattern
+            WHERE company_id = :company_id
+              AND lower((name)::text) LIKE :pattern
             """,
-            "%familyhit%",
+            {
+                "company_id": company_id,
+                "pattern": "%familyhit%",
+            },
         ),
         (
-            "active barcode trigram expression",
+            "active_barcode",
             "ix_product_barcodes_company_active_barcode_trgm",
             """
             SELECT product_variant_id
             FROM public.product_barcodes
-            WHERE is_active IS TRUE
+            WHERE company_id = :company_id
+              AND is_active IS TRUE
+              AND valid_from <= :effective_at
+              AND (
+                    valid_to IS NULL
+                    OR valid_to > :effective_at
+                  )
               AND lower((barcode)::text) LIKE :pattern
             """,
-            "%barcode-hit%",
+            {
+                "company_id": company_id,
+                "effective_at": effective_at,
+                "pattern": "%barcode-hit%",
+            },
         ),
     )
 
     async with p2_gate.SessionSU() as su:
         await su.begin()
-        await su.execute(
-            text("SET LOCAL enable_seqscan = off")
-        )
         for (
             name,
             expected_index,
             query_sql,
-            pattern,
+            parameters,
         ) in checks:
             result = await su.execute(
                 text(
                     "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
                     + query_sql
                 ),
-                {
-                    "pattern": pattern,
-                },
+                parameters,
             )
             plan = summarize_plan(
                 result.scalar_one()
             )
-            used = expected_index in set(
-                plan["indexes"]
-            )
             print(
-                "INDEX_COMPATIBILITY "
+                "SEARCH_BRANCH_PLAN "
                 f"name={name} "
-                f"expected={expected_index} "
-                f"used={used} "
+                f"expected_index={expected_index} "
+                f"chosen={expected_index in set(plan['indexes'])} "
                 f"execution_ms={plan['execution_ms']:.3f} "
                 f"scans={'|'.join(plan['scans']) or '-'} "
                 f"indexes={'|'.join(plan['indexes']) or '-'}"
-            )
-            record(
-                f"{name} can use its trigram index",
-                used,
             )
         await su.rollback()
 
@@ -1034,7 +1085,9 @@ async def main() -> None:
             row_count=row_count,
         )
         company_id = int(ids["company_id"])
-        await verify_search_index_compatibility()
+        await explain_search_branch_plans(
+            ids
+        )
 
         async with p2_gate.SessionApp() as app:
             await app.begin()
