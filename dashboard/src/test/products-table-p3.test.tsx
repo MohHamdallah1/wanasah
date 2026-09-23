@@ -1,6 +1,7 @@
 import {
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import {
   afterEach,
@@ -181,18 +182,29 @@ describe(
           0,
         );
 
-      expect(
+      const productName =
         screen.getByText(
+          "Precision Product",
+        );
+      const row =
+        productName.closest("tr");
+      expect(row).not.toBeNull();
+      const cells = within(
+        row as HTMLTableRowElement,
+      );
+
+      expect(
+        cells.getByText(
           `${packagePrice} JOD`,
         ),
       ).toBeInTheDocument();
       expect(
-        screen.getByText(
+        cells.getByText(
           `${unitPrice} JOD`,
         ),
       ).toBeInTheDocument();
       expect(
-        screen.getByText(units),
+        cells.getByText(units),
       ).toBeInTheDocument();
 
       expect(packagePrice).toContain(
