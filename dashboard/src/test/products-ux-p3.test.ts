@@ -293,7 +293,7 @@ describe("Products P3 detail foundation", () => {
       "formatPackageUnits",
     );
     expect(page).not.toContain(
-      "const numeric =\n      Number(value)",
+      "Number(value)",
     );
   });
 
