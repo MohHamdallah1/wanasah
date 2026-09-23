@@ -142,6 +142,25 @@ def _utc_naive(value: Optional[datetime]) -> Optional[datetime]:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _barcode_update_valid_to(
+    *,
+    row_valid_from: datetime,
+    requested_valid_to: Optional[datetime],
+    is_active: bool,
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    valid_to = _utc_naive(requested_valid_to)
+    if is_active or valid_to is not None:
+        return valid_to
+
+    current = (
+        now.astimezone(timezone.utc).replace(tzinfo=None)
+        if now is not None and now.tzinfo is not None
+        else now
+    ) or datetime.now(timezone.utc).replace(tzinfo=None)
+    return current if current > row_valid_from else None
+
+
 async def _require(db: AsyncSession, actor: Driver, permission: str) -> None:
     await InventoryAccess(db, actor).require(permission, any_location=True)
 
@@ -825,16 +844,11 @@ async def update_barcode(barcode_id: int, payload: BarcodeUpdate, db: AsyncSessi
             raise _error(404, "BARCODE_NOT_FOUND", "الباركود غير موجود.")
         if row.version != payload.expected_version:
             raise _error(409, "BARCODE_VERSION_CONFLICT", "تغير الباركود؛ حدّث البيانات وأعد المحاولة.", current_version=row.version)
-        valid_to = _utc_naive(payload.valid_to)
-        if (
-            not payload.is_active
-            and valid_to is None
-        ):
-            now = datetime.now(
-                timezone.utc
-            ).replace(tzinfo=None)
-            if now > row.valid_from:
-                valid_to = now
+        valid_to = _barcode_update_valid_to(
+            row_valid_from=row.valid_from,
+            requested_valid_to=payload.valid_to,
+            is_active=payload.is_active,
+        )
         if valid_to is not None and valid_to <= row.valid_from:
             raise _error(422, "BARCODE_VALIDITY_INVALID", "valid_to يجب أن يكون بعد valid_from.")
         old = {"is_primary": row.is_primary, "valid_to": row.valid_to, "is_active": row.is_active, "version": row.version}
