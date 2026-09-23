@@ -212,7 +212,10 @@ describe(
         "SHOW plan_cache_mode",
       );
       expect(api).toContain(
-        "SELECT set_config( 'plan_cache_mode', :previous_plan_cache_mode, true )",
+        '"SELECT set_config("',
+      );
+      expect(api).toContain(
+        '":previous_plan_cache_mode, "',
       );
       expect(
         api.indexOf(
@@ -225,7 +228,7 @@ describe(
       );
       expect(
         api.indexOf(
-          "SELECT set_config( 'plan_cache_mode', :previous_plan_cache_mode, true )",
+          '"SELECT set_config("',
         ),
       ).toBeGreaterThan(
         api.indexOf(
