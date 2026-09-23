@@ -51,6 +51,8 @@ describe("products tracking UI contracts", () => {
           family_name: "Sample",
           sku: "SKU-10",
           units_per_package: 50,
+          base_uom_id: 1,
+          package_uom_id: 2,
           package_uom_code: "CARTON",
           currency_code: "JOD",
           package_price: "10.000000",
