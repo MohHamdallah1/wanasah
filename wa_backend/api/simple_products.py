@@ -593,35 +593,27 @@ def _effective_barcode_exists(
     *,
     company_id: int,
     as_of: datetime,
-    pattern: str | None = None,
 ):
-    conditions = [
-        ProductBarcode.company_id
-        == int(company_id),
-        ProductBarcode.product_variant_id
-        == ProductVariant.id,
-        ProductBarcode.is_active.is_(True),
-        ProductBarcode.valid_from <= as_of,
-        or_(
-            ProductBarcode.valid_to.is_(None),
-            ProductBarcode.valid_to > as_of,
-        ),
-    ]
-    if pattern is not None:
-        conditions.append(
-            func.lower(
-                ProductBarcode.barcode
-            ).like(
-                pattern,
-                escape="\\",
-            )
-        )
-    return (
+    matching_barcode_id = (
         select(ProductBarcode.id)
-        .where(*conditions)
+        .where(
+            ProductBarcode.company_id
+            == int(company_id),
+            ProductBarcode.product_variant_id
+            == ProductVariant.id,
+            ProductBarcode.is_active.is_(True),
+            ProductBarcode.valid_from <= as_of,
+            or_(
+                ProductBarcode.valid_to.is_(None),
+                ProductBarcode.valid_to > as_of,
+            ),
+        )
+        .order_by(ProductBarcode.id.asc())
+        .limit(1)
         .correlate(ProductVariant)
-        .exists()
+        .scalar_subquery()
     )
+    return matching_barcode_id.is_not(None)
 
 
 def _tracking_type_clause(
