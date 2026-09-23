@@ -203,10 +203,10 @@ describe(
         '"options", familyOptionSearch',
       );
       expect(manager).toContain(
-        "setCursor( null )",
+        "setCursor(null)",
       );
       expect(manager).toContain(
-        "setHistory( [] )",
+        "setHistory([])",
       );
       expect(manager).toContain(
         "getOrCreateDurableCommand",
