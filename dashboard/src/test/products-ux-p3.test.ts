@@ -84,7 +84,94 @@ describe("Products P3 detail foundation", () => {
       "canEditTracking={ canManageCatalog }",
     );
     expect(page).toContain(
-      "canEditPrice={ canManage && pricingVisible }",
+      "canEditPrice={ canEditSimplePrice && pricingVisible }",
+    );
+  });
+
+  it("keeps ordinary creation compact and moves supported exceptions to Advanced settings", () => {
+    const page = compact(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
+    );
+    const translations = readSource(
+      "../i18n/resources.ts",
+    );
+
+    expect(page).toContain(
+      "createAdvancedExpanded",
+    );
+    expect(page).toContain(
+      '"products.quickCreate.advancedTitle"',
+    );
+    expect(page).toContain(
+      '"products.quickCreate.trackingAdvancedHint"',
+    );
+    expect(page).toContain(
+      '"products.quickCreate.systemManagedHint"',
+    );
+    expect(page).toContain(
+      '"products.barcodeSection"',
+    );
+    expect(page).toContain(
+      "setCreateAdvancedExpanded( false )",
+    );
+    expect(translations).toContain(
+      'advancedTitle: "إعدادات متقدمة"',
+    );
+    expect(translations).toContain(
+      'advancedTitle: "Advanced settings"',
+    );
+  });
+
+  it("shows a distinct product-list failure with an in-page retry", () => {
+    const page = compact(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
+    );
+
+    expect(page).toContain(
+      "{productsQuery.isError ? (",
+    );
+    expect(page).toContain(
+      "void productsQuery.refetch()",
+    );
+    expect(page).toContain(
+      "!productsQuery.isError && !page?.items.length",
+    );
+    expect(page).toContain(
+      '"products.errors.listLoadTitle"',
+    );
+  });
+
+  it("uses action-specific frontend capabilities instead of one coarse canManage flag", () => {
+    const page = compact(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
+    );
+
+    expect(page).toContain(
+      "const canCreateSimpleProduct =",
+    );
+    expect(page).toContain(
+      "const canImportProducts = canCreateSimpleProduct;",
+    );
+    expect(page).toContain(
+      "const canManageFamilies = canManageCatalog;",
+    );
+    expect(page).toContain(
+      "const canEditSimplePrice = canCreateSimpleProduct;",
+    );
+    expect(page).toContain(
+      "{canManageFamilies ? (",
+    );
+    expect(page).toContain(
+      "{canImportProducts ? (",
+    );
+    expect(page).not.toContain(
+      "const canManage =",
     );
   });
 
