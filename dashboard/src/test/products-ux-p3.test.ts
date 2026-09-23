@@ -175,6 +175,49 @@ describe("Products P3 detail foundation", () => {
     );
   });
 
+  it("manages barcodes through the authoritative catalog endpoints", () => {
+    const page = compact(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
+    );
+    const drawer = compact(
+      readSource(
+        "../pages/products/ProductDetailDrawer.tsx",
+      ),
+    );
+    const manager = compact(
+      readSource(
+        "../pages/products/ProductBarcodeManager.tsx",
+      ),
+    );
+
+    expect(page).toContain(
+      "canManageBarcodes={ canManageCatalog }",
+    );
+    expect(page).toContain(
+      "<ProductBarcodeManager",
+    );
+    expect(drawer).toContain(
+      '"products.barcodeManager.action"',
+    );
+    expect(manager).toContain(
+      '"/catalog/variants/" + product.id + "/barcodes"',
+    );
+    expect(manager).toContain(
+      '"/catalog/barcodes/" + item.id',
+    );
+    expect(manager).toContain(
+      "expected_version: item.version",
+    );
+    expect(manager).toContain(
+      "is_active: false",
+    );
+    expect(manager).toContain(
+      "valid_to: new Date().toISOString()",
+    );
+  });
+
   it("keeps the new P3 surface locale-driven and direction-aware", () => {
     const drawer = readSource(
       "../pages/products/ProductDetailDrawer.tsx",
