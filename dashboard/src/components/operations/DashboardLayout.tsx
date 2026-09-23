@@ -90,10 +90,7 @@ const DashboardLayout = () => {
     !access.isCompanyAdmin &&
     location.pathname ===
       "/products" &&
-    !(
-      access.canAny("catalog.read") &&
-      access.canAny("pricing.view")
-    )
+    !access.canAny("catalog.read")
   ) {
     return (
       <Navigate
