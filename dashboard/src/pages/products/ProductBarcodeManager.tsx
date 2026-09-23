@@ -654,11 +654,22 @@ export function ProductBarcodeManager({
       refreshBarcodes();
       await onChanged();
     } catch (error) {
+      const errorCode =
+        apiErrorCode(error);
       const durableConflict =
-        apiErrorCode(error) ===
+        errorCode ===
         "DURABLE_OPERATION_PENDING";
+      const durableCorrupt =
+        errorCode ===
+        "DURABLE_OPERATION_CORRUPT";
+      if (durableCorrupt) {
+        setPendingCreateBlocked(
+          true
+        );
+      }
       if (
         !durableConflict &&
+        !durableCorrupt &&
         !isAmbiguousRequestError(
           error
         )
@@ -942,6 +953,14 @@ export function ProductBarcodeManager({
               </p>
             ) : null}
 
+            {pendingCreateBlocked ? (
+              <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-800">
+                {t(
+                  "products.barcodeManager.pendingBlocked"
+                )}
+              </p>
+            ) : null}
+
             {product.package_uom_id !==
               null &&
             product.package_uses_base_barcode ? (
@@ -1066,6 +1085,7 @@ export function ProductBarcodeManager({
                 type="button"
                 disabled={
                   !canMutate ||
+                  pendingCreateBlocked ||
                   (!pendingCreate &&
                     (!barcode.trim() ||
                       targetUomId ===
