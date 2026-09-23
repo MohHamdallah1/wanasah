@@ -1631,7 +1631,17 @@ async def list_simple_products(
             has_price is not None
             and book is not None
         )
+        previous_plan_cache_mode: str | None = None
         if force_custom_price_plan:
+            previous_plan_cache_mode = str(
+                (
+                    await db.execute(
+                        text(
+                            "SHOW plan_cache_mode"
+                        )
+                    )
+                ).scalar_one()
+            )
             await db.execute(
                 text(
                     "SET LOCAL plan_cache_mode = "
@@ -1649,11 +1659,19 @@ async def list_simple_products(
             ).all()
         )
 
-        if force_custom_price_plan:
+        if previous_plan_cache_mode is not None:
             await db.execute(
                 text(
-                    "SET LOCAL plan_cache_mode = 'auto'"
-                )
+                    "SELECT set_config("
+                    "'plan_cache_mode', "
+                    ":previous_plan_cache_mode, "
+                    "true"
+                    ")"
+                ),
+                {
+                    "previous_plan_cache_mode":
+                        previous_plan_cache_mode,
+                },
             )
         raw_page = rows[:limit]
         has_more = len(rows) > limit
