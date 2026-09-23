@@ -148,6 +148,29 @@ async def main() -> None:
             ),
         )
 
+        long_family_name = "ع" * 150
+        long_family_token = _family_next_cursor(
+            name=long_family_name,
+            family_id=202,
+            company_id=company_id,
+            search=None,
+            limit=50,
+        )
+        record(
+            "family cursor bound supports maximum Unicode family names",
+            len(long_family_token) <= 2048
+            and _family_cursor(
+                long_family_token,
+                company_id=company_id,
+                search=None,
+                limit=50,
+            )
+            == (
+                long_family_name,
+                202,
+            ),
+        )
+
         async with p2_gate.SessionApp() as app:
             await app.begin()
             await p2_gate.set_tenant(
@@ -174,6 +197,9 @@ async def main() -> None:
             barcode_value = (
                 "998877665544"
             )
+            future_barcode_value = (
+                "887766554433"
+            )
             await app.execute(
                 text(
                     "INSERT INTO product_barcodes "
@@ -196,6 +222,30 @@ async def main() -> None:
                         "each_uom_id"
                     ],
                     "barcode": barcode_value,
+                },
+            )
+            await app.execute(
+                text(
+                    "INSERT INTO product_barcodes "
+                    "(company_id, product_variant_id, "
+                    "uom_id, barcode, barcode_type, "
+                    "is_primary, valid_from, valid_to, "
+                    "is_active, version, created_at, updated_at) "
+                    "VALUES "
+                    "(:company_id, :variant_id, :uom_id, "
+                    ":barcode, 'INTERNAL', false, "
+                    "NOW() + INTERVAL '1 day', NULL, "
+                    "true, 1, NOW(), NOW())"
+                ),
+                {
+                    "company_id": company_id,
+                    "variant_id": ids[
+                        "variant_id"
+                    ],
+                    "uom_id": ids[
+                        "each_uom_id"
+                    ],
+                    "barcode": future_barcode_value,
                 },
             )
 
@@ -308,11 +358,18 @@ async def main() -> None:
                 in await search_ids(sku),
             )
             record(
-                "product search finds active barcode",
+                "product search finds currently effective active barcode",
                 ids["variant_id"]
                 in await search_ids(
                     barcode_value
                 ),
+            )
+            record(
+                "product search ignores future-dated barcode before validity begins",
+                await search_ids(
+                    future_barcode_value
+                )
+                == [],
             )
             record(
                 "multi-token search ANDs tokens across identity fields",
