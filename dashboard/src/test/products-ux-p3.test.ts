@@ -162,7 +162,7 @@ describe("Products P3 detail foundation", () => {
       "const canManageFamilies = canManageCatalog;",
     );
     expect(page).toContain(
-      "const canEditSimplePrice = canCreateSimpleProduct;",
+      "const canEditSimplePrice = canManagePricing;",
     );
     expect(page).toContain(
       "{canManageFamilies ? (",
