@@ -277,6 +277,15 @@ export function ProductBarcodeManager({
         await reconcileDeactivation(
           parsed.items
         );
+
+        if (
+          controller.signal.aborted ||
+          sequence !==
+            requestSequence.current
+        ) {
+          return;
+        }
+
         setItems(parsed.items);
         setNextCursor(
           parsed.next_cursor
@@ -540,9 +549,17 @@ export function ProductBarcodeManager({
         );
       }
 
-      reconcileDeactivation(
+      await reconcileDeactivation(
         parsed.items
       );
+
+      if (
+        sequence !==
+        requestSequence.current
+      ) {
+        return;
+      }
+
       setItems(
         (current) => [
           ...current,
