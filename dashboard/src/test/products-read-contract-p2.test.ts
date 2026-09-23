@@ -88,6 +88,29 @@ describe("products P2 read contract", () => {
     expect(page.items[0].package_uom_id).toBeNull();
   });
 
+  it("accepts a published 1-to-1 catalog package as advanced instead of failing the list", () => {
+    const page = parseSimpleProductPage({
+      currency_code: "JOD",
+      pricing_visible: false,
+      items: [
+        {
+          ...baseItem,
+          units_per_package: null,
+          legacy_packs_per_carton: 1,
+          package_uom_id: null,
+          package_uom_code: null,
+          simple_compatible: false,
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    expect(page.items[0].simple_compatible).toBe(false);
+    expect(page.items[0].units_per_package).toBeNull();
+    expect(page.items[0].legacy_packs_per_carton).toBe(1);
+  });
+
   it("fails closed on contradictory product UOM identity", () => {
     expect(() =>
       parseSimpleProductPage({
