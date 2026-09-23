@@ -16,12 +16,15 @@ import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import {
+  apiErrorCode,
   apiErrorMessage,
+  isAmbiguousRequestError,
 } from "@/lib/apiErrors";
 import {
+  abandonDurableOperation,
   completeDurableOperation,
   durableScope,
-  getOrCreateDurableRequestId,
+  getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import {
   parseProductFamilies,
@@ -213,28 +216,48 @@ export function ProductFamiliesManager({
             operationScope(
               "family-create"
             );
-          const requestId =
-            await getOrCreateDurableRequestId(
-              scope,
-              body
+          try {
+            const command =
+              await getOrCreateDurableCommand(
+                scope,
+                body
+              );
+            await authFetch(
+              "/simple-products/families",
+              {
+                method: "POST",
+                body: JSON.stringify(
+                  {
+                    request_id:
+                      command.requestId,
+                    ...command.payload,
+                  }
+                ),
+              }
             );
-          await authFetch(
-            "/simple-products/families",
-            {
-              method: "POST",
-              body: JSON.stringify(
-                {
-                  request_id:
-                    requestId,
-                  ...body,
-                }
-              ),
+            return {
+              requestId:
+                command.requestId,
+              scope,
+            };
+          } catch (error) {
+            const code =
+              apiErrorCode(error);
+            if (
+              !isAmbiguousRequestError(
+                error
+              ) &&
+              code !==
+                "DURABLE_OPERATION_PENDING" &&
+              code !==
+                "DURABLE_OPERATION_CORRUPT"
+            ) {
+              abandonDurableOperation(
+                scope
+              );
             }
-          );
-          return {
-            requestId,
-            scope,
-          };
+            throw error;
+          }
         },
       onSuccess: async ({
         requestId,
@@ -295,28 +318,48 @@ export function ProductFamiliesManager({
               "family-rename",
               editingFamily.id
             );
-          const requestId =
-            await getOrCreateDurableRequestId(
-              scope,
-              body
+          try {
+            const command =
+              await getOrCreateDurableCommand(
+                scope,
+                body
+              );
+            await authFetch(
+              `/simple-products/families/${editingFamily.id}`,
+              {
+                method: "PATCH",
+                body: JSON.stringify(
+                  {
+                    request_id:
+                      command.requestId,
+                    ...command.payload,
+                  }
+                ),
+              }
             );
-          await authFetch(
-            `/simple-products/families/${editingFamily.id}`,
-            {
-              method: "PATCH",
-              body: JSON.stringify(
-                {
-                  request_id:
-                    requestId,
-                  ...body,
-                }
-              ),
+            return {
+              requestId:
+                command.requestId,
+              scope,
+            };
+          } catch (error) {
+            const code =
+              apiErrorCode(error);
+            if (
+              !isAmbiguousRequestError(
+                error
+              ) &&
+              code !==
+                "DURABLE_OPERATION_PENDING" &&
+              code !==
+                "DURABLE_OPERATION_CORRUPT"
+            ) {
+              abandonDurableOperation(
+                scope
+              );
             }
-          );
-          return {
-            requestId,
-            scope,
-          };
+            throw error;
+          }
         },
       onSuccess: async (
         completed
