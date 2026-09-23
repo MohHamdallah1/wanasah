@@ -574,11 +574,7 @@ export function parseProductFamilies(
     };
   });
 
-  return {
-    items,
-    next_cursor: nextCursor,
-    has_more: page.has_more,
-  };
+  return { items };
 }
 
 export function parsePackageUoms(
@@ -856,7 +852,11 @@ export function parseProductBarcodes(
     };
   });
 
-  return { items };
+  return {
+    items,
+    next_cursor: nextCursor,
+    has_more: page.has_more,
+  };
 }
 
 
