@@ -262,7 +262,10 @@ describe("Products P3 detail foundation", () => {
       "valid_from: Optional[datetime] = None",
     );
     expect(catalogBackend).toContain(
-      "not payload.is_active and valid_to is None",
+      "def _barcode_update_valid_to(",
+    );
+    expect(catalogBackend).toContain(
+      "return current if current > row_valid_from else None",
     );
     expect(catalogBackend).toContain(
       "limit: int = Query(100, ge=1, le=200)",
