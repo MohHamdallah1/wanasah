@@ -43,16 +43,27 @@ vi.mock("sonner", () => ({
   },
 }));
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: mocks.translate,
-    i18n: {
-      language: "en",
-      resolvedLanguage: "en",
-      dir: () => "ltr",
-    },
-  }),
-}));
+vi.mock(
+  "react-i18next",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("react-i18next")
+      >();
+
+    return {
+      ...actual,
+      useTranslation: () => ({
+        t: mocks.translate,
+        i18n: {
+          language: "en",
+          resolvedLanguage: "en",
+          dir: () => "ltr",
+        },
+      }),
+    };
+  },
+);
 
 vi.mock("@/components/ui/modal", () => ({
   Modal: ({
