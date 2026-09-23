@@ -112,6 +112,7 @@ def upgrade() -> None:
         DECLARE
             tenant_id integer;
             search_pattern text;
+            token_sql text;
             query_sql text;
         BEGIN
             tenant_id := NULLIF(
@@ -152,10 +153,7 @@ def upgrade() -> None:
                     USING ERRCODE = '22023';
             END IF;
 
-            query_sql :=
-                'SELECT pv.id '
-                'FROM public.product_variants AS pv '
-                'WHERE pv.company_id = $1';
+            query_sql := NULL;
 
             FOREACH search_pattern
                 IN ARRAY search_patterns
@@ -173,42 +171,52 @@ def upgrade() -> None:
                         USING ERRCODE = '22023';
                 END IF;
 
-                query_sql := query_sql
-                    || pg_catalog.format(
-                        ' AND ('
-                        'pg_catalog.lower('
-                        '(((pv.name)::text || '' ''::text) '
-                        '|| (pv.sku)::text)'
-                        ') LIKE %L '
-                        'OR EXISTS ('
-                        'SELECT 1 '
-                        'FROM public.products AS p '
-                        'WHERE p.company_id = $1 '
-                        'AND p.id = pv.product_id '
-                        'AND pg_catalog.lower('
-                        '(p.name)::text'
-                        ') LIKE %L'
-                        ') '
-                        'OR EXISTS ('
-                        'SELECT 1 '
-                        'FROM public.product_barcodes AS pb '
-                        'WHERE pb.company_id = $1 '
-                        'AND pb.product_variant_id = pv.id '
-                        'AND pb.is_active IS TRUE '
-                        'AND pb.valid_from <= $2 '
-                        'AND ('
-                        'pb.valid_to IS NULL '
-                        'OR pb.valid_to > $2'
-                        ') '
-                        'AND pg_catalog.lower('
-                        '(pb.barcode)::text'
-                        ') LIKE %L'
-                        ')'
-                        ')',
-                        search_pattern,
-                        search_pattern,
-                        search_pattern
-                    );
+                token_sql := pg_catalog.format(
+                    'SELECT token_matches.id '
+                    'FROM ('
+                    'SELECT pv.id AS id '
+                    'FROM public.product_variants AS pv '
+                    'WHERE pv.company_id = $1 '
+                    'AND pg_catalog.lower('
+                    '(((pv.name)::text || '' ''::text) '
+                    '|| (pv.sku)::text)'
+                    ') LIKE %L '
+                    'UNION '
+                    'SELECT pv.id AS id '
+                    'FROM public.products AS p '
+                    'JOIN public.product_variants AS pv '
+                    'ON pv.company_id = p.company_id '
+                    'AND pv.product_id = p.id '
+                    'WHERE p.company_id = $1 '
+                    'AND pg_catalog.lower('
+                    '(p.name)::text'
+                    ') LIKE %L '
+                    'UNION '
+                    'SELECT pb.product_variant_id AS id '
+                    'FROM public.product_barcodes AS pb '
+                    'WHERE pb.company_id = $1 '
+                    'AND pb.is_active IS TRUE '
+                    'AND pb.valid_from <= $2 '
+                    'AND ('
+                    'pb.valid_to IS NULL '
+                    'OR pb.valid_to > $2'
+                    ') '
+                    'AND pg_catalog.lower('
+                    '(pb.barcode)::text'
+                    ') LIKE %L'
+                    ') AS token_matches',
+                    search_pattern,
+                    search_pattern,
+                    search_pattern
+                );
+
+                IF query_sql IS NULL THEN
+                    query_sql := token_sql;
+                ELSE
+                    query_sql := query_sql
+                        || ' INTERSECT '
+                        || token_sql;
+                END IF;
             END LOOP;
 
             RETURN QUERY EXECUTE query_sql
