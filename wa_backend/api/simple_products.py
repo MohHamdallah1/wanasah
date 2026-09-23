@@ -32,6 +32,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_current_driver
 from database import get_db
 from domains.pricing.core import PricingError
+from domains.product_tracking import (
+    ProductTrackingError,
+    resolve_product_tracking_modes,
+)
 from domains.simple_products.service import (
     SimpleProductError,
     SimpleProductSpec,
@@ -90,6 +94,8 @@ _CANONICAL_MAPPING_FIELDS = {
     "unit_price",
     "unit_barcode",
     "package_barcode",
+    "lot_control_mode",
+    "expiry_control_mode",
 }
 
 
@@ -120,6 +126,14 @@ class SimpleProductCreate(StrictRequest):
     package_barcode: str | None = Field(
         None,
         max_length=128,
+    )
+    lot_control_mode: str | None = Field(
+        None,
+        max_length=20,
+    )
+    expiry_control_mode: str | None = Field(
+        None,
+        max_length=20,
     )
 
     @field_validator("name", mode="before")
@@ -826,6 +840,13 @@ async def list_simple_products(
                     "package_uses_base_barcode": bool(
                         variant.package_uses_base_barcode
                     ),
+                    "version": int(variant.version),
+                    "lot_control_mode": str(
+                        variant.lot_control_mode
+                    ),
+                    "expiry_control_mode": str(
+                        variant.expiry_control_mode
+                    ),
                     "lifecycle_status": str(
                         variant.lifecycle_status
                     ),
@@ -892,6 +913,8 @@ async def create_simple_product(
                     unit_price=payload.unit_price,
                     unit_barcode=payload.unit_barcode,
                     package_barcode=payload.package_barcode,
+                    lot_control_mode=payload.lot_control_mode,
+                    expiry_control_mode=payload.expiry_control_mode,
                 )
             ],
         )
@@ -910,6 +933,12 @@ async def create_simple_product(
             "unit_price": format(
                 prices.unit_price,
                 ".6f",
+            ),
+            "lot_control_mode": str(
+                variant.lot_control_mode
+            ),
+            "expiry_control_mode": str(
+                variant.expiry_control_mode
             ),
         }
         _audit(
@@ -1061,6 +1090,8 @@ async def update_simple_product_price(
 @router.post("/imports", status_code=202)
 async def create_product_import(
     request_id: UUID = Form(...),
+    default_lot_control_mode: str | None = Form(None),
+    default_expiry_control_mode: str | None = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
@@ -1133,6 +1164,12 @@ async def create_product_import(
         )
 
     try:
+        tracking_defaults = await resolve_product_tracking_modes(
+            db,
+            company_id=int(actor.company_id),
+            lot_control_mode=default_lot_control_mode,
+            expiry_control_mode=default_expiry_control_mode,
+        )
         queued = await enqueue_new_import(
             company_id=int(actor.company_id),
             actor_id=int(actor.id),
@@ -1143,7 +1180,22 @@ async def create_product_import(
             source_sha256=hashlib.sha256(
                 payload
             ).hexdigest(),
+            default_lot_control_mode=(
+                tracking_defaults.lot_control_mode
+            ),
+            default_expiry_control_mode=(
+                tracking_defaults.expiry_control_mode
+            ),
         )
+    except ProductTrackingError as exc:
+        raise HTTPException(
+            exc.status_code,
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+                "context": exc.context,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             409,
@@ -1167,6 +1219,12 @@ async def create_product_import(
         "job_id": str(queued["job_id"]),
         "status": str(queued["status"]),
         "replayed": bool(queued["replayed"]),
+        "default_lot_control_mode": (
+            tracking_defaults.lot_control_mode
+        ),
+        "default_expiry_control_mode": (
+            tracking_defaults.expiry_control_mode
+        ),
         "message": "Import accepted for background processing.",
     }
 
@@ -1190,6 +1248,12 @@ def _job_payload(
         ),
         "column_mapping": dict(
             job.column_mapping or {}
+        ),
+        "default_lot_control_mode": str(
+            job.default_lot_control_mode
+        ),
+        "default_expiry_control_mode": str(
+            job.default_expiry_control_mode
         ),
         "error_summary": dict(
             job.error_summary or {}

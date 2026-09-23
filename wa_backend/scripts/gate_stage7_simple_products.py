@@ -27,6 +27,11 @@ def check(condition: bool, label: str) -> None:
 
 
 def static_checks() -> None:
+    from domains.product_tracking import (
+        INTERNAL_NO_LOT_PREFIX,
+        build_internal_no_lot_batch_number,
+        normalize_tracking_mode,
+    )
     from domains.simple_products.service import resolve_price_pair
     from product_import_worker import parse_source, suggest_mapping
 
@@ -50,6 +55,41 @@ def static_checks() -> None:
         units_per_package=1,
         package_uom_code=None,
         unit_price=Decimal("0.300"),
+    )
+
+    check(
+        normalize_tracking_mode(
+            " optional ",
+            field_name="lot_control_mode",
+        )
+        == "OPTIONAL",
+        "Product tracking modes normalize to the canonical contract",
+    )
+    internal_batch = build_internal_no_lot_batch_number(
+        production_date=None,
+        expiry_date=None,
+    )
+    expiry_internal_batch = build_internal_no_lot_batch_number(
+        production_date=None,
+        expiry_date=__import__("datetime").date(2030, 1, 2),
+    )
+    check(
+        internal_batch.startswith(INTERNAL_NO_LOT_PREFIX)
+        and len(internal_batch) <= 100
+        and internal_batch != expiry_internal_batch,
+        "Non-lot internal identities are reserved, bounded and expiry-sensitive",
+    )
+    try:
+        build_internal_no_lot_batch_number(
+            production_date=__import__("datetime").datetime.now(),
+            expiry_date=None,
+        )
+        invalid_internal_date_rejected = False
+    except Exception:
+        invalid_internal_date_rejected = True
+    check(
+        invalid_internal_date_rejected,
+        "Internal non-lot identity rejects datetime/invalid date shapes",
     )
 
     check(
@@ -102,6 +142,12 @@ def static_checks() -> None:
         ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
     ).read_text(encoding="utf-8")
     backend = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
+    simple_service = (
+        BACKEND / "domains/simple_products/service.py"
+    ).read_text(encoding="utf-8")
+    tracking = (
+        BACKEND / "domains/product_tracking.py"
+    ).read_text(encoding="utf-8")
     worker = (BACKEND / "product_import_worker.py").read_text(encoding="utf-8")
     queue = (BACKEND / "product_import_queue.py").read_text(encoding="utf-8")
     models = (BACKEND / "models.py").read_text(encoding="utf-8")
@@ -135,6 +181,26 @@ def static_checks() -> None:
         and "package_barcode" in page
         and "familiesTitle" in page,
         "Simple product flow exposes generalized package, price, barcode and family workflow",
+    )
+    check(
+        'lot_control_mode="REQUIRED"' not in simple_service
+        and 'expiry_control_mode="REQUIRED"' not in simple_service
+        and "resolve_product_tracking_modes(" in simple_service
+        and "lot_control_mode=payload.lot_control_mode" in backend
+        and "expiry_control_mode=payload.expiry_control_mode" in backend,
+        "Simple product creation cannot silently hardcode REQUIRED tracking modes",
+    )
+    check(
+        "SystemSetting.company_id == company_id" in tracking
+        and "PRODUCT_DEFAULT_LOT_CONTROL_MODE_KEY" in tracking
+        and "PRODUCT_DEFAULT_EXPIRY_CONTROL_MODE_KEY" in tracking,
+        "Product tracking defaults are explicitly tenant scoped",
+    )
+    check(
+        "ProductBatch.company_id == company_id" in tracking
+        and "ProductBatch.product_variant_id" in tracking
+        and '"PRODUCT_TRACKING_LOCKED"' in tracking,
+        "Tracking changes fail closed once tenant-scoped batch history exists",
     )
     check(
         'form.append(' in page

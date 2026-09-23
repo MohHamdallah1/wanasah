@@ -115,6 +115,33 @@ describe("apiErrorMessage", () => {
     );
   });
 
+  it("shows a translated safe 503 service error with its reference", () => {
+    const error = Object.assign(
+      new Error("transport fallback"),
+      {
+        status: 503,
+        code: "LIVE_STOCK_PROJECTION_NOT_READY",
+        serverMessage:
+          "internal projection implementation detail",
+        requestId: "req-live-stock-503",
+      }
+    );
+
+    const shown = apiErrorMessage(
+      error,
+      "fallback"
+    );
+    expect(shown).toContain(
+      "الرصيد الحي قيد التحديث"
+    );
+    expect(shown).toContain(
+      "req-live-stock-503"
+    );
+    expect(shown).not.toContain(
+      "internal projection implementation detail"
+    );
+  });
+
   it("keeps the request reference for a translated 5xx code", () => {
     const error = Object.assign(
       new Error("transport fallback"),

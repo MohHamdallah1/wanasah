@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 from sqlalchemy.engine import make_url
 
 from config import Config
+from domains.product_tracking import normalize_tracking_mode
 
 
 def _psycopg_dsn() -> str:
@@ -110,6 +111,8 @@ async def enqueue_new_import(
     content_type: str,
     payload: bytes,
     source_sha256: str,
+    default_lot_control_mode: str,
+    default_expiry_control_mode: str,
 ) -> dict[str, Any]:
     """Create or replay one durable import operation.
 
@@ -118,6 +121,14 @@ async def enqueue_new_import(
     """
     job_id = uuid4()
     request_text = str(request_id)
+    default_lot_control_mode = normalize_tracking_mode(
+        default_lot_control_mode,
+        field_name="default_lot_control_mode",
+    )
+    default_expiry_control_mode = normalize_tracking_mode(
+        default_expiry_control_mode,
+        field_name="default_expiry_control_mode",
+    )
 
     async with await psycopg.AsyncConnection.connect(
         DSN
@@ -145,7 +156,9 @@ async def enqueue_new_import(
                     file_name,
                     source_sha256,
                     file_size,
-                    status
+                    status,
+                    default_lot_control_mode,
+                    default_expiry_control_mode
                 FROM product_import_jobs
                 WHERE company_id = %s
                   AND request_id = %s
@@ -165,6 +178,8 @@ async def enqueue_new_import(
                     existing_sha,
                     existing_size,
                     existing_status,
+                    existing_lot_default,
+                    existing_expiry_default,
                 ) = existing
 
                 same_request = (
@@ -176,6 +191,10 @@ async def enqueue_new_import(
                     == str(source_sha256)
                     and int(existing_size)
                     == len(payload)
+                    and str(existing_lot_default)
+                    == default_lot_control_mode
+                    and str(existing_expiry_default)
+                    == default_expiry_control_mode
                 )
                 if not same_request:
                     raise ValueError(
@@ -208,6 +227,8 @@ async def enqueue_new_import(
                     detected_headers,
                     suggested_mapping,
                     column_mapping,
+                    default_lot_control_mode,
+                    default_expiry_control_mode,
                     error_summary,
                     total_rows,
                     processed_rows,
@@ -221,6 +242,8 @@ async def enqueue_new_import(
                     '[]'::jsonb,
                     '{}'::jsonb,
                     '{}'::jsonb,
+                    %s,
+                    %s,
                     '{}'::jsonb,
                     0,0,0,0,1
                 )
@@ -235,6 +258,8 @@ async def enqueue_new_import(
                     payload,
                     source_sha256,
                     len(payload),
+                    default_lot_control_mode,
+                    default_expiry_control_mode,
                 ],
             )
             await _defer(

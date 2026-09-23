@@ -179,11 +179,25 @@ export function apiErrorMessage(
   const status =
     apiErrorStatus(error);
 
-  // All 5xx responses are redacted before code translation.
-  // This prevents a translated server code from bypassing the incident reference.
+  const translatedCodeKey = code
+    ? `errors.codes.${code}`
+    : undefined;
+  const hasTranslatedCode = Boolean(
+    translatedCodeKey &&
+    i18n.exists(translatedCodeKey)
+  );
+  const safeTranslatedServerError =
+    typeof status === "number" &&
+    status >= 500 &&
+    code !== "INTERNAL_SERVER_ERROR" &&
+    hasTranslatedCode;
+
+  // Unknown/internal 5xx errors stay redacted. A known, explicitly translated
+  // service/business code is safe to show because the client owns the text.
   if (
     typeof status === "number" &&
-    status >= 500
+    status >= 500 &&
+    !safeTranslatedServerError
   ) {
     return requestId
       ? i18n.t(
@@ -195,12 +209,27 @@ export function apiErrorMessage(
         );
   }
 
-  if (code) {
-    const key =
-      `errors.codes.${code}`;
-    if (i18n.exists(key)) {
-      return i18n.t(key, context);
+  if (
+    code &&
+    translatedCodeKey &&
+    hasTranslatedCode
+  ) {
+    const translated =
+      i18n.t(translatedCodeKey, context);
+    if (
+      typeof status === "number" &&
+      status >= 500 &&
+      requestId
+    ) {
+      return i18n.t(
+        "errors.serverReasonWithReference",
+        {
+          message: translated,
+          requestId,
+        }
+      );
     }
+    return translated;
   }
 
   const serverMessage =

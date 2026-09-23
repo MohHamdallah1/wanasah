@@ -680,6 +680,14 @@ class ProductImportJob(Base):
         CheckConstraint('file_size > 0', name='chk_product_import_job_file_size'),
         CheckConstraint('total_rows >= 0 AND processed_rows >= 0 AND valid_rows >= 0 AND failed_rows >= 0', name='chk_product_import_job_counts_nonnegative'),
         CheckConstraint('version > 0', name='chk_product_import_job_version'),
+        CheckConstraint(
+            "default_lot_control_mode IN ('NONE','OPTIONAL','REQUIRED')",
+            name='import_job_lot_mode',
+        ),
+        CheckConstraint(
+            "default_expiry_control_mode IN ('NONE','OPTIONAL','REQUIRED')",
+            name='import_job_expiry_mode',
+        ),
         Index('ix_product_import_job_company_status', 'company_id', 'status', 'created_at'),
     )
     id = Column(Uuid, primary_key=True, default=uuid4)
@@ -695,6 +703,8 @@ class ProductImportJob(Base):
     detected_headers = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     suggested_mapping = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     column_mapping = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    default_lot_control_mode = Column(String(20), nullable=False)
+    default_expiry_control_mode = Column(String(20), nullable=False)
     error_summary = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     total_rows = Column(Integer, nullable=False, default=0, server_default='0')
     processed_rows = Column(Integer, nullable=False, default=0, server_default='0')
