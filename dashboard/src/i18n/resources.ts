@@ -318,6 +318,9 @@ export const resources = {
           expiryControlMode: "تتبع الصلاحية",
         },
         errors: {
+          listLoadTitle: "تعذر تحميل المنتجات",
+          listLoadDescription:
+            "فشل طلب المنتجات، لذلك لن نعرض حالة فارغة مضللة. تحقق من الاتصال ثم أعد المحاولة.",
           nameRequired: "اسم المنتج مطلوب.",
           packageUnitsInvalid:
             "عدد الحبات داخل العبوة يجب أن يكون رقماً صحيحاً أكبر من 1.",
@@ -1157,6 +1160,9 @@ export const resources = {
           expiryControlMode: "Expiry tracking",
         },
         errors: {
+          listLoadTitle: "Products could not be loaded",
+          listLoadDescription:
+            "The products request failed, so an empty catalog is not shown. Check the connection and try again.",
           nameRequired:
             "Product name is required.",
           packageUnitsInvalid:
