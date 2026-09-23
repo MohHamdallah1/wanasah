@@ -426,6 +426,19 @@ async def main() -> None:
                     str,
                 ),
             )
+            record(
+                "family API does not expose internal database sort keys",
+                isinstance(
+                    first_items,
+                    list,
+                )
+                and all(
+                    isinstance(item, dict)
+                    and "_sort_name"
+                    not in item
+                    for item in first_items
+                ),
+            )
 
             second_family_page = (
                 await list_families_endpoint(
