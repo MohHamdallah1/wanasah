@@ -203,7 +203,8 @@ export interface SimpleProduct {
   name: string;
   family_name: string;
   sku: string;
-  units_per_package: number;
+  units_per_package: number | null;
+  legacy_packs_per_carton: number;
   base_uom_id: number;
   package_uom_id: number | null;
   package_uom_code: string | null;
@@ -329,8 +330,20 @@ export function parseSimpleProductPage(
       return contractError(code);
     }
 
-    const unitsPerPackage = int(
-      row.units_per_package,
+    const simpleCompatible = bool(
+      row.simple_compatible,
+      code,
+    );
+    const unitsPerPackage =
+      row.units_per_package === null
+        ? null
+        : int(
+            row.units_per_package,
+            code,
+            1,
+          );
+    const legacyPacksPerCarton = int(
+      row.legacy_packs_per_carton,
       code,
       1,
     );
@@ -359,14 +372,33 @@ export function parseSimpleProductPage(
       return contractError(code);
     }
     if (
+      simpleCompatible &&
+      unitsPerPackage === null
+    ) {
+      return contractError(code);
+    }
+    if (
+      !simpleCompatible &&
       packageUomId === null &&
+      packageUomCode === null &&
+      unitsPerPackage !== null
+    ) {
+      return contractError(code);
+    }
+    if (
+      packageUomId === null &&
+      simpleCompatible &&
       unitsPerPackage !== 1
     ) {
       return contractError(code);
     }
     if (
       packageUomId !== null &&
-      packageUomId === baseUomId
+      (
+        packageUomId === baseUomId ||
+        unitsPerPackage === null ||
+        unitsPerPackage < 2
+      )
     ) {
       return contractError(code);
     }
@@ -378,6 +410,8 @@ export function parseSimpleProductPage(
       family_name: str(row.family_name, code, 150),
       sku: str(row.sku, code, 100),
       units_per_package: unitsPerPackage,
+      legacy_packs_per_carton:
+        legacyPacksPerCarton,
       base_uom_id: baseUomId,
       package_uom_id: packageUomId,
       package_uom_code: packageUomCode,
@@ -432,10 +466,8 @@ export function parseSimpleProductPage(
       lifecycle_status: lifecycle as
         | "ACTIVE"
         | "RETIRING",
-      simple_compatible: bool(
-        row.simple_compatible,
-        code,
-      ),
+      simple_compatible:
+        simpleCompatible,
     };
   });
 
