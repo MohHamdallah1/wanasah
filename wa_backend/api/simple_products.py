@@ -34,6 +34,7 @@ from sqlalchemy import (
     func,
     or_,
     select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError
@@ -1626,6 +1627,18 @@ async def list_simple_products(
                 ProductVariant.id.desc(),
             )
 
+        force_custom_price_plan = (
+            has_price is not None
+            and book is not None
+        )
+        if force_custom_price_plan:
+            await db.execute(
+                text(
+                    "SET LOCAL plan_cache_mode = "
+                    "'force_custom_plan'"
+                )
+            )
+
         rows = list(
             (
                 await db.execute(
@@ -1635,6 +1648,13 @@ async def list_simple_products(
                 )
             ).all()
         )
+
+        if force_custom_price_plan:
+            await db.execute(
+                text(
+                    "SET LOCAL plan_cache_mode = 'auto'"
+                )
+            )
         raw_page = rows[:limit]
         has_more = len(rows) > limit
 
