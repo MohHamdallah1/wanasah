@@ -217,15 +217,27 @@ export default function ProductsDashboard() {
       "pricing.view"
     );
 
-  const canManage =
+  const canPublishCatalog =
+    access.isCompanyAdmin ||
+    access.canAny(
+      "catalog.publish"
+    );
+  const canManagePricing =
+    access.isCompanyAdmin ||
+    access.canAny(
+      "pricing.manage"
+    );
+  const canCreateSimpleProduct =
     access.isCompanyAdmin ||
     (canManageCatalog &&
-      access.canAny(
-        "catalog.publish"
-      ) &&
-      access.canAny(
-        "pricing.manage"
-      ));
+      canPublishCatalog &&
+      canManagePricing);
+  const canImportProducts =
+    canCreateSimpleProduct;
+  const canManageFamilies =
+    canManageCatalog;
+  const canEditSimplePrice =
+    canCreateSimpleProduct;
 
   const numberFormatter =
     useMemo(
@@ -2255,78 +2267,64 @@ export default function ProductsDashboard() {
               </button>
             ) : null}
 
-            {canManage ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImportTrackingExpanded(
-                      false
-                    );
-                    setImportOpen(
-                      true
-                    );
-                  }}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  {t(
-                    "products.importFile"
-                  )}
-                </button>
+            {canImportProducts ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setImportTrackingExpanded(
+                    false
+                  );
+                  setImportOpen(
+                    true
+                  );
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                {t(
+                  "products.importFile"
+                )}
+              </button>
+            ) : null}
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFamiliesOpen(
-                      true
-                    )
-                  }
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                >
-                  <FolderTree className="h-4 w-4" />
-                  {t(
-                    "products.families"
-                  )}
-                </button>
+            {canManageFamilies ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setFamiliesOpen(
+                    true
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+              >
+                <FolderTree className="h-4 w-4" />
+                {t(
+                  "products.families"
+                )}
+              </button>
+            ) : null}
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCreateTrackingExpanded(
-                        false
-                      );
-                      setCreateAdvancedExpanded(
-                        false
-                      );
-                      setCreateOpen(
-                        true
-                      );
-                    }}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white"
-                  >
-                    <PackagePlus className="h-4 w-4" />
-                    {t(
-                      "products.addProduct"
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled
-                    title={t(
-                      "products.advancedPricingHint"
-                    )}
-                    className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-xs font-black text-slate-400"
-                  >
-                    <LockKeyhole className="h-4 w-4" />
-                    {t(
-                      "products.advancedPricing"
-                    )}
-                  </button>
-                </div>
-              </>
+            {canCreateSimpleProduct ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateTrackingExpanded(
+                    false
+                  );
+                  setCreateAdvancedExpanded(
+                    false
+                  );
+                  setCreateOpen(
+                    true
+                  );
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white"
+              >
+                <PackagePlus className="h-4 w-4" />
+                {t(
+                  "products.addProduct"
+                )}
+              </button>
             ) : null}
           </div>
         </div>
@@ -2416,7 +2414,43 @@ export default function ProductsDashboard() {
                 </tr>
               ) : null}
 
+              {productsQuery.isError ? (
+                <tr>
+                  <td
+                    colSpan={
+                      productTableColumnCount
+                    }
+                    className="py-14 text-center"
+                  >
+                    <div className="mx-auto max-w-md rounded-2xl bg-rose-50 p-5">
+                      <p className="font-black text-rose-900">
+                        {t(
+                          "products.errors.listLoadTitle"
+                        )}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
+                        {t(
+                          "products.errors.listLoadDescription"
+                        )}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void productsQuery.refetch()
+                        }
+                        className="mt-3 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-800"
+                      >
+                        {t(
+                          "common.retry"
+                        )}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+
               {!productsQuery.isLoading &&
+              !productsQuery.isError &&
               !page?.items.length ? (
                 <tr>
                   <td
@@ -2545,7 +2579,7 @@ export default function ProductsDashboard() {
                           )}
                         </button>
 
-                        {canManage &&
+                        {canEditSimplePrice &&
                         pricingVisible &&
                         item.simple_compatible ? (
                           <button
@@ -2649,7 +2683,7 @@ export default function ProductsDashboard() {
         product={detailProduct}
         pricingVisible={pricingVisible}
         canEditPrice={
-          canManage &&
+          canEditSimplePrice &&
           pricingVisible
         }
         canEditTracking={
