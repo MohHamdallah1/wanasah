@@ -2602,7 +2602,6 @@ export default function ProductsDashboard() {
                         </button>
 
                         {canEditSimplePrice &&
-                        pricingVisible &&
                         item.simple_compatible ? (
                           <button
                             type="button"
@@ -2705,8 +2704,7 @@ export default function ProductsDashboard() {
         product={detailProduct}
         pricingVisible={pricingVisible}
         canEditPrice={
-          canEditSimplePrice &&
-          pricingVisible
+          canEditSimplePrice
         }
         canEditTracking={
           canManageCatalog
@@ -2737,6 +2735,8 @@ export default function ProductsDashboard() {
 
       <ProductBarcodeManager
         product={barcodeProduct}
+        companyId={companyId}
+        driverId={driverId}
         onClose={() =>
           setBarcodeProduct(null)
         }
