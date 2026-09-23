@@ -808,6 +808,7 @@ async def measure_scenario(
 
     plan: dict[str, Any] = {}
     forced_index_plan: dict[str, Any] = {}
+    normal_index_scans_after: dict[str, int] = {}
     if explain:
         captured = main_product_query(representative)
         if captured is None:
@@ -815,6 +816,13 @@ async def measure_scenario(
                 f"{name} main product query was not captured."
             )
         plan = await explain_query(app, captured)
+        if tracked_indexes:
+            normal_index_scans_after = (
+                await index_scan_counts(
+                    app,
+                    tracked_indexes,
+                )
+            )
         if name in {
             "name_search",
             "family_search",
@@ -899,9 +907,13 @@ async def measure_scenario(
         )
 
     if tracked_indexes:
-        index_scans_after = await index_scan_counts(
-            app,
-            tracked_indexes,
+        index_scans_after = (
+            normal_index_scans_after
+            if normal_index_scans_after
+            else await index_scan_counts(
+                app,
+                tracked_indexes,
+            )
         )
         deltas = {
             index_name:
