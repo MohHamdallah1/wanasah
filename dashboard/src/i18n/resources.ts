@@ -131,6 +131,8 @@ export const resources = {
           inactive: "غير فعال",
           deactivate: "تعطيل",
           save: "إضافة الباركود",
+          added: "تمت إضافة الباركود.",
+          deactivated: "تم تعطيل الباركود مع الاحتفاظ بسجله.",
           historyHint:
             "لا نحذف تاريخ الباركود. عند الاستبدال عطّل السجل القديم ثم أضف السجل الجديد.",
           loadFailed: "تعذر تحميل باركودات المنتج.",
@@ -996,6 +998,8 @@ export const resources = {
           inactive: "Inactive",
           deactivate: "Deactivate",
           save: "Add barcode",
+          added: "Barcode added.",
+          deactivated: "Barcode deactivated and its history was preserved.",
           historyHint:
             "Barcode history is preserved. To replace a barcode, deactivate the old record and add a new one.",
           loadFailed: "Could not load product barcodes.",
