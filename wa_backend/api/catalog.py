@@ -258,7 +258,7 @@ class BarcodeCreate(StrictRequest):
     barcode: str = Field(max_length=128)
     barcode_type: Literal["EAN8", "EAN13", "UPC_A", "GTIN14", "GS1_128", "INTERNAL"]
     is_primary: bool = False
-    valid_from: datetime
+    valid_from: Optional[datetime] = None
     valid_to: Optional[datetime] = None
 
     @field_validator("barcode", mode="before")
@@ -270,7 +270,11 @@ class BarcodeCreate(StrictRequest):
     def validity(self):
         start = _utc_naive(self.valid_from)
         end = _utc_naive(self.valid_to)
-        if end is not None and end <= start:
+        if (
+            start is not None
+            and end is not None
+            and end <= start
+        ):
             raise ValueError("valid_to يجب أن يكون بعد valid_from.")
         return self
 
@@ -745,7 +749,13 @@ async def create_barcode(variant_id: int, payload: BarcodeCreate, db: AsyncSessi
                 parse_gs1(payload.barcode)
             else:
                 _gtin(payload.barcode)
-        row = ProductBarcode(company_id=actor.company_id, product_variant_id=variant_id, uom_id=payload.uom_id, barcode=payload.barcode, barcode_type=payload.barcode_type, is_primary=payload.is_primary, valid_from=_utc_naive(payload.valid_from), valid_to=_utc_naive(payload.valid_to), is_active=True)
+        valid_from = (
+            _utc_naive(payload.valid_from)
+            or datetime.now(timezone.utc).replace(
+                tzinfo=None
+            )
+        )
+        row = ProductBarcode(company_id=actor.company_id, product_variant_id=variant_id, uom_id=payload.uom_id, barcode=payload.barcode, barcode_type=payload.barcode_type, is_primary=payload.is_primary, valid_from=valid_from, valid_to=_utc_naive(payload.valid_to), is_active=True)
         db.add(row)
         await db.flush()
         uom = await db.get(UOM, row.uom_id)
@@ -779,6 +789,13 @@ async def update_barcode(barcode_id: int, payload: BarcodeUpdate, db: AsyncSessi
         if row.version != payload.expected_version:
             raise _error(409, "BARCODE_VERSION_CONFLICT", "تغير الباركود؛ حدّث البيانات وأعد المحاولة.", current_version=row.version)
         valid_to = _utc_naive(payload.valid_to)
+        if (
+            not payload.is_active
+            and valid_to is None
+        ):
+            valid_to = datetime.now(
+                timezone.utc
+            ).replace(tzinfo=None)
         if valid_to is not None and valid_to <= row.valid_from:
             raise _error(422, "BARCODE_VALIDITY_INVALID", "valid_to يجب أن يكون بعد valid_from.")
         old = {"is_primary": row.is_primary, "valid_to": row.valid_to, "is_active": row.is_active, "version": row.version}
