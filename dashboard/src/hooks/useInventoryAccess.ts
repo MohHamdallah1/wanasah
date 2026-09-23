@@ -28,13 +28,20 @@ const parsePermissionCodes = (
   value: unknown,
   code = 'INVENTORY_ACCESS_RESPONSE_INVALID',
 ): string[] => {
+  const items: unknown[] =
+    Array.isArray(value)
+      ? value
+      : inventoryAccessContractError(code);
   if (
-    !Array.isArray(value) ||
-    !value.every((item) => typeof item === 'string')
+    !items.every(
+      (item) => typeof item === 'string'
+    )
   ) {
     inventoryAccessContractError(code);
   }
-  return value.map((item) => item as string);
+  return items.map(
+    (item) => item as string
+  );
 };
 
 export function parseInventoryCapabilities(raw: unknown): InventoryCapabilities {
