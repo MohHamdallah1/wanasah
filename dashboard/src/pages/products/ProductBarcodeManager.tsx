@@ -9,11 +9,18 @@ import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { apiErrorMessage } from "@/lib/apiErrors";
 import {
+  apiErrorCode,
+  apiErrorMessage,
+  isAmbiguousRequestError,
+} from "@/lib/apiErrors";
+import {
+  abandonDurableOperation,
   completeDurableOperation,
   durableScope,
-  getOrCreateDurableRequestId,
+  getOrCreateDurableCommand,
+  readDurableCommand,
+  type DurableCommand,
 } from "@/lib/durableOperations";
 import {
   parseProductBarcodeMutation,
@@ -29,6 +36,59 @@ type Props = {
   driverId: number | null;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
+};
+
+type BarcodeCreateBody = {
+  uom_id: number;
+  barcode: string;
+  barcode_type: ProductBarcodeType;
+  is_primary: boolean;
+  valid_from: null;
+  valid_to: null;
+};
+
+type BarcodeDeactivateBody = {
+  expected_version: number;
+  is_primary: false;
+  valid_to: null;
+  is_active: false;
+};
+
+const isBarcodeCreateBody = (
+  value: unknown
+): value is BarcodeCreateBody => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const row = value as Record<
+    string,
+    unknown
+  >;
+  return (
+    typeof row.uom_id === "number" &&
+    Number.isInteger(row.uom_id) &&
+    row.uom_id > 0 &&
+    typeof row.barcode === "string" &&
+    row.barcode.length > 0 &&
+    [
+      "EAN8",
+      "EAN13",
+      "UPC_A",
+      "GTIN14",
+      "GS1_128",
+      "INTERNAL",
+    ].includes(
+      String(row.barcode_type)
+    ) &&
+    typeof row.is_primary ===
+      "boolean" &&
+    row.valid_from === null &&
+    row.valid_to === null
+  );
 };
 
 export function ProductBarcodeManager({
@@ -48,9 +108,15 @@ export function ProductBarcodeManager({
   >([]);
   const [loading, setLoading] =
     useState(false);
+  const [loadingMore, setLoadingMore] =
+    useState(false);
   const [loadReady, setLoadReady] =
     useState(false);
   const [loadError, setLoadError] =
+    useState(false);
+  const [nextCursor, setNextCursor] =
+    useState<string | null>(null);
+  const [hasMore, setHasMore] =
     useState(false);
   const [reloadToken, setReloadToken] =
     useState(0);
@@ -68,6 +134,63 @@ export function ProductBarcodeManager({
     );
   const [isPrimary, setIsPrimary] =
     useState(false);
+  const [
+    pendingCreate,
+    setPendingCreate,
+  ] = useState<
+    DurableCommand<BarcodeCreateBody> | null
+  >(null);
+
+  const createScope = (
+    productId: number
+  ) =>
+    companyId !== null &&
+    driverId !== null
+      ? durableScope(
+          companyId,
+          driverId,
+          "catalog-barcode-create",
+          productId
+        )
+      : null;
+
+  const updateScope = (
+    barcodeId: number
+  ) =>
+    companyId !== null &&
+    driverId !== null
+      ? durableScope(
+          companyId,
+          driverId,
+          "catalog-barcode-update",
+          barcodeId
+        )
+      : null;
+
+  const reconcileDeactivation = (
+    loaded: ProductBarcodeRecord[]
+  ) => {
+    for (const item of loaded) {
+      const scope =
+        updateScope(item.id);
+      if (!scope) continue;
+      const pending =
+        readDurableCommand<
+          BarcodeDeactivateBody
+        >(scope);
+      if (
+        pending &&
+        !item.is_active &&
+        pending.payload
+          .is_active === false
+      ) {
+        completeDurableOperation(
+          scope,
+          pending.requestId
+        );
+      }
+    }
+  };
 
   useEffect(() => {
     const productId =
@@ -80,16 +203,22 @@ export function ProductBarcodeManager({
     if (productId === null) {
       setItems([]);
       setLoading(false);
+      setLoadingMore(false);
       setLoadReady(false);
       setLoadError(false);
+      setNextCursor(null);
+      setHasMore(false);
       return () =>
         controller.abort();
     }
 
     setItems([]);
     setLoading(true);
+    setLoadingMore(false);
     setLoadReady(false);
     setLoadError(false);
+    setNextCursor(null);
+    setHasMore(false);
 
     void (async () => {
       try {
@@ -98,7 +227,7 @@ export function ProductBarcodeManager({
             await authFetch(
               "/catalog/variants/" +
                 productId +
-                "/barcodes",
+                "/barcodes?limit=100",
               {
                 signal:
                   controller.signal,
@@ -126,7 +255,16 @@ export function ProductBarcodeManager({
           return;
         }
 
+        reconcileDeactivation(
+          parsed.items
+        );
         setItems(parsed.items);
+        setNextCursor(
+          parsed.next_cursor
+        );
+        setHasMore(
+          parsed.has_more
+        );
         setLoadReady(true);
       } catch (error) {
         if (
@@ -139,6 +277,8 @@ export function ProductBarcodeManager({
         setItems([]);
         setLoadReady(false);
         setLoadError(true);
+        setNextCursor(null);
+        setHasMore(false);
         toast.error(
           apiErrorMessage(
             error,
@@ -163,6 +303,8 @@ export function ProductBarcodeManager({
     };
   }, [
     authFetch,
+    companyId,
+    driverId,
     product?.id,
     reloadToken,
     t,
@@ -173,7 +315,75 @@ export function ProductBarcodeManager({
     setBarcodeType("INTERNAL");
     setTarget("base");
     setIsPrimary(false);
-  }, [product?.id]);
+    setPendingCreate(null);
+
+    if (!product) {
+      return;
+    }
+    const scope =
+      createScope(product.id);
+    if (!scope) {
+      return;
+    }
+
+    const pending =
+      readDurableCommand<unknown>(
+        scope
+      );
+    if (!pending) {
+      return;
+    }
+    if (
+      !isBarcodeCreateBody(
+        pending.payload
+      )
+    ) {
+      abandonDurableOperation(
+        scope
+      );
+      return;
+    }
+
+    const payload =
+      pending.payload;
+    const restoredTarget =
+      payload.uom_id ===
+      product.base_uom_id
+        ? "base"
+        : payload.uom_id ===
+            product.package_uom_id
+          ? "package"
+          : null;
+    if (!restoredTarget) {
+      return;
+    }
+
+    setBarcode(
+      payload.barcode
+    );
+    setBarcodeType(
+      payload.barcode_type
+    );
+    setTarget(
+      restoredTarget
+    );
+    setIsPrimary(
+      payload.is_primary
+    );
+    setPendingCreate({
+      requestId:
+        pending.requestId,
+      payload,
+      createdAt:
+        pending.createdAt,
+    });
+  }, [
+    companyId,
+    driverId,
+    product?.id,
+    product?.base_uom_id,
+    product?.package_uom_id,
+  ]);
 
   if (!product) {
     return null;
@@ -193,6 +403,10 @@ export function ProductBarcodeManager({
     companyId !== null &&
     driverId !== null;
 
+  const canEditCreate =
+    canMutate &&
+    pendingCreate === null;
+
   const refreshBarcodes = () => {
     setLoadReady(false);
     setReloadToken(
@@ -200,46 +414,148 @@ export function ProductBarcodeManager({
     );
   };
 
-  const addBarcode = async () => {
-    const clean = barcode.trim();
+  const loadMore = async () => {
     if (
-      !canMutate ||
-      !clean ||
-      targetUomId === null ||
-      companyId === null ||
-      driverId === null
+      !nextCursor ||
+      !hasMore ||
+      loadingMore ||
+      !product
     ) {
       return;
     }
 
-    const body = {
-      uom_id: targetUomId,
-      barcode: clean,
-      barcode_type: barcodeType,
-      is_primary: isPrimary,
-      valid_from: null,
-      valid_to: null,
-    };
-    const scope = durableScope(
-      companyId,
-      driverId,
-      "catalog-barcode-create",
-      [
-        product.id,
-        targetUomId,
-        barcodeType,
-        isPrimary ? "primary" : "secondary",
-        encodeURIComponent(clean),
-      ].join(":")
-    );
+    const productId =
+      product.id;
+    const sequence =
+      requestSequence.current;
+    setLoadingMore(true);
+    try {
+      const parsed =
+        parseProductBarcodes(
+          await authFetch(
+            "/catalog/variants/" +
+              productId +
+              "/barcodes?limit=100&cursor=" +
+              encodeURIComponent(
+                nextCursor
+              )
+          )
+        );
+      if (
+        parsed.items.some(
+          (item) =>
+            item.product_variant_id !==
+            productId
+        ) ||
+        sequence !==
+          requestSequence.current
+      ) {
+        return;
+      }
+
+      const existingIds =
+        new Set(
+          items.map(
+            (item) => item.id
+          )
+        );
+      if (
+        parsed.items.some(
+          (item) =>
+            existingIds.has(
+              item.id
+            )
+        )
+      ) {
+        throw new Error(
+          "PRODUCT_BARCODES_CURSOR_DUPLICATE"
+        );
+      }
+
+      reconcileDeactivation(
+        parsed.items
+      );
+      setItems(
+        (current) => [
+          ...current,
+          ...parsed.items,
+        ]
+      );
+      setNextCursor(
+        parsed.next_cursor
+      );
+      setHasMore(
+        parsed.has_more
+      );
+    } catch (error) {
+      toast.error(
+        apiErrorMessage(
+          error,
+          t(
+            "products.barcodeManager.loadFailed"
+          )
+        )
+      );
+    } finally {
+      if (
+        sequence ===
+        requestSequence.current
+      ) {
+        setLoadingMore(false);
+      }
+    }
+  };
+
+  const addBarcode = async () => {
+    const clean = barcode.trim();
+    const scope =
+      createScope(product.id);
+    if (
+      !canMutate ||
+      !scope ||
+      targetUomId === null
+    ) {
+      return;
+    }
+
+    if (
+      !pendingCreate &&
+      !clean
+    ) {
+      return;
+    }
+    if (
+      !pendingCreate &&
+      target === "package" &&
+      product.package_uses_base_barcode
+    ) {
+      return;
+    }
+
+    const freshBody:
+      BarcodeCreateBody = {
+        uom_id: targetUomId,
+        barcode: clean,
+        barcode_type:
+          barcodeType,
+        is_primary:
+          isPrimary,
+        valid_from: null,
+        valid_to: null,
+      };
 
     setBusy(true);
     try {
-      const requestId =
-        await getOrCreateDurableRequestId(
+      const command =
+        pendingCreate ??
+        (await getOrCreateDurableCommand(
           scope,
-          body
-        );
+          freshBody
+        ));
+      setPendingCreate(
+        command
+      );
+
       parseProductBarcodeMutation(
         await authFetch(
           "/catalog/variants/" +
@@ -249,16 +565,17 @@ export function ProductBarcodeManager({
             method: "POST",
             body: JSON.stringify({
               request_id:
-                requestId,
-              ...body,
+                command.requestId,
+              ...command.payload,
             }),
           }
         )
       );
       completeDurableOperation(
         scope,
-        requestId
+        command.requestId
       );
+      setPendingCreate(null);
       toast.success(
         t(
           "products.barcodeManager.added"
@@ -269,6 +586,22 @@ export function ProductBarcodeManager({
       refreshBarcodes();
       await onChanged();
     } catch (error) {
+      const durableConflict =
+        apiErrorCode(error) ===
+        "DURABLE_OPERATION_PENDING";
+      if (
+        !durableConflict &&
+        !isAmbiguousRequestError(
+          error
+        )
+      ) {
+        abandonDurableOperation(
+          scope
+        );
+        setPendingCreate(
+          null
+        );
+      }
       toast.error(
         apiErrorMessage(
           error,
@@ -285,36 +618,38 @@ export function ProductBarcodeManager({
   const deactivate = async (
     item: ProductBarcodeRecord
   ) => {
+    const scope =
+      updateScope(item.id);
     if (
       !canMutate ||
       !item.is_active ||
-      companyId === null ||
-      driverId === null
+      !scope
     ) {
       return;
     }
 
-    const body = {
-      expected_version:
-        item.version,
-      is_primary: false,
-      valid_to: null,
-      is_active: false,
-    };
-    const scope = durableScope(
-      companyId,
-      driverId,
-      "catalog-barcode-update",
-      item.id
-    );
+    const freshBody:
+      BarcodeDeactivateBody = {
+        expected_version:
+          item.version,
+        is_primary: false,
+        valid_to: null,
+        is_active: false,
+      };
 
     setBusy(true);
     try {
-      const requestId =
-        await getOrCreateDurableRequestId(
+      const existing =
+        readDurableCommand<
+          BarcodeDeactivateBody
+        >(scope);
+      const command =
+        existing ??
+        (await getOrCreateDurableCommand(
           scope,
-          body
-        );
+          freshBody
+        ));
+
       parseProductBarcodeMutation(
         await authFetch(
           "/catalog/barcodes/" +
@@ -323,15 +658,15 @@ export function ProductBarcodeManager({
             method: "PATCH",
             body: JSON.stringify({
               request_id:
-                requestId,
-              ...body,
+                command.requestId,
+              ...command.payload,
             }),
           }
         )
       );
       completeDurableOperation(
         scope,
-        requestId
+        command.requestId
       );
       toast.success(
         t(
@@ -341,6 +676,17 @@ export function ProductBarcodeManager({
       refreshBarcodes();
       await onChanged();
     } catch (error) {
+      if (
+        !isAmbiguousRequestError(
+          error
+        ) &&
+        apiErrorCode(error) !==
+          "DURABLE_OPERATION_PENDING"
+      ) {
+        abandonDurableOperation(
+          scope
+        );
+      }
       toast.error(
         apiErrorMessage(
           error,
@@ -479,6 +825,28 @@ export function ProductBarcodeManager({
                   </div>
                 ))
               : null}
+
+            {loadReady &&
+            hasMore ? (
+              <button
+                type="button"
+                disabled={
+                  loadingMore
+                }
+                onClick={() =>
+                  void loadMore()
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
+              >
+                {loadingMore
+                  ? t(
+                      "common.loading"
+                    )
+                  : t(
+                      "products.barcodeManager.loadMore"
+                    )}
+              </button>
+            ) : null}
           </div>
         </section>
 
@@ -496,6 +864,24 @@ export function ProductBarcodeManager({
               )}
             </p>
 
+            {pendingCreate ? (
+              <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
+                {t(
+                  "products.barcodeManager.pendingRetry"
+                )}
+              </p>
+            ) : null}
+
+            {product.package_uom_id !==
+              null &&
+            product.package_uses_base_barcode ? (
+              <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-600">
+                {t(
+                  "products.barcodeManager.sharedPackageHint"
+                )}
+              </p>
+            ) : null}
+
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="text-xs font-bold text-slate-600">
                 {t(
@@ -503,7 +889,9 @@ export function ProductBarcodeManager({
                 )}
                 <select
                   value={target}
-                  disabled={!canMutate}
+                  disabled={
+                    !canEditCreate
+                  }
                   onChange={(event) =>
                     setTarget(
                       event.target
@@ -520,7 +908,8 @@ export function ProductBarcodeManager({
                     )}
                   </option>
                   {product.package_uom_id !==
-                  null ? (
+                    null &&
+                  !product.package_uses_base_barcode ? (
                     <option value="package">
                       {t(
                         "products.barcodeManager.package"
@@ -536,7 +925,9 @@ export function ProductBarcodeManager({
                 )}
                 <select
                   value={barcodeType}
-                  disabled={!canMutate}
+                  disabled={
+                    !canEditCreate
+                  }
                   onChange={(event) =>
                     setBarcodeType(
                       event.target
@@ -569,7 +960,9 @@ export function ProductBarcodeManager({
                 )}
                 <input
                   value={barcode}
-                  disabled={!canMutate}
+                  disabled={
+                    !canEditCreate
+                  }
                   onChange={(event) =>
                     setBarcode(
                       event.target.value
@@ -584,7 +977,9 @@ export function ProductBarcodeManager({
                 <input
                   type="checkbox"
                   checked={isPrimary}
-                  disabled={!canMutate}
+                  disabled={
+                    !canEditCreate
+                  }
                   onChange={(event) =>
                     setIsPrimary(
                       event.target
@@ -601,17 +996,23 @@ export function ProductBarcodeManager({
                 type="button"
                 disabled={
                   !canMutate ||
-                  !barcode.trim() ||
-                  targetUomId === null
+                  (!pendingCreate &&
+                    (!barcode.trim() ||
+                      targetUomId ===
+                        null))
                 }
                 onClick={() =>
                   void addBarcode()
                 }
                 className="sm:col-span-2 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40"
               >
-                {t(
-                  "products.barcodeManager.save"
-                )}
+                {pendingCreate
+                  ? t(
+                      "products.barcodeManager.retryPending"
+                    )
+                  : t(
+                      "products.barcodeManager.save"
+                    )}
               </button>
             </div>
           </section>
