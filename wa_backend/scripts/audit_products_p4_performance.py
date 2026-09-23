@@ -39,6 +39,9 @@ SEARCH_INDEXES = (
     "ix_products_company_name_trgm",
     "ix_product_barcodes_company_active_barcode_trgm",
 )
+BARCODE_FILTER_INDEX = (
+    "ix_product_barcodes_company_variant_active_validity"
+)
 
 
 def record(name: str, ok: bool, detail: str = "") -> None:
@@ -200,11 +203,10 @@ async def inspect_search_indexes(session) -> None:
                 FROM pg_proc AS p
                 JOIN pg_namespace AS ns
                   ON ns.oid = p.pronamespace
-                WHERE ns.nspname = 'public'
-                  AND p.proname =
-                    'simple_products_search_variant_ids'
-                  AND pg_get_function_identity_arguments(p.oid) =
-                    'expected_company_id integer, search_patterns text[], effective_at timestamp without time zone'
+                WHERE p.oid = to_regprocedure(
+                    'public.simple_products_search_variant_ids('
+                    'integer,text[],timestamp without time zone)'
+                )
                 """
             )
         )
@@ -226,9 +228,48 @@ async def inspect_search_indexes(session) -> None:
         function_ok,
     )
 
+    barcode_filter_row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    i.indisvalid,
+                    i.indisready,
+                    pg_get_indexdef(i.indexrelid) AS index_def
+                FROM pg_index AS i
+                JOIN pg_class AS idx
+                  ON idx.oid = i.indexrelid
+                WHERE idx.relname = :index_name
+                """
+            ),
+            {"index_name": BARCODE_FILTER_INDEX},
+        )
+    ).mappings().one_or_none()
+    barcode_filter_ok = (
+        barcode_filter_row is not None
+        and bool(barcode_filter_row["indisvalid"])
+        and bool(barcode_filter_row["indisready"])
+    )
+    print(
+        "INDEX_STATE "
+        f"name={BARCODE_FILTER_INDEX} "
+        f"valid={barcode_filter_ok} "
+        f"definition="
+        + (
+            str(barcode_filter_row["index_def"])
+            if barcode_filter_row is not None
+            else "MISSING"
+        )
+    )
+    record(
+        "effective barcode filter index is installed and valid",
+        barcode_filter_ok,
+    )
 
-async def search_index_scan_counts(
+
+async def index_scan_counts(
     session,
+    index_names: tuple[str, ...],
 ) -> dict[str, int]:
     rows = list(
         (
@@ -242,7 +283,7 @@ async def search_index_scan_counts(
                     WHERE indexrelname = ANY(:index_names)
                     """
                 ),
-                {"index_names": list(SEARCH_INDEXES)},
+                {"index_names": list(index_names)},
             )
         ).mappings()
     )
@@ -721,9 +762,21 @@ async def measure_scenario(
         "sku_search",
         "barcode_search",
     }
-    index_scans_before = (
-        await search_index_scan_counts(app)
+    tracked_indexes = (
+        SEARCH_INDEXES
         if track_search_indexes
+        else (
+            (BARCODE_FILTER_INDEX,)
+            if name == "common_filters"
+            else ()
+        )
+    )
+    index_scans_before = (
+        await index_scan_counts(
+            app,
+            tracked_indexes,
+        )
+        if tracked_indexes
         else {}
     )
 
@@ -845,9 +898,10 @@ async def measure_scenario(
             f"sql={statement[:220]}"
         )
 
-    if track_search_indexes:
-        index_scans_after = await search_index_scan_counts(
-            app
+    if tracked_indexes:
+        index_scans_after = await index_scan_counts(
+            app,
+            tracked_indexes,
         )
         deltas = {
             index_name:
@@ -859,14 +913,18 @@ async def measure_scenario(
                     index_name,
                     0,
                 )
-            for index_name in SEARCH_INDEXES
+            for index_name in tracked_indexes
         }
         print(
-            "SEARCH_INDEX_USAGE "
-            f"scenario={name} "
+            (
+                "SEARCH_INDEX_USAGE "
+                if track_search_indexes
+                else "FILTER_INDEX_USAGE "
+            )
+            + f"scenario={name} "
             + " ".join(
                 f"{index_name}={deltas[index_name]}"
-                for index_name in SEARCH_INDEXES
+                for index_name in tracked_indexes
             )
         )
 
