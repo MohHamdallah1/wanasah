@@ -203,7 +203,10 @@ export interface SimpleProduct {
   name: string;
   family_name: string;
   sku: string;
-  units_per_package: number;
+  units_per_package: number | null;
+  legacy_packs_per_carton: number;
+  base_uom_id: number;
+  package_uom_id: number | null;
   package_uom_code: string | null;
   currency_code: string;
   package_price: string | null;
@@ -327,22 +330,91 @@ export function parseSimpleProductPage(
       return contractError(code);
     }
 
+    const simpleCompatible = bool(
+      row.simple_compatible,
+      code,
+    );
+    const unitsPerPackage =
+      row.units_per_package === null
+        ? null
+        : int(
+            row.units_per_package,
+            code,
+            1,
+          );
+    const legacyPacksPerCarton = int(
+      row.legacy_packs_per_carton,
+      code,
+      1,
+    );
+    const baseUomId = int(
+      row.base_uom_id,
+      code,
+      1,
+    );
+    const packageUomId =
+      row.package_uom_id === null
+        ? null
+        : int(
+            row.package_uom_id,
+            code,
+            1,
+          );
+    const packageUomCode = nullableStr(
+      row.package_uom_code,
+      code,
+      30,
+    );
+    if (
+      (packageUomId === null) !==
+      (packageUomCode === null)
+    ) {
+      return contractError(code);
+    }
+    if (
+      simpleCompatible &&
+      unitsPerPackage === null
+    ) {
+      return contractError(code);
+    }
+    if (
+      !simpleCompatible &&
+      packageUomId === null &&
+      packageUomCode === null &&
+      unitsPerPackage !== null
+    ) {
+      return contractError(code);
+    }
+    if (
+      packageUomId === null &&
+      simpleCompatible &&
+      unitsPerPackage !== 1
+    ) {
+      return contractError(code);
+    }
+    if (
+      packageUomId !== null &&
+      (
+        packageUomId === baseUomId ||
+        unitsPerPackage === null ||
+        unitsPerPackage < 2
+      )
+    ) {
+      return contractError(code);
+    }
+
     return {
       id,
       product_id: int(row.product_id, code, 1),
       name: str(row.name, code, 200),
       family_name: str(row.family_name, code, 150),
       sku: str(row.sku, code, 100),
-      units_per_package: int(
-        row.units_per_package,
-        code,
-        1,
-      ),
-      package_uom_code: nullableStr(
-        row.package_uom_code,
-        code,
-        30,
-      ),
+      units_per_package: unitsPerPackage,
+      legacy_packs_per_carton:
+        legacyPacksPerCarton,
+      base_uom_id: baseUomId,
+      package_uom_id: packageUomId,
+      package_uom_code: packageUomCode,
       currency_code: str(
         row.currency_code,
         code,
@@ -394,10 +466,8 @@ export function parseSimpleProductPage(
       lifecycle_status: lifecycle as
         | "ACTIVE"
         | "RETIRING",
-      simple_compatible: bool(
-        row.simple_compatible,
-        code,
-      ),
+      simple_compatible:
+        simpleCompatible,
     };
   });
 
@@ -677,5 +747,131 @@ export function parseProductImportErrorPage(
   return {
     items,
     next_after_row: next,
+  };
+}
+
+
+export type ProductBarcodeType =
+  | "EAN8"
+  | "EAN13"
+  | "UPC_A"
+  | "GTIN14"
+  | "GS1_128"
+  | "INTERNAL";
+
+export interface ProductBarcodeRecord {
+  id: number;
+  product_variant_id: number;
+  uom: {
+    id: number;
+    code: string;
+    name: string;
+  };
+  barcode: string;
+  barcode_type: ProductBarcodeType;
+  is_primary: boolean;
+  valid_from: string;
+  valid_to: string | null;
+  is_active: boolean;
+  version: number;
+}
+
+export function parseProductBarcodes(
+  raw: unknown,
+): {
+  items: ProductBarcodeRecord[];
+  next_cursor: string | null;
+  has_more: boolean;
+} {
+  const code = "PRODUCT_BARCODES_RESPONSE_INVALID";
+  const page = record(raw, code);
+  if (
+    !Array.isArray(page.items) ||
+    page.items.length > 200 ||
+    typeof page.has_more !== "boolean"
+  ) {
+    return contractError(code);
+  }
+  const nextCursor = nullableStr(
+    page.next_cursor,
+    code,
+    512,
+  );
+  if (
+    page.has_more &&
+    nextCursor === null
+  ) {
+    return contractError(code);
+  }
+  if (
+    !page.has_more &&
+    nextCursor !== null
+  ) {
+    return contractError(code);
+  }
+
+  const ids = new Set<number>();
+  const items = page.items.map((rawItem) => {
+    const row = record(rawItem, code);
+    const uom = record(row.uom, code);
+    const id = int(row.id, code, 1);
+    if (ids.has(id)) return contractError(code);
+    ids.add(id);
+
+    const barcodeType = row.barcode_type;
+    if (
+      barcodeType !== "EAN8" &&
+      barcodeType !== "EAN13" &&
+      barcodeType !== "UPC_A" &&
+      barcodeType !== "GTIN14" &&
+      barcodeType !== "GS1_128" &&
+      barcodeType !== "INTERNAL"
+    ) {
+      return contractError(code);
+    }
+
+    return {
+      id,
+      product_variant_id: int(
+        row.product_variant_id,
+        code,
+        1,
+      ),
+      uom: {
+        id: int(uom.id, code, 1),
+        code: str(uom.code, code, 30),
+        name: str(uom.name, code, 100),
+      },
+      barcode: str(row.barcode, code, 128),
+      barcode_type: barcodeType,
+      is_primary: bool(row.is_primary, code),
+      valid_from: str(row.valid_from, code, 64),
+      valid_to: nullableStr(row.valid_to, code, 64),
+      is_active: bool(row.is_active, code),
+      version: int(row.version, code, 1),
+    };
+  });
+
+  return {
+    items,
+    next_cursor: nextCursor,
+    has_more: page.has_more,
+  };
+}
+
+
+export function parseProductBarcodeMutation(
+  raw: unknown,
+): {
+  barcode: ProductBarcodeRecord;
+} {
+  const code = "PRODUCT_BARCODE_MUTATION_RESPONSE_INVALID";
+  const row = record(raw, code);
+  return {
+    barcode: parseProductBarcodes({
+      items: [row.barcode],
+      next_cursor: null,
+      has_more: false,
+    }).items[0],
   };
 }

@@ -916,9 +916,21 @@ async def list_simple_products(
                     "units_per_package": (
                         int(shape.units_per_package)
                         if shape is not None
-                        else int(
-                            variant.packs_per_carton
-                        )
+                        else None
+                    ),
+                    "legacy_packs_per_carton": int(
+                        variant.packs_per_carton
+                    ),
+                    "base_uom_id": (
+                        int(shape.base_uom.id)
+                        if shape is not None
+                        else int(variant.base_uom_id)
+                    ),
+                    "package_uom_id": (
+                        int(shape.package_uom.id)
+                        if shape is not None
+                        and shape.package_uom is not None
+                        else None
                     ),
                     "package_uom_code": (
                         str(shape.package_uom.code)
@@ -1098,7 +1110,11 @@ async def update_simple_product_price(
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
-    await _require_manage(db, actor)
+    await _require(
+        db,
+        actor,
+        "pricing.manage",
+    )
 
     try:
         idem, replay = await begin_idempotent_operation(

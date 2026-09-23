@@ -51,6 +51,9 @@ describe("products tracking UI contracts", () => {
           family_name: "Sample",
           sku: "SKU-10",
           units_per_package: 50,
+          legacy_packs_per_carton: 50,
+          base_uom_id: 1,
+          package_uom_id: 2,
           package_uom_code: "CARTON",
           currency_code: "JOD",
           package_price: "10.000000",
@@ -196,15 +199,24 @@ describe("products tracking UI contracts", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const row = normalizeWhitespace(
+      readSource("../pages/products/ProductTableRow.tsx"),
+    );
 
     expect(page).toContain(
       'const canManageCatalog = access.isCompanyAdmin || access.canAny( "catalog.manage" );',
     );
     expect(page).toContain(
-      "{canManageCatalog ? (",
+      "canEditTracking={ canManageCatalog }",
     );
     expect(page).toContain(
-      "openTrackingEditor( item )",
+      "onEditTracking={ openTrackingEditor }",
+    );
+    expect(row).toContain(
+      "{canEditTracking ? (",
+    );
+    expect(row).toContain(
+      "onEditTracking(item)",
     );
   });
 

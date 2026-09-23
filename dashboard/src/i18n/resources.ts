@@ -71,6 +71,17 @@ export const resources = {
         advancedPricing: "التسعير المتقدم",
         advancedPricingHint:
           "سيتم تفعيله لاحقاً",
+        quickCreate: {
+          advancedTitle: "إعدادات متقدمة",
+          advancedHint:
+            "للباركود أو تخصيص التتبع لهذا المنتج. الإعدادات الأساسية تكفي لمعظم المنتجات.",
+          showAdvanced: "عرض الإعدادات",
+          hideAdvanced: "إخفاء الإعدادات",
+          trackingAdvancedHint:
+            "يستخدم المنتج افتراضيات الشركة. افتح الإعدادات المتقدمة فقط إذا احتجت استثناءً لهذا المنتج.",
+          systemManagedHint:
+            "في الإنشاء السريع يولّد النظام SKU ويطبق دورة النشر المعتمدة تلقائياً. يمكنك مراجعة الهوية والحالة بعد الحفظ من تفاصيل المنتج.",
+        },
         emptyTitle: "لا توجد منتجات بعد",
         emptyDescription:
           "أضف منتجاً أو استورد ملفاً.",
@@ -84,6 +95,57 @@ export const resources = {
           action: "الإجراء",
         },
         editPrice: "تعديل السعر",
+        details: {
+          open: "عرض التفاصيل",
+          title: "تفاصيل المنتج",
+          identity: "هوية المنتج",
+          lifecycle: "حالة المنتج",
+          lifecycleModes: {
+            ACTIVE: "نشط",
+            RETIRING: "قيد الإيقاف",
+          },
+          package: "العبوة",
+          tracking: "التتبع",
+          barcodes: "الباركود",
+          pricing: "التسعير",
+          compatibility: "التوافق",
+          simpleCompatible:
+            "هذا المنتج متوافق مع مسار المنتجات المبسط ويمكن إدارته من هذه الصفحة.",
+          advancedOnly:
+            "هذا المنتج يحتوي إعدادات متقدمة؛ اعرض تفاصيله هنا واستخدم الإدارة المتقدمة عند الحاجة للتعديل.",
+          notSet: "غير محدد",
+        },
+        barcodeManager: {
+          action: "إدارة الباركود",
+          title: "إدارة الباركود — {{name}}",
+          current: "الباركودات الحالية",
+          none: "لا توجد باركودات مسجلة.",
+          add: "إضافة باركود",
+          scope: "الوحدة المرتبطة",
+          unit: "وحدة الأساس",
+          package: "العبوة",
+          type: "نوع الباركود",
+          value: "قيمة الباركود",
+          makePrimary: "تعيينه باركوداً أساسياً لهذه الوحدة",
+          primary: "أساسي",
+          inactive: "غير فعال",
+          deactivate: "تعطيل",
+          save: "إضافة الباركود",
+          added: "تمت إضافة الباركود.",
+          deactivated: "تم تعطيل الباركود مع الاحتفاظ بسجله.",
+          loadMore: "تحميل المزيد",
+          pendingRetry:
+            "هناك محاولة سابقة نتيجتها غير مؤكدة. الحقول مقفلة حتى تعيد نفس الطلب بأمان.",
+          pendingBlocked:
+            "تعذر التحقق من الطلب المعلّق المحفوظ. تم إيقاف إنشاء باركود جديد حتى تتم تسوية الطلب بدون مخاطرة التكرار.",
+          retryPending: "إعادة إرسال الطلب المعلّق",
+          sharedPackageHint:
+            "باركود العبوة مرتبط حالياً بباركود وحدة الأساس. إضافة باركود عبوة مستقل تتطلب أولاً تغيير سياسة الباركود من الإدارة المتقدمة.",
+          historyHint:
+            "لا نحذف تاريخ الباركود. عند الاستبدال عطّل السجل القديم ثم أضف السجل الجديد.",
+          loadFailed: "تعذر تحميل باركودات المنتج.",
+          saveFailed: "تعذر حفظ تغيير الباركود.",
+        },
         addTitle: "إضافة منتج",
         productName: "اسم المنتج",
         productNamePlaceholder:
@@ -287,6 +349,9 @@ export const resources = {
           expiryControlMode: "تتبع الصلاحية",
         },
         errors: {
+          listLoadTitle: "تعذر تحميل المنتجات",
+          listLoadDescription:
+            "فشل طلب المنتجات، لذلك لن نعرض حالة فارغة مضللة. تحقق من الاتصال ثم أعد المحاولة.",
           nameRequired: "اسم المنتج مطلوب.",
           packageUnitsInvalid:
             "عدد الحبات داخل العبوة يجب أن يكون رقماً صحيحاً أكبر من 1.",
@@ -772,6 +837,10 @@ export const resources = {
             "لا يوجد اتصال بالإنترنت.",
           REQUEST_TIMEOUT:
             "انتهت مهلة الاتصال. يمكنك إعادة المحاولة بأمان.",
+          DURABLE_OPERATION_PENDING:
+            "يوجد طلب سابق لنفس العملية لم تُحسم نتيجته بعد. أعد نفس الطلب أو أكمل تسويته قبل إرسال طلب مختلف.",
+          DURABLE_OPERATION_CORRUPT:
+            "تعذر التحقق من الطلب المعلّق المحفوظ على هذا الجهاز. أُوقفت العملية لحمايتها من التكرار حتى تتم تسويتها.",
           INVALID_SERVER_RESPONSE:
             "وصلت استجابة غير صالحة من السيرفر.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:
@@ -880,6 +949,17 @@ export const resources = {
         advancedPricing: "Advanced pricing",
         advancedPricingHint:
           "Will be enabled later",
+        quickCreate: {
+          advancedTitle: "Advanced settings",
+          advancedHint:
+            "Use these for barcodes or a product-specific tracking override. The basic fields are enough for most products.",
+          showAdvanced: "Show settings",
+          hideAdvanced: "Hide settings",
+          trackingAdvancedHint:
+            "This product uses the company defaults. Open Advanced settings only when this product needs an exception.",
+          systemManagedHint:
+            "Quick Create generates the SKU and applies the approved publish lifecycle automatically. Review identity and status from Product details after saving.",
+        },
         emptyTitle: "No products yet",
         emptyDescription:
           "Add a product or import a file.",
@@ -894,6 +974,57 @@ export const resources = {
           action: "Action",
         },
         editPrice: "Edit price",
+        details: {
+          open: "View details",
+          title: "Product details",
+          identity: "Product identity",
+          lifecycle: "Product status",
+          lifecycleModes: {
+            ACTIVE: "Active",
+            RETIRING: "Retiring",
+          },
+          package: "Packaging",
+          tracking: "Tracking",
+          barcodes: "Barcodes",
+          pricing: "Pricing",
+          compatibility: "Compatibility",
+          simpleCompatible:
+            "This product is compatible with the simple product workflow and can be managed from this page.",
+          advancedOnly:
+            "This product has advanced settings; review its details here and use advanced management when an edit is required.",
+          notSet: "Not set",
+        },
+        barcodeManager: {
+          action: "Manage barcodes",
+          title: "Manage barcodes — {{name}}",
+          current: "Current barcodes",
+          none: "No barcodes are registered.",
+          add: "Add barcode",
+          scope: "Associated unit",
+          unit: "Base unit",
+          package: "Package",
+          type: "Barcode type",
+          value: "Barcode value",
+          makePrimary: "Make this the primary barcode for the unit",
+          primary: "Primary",
+          inactive: "Inactive",
+          deactivate: "Deactivate",
+          save: "Add barcode",
+          added: "Barcode added.",
+          deactivated: "Barcode deactivated and its history was preserved.",
+          loadMore: "Load more",
+          pendingRetry:
+            "A previous attempt has an unknown outcome. Fields are locked until the same command is retried safely.",
+          pendingBlocked:
+            "The saved pending command could not be verified. New barcode creation is blocked until the command is safely reconciled.",
+          retryPending: "Retry pending command",
+          sharedPackageHint:
+            "The package barcode currently shares the base-unit barcode. A distinct package barcode requires changing the barcode policy in advanced management first.",
+          historyHint:
+            "Barcode history is preserved. To replace a barcode, deactivate the old record and add a new one.",
+          loadFailed: "Could not load product barcodes.",
+          saveFailed: "Could not save the barcode change.",
+        },
         addTitle: "Add product",
         productName: "Product name",
         productNamePlaceholder:
@@ -1095,6 +1226,9 @@ export const resources = {
           expiryControlMode: "Expiry tracking",
         },
         errors: {
+          listLoadTitle: "Products could not be loaded",
+          listLoadDescription:
+            "The products request failed, so an empty catalog is not shown. Check the connection and try again.",
           nameRequired:
             "Product name is required.",
           packageUnitsInvalid:
@@ -1581,6 +1715,10 @@ export const resources = {
             "No internet connection.",
           REQUEST_TIMEOUT:
             "The request timed out. It is safe to retry.",
+          DURABLE_OPERATION_PENDING:
+            "A previous command for this operation still has an unknown outcome. Retry that exact command or reconcile it before sending a different one.",
+          DURABLE_OPERATION_CORRUPT:
+            "The saved pending command on this device could not be verified. The operation was blocked to prevent a duplicate until it is reconciled.",
           INVALID_SERVER_RESPONSE:
             "The server returned an invalid response.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:

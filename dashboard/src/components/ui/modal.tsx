@@ -1,6 +1,7 @@
 import { useEffect, useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface ModalProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ export function Modal({
   footer,
   maxWidth = "max-w-2xl",
 }: ModalProps) {
+  const { t, i18n } = useTranslation();
   const titleId = useId();
   useEffect(() => {
     if (!isOpen) return;
@@ -31,7 +33,10 @@ export function Modal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="app-modal fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" dir="rtl">
+        <div
+          className="app-modal fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+          dir={i18n.dir()}
+        >
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -53,7 +58,7 @@ export function Modal({
               <button
                 onClick={onClose}
                 className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-                aria-label="إغلاق النافذة"
+                aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" strokeWidth={2} />
               </button>

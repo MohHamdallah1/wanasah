@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import hmac
 import json
 import re
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
+from config import Config
 from database import get_db
 from gs1 import Gs1ParseError, parse_gs1
 from inventory_access import InventoryAccess
@@ -129,6 +131,107 @@ def _next_cursor(value: int) -> str:
     return base64.urlsafe_b64encode(str(value).encode("ascii")).decode("ascii").rstrip("=")
 
 
+def _barcode_cursor_scope(
+    *,
+    company_id: int,
+    variant_id: int,
+    limit: int,
+) -> str:
+    encoded = json.dumps(
+        {
+            "company_id": int(company_id),
+            "variant_id": int(variant_id),
+            "limit": int(limit),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _barcode_cursor_signature(payload: bytes) -> bytes:
+    return hmac.new(
+        Config.SECRET_KEY.encode("utf-8"),
+        payload,
+        hashlib.sha256,
+    ).digest()
+
+
+def _barcode_cursor(
+    value: Optional[str],
+    *,
+    company_id: int,
+    variant_id: int,
+    limit: int,
+) -> int:
+    if value is None:
+        return 0
+    try:
+        payload_part, signature_part = value.split(".", 1)
+        payload = base64.urlsafe_b64decode(
+            payload_part + "=" * (-len(payload_part) % 4)
+        )
+        signature = base64.urlsafe_b64decode(
+            signature_part + "=" * (-len(signature_part) % 4)
+        )
+        if not hmac.compare_digest(
+            signature,
+            _barcode_cursor_signature(payload),
+        ):
+            raise ValueError("cursor signature mismatch")
+        data = json.loads(payload.decode("utf-8"))
+        if (
+            not isinstance(data, dict)
+            or set(data) != {"v", "after", "scope"}
+            or data.get("v") != 1
+            or not isinstance(data.get("after"), int)
+            or data["after"] <= 0
+            or data.get("scope")
+            != _barcode_cursor_scope(
+                company_id=company_id,
+                variant_id=variant_id,
+                limit=limit,
+            )
+        ):
+            raise ValueError("cursor payload mismatch")
+        return int(data["after"])
+    except Exception as exc:
+        raise _error(
+            400,
+            "INVALID_CURSOR",
+            "Cursor الباركود غير صالح.",
+        ) from exc
+
+
+def _barcode_next_cursor(
+    value: int,
+    *,
+    company_id: int,
+    variant_id: int,
+    limit: int,
+) -> str:
+    payload = json.dumps(
+        {
+            "v": 1,
+            "after": int(value),
+            "scope": _barcode_cursor_scope(
+                company_id=company_id,
+                variant_id=variant_id,
+                limit=limit,
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    payload_part = base64.urlsafe_b64encode(
+        payload
+    ).decode("ascii").rstrip("=")
+    signature_part = base64.urlsafe_b64encode(
+        _barcode_cursor_signature(payload)
+    ).decode("ascii").rstrip("=")
+    return f"{payload_part}.{signature_part}"
+
+
 def _search_pattern(value: str) -> str:
     clean = value.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{clean}%"
@@ -140,6 +243,25 @@ def _utc_naive(value: Optional[datetime]) -> Optional[datetime]:
     if value.tzinfo is None:
         raise ValueError("التاريخ يجب أن يحتوي UTC offset.")
     return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _barcode_update_valid_to(
+    *,
+    row_valid_from: datetime,
+    requested_valid_to: Optional[datetime],
+    is_active: bool,
+    now: Optional[datetime] = None,
+) -> Optional[datetime]:
+    valid_to = _utc_naive(requested_valid_to)
+    if is_active or valid_to is not None:
+        return valid_to
+
+    current = (
+        now.astimezone(timezone.utc).replace(tzinfo=None)
+        if now is not None and now.tzinfo is not None
+        else now
+    ) or datetime.now(timezone.utc).replace(tzinfo=None)
+    return current if current > row_valid_from else None
 
 
 async def _require(db: AsyncSession, actor: Driver, permission: str) -> None:
@@ -258,7 +380,7 @@ class BarcodeCreate(StrictRequest):
     barcode: str = Field(max_length=128)
     barcode_type: Literal["EAN8", "EAN13", "UPC_A", "GTIN14", "GS1_128", "INTERNAL"]
     is_primary: bool = False
-    valid_from: datetime
+    valid_from: Optional[datetime] = None
     valid_to: Optional[datetime] = None
 
     @field_validator("barcode", mode="before")
@@ -270,7 +392,11 @@ class BarcodeCreate(StrictRequest):
     def validity(self):
         start = _utc_naive(self.valid_from)
         end = _utc_naive(self.valid_to)
-        if end is not None and end <= start:
+        if (
+            start is not None
+            and end is not None
+            and end <= start
+        ):
             raise ValueError("valid_to يجب أن يكون بعد valid_from.")
         return self
 
@@ -720,12 +846,59 @@ async def update_conversion(
 
 
 @router.get("/variants/{variant_id}/barcodes")
-async def list_barcodes(variant_id: int, db: AsyncSession = Depends(get_db), actor: Driver = Depends(get_current_driver)):
+async def list_barcodes(
+    variant_id: int,
+    cursor: Optional[str] = Query(None, max_length=512),
+    limit: int = Query(100, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
     await _require(db, actor, "catalog.read")
-    if await db.scalar(select(ProductVariant.id).where(ProductVariant.company_id == actor.company_id, ProductVariant.id == variant_id)) is None:
+    if await db.scalar(
+        select(ProductVariant.id).where(
+            ProductVariant.company_id == actor.company_id,
+            ProductVariant.id == variant_id,
+        )
+    ) is None:
         raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
-    rows = (await db.execute(select(ProductBarcode, UOM).join(UOM, UOM.id == ProductBarcode.uom_id).where(ProductBarcode.company_id == actor.company_id, ProductBarcode.product_variant_id == variant_id).order_by(ProductBarcode.id))).all()
-    return {"items": [_barcode_row(row, uom) for row, uom in rows]}
+
+    after_id = _barcode_cursor(
+        cursor,
+        company_id=actor.company_id,
+        variant_id=variant_id,
+        limit=limit,
+    )
+    rows = (
+        await db.execute(
+            select(ProductBarcode, UOM)
+            .join(UOM, UOM.id == ProductBarcode.uom_id)
+            .where(
+                ProductBarcode.company_id == actor.company_id,
+                ProductBarcode.product_variant_id == variant_id,
+                ProductBarcode.id > after_id,
+            )
+            .order_by(ProductBarcode.id.asc())
+            .limit(limit + 1)
+        )
+    ).all()
+    page, has_more = rows[:limit], len(rows) > limit
+    return {
+        "items": [
+            _barcode_row(row, uom)
+            for row, uom in page
+        ],
+        "next_cursor": (
+            _barcode_next_cursor(
+                page[-1][0].id,
+                company_id=actor.company_id,
+                variant_id=variant_id,
+                limit=limit,
+            )
+            if has_more and page
+            else None
+        ),
+        "has_more": has_more,
+    }
 
 
 @router.post("/variants/{variant_id}/barcodes", status_code=201)
@@ -745,7 +918,13 @@ async def create_barcode(variant_id: int, payload: BarcodeCreate, db: AsyncSessi
                 parse_gs1(payload.barcode)
             else:
                 _gtin(payload.barcode)
-        row = ProductBarcode(company_id=actor.company_id, product_variant_id=variant_id, uom_id=payload.uom_id, barcode=payload.barcode, barcode_type=payload.barcode_type, is_primary=payload.is_primary, valid_from=_utc_naive(payload.valid_from), valid_to=_utc_naive(payload.valid_to), is_active=True)
+        valid_from = (
+            _utc_naive(payload.valid_from)
+            or datetime.now(timezone.utc).replace(
+                tzinfo=None
+            )
+        )
+        row = ProductBarcode(company_id=actor.company_id, product_variant_id=variant_id, uom_id=payload.uom_id, barcode=payload.barcode, barcode_type=payload.barcode_type, is_primary=payload.is_primary, valid_from=valid_from, valid_to=_utc_naive(payload.valid_to), is_active=True)
         db.add(row)
         await db.flush()
         uom = await db.get(UOM, row.uom_id)
@@ -778,7 +957,11 @@ async def update_barcode(barcode_id: int, payload: BarcodeUpdate, db: AsyncSessi
             raise _error(404, "BARCODE_NOT_FOUND", "الباركود غير موجود.")
         if row.version != payload.expected_version:
             raise _error(409, "BARCODE_VERSION_CONFLICT", "تغير الباركود؛ حدّث البيانات وأعد المحاولة.", current_version=row.version)
-        valid_to = _utc_naive(payload.valid_to)
+        valid_to = _barcode_update_valid_to(
+            row_valid_from=row.valid_from,
+            requested_valid_to=payload.valid_to,
+            is_active=payload.is_active,
+        )
         if valid_to is not None and valid_to <= row.valid_from:
             raise _error(422, "BARCODE_VALIDITY_INVALID", "valid_to يجب أن يكون بعد valid_from.")
         old = {"is_primary": row.is_primary, "valid_to": row.valid_to, "is_active": row.is_active, "version": row.version}

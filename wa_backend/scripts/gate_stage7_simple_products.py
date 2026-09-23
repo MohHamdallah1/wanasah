@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,6 +28,11 @@ def check(condition: bool, label: str) -> None:
 
 
 def static_checks() -> None:
+    from api.catalog import (
+        _barcode_cursor,
+        _barcode_next_cursor,
+        _barcode_update_valid_to,
+    )
     from domains.product_tracking import (
         INTERNAL_NO_LOT_PREFIX,
         build_internal_no_lot_batch_number,
@@ -111,6 +117,89 @@ def static_checks() -> None:
         no_package.package_price is None
         and no_package.unit_price == Decimal("0.300000"),
         "Unit-only product is supported without an outer package",
+    )
+
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    future_start = now + timedelta(days=1)
+    past_start = (now - timedelta(days=1)).replace(tzinfo=None)
+    check(
+        _barcode_update_valid_to(
+            row_valid_from=future_start.replace(tzinfo=None),
+            requested_valid_to=None,
+            is_active=False,
+            now=now,
+        )
+        is None
+        and _barcode_update_valid_to(
+            row_valid_from=past_start,
+            requested_valid_to=None,
+            is_active=False,
+            now=now,
+        )
+        == now.replace(tzinfo=None),
+        "Future-dated barcodes can be cancelled without invalid validity windows",
+    )
+
+    barcode_cursor = _barcode_next_cursor(
+        123,
+        company_id=7,
+        variant_id=11,
+        limit=100,
+    )
+    check(
+        _barcode_cursor(
+            barcode_cursor,
+            company_id=7,
+            variant_id=11,
+            limit=100,
+        )
+        == 123,
+        "Barcode cursor round-trips only within its exact scope",
+    )
+
+    cross_product_rejected = False
+    try:
+        _barcode_cursor(
+            barcode_cursor,
+            company_id=7,
+            variant_id=12,
+            limit=100,
+        )
+    except Exception as exc:
+        cross_product_rejected = (
+            getattr(exc, "status_code", None) == 400
+        )
+    check(
+        cross_product_rejected,
+        "Barcode cursor rejects a different product scope",
+    )
+
+    payload_part, signature_part = barcode_cursor.split(".", 1)
+    tampered_cursor = (
+        payload_part
+        + "."
+        + (
+            "A"
+            if signature_part[0] != "A"
+            else "B"
+        )
+        + signature_part[1:]
+    )
+    tampered_cursor_rejected = False
+    try:
+        _barcode_cursor(
+            tampered_cursor,
+            company_id=7,
+            variant_id=11,
+            limit=100,
+        )
+    except Exception as exc:
+        tampered_cursor_rejected = (
+            getattr(exc, "status_code", None) == 400
+        )
+    check(
+        tampered_cursor_rejected,
+        "Barcode cursor rejects signature tampering",
     )
 
     headers, rows = parse_source(

@@ -28,6 +28,9 @@ const baseItem = {
   family_name: "Sample family",
   sku: "SKU-10",
   units_per_package: 1,
+  legacy_packs_per_carton: 1,
+  base_uom_id: 1,
+  package_uom_id: null,
   package_uom_code: null,
   currency_code: "JOD",
   package_price: null,
@@ -59,6 +62,71 @@ describe("products P2 read contract", () => {
     expect(page.items[0].lifecycle_status).toBe("ACTIVE");
     expect(page.items[0].package_price).toBeNull();
     expect(page.items[0].unit_price).toBeNull();
+  });
+
+  it("accepts incompatible products while keeping legacy pack factors separate from package identity", () => {
+    const page = parseSimpleProductPage({
+      currency_code: "JOD",
+      pricing_visible: false,
+      items: [
+        {
+          ...baseItem,
+          units_per_package: null,
+          legacy_packs_per_carton: 50,
+          package_uom_id: null,
+          package_uom_code: null,
+          simple_compatible: false,
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    expect(page.items[0].simple_compatible).toBe(false);
+    expect(page.items[0].units_per_package).toBeNull();
+    expect(page.items[0].legacy_packs_per_carton).toBe(50);
+    expect(page.items[0].package_uom_id).toBeNull();
+  });
+
+  it("accepts a published 1-to-1 catalog package as advanced instead of failing the list", () => {
+    const page = parseSimpleProductPage({
+      currency_code: "JOD",
+      pricing_visible: false,
+      items: [
+        {
+          ...baseItem,
+          units_per_package: null,
+          legacy_packs_per_carton: 1,
+          package_uom_id: null,
+          package_uom_code: null,
+          simple_compatible: false,
+        },
+      ],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    expect(page.items[0].simple_compatible).toBe(false);
+    expect(page.items[0].units_per_package).toBeNull();
+    expect(page.items[0].legacy_packs_per_carton).toBe(1);
+  });
+
+  it("fails closed on contradictory product UOM identity", () => {
+    expect(() =>
+      parseSimpleProductPage({
+        currency_code: "JOD",
+        pricing_visible: false,
+        items: [
+          {
+            ...baseItem,
+            package_uom_id: 2,
+            package_uom_code: null,
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+      }),
+    ).toThrow("SIMPLE_PRODUCTS_RESPONSE_INVALID");
   });
 
   it("fails closed if hidden pricing leaks into a catalog-only payload", () => {
@@ -234,6 +302,11 @@ describe("products P2 read contract", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const row = normalizeWhitespace(
+      readSource(
+        "../pages/products/ProductTableRow.tsx",
+      ),
+    );
 
     expect(page).toContain(
       '"simple-products", companyId, search, cursor',
@@ -247,14 +320,17 @@ describe("products P2 read contract", () => {
     expect(page).toContain(
       "page?.pricing_visible && canViewPricing",
     );
-    expect(page).toContain(
+    expect(row).toContain(
       "{pricingVisible ? (",
     );
-    expect(page).toContain(
+    expect(row).toContain(
       '"products.fields.sku"',
     );
+    expect(row).toContain(
+      "canEditPrice && item.simple_compatible",
+    );
     expect(page).toContain(
-      "canManage && pricingVisible && item.simple_compatible",
+      "canEditPrice={ canEditSimplePrice }",
     );
     expect(page).toContain(
       "setCursor(null); setHistory([]);",
