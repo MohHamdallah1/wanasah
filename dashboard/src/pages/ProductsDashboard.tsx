@@ -662,6 +662,11 @@ export default function ProductsDashboard() {
     });
 
   useEffect(() => {
+    setCursor(null);
+    setHistory([]);
+    setPriceEdit(null);
+    setEditPackagePrice("");
+    setEditUnitPrice("");
     setImportLotControlMode(null);
     setImportExpiryControlMode(null);
     setImportTrackingExpanded(false);
