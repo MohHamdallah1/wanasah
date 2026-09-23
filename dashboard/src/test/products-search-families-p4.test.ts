@@ -173,6 +173,15 @@ describe(
       expect(page).toContain(
         "<ProductFamiliesManager",
       );
+      expect(page).toContain(
+        'maxLength={100}',
+      );
+      expect(api).toContain(
+        'if key != "_sort_name"',
+      );
+      expect(service).toContain(
+        'name_key.label("sort_name")',
+      );
     });
 
     it("surfaces family load failure separately from empty search results", () => {
