@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import hmac
 import json
 import re
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
+from config import Config
 from database import get_db
 from gs1 import Gs1ParseError, parse_gs1
 from inventory_access import InventoryAccess
@@ -127,6 +129,107 @@ def _cursor(value: Optional[str]) -> int:
 
 def _next_cursor(value: int) -> str:
     return base64.urlsafe_b64encode(str(value).encode("ascii")).decode("ascii").rstrip("=")
+
+
+def _barcode_cursor_scope(
+    *,
+    company_id: int,
+    variant_id: int,
+    limit: int,
+) -> str:
+    encoded = json.dumps(
+        {
+            "company_id": int(company_id),
+            "variant_id": int(variant_id),
+            "limit": int(limit),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _barcode_cursor_signature(payload: bytes) -> bytes:
+    return hmac.new(
+        Config.SECRET_KEY.encode("utf-8"),
+        payload,
+        hashlib.sha256,
+    ).digest()
+
+
+def _barcode_cursor(
+    value: Optional[str],
+    *,
+    company_id: int,
+    variant_id: int,
+    limit: int,
+) -> int:
+    if value is None:
+        return 0
+    try:
+        payload_part, signature_part = value.split(".", 1)
+        payload = base64.urlsafe_b64decode(
+            payload_part + "=" * (-len(payload_part) % 4)
+        )
+        signature = base64.urlsafe_b64decode(
+            signature_part + "=" * (-len(signature_part) % 4)
+        )
+        if not hmac.compare_digest(
+            signature,
+            _barcode_cursor_signature(payload),
+        ):
+            raise ValueError("cursor signature mismatch")
+        data = json.loads(payload.decode("utf-8"))
+        if (
+            not isinstance(data, dict)
+            or set(data) != {"v", "after", "scope"}
+            or data.get("v") != 1
+            or not isinstance(data.get("after"), int)
+            or data["after"] <= 0
+            or data.get("scope")
+            != _barcode_cursor_scope(
+                company_id=company_id,
+                variant_id=variant_id,
+                limit=limit,
+            )
+        ):
+            raise ValueError("cursor payload mismatch")
+        return int(data["after"])
+    except Exception as exc:
+        raise _error(
+            400,
+            "INVALID_CURSOR",
+            "Cursor الباركود غير صالح.",
+        ) from exc
+
+
+def _barcode_next_cursor(
+    value: int,
+    *,
+    company_id: int,
+    variant_id: int,
+    limit: int,
+) -> str:
+    payload = json.dumps(
+        {
+            "v": 1,
+            "after": int(value),
+            "scope": _barcode_cursor_scope(
+                company_id=company_id,
+                variant_id=variant_id,
+                limit=limit,
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    payload_part = base64.urlsafe_b64encode(
+        payload
+    ).decode("ascii").rstrip("=")
+    signature_part = base64.urlsafe_b64encode(
+        _barcode_cursor_signature(payload)
+    ).decode("ascii").rstrip("=")
+    return f"{payload_part}.{signature_part}"
 
 
 def _search_pattern(value: str) -> str:
@@ -759,7 +862,12 @@ async def list_barcodes(
     ) is None:
         raise _error(404, "VARIANT_NOT_FOUND", "الصنف غير موجود.")
 
-    after_id = _cursor(cursor)
+    after_id = _barcode_cursor(
+        cursor,
+        company_id=actor.company_id,
+        variant_id=variant_id,
+        limit=limit,
+    )
     rows = (
         await db.execute(
             select(ProductBarcode, UOM)
@@ -780,7 +888,12 @@ async def list_barcodes(
             for row, uom in page
         ],
         "next_cursor": (
-            _next_cursor(page[-1][0].id)
+            _barcode_next_cursor(
+                page[-1][0].id,
+                company_id=actor.company_id,
+                variant_id=variant_id,
+                limit=limit,
+            )
             if has_more and page
             else None
         ),
