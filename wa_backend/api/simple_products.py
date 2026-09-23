@@ -603,13 +603,15 @@ def _family_cursor(
 
 def _family_next_cursor(
     *,
-    name: str,
+    sort_name: str,
     family_id: int,
     company_id: int,
     search: str | None,
     limit: int,
 ) -> str:
-    sort_name = name
+    # sort_name is the exact key produced by PostgreSQL lower(name).
+    # Do not recompute it in Python; keyset continuation must use the
+    # same ordering expression that produced the page.
     if (
         not sort_name
         or not sort_name.strip()
@@ -765,7 +767,7 @@ async def families(
         "items": page,
         "next_cursor": (
             _family_next_cursor(
-                name=str(
+                sort_name=str(
                     page_rows[-1]["_sort_name"]
                 ),
                 family_id=int(
