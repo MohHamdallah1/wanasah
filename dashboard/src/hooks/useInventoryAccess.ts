@@ -68,10 +68,10 @@ export function parseInventoryCapabilities(raw: unknown): InventoryCapabilities 
   }
 
   return {
-    company_id: companyId,
-    driver_id: driverId,
-    is_company_admin: isCompanyAdmin,
-    location_id: locationId,
+    company_id: companyId as number,
+    driver_id: driverId as number,
+    is_company_admin: isCompanyAdmin as boolean,
+    location_id: locationId as number | null,
     permissions: parsePermissionCodes(value.permissions),
     any_permissions: parsePermissionCodes(value.any_permissions),
     location_permissions: parsePermissionCodes(value.location_permissions),
