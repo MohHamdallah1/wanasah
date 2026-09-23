@@ -61,53 +61,109 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
   if (
     typeof value !== "object" ||
     value === null ||
-    !("items" in value) ||
-    !Array.isArray((value as { items?: unknown }).items)
+    Array.isArray(value)
   ) {
     warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
 
   const page = value as Record<string, unknown>;
-  const items = (page.items as unknown[]).map((raw) => {
-    if (typeof raw !== "object" || raw === null) {
+  const rawItems = page.items;
+  if (!Array.isArray(rawItems) || rawItems.length > 200) {
+    warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
+  }
+
+  const items: WarehouseLocationItem[] = rawItems.map((raw) => {
+    if (
+      typeof raw !== "object" ||
+      raw === null ||
+      Array.isArray(raw)
+    ) {
       warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
 
     const row = raw as Record<string, unknown>;
+    const id = row.id;
+    const name = row.name;
+    const code = row.code;
+    const branchId = row.branch_id;
+    const branchName = row.branch_name;
+    const isActive = row.is_active;
+    const version = row.version;
+    const createdAt = row.created_at;
+    const updatedAt = row.updated_at;
+
     if (
-      typeof row.id !== "number" ||
-      !Number.isInteger(row.id) ||
-      row.id <= 0 ||
-      typeof row.name !== "string" ||
-      typeof row.code !== "string" ||
-      typeof row.is_active !== "boolean" ||
-      typeof row.version !== "number" ||
-      !Number.isSafeInteger(row.version) ||
-      row.version <= 0 ||
-      typeof row.created_at !== "string" ||
-      typeof row.updated_at !== "string"
+      typeof id !== "number" ||
+      !Number.isSafeInteger(id) ||
+      id <= 0 ||
+      typeof name !== "string" ||
+      !name.trim() ||
+      typeof code !== "string" ||
+      !code.trim() ||
+      (
+        branchId !== null &&
+        (
+          typeof branchId !== "number" ||
+          !Number.isSafeInteger(branchId) ||
+          branchId <= 0
+        )
+      ) ||
+      (
+        branchName !== null &&
+        typeof branchName !== "string"
+      ) ||
+      typeof isActive !== "boolean" ||
+      typeof version !== "number" ||
+      !Number.isSafeInteger(version) ||
+      version <= 0 ||
+      typeof createdAt !== "string" ||
+      !createdAt.trim() ||
+      typeof updatedAt !== "string" ||
+      !updatedAt.trim()
     ) {
       warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
 
     return {
-      id: row.id,
-      name: row.name,
-      code: row.code,
-      branch_id: typeof row.branch_id === "number" ? row.branch_id : null,
-      branch_name: typeof row.branch_name === "string" ? row.branch_name : null,
-      is_active: row.is_active,
-      version: row.version,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
+      id,
+      name,
+      code,
+      branch_id: branchId,
+      branch_name: branchName,
+      is_active: isActive,
+      version,
+      created_at: createdAt,
+      updated_at: updatedAt,
     };
   });
 
+  const nextCursor =
+    typeof page.next_cursor === "string"
+      ? page.next_cursor
+      : page.next_cursor === null
+        ? null
+        : warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
+  const hasMore = page.has_more;
+  if (
+    typeof hasMore !== "boolean" ||
+    hasMore !== (nextCursor !== null)
+  ) {
+    warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
+  }
+
+  const total = page.total === null
+    ? null
+    : typeof page.total === "number" &&
+        Number.isSafeInteger(page.total) &&
+        page.total >= 0
+      ? page.total
+      : warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
+
   return {
     items,
-    next_cursor: typeof page.next_cursor === "string" ? page.next_cursor : null,
-    has_more: page.has_more === true,
-    total: typeof page.total === "number" ? page.total : null,
+    next_cursor: nextCursor,
+    has_more: hasMore,
+    total,
   };
 };
 
@@ -336,7 +392,14 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
       setRefreshKey((value) => value + 1);
       await onLocationsChanged();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
+      toast.error(
+        apiErrorMessage(
+          error,
+          t(
+            "inventoryWarehouses.errors.stateFailed"
+          )
+        )
+      );
     } finally {
       setStateSubmitting(false);
     }
