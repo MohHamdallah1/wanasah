@@ -28,7 +28,11 @@ def check(condition: bool, label: str) -> None:
 
 
 def static_checks() -> None:
-    from api.catalog import _barcode_update_valid_to
+    from api.catalog import (
+        _barcode_cursor,
+        _barcode_next_cursor,
+        _barcode_update_valid_to,
+    )
     from domains.product_tracking import (
         INTERNAL_NO_LOT_PREFIX,
         build_internal_no_lot_batch_number,
@@ -134,6 +138,65 @@ def static_checks() -> None:
         )
         == now.replace(tzinfo=None),
         "Future-dated barcodes can be cancelled without invalid validity windows",
+    )
+
+    barcode_cursor = _barcode_next_cursor(
+        123,
+        company_id=7,
+        variant_id=11,
+        limit=100,
+    )
+    check(
+        _barcode_cursor(
+            barcode_cursor,
+            company_id=7,
+            variant_id=11,
+            limit=100,
+        )
+        == 123,
+        "Barcode cursor round-trips only within its exact scope",
+    )
+
+    cross_product_rejected = False
+    try:
+        _barcode_cursor(
+            barcode_cursor,
+            company_id=7,
+            variant_id=12,
+            limit=100,
+        )
+    except Exception as exc:
+        cross_product_rejected = (
+            getattr(exc, "status_code", None) == 400
+        )
+    check(
+        cross_product_rejected,
+        "Barcode cursor rejects a different product scope",
+    )
+
+    tampered_cursor = (
+        barcode_cursor[:-1]
+        + (
+            "A"
+            if barcode_cursor[-1] != "A"
+            else "B"
+        )
+    )
+    tampered_cursor_rejected = False
+    try:
+        _barcode_cursor(
+            tampered_cursor,
+            company_id=7,
+            variant_id=11,
+            limit=100,
+        )
+    except Exception as exc:
+        tampered_cursor_rejected = (
+            getattr(exc, "status_code", None) == 400
+        )
+    check(
+        tampered_cursor_rejected,
+        "Barcode cursor rejects signature tampering",
     )
 
     headers, rows = parse_source(
