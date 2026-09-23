@@ -132,21 +132,21 @@ The current behavior is acceptable only accidentally for food-oriented companies
 
 ### Required fix
 
-- [ ] Remove the silent hardcoded `REQUIRED / REQUIRED` assumption from the simple product creation authority.
-- [ ] Make lot tracking an explicit product property:
+- [x] Remove the silent hardcoded `REQUIRED / REQUIRED` assumption from the simple product creation authority.
+- [x] Make lot tracking an explicit product property:
   - `NONE`
   - `OPTIONAL`
   - `REQUIRED`
-- [ ] Make expiry tracking an explicit product property:
+- [x] Make expiry tracking an explicit product property:
   - `NONE`
   - `OPTIONAL`
   - `REQUIRED`
-- [ ] Let each company define sensible creation defaults.
-- [ ] Allow each product to override those defaults.
+- [x] Let each company define sensible creation defaults.
+- [x] Allow each product to override those defaults.
 - [ ] Do not force a user to invent a lot number for a `lot_control_mode=NONE` product.
 - [ ] Do not ask for expiry information for `expiry_control_mode=NONE`.
-- [ ] Preserve backend enum values as language-neutral codes.
-- [ ] Translate labels/descriptions only in the UI.
+- [x] Preserve backend enum values as language-neutral codes.
+- [x] Translate labels/descriptions only in the UI.
 
 ---
 
@@ -159,10 +159,10 @@ Meaning of `lot_control_mode`:
 ### `NONE`
 The user does not manage supplier/manufacturer lot numbers for the SKU.
 
-- [ ] UI does not require a lot number during product creation.
+- [x] UI does not require a lot number during product creation.
 - [ ] Inbound does not require a user-entered lot number.
-- [ ] Define the safe internal batch identity strategy used by inventory storage.
-- [ ] Internal identity must not be exposed as if it were a real supplier batch number.
+- [x] Define the safe internal batch identity strategy used by inventory storage.
+- [x] Internal identity must not be exposed as if it were a real supplier batch number.
 
 ### `OPTIONAL`
 Lot number may be captured when provided.
@@ -170,13 +170,13 @@ Lot number may be captured when provided.
 - [ ] Inbound accepts an empty lot.
 - [ ] Inbound accepts a real lot.
 - [ ] Existing-lot conflict behavior remains deterministic.
-- [ ] UX clearly explains that lot is optional.
+- [x] UX clearly explains that lot is optional.
 
 ### `REQUIRED`
 Every received stock line requires a lot.
 
 - [ ] Inbound rejects missing lot number.
-- [ ] UI marks lot clearly as required.
+- [x] UI marks lot clearly as required.
 - [ ] Bulk import and integrations follow the same rule.
 
 ## 5.2 Expiry tracking
@@ -201,17 +201,17 @@ Expiry can be captured when known.
 Every relevant received batch requires expiry.
 
 - [ ] Inbound rejects missing expiry.
-- [ ] UI marks expiry required.
+- [x] UI marks expiry required.
 - [ ] Bulk import follows the same rule.
 
 ## 5.3 Company defaults
 
-- [ ] Add a safe company-level default for lot tracking.
-- [ ] Add a safe company-level default for expiry tracking.
-- [ ] Product creation starts from company defaults.
-- [ ] User can override defaults per SKU when authorized.
-- [ ] Defaults affect future product creation only unless an explicit migration workflow is used.
-- [ ] Defaults never silently rewrite existing products.
+- [x] Add a safe company-level default for lot tracking.
+- [x] Add a safe company-level default for expiry tracking.
+- [x] Product creation starts from company defaults.
+- [x] User can override defaults per SKU when authorized.
+- [x] Defaults affect future product creation only unless an explicit migration workflow is used.
+- [x] Defaults never silently rewrite existing products.
 
 ---
 
@@ -229,12 +229,12 @@ after inventory/history exists can affect inbound, batch identity, allocation, F
 
 Required design:
 
-- [ ] Determine which tracking-mode transitions are safe before first inventory activity.
-- [ ] Determine which transitions are blocked after first inventory activity.
+- [x] Determine which tracking-mode transitions are safe before first inventory activity.
+- [x] Determine which transitions are blocked after first inventory activity.
 - [ ] Determine whether any transitions require a controlled migration workflow.
-- [ ] Add backend validation that enforces the rule, not only frontend disabling.
-- [ ] UI explains why a tracking option becomes locked.
-- [ ] Never allow a destructive tracking change through a normal PATCH.
+- [x] Add backend validation that enforces the rule, not only frontend disabling.
+- [x] UI explains why a tracking option becomes locked.
+- [x] Never allow a destructive tracking change through a normal PATCH.
 
 ---
 
@@ -289,7 +289,7 @@ Keep ordinary creation easy.
 - [ ] Package shape.
 - [ ] Units per package.
 - [ ] Price when authorized.
-- [ ] Tracking controls expressed in plain language.
+- [x] Tracking controls expressed in plain language.
 
 ### Advanced
 Optional expandable section:
@@ -323,11 +323,11 @@ Suggested UX wording:
 
 Required:
 
-- [ ] Explanatory helper text.
-- [ ] Clear consequences for Inbound.
-- [ ] Sensible company default preselection.
-- [ ] No hidden system choice.
-- [ ] Fully translated labels/options.
+- [x] Explanatory helper text.
+- [x] Clear consequences for Inbound.
+- [x] Sensible company default preselection.
+- [x] No hidden system choice.
+- [x] Fully translated labels/options.
 
 ---
 
@@ -343,12 +343,12 @@ Production-ready Products must provide safe identity management.
 - [ ] Edit/manage barcodes through authoritative barcode workflow.
 - [ ] View package/UOM structure.
 - [ ] Manage simple-compatible package shape safely.
-- [ ] View tracking modes.
-- [ ] Edit tracking modes only when lifecycle/inventory rules allow.
+- [x] View tracking modes.
+- [x] Edit tracking modes only when lifecycle/inventory rules allow.
 - [ ] View lifecycle status.
 - [ ] View operational hold.
 - [ ] View simple/advanced compatibility.
-- [ ] Explain why some fields are locked.
+- [x] Explain why some fields are locked.
 
 ---
 
@@ -697,15 +697,15 @@ Preserve these.
 
 Required additions:
 
-- [ ] Add lot-tracking input/mapping.
-- [ ] Add expiry-tracking input/mapping.
-- [ ] Support file-wide defaults for tracking settings to reduce repeated work.
-- [ ] Allow per-row override where authorized.
-- [ ] Import template includes tracking columns or a documented default policy.
-- [ ] Import validation uses the same backend product authority as manual creation.
-- [ ] Imported products must not silently become REQUIRED/REQUIRED unless that is an explicit selected default.
+- [x] Add lot-tracking input/mapping.
+- [x] Add expiry-tracking input/mapping.
+- [x] Support file-wide defaults for tracking settings to reduce repeated work.
+- [x] Allow per-row override where authorized.
+- [x] Import template includes tracking columns or a documented default policy.
+- [x] Import validation uses the same backend product authority as manual creation.
+- [x] Imported products must not silently become REQUIRED/REQUIRED unless that is an explicit selected default.
 - [ ] Error report uses stable codes.
-- [ ] Retry/resume semantics remain durable.
+- [x] Retry/resume semantics remain durable.
 
 ---
 
@@ -793,8 +793,8 @@ Preserve and harden:
 
 - [ ] No cross-company draft leakage.
 - [ ] No cross-user draft leakage.
-- [ ] Tracking settings included in saved draft.
-- [ ] Draft version incremented when schema changes.
+- [x] Tracking settings included in saved draft.
+- [x] Draft version incremented when schema changes.
 - [ ] Invalid old draft safely discarded or migrated.
 - [ ] User is informed when a draft is restored.
 - [ ] Explicit cancel removes abandoned durable operation safely.
@@ -806,8 +806,8 @@ Preserve and harden:
 Company-level configurable defaults/preferences should include, where appropriate:
 
 Business defaults:
-- [ ] default lot tracking mode,
-- [ ] default expiry tracking mode,
+- [x] default lot tracking mode,
+- [x] default expiry tracking mode,
 - [ ] default package UOM,
 - [ ] default units/package if useful,
 - [ ] product publication workflow policy.
@@ -917,9 +917,9 @@ Required tests:
 - [ ] Family version conflict.
 - [ ] Price update idempotency.
 - [ ] Barcode uniqueness race.
-- [ ] Tracking-mode update concurrency.
+- [x] Tracking-mode update concurrency.
 - [ ] Lifecycle transition revision conflict.
-- [ ] Import replay/resume remains safe.
+- [x] Import replay/resume remains safe.
 
 ---
 
@@ -938,8 +938,8 @@ Required:
 - [ ] Inventory existing products and their tracking modes.
 - [ ] Do not assume existing REQUIRED values were intentional.
 - [ ] Provide a safe review/migration strategy if the company wants to correct them.
-- [ ] Products with operational inventory/history require controlled change rules.
-- [ ] Avoid mass automatic downgrade of tracking rules.
+- [x] Products with operational inventory/history require controlled change rules.
+- [x] Avoid mass automatic downgrade of tracking rules.
 - [ ] Migration/audit record required for any bulk correction.
 
 ---
@@ -1002,7 +1002,7 @@ Required:
 - [ ] No second barcode authority.
 - [ ] No second UOM authority.
 - [ ] No second pricing authority.
-- [ ] No second tracking-mode authority.
+- [x] No second tracking-mode authority.
 
 ---
 
@@ -1131,7 +1131,7 @@ Product changes must be auditable.
 - [ ] Product creation audit.
 - [ ] Family creation/rename audit.
 - [ ] Barcode changes audit.
-- [ ] Tracking-mode changes audit.
+- [x] Tracking-mode changes audit.
 - [ ] Lifecycle changes audit.
 - [ ] Pricing changes remain auditable.
 - [ ] Bulk import maintains job/row history.
@@ -1159,36 +1159,36 @@ Required decision:
 
 - [ ] create product with lot NONE/OPTIONAL/REQUIRED.
 - [ ] create product with expiry NONE/OPTIONAL/REQUIRED.
-- [ ] company default application.
-- [ ] per-product override.
+- [x] company default application.
+- [x] per-product override.
 - [ ] cross-tenant create/read/update tests.
 - [ ] product list permission tests.
 - [ ] catalog-only user without pricing permission.
 - [ ] barcode conflict tests.
 - [ ] family conflict/version tests.
 - [ ] lifecycle transition tests.
-- [ ] tracking change after inventory tests.
+- [x] tracking change after inventory tests.
 - [ ] exact money tests.
 - [ ] cursor scope/tamper tests.
-- [ ] import tracking-mode tests.
-- [ ] import RLS/idempotency tests.
+- [x] import tracking-mode tests.
+- [x] import RLS/idempotency tests.
 
 ## Frontend
 
 - [ ] runtime parser tests.
-- [ ] create form tracking-mode behavior.
-- [ ] translated enum labels.
+- [x] create form tracking-mode behavior.
+- [x] translated enum labels.
 - [ ] error vs empty state.
 - [ ] permission-specific action visibility.
 - [ ] pricing hidden without permission.
 - [ ] search reset/cursor behavior.
 - [ ] family search/pagination.
 - [ ] Product Detail Drawer.
-- [ ] import mapping.
+- [x] import mapping.
 - [ ] restored draft versioning.
 - [ ] RTL smoke test.
 - [ ] LTR smoke test.
-- [ ] build.
+- [x] build.
 
 ---
 
@@ -1196,8 +1196,8 @@ Required decision:
 
 Products can be declared **Production Ready** only when:
 
-- [ ] Critical silent REQUIRED/REQUIRED defect is fixed.
-- [ ] Tracking modes are explicit end-to-end.
+- [x] Critical silent REQUIRED/REQUIRED defect is fixed.
+- [x] Tracking modes are explicit end-to-end.
 - [ ] Existing products are handled safely.
 - [ ] Product read is decoupled from mandatory price access.
 - [ ] Permissions are granular and correct.
@@ -1208,17 +1208,17 @@ Products can be declared **Production Ready** only when:
 - [ ] Families no longer silently truncate.
 - [ ] Product detail management reflects the important backend authorities.
 - [ ] Lifecycle is visible/manageable safely.
-- [ ] Bulk import supports tracking configuration.
+- [x] Bulk import supports tracking configuration.
 - [ ] i18n architecture is language-agnostic.
 - [ ] RTL + LTR pass.
 - [ ] Performance audit passes.
 - [ ] Security/isolation tests pass.
-- [ ] Relevant backend gates pass.
-- [ ] Frontend tests/build pass.
+- [x] Relevant backend gates pass.
+- [x] Frontend tests/build pass.
 - [ ] No unresolved blocker/TODO in touched production path.
-- [ ] PR review complete.
-- [ ] merged to `main`.
-- [ ] local `main == origin/main`.
+- [x] PR review complete.
+- [x] merged to `main`.
+- [x] local `main == origin/main`.
 
 ---
 
@@ -1226,10 +1226,10 @@ Products can be declared **Production Ready** only when:
 
 This section preserves every point from the initial Products review so none are lost.
 
-- [ ] 1. Fix silent `lot_control_mode=REQUIRED` and `expiry_control_mode=REQUIRED` for every new simple product.
-- [ ] 2. Bulk import currently inherits the same silent forced tracking behavior.
-- [ ] 3. Add an explicit "Inventory tracking" section to product creation.
-- [ ] 4. Support company-level defaults instead of one global hardcoded tracking policy.
+- [x] 1. Fix silent `lot_control_mode=REQUIRED` and `expiry_control_mode=REQUIRED` for every new simple product.
+- [x] 2. Bulk import currently inherits the same silent forced tracking behavior.
+- [x] 3. Add an explicit "Inventory tracking" section to product creation.
+- [x] 4. Support company-level defaults instead of one global hardcoded tracking policy.
 - [ ] 5. Add real post-create product identity management beyond price editing.
 - [ ] 6. Surface and manage barcodes after creation.
 - [ ] 7. Show SKU in the normal product experience.
@@ -1260,20 +1260,20 @@ This section preserves every point from the initial Products review so none are 
 - [ ] 32. Add search/pagination inside family manager.
 - [ ] 33. Preserve backend case-insensitive family duplicate locking.
 - [ ] 34. Surface existing barcode authority in normal product UX.
-- [ ] 35. Preserve strong async/durable import architecture.
-- [ ] 36. Add lot/expiry configuration to bulk import/template/defaults.
+- [x] 35. Preserve strong async/durable import architecture.
+- [x] 36. Add lot/expiry configuration to bulk import/template/defaults.
 - [ ] 37. Generalize import header localization beyond Arabic/English-only alias assumptions.
-- [ ] 38. Preserve good existing `t(...)` and `dir={i18n.dir()}` foundation.
+- [x] 38. Preserve good existing `t(...)` and `dir={i18n.dir()}` foundation.
 - [ ] 39. Replace binary Arabic-vs-English locale fallback with generic locale resolution.
 - [ ] 40. Make all new number/date/money rendering language-agnostic.
-- [ ] 41. Keep API enums stable and translate only in UI.
+- [x] 41. Keep API enums stable and translate only in UI.
 - [ ] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
 - [ ] 43. Separate Quick Create from optional enterprise review/maker-checker policy.
 - [ ] 44. Add a Product Detail Drawer instead of adding too many list columns.
 - [ ] 45. Keep ordinary creation simple and move complexity to Advanced settings.
-- [ ] 46. Present lot/expiry tracking in plain user language, not backend field names.
+- [x] 46. Present lot/expiry tracking in plain user language, not backend field names.
 - [ ] 47. Products tracking policy must drive Inbound field requirements.
-- [ ] 48. Block/guard unsafe tracking-mode changes after inventory exists.
+- [x] 48. Block/guard unsafe tracking-mode changes after inventory exists.
 - [ ] 49. Guard unsafe UOM/package changes after operational history exists.
 - [ ] 50. Visually distinguish freely editable, restricted, and workflow-controlled product properties.
 
@@ -1281,16 +1281,16 @@ This section preserves every point from the initial Products review so none are 
 
 # 52. Additional findings / requirements beyond the original 50
 
-- [ ] 51. Add company defaults for lot/expiry tracking without rewriting existing SKUs.
-- [ ] 52. Define internal batch identity for `lot_control_mode=NONE`.
+- [x] 51. Add company defaults for lot/expiry tracking without rewriting existing SKUs.
+- [x] 52. Define internal batch identity for `lot_control_mode=NONE`.
 - [ ] 53. Create a migration/review strategy for existing products that were silently created REQUIRED/REQUIRED.
-- [ ] 54. Version the saved product draft schema when tracking fields are added.
+- [x] 54. Version the saved product draft schema when tracking fields are added.
 - [ ] 55. Separate business defaults from user display preferences.
 - [ ] 56. Add Product page performance map and permanent regression gate.
 - [ ] 57. Add accessibility/keyboard requirements to release gate.
 - [ ] 58. Define safe product deletion/archive semantics.
 - [ ] 59. Ensure normal Products does not duplicate Catalog lifecycle/UOM/barcode authorities.
-- [ ] 60. Freeze the product tracking contract before beginning final Inbound work.
+- [x] 60. Freeze the product tracking contract before beginning final Inbound work.
 
 ---
 
@@ -1311,13 +1311,21 @@ Do not work on all items randomly.
 
 ## Phase P1 — Product tracking authority
 
-- [ ] Define company defaults.
-- [ ] Extend SimpleProduct creation contract.
-- [ ] Extend service authority.
-- [ ] Add backend validation.
-- [ ] Define safe transitions after inventory exists.
+- [x] Define company defaults.
+- [x] Extend SimpleProduct creation contract.
+- [x] Extend service authority.
+- [x] Add backend validation.
+- [x] Define safe transitions after inventory exists.
 - [ ] Define existing-product migration/review plan.
-- [ ] Add tests.
+- [x] Add tests.
+
+### Product tracking — five-stage implementation checkpoint
+
+- [x] Stage 1/5 — Product tracking authority.
+- [x] Stage 2/5 — Backend defaults + Product tracking mutation contracts.
+- [x] Stage 3/5 — Bulk Import + Simple Products tracking integration.
+- [x] Stage 4/5 — Translated Dashboard tracking UX.
+- [x] Stage 5/5 — Isolation / compatibility / migration tests + Production Gate.
 
 ## Phase P2 — Read contract and permissions
 
@@ -1332,7 +1340,7 @@ Do not work on all items randomly.
 
 - [ ] Product Detail Drawer.
 - [ ] Quick Create + Advanced.
-- [ ] Tracking controls.
+- [x] Tracking controls.
 - [ ] Error/retry states.
 - [ ] granular permissions.
 - [ ] lifecycle visibility.
@@ -1354,10 +1362,10 @@ Do not work on all items randomly.
 
 ## Phase P6 — Bulk import
 
-- [ ] Tracking columns/defaults.
+- [x] Tracking columns/defaults.
 - [ ] Generic localization mapping.
 - [ ] Runtime contracts.
-- [ ] regression tests.
+- [x] regression tests.
 
 ## Phase P7 — i18n / accessibility / polish
 
@@ -1383,15 +1391,15 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Start with **Phase P1 — Product tracking authority**.
+Finish the only remaining **Phase P1 — Product tracking authority** item:
 
-The first concrete implementation discussion must answer:
+- [ ] Define the existing-product migration/review plan for SKUs that were historically created as `REQUIRED / REQUIRED`.
 
-1. What company-level defaults should exist?
-2. What should the default be for the current company?
-3. How should `lot_control_mode=NONE` map to internal batch identity without forcing the user to invent a lot number?
-4. Which tracking-mode changes are allowed before first stock?
-5. Which tracking-mode changes are blocked or require migration after stock/history exists?
-6. How will existing REQUIRED/REQUIRED products be reviewed without silently modifying historical truth?
+The plan must preserve the verified tracking authority already merged to `main`:
 
-Only after these are decided should code changes begin.
+1. Never mass-change existing products automatically.
+2. Products with batch/inventory history remain locked from the normal tracking editor.
+3. Any correction workflow must be explicit, tenant-scoped, audited, version/concurrency-safe, and preserve historical truth.
+4. Decide how companies identify which legacy SKUs need review and how an authorized correction is approved/applied.
+
+After that P1 item is closed, continue with **Phase P2 — Read contract and permissions**.
