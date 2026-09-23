@@ -146,13 +146,17 @@ describe(
         "has_price",
         "lot_tracked",
         "expiry_tracked",
-        "sort_by",
-        "sort_dir",
       ]) {
         expect(page).toContain(
           `"${parameter}"`,
         );
       }
+      expect(page).toContain(
+        "sort_by: sortBy",
+      );
+      expect(page).toContain(
+        "sort_dir: sortDir",
+      );
 
       expect(page).toContain(
         'queryKey: [ "simple-products", companyId, params, ]',
@@ -230,7 +234,7 @@ describe(
         "ProductBarcode.product_variant_id == ProductVariant.id",
       );
       expect(api).toContain(
-        "ProductBarcode.company_id == company_id",
+        "ProductBarcode.company_id == int(company_id)",
       );
       expect(api).toContain(
         "ProductBarcode.is_active.is_(True)",
