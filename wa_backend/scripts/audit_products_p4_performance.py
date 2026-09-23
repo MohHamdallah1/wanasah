@@ -76,26 +76,38 @@ def bounded_env_int(
 class QuerySample:
     statement: str
     parameters: Any
+    duration_ms: float
 
 
 class QueryProbe:
     def __init__(self) -> None:
         self.active = False
         self.samples: list[QuerySample] = []
-        self._listener = self._before_cursor_execute
+        self._before_listener = self._before_cursor_execute
+        self._after_listener = self._after_cursor_execute
 
     def attach(self) -> None:
         event.listen(
             p2_gate.engine_app.sync_engine,
             "before_cursor_execute",
-            self._listener,
+            self._before_listener,
+        )
+        event.listen(
+            p2_gate.engine_app.sync_engine,
+            "after_cursor_execute",
+            self._after_listener,
         )
 
     def detach(self) -> None:
         event.remove(
             p2_gate.engine_app.sync_engine,
             "before_cursor_execute",
-            self._listener,
+            self._before_listener,
+        )
+        event.remove(
+            p2_gate.engine_app.sync_engine,
+            "after_cursor_execute",
+            self._after_listener,
         )
 
     def start(self) -> None:
@@ -110,17 +122,45 @@ class QueryProbe:
         self,
         _conn,
         _cursor,
-        statement,
-        parameters,
-        _context,
+        _statement,
+        _parameters,
+        context,
         _executemany,
     ) -> None:
         if not self.active:
             return
+        setattr(
+            context,
+            "_p4_perf_started_at",
+            perf_counter(),
+        )
+
+    def _after_cursor_execute(
+        self,
+        _conn,
+        _cursor,
+        statement,
+        parameters,
+        context,
+        _executemany,
+    ) -> None:
+        if not self.active:
+            return
+        started = getattr(
+            context,
+            "_p4_perf_started_at",
+            None,
+        )
+        duration_ms = (
+            (perf_counter() - started) * 1000.0
+            if isinstance(started, float)
+            else 0.0
+        )
         self.samples.append(
             QuerySample(
                 statement=str(statement),
                 parameters=parameters,
+                duration_ms=duration_ms,
             )
         )
 
@@ -837,11 +877,17 @@ async def measure_scenario(
 
     items = last_page.get("items")
     item_count = len(items) if isinstance(items, list) else -1
+    slow_queries = sorted(
+        representative,
+        key=lambda sample: sample.duration_ms,
+        reverse=True,
+    )[:5]
     metrics = {
         "latency_ms": statistics.median(latencies),
         "query_count": query_counts[0],
         "item_count": item_count,
         "repeated": repeated_queries(representative),
+        "slow_queries": slow_queries,
     }
 
     print(
@@ -898,6 +944,18 @@ async def measure_scenario(
                 f"indexes="
                 f"{'|'.join(forced_index_plan['indexes']) or '-'}"
             )
+
+    for rank, sample in enumerate(
+        metrics["slow_queries"],
+        start=1,
+    ):
+        print(
+            "QUERY_PROFILE "
+            f"scenario={name} "
+            f"rank={rank} "
+            f"duration_ms={sample.duration_ms:.3f} "
+            f"sql={' '.join(sample.statement.split())[:320]}"
+        )
 
     for statement, count in metrics["repeated"]:
         print(
