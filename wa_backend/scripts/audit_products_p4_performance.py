@@ -183,6 +183,8 @@ class QueryProbe:
     def __init__(self) -> None:
         self.active = False
         self.samples: list[QuerySample] = []
+        self.in_flight_statement: str | None = None
+        self.in_flight_parameters: Any = None
         self._before_listener = self._before_cursor_execute
         self._after_listener = self._after_cursor_execute
 
@@ -212,6 +214,8 @@ class QueryProbe:
 
     def start(self) -> None:
         self.samples = []
+        self.in_flight_statement = None
+        self.in_flight_parameters = None
         self.active = True
 
     def stop(self) -> list[QuerySample]:
@@ -222,13 +226,15 @@ class QueryProbe:
         self,
         _conn,
         _cursor,
-        _statement,
-        _parameters,
+        statement,
+        parameters,
         context,
         _executemany,
     ) -> None:
         if not self.active:
             return
+        self.in_flight_statement = str(statement)
+        self.in_flight_parameters = parameters
         setattr(
             context,
             "_p4_perf_started_at",
@@ -263,6 +269,8 @@ class QueryProbe:
                 duration_ms=duration_ms,
             )
         )
+        self.in_flight_statement = None
+        self.in_flight_parameters = None
 
 
 async def inspect_search_indexes(session) -> None:
@@ -1000,7 +1008,26 @@ async def measure_scenario(
     runs: int,
     explain: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    await call_endpoint(app, actor, kwargs)
+    print(
+        f"SCENARIO_START name={name} runs={runs}"
+    )
+    probe.start()
+    try:
+        await call_endpoint(app, actor, kwargs)
+    except BaseException:
+        statement = probe.in_flight_statement
+        if statement:
+            print(
+                "SCENARIO_IN_FLIGHT_SQL "
+                f"name={name} "
+                f"sql={' '.join(statement.split())[:1200]}"
+            )
+        raise
+    finally:
+        probe.stop()
+    print(
+        f"SCENARIO_WARMUP_DONE name={name}"
+    )
 
     latencies: list[float] = []
     query_counts: list[int] = []
@@ -1012,6 +1039,16 @@ async def measure_scenario(
         started = perf_counter()
         try:
             page = await call_endpoint(app, actor, kwargs)
+        except BaseException:
+            statement = probe.in_flight_statement
+            if statement:
+                print(
+                    "SCENARIO_IN_FLIGHT_SQL "
+                    f"name={name} "
+                    f"run={index + 1} "
+                    f"sql={' '.join(statement.split())[:1200]}"
+                )
+            raise
         finally:
             samples = probe.stop()
         latencies.append((perf_counter() - started) * 1000.0)
@@ -1019,6 +1056,16 @@ async def measure_scenario(
         last_page = page
         if index == 0:
             representative = samples
+        if (
+            index == 0
+            or (index + 1) % 5 == 0
+            or index + 1 == runs
+        ):
+            print(
+                "SCENARIO_PROGRESS "
+                f"name={name} "
+                f"completed={index + 1}/{runs}"
+            )
 
     if len(set(query_counts)) != 1:
         raise RuntimeError(
@@ -1223,6 +1270,14 @@ async def main() -> None:
         async with p2_gate.SessionApp() as app:
             await app.begin()
             await p2_gate.set_tenant(app, company_id)
+            await app.execute(
+                text(
+                    "SET LOCAL statement_timeout = '30s'"
+                )
+            )
+            print(
+                "AUDIT_STATEMENT_TIMEOUT_MS=30000"
+            )
 
             tenant_ids = await p2_gate.seed_tenant_transaction(app, ids)
             ids.update(tenant_ids)
