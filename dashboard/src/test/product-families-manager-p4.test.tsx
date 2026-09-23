@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -114,6 +115,7 @@ describe(
     });
 
     afterEach(() => {
+      cleanup();
       queryClient.clear();
       vi.restoreAllMocks();
     });
