@@ -916,9 +916,10 @@ async def list_simple_products(
                     "units_per_package": (
                         int(shape.units_per_package)
                         if shape is not None
-                        else int(
-                            variant.packs_per_carton
-                        )
+                        else None
+                    ),
+                    "legacy_packs_per_carton": int(
+                        variant.packs_per_carton
                     ),
                     "base_uom_id": (
                         int(shape.base_uom.id)
