@@ -329,5 +329,11 @@ describe("Products P3 detail foundation", () => {
     expect(translations).toContain(
       'open: "View details"',
     );
+    expect(translations).toContain(
+      'added: "تمت إضافة الباركود."',
+    );
+    expect(translations).toContain(
+      'added: "Barcode added."',
+    );
   });
 });
