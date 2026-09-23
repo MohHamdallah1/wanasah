@@ -573,8 +573,11 @@ async def list_families(
     *,
     company_id: int,
     search: str | None = None,
+    after_name: str | None = None,
+    after_id: int | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
+    name_key = func.lower(Product.name)
     stmt = (
         select(
             Product.id,
@@ -598,16 +601,32 @@ async def list_families(
             .replace("_", "\\_")
         )
         stmt = stmt.where(
-            func.lower(Product.name).like(
+            name_key.like(
                 f"%{escaped}%",
                 escape="\\",
+            )
+        )
+
+    if (after_name is None) != (after_id is None):
+        raise ValueError(
+            "Family keyset cursor requires name and id together."
+        )
+    if after_name is not None and after_id is not None:
+        normalized_after_name = after_name.strip().lower()
+        if not normalized_after_name or after_id <= 0:
+            raise ValueError("Invalid family keyset cursor.")
+        stmt = stmt.where(
+            or_(
+                name_key > normalized_after_name,
+                (name_key == normalized_after_name)
+                & (Product.id > int(after_id)),
             )
         )
 
     rows = (
         await db.execute(
             stmt.group_by(Product.id)
-            .order_by(Product.name.asc(), Product.id.asc())
+            .order_by(name_key.asc(), Product.id.asc())
             .limit(limit)
         )
     ).all()
