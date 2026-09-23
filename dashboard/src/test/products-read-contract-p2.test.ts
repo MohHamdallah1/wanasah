@@ -11,6 +11,9 @@ const readSource = (relativePath: string): string =>
     "utf8",
   );
 
+const normalizeWhitespace = (value: string): string =>
+  value.replace(/\s+/g, " ").trim();
+
 const baseItem = {
   id: 10,
   product_id: 4,
@@ -89,21 +92,23 @@ describe("products P2 read contract", () => {
   });
 
   it("keeps dashboard caches tenant scoped and pricing UI permission aware", () => {
-    const page = readSource(
-      "../pages/ProductsDashboard.tsx",
+    const page = normalizeWhitespace(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
     );
 
     expect(page).toContain(
-      '"simple-products",\n        companyId,',
+      '"simple-products", companyId, search, cursor',
     );
     expect(page).toContain(
-      '"simple-product-families",\n        companyId,',
+      '"simple-product-families", companyId',
     );
     expect(page).toContain(
-      'access.canAny(\n      "pricing.view"',
+      'access.canAny( "pricing.view" )',
     );
     expect(page).toContain(
-      "page?.pricing_visible &&",
+      "page?.pricing_visible && canViewPricing",
     );
     expect(page).toContain(
       "{pricingVisible ? (",
@@ -112,7 +117,10 @@ describe("products P2 read contract", () => {
       '"products.fields.sku"',
     );
     expect(page).toContain(
-      "pricingVisible &&\n                          item.simple_compatible",
+      "canManage && pricingVisible && item.simple_compatible",
+    );
+    expect(page).toContain(
+      "setCursor(null); setHistory([]);",
     );
   });
 });
