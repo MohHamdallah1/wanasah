@@ -67,8 +67,13 @@ const asWarehousePage = (value: unknown): WarehouseLocationCursorPage => {
   }
 
   const page = value as Record<string, unknown>;
-  const rawItems = page.items;
-  if (!Array.isArray(rawItems) || rawItems.length > 200) {
+  const rawItems: unknown[] =
+    Array.isArray(page.items)
+      ? page.items
+      : warehouseLocationContractError(
+          "WAREHOUSE_LOCATION_RESPONSE_INVALID"
+        );
+  if (rawItems.length > 200) {
     warehouseLocationContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
 
