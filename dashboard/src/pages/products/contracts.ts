@@ -834,13 +834,11 @@ export function parseProductBarcodes(
 export function parseProductBarcodeMutation(
   raw: unknown,
 ): {
-  message: string;
   barcode: ProductBarcodeRecord;
 } {
   const code = "PRODUCT_BARCODE_MUTATION_RESPONSE_INVALID";
   const row = record(raw, code);
   return {
-    message: str(row.message, code, 500),
     barcode: parseProductBarcodes({
       items: [row.barcode],
     }).items[0],
