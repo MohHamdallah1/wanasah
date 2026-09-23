@@ -26,9 +26,18 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import and_, false, func, literal_column, or_, select
+from sqlalchemy import (
+    and_,
+    false,
+    func,
+    literal_column,
+    or_,
+    select,
+    union_all,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from api.dependencies import get_current_driver
 from config import Config
@@ -1447,9 +1456,9 @@ async def list_simple_products(
             sort_by_value
         )
         search_tokens = _search_tokens(search)
-        needs_product_join = bool(
-            search_tokens
-        ) or sort_by_value == "family"
+        needs_product_join = (
+            sort_by_value == "family"
+        )
 
         selected = [
             ProductVariant,
@@ -1565,37 +1574,89 @@ async def list_simple_products(
                     else ~price_exists
                 )
 
+        search_variant = aliased(
+            ProductVariant
+        )
         variant_search_text = func.lower(
-            ProductVariant.name.op("||")(
+            search_variant.name.op("||")(
                 literal_column("' '::text")
             ).op("||")(
-                ProductVariant.sku
+                search_variant.sku
             )
         )
         for token in search_tokens:
             pattern = (
                 f"%{_escaped_like(token)}%"
             )
-            barcode_match = (
-                _effective_barcode_exists(
-                    company_id=company_id,
-                    as_of=barcode_now,
-                    pattern=pattern,
-                )
-            )
-            stmt = stmt.where(
-                or_(
+            variant_matches = (
+                select(search_variant.id)
+                .where(
+                    search_variant.company_id
+                    == company_id,
                     variant_search_text.like(
                         pattern,
                         escape="\\",
                     ),
+                )
+            )
+            family_matches = (
+                select(Product.id)
+                .where(
+                    Product.company_id
+                    == company_id,
                     func.lower(
                         Product.name
                     ).like(
                         pattern,
                         escape="\\",
                     ),
-                    barcode_match,
+                )
+            )
+            family_variant_matches = (
+                select(search_variant.id)
+                .where(
+                    search_variant.company_id
+                    == company_id,
+                    search_variant.product_id.in_(
+                        family_matches
+                    ),
+                )
+            )
+            barcode_matches = (
+                select(
+                    ProductBarcode.product_variant_id
+                )
+                .where(
+                    ProductBarcode.company_id
+                    == company_id,
+                    ProductBarcode.is_active.is_(
+                        True
+                    ),
+                    ProductBarcode.valid_from
+                    <= barcode_now,
+                    or_(
+                        ProductBarcode.valid_to.is_(
+                            None
+                        ),
+                        ProductBarcode.valid_to
+                        > barcode_now,
+                    ),
+                    func.lower(
+                        ProductBarcode.barcode
+                    ).like(
+                        pattern,
+                        escape="\\",
+                    ),
+                )
+            )
+            matching_variant_ids = union_all(
+                variant_matches,
+                family_variant_matches,
+                barcode_matches,
+            )
+            stmt = stmt.where(
+                ProductVariant.id.in_(
+                    matching_variant_ids
                 )
             )
 
