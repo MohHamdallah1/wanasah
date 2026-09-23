@@ -594,7 +594,7 @@ def _family_cursor(
                 "family cursor payload mismatch"
             )
         return (
-            data["after_name"].strip().lower(),
+            data["after_name"],
             int(data["after_id"]),
         )
     except Exception as exc:
@@ -609,13 +609,18 @@ def _family_next_cursor(
     search: str | None,
     limit: int,
 ) -> str:
-    normalized_name = name.strip().lower()
-    if not normalized_name or family_id <= 0:
+    sort_name = name
+    if (
+        not sort_name
+        or not sort_name.strip()
+        or len(sort_name) > 150
+        or family_id <= 0
+    ):
         raise ValueError("Invalid family cursor source.")
     payload = json.dumps(
         {
             "v": 1,
-            "after_name": normalized_name,
+            "after_name": sort_name,
             "after_id": int(family_id),
             "scope": _family_cursor_scope(
                 company_id=company_id,
