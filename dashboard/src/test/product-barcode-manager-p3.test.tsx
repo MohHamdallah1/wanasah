@@ -487,18 +487,20 @@ describe("ProductBarcodeManager runtime behavior", () => {
       await screen.findByLabelText(
         "products.barcodeManager.value",
       );
-    expect(restored).toBeDisabled();
-    expect(restored).toHaveValue(
-      "LOCKED-CODE",
-    );
-    expect(
-      screen.getByRole(
-        "button",
-        {
-          name: "products.barcodeManager.retryPending",
-        },
-      ),
-    ).toBeEnabled();
+    await waitFor(() => {
+      expect(restored).toBeDisabled();
+      expect(restored).toHaveValue(
+        "LOCKED-CODE",
+      );
+      expect(
+        screen.getByRole(
+          "button",
+          {
+            name: "products.barcodeManager.retryPending",
+          },
+        ),
+      ).toBeEnabled();
+    });
   });
 
   it("blocks a distinct package barcode while the product shares the base barcode", async () => {
