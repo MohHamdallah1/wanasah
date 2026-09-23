@@ -79,6 +79,10 @@ vi.mock(
   }),
 );
 
+import {
+  durableScope,
+  getOrCreateDurableCommand,
+} from "../lib/durableOperations";
 import { ProductFamiliesManager } from "../pages/products/ProductFamiliesManager";
 
 const family = (
@@ -264,7 +268,7 @@ describe(
       view.unmount();
     });
 
-    it("retries an ambiguous family create with the exact same request id", async () => {
+    it("restores an ambiguous family create after remount and retries the exact same request id", async () => {
       const postBodies: Array<{
         request_id: string;
         name: string;
@@ -292,9 +296,7 @@ describe(
               postAttempt === 1
             ) {
               throw Object.assign(
-                new Error(
-                  "network",
-                ),
+                new Error("network"),
                 {
                   code:
                     "NETWORK_UNAVAILABLE",
@@ -319,7 +321,7 @@ describe(
         },
       );
 
-      render(
+      const firstView = render(
         <QueryClientProvider
           client={queryClient}
         >
@@ -336,11 +338,11 @@ describe(
         "products.noFamilies",
       );
 
-      const nameInput =
+      const firstInput =
         screen.getByPlaceholderText(
           "products.newFamilyPlaceholder",
         );
-      const addButton =
+      const firstAdd =
         screen.getByRole(
           "button",
           {
@@ -350,7 +352,7 @@ describe(
         );
 
       fireEvent.change(
-        nameInput,
+        firstInput,
         {
           target: {
             value:
@@ -358,7 +360,7 @@ describe(
           },
         },
       );
-      fireEvent.click(addButton);
+      fireEvent.click(firstAdd);
 
       await waitFor(() => {
         expect(
@@ -367,11 +369,47 @@ describe(
       });
       await waitFor(() => {
         expect(
-          addButton,
-        ).not.toBeDisabled();
+          firstInput,
+        ).toBeDisabled();
       });
 
-      fireEvent.click(addButton);
+      firstView.unmount();
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      const restoredInput =
+        await screen.findByDisplayValue(
+          "Alpha Family",
+        );
+      expect(
+        restoredInput,
+      ).toBeDisabled();
+      expect(
+        screen.getByText(
+          "products.familyPendingRetry",
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.addFamily",
+          },
+        ),
+      );
 
       await waitFor(() => {
         expect(
@@ -398,7 +436,7 @@ describe(
       );
     });
 
-    it("blocks a changed family create payload after an ambiguous outcome", async () => {
+    it("locks the exact family create payload after an ambiguous outcome", async () => {
       const postBodies: Array<{
         request_id: string;
         name: string;
@@ -486,33 +524,15 @@ describe(
       });
       await waitFor(() => {
         expect(
-          addButton,
-        ).not.toBeDisabled();
-      });
-
-      fireEvent.change(
-        nameInput,
-        {
-          target: {
-            value:
-              "Beta Family",
-          },
-        },
-      );
-      fireEvent.click(addButton);
-
-      await waitFor(() => {
-        expect(
-          mocks.toastError
-            .mock.calls.length,
-        ).toBeGreaterThanOrEqual(
-          2,
-        );
+          nameInput,
+        ).toBeDisabled();
       });
 
       expect(
-        postBodies,
-      ).toHaveLength(1);
+        nameInput,
+      ).toHaveValue(
+        "Alpha Family",
+      );
       expect(
         postBodies[0].name,
       ).toBe(
@@ -520,7 +540,7 @@ describe(
       );
     });
 
-    it("keeps a malformed successful family response pending and blocks a changed payload", async () => {
+    it("keeps a malformed successful family response pending and locks the original payload", async () => {
       const postBodies: Array<{
         request_id: string;
         name: string;
@@ -601,30 +621,15 @@ describe(
       });
       await waitFor(() => {
         expect(
-          addButton,
-        ).not.toBeDisabled();
+          nameInput,
+        ).toBeDisabled();
       });
 
-      fireEvent.change(
-        nameInput,
-        {
-          target: {
-            value:
-              "Beta Family",
-          },
-        },
-      );
-      fireEvent.click(addButton);
-
-      await waitFor(() => {
-        expect(
-          mocks.toastError
-            .mock.calls.length,
-        ).toBeGreaterThanOrEqual(
-          2,
-        );
-      });
-
+      expect(
+        screen.getByText(
+          "products.familyPendingRetry",
+        ),
+      ).toBeInTheDocument();
       expect(
         postBodies,
       ).toHaveLength(1);
@@ -633,6 +638,213 @@ describe(
       ).toBe(
         "Alpha Family",
       );
+    });
+
+    it("fails closed when a persisted family create command is corrupted", async () => {
+      const scope = durableScope(
+        1,
+        2,
+        "family-create",
+      );
+      await getOrCreateDurableCommand(
+        scope,
+        {
+          name: "Alpha Family",
+        },
+      );
+
+      const raw =
+        localStorage.getItem(scope);
+      expect(raw).not.toBeNull();
+      const stored = JSON.parse(
+        String(raw),
+      ) as {
+        payload: {
+          name: string;
+        };
+      };
+      stored.payload.name =
+        "Tampered Family";
+      localStorage.setItem(
+        scope,
+        JSON.stringify(stored),
+      );
+
+      mocks.authFetch.mockResolvedValue({
+        items: [],
+        next_cursor: null,
+        has_more: false,
+      });
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      expect(
+        await screen.findByText(
+          "products.familyPendingBlocked",
+        ),
+      ).toBeInTheDocument();
+
+      expect(
+        screen.getByPlaceholderText(
+          "products.newFamilyPlaceholder",
+        ),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.addFamily",
+          },
+        ),
+      ).toBeDisabled();
+
+      expect(
+        mocks.authFetch.mock.calls.filter(
+          ([, options]) =>
+            options?.method ===
+            "POST",
+        ),
+      ).toHaveLength(0);
+      expect(
+        localStorage.getItem(scope),
+      ).not.toBeNull();
+    });
+
+    it("restores a pending family rename with its original expected version", async () => {
+      const scope = durableScope(
+        1,
+        2,
+        "family-rename",
+        7,
+      );
+      const command =
+        await getOrCreateDurableCommand(
+          scope,
+          {
+            expected_version: 1,
+            name: "Renamed Family",
+          },
+        );
+
+      const patchBodies: Array<{
+        request_id: string;
+        expected_version: number;
+        name: string;
+      }> = [];
+
+      mocks.authFetch.mockImplementation(
+        async (
+          _url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            options?.method ===
+            "PATCH"
+          ) {
+            patchBodies.push(
+              JSON.parse(
+                String(
+                  options.body,
+                ),
+              ),
+            );
+            return {
+              id: 7,
+              name:
+                "Renamed Family",
+              version: 2,
+            };
+          }
+
+          return {
+            items: [
+              family(
+                7,
+                "Original Family",
+              ),
+            ],
+            next_cursor: null,
+            has_more: false,
+          };
+        },
+      );
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      expect(
+        await screen.findByText(
+          "Original Family",
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "common.edit",
+          },
+        ),
+      );
+
+      const renameInput =
+        await screen.findByDisplayValue(
+          "Renamed Family",
+        );
+      expect(
+        renameInput,
+      ).toBeDisabled();
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "common.save",
+          },
+        ),
+      );
+
+      await waitFor(() => {
+        expect(
+          mocks.toastSuccess,
+        ).toHaveBeenCalledWith(
+          "products.familyUpdated",
+        );
+      });
+
+      expect(
+        patchBodies,
+      ).toHaveLength(1);
+      expect(
+        patchBodies[0],
+      ).toEqual({
+        request_id:
+          command.requestId,
+        expected_version: 1,
+        name: "Renamed Family",
+      });
     });
 
     it("keeps a request failure distinct from an empty family result", async () => {
