@@ -71,6 +71,86 @@ describe("durable command P3 guarantees", () => {
     ).not.toBeNull();
   });
 
+  it("treats an empty stored command record as corrupt instead of absent", async () => {
+    const scope = durableScope(
+      1,
+      2,
+      "catalog-barcode-create-v2",
+      10,
+    );
+    localStorage.setItem(
+      scope,
+      "",
+    );
+
+    await expect(
+      readDurableCommand(scope),
+    ).rejects.toMatchObject({
+      code: "DURABLE_OPERATION_CORRUPT",
+    });
+
+    expect(
+      localStorage.getItem(scope),
+    ).toBe("");
+  });
+
+  it("never expires an explicitly marked command whose payload is missing", async () => {
+    const start = 2_000_000;
+    const nowSpy =
+      vi.spyOn(
+        Date,
+        "now",
+      ).mockReturnValue(start);
+
+    const scope = durableScope(
+      1,
+      2,
+      "catalog-barcode-create-v2",
+      10,
+    );
+    await getOrCreateDurableCommand(
+      scope,
+      {
+        barcode: "ORIGINAL",
+      },
+    );
+
+    const raw =
+      localStorage.getItem(scope);
+    expect(raw).not.toBeNull();
+    const stored = JSON.parse(
+      String(raw),
+    ) as {
+      kind: string;
+      payload?: unknown;
+      createdAt: number;
+    };
+    expect(stored.kind).toBe(
+      "command",
+    );
+    delete stored.payload;
+    stored.createdAt = start;
+    localStorage.setItem(
+      scope,
+      JSON.stringify(stored),
+    );
+
+    nowSpy.mockReturnValue(
+      start +
+        8 * 24 * 60 * 60 * 1000,
+    );
+
+    await expect(
+      readDurableCommand(scope),
+    ).rejects.toMatchObject({
+      code: "DURABLE_OPERATION_CORRUPT",
+    });
+
+    expect(
+      localStorage.getItem(scope),
+    ).not.toBeNull();
+  });
+
   it("fails closed when a stored command payload no longer matches its hash", async () => {
     const scope = durableScope(
       1,
