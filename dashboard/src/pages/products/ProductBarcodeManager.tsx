@@ -149,7 +149,7 @@ export function ProductBarcodeManager({
       ? durableScope(
           companyId,
           driverId,
-          "catalog-barcode-create",
+          "catalog-barcode-create-v2",
           productId
         )
       : null;
