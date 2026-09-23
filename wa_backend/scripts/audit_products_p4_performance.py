@@ -34,6 +34,12 @@ MAX_RUNS = 7
 
 RESULTS: list[tuple[str, bool, str]] = []
 
+SEARCH_INDEXES = (
+    "ix_product_variants_company_search_trgm",
+    "ix_products_company_name_trgm",
+    "ix_product_barcodes_company_active_barcode_trgm",
+)
+
 
 def record(name: str, ok: bool, detail: str = "") -> None:
     RESULTS.append((name, bool(ok), detail))
@@ -113,6 +119,75 @@ class QueryProbe:
                 statement=str(statement),
                 parameters=parameters,
             )
+        )
+
+
+async def inspect_search_indexes(session) -> None:
+    extension_rows = list(
+        (
+            await session.execute(
+                text(
+                    "SELECT extname "
+                    "FROM pg_extension "
+                    "WHERE extname IN ('pg_trgm', 'btree_gin') "
+                    "ORDER BY extname"
+                )
+            )
+        ).scalars()
+    )
+    extensions = {str(value) for value in extension_rows}
+    record(
+        "trigram search extensions are installed",
+        extensions == {"btree_gin", "pg_trgm"},
+        "extensions=" + ",".join(sorted(extensions)),
+    )
+
+    rows = list(
+        (
+            await session.execute(
+                text(
+                    """
+                    SELECT
+                        idx.relname AS index_name,
+                        i.indisvalid,
+                        i.indisready,
+                        pg_get_indexdef(i.indexrelid) AS index_def
+                    FROM pg_index AS i
+                    JOIN pg_class AS idx
+                      ON idx.oid = i.indexrelid
+                    WHERE idx.relname = ANY(:index_names)
+                    ORDER BY idx.relname
+                    """
+                ),
+                {"index_names": list(SEARCH_INDEXES)},
+            )
+        ).mappings()
+    )
+    by_name = {
+        str(row["index_name"]): row
+        for row in rows
+    }
+    for index_name in SEARCH_INDEXES:
+        row = by_name.get(index_name)
+        valid = (
+            row is not None
+            and bool(row["indisvalid"])
+            and bool(row["indisready"])
+        )
+        definition = (
+            str(row["index_def"])
+            if row is not None
+            else "MISSING"
+        )
+        print(
+            "INDEX_STATE "
+            f"name={index_name} "
+            f"valid={valid} "
+            f"definition={definition}"
+        )
+        record(
+            f"search index {index_name} is installed and valid",
+            valid,
         )
 
 
@@ -257,13 +332,26 @@ def summarize_plan(raw: Any) -> dict[str, Any]:
 async def explain_query(
     session,
     sample: QuerySample,
+    *,
+    seqscan_enabled: bool = True,
 ) -> dict[str, Any]:
     connection = await session.connection()
-    result = await connection.exec_driver_sql(
-        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sample.statement,
-        sample.parameters,
-    )
-    return summarize_plan(result.scalar_one())
+    if not seqscan_enabled:
+        await connection.exec_driver_sql(
+            "SET LOCAL enable_seqscan = off"
+        )
+    try:
+        result = await connection.exec_driver_sql(
+            "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+            + sample.statement,
+            sample.parameters,
+        )
+        return summarize_plan(result.scalar_one())
+    finally:
+        if not seqscan_enabled:
+            await connection.exec_driver_sql(
+                "SET LOCAL enable_seqscan = on"
+            )
 
 
 async def seed_committed_catalog(
@@ -592,6 +680,7 @@ async def measure_scenario(
         )
 
     plan: dict[str, Any] = {}
+    forced_index_plan: dict[str, Any] = {}
     if explain:
         captured = main_product_query(representative)
         if captured is None:
@@ -599,6 +688,17 @@ async def measure_scenario(
                 f"{name} main product query was not captured."
             )
         plan = await explain_query(app, captured)
+        if name in {
+            "name_search",
+            "family_search",
+            "sku_search",
+            "barcode_search",
+        }:
+            forced_index_plan = await explain_query(
+                app,
+                captured,
+                seqscan_enabled=False,
+            )
 
     items = last_page.get("items")
     item_count = len(items) if isinstance(items, list) else -1
@@ -648,6 +748,20 @@ async def measure_scenario(
                 f"{node['estimated_total_removed']} "
                 f"filter={node['filter'] or '-'} "
                 f"join_filter={node['join_filter'] or '-'}"
+            )
+        if forced_index_plan:
+            print(
+                "FORCED_INDEX_PLAN "
+                f"scenario={name} "
+                f"execution_ms="
+                f"{forced_index_plan['execution_ms']:.3f} "
+                f"shared_hit={forced_index_plan['shared_hit']} "
+                f"shared_read={forced_index_plan['shared_read']} "
+                f"rows_removed={forced_index_plan['rows_removed']} "
+                f"scans="
+                f"{'|'.join(forced_index_plan['scans']) or '-'} "
+                f"indexes="
+                f"{'|'.join(forced_index_plan['indexes']) or '-'}"
             )
 
     for statement, count in metrics["repeated"]:
@@ -729,6 +843,8 @@ async def main() -> None:
                 each_uom_id=int(ids["each_uom_id"]),
                 prefix=prefix,
             )
+
+            await inspect_search_indexes(app)
 
             probe.attach()
             attached = True
