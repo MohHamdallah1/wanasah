@@ -9,6 +9,7 @@ import {
 import {
   parseProductFamilies,
   parseProductFamilyMutation,
+  parseSimpleProductPage,
 } from "../pages/products/contracts";
 
 const readSource = (
@@ -95,6 +96,95 @@ describe(
         }),
       ).toThrow(
         "PRODUCT_FAMILIES_RESPONSE_INVALID",
+      );
+    });
+
+    it("accepts bounded scoped product cursors up to the API limit", () => {
+      const longCursor =
+        "x".repeat(1500);
+      expect(
+        parseSimpleProductPage({
+          currency_code: "JOD",
+          pricing_visible: false,
+          items: [],
+          next_cursor: longCursor,
+          has_more: true,
+        }).next_cursor,
+      ).toBe(longCursor);
+
+      expect(() =>
+        parseSimpleProductPage({
+          currency_code: "JOD",
+          pricing_visible: false,
+          items: [],
+          next_cursor:
+            "x".repeat(2049),
+          has_more: true,
+        }),
+      ).toThrow(
+        "SIMPLE_PRODUCTS_RESPONSE_INVALID",
+      );
+    });
+
+    it("wires every P4.2 filter and stable sort into the server query scope", () => {
+      const page = compact(
+        readSource(
+          "../pages/ProductsDashboard.tsx",
+        ),
+      );
+      const translations =
+        readSource(
+          "../i18n/resources.ts",
+        );
+
+      for (const parameter of [
+        "family_id",
+        "lifecycle",
+        "tracking_type",
+        "simple_compatible",
+        "has_barcode",
+        "has_price",
+        "lot_tracked",
+        "expiry_tracked",
+        "sort_by",
+        "sort_dir",
+      ]) {
+        expect(page).toContain(
+          `"${parameter}"`,
+        );
+      }
+
+      expect(page).toContain(
+        'queryKey: [ "simple-products", companyId, params, ]',
+      );
+      expect(page).toContain(
+        '"filter-options", familyFilterSearch',
+      );
+      expect(page).toContain(
+        'limit: "50"',
+      );
+      expect(page).toContain(
+        "canViewPricing && priceFilter",
+      );
+      expect(page).toContain(
+        "{canViewPricing ? (",
+      );
+      expect(page).toContain(
+        "const resetProductPagination = () => { setCursor(null); setHistory([]); };",
+      );
+      expect(
+        page.match(
+          /resetProductPagination\(\)/g,
+        )?.length ?? 0,
+      ).toBeGreaterThanOrEqual(10);
+      expect(page).not.toContain(
+        "/simple-products/families?limit=200",
+      );
+      expect(translations).toContain(
+        'show: "الفلاتر والفرز"',
+      );
+      expect(translations).toContain(
+        'show: "Filters & sorting"',
       );
     });
 
