@@ -407,6 +407,7 @@ export function ProductFamiliesManager({
             value={
               newFamilyName
             }
+            maxLength={150}
             onChange={(
               event
             ) =>
@@ -486,6 +487,7 @@ export function ProductFamiliesManager({
                       value={
                         editingFamilyName
                       }
+                      maxLength={150}
                       onChange={(
                         event
                       ) =>
