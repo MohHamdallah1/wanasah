@@ -847,6 +847,13 @@ async def main() -> None:
                     )
                 ),
             )
+            plan_cache_mode_before_price_filter = str(
+                (
+                    await app.execute(
+                        text("SHOW plan_cache_mode")
+                    )
+                ).scalar_one()
+            )
             record(
                 "price filter uses current resolved simple price",
                 page_ids(
@@ -874,10 +881,13 @@ async def main() -> None:
                 ).scalar_one()
             )
             record(
-                "price-filter custom plan override resets to auto",
-                plan_cache_mode_after_price_filter == "auto",
+                "price-filter custom plan override restores prior mode",
+                plan_cache_mode_after_price_filter
+                == plan_cache_mode_before_price_filter,
                 (
-                    "plan_cache_mode="
+                    "before="
+                    + plan_cache_mode_before_price_filter
+                    + " after="
                     + plan_cache_mode_after_price_filter
                 ),
             )
