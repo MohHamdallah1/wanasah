@@ -384,6 +384,14 @@ class ProductBarcode(Base):
         CheckConstraint('valid_to IS NULL OR valid_to > valid_from', name='chk_product_barcode_validity'),
         CheckConstraint('version > 0', name='chk_product_barcode_version'),
         Index('uq_active_product_barcode', 'company_id', 'barcode', unique=True, postgresql_where=text('is_active IS TRUE')),
+        Index(
+            'ix_product_barcodes_company_variant_active_validity',
+            'company_id',
+            'product_variant_id',
+            'valid_from',
+            'valid_to',
+            postgresql_where=text('is_active IS TRUE'),
+        ),
         Index('uq_primary_product_barcode_uom', 'company_id', 'product_variant_id', 'uom_id', unique=True, postgresql_where=text('is_primary IS TRUE AND is_active IS TRUE')),
     )
     id                 = Column(Integer, primary_key=True)
