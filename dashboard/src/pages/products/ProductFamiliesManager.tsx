@@ -428,7 +428,25 @@ export function ProductFamiliesManager({
               scope,
             };
           } catch (error) {
+            const code =
+              apiErrorCode(error);
             if (
+              code ===
+              "DURABLE_OPERATION_CORRUPT"
+            ) {
+              setCreateCommandPending(
+                false
+              );
+              setCreateCommandBlocked(
+                true
+              );
+            } else if (
+              code ===
+              "DURABLE_OPERATION_PENDING"
+            ) {
+              // A legacy request-only record may still be recoverable
+              // by re-entering its exact original payload.
+            } else if (
               shouldRetainDurableFamilyCommand(
                 error
               )
@@ -540,7 +558,25 @@ export function ProductFamiliesManager({
               scope,
             };
           } catch (error) {
+            const code =
+              apiErrorCode(error);
             if (
+              code ===
+              "DURABLE_OPERATION_CORRUPT"
+            ) {
+              setRenameCommandPending(
+                false
+              );
+              setRenameCommandBlocked(
+                true
+              );
+            } else if (
+              code ===
+              "DURABLE_OPERATION_PENDING"
+            ) {
+              // Keep the editor usable so a legacy request-only
+              // record can be matched by its exact original payload.
+            } else if (
               shouldRetainDurableFamilyCommand(
                 error
               )
