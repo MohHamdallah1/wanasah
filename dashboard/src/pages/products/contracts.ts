@@ -865,17 +865,23 @@ export function parseProductBarcodes(
     if (ids.has(id)) return contractError(code);
     ids.add(id);
 
-    const barcodeType = row.barcode_type;
+    const rawBarcodeType = str(
+      row.barcode_type,
+      code,
+      32,
+    );
     if (
-      barcodeType !== "EAN8" &&
-      barcodeType !== "EAN13" &&
-      barcodeType !== "UPC_A" &&
-      barcodeType !== "GTIN14" &&
-      barcodeType !== "GS1_128" &&
-      barcodeType !== "INTERNAL"
+      rawBarcodeType !== "EAN8" &&
+      rawBarcodeType !== "EAN13" &&
+      rawBarcodeType !== "UPC_A" &&
+      rawBarcodeType !== "GTIN14" &&
+      rawBarcodeType !== "GS1_128" &&
+      rawBarcodeType !== "INTERNAL"
     ) {
       return contractError(code);
     }
+    const barcodeType: ProductBarcodeType =
+      rawBarcodeType;
 
     return {
       id,
