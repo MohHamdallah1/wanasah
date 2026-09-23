@@ -225,7 +225,13 @@ describe(
       );
 
       expect(api).toContain(
-        "for token in _search_tokens(search):",
+        "for token in search_tokens:",
+      );
+      expect(api).toContain(
+        'literal_column("\' \'::text")',
+      );
+      expect(api).toContain(
+        'ProductVariant.name.op("||")',
       );
       expect(api).toContain(
         "ProductVariant.sku",
