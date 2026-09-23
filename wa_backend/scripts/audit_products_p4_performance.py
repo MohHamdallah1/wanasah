@@ -126,8 +126,9 @@ def main_product_query(
     for sample in samples:
         normalized = normalized_sql(sample.statement)
         if (
-            " from product_variants join products " in normalized
+            " from product_variants" in normalized
             and " order by " in normalized
+            and " limit " in normalized
         ):
             return sample
     return None
