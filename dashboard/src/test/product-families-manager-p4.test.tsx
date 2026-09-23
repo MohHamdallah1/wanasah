@@ -227,6 +227,19 @@ describe(
         ),
       ).toBeInTheDocument();
 
+      await new Promise(
+        (resolve) =>
+          window.setTimeout(
+            resolve,
+            300,
+          ),
+      );
+      expect(
+        screen.getByText(
+          "Beta Family",
+        ),
+      ).toBeInTheDocument();
+
       expect(
         mocks.authFetch.mock.calls.some(
           ([url]) =>
