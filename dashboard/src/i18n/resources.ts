@@ -835,6 +835,10 @@ export const resources = {
             "لا يوجد اتصال بالإنترنت.",
           REQUEST_TIMEOUT:
             "انتهت مهلة الاتصال. يمكنك إعادة المحاولة بأمان.",
+          DURABLE_OPERATION_PENDING:
+            "يوجد طلب سابق لنفس العملية لم تُحسم نتيجته بعد. أعد نفس الطلب أو أكمل تسويته قبل إرسال طلب مختلف.",
+          DURABLE_OPERATION_CORRUPT:
+            "تعذر التحقق من الطلب المعلّق المحفوظ على هذا الجهاز. أُوقفت العملية لحمايتها من التكرار حتى تتم تسويتها.",
           INVALID_SERVER_RESPONSE:
             "وصلت استجابة غير صالحة من السيرفر.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:
@@ -1707,6 +1711,10 @@ export const resources = {
             "No internet connection.",
           REQUEST_TIMEOUT:
             "The request timed out. It is safe to retry.",
+          DURABLE_OPERATION_PENDING:
+            "A previous command for this operation still has an unknown outcome. Retry that exact command or reconcile it before sending a different one.",
+          DURABLE_OPERATION_CORRUPT:
+            "The saved pending command on this device could not be verified. The operation was blocked to prevent a duplicate until it is reconciled.",
           INVALID_SERVER_RESPONSE:
             "The server returned an invalid response.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:
