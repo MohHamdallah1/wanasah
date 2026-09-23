@@ -607,6 +607,154 @@ describe("ProductBarcodeManager runtime behavior", () => {
     ).not.toBeNull();
   });
 
+  it("blocks creation when the persisted command record is empty instead of treating it as absent", async () => {
+    const scope = durableScope(
+      1,
+      2,
+      "catalog-barcode-create-v2",
+      10,
+    );
+    localStorage.setItem(
+      scope,
+      "",
+    );
+
+    mocks.authFetch.mockResolvedValueOnce({
+      items: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    render(
+      <ProductBarcodeManager
+        product={product(10, "A")}
+        companyId={1}
+        driverId={2}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "products.barcodeManager.pendingBlocked",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByLabelText(
+        "products.barcodeManager.value",
+      ),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole(
+        "button",
+        {
+          name: "products.barcodeManager.save",
+        },
+      ),
+    ).toBeDisabled();
+
+    expect(
+      mocks.authFetch.mock.calls.filter(
+        ([, options]) =>
+          options?.method === "POST",
+      ),
+    ).toHaveLength(0);
+    expect(
+      localStorage.getItem(scope),
+    ).toBe("");
+  });
+
+  it("blocks an aged command whose explicit command record lost its payload", async () => {
+    const start = 3_000_000;
+    const nowSpy =
+      vi.spyOn(
+        Date,
+        "now",
+      ).mockReturnValue(start);
+
+    const scope = durableScope(
+      1,
+      2,
+      "catalog-barcode-create-v2",
+      10,
+    );
+    await getOrCreateDurableCommand(
+      scope,
+      {
+        uom_id: 1,
+        barcode: "ORIGINAL",
+        barcode_type: "INTERNAL",
+        is_primary: false,
+        valid_from: null,
+        valid_to: null,
+      },
+    );
+
+    const raw =
+      localStorage.getItem(scope);
+    expect(raw).not.toBeNull();
+    const stored = JSON.parse(
+      String(raw),
+    ) as {
+      kind: string;
+      payload?: unknown;
+      createdAt: number;
+    };
+    expect(stored.kind).toBe(
+      "command",
+    );
+    delete stored.payload;
+    stored.createdAt = start;
+    localStorage.setItem(
+      scope,
+      JSON.stringify(stored),
+    );
+
+    nowSpy.mockReturnValue(
+      start +
+        8 * 24 * 60 * 60 * 1000,
+    );
+
+    mocks.authFetch.mockResolvedValueOnce({
+      items: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    render(
+      <ProductBarcodeManager
+        product={product(10, "A")}
+        companyId={1}
+        driverId={2}
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "products.barcodeManager.pendingBlocked",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByLabelText(
+        "products.barcodeManager.value",
+      ),
+    ).toBeDisabled();
+    expect(
+      mocks.authFetch.mock.calls.filter(
+        ([, options]) =>
+          options?.method === "POST",
+      ),
+    ).toHaveLength(0);
+    expect(
+      localStorage.getItem(scope),
+    ).not.toBeNull();
+  });
+
   it("blocks a distinct package barcode while the product shares the base barcode", async () => {
     const sharedProduct: SimpleProduct = {
       ...product(10, "A"),
