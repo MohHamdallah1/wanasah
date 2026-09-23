@@ -12,7 +12,20 @@ export type DurableCommand<T> = {
 };
 
 const PREFIX = "wanasah:durable:v1";
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const LEGACY_MAX_AGE_MS =
+  7 * 24 * 60 * 60 * 1000;
+
+const durableError = (
+  code:
+    | "DURABLE_OPERATION_PENDING"
+    | "DURABLE_OPERATION_CORRUPT",
+): Error & { code: string } => {
+  const error = new Error() as Error & {
+    code: string;
+  };
+  error.code = code;
+  return error;
+};
 
 const canonicalize = (value: unknown): unknown => {
   if (Array.isArray(value)) {
@@ -83,24 +96,53 @@ export const durableScope = (
 const readRecord = (
   scope: string
 ): DurableRecord | null => {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(scope);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as DurableRecord;
-    if (
-      typeof parsed.requestId !== "string" ||
-      typeof parsed.payloadHash !== "string" ||
-      typeof parsed.createdAt !== "number" ||
-      Date.now() - parsed.createdAt > MAX_AGE_MS
-    ) {
-      localStorage.removeItem(scope);
-      return null;
-    }
-    return parsed;
+    raw = localStorage.getItem(scope);
   } catch {
+    throw durableError(
+      "DURABLE_OPERATION_CORRUPT",
+    );
+  }
+  if (!raw) return null;
+
+  let parsed: DurableRecord;
+  try {
+    parsed = JSON.parse(
+      raw
+    ) as DurableRecord;
+  } catch {
+    throw durableError(
+      "DURABLE_OPERATION_CORRUPT",
+    );
+  }
+
+  if (
+    typeof parsed.requestId !== "string" ||
+    !parsed.requestId ||
+    typeof parsed.payloadHash !== "string" ||
+    !parsed.payloadHash ||
+    typeof parsed.createdAt !== "number" ||
+    !Number.isFinite(parsed.createdAt)
+  ) {
+    throw durableError(
+      "DURABLE_OPERATION_CORRUPT",
+    );
+  }
+
+  // Legacy request-id-only records may expire. Payload-bearing
+  // unresolved commands must survive until explicit completion
+  // or safe abandonment.
+  if (
+    parsed.payload === undefined &&
+    Date.now() - parsed.createdAt >
+      LEGACY_MAX_AGE_MS
+  ) {
     localStorage.removeItem(scope);
     return null;
   }
+
+  return parsed;
 };
 
 export const getOrCreateDurableRequestId = async (
@@ -128,9 +170,9 @@ export const getOrCreateDurableRequestId = async (
   return record.requestId;
 };
 
-export const readDurableCommand = <T>(
+export const readDurableCommand = async <T>(
   scope: string
-): DurableCommand<T> | null => {
+): Promise<DurableCommand<T> | null> => {
   const existing = readRecord(scope);
   if (
     !existing ||
@@ -138,6 +180,20 @@ export const readDurableCommand = <T>(
   ) {
     return null;
   }
+
+  const actualHash =
+    await hashPayload(
+      existing.payload
+    );
+  if (
+    actualHash !==
+    existing.payloadHash
+  ) {
+    throw durableError(
+      "DURABLE_OPERATION_CORRUPT",
+    );
+  }
+
   return {
     requestId: existing.requestId,
     payload: existing.payload as T,
@@ -156,17 +212,29 @@ export const getOrCreateDurableCommand = async <T>(
 
   if (existing) {
     if (
+      existing.payload !== undefined
+    ) {
+      const storedHash =
+        await hashPayload(
+          existing.payload
+        );
+      if (
+        storedHash !==
+        existing.payloadHash
+      ) {
+        throw durableError(
+          "DURABLE_OPERATION_CORRUPT",
+        );
+      }
+    }
+
+    if (
       existing.payloadHash !==
       payloadHash
     ) {
-      const error = new Error(
-        "A different durable command is still pending for this scope."
-      ) as Error & {
-        code?: string;
-      };
-      error.code =
-        "DURABLE_OPERATION_PENDING";
-      throw error;
+      throw durableError(
+        "DURABLE_OPERATION_PENDING",
+      );
     }
 
     const storedPayload =
