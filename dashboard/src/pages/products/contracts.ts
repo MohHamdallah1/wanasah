@@ -842,7 +842,7 @@ export function parseProductBarcodes(
   const nextCursor = nullableStr(
     page.next_cursor,
     code,
-    512,
+    2048,
   );
   if (
     page.has_more &&
