@@ -9,7 +9,10 @@ from uuid import uuid4
 from dotenv import load_dotenv
 from fastapi import HTTPException
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    async_sessionmaker,
+    create_async_engine,
+)
 
 
 BACKEND = Path(__file__).resolve().parent.parent
@@ -100,7 +103,7 @@ def invalid_cursor(
     return False
 
 
-async def seed() -> dict[str, int]:
+async def bootstrap() -> dict[str, int]:
     async with SessionSU() as su:
         await su.begin()
 
@@ -147,13 +150,9 @@ async def seed() -> dict[str, int]:
             )
         ).scalar_one_or_none()
         if each_uom is None:
-            raise RuntimeError(
-                "EACH UOM is missing"
-            )
+            raise RuntimeError("EACH UOM is missing")
 
-        async def company(
-            name: str,
-        ) -> int:
+        async def create_company(name: str) -> int:
             return int(
                 (
                     await su.execute(
@@ -178,275 +177,67 @@ async def seed() -> dict[str, int]:
                 ).scalar_one()
             )
 
-        async def driver(
-            company_id: int,
-            name: str,
-        ) -> int:
-            return int(
-                (
-                    await su.execute(
-                        text(
-                            "INSERT INTO drivers "
-                            "(company_id, username, password_hash, "
-                            "full_name, is_active, is_admin, "
-                            "created_at) "
-                            "VALUES "
-                            "(:company_id, :username, 'x', "
-                            ":name, true, false, NOW()) "
-                            "RETURNING id"
-                        ),
-                        {
-                            "company_id": company_id,
-                            "username": (
-                                "p2_"
-                                + uuid4().hex[:10]
-                            ),
-                            "name": name,
-                        },
-                    )
-                ).scalar_one()
-            )
-
-        async def role_with_permissions(
-            company_id: int,
-            actor_id: int,
-            name: str,
-            codes: tuple[str, ...],
-        ) -> None:
-            role_id = int(
-                (
-                    await su.execute(
-                        text(
-                            "INSERT INTO roles "
-                            "(company_id, name, is_system_role) "
-                            "VALUES (:company_id, :name, false) "
-                            "RETURNING id"
-                        ),
-                        {
-                            "company_id": company_id,
-                            "name": name,
-                        },
-                    )
-                ).scalar_one()
-            )
-            for code in codes:
-                await su.execute(
-                    text(
-                        "INSERT INTO role_permissions "
-                        "(company_id, role_id, permission_id) "
-                        "VALUES "
-                        "(:company_id, :role_id, :permission_id)"
-                    ),
-                    {
-                        "company_id": company_id,
-                        "role_id": role_id,
-                        "permission_id": (
-                            permission_meta[code][0]
-                        ),
-                    },
-                )
-            await su.execute(
-                text(
-                    "INSERT INTO user_roles "
-                    "(company_id, driver_id, role_id) "
-                    "VALUES "
-                    "(:company_id, :driver_id, :role_id)"
-                ),
-                {
-                    "company_id": company_id,
-                    "driver_id": actor_id,
-                    "role_id": role_id,
-                },
-            )
-
-        async def product_variant(
-            company_id: int,
-            name: str,
-        ) -> int:
-            product_id = int(
-                (
-                    await su.execute(
-                        text(
-                            "INSERT INTO products "
-                            "(company_id, code, name, version, "
-                            "created_at, updated_at) "
-                            "VALUES "
-                            "(:company_id, :code, :name, 1, "
-                            "NOW(), NOW()) "
-                            "RETURNING id"
-                        ),
-                        {
-                            "company_id": company_id,
-                            "code": (
-                                "P2-P-"
-                                + uuid4().hex[:8]
-                            ),
-                            "name": name + " Family",
-                        },
-                    )
-                ).scalar_one()
-            )
-            return int(
-                (
-                    await su.execute(
-                        text(
-                            "INSERT INTO product_variants "
-                            "(company_id, product_id, base_uom_id, "
-                            "name, sku, quantity_scale, quantity_step, "
-                            "lot_control_mode, expiry_control_mode, "
-                            "lifecycle_status, operational_hold, "
-                            "lifecycle_revision, version, published_at, "
-                            "packs_per_carton, package_uses_base_barcode, "
-                            "default_max_samples_per_day, "
-                            "created_at, updated_at) "
-                            "VALUES "
-                            "(:company_id, :product_id, :uom_id, "
-                            ":name, :sku, 0, 1, "
-                            "'OPTIONAL', 'NONE', "
-                            "'ACTIVE', 'NONE', 1, 1, NOW(), "
-                            "1, false, 0, NOW(), NOW()) "
-                            "RETURNING id"
-                        ),
-                        {
-                            "company_id": company_id,
-                            "product_id": product_id,
-                            "uom_id": int(each_uom),
-                            "name": name,
-                            "sku": (
-                                "P2-SKU-"
-                                + uuid4().hex[:8]
-                            ),
-                        },
-                    )
-                ).scalar_one()
-            )
-
-        company_id = await company(
+        company_id = await create_company(
             "P2 Read Contract Gate A"
         )
-        foreign_company_id = await company(
+        foreign_company_id = await create_company(
             "P2 Read Contract Gate B"
         )
-        catalog_driver_id = await driver(
-            company_id,
-            "P2 Catalog Reader",
-        )
-        pricing_driver_id = await driver(
-            company_id,
-            "P2 Pricing Reader",
-        )
 
-        await role_with_permissions(
-            company_id,
-            catalog_driver_id,
-            "P2 Catalog Reader",
-            ("catalog.read",),
-        )
-        await role_with_permissions(
-            company_id,
-            pricing_driver_id,
-            "P2 Pricing Reader",
-            ("catalog.read", "pricing.view"),
-        )
-
-        variant_id = await product_variant(
-            company_id,
-            "P2 Catalog Item",
-        )
-        foreign_variant_id = await product_variant(
-            foreign_company_id,
-            "P2 Foreign Item",
-        )
-
-        price_book_id = int(
+        foreign_product_id = int(
             (
                 await su.execute(
                     text(
-                        "INSERT INTO price_books "
-                        "(company_id, code, name, currency_code, "
-                        "status, applicability_metadata, version, "
-                        "created_by, created_at, updated_at) "
+                        "INSERT INTO products "
+                        "(company_id, code, name, version, "
+                        "created_at, updated_at) "
                         "VALUES "
-                        "(:company_id, :code, 'P2 Prices', 'JOD', "
-                        "'ACTIVE', '{}'::jsonb, 1, :actor_id, "
-                        "NOW(), NOW()) "
+                        "(:company_id, :code, "
+                        "'P2 Foreign Family', 1, NOW(), NOW()) "
                         "RETURNING id"
                     ),
                     {
-                        "company_id": company_id,
+                        "company_id": foreign_company_id,
                         "code": (
-                            "P2-BOOK-"
+                            "P2-F-"
                             + uuid4().hex[:8]
                         ),
-                        "actor_id": pricing_driver_id,
                     },
                 )
             ).scalar_one()
         )
-        publication_id = int(
+        foreign_variant_id = int(
             (
                 await su.execute(
                     text(
-                        "INSERT INTO price_publications "
-                        "(company_id, price_book_id, revision, status, "
-                        "effective_at, created_by, approved_by, "
-                        "approved_at, published_at, request_id, "
-                        "version, created_at, updated_at) "
+                        "INSERT INTO product_variants "
+                        "(company_id, product_id, base_uom_id, "
+                        "name, sku, quantity_scale, quantity_step, "
+                        "lot_control_mode, expiry_control_mode, "
+                        "lifecycle_status, operational_hold, "
+                        "lifecycle_revision, version, published_at, "
+                        "packs_per_carton, package_uses_base_barcode, "
+                        "default_max_samples_per_day, "
+                        "created_at, updated_at) "
                         "VALUES "
-                        "(:company_id, :book_id, 1, 'PUBLISHED', "
-                        "NOW() - INTERVAL '1 day', :actor_id, "
-                        ":actor_id, NOW() - INTERVAL '1 day', "
-                        "NOW() - INTERVAL '1 day', :request_id, "
-                        "1, NOW(), NOW()) "
+                        "(:company_id, :product_id, :uom_id, "
+                        "'P2 Foreign Item', :sku, 0, 1, "
+                        "'OPTIONAL', 'NONE', "
+                        "'ACTIVE', 'NONE', 1, 1, NOW(), "
+                        "1, false, 0, NOW(), NOW()) "
                         "RETURNING id"
                     ),
                     {
-                        "company_id": company_id,
-                        "book_id": price_book_id,
-                        "actor_id": pricing_driver_id,
-                        "request_id": uuid4(),
+                        "company_id": foreign_company_id,
+                        "product_id": foreign_product_id,
+                        "uom_id": int(each_uom),
+                        "sku": (
+                            "P2-F-SKU-"
+                            + uuid4().hex[:8]
+                        ),
                     },
                 )
             ).scalar_one()
-        )
-        await su.execute(
-            text(
-                "INSERT INTO price_book_assignments "
-                "(company_id, price_book_id, scope_type, scope_id, "
-                "allow_offers, priority, effectivity, revision, "
-                "version, created_by, created_at, updated_at) "
-                "VALUES "
-                "(:company_id, :book_id, 'COMPANY_DEFAULT', NULL, "
-                "true, 0, "
-                "tstzrange(NOW() - INTERVAL '1 day', NULL, '[)'), "
-                "1, 1, :actor_id, NOW(), NOW())"
-            ),
-            {
-                "company_id": company_id,
-                "book_id": price_book_id,
-                "actor_id": pricing_driver_id,
-            },
-        )
-        await su.execute(
-            text(
-                "INSERT INTO price_book_entries "
-                "(company_id, price_book_id, publication_id, "
-                "product_variant_id, uom_id, amount, effectivity, "
-                "priority, is_published, metadata, version, "
-                "created_at, updated_at) "
-                "VALUES "
-                "(:company_id, :book_id, :publication_id, "
-                ":variant_id, :uom_id, 12.345000, "
-                "tstzrange(NOW() - INTERVAL '1 day', NULL, '[)'), "
-                "0, true, '{}'::jsonb, 1, NOW(), NOW())"
-            ),
-            {
-                "company_id": company_id,
-                "book_id": price_book_id,
-                "publication_id": publication_id,
-                "variant_id": variant_id,
-                "uom_id": int(each_uom),
-            },
         )
 
         await su.commit()
@@ -454,10 +245,8 @@ async def seed() -> dict[str, int]:
     return {
         "company_id": company_id,
         "foreign_company_id": foreign_company_id,
-        "catalog_driver_id": catalog_driver_id,
-        "pricing_driver_id": pricing_driver_id,
-        "variant_id": variant_id,
         "foreign_variant_id": foreign_variant_id,
+        "each_uom_id": int(each_uom),
         "catalog_permission_id": (
             permission_meta["catalog.read"][0]
         ),
@@ -473,76 +262,363 @@ async def seed() -> dict[str, int]:
     }
 
 
+async def seed_tenant_transaction(
+    app,
+    ids: dict[str, int],
+) -> dict[str, int]:
+    company_id = ids["company_id"]
+
+    async def create_driver(name: str) -> int:
+        return int(
+            (
+                await app.execute(
+                    text(
+                        "INSERT INTO drivers "
+                        "(company_id, username, password_hash, "
+                        "full_name, is_active, is_admin, "
+                        "created_at) "
+                        "VALUES "
+                        "(:company_id, :username, 'x', "
+                        ":name, true, false, NOW()) "
+                        "RETURNING id"
+                    ),
+                    {
+                        "company_id": company_id,
+                        "username": (
+                            "p2_"
+                            + uuid4().hex[:10]
+                        ),
+                        "name": name,
+                    },
+                )
+            ).scalar_one()
+        )
+
+    async def grant_role(
+        actor_id: int,
+        name: str,
+        permission_ids: tuple[int, ...],
+    ) -> None:
+        role_id = int(
+            (
+                await app.execute(
+                    text(
+                        "INSERT INTO roles "
+                        "(company_id, name, is_system_role) "
+                        "VALUES (:company_id, :name, false) "
+                        "RETURNING id"
+                    ),
+                    {
+                        "company_id": company_id,
+                        "name": name,
+                    },
+                )
+            ).scalar_one()
+        )
+        for permission_id in permission_ids:
+            await app.execute(
+                text(
+                    "INSERT INTO role_permissions "
+                    "(company_id, role_id, permission_id) "
+                    "VALUES "
+                    "(:company_id, :role_id, :permission_id)"
+                ),
+                {
+                    "company_id": company_id,
+                    "role_id": role_id,
+                    "permission_id": permission_id,
+                },
+            )
+        await app.execute(
+            text(
+                "INSERT INTO user_roles "
+                "(company_id, driver_id, role_id) "
+                "VALUES "
+                "(:company_id, :driver_id, :role_id)"
+            ),
+            {
+                "company_id": company_id,
+                "driver_id": actor_id,
+                "role_id": role_id,
+            },
+        )
+
+    catalog_driver_id = await create_driver(
+        "P2 Catalog Reader"
+    )
+    pricing_driver_id = await create_driver(
+        "P2 Pricing Reader"
+    )
+    await grant_role(
+        catalog_driver_id,
+        "P2 Catalog Reader",
+        (ids["catalog_permission_id"],),
+    )
+    await grant_role(
+        pricing_driver_id,
+        "P2 Pricing Reader",
+        (
+            ids["catalog_permission_id"],
+            ids["pricing_permission_id"],
+        ),
+    )
+
+    product_id = int(
+        (
+            await app.execute(
+                text(
+                    "INSERT INTO products "
+                    "(company_id, code, name, version, "
+                    "created_at, updated_at) "
+                    "VALUES "
+                    "(:company_id, :code, 'P2 Family', "
+                    "1, NOW(), NOW()) "
+                    "RETURNING id"
+                ),
+                {
+                    "company_id": company_id,
+                    "code": (
+                        "P2-P-"
+                        + uuid4().hex[:8]
+                    ),
+                },
+            )
+        ).scalar_one()
+    )
+    variant_id = int(
+        (
+            await app.execute(
+                text(
+                    "INSERT INTO product_variants "
+                    "(company_id, product_id, base_uom_id, "
+                    "name, sku, quantity_scale, quantity_step, "
+                    "lot_control_mode, expiry_control_mode, "
+                    "lifecycle_status, operational_hold, "
+                    "lifecycle_revision, version, published_at, "
+                    "packs_per_carton, package_uses_base_barcode, "
+                    "default_max_samples_per_day, "
+                    "created_at, updated_at) "
+                    "VALUES "
+                    "(:company_id, :product_id, :uom_id, "
+                    "'P2 Catalog Item', :sku, 0, 1, "
+                    "'OPTIONAL', 'NONE', "
+                    "'ACTIVE', 'NONE', 1, 1, NOW(), "
+                    "1, false, 0, NOW(), NOW()) "
+                    "RETURNING id"
+                ),
+                {
+                    "company_id": company_id,
+                    "product_id": product_id,
+                    "uom_id": ids["each_uom_id"],
+                    "sku": (
+                        "P2-SKU-"
+                        + uuid4().hex[:8]
+                    ),
+                },
+            )
+        ).scalar_one()
+    )
+
+    price_book_id = int(
+        (
+            await app.execute(
+                text(
+                    "INSERT INTO price_books "
+                    "(company_id, code, name, currency_code, "
+                    "status, applicability_metadata, version, "
+                    "created_by, created_at, updated_at) "
+                    "VALUES "
+                    "(:company_id, :code, 'P2 Prices', 'JOD', "
+                    "'ACTIVE', '{}'::jsonb, 1, :actor_id, "
+                    "NOW(), NOW()) "
+                    "RETURNING id"
+                ),
+                {
+                    "company_id": company_id,
+                    "code": (
+                        "P2-BOOK-"
+                        + uuid4().hex[:8]
+                    ),
+                    "actor_id": pricing_driver_id,
+                },
+            )
+        ).scalar_one()
+    )
+    publication_id = int(
+        (
+            await app.execute(
+                text(
+                    "INSERT INTO price_publications "
+                    "(company_id, price_book_id, revision, status, "
+                    "effective_at, created_by, approved_by, "
+                    "approved_at, published_at, request_id, "
+                    "version, created_at, updated_at) "
+                    "VALUES "
+                    "(:company_id, :book_id, 1, 'PUBLISHED', "
+                    "NOW() - INTERVAL '1 day', :actor_id, "
+                    ":actor_id, NOW() - INTERVAL '1 day', "
+                    "NOW() - INTERVAL '1 day', :request_id, "
+                    "1, NOW(), NOW()) "
+                    "RETURNING id"
+                ),
+                {
+                    "company_id": company_id,
+                    "book_id": price_book_id,
+                    "actor_id": pricing_driver_id,
+                    "request_id": uuid4(),
+                },
+            )
+        ).scalar_one()
+    )
+    await app.execute(
+        text(
+            "INSERT INTO price_book_assignments "
+            "(company_id, price_book_id, scope_type, scope_id, "
+            "allow_offers, priority, effectivity, revision, "
+            "version, created_by, created_at, updated_at) "
+            "VALUES "
+            "(:company_id, :book_id, "
+            "'COMPANY_DEFAULT', NULL, true, 0, "
+            "tstzrange(NOW() - INTERVAL '1 day', NULL, '[)'), "
+            "1, 1, :actor_id, NOW(), NOW())"
+        ),
+        {
+            "company_id": company_id,
+            "book_id": price_book_id,
+            "actor_id": pricing_driver_id,
+        },
+    )
+    await app.execute(
+        text(
+            "INSERT INTO price_book_entries "
+            "(company_id, price_book_id, publication_id, "
+            "product_variant_id, uom_id, amount, effectivity, "
+            "priority, is_published, metadata, version, "
+            "created_at, updated_at) "
+            "VALUES "
+            "(:company_id, :book_id, :publication_id, "
+            ":variant_id, :uom_id, 12.345000, "
+            "tstzrange(NOW() - INTERVAL '1 day', NULL, '[)'), "
+            "0, true, '{}'::jsonb, 1, NOW(), NOW())"
+        ),
+        {
+            "company_id": company_id,
+            "book_id": price_book_id,
+            "publication_id": publication_id,
+            "variant_id": variant_id,
+            "uom_id": ids["each_uom_id"],
+        },
+    )
+    await app.flush()
+
+    return {
+        "catalog_driver_id": catalog_driver_id,
+        "pricing_driver_id": pricing_driver_id,
+        "variant_id": variant_id,
+    }
+
+
 async def cleanup(
-    company_ids: tuple[int, ...],
-    *,
-    permission_meta: tuple[
-        tuple[int | None, bool],
-        ...,
-    ],
+    ids: dict[str, int],
 ) -> tuple[bool, str]:
     try:
         async with SessionSU() as su:
             await su.begin()
-            for company_id in company_ids:
-                for table_name in (
-                    "price_book_entries",
-                    "price_book_assignments",
-                    "price_publications",
-                    "price_books",
-                ):
-                    await su.execute(
-                        text(
-                            f"DELETE FROM {table_name} "
-                            "WHERE company_id = :company_id"
-                        ),
-                        {"company_id": int(company_id)},
-                    )
+
+            foreign_company_id = ids.get(
+                "foreign_company_id"
+            )
+            if foreign_company_id is not None:
                 await su.execute(
                     text(
-                        "DELETE FROM companies "
-                        "WHERE id = :company_id"
+                        "DELETE FROM product_variants "
+                        "WHERE company_id = :company_id"
                     ),
-                    {"company_id": int(company_id)},
+                    {
+                        "company_id": int(
+                            foreign_company_id
+                        )
+                    },
+                )
+                await su.execute(
+                    text(
+                        "DELETE FROM products "
+                        "WHERE company_id = :company_id"
+                    ),
+                    {
+                        "company_id": int(
+                            foreign_company_id
+                        )
+                    },
                 )
 
-            for permission_id, created in permission_meta:
-                if (
-                    created
-                    and permission_id is not None
-                ):
+            for key in (
+                "company_id",
+                "foreign_company_id",
+            ):
+                company_id = ids.get(key)
+                if company_id is not None:
                     await su.execute(
                         text(
-                            "DELETE FROM permissions AS p "
-                            "WHERE p.id = :permission_id "
-                            "AND NOT EXISTS ("
-                            "SELECT 1 "
-                            "FROM role_permissions AS rp "
-                            "WHERE rp.permission_id = p.id"
-                            ")"
+                            "DELETE FROM companies "
+                            "WHERE id = :company_id"
                         ),
                         {
-                            "permission_id": int(
-                                permission_id
+                            "company_id": int(
+                                company_id
                             )
                         },
                     )
+
+            for prefix in (
+                "catalog",
+                "pricing",
+            ):
+                if bool(
+                    ids.get(
+                        f"{prefix}_permission_created",
+                        0,
+                    )
+                ):
+                    permission_id = ids.get(
+                        f"{prefix}_permission_id"
+                    )
+                    if permission_id is not None:
+                        await su.execute(
+                            text(
+                                "DELETE FROM permissions AS p "
+                                "WHERE p.id = :permission_id "
+                                "AND NOT EXISTS ("
+                                "SELECT 1 "
+                                "FROM role_permissions AS rp "
+                                "WHERE rp.permission_id = p.id"
+                                ")"
+                            ),
+                            {
+                                "permission_id": int(
+                                    permission_id
+                                )
+                            },
+                        )
+
             await su.commit()
         return True, ""
     except Exception as exc:
-        return False, f"{type(exc).__name__}: {exc}"
+        return (
+            False,
+            f"{type(exc).__name__}: {exc}",
+        )
 
 
 async def main() -> None:
     ids: dict[str, int] = {}
 
     try:
-        ids = await seed()
+        ids = await bootstrap()
         company_id = ids["company_id"]
-        variant_id = ids["variant_id"]
 
         token = _next_cursor(
-            variant_id,
+            ids["foreign_variant_id"],
             company_id=company_id,
             search="  Chips  ",
             limit=50,
@@ -555,7 +631,7 @@ async def main() -> None:
                 search="chips",
                 limit=50,
             )
-            == variant_id,
+            == ids["foreign_variant_id"],
         )
         record(
             "cursor rejects reuse under a different search",
@@ -602,6 +678,12 @@ async def main() -> None:
         async with SessionApp() as app:
             await app.begin()
             await set_tenant(app, company_id)
+            tenant_ids = await seed_tenant_transaction(
+                app,
+                ids,
+            )
+            ids.update(tenant_ids)
+
             catalog_actor = await app.get(
                 Driver,
                 ids["catalog_driver_id"],
@@ -632,68 +714,116 @@ async def main() -> None:
                 db=app,
                 actor=pricing_actor,
             )
+
+            catalog_items = catalog_page.get("items")
+            pricing_items = pricing_page.get("items")
+            catalog_row = (
+                catalog_items[0]
+                if isinstance(catalog_items, list)
+                and len(catalog_items) == 1
+                else {}
+            )
+            pricing_row = (
+                pricing_items[0]
+                if isinstance(pricing_items, list)
+                and len(pricing_items) == 1
+                else {}
+            )
+
+            record(
+                "catalog-only user can read product identity without pricing.view",
+                catalog_page.get(
+                    "pricing_visible"
+                )
+                is False
+                and isinstance(
+                    catalog_row,
+                    dict,
+                )
+                and catalog_row.get("id")
+                == ids["variant_id"],
+            )
+            record(
+                "catalog-only read exposes SKU tracking and lifecycle identity",
+                isinstance(catalog_row, dict)
+                and isinstance(
+                    catalog_row.get("sku"),
+                    str,
+                )
+                and catalog_row.get(
+                    "lot_control_mode"
+                )
+                == "OPTIONAL"
+                and catalog_row.get(
+                    "expiry_control_mode"
+                )
+                == "NONE"
+                and catalog_row.get(
+                    "lifecycle_status"
+                )
+                == "ACTIVE",
+            )
+            record(
+                "pricing-authorized reader receives the seeded real price",
+                pricing_page.get(
+                    "pricing_visible"
+                )
+                is True
+                and isinstance(
+                    pricing_row,
+                    dict,
+                )
+                and pricing_row.get("id")
+                == ids["variant_id"]
+                and pricing_row.get(
+                    "unit_price"
+                )
+                == "12.345000",
+                (
+                    "unit_price="
+                    + str(
+                        pricing_row.get(
+                            "unit_price"
+                        )
+                        if isinstance(
+                            pricing_row,
+                            dict,
+                        )
+                        else None
+                    )
+                ),
+            )
+            record(
+                "catalog-only read hides an existing real price",
+                isinstance(catalog_row, dict)
+                and catalog_row.get(
+                    "package_price"
+                )
+                is None
+                and catalog_row.get(
+                    "unit_price"
+                )
+                is None,
+            )
+            record(
+                "catalog list request excludes foreign-tenant products",
+                isinstance(
+                    catalog_items,
+                    list,
+                )
+                and len(catalog_items) == 1
+                and all(
+                    isinstance(item, dict)
+                    and item.get("id")
+                    != ids["foreign_variant_id"]
+                    for item in catalog_items
+                ),
+            )
+
+            # Published pricing evidence and assignment history are immutable.
+            # Keep all disposable pricing proof inside this transaction and
+            # roll it back instead of weakening production guards for cleanup.
             await app.rollback()
-
-        catalog_items = catalog_page.get("items")
-        pricing_items = pricing_page.get("items")
-        catalog_row = (
-            catalog_items[0]
-            if isinstance(catalog_items, list)
-            and len(catalog_items) == 1
-            else {}
-        )
-        pricing_row = (
-            pricing_items[0]
-            if isinstance(pricing_items, list)
-            and len(pricing_items) == 1
-            else {}
-        )
-
-        record(
-            "catalog-only user can read product identity without pricing.view",
-            catalog_page.get("pricing_visible") is False
-            and isinstance(catalog_row, dict)
-            and catalog_row.get("id") == variant_id,
-        )
-        record(
-            "catalog-only read exposes SKU tracking and lifecycle identity",
-            isinstance(catalog_row, dict)
-            and isinstance(catalog_row.get("sku"), str)
-            and catalog_row.get("lot_control_mode") == "OPTIONAL"
-            and catalog_row.get("expiry_control_mode") == "NONE"
-            and catalog_row.get("lifecycle_status") == "ACTIVE",
-        )
-        record(
-            "pricing-authorized reader receives the seeded real price",
-            pricing_page.get("pricing_visible") is True
-            and isinstance(pricing_row, dict)
-            and pricing_row.get("id") == variant_id
-            and pricing_row.get("unit_price")
-            == "12.345000",
-            (
-                "visible="
-                f"{pricing_page.get('pricing_visible')} "
-                "unit_price="
-                f"{pricing_row.get('unit_price') if isinstance(pricing_row, dict) else None}"
-            ),
-        )
-        record(
-            "catalog-only read hides an existing real price",
-            isinstance(catalog_row, dict)
-            and catalog_row.get("package_price") is None
-            and catalog_row.get("unit_price") is None,
-        )
-        record(
-            "catalog list request excludes foreign-tenant products",
-            isinstance(catalog_items, list)
-            and len(catalog_items) == 1
-            and all(
-                isinstance(item, dict)
-                and item.get("id")
-                != ids["foreign_variant_id"]
-                for item in catalog_items
-            ),
-        )
 
     except Exception as exc:
         record(
@@ -702,39 +832,11 @@ async def main() -> None:
             repr(exc),
         )
     finally:
-        company_ids = tuple(
-            int(value)
-            for value in (
-                ids.get("company_id"),
-                ids.get("foreign_company_id"),
-            )
-            if value is not None
-        )
         cleanup_ok, cleanup_detail = await cleanup(
-            company_ids,
-            permission_meta=(
-                (
-                    ids.get("catalog_permission_id"),
-                    bool(
-                        ids.get(
-                            "catalog_permission_created",
-                            0,
-                        )
-                    ),
-                ),
-                (
-                    ids.get("pricing_permission_id"),
-                    bool(
-                        ids.get(
-                            "pricing_permission_created",
-                            0,
-                        )
-                    ),
-                ),
-            ),
+            ids
         )
         record(
-            "P2 runtime gate removes all seeded tenant data",
+            "P2 runtime gate removes all committed seed data",
             cleanup_ok,
             cleanup_detail,
         )
