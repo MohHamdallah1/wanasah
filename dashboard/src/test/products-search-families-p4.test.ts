@@ -99,6 +99,12 @@ describe(
         "ProductBarcode.is_active.is_(True)",
       );
       expect(api).toContain(
+        "ProductBarcode.valid_from <= barcode_now",
+      );
+      expect(api).toContain(
+        "ProductBarcode.valid_to > barcode_now",
+      );
+      expect(api).toContain(
         "ProductBarcode.barcode",
       );
       expect(api).toContain(
