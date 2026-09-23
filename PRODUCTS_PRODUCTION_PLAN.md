@@ -1359,10 +1359,10 @@ Do not work on all items randomly.
 
 ## Phase P4 — Search / families
 
-- [ ] Search name/family/SKU/barcode.
-- [ ] Family search/pagination.
-- [ ] Filters/sorting.
-- [ ] performance audit.
+- [x] Search name/family/SKU/barcode.
+- [x] Family search/pagination.
+- [x] Filters/sorting.
+- [x] performance audit.
 
 ## Phase P5 — Exact pricing / UOM
 
