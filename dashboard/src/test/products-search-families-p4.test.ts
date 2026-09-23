@@ -75,6 +75,27 @@ describe(
       ).toThrow(
         "PRODUCT_FAMILIES_RESPONSE_INVALID",
       );
+
+      const longCursor =
+        "x".repeat(1500);
+      expect(
+        parseProductFamilies({
+          items: [],
+          next_cursor: longCursor,
+          has_more: true,
+        }).next_cursor,
+      ).toBe(longCursor);
+
+      expect(() =>
+        parseProductFamilies({
+          items: [],
+          next_cursor:
+            "x".repeat(2049),
+          has_more: true,
+        }),
+      ).toThrow(
+        "PRODUCT_FAMILIES_RESPONSE_INVALID",
+      );
     });
 
     it("validates family mutation responses at the frontend boundary", () => {
@@ -189,6 +210,9 @@ describe(
       );
       expect(manager).toContain(
         "getOrCreateDurableCommand",
+      );
+      expect(manager).toContain(
+        "readDurableCommand",
       );
       expect(manager).toContain(
         "parseProductFamilyMutation",
