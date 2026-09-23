@@ -254,7 +254,7 @@ describe("products P2 read contract", () => {
       '"products.fields.sku"',
     );
     expect(page).toContain(
-      "canManage && pricingVisible && item.simple_compatible",
+      "canEditSimplePrice && pricingVisible && item.simple_compatible",
     );
     expect(page).toContain(
       "setCursor(null); setHistory([]);",
