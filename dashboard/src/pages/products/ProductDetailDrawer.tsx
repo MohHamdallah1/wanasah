@@ -2,6 +2,10 @@ import { useEffect } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import {
+  formatLocaleDecimal,
+  formatLocaleMoney,
+} from "@/lib/localeNumbers";
 import type { SimpleProduct } from "@/pages/products/contracts";
 
 
@@ -29,6 +33,9 @@ export function ProductDetailDrawer({
   onManageBarcodes,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const locale =
+    i18n.resolvedLanguage ??
+    i18n.language;
 
   useEffect(() => {
     if (!product) {
@@ -52,8 +59,14 @@ export function ProductDetailDrawer({
     return null;
   }
 
-  const price = (value: string | null) =>
-    value ?? "—";
+  const price = (
+    value: string | null
+  ) =>
+    formatLocaleMoney(
+      value,
+      product.currency_code,
+      locale,
+    );
 
   return (
     <div className="fixed inset-0 z-[90]">
@@ -160,8 +173,15 @@ export function ProductDetailDrawer({
                   )}
                 </dt>
                 <dd className="mt-1 text-sm font-black text-slate-800">
-                  {product.package_uom_code
-                    ? product.units_per_package
+                  {product.package_uom_code &&
+                  product.units_per_package !==
+                    null
+                    ? formatLocaleDecimal(
+                        String(
+                          product.units_per_package
+                        ),
+                        locale,
+                      )
                     : "—"}
                 </dd>
               </div>
@@ -255,10 +275,7 @@ export function ProductDetailDrawer({
                   <dd className="mt-1 text-sm font-black text-slate-800">
                     {price(
                       product.package_price
-                    )}{" "}
-                    {
-                      product.currency_code
-                    }
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -270,10 +287,7 @@ export function ProductDetailDrawer({
                   <dd className="mt-1 text-sm font-black text-slate-800">
                     {price(
                       product.unit_price
-                    )}{" "}
-                    {
-                      product.currency_code
-                    }
+                    )}
                   </dd>
                 </div>
               </dl>
