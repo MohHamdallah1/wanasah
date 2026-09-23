@@ -1446,14 +1446,24 @@ async def list_simple_products(
         sort_key = _product_sort_key(
             sort_by_value
         )
+        search_tokens = _search_tokens(search)
+        needs_product_join = bool(
+            search_tokens
+        ) or sort_by_value == "family"
 
-        stmt = (
-            select(
-                ProductVariant,
+        selected = [
+            ProductVariant,
+            sort_key.label("_sort_key"),
+        ]
+        if needs_product_join:
+            selected.insert(
+                1,
                 Product,
-                sort_key.label("_sort_key"),
             )
-            .join(
+
+        stmt = select(*selected)
+        if needs_product_join:
+            stmt = stmt.join(
                 Product,
                 (
                     Product.company_id
@@ -1464,18 +1474,18 @@ async def list_simple_products(
                     == ProductVariant.product_id
                 ),
             )
-            .where(
-                ProductVariant.company_id
-                == company_id,
-                ProductVariant.lifecycle_status.in_(
-                    ("ACTIVE", "RETIRING")
-                ),
-            )
+        stmt = stmt.where(
+            ProductVariant.company_id
+            == company_id,
+            ProductVariant.lifecycle_status.in_(
+                ("ACTIVE", "RETIRING")
+            ),
         )
 
         if family_id is not None:
             stmt = stmt.where(
-                Product.id == int(family_id)
+                ProductVariant.product_id
+                == int(family_id)
             )
         if lifecycle_value is not None:
             stmt = stmt.where(
@@ -1555,7 +1565,7 @@ async def list_simple_products(
                     else ~price_exists
                 )
 
-        for token in _search_tokens(search):
+        for token in search_tokens:
             pattern = (
                 f"%{_escaped_like(token)}%"
             )
@@ -1637,8 +1647,53 @@ async def list_simple_products(
                 )
             ).all()
         )
-        page = rows[:limit]
+        raw_page = rows[:limit]
         has_more = len(rows) > limit
+
+        if needs_product_join:
+            page = [
+                (variant, product, sort_value)
+                for variant, product, sort_value
+                in raw_page
+            ]
+        else:
+            page_variants = [
+                variant
+                for variant, _sort_value
+                in raw_page
+            ]
+            product_ids = sorted(
+                {
+                    int(variant.product_id)
+                    for variant in page_variants
+                }
+            )
+            products_by_id = {
+                int(product.id): product
+                for product in (
+                    await db.scalars(
+                        select(Product).where(
+                            Product.company_id
+                            == company_id,
+                            Product.id.in_(
+                                product_ids
+                            ),
+                        )
+                    )
+                ).all()
+            }
+            page = [
+                (
+                    variant,
+                    products_by_id[
+                        int(variant.product_id)
+                    ],
+                    sort_value,
+                )
+                for variant, sort_value
+                in raw_page
+            ]
+
         variants = [
             variant
             for variant, _product, _sort
