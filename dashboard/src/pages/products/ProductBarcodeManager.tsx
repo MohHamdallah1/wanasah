@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -141,56 +142,63 @@ export function ProductBarcodeManager({
     DurableCommand<BarcodeCreateBody> | null
   >(null);
 
-  const createScope = (
-    productId: number
-  ) =>
-    companyId !== null &&
-    driverId !== null
-      ? durableScope(
-          companyId,
-          driverId,
-          "catalog-barcode-create-v2",
-          productId
-        )
-      : null;
+  const createScope = useCallback(
+    (productId: number) =>
+      companyId !== null &&
+      driverId !== null
+        ? durableScope(
+            companyId,
+            driverId,
+            "catalog-barcode-create-v2",
+            productId
+          )
+        : null,
+    [companyId, driverId],
+  );
 
-  const updateScope = (
-    barcodeId: number
-  ) =>
-    companyId !== null &&
-    driverId !== null
-      ? durableScope(
-          companyId,
-          driverId,
-          "catalog-barcode-update",
-          barcodeId
-        )
-      : null;
+  const updateScope = useCallback(
+    (barcodeId: number) =>
+      companyId !== null &&
+      driverId !== null
+        ? durableScope(
+            companyId,
+            driverId,
+            "catalog-barcode-update",
+            barcodeId
+          )
+        : null,
+    [companyId, driverId],
+  );
 
-  const reconcileDeactivation = (
-    loaded: ProductBarcodeRecord[]
-  ) => {
-    for (const item of loaded) {
-      const scope =
-        updateScope(item.id);
-      if (!scope) continue;
-      const pending =
-        readDurableCommand<
-          BarcodeDeactivateBody
-        >(scope);
-      if (
-        pending &&
-        !item.is_active &&
-        pending.payload
-          .is_active === false
-      ) {
-        completeDurableOperation(
-          scope,
-          pending.requestId
-        );
-      }
-    }
-  };
+  const reconcileDeactivation =
+    useCallback(
+      (
+        loaded:
+          ProductBarcodeRecord[]
+      ) => {
+        for (const item of loaded) {
+          const scope =
+            updateScope(item.id);
+          if (!scope) continue;
+          const pending =
+            readDurableCommand<
+              BarcodeDeactivateBody
+            >(scope);
+          if (
+            pending &&
+            !item.is_active &&
+            pending.payload
+              .is_active === false
+          ) {
+            completeDurableOperation(
+              scope,
+              pending.requestId
+            );
+          }
+        }
+      },
+      [updateScope],
+    );
 
   useEffect(() => {
     const productId =
@@ -307,6 +315,7 @@ export function ProductBarcodeManager({
     driverId,
     product?.id,
     reloadToken,
+    reconcileDeactivation,
     t,
   ]);
 
@@ -383,6 +392,7 @@ export function ProductBarcodeManager({
     product?.id,
     product?.base_uom_id,
     product?.package_uom_id,
+    createScope,
   ]);
 
   if (!product) {
