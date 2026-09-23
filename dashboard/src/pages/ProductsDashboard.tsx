@@ -51,6 +51,7 @@ import {
   parseSimpleProductPage,
   type PackageUom,
   type ProductImportState,
+  type ProductFamily,
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
@@ -75,6 +76,30 @@ const terminalImportStatuses =
     "FAILED",
     "NEEDS_MAPPING",
   ]);
+
+type ProductLifecycleFilter =
+  | ""
+  | "ACTIVE"
+  | "RETIRING";
+type ProductTrackingTypeFilter =
+  | ""
+  | "NONE"
+  | "LOT"
+  | "EXPIRY"
+  | "LOT_EXPIRY";
+type ProductBooleanFilter =
+  | ""
+  | "true"
+  | "false";
+type ProductSortField =
+  | "id"
+  | "name"
+  | "family"
+  | "sku"
+  | "lifecycle";
+type ProductSortDirection =
+  | "asc"
+  | "desc";
 
 type ProductDraft = {
   name: string;
@@ -261,6 +286,94 @@ export default function ProductsDashboard() {
   ] = useState<
     Array<string | null>
   >([]);
+  const [
+    filtersOpen,
+    setFiltersOpen,
+  ] = useState(false);
+  const [
+    familyFilterSearchInput,
+    setFamilyFilterSearchInput,
+  ] = useState("");
+  const [
+    familyFilterSearch,
+    setFamilyFilterSearch,
+  ] = useState("");
+  const [
+    familyFilterId,
+    setFamilyFilterId,
+  ] = useState("");
+  const [
+    familyFilterName,
+    setFamilyFilterName,
+  ] = useState("");
+  const [
+    lifecycleFilter,
+    setLifecycleFilter,
+  ] =
+    useState<ProductLifecycleFilter>(
+      ""
+    );
+  const [
+    trackingTypeFilter,
+    setTrackingTypeFilter,
+  ] =
+    useState<ProductTrackingTypeFilter>(
+      ""
+    );
+  const [
+    compatibilityFilter,
+    setCompatibilityFilter,
+  ] =
+    useState<ProductBooleanFilter>(
+      ""
+    );
+  const [
+    barcodeFilter,
+    setBarcodeFilter,
+  ] =
+    useState<ProductBooleanFilter>(
+      ""
+    );
+  const [
+    priceFilter,
+    setPriceFilter,
+  ] =
+    useState<ProductBooleanFilter>(
+      ""
+    );
+  const [
+    lotFilter,
+    setLotFilter,
+  ] =
+    useState<ProductBooleanFilter>(
+      ""
+    );
+  const [
+    expiryFilter,
+    setExpiryFilter,
+  ] =
+    useState<ProductBooleanFilter>(
+      ""
+    );
+  const [
+    sortBy,
+    setSortBy,
+  ] =
+    useState<ProductSortField>(
+      "id"
+    );
+  const [
+    sortDir,
+    setSortDir,
+  ] =
+    useState<ProductSortDirection>(
+      "asc"
+    );
+
+  const resetProductPagination = () => {
+    setCursor(null);
+    setHistory([]);
+  };
 
   const [
     createOpen,
@@ -445,6 +558,34 @@ export default function ProductsDashboard() {
   }, [searchInput]);
 
   useEffect(() => {
+    const timer =
+      window.setTimeout(() => {
+        setFamilyFilterSearch(
+          familyFilterSearchInput
+            .trim()
+            .slice(0, 100)
+        );
+      }, 250);
+    return () =>
+      window.clearTimeout(timer);
+  }, [familyFilterSearchInput]);
+
+  useEffect(() => {
+    if (
+      canViewPricing ||
+      !priceFilter
+    ) {
+      return;
+    }
+    setPriceFilter("");
+    setCursor(null);
+    setHistory([]);
+  }, [
+    canViewPricing,
+    priceFilter,
+  ]);
+
+  useEffect(() => {
     if (!createOpen) {
       setFamilyOptionSearch("");
       return;
@@ -564,6 +705,8 @@ export default function ProductsDashboard() {
       const value =
         new URLSearchParams({
           limit: "100",
+          sort_by: sortBy,
+          sort_dir: sortDir,
         });
       if (search) {
         value.set(
@@ -577,10 +720,93 @@ export default function ProductsDashboard() {
           cursor
         );
       }
+      if (familyFilterId) {
+        value.set(
+          "family_id",
+          familyFilterId
+        );
+      }
+      if (lifecycleFilter) {
+        value.set(
+          "lifecycle",
+          lifecycleFilter
+        );
+      }
+      if (trackingTypeFilter) {
+        value.set(
+          "tracking_type",
+          trackingTypeFilter
+        );
+      }
+      if (compatibilityFilter) {
+        value.set(
+          "simple_compatible",
+          compatibilityFilter
+        );
+      }
+      if (barcodeFilter) {
+        value.set(
+          "has_barcode",
+          barcodeFilter
+        );
+      }
+      if (
+        canViewPricing &&
+        priceFilter
+      ) {
+        value.set(
+          "has_price",
+          priceFilter
+        );
+      }
+      if (lotFilter) {
+        value.set(
+          "lot_tracked",
+          lotFilter
+        );
+      }
+      if (expiryFilter) {
+        value.set(
+          "expiry_tracked",
+          expiryFilter
+        );
+      }
       return value.toString();
     },
-    [search, cursor]
+    [
+      search,
+      cursor,
+      familyFilterId,
+      lifecycleFilter,
+      trackingTypeFilter,
+      compatibilityFilter,
+      barcodeFilter,
+      canViewPricing,
+      priceFilter,
+      lotFilter,
+      expiryFilter,
+      sortBy,
+      sortDir,
+    ]
   );
+
+  const familyFilterParams =
+    useMemo(
+      () => {
+        const value =
+          new URLSearchParams({
+            limit: "50",
+          });
+        if (familyFilterSearch) {
+          value.set(
+            "search",
+            familyFilterSearch
+          );
+        }
+        return value.toString();
+      },
+      [familyFilterSearch]
+    );
 
   const familyOptionParams =
     useMemo(
@@ -605,8 +831,7 @@ export default function ProductsDashboard() {
       queryKey: [
         "simple-products",
         companyId,
-        search,
-        cursor,
+        params,
       ],
       enabled: Boolean(
         companyId
@@ -617,6 +842,29 @@ export default function ProductsDashboard() {
         parseSimpleProductPage(
           await authFetch(
             `/simple-products?${params}`,
+            { signal }
+          )
+        ),
+    });
+
+  const familyFilterOptionsQuery =
+    useQuery({
+      queryKey: [
+        "simple-product-families",
+        companyId,
+        "filter-options",
+        familyFilterSearch,
+      ],
+      enabled: Boolean(
+        companyId &&
+        filtersOpen
+      ),
+      queryFn: async ({
+        signal,
+      }) =>
+        parseProductFamilies(
+          await authFetch(
+            `/simple-products/families?${familyFilterParams}`,
             { signal }
           )
         ),
@@ -682,6 +930,20 @@ export default function ProductsDashboard() {
   useEffect(() => {
     setCursor(null);
     setHistory([]);
+    setFiltersOpen(false);
+    setFamilyFilterSearchInput("");
+    setFamilyFilterSearch("");
+    setFamilyFilterId("");
+    setFamilyFilterName("");
+    setLifecycleFilter("");
+    setTrackingTypeFilter("");
+    setCompatibilityFilter("");
+    setBarcodeFilter("");
+    setPriceFilter("");
+    setLotFilter("");
+    setExpiryFilter("");
+    setSortBy("id");
+    setSortDir("asc");
     setDetailProduct(null);
     setBarcodeProduct(null);
     setPriceEdit(null);
@@ -752,6 +1014,9 @@ export default function ProductsDashboard() {
 
   const page =
     productsQuery.data;
+  const familyFilterOptions =
+    familyFilterOptionsQuery.data
+      ?.items ?? [];
   const familyOptions =
     familyOptionsQuery.data
       ?.items ?? [];
@@ -765,6 +1030,20 @@ export default function ProductsDashboard() {
     );
   const productTableColumnCount =
     pricingVisible ? 7 : 5;
+  const hasProductListControls =
+    Boolean(
+      familyFilterId ||
+        lifecycleFilter ||
+        trackingTypeFilter ||
+        compatibilityFilter ||
+        barcodeFilter ||
+        (canViewPricing &&
+          priceFilter) ||
+        lotFilter ||
+        expiryFilter ||
+        sortBy !== "id" ||
+        sortDir !== "asc"
+    );
 
   const importTrackingUsesCompanyDefaults =
     Boolean(
@@ -2181,25 +2460,493 @@ export default function ProductsDashboard() {
 
       <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl">
         <div className="shrink-0 border-b border-slate-100 p-4">
-          <div className="relative max-w-md">
-            <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="search"
-              value={searchInput}
-              maxLength={100}
-              onChange={(
-                event
-              ) =>
-                setSearchInput(
-                  event.target.value
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[260px] max-w-md flex-1">
+              <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={searchInput}
+                maxLength={100}
+                onChange={(
+                  event
+                ) =>
+                  setSearchInput(
+                    event.target.value
+                  )
+                }
+                placeholder={t(
+                  "products.searchPlaceholder"
+                )}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pe-9 ps-3 text-sm font-bold outline-none focus:border-slate-400 focus:bg-white"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setFiltersOpen(
+                  (current) =>
+                    !current
                 )
               }
-              placeholder={t(
-                "products.searchPlaceholder"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700"
+            >
+              <Settings2 className="h-4 w-4" />
+              {t(
+                filtersOpen
+                  ? "products.filters.hide"
+                  : "products.filters.show"
               )}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pe-9 ps-3 text-sm font-bold outline-none focus:border-slate-400 focus:bg-white"
-            />
+            </button>
+            {hasProductListControls ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setFamilyFilterId("");
+                  setFamilyFilterName("");
+                  setFamilyFilterSearchInput("");
+                  setLifecycleFilter("");
+                  setTrackingTypeFilter("");
+                  setCompatibilityFilter("");
+                  setBarcodeFilter("");
+                  setPriceFilter("");
+                  setLotFilter("");
+                  setExpiryFilter("");
+                  setSortBy("id");
+                  setSortDir("asc");
+                  resetProductPagination();
+                }}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-black text-slate-600"
+              >
+                {t(
+                  "products.filters.clear"
+                )}
+              </button>
+            ) : null}
           </div>
+
+          {filtersOpen ? (
+            <div className="mt-3 grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:grid-cols-2 xl:grid-cols-4">
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.family"
+                  )}
+                </span>
+                <input
+                  type="search"
+                  value={
+                    familyFilterSearchInput
+                  }
+                  maxLength={100}
+                  onChange={(event) =>
+                    setFamilyFilterSearchInput(
+                      event.target.value
+                    )
+                  }
+                  placeholder={t(
+                    "products.filters.familySearch"
+                  )}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-slate-400"
+                />
+                <select
+                  value={familyFilterId}
+                  onChange={(event) => {
+                    const nextId =
+                      event.target.value;
+                    const selected =
+                      familyFilterOptions.find(
+                        (item) =>
+                          String(
+                            item.id
+                          ) ===
+                          nextId
+                      );
+                    setFamilyFilterId(
+                      nextId
+                    );
+                    setFamilyFilterName(
+                      selected?.name ??
+                        ""
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-slate-400"
+                >
+                  <option value="">
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </option>
+                  {familyFilterId &&
+                  !familyFilterOptions.some(
+                    (item) =>
+                      String(item.id) ===
+                      familyFilterId
+                  ) ? (
+                    <option
+                      value={
+                        familyFilterId
+                      }
+                    >
+                      {familyFilterName ||
+                        familyFilterId}
+                    </option>
+                  ) : null}
+                  {familyFilterOptions.map(
+                    (
+                      family: ProductFamily
+                    ) => (
+                      <option
+                        key={family.id}
+                        value={String(
+                          family.id
+                        )}
+                      >
+                        {family.name}
+                      </option>
+                    )
+                  )}
+                </select>
+                {familyFilterOptionsQuery.isError ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void familyFilterOptionsQuery.refetch()
+                    }
+                    className="text-[11px] font-black text-rose-700"
+                  >
+                    {t(
+                      "products.filters.familyLoadFailed"
+                    )}
+                  </button>
+                ) : null}
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.lifecycle"
+                  )}
+                </span>
+                <select
+                  value={lifecycleFilter}
+                  onChange={(event) => {
+                    setLifecycleFilter(
+                      event.target
+                        .value as ProductLifecycleFilter
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  <option value="">
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </option>
+                  <option value="ACTIVE">
+                    {t(
+                      "products.details.lifecycleModes.ACTIVE"
+                    )}
+                  </option>
+                  <option value="RETIRING">
+                    {t(
+                      "products.details.lifecycleModes.RETIRING"
+                    )}
+                  </option>
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.trackingType"
+                  )}
+                </span>
+                <select
+                  value={trackingTypeFilter}
+                  onChange={(event) => {
+                    setTrackingTypeFilter(
+                      event.target
+                        .value as ProductTrackingTypeFilter
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  <option value="">
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </option>
+                  {(
+                    [
+                      "NONE",
+                      "LOT",
+                      "EXPIRY",
+                      "LOT_EXPIRY",
+                    ] as const
+                  ).map((value) => (
+                    <option
+                      key={value}
+                      value={value}
+                    >
+                      {t(
+                        `products.filters.trackingTypes.${value}`
+                      )}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.compatibility"
+                  )}
+                </span>
+                <select
+                  value={
+                    compatibilityFilter
+                  }
+                  onChange={(event) => {
+                    setCompatibilityFilter(
+                      event.target
+                        .value as ProductBooleanFilter
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  <option value="">
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </option>
+                  <option value="true">
+                    {t(
+                      "products.filters.simple"
+                    )}
+                  </option>
+                  <option value="false">
+                    {t(
+                      "products.filters.advanced"
+                    )}
+                  </option>
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.barcode"
+                  )}
+                </span>
+                <select
+                  value={barcodeFilter}
+                  onChange={(event) => {
+                    setBarcodeFilter(
+                      event.target
+                        .value as ProductBooleanFilter
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  <option value="">
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </option>
+                  <option value="true">
+                    {t(
+                      "products.filters.present"
+                    )}
+                  </option>
+                  <option value="false">
+                    {t(
+                      "products.filters.missing"
+                    )}
+                  </option>
+                </select>
+              </label>
+
+              {canViewPricing ? (
+                <label className="space-y-1">
+                  <span className="text-[11px] font-black text-slate-500">
+                    {t(
+                      "products.filters.price"
+                    )}
+                  </span>
+                  <select
+                    value={priceFilter}
+                    onChange={(event) => {
+                      setPriceFilter(
+                        event.target
+                          .value as ProductBooleanFilter
+                      );
+                      resetProductPagination();
+                    }}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                  >
+                    <option value="">
+                      {t(
+                        "products.filters.all"
+                      )}
+                    </option>
+                    <option value="true">
+                      {t(
+                        "products.filters.present"
+                      )}
+                    </option>
+                    <option value="false">
+                      {t(
+                        "products.filters.missing"
+                      )}
+                    </option>
+                  </select>
+                </label>
+              ) : null}
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.lot"
+                  )}
+                </span>
+                <select
+                  value={lotFilter}
+                  onChange={(event) => {
+                    setLotFilter(
+                      event.target
+                        .value as ProductBooleanFilter
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  <option value="">
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </option>
+                  <option value="true">
+                    {t(
+                      "products.filters.tracked"
+                    )}
+                  </option>
+                  <option value="false">
+                    {t(
+                      "products.filters.notTracked"
+                    )}
+                  </option>
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.expiry"
+                  )}
+                </span>
+                <select
+                  value={expiryFilter}
+                  onChange={(event) => {
+                    setExpiryFilter(
+                      event.target
+                        .value as ProductBooleanFilter
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  <option value="">
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </option>
+                  <option value="true">
+                    {t(
+                      "products.filters.tracked"
+                    )}
+                  </option>
+                  <option value="false">
+                    {t(
+                      "products.filters.notTracked"
+                    )}
+                  </option>
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.sortBy"
+                  )}
+                </span>
+                <select
+                  value={sortBy}
+                  onChange={(event) => {
+                    setSortBy(
+                      event.target
+                        .value as ProductSortField
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  {(
+                    [
+                      "id",
+                      "name",
+                      "family",
+                      "sku",
+                      "lifecycle",
+                    ] as const
+                  ).map((value) => (
+                    <option
+                      key={value}
+                      value={value}
+                    >
+                      {t(
+                        `products.filters.sortFields.${value}`
+                      )}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-black text-slate-500">
+                  {t(
+                    "products.filters.sortDirection"
+                  )}
+                </span>
+                <select
+                  value={sortDir}
+                  onChange={(event) => {
+                    setSortDir(
+                      event.target
+                        .value as ProductSortDirection
+                    );
+                    resetProductPagination();
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+                >
+                  <option value="asc">
+                    {t(
+                      "products.filters.ascending"
+                    )}
+                  </option>
+                  <option value="desc">
+                    {t(
+                      "products.filters.descending"
+                    )}
+                  </option>
+                </select>
+              </label>
+            </div>
+          ) : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">
