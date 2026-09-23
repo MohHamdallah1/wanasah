@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.pricing.core import PricingError, maker_checker_enabled, money_20_6
@@ -37,6 +37,8 @@ from models import (
     Driver,
     PriceBook,
     PriceBookAssignment,
+    PriceBookEntry,
+    PricePublication,
     Product,
     ProductBarcode,
     ProductUomConversion,
@@ -1538,6 +1540,145 @@ async def current_primary_barcodes(
         )
 
     return result
+
+
+
+def simple_compatibility_clause(
+    *,
+    company_id: int,
+):
+    """SQL predicate matching the Simple Products sale-shape contract."""
+    base_uom_id = (
+        select(UOM.id)
+        .where(UOM.code == BASE_UOM_CODE)
+        .limit(1)
+        .scalar_subquery()
+    )
+    matching_package_count = (
+        select(func.count(ProductUomConversion.id))
+        .select_from(ProductUomConversion)
+        .join(
+            UOM,
+            UOM.id
+            == ProductUomConversion.from_uom_id,
+        )
+        .where(
+            ProductUomConversion.company_id
+            == int(company_id),
+            ProductUomConversion.product_variant_id
+            == ProductVariant.id,
+            ProductUomConversion.to_uom_id
+            == base_uom_id,
+            UOM.code.in_(
+                SUPPORTED_PACKAGE_UOM_CODES
+            ),
+            ProductUomConversion.numerator
+            == (
+                ProductVariant.packs_per_carton
+                * ProductUomConversion.denominator
+            ),
+        )
+        .correlate(ProductVariant)
+        .scalar_subquery()
+    )
+    return and_(
+        ProductVariant.base_uom_id
+        == base_uom_id,
+        ProductVariant.packs_per_carton > 0,
+        or_(
+            and_(
+                ProductVariant.packs_per_carton == 1,
+                matching_package_count == 0,
+            ),
+            and_(
+                ProductVariant.packs_per_carton > 1,
+                matching_package_count == 1,
+            ),
+        ),
+    )
+
+
+def simple_price_exists_clause(
+    *,
+    company_id: int,
+    price_book_id: int,
+    as_of: datetime,
+):
+    """Current simple-visible price existence, usable before pagination."""
+    package_uom_match = (
+        select(ProductUomConversion.id)
+        .select_from(ProductUomConversion)
+        .join(
+            UOM,
+            UOM.id
+            == ProductUomConversion.from_uom_id,
+        )
+        .where(
+            ProductUomConversion.company_id
+            == int(company_id),
+            ProductUomConversion.product_variant_id
+            == ProductVariant.id,
+            ProductUomConversion.to_uom_id
+            == ProductVariant.base_uom_id,
+            UOM.code.in_(
+                SUPPORTED_PACKAGE_UOM_CODES
+            ),
+            ProductUomConversion.numerator
+            == (
+                ProductVariant.packs_per_carton
+                * ProductUomConversion.denominator
+            ),
+            PriceBookEntry.uom_id
+            == ProductUomConversion.from_uom_id,
+        )
+        .correlate(
+            ProductVariant,
+            PriceBookEntry,
+        )
+        .exists()
+    )
+    current_price = (
+        select(PriceBookEntry.id)
+        .join(
+            PricePublication,
+            (
+                PricePublication.company_id
+                == PriceBookEntry.company_id
+            )
+            & (
+                PricePublication.id
+                == PriceBookEntry.publication_id
+            ),
+        )
+        .where(
+            PriceBookEntry.company_id
+            == int(company_id),
+            PriceBookEntry.price_book_id
+            == int(price_book_id),
+            PriceBookEntry.product_variant_id
+            == ProductVariant.id,
+            PriceBookEntry.is_published.is_(True),
+            PriceBookEntry.effectivity.contains(as_of),
+            PricePublication.status.in_(
+                ("PUBLISHED", "SUPERSEDED")
+            ),
+            PricePublication.published_at.is_not(None),
+            PricePublication.published_at <= as_of,
+            or_(
+                PriceBookEntry.uom_id
+                == ProductVariant.base_uom_id,
+                package_uom_match,
+            ),
+        )
+        .correlate(ProductVariant)
+        .exists()
+    )
+    return and_(
+        simple_compatibility_clause(
+            company_id=int(company_id),
+        ),
+        current_price,
+    )
 
 
 async def simple_compatibility(
