@@ -17,6 +17,15 @@ const mocks = vi.hoisted(() => ({
   authFetch: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  translate: (
+    key: string,
+    options?: {
+      defaultValue?: string;
+      name?: string;
+    },
+  ) =>
+    options?.defaultValue ??
+    key,
 }));
 
 vi.mock("@/hooks/useAuthFetch", () => ({
@@ -36,15 +45,7 @@ vi.mock("sonner", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (
-      key: string,
-      options?: {
-        defaultValue?: string;
-        name?: string;
-      },
-    ) =>
-      options?.defaultValue ??
-      key,
+    t: mocks.translate,
     i18n: {
       language: "en",
       resolvedLanguage: "en",
