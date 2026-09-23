@@ -90,8 +90,13 @@ const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
     inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const page = value as Record<string, unknown>;
-  const rawItems = page.items;
-  if (!Array.isArray(rawItems) || rawItems.length > 200) {
+  const rawItems: unknown[] =
+    Array.isArray(page.items)
+      ? page.items
+      : inventoryContractError(
+          "WAREHOUSE_LOCATION_RESPONSE_INVALID"
+        );
+  if (rawItems.length > 200) {
     inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
 
