@@ -78,17 +78,23 @@ describe("Products P3 detail foundation", () => {
       ),
     );
 
-    expect(page).toContain(
-      "setDetailProduct( item )",
+    const row = compact(
+      readSource(
+        "../pages/products/ProductTableRow.tsx",
+      ),
     );
+
     expect(page).toContain(
-      '"products.details.open"',
+      "onOpenDetails={ setDetailProduct }",
     );
     expect(page).toContain(
       "canEditTracking={ canManageCatalog }",
     );
     expect(page).toContain(
       "canEditPrice={ canEditSimplePrice }",
+    );
+    expect(row).toContain(
+      '"products.details.open"',
     );
   });
 
@@ -282,17 +288,25 @@ describe("Products P3 detail foundation", () => {
   });
 
   it("keeps Products table presentation on exact decimal strings instead of Number conversion", () => {
-    const page = readSource(
-      "../pages/ProductsDashboard.tsx",
+    const page = compact(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
+    );
+    const row = readSource(
+      "../pages/products/ProductTableRow.tsx",
     );
 
     expect(page).toContain(
+      "<ProductTableRow",
+    );
+    expect(row).toContain(
       "formatLocaleDecimal",
     );
-    expect(page).toContain(
+    expect(row).toContain(
       "formatPackageUnits",
     );
-    expect(page).not.toContain(
+    expect(row).not.toContain(
       "Number(value)",
     );
   });
