@@ -90,33 +90,60 @@ const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
     inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const page = value as Record<string, unknown>;
-  if (!Array.isArray(page.items) || page.items.length > 200) {
+  const rawItems = page.items;
+  if (!Array.isArray(rawItems) || rawItems.length > 200) {
     inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
-  const items = page.items.map((item) => {
+
+  const items: WarehouseLocationOption[] = rawItems.map((item) => {
     if (typeof item !== "object" || item === null || Array.isArray(item)) {
       inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
     const row = item as Record<string, unknown>;
+    const id = row.id;
+    const name = row.name;
+    const code = row.code;
     if (
-      typeof row.id !== "number" || !Number.isSafeInteger(row.id) || row.id <= 0 ||
-      typeof row.name !== "string" || !row.name.trim() ||
-      typeof row.code !== "string" || !row.code.trim()
+      typeof id !== "number" ||
+      !Number.isSafeInteger(id) ||
+      id <= 0 ||
+      typeof name !== "string" ||
+      !name.trim() ||
+      typeof code !== "string" ||
+      !code.trim()
     ) {
       inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
     }
-    return { id: row.id, name: row.name, code: row.code };
+    return { id, name, code };
   });
-  const nextCursor = typeof page.next_cursor === "string" ? page.next_cursor : null;
-  if (typeof page.has_more !== "boolean" || page.has_more !== (nextCursor !== null)) {
+
+  const nextCursor =
+    typeof page.next_cursor === "string"
+      ? page.next_cursor
+      : page.next_cursor === null
+        ? null
+        : inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
+  const hasMore = page.has_more;
+  if (
+    typeof hasMore !== "boolean" ||
+    hasMore !== (nextCursor !== null)
+  ) {
     inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
   }
   const total = page.total === null
     ? null
-    : typeof page.total === "number" && Number.isSafeInteger(page.total) && page.total >= 0
+    : typeof page.total === "number" &&
+        Number.isSafeInteger(page.total) &&
+        page.total >= 0
       ? page.total
-      : (() => inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID"))();
-  return { items, next_cursor: nextCursor, has_more: page.has_more, total };
+      : inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
+
+  return {
+    items,
+    next_cursor: nextCursor,
+    has_more: hasMore,
+    total,
+  };
 };
 
 const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
@@ -124,23 +151,31 @@ const parseWarehouseSetupStatus = (value: unknown): WarehouseSetupStatus => {
     inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
   }
   const row = value as Record<string, unknown>;
+  const warehouseReady = row.warehouse_ready;
+  const activeWarehouseCount = row.active_warehouse_count;
+  const accessibleWarehouseCount = row.accessible_warehouse_count;
+  const canCreate = row.can_create;
+
   if (
-    typeof row.warehouse_ready !== "boolean" ||
-    typeof row.can_create !== "boolean" ||
-    typeof row.active_warehouse_count !== "number" ||
-    !Number.isSafeInteger(row.active_warehouse_count) || row.active_warehouse_count < 0 ||
-    typeof row.accessible_warehouse_count !== "number" ||
-    !Number.isSafeInteger(row.accessible_warehouse_count) || row.accessible_warehouse_count < 0 ||
-    row.accessible_warehouse_count > row.active_warehouse_count ||
-    row.warehouse_ready !== (row.active_warehouse_count > 0)
+    typeof warehouseReady !== "boolean" ||
+    typeof canCreate !== "boolean" ||
+    typeof activeWarehouseCount !== "number" ||
+    !Number.isSafeInteger(activeWarehouseCount) ||
+    activeWarehouseCount < 0 ||
+    typeof accessibleWarehouseCount !== "number" ||
+    !Number.isSafeInteger(accessibleWarehouseCount) ||
+    accessibleWarehouseCount < 0 ||
+    accessibleWarehouseCount > activeWarehouseCount ||
+    warehouseReady !== (activeWarehouseCount > 0)
   ) {
     inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
   }
+
   return {
-    warehouse_ready: row.warehouse_ready,
-    active_warehouse_count: row.active_warehouse_count,
-    accessible_warehouse_count: row.accessible_warehouse_count,
-    can_create: row.can_create,
+    warehouse_ready: warehouseReady,
+    active_warehouse_count: activeWarehouseCount,
+    accessible_warehouse_count: accessibleWarehouseCount,
+    can_create: canCreate,
   };
 };
 
