@@ -56,7 +56,6 @@ from domains.simple_products.service import (
     parse_optional_money,
     rename_family,
     resolve_price_pair,
-    simple_compatibility,
     simple_compatibility_clause,
     simple_price_exists_clause,
     update_prices,
@@ -1668,11 +1667,11 @@ async def list_simple_products(
             variants=variants,
             shapes=shapes,
         )
-        compatible = await simple_compatibility(
-            db,
-            company_id=company_id,
-            variants=variants,
-        )
+        compatible = {
+            int(variant.id):
+                int(variant.id) in shapes
+            for variant in variants
+        }
 
         items = []
         for variant, product, _sort in page:
