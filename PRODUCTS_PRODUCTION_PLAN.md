@@ -1412,48 +1412,158 @@ Do not work on all items randomly.
 
 # 54. Products page completion — P9 (active)
 
-P0–P8 hardened the Products backend contracts, security, performance, durability, and release gates. The Products **page itself is not owner-complete yet**. P9 remains active until functional coverage and final visual acceptance are complete.
+P0–P8 hardened the Products backend contracts, security, performance, durability, and release gates. That work is preserved. It does **not** mean the normal Products page is functionally or visually finished.
 
-## P9.1 — Map backend capabilities to the normal Products page
+**Owner requirement:** do not leave Products for another page until the Products experience is functionally complete, every relevant backend capability is intentionally represented or intentionally withheld with a documented reason, avoidable frontend technical debt is removed safely, the final visual redesign is approved, and all regression gates pass again.
 
-- [ ] Inventory every Product/Catalog backend capability and classify it as: expose in normal Products, expose only in Advanced, or intentionally keep admin/internal with a documented reason.
-- [ ] Add safe editing of the product display name from the normal Products experience.
-- [ ] Add safe movement of a product/SKU to another family where backend history/lifecycle rules allow it.
-- [ ] Keep family creation and family rename available and make existing-family vs new-family selection unmistakable during product creation.
-- [ ] Decide whether SKU/code may be edited after creation; expose it only in lifecycle states where the backend allows it.
-- [ ] Complete safe package/unit-structure editing for simple-compatible products.
-- [ ] Show the base selling/stock unit and package conversion clearly in Product Details (for example: carton = 50 pieces).
-- [ ] Ensure barcode, tracking, lifecycle/hold, pricing, advanced unit management, and family actions are reachable from one coherent Product experience.
-- [ ] Define the safe delete/archive policy; never expose unsafe hard delete.
-- [ ] Audit Product-location/warehouse capabilities and expose only useful operator actions without implying every product must be manually assigned to every warehouse.
+## P9.0 — Freeze the current behavior before any refactor
 
-## P9.2 — Remove avoidable frontend technical debt before the visual rebuild
+- [ ] Record the exact current behavior of the Products page before structural work: queries, mutations, permissions, durable operation scopes, request IDs, retry behavior, cancellation/request-sequence guards, cache invalidation, saved-draft keys, pagination/cursor behavior, and runtime contracts.
+- [ ] Record a targeted test baseline for every current Product workflow before moving code.
+- [ ] Create a backend-to-frontend capability matrix covering Simple Products, Catalog, Pricing, lifecycle/hold, barcodes, package/unit structure, families, import, and Product-location/warehouse capabilities.
+- [ ] For every backend capability, classify it as:
+  - normal Products action,
+  - advanced Products action,
+  - read-only information,
+  - intentionally admin/internal only, with the reason documented.
+- [ ] Identify every Product behavior that currently exists in backend authority but is missing or incomplete in the normal Products page.
+- [ ] Do not change page behavior or visual design while establishing this baseline.
 
-- [ ] Split the oversized `ProductsDashboard.tsx` by responsibility where it materially improves maintainability: page orchestration, create/edit product flow, import flow, filters/search, and price editing.
-- [ ] Keep business rules in backend/domain authorities; extracted React components must not duplicate them.
-- [ ] Keep shared runtime parsers, durable command handling, permissions, request cancellation, and retry behavior centralized and tested.
-- [ ] Re-run the full Product test/build gates after structural extraction before visual redesign.
+## P9.1 — Finish the Product functions before visual polish
 
-## P9.3 — Final Products UX and visual redesign
+### Product identity and family
 
-- [ ] Rebuild the page information hierarchy with owner approval before coding cosmetic polish.
-- [ ] Redesign header, primary actions, search, filters, product list/cards, pagination, empty/error/loading states, and whitespace usage.
-- [ ] Redesign Product Details so the important identity, family, package structure, tracking, barcodes, lifecycle/hold, pricing, and available actions are understandable without technical terminology.
-- [ ] Redesign Create Product so ordinary creation is fast while advanced settings remain available without clutter.
-- [ ] Redesign Families, Barcode, Tracking, Lifecycle, Pricing, and Advanced-unit flows into one consistent visual language.
-- [ ] Preserve responsive behavior, accessibility, keyboard flow, RTL/LTR, translations, and configurable display preferences during the redesign.
-- [ ] Owner visual acceptance is required; passing automated tests alone does not close P9.
+- [ ] Add safe editing of the user-visible product name from the normal Products experience.
+- [ ] Confirm exactly which underlying identity is being renamed (product family identity vs SKU/variant display identity) so the UI never edits the wrong record.
+- [ ] Keep family creation and family rename available.
+- [ ] Make choosing an existing family versus creating a new family unmistakable during product creation.
+- [ ] Add safe movement of an existing product/SKU to another family only where backend lifecycle/history rules allow it.
+- [ ] Expose product code/SKU editing only in states where backend authority permits it; otherwise show it as locked with a clear reason.
+- [ ] Audit backend Product fields such as description/brand/category and decide which belong in the normal or advanced Product experience.
+- [ ] Preserve optimistic-version/concurrency protection for every identity edit.
 
-## P9.4 — Final verification and close-out
+### Package and unit structure
 
-- [ ] Functional walkthrough covers create, edit name, family selection/change, tracking, barcodes, lifecycle/hold, pricing, package structure, import, search/filter/sort, permissions, and error/retry states.
-- [ ] Verify every backend capability intentionally exposed/hidden; no accidental missing Product function remains.
-- [ ] Run targeted Product tests, full Dashboard tests, TypeScript, zero-warning lint, production build, backend Product gates, and the aggregate Products production gate.
-- [ ] Review final diff for duplicated authority, stale/legacy UI paths, dead code, and technical debt introduced during redesign.
-- [ ] Owner approves final Products page design and workflow.
-- [ ] PR + merge.
-- [ ] local `main == origin/main`.
-- [ ] Only then declare the Products page fully complete and return this plan to the archive.
+- [ ] Show clearly what the base stock/selling unit is in plain user language (piece, carton, box, bag, etc.).
+- [ ] Show package conversion clearly, for example: "1 carton = 50 pieces".
+- [ ] Complete safe editing of simple package structure where history/lifecycle rules allow it.
+- [ ] Clearly lock structural edits that would corrupt existing operational history.
+- [ ] Keep advanced unit/conversion management reachable without forcing ordinary users through technical catalog screens.
+- [ ] Ensure package/barcode relationships remain authoritative and never create duplicate conversion logic in React.
+
+### Tracking, barcodes, lifecycle, hold, and pricing
+
+- [ ] Keep lot/batch-number tracking and expiry tracking visible in plain language.
+- [ ] Keep safe tracking-mode editing and its history lock behavior.
+- [ ] Keep barcode add/deactivate/manage workflows reachable from Product Details.
+- [ ] Keep lifecycle actions and operational hold/recall actions reachable and understandable.
+- [ ] Keep price visibility permission-aware and price editing permission-aware.
+- [ ] Explain derived versus directly entered package/unit prices in the UI where relevant.
+- [ ] Ensure all sensitive mutations retain durable request identity, retry safety, auditability, and concurrency protection.
+
+### Product-location / warehouse relationship
+
+- [ ] Audit existing warehouse-specific Product-location capabilities.
+- [ ] Expose only useful operator actions; do not imply every product must be manually assigned to every warehouse.
+- [ ] If warehouse availability/assignment is shown, distinguish company-wide product identity from warehouse-specific operational state.
+- [ ] Preserve lazy/sparse Product-location behavior unless a measured business requirement justifies changing it.
+
+### Delete/archive policy
+
+- [ ] Decide whether a never-used draft product may be physically deleted.
+- [ ] Decide when a used/published product must be retired or archived instead of deleted.
+- [ ] Preserve all stock, sales, audit, import, pricing, and historical references.
+- [ ] Do not expose a hard-delete action until the backend policy is explicitly safe.
+- [ ] Ensure the UI explains why delete is unavailable when history exists.
+
+### Create/import/detail completeness
+
+- [ ] Audit Create Product against the final capability matrix so no required backend property is accidentally omitted.
+- [ ] Keep Quick Create simple while exposing advanced fields only when useful.
+- [ ] Audit bulk import against the same final Product contract.
+- [ ] Complete Product Details so important identity, family, package structure, tracking, barcodes, lifecycle/hold, pricing, and available actions are visible without technical jargon.
+- [ ] Keep loading, error, retry, empty, stale-data, and offline states explicit and non-misleading.
+- [ ] Keep permissions granular: viewing identity must not accidentally grant pricing or mutation authority.
+
+## P9.2 — Decide and execute the Products frontend split safely
+
+Current `ProductsDashboard.tsx` is a high-risk change surface because it combines page composition, many state variables, queries, mutations, create/import/pricing workflows, filtering, durable-operation recovery, and substantial markup.
+
+**No split is authorized merely because the file is large. The split starts only after P9.0 establishes the behavioral baseline and the owner approves the extraction sequence.**
+
+- [ ] Approve the exact extraction sequence before touching runtime code.
+- [ ] Give Products its own clean page folder ownership under `dashboard/src/pages/products/`; the route entry becomes a thin composition/orchestration layer.
+- [ ] Separate by responsibility, not arbitrary line count.
+- [ ] Extract pure visual/leaf components first without moving state or network logic.
+- [ ] Extract Create/Edit Product workflow into its own component/workflow boundary.
+- [ ] Extract search/filter/sort/pagination controls into their own page-owned boundary.
+- [ ] Extract import workflow into its own page-owned boundary.
+- [ ] Extract price-edit workflow into its own page-owned boundary.
+- [ ] Keep family, barcode, tracking, lifecycle, display-preference, and advanced-unit flows page-owned and clearly separated.
+- [ ] Move queries/mutations/state into dedicated hooks/workflow owners only when doing so reduces coupling; never duplicate authority merely to reduce file size.
+- [ ] No single function or component may become a new "god function" that performs unrelated workflows.
+- [ ] Preserve exact query keys, cursor resets, cache invalidation, durable-operation scopes, storage keys, error codes, abort/request-sequence behavior, permissions, and retry semantics.
+- [ ] Structural refactor commits must not include behavior changes or visual redesign.
+- [ ] Run focused tests/type checks after every extraction checkpoint; stop immediately on any behavioral difference.
+- [ ] After the split, run the full Product tests/build gates before beginning visual redesign.
+- [ ] Review for dead/stale duplicate code after equivalence is proven.
+
+## P9.3 — Functional Product-page acceptance before redesign
+
+- [ ] Walk through creating a product with and without packaging.
+- [ ] Walk through editing product name/identity where allowed.
+- [ ] Walk through creating, renaming, selecting, and safely changing family.
+- [ ] Walk through package/unit structure and locked-history behavior.
+- [ ] Walk through barcodes.
+- [ ] Walk through tracking settings.
+- [ ] Walk through lifecycle, archive/retire, operational hold, and recall where authorized.
+- [ ] Walk through prices with and without pricing permission.
+- [ ] Walk through import success, validation failure, retry, resume, and error pagination.
+- [ ] Walk through search by name/family/SKU/barcode, all filters, sorting, next/previous pagination, and cursor resets.
+- [ ] Walk through catalog-only, pricing-only where applicable, manager, and read-only permission combinations.
+- [ ] Confirm every backend capability in the P9.0 matrix is either reachable, visible read-only, or intentionally hidden with a documented reason.
+- [ ] No unresolved functional gap remains before visual redesign.
+
+## P9.4 — Full Products visual and usability rebuild
+
+- [ ] Agree on the final information hierarchy before cosmetic coding.
+- [ ] Redesign the page header and action priority.
+- [ ] Redesign search, filters, sorting, and active-filter visibility.
+- [ ] Redesign desktop product list/table for fast scanning without excessive columns.
+- [ ] Redesign mobile Product cards independently where needed instead of shrinking the desktop table.
+- [ ] Redesign Product Details so ordinary users understand the product without backend terminology.
+- [ ] Redesign Create/Edit Product for a fast ordinary flow plus a clear advanced section.
+- [ ] Redesign Families management.
+- [ ] Redesign Barcode management.
+- [ ] Redesign Tracking settings.
+- [ ] Redesign Lifecycle/Hold actions.
+- [ ] Redesign Pricing interaction.
+- [ ] Redesign Import workflow.
+- [ ] Redesign loading, empty, failure, retry, offline, and permission-denied states.
+- [ ] Remove awkward whitespace, clutter, duplicated controls, and unclear action hierarchy.
+- [ ] Icons are presentation-only and must be changeable without touching unrelated business workflows.
+- [ ] Preserve RTL/LTR, translation safety, keyboard navigation, focus management, accessibility, responsive behavior, and configurable display preferences.
+- [ ] Owner visual acceptance is mandatory; automated tests alone do not close the design.
+
+## P9.5 — Final production verification
+
+- [ ] Re-run targeted Product frontend tests.
+- [ ] Re-run the full Dashboard test suite.
+- [ ] TypeScript PASS.
+- [ ] ESLint PASS with zero warnings.
+- [ ] Production build PASS.
+- [ ] Re-run relevant backend Product gates.
+- [ ] Re-run the aggregate Products production gate.
+- [ ] Re-run performance/security/isolation/concurrency gates affected by any new Product mutation/read path.
+- [ ] Review final diff for duplicated business authority.
+- [ ] Review final diff for stale/legacy Product UI paths and dead code.
+- [ ] Review final folder/file ownership against `ARCHITECTURE.md`.
+- [ ] Verify no new large multi-responsibility file/function replaced `ProductsDashboard.tsx`.
+- [ ] Final manual owner walkthrough and visual approval.
+- [ ] PR review complete.
+- [ ] PR merged to `main`.
+- [ ] Local `main == origin/main`.
+- [ ] Only then declare the **Products page itself** fully complete and archive this plan again.
 
 ---
 
