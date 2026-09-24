@@ -1029,7 +1029,7 @@ export default function AdvancedUomDashboard() {
   }
 
   return (
-    <div className="products-a11y-scope flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+    <div className="products-a11y-scope flex min-h-0 flex-1 flex-col p-3 sm:p-6">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <button
@@ -1044,7 +1044,7 @@ export default function AdvancedUomDashboard() {
               "products.advancedUom.back",
             )}
           </button>
-          <h1 className="text-2xl font-black text-slate-900">
+          <h1 className="break-words text-xl font-black text-slate-900 sm:text-2xl">
             {t(
               "products.advancedUom.title",
             )}
@@ -1057,8 +1057,8 @@ export default function AdvancedUomDashboard() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.6fr)]">
-        <section className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.6fr)] lg:overflow-hidden">
+        <section className="flex min-h-[280px] max-h-[45dvh] flex-col rounded-2xl border border-slate-200 bg-white lg:min-h-0 lg:max-h-none">
           <div className="border-b border-slate-100 p-3">
             <div className="relative">
               <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -1211,7 +1211,7 @@ export default function AdvancedUomDashboard() {
           ) : null}
         </section>
 
-        <section className="min-h-0 overflow-auto rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="min-h-0 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 lg:overflow-auto">
           {!selectedVariantId ? (
             <p className="text-sm font-bold text-slate-500">
               {t(
