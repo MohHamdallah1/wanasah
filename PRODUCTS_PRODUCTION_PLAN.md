@@ -515,7 +515,7 @@ Optional columns:
 - [x] Use drawer for secondary details.
 - [x] Keep sticky header.
 - [x] RTL/LTR safe.
-- [ ] Avoid widths tied to Arabic only.
+- [x] Avoid widths tied to Arabic only.
 
 ---
 
@@ -755,7 +755,7 @@ Required:
 - [x] `Intl.DateTimeFormat` uses resolved locale.
 - [ ] Currency formatting uses correct currency + locale.
 - [ ] RTL/LTR is derived from i18n configuration.
-- [ ] Long translated labels tested.
+- [x] Long translated labels tested.
 - [x] Translation keys for all tracking/lifecycle/UOM labels.
 
 ---
@@ -1038,7 +1038,7 @@ Target quality: same clarity as the completed Live Stock page.
 - [ ] Error state gives retry.
 - [ ] Product row hover/selection opens detail cleanly.
 - [ ] No giant unused whitespace.
-- [ ] Mobile/narrow screens degrade gracefully.
+- [x] Mobile/narrow screens degrade gracefully.
 
 ---
 
@@ -1390,7 +1390,7 @@ Do not work on all items randomly.
 - [x] all translation keys.
 - [x] RTL/LTR.
 - [x] accessibility.
-- [~] responsive polish.
+- [x] responsive polish.
 - [ ] configurable display preferences.
 
 ## Phase P8 — Performance / security / release
@@ -1408,7 +1408,7 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **responsive polish** in verification.
+Continue **Phase P7 — i18n / accessibility / polish** with **configurable display preferences** as the next open item.
 
 Current P7 state:
 
@@ -1416,7 +1416,7 @@ Current P7 state:
 - [x] all translation keys.
 - [x] RTL/LTR.
 - [x] accessibility.
-- [~] responsive polish.
+- [x] responsive polish.
 - [ ] configurable display preferences.
 
 Verified P7 locale-resolver checkpoint:
@@ -1473,12 +1473,28 @@ Verified P7 Products accessibility checkpoint:
 - Production build passed in 12.13s.
 - Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for accessibility.
 
+Verified P7 Products responsive checkpoint:
+
+- Products switches from the wide data table to dedicated Product cards below 768px; the desktop table remains unchanged for wider screens.
+- Product header actions, search controls, filters, pagination, modal footers, drawer actions, family rows, barcode rows, and Advanced UOM layout degrade without horizontal UI dependence on narrow screens.
+- Shared Product modals use dynamic viewport height and stacked narrow-screen actions.
+- Long Product/family/SKU values and synthetic long translated labels are wrap-safe on narrow surfaces.
+- Permanent responsive gate added in `dashboard/src/test/product-responsive-p7.test.tsx`.
+- Runtime media-query test proves breakpoint changes react without reload.
+- TypeScript passed with no output.
+- Responsive gate passed: 1 file / 5 tests.
+- Related Product tests passed: 18 files / 112 tests.
+- Full dashboard suite passed: 29 files / 177 tests.
+- Production build passed in 12.19s.
+- Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for responsive behavior.
+
 Next implementation order:
 
 1. Translation-key audit is complete and verified.
 2. RTL/LTR is complete and verified for Products surfaces.
 3. Accessibility is complete and verified for Products surfaces.
-4. Continue P7 in order: responsive polish → configurable display preferences.
-5. Complete P7 gates/review before moving to Phase P8.
+4. Responsive polish is complete and verified for Products surfaces.
+5. Continue P7 with configurable display preferences.
+6. Complete P7 gates/review before moving to Phase P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
