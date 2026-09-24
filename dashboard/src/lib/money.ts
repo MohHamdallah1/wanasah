@@ -96,13 +96,17 @@ const currencyDisplayFractionDigits = (
   if (!/^[A-Z]{3}$/.test(currency)) return 2;
 
   try {
+    const resolvedLocale =
+      resolveAppLocale(locale);
     return new Intl.NumberFormat(
-      resolveAppLocale(locale),
+      resolvedLocale,
       {
-      style: "currency",
-      currency,
-      numberingSystem: "latn",
-    }).resolvedOptions().maximumFractionDigits;
+        style: "currency",
+        currency,
+        numberingSystem: "latn",
+      },
+    ).resolvedOptions()
+      .maximumFractionDigits;
   } catch {
     return 2;
   }
