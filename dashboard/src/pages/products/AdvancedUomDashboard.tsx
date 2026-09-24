@@ -1509,7 +1509,7 @@ export default function AdvancedUomDashboard() {
                                 null,
                               );
                             }
-                          }
+                          }}
                           disabled={
                             fieldsLocked ||
                             uomsQuery.isLoading
@@ -1524,18 +1524,6 @@ export default function AdvancedUomDashboard() {
                             conversionFieldError?.field ===
                             "from"
                               ? "advanced-uom-from-error"
-                              : undefined
-                          }
-                          aria-invalid={
-                            conversionFieldError?.field ===
-                            "to"
-                              ? "true"
-                              : undefined
-                          }
-                          aria-describedby={
-                            conversionFieldError?.field ===
-                            "to"
-                              ? "advanced-uom-to-error"
                               : undefined
                           }
                           className="mt-1 w-full rounded-lg border p-2"
@@ -1595,10 +1583,22 @@ export default function AdvancedUomDashboard() {
                                 null,
                               );
                             }
-                          }
+                          }}
                           disabled={
                             fieldsLocked ||
                             uomsQuery.isLoading
+                          }
+                          aria-invalid={
+                            conversionFieldError?.field ===
+                            "to"
+                              ? "true"
+                              : undefined
+                          }
+                          aria-describedby={
+                            conversionFieldError?.field ===
+                            "to"
+                              ? "advanced-uom-to-error"
+                              : undefined
                           }
                           className="mt-1 w-full rounded-lg border p-2"
                         >
@@ -1657,7 +1657,7 @@ export default function AdvancedUomDashboard() {
                                 null,
                               );
                             }
-                          }
+                          }}
                           disabled={fieldsLocked}
                           aria-invalid={
                             conversionFieldError?.field ===
@@ -1710,7 +1710,7 @@ export default function AdvancedUomDashboard() {
                                 null,
                               );
                             }
-                          }
+                          }}
                           disabled={fieldsLocked}
                           aria-invalid={
                             conversionFieldError?.field ===
@@ -1763,7 +1763,7 @@ export default function AdvancedUomDashboard() {
                                 null,
                               );
                             }
-                          }
+                          }}
                           disabled={fieldsLocked}
                           aria-invalid={
                             conversionFieldError?.field ===
