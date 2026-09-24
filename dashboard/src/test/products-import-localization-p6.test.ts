@@ -187,14 +187,17 @@ describe(
         0,
       );
       for (const code of codes) {
-        expect(
-          translations.includes(
+        const bare =
+          translations.split(
             `${code}:`,
-          ) ||
-            translations.includes(
-              `"${code}"`,
-            ),
-        ).toBe(true);
+          ).length - 1;
+        const quoted =
+          translations.split(
+            `"${code}"`,
+          ).length - 1;
+        expect(
+          bare + quoted,
+        ).toBeGreaterThanOrEqual(2);
       }
     });
   },
