@@ -308,25 +308,3 @@ export const writeProductDisplayPreferences =
     }
   };
 
-export const resetProductDisplayPreferences =
-  (
-    companyId: number,
-    driverId: number,
-  ): ProductDisplayPreferences => {
-    if (
-      positiveSafeInteger(companyId) &&
-      positiveSafeInteger(driverId)
-    ) {
-      try {
-        localStorage.removeItem(
-          scopedKey(
-            companyId,
-            driverId,
-          ),
-        );
-      } catch {
-        // Display preferences are non-critical.
-      }
-    }
-    return cloneDefaults();
-  };
