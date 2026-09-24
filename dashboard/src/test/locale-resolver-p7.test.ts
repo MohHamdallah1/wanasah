@@ -162,6 +162,12 @@ describe(
             /i18n\.language\.startsWith\(\s*["']ar["']\s*\)/;
           const regionalLocaleLiteral =
             /["'](?:ar-JO|ar-EG|en-US)["']/;
+          const directI18nLocaleChain =
+            /i18n\.resolvedLanguage\s*(?:\|\||\?\?)\s*i18n\.language/;
+          const intlWithRawI18nLocale =
+            /Intl\.(?:NumberFormat|DateTimeFormat)\(\s*i18n\.(?:resolvedLanguage|language)/;
+          const localeMethodWithRawI18nLocale =
+            /\.toLocale(?:String|DateString|TimeString)\(\s*i18n\.(?:resolvedLanguage|language)/;
 
           if (
             hardcodedIntl.test(
@@ -174,6 +180,15 @@ describe(
               compact,
             ) ||
             regionalLocaleLiteral.test(
+              compact,
+            ) ||
+            directI18nLocaleChain.test(
+              compact,
+            ) ||
+            intlWithRawI18nLocale.test(
+              compact,
+            ) ||
+            localeMethodWithRawI18nLocale.test(
               compact,
             )
           ) {
