@@ -274,12 +274,12 @@ Product creation must support, as appropriate:
 - [ ] SKU/code strategy.
 - [ ] Base UOM.
 - [ ] Outer/package UOM.
-- [ ] Units per package.
-- [ ] Unit barcode.
-- [ ] Package barcode.
+- [x] Units per package.
+- [x] Unit barcode.
+- [x] Package barcode.
 - [ ] Shared barcode behavior where supported.
-- [ ] Lot tracking mode.
-- [ ] Expiry tracking mode.
+- [x] Lot tracking mode.
+- [x] Expiry tracking mode.
 - [ ] Initial lifecycle policy.
 - [ ] Initial pricing only when the user has pricing permission.
 
@@ -291,7 +291,7 @@ Default user experience:
 Keep ordinary creation easy.
 
 - [ ] Product name.
-- [ ] Family.
+- [x] Family.
 - [ ] Package shape.
 - [ ] Units per package.
 - [ ] Price when authorized.
@@ -351,9 +351,9 @@ Production-ready Products must provide safe identity management.
 - [ ] Manage simple-compatible package shape safely.
 - [x] View tracking modes.
 - [x] Edit tracking modes only when lifecycle/inventory rules allow.
-- [ ] View lifecycle status.
+- [x] View lifecycle status.
 - [ ] View operational hold.
-- [ ] View simple/advanced compatibility.
+- [x] View simple/advanced compatibility.
 - [x] Explain why some fields are locked.
 
 ---
@@ -367,20 +367,20 @@ Add a Product Detail Drawer / Side Panel.
 Suggested sections:
 
 ## Identity
-- [ ] Name.
+- [x] Name.
 - [ ] Family.
-- [ ] SKU.
+- [x] SKU.
 - [ ] Product/variant IDs only when useful for support/admin.
 
 ## Packaging & UOM
 - [ ] Base UOM.
-- [ ] Package UOM.
+- [x] Package UOM.
 - [ ] Units per package.
 - [ ] Conversion information.
 
 ## Barcodes
-- [ ] Unit barcode.
-- [ ] Package barcode.
+- [x] Unit barcode.
+- [x] Package barcode.
 - [ ] Primary/active state.
 
 ## Tracking
@@ -388,12 +388,12 @@ Suggested sections:
 - [ ] Expiry tracking mode.
 
 ## Lifecycle
-- [ ] ACTIVE / RETIRING / etc.
+- [x] ACTIVE / RETIRING / etc.
 - [ ] Operational hold.
 - [ ] Allowed lifecycle actions.
 
 ## Pricing
-- [ ] Current prices only when authorized.
+- [x] Current prices only when authorized.
 - [ ] Advanced pricing link only when actually usable.
 
 ## Inventory relationship
@@ -409,8 +409,8 @@ Backend already contains product lifecycle authority.
 
 UI must reflect it safely.
 
-- [ ] Show lifecycle status.
-- [ ] Translate lifecycle codes via i18n.
+- [x] Show lifecycle status.
+- [x] Translate lifecycle codes via i18n.
 - [ ] Show operational hold.
 - [ ] Provide permitted lifecycle actions.
 - [ ] Retire/disable/archive workflow must explain operational impact.
@@ -498,20 +498,20 @@ Recommended default columns:
 - [x] SKU or compact identity hint.
 - [x] Package/UOM.
 - [x] Tracking summary.
-- [ ] Lifecycle status.
+- [x] Lifecycle status.
 - [x] Pricing only when authorized.
 - [x] Actions.
 
 Optional columns:
 
-- [ ] Unit barcode.
-- [ ] Package barcode.
-- [ ] Unit price.
-- [ ] Package price.
-- [ ] Units/package.
+- [x] Unit barcode.
+- [x] Package barcode.
+- [x] Unit price.
+- [x] Package price.
+- [x] Units/package.
 - [ ] Other company-specific display preferences.
 
-- [ ] Add configurable visible columns.
+- [x] Add configurable visible columns.
 - [x] Use drawer for secondary details.
 - [x] Keep sticky header.
 - [x] RTL/LTR safe.
@@ -809,7 +809,7 @@ Preserve and harden:
 
 # 31. Company customization
 
-Company-level configurable defaults/preferences should include, where appropriate:
+Configuration must keep company-level business defaults separate from user-scoped display preferences:
 
 Business defaults:
 - [x] default lot tracking mode,
@@ -819,10 +819,10 @@ Business defaults:
 - [ ] product publication workflow policy.
 
 Display preferences:
-- [ ] visible product columns,
-- [ ] table density,
-- [ ] default sort,
-- [ ] optional detail sections.
+- [x] visible product columns,
+- [x] table density,
+- [x] default sort,
+- [x] optional detail sections.
 
 Keep business truth separate from display preference.
 
@@ -1225,8 +1225,8 @@ Products can be declared **Production Ready** only when:
 - [ ] Product detail management reflects the important backend authorities.
 - [ ] Lifecycle is visible/manageable safely.
 - [x] Bulk import supports tracking configuration.
-- [ ] i18n architecture is language-agnostic.
-- [ ] RTL + LTR pass.
+- [x] i18n architecture is language-agnostic.
+- [x] RTL + LTR pass.
 - [x] Performance audit passes.
 - [ ] Security/isolation tests pass.
 - [x] Relevant backend gates pass.
@@ -1301,7 +1301,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 52. Define internal batch identity for `lot_control_mode=NONE`.
 - [x] 53. Create a migration/review strategy for existing products that were silently created REQUIRED/REQUIRED.
 - [x] 54. Version the saved product draft schema when tracking fields are added.
-- [ ] 55. Separate business defaults from user display preferences.
+- [x] 55. Separate business defaults from user display preferences.
 - [x] 56. Add Product page performance map and permanent regression gate.
 - [x] 57. Add accessibility/keyboard requirements to release gate.
 - [ ] 58. Define safe product deletion/archive semantics.
@@ -1391,7 +1391,7 @@ Do not work on all items randomly.
 - [x] RTL/LTR.
 - [x] accessibility.
 - [x] responsive polish.
-- [~] configurable display preferences.
+- [x] configurable display preferences.
 
 ## Phase P8 — Performance / security / release
 
@@ -1408,7 +1408,7 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **configurable display preferences** in verification.
+Phase P7 implementation is complete. Perform the **P7 close-out review / gate synchronization** next; do not start P8 until P7 is reviewed and merged.
 
 Current P7 state:
 
@@ -1417,7 +1417,7 @@ Current P7 state:
 - [x] RTL/LTR.
 - [x] accessibility.
 - [x] responsive polish.
-- [~] configurable display preferences.
+- [x] configurable display preferences.
 
 Verified P7 locale-resolver checkpoint:
 
@@ -1488,13 +1488,36 @@ Verified P7 Products responsive checkpoint:
 - Production build passed in 12.19s.
 - Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for responsive behavior.
 
+Verified P7 Products configurable display-preferences checkpoint:
+
+- Product display preferences are explicitly separated from company business defaults.
+- Preferences are versioned and scoped by authenticated `company_id + driver_id`; one company/user cannot reuse another scope's saved view.
+- Unsupported/corrupt preference schemas fail safely to current defaults.
+- Visible Product columns are configurable for package, units/package, tracking, lifecycle, unit barcode, package barcode, package price, and unit price while Product identity/actions remain fixed.
+- Pricing columns and the pricing detail section remain subordinate to pricing permission; display preference cannot grant pricing visibility.
+- Desktop table and mobile Product cards consume the same visible-column and density preferences.
+- Table density supports comfortable and compact modes.
+- Default sort field/direction are configurable and become the reset baseline for Product list filters.
+- Product detail drawer sections are configurable for package, tracking, barcodes, pricing, and compatibility.
+- Preferences persist across normal logout while session credentials and tenant/session identifiers are cleared.
+- Dynamic preference labels are covered by the bilingual translation gate.
+- Permanent regression gate added in `dashboard/src/test/product-display-preferences-p7.test.tsx`.
+- Focused verification passed: 6 files / 30 tests.
+- Corrected P2 read-contract gate passed independently: 1 file / 10 tests.
+- TypeScript passed with no output.
+- Related Product tests passed: 19 files / 117 tests.
+- Full dashboard suite passed: 30 files / 182 tests.
+- Production build passed in 13.63s.
+- Scope is Products P7; these are user-scoped display preferences, not company-wide business policy.
+
 Next implementation order:
 
 1. Translation-key audit is complete and verified.
 2. RTL/LTR is complete and verified for Products surfaces.
 3. Accessibility is complete and verified for Products surfaces.
 4. Responsive polish is complete and verified for Products surfaces.
-5. Continue P7 with configurable display preferences.
-6. Complete P7 gates/review before moving to Phase P8.
+5. Configurable display preferences are complete and verified.
+6. P7 implementation is complete.
+7. Perform P7 close-out review / gate synchronization, then merge P7 before moving to Phase P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
