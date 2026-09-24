@@ -19,9 +19,37 @@ import {
   resolve,
 } from "node:path";
 
+vi.mock(
+  "react-i18next",
+  () => ({
+    useTranslation: () => ({
+      t: (
+        key: string,
+        options?: {
+          defaultValue?: string;
+        },
+      ) =>
+        options?.defaultValue ??
+        `LONG_TRANSLATED_LABEL_${key}_ABCDEFGHIJKLMNOPQRSTUVWXYZ`,
+      i18n: {
+        language: "en",
+        resolvedLanguage:
+          "en-US",
+        dir: () => "ltr",
+      },
+    }),
+  }),
+);
+
 import {
   useMediaQuery,
 } from "@/hooks/useMediaQuery";
+import {
+  ProductMobileCard,
+} from "@/pages/products/ProductMobileCard";
+import type {
+  SimpleProduct,
+} from "@/pages/products/contracts";
 
 const read = (...parts: string[]) =>
   readFileSync(
@@ -43,6 +71,40 @@ function MediaHarness() {
     </span>
   );
 }
+
+const product: SimpleProduct = {
+  id: 77,
+  product_id: 7,
+  name:
+    "Extremely Long Product Name For Narrow Viewport Verification",
+  family_name:
+    "Extremely Long Family Name For Narrow Viewport Verification",
+  sku:
+    "SKU-VERY-LONG-UNBROKEN-IDENTITY-1234567890",
+  units_per_package: 50,
+  legacy_packs_per_carton: 50,
+  base_uom_id: 1,
+  package_uom_id: 2,
+  package_uom_code:
+    "CARTON",
+  currency_code: "JOD",
+  package_price:
+    "1000000000000.123456",
+  unit_price:
+    "20000000000.002469",
+  unit_barcode: null,
+  package_barcode: null,
+  package_uses_base_barcode:
+    false,
+  version: 3,
+  lot_control_mode:
+    "OPTIONAL",
+  expiry_control_mode:
+    "NONE",
+  lifecycle_status:
+    "ACTIVE",
+  simple_compatible: true,
+};
 
 describe(
   "Products P7 responsive contracts",
@@ -208,6 +270,49 @@ describe(
       expect(advanced).toContain(
         "break-all font-mono",
       );
+    });
+
+    it("renders long translated Product labels without replacing or truncating their text", () => {
+      render(
+        <ProductMobileCard
+          item={product}
+          pricingVisible
+          canEditPrice
+          canEditTracking
+          onOpenDetails={vi.fn()}
+          onEditPrice={vi.fn()}
+          onEditTracking={vi.fn()}
+        />,
+      );
+
+      expect(
+        screen.getByText(
+          "Extremely Long Product Name For Narrow Viewport Verification",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Extremely Long Family Name For Narrow Viewport Verification",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "LONG_TRANSLATED_LABEL_products.details.open_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+          },
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "LONG_TRANSLATED_LABEL_products.trackingEditor.action_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+          },
+        ),
+      ).toBeInTheDocument();
     });
 
     it("keeps Product modal, drawer, managers, and Advanced UOM usable on narrow viewports", () => {
