@@ -627,14 +627,14 @@ Frontend currently converts monetary values with `Number(...)` in places such as
 
 Required:
 
-- [ ] Do not treat JS floating-point as monetary authority.
-- [ ] Keep API money values as decimal strings.
-- [ ] Use exact decimal/string helpers for calculations.
-- [ ] Derived frontend price is preview only.
-- [ ] Backend remains final authority for derived prices.
-- [ ] Locale formatting must not mutate numeric truth.
-- [ ] Never parse localized display strings back into business values.
-- [ ] Test large and high-precision allowed values.
+- [x] Do not treat JS floating-point as monetary authority.
+- [x] Keep API money values as decimal strings.
+- [x] Use exact decimal/string helpers for calculations.
+- [x] Derived frontend price is preview only.
+- [x] Backend remains final authority for derived prices.
+- [x] Locale formatting must not mutate numeric truth.
+- [x] Never parse localized display strings back into business values.
+- [x] Test large and high-precision allowed values.
 
 ---
 
@@ -644,14 +644,14 @@ Backend UOM authority is much stronger than the simple UI.
 
 Required:
 
-- [ ] Preserve `domains/uom_authority.py` as authority.
-- [ ] Do not duplicate conversion graph logic in React.
-- [ ] Keep simple workflow for common EACH + one outer package.
+- [x] Preserve `domains/uom_authority.py` as authority.
+- [x] Do not duplicate conversion graph logic in React.
+- [x] Keep simple workflow for common EACH + one outer package.
 - [ ] Explain when a product is not `simple_compatible`.
 - [ ] Provide a route to advanced UOM management for complex products.
 - [ ] Do not show only `—` when advanced management is required.
-- [ ] Changing package/UOM after operational use must follow safe business rules.
-- [ ] Determine which UOM fields become immutable after inventory/pricing history exists.
+- [x] Changing package/UOM after operational use must follow safe business rules.
+- [x] Determine which UOM fields become immutable after inventory/pricing history exists.
 
 ---
 
@@ -1268,9 +1268,9 @@ This section preserves every point from the initial Products review so none are 
 - [ ] 24. Connect or hide the permanently disabled Advanced Pricing control.
 - [ ] 25. Replace TypeScript-only raw-response casts with runtime parsers.
 - [ ] 26. Runtime-validate families/UOM/import/mutation contracts too.
-- [ ] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
-- [ ] 28. Keep frontend derived prices as preview; backend remains authoritative.
-- [ ] 29. Integer package quantity use of Number is acceptable within bounded validation.
+- [x] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
+- [x] 28. Keep frontend derived prices as preview; backend remains authoritative.
+- [x] 29. Integer package quantity use of Number is acceptable within bounded validation.
 - [ ] 30. Make existing-family vs new-family creation explicit in UX.
 - [ ] 31. Reconsider/clarify automatic product-name-as-family behavior.
 - [ ] 32. Add search/pagination inside family manager.
@@ -1290,7 +1290,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 46. Present lot/expiry tracking in plain user language, not backend field names.
 - [ ] 47. Products tracking policy must drive Inbound field requirements.
 - [x] 48. Block/guard unsafe tracking-mode changes after inventory exists.
-- [ ] 49. Guard unsafe UOM/package changes after operational history exists.
+- [x] 49. Guard unsafe UOM/package changes after operational history exists.
 - [ ] 50. Visually distinguish freely editable, restricted, and workflow-controlled product properties.
 
 ---
@@ -1372,8 +1372,8 @@ Do not work on all items randomly.
 
 ## Phase P5 — Exact pricing / UOM
 
-- [ ] Replace float-based money handling.
-- [ ] Review package/UOM edit safety.
+- [x] Replace float-based money handling.
+- [x] Review package/UOM edit safety.
 - [ ] Connect advanced management where appropriate.
 - [ ] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
 
@@ -1412,8 +1412,8 @@ Proceed to **Phase P5 — Exact pricing / UOM** on branch `feat/products-exact-p
 
 Current P5 state:
 
-- [ ] Replace float-based money handling.
-- [ ] Review package/UOM edit safety.
+- [x] Replace float-based money handling.
+- [x] Review package/UOM edit safety.
 - [ ] Connect advanced management where appropriate.
 - [ ] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
 
