@@ -18,15 +18,22 @@ const source = (
     "utf8",
   );
 
+const compact = (
+  value: string,
+) =>
+  value.replace(/\s+/g, " ").trim();
+
 describe(
   "Products P5 advanced UOM wiring",
   () => {
     it("routes only the focused advanced UOM surface and does not revive the legacy catalog tab", () => {
-      const app = source(
-        "../App.tsx",
+      const app = compact(
+        source("../App.tsx"),
       );
-      const inventory = source(
-        "../pages/inventory/MainInventory.tsx",
+      const inventory = compact(
+        source(
+          "../pages/inventory/MainInventory.tsx",
+        ),
       );
 
       expect(app).toContain(
@@ -44,8 +51,10 @@ describe(
     });
 
     it("replaces the dead Advanced Pricing placeholder with an authorized UOM entry point", () => {
-      const products = source(
-        "../pages/ProductsDashboard.tsx",
+      const products = compact(
+        source(
+          "../pages/ProductsDashboard.tsx",
+        ),
       );
 
       expect(products).toContain(
@@ -63,11 +72,15 @@ describe(
     });
 
     it("offers deep-linked advanced UOM only for complex products in the detail drawer", () => {
-      const drawer = source(
-        "../pages/products/ProductDetailDrawer.tsx",
+      const drawer = compact(
+        source(
+          "../pages/products/ProductDetailDrawer.tsx",
+        ),
       );
-      const products = source(
-        "../pages/ProductsDashboard.tsx",
+      const products = compact(
+        source(
+          "../pages/ProductsDashboard.tsx",
+        ),
       );
 
       expect(drawer).toContain(
