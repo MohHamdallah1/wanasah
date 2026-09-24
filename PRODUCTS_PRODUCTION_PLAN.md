@@ -747,12 +747,12 @@ i18n.language.startsWith("ar")
 
 Required:
 
-- [ ] Central locale resolver.
-- [ ] Arabic may use an Arabic locale.
-- [ ] English may use an English locale.
-- [ ] French/German/etc. use their own locale instead of silently falling to `en-US`.
-- [ ] `Intl.NumberFormat` uses resolved locale.
-- [ ] `Intl.DateTimeFormat` uses resolved locale.
+- [x] Central locale resolver.
+- [x] Arabic may use an Arabic locale.
+- [x] English may use an English locale.
+- [x] French/German/etc. use their own locale instead of silently falling to `en-US`.
+- [x] `Intl.NumberFormat` uses resolved locale.
+- [x] `Intl.DateTimeFormat` uses resolved locale.
 - [ ] Currency formatting uses correct currency + locale.
 - [ ] RTL/LTR is derived from i18n configuration.
 - [ ] Long translated labels tested.
@@ -1280,8 +1280,8 @@ This section preserves every point from the initial Products review so none are 
 - [x] 36. Add lot/expiry configuration to bulk import/template/defaults.
 - [x] 37. Generalize import header localization beyond Arabic/English-only alias assumptions.
 - [x] 38. Preserve good existing `t(...)` and `dir={i18n.dir()}` foundation.
-- [ ] 39. Replace binary Arabic-vs-English locale fallback with generic locale resolution.
-- [ ] 40. Make all new number/date/money rendering language-agnostic.
+- [x] 39. Replace binary Arabic-vs-English locale fallback with generic locale resolution.
+- [x] 40. Make all new number/date/money rendering language-agnostic.
 - [x] 41. Keep API enums stable and translate only in UI.
 - [ ] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
 - [ ] 43. Separate Quick Create from optional enterprise review/maker-checker policy.
@@ -1386,7 +1386,7 @@ Do not work on all items randomly.
 
 ## Phase P7 — i18n / accessibility / polish
 
-- [ ] Generic locale resolver.
+- [x] Generic locale resolver.
 - [ ] all translation keys.
 - [ ] RTL/LTR.
 - [ ] accessibility.
@@ -1408,25 +1408,34 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Proceed to **Phase P7 — i18n / accessibility / polish** after Phase P6 is merged to `main` and the local repository is aligned with `origin/main`.
+Continue **Phase P7 — i18n / accessibility / polish** from the next open item: **all translation keys**.
 
 Current P7 state:
 
-- [ ] Generic locale resolver.
+- [x] Generic locale resolver.
 - [ ] all translation keys.
 - [ ] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
 - [ ] configurable display preferences.
 
-Implementation order for P7:
+Verified P7 locale-resolver checkpoint:
 
-1. Audit all Products number/date/money locale selection and remove binary Arabic-vs-English locale fallbacks.
-2. Add one shared locale resolver and route Products formatting through it.
-3. Audit Products user-facing text and translation keys, including lifecycle/UOM/status/error surfaces.
-4. Verify RTL and LTR layouts, long labels, drawer/dialog/table behavior, and responsive breakpoints.
-5. Close keyboard/focus/aria/accessibility gaps without weakening existing workflows.
-6. Add/configure display preferences only where the existing architecture can keep business truth separate from presentation.
-7. Complete P7 gates/review before moving to Phase P8.
+- shared project-level locale authority exists in `dashboard/src/lib/locale.ts`;
+- `currentLocale()` delegates to the shared resolver;
+- production formatting is gated against hardcoded regional locales, binary Arabic/English fallbacks, and direct raw i18n locale bypasses;
+- bare `ar` / `en` use app regional defaults while explicit/future locales remain language-correct;
+- TypeScript passed;
+- locale resolver tests passed: 8/8;
+- targeted P7 tests passed: 3 files / 13 tests;
+- full dashboard suite passed: 25 files / 157 tests;
+- production build passed in 17.96s.
+
+Next implementation order:
+
+1. Audit Products user-facing text and translation keys, including lifecycle/UOM/status/error surfaces.
+2. Do not begin RTL/LTR work until the translation-key item is complete and verified.
+3. Then continue P7 in order: RTL/LTR → accessibility → responsive polish → configurable display preferences.
+4. Complete P7 gates/review before moving to Phase P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
