@@ -879,14 +879,14 @@ export function ProductBarcodeManager({
                           `uom.${item.uom.code}`,
                           {
                             defaultValue:
-                              item.uom
-                                .code,
+                              item.uom.name ||
+                              item.uom.code,
                           }
                         )}{" "}
                         ·{" "}
-                        {
-                          item.barcode_type
-                        }
+                        {t(
+                          `products.barcodeManager.types.${item.barcode_type}`
+                        )}
                         {item.is_primary
                           ? " · " +
                             t(
@@ -1054,7 +1054,9 @@ export function ProductBarcodeManager({
                       key={value}
                       value={value}
                     >
-                      {value}
+                      {t(
+                        `products.barcodeManager.types.${value}`
+                      )}
                     </option>
                   ))}
                 </select>
