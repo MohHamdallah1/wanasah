@@ -170,7 +170,12 @@ const App = () => (
         pauseWhenPageIsHidden 
         expand={true} 
       />
-      <BrowserRouter>
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <DashboardErrorBoundary>
           {/* +++ الكي الجراحي: إزالة الشاشة الزرقاء المزعجة وجعل التحميل صامتاً للحفاظ على إحساس السرعة اللحظية +++ */}
           <Suspense fallback={null}>
