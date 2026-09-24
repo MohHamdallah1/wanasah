@@ -1399,7 +1399,7 @@ Do not work on all items randomly.
 - [x] EXPLAIN.
 - [x] isolation tests.
 - [x] concurrency/idempotency tests.
-- [ ] production gate.
+- [x] production gate.
 - [ ] PR + merge.
 - [ ] local/GitHub alignment.
 - [ ] declare Products Production Ready.
@@ -1445,9 +1445,13 @@ PR review found two governance blockers after the successful aggregate gate:
 
 The review fixes now localize the touched ProductLocation surface, persist full ProductLocation commands with durable request identity, retain unresolved commands on ambiguous/invalid responses, and make ProductLocation DELETE replay-safe after the source row is removed. The Stage 3 lifecycle gate now contains an exact runtime replay regression for this case.
 
-Because production code changed after the prior 17/17 result, `production gate` remains intentionally reopened.
+The post-review hardening passed targeted verification and the complete aggregate release gate again:
 
-Current task: rerun targeted frontend + Stage 3 verification, then rerun the full aggregate P8 production gate. Do **not** open or merge the PR until the new code passes.
+- Dashboard full suite: 31 files / 188 tests PASS.
+- Stage 3 lifecycle/ProductLocation runtime verification PASS, including exact DELETE replay after source-row removal.
+- Full aggregate result: 17 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+
+Production gate is now closed. Current task: PR review + merge. Do **not** mark PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
 
 Current P7 state:
 
