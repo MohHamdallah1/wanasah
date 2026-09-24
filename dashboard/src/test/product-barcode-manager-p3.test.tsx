@@ -118,6 +118,7 @@ const product = (
   lot_control_mode: "OPTIONAL",
   expiry_control_mode: "NONE",
   lifecycle_status: "ACTIVE",
+  operational_hold: "NONE",
   simple_compatible: true,
 });
 

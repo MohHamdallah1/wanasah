@@ -65,6 +65,7 @@ describe("products tracking UI contracts", () => {
           lot_control_mode: "REQUIRED",
           expiry_control_mode: "REQUIRED",
           lifecycle_status: "ACTIVE",
+          operational_hold: "NONE",
           simple_compatible: true,
         },
       ],
