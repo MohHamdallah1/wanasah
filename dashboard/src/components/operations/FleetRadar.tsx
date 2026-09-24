@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { Search, Satellite } from "lucide-react";
 import { motion } from "framer-motion";
 import type { DriverData } from "@/data/operations-data";
@@ -14,7 +15,7 @@ interface FleetRadarProps {
 export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, searchQuery, onSearchChange }: FleetRadarProps) {
   const GLOBAL_CURRENCY = "د.أ";
   // +++ الكي الجراحي: السماح للدالة باستقبال النص القادم من السيرفر وتحويله بأمان +++
-  const formatMoney = (val: string | number) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
+  const formatMoney = (val: string | number) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString(currentLocale());
 
   const filtered = drivers.filter((d) =>
     d.session.driver_name.includes(searchQuery)
@@ -78,7 +79,7 @@ export function FleetRadar({ drivers, selectedId, onSelect, onToggleAuth, search
                               "bg-destructive"
                         }`} />
                       <span className="text-[11px] text-muted-foreground">
-                        {driver.settlement.status} {s.start_time ? `• ${new Date(s.start_time).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}` : ""}
+                        {driver.settlement.status} {s.start_time ? `• ${new Date(s.start_time).toLocaleTimeString(currentLocale(), { hour: '2-digit', minute: '2-digit' })}` : ""}
                       </span>
                     </div>
                   </div>
