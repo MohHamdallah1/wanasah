@@ -854,15 +854,15 @@ All server-side filters occur before pagination.
 
 # 33. Accessibility / operator UX
 
-- [ ] Keyboard accessible search.
-- [ ] Keyboard accessible dialogs.
-- [ ] Visible focus states.
-- [ ] Buttons/icons have translated aria-labels.
-- [ ] Status is not communicated by color only.
-- [ ] Form errors associate with exact field.
-- [ ] First invalid field receives focus.
-- [ ] Drawer is keyboard accessible.
-- [ ] RTL/LTR keyboard and layout smoke tests.
+- [x] Keyboard accessible search.
+- [x] Keyboard accessible dialogs.
+- [x] Visible focus states.
+- [x] Buttons/icons have translated aria-labels.
+- [x] Status is not communicated by color only.
+- [x] Form errors associate with exact field.
+- [x] First invalid field receives focus.
+- [x] Drawer is keyboard accessible.
+- [x] RTL/LTR keyboard and layout smoke tests.
 
 ---
 
@@ -1303,7 +1303,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 54. Version the saved product draft schema when tracking fields are added.
 - [ ] 55. Separate business defaults from user display preferences.
 - [x] 56. Add Product page performance map and permanent regression gate.
-- [ ] 57. Add accessibility/keyboard requirements to release gate.
+- [x] 57. Add accessibility/keyboard requirements to release gate.
 - [ ] 58. Define safe product deletion/archive semantics.
 - [ ] 59. Ensure normal Products does not duplicate Catalog lifecycle/UOM/barcode authorities.
 - [x] 60. Freeze the product tracking contract before beginning final Inbound work.
@@ -1389,7 +1389,7 @@ Do not work on all items randomly.
 - [x] Generic locale resolver.
 - [x] all translation keys.
 - [x] RTL/LTR.
-- [~] accessibility.
+- [x] accessibility.
 - [ ] responsive polish.
 - [ ] configurable display preferences.
 
@@ -1408,14 +1408,14 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **accessibility** in verification.
+Continue **Phase P7 — i18n / accessibility / polish** with **responsive polish** as the next open item.
 
 Current P7 state:
 
 - [x] Generic locale resolver.
 - [x] all translation keys.
 - [x] RTL/LTR.
-- [~] accessibility.
+- [x] accessibility.
 - [ ] responsive polish.
 - [ ] configurable display preferences.
 
@@ -1456,11 +1456,29 @@ Verified P7 Products RTL/LTR checkpoint:
 - Production build passed in 24.20s.
 - Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for RTL/LTR.
 
+Verified P7 Products accessibility checkpoint:
+
+- Product search controls are keyboard reachable and have translated accessible names.
+- Shared Product modal and Product detail drawer use a reusable focus trap with Tab/Shift+Tab containment, Escape close, initial focus, and opener-focus restoration.
+- Product surfaces expose visible `focus-visible` styling.
+- Product icon-only controls covered in this scope have translated `aria-label` values.
+- Product status/lock/compatibility meaning is conveyed with text, not color alone.
+- Client-side Product, pricing, family, and Advanced UOM validation errors use `aria-invalid` / `aria-describedby` and inline alert text.
+- First invalid Product form field receives focus.
+- Permanent accessibility gate added in `dashboard/src/test/product-accessibility-p7.test.tsx`.
+- TypeScript passed with no output.
+- Accessibility gate passed: 1 file / 4 tests.
+- Related Product tests passed: 17 files / 107 tests.
+- Full dashboard suite passed: 28 files / 172 tests.
+- Production build passed in 12.13s.
+- Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for accessibility.
+
 Next implementation order:
 
 1. Translation-key audit is complete and verified.
 2. RTL/LTR is complete and verified for Products surfaces.
-3. Continue P7 in order: accessibility → responsive polish → configurable display preferences.
-4. Complete P7 gates/review before moving to Phase P8.
+3. Accessibility is complete and verified for Products surfaces.
+4. Continue P7 in order: responsive polish → configurable display preferences.
+5. Complete P7 gates/review before moving to Phase P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
