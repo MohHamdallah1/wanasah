@@ -313,7 +313,48 @@ When implementing normal product work:
 
 ---
 
-## 14. APPROVED HARDENING STAGE
+## 14. FRONTEND PAGE OWNERSHIP AND FILE BOUNDARIES
+
+Dashboard pages must follow the same ownership discipline as backend modules. A page must not become a single file that owns layout, state, network orchestration, durable-command recovery, validation, permissions, mutations, imports, dialogs, and unrelated workflows at once.
+
+### Page-folder rule
+
+- Every Dashboard page must have a dedicated page folder under `dashboard/src/pages/<page>/` (or an equivalent page-owned folder already established by the project).
+- The route-level page entry should be a thin composition/orchestration layer. It may coordinate page-level state, but it must not become a dumping ground for every workflow and visual component.
+- Page-specific components, hooks/workflows, runtime contracts, helpers, and display logic belong inside that page folder unless they are genuinely reusable across multiple pages.
+- Shared folders are for truly cross-page technical primitives only. Do not move page-specific logic into a generic shared folder merely to make the page file smaller.
+
+### Single-responsibility rule
+
+- No component, hook, function, or file should perform multiple unrelated responsibilities merely for convenience.
+- Large workflows must be split by coherent responsibility, not by arbitrary line count.
+- Presentational components must not silently become business authorities.
+- Backend/domain authorities remain the source of business truth; React must consume contracts and present behavior, not reimplement domain rules.
+- Async workflows that involve retries, durable request identity, cancellation, concurrency/version checks, or multi-step mutation recovery must have an explicit owner and must not be duplicated across components.
+- Runtime contracts and stable coded errors remain centralized and explicit.
+
+### Safe-refactor rule
+
+When splitting an existing large page:
+
+1. **Freeze behavior first.** Record the current tests, contracts, query keys, storage keys, durable-operation scopes, permissions, error codes, cancellation semantics, and mutation behavior.
+2. **Do not combine structural refactoring with behavior or visual redesign.** A file move/extraction must preserve behavior exactly unless a separate approved change explicitly says otherwise.
+3. **Extract leaf/presentational pieces first.** Move markup and pure rendering before moving stateful orchestration.
+4. Move state, queries, mutations, and durable workflows only one responsibility at a time, with focused regression tests after each extraction.
+5. Preserve request ordering, AbortController/request-sequence protection, optimistic-version checks, idempotency keys, retry semantics, and cache invalidation exactly.
+6. After every extraction checkpoint, run the relevant type checks/tests/build before continuing.
+7. If an extraction requires duplicating logic or weakening an authority boundary, stop and redesign the boundary instead of forcing the split.
+8. Delete stale/duplicate paths only after the replacement path is proven equivalent.
+
+### Design-change rule
+
+Visual redesign comes **after** structural behavior-preserving refactoring when the current page is too coupled to change safely. Styling/icon/layout work should not require touching unrelated business workflows.
+
+The goal is not "many small files." The goal is **clear ownership, predictable change impact, and the ability to modify one visual or functional concern without risking unrelated logic**.
+
+---
+
+## 15. APPROVED HARDENING STAGE
 
 A future dedicated stage named **Architecture Foundation / Modulith Hardening** is approved and tracked in `INVENTORY_COMMERCIAL_FOUNDATION_PLAN.md`.
 
@@ -321,7 +362,7 @@ Its purpose is to move the existing system from “monolith with growing domain 
 
 ---
 
-## 15. PERMANENT DECISION SUMMARY
+## 16. PERMANENT DECISION SUMMARY
 
 1. **Company/tenant isolation is absolute and fail-closed.**
 2. **Warehouse/location isolation is explicit and backend-enforced.**
