@@ -1,7 +1,7 @@
-import { useEffect } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { useDialogFocusTrap } from "@/hooks/useDialogFocusTrap";
 import {
   resolveI18nLocale,
 } from "@/lib/locale";
@@ -43,23 +43,11 @@ export function ProductDetailDrawer({
   const locale =
     resolveI18nLocale(i18n);
 
-  useEffect(() => {
-    if (!product) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () =>
-      window.removeEventListener(
-        "keydown",
-        onKeyDown,
-      );
-  }, [product, onClose]);
+  const dialogRef =
+    useDialogFocusTrap<HTMLElement>(
+      product !== null,
+      onClose,
+    );
 
   if (!product) {
     return null;
@@ -76,14 +64,15 @@ export function ProductDetailDrawer({
 
   return (
     <div className="fixed inset-0 z-[90]">
-      <button
-        type="button"
-        aria-label={t("common.close")}
+      <div
+        aria-hidden="true"
         onClick={onClose}
         className="absolute inset-0 bg-slate-950/35 backdrop-blur-[1px]"
       />
 
       <aside
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-detail-title"
