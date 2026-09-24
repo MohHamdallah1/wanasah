@@ -396,9 +396,11 @@ describe(
       expect(advancedUom).toContain(
         "products.details.lifecycleModes.${item.lifecycle_status}",
       );
-      expect(advancedUom).not.toContain(
-        "{item.lifecycle_status}",
-      );
+      expect(
+        /(^|[^$])\{item\.lifecycle_status\}/m.test(
+          advancedUom,
+        ),
+      ).toBe(false);
 
       const barcodeManager = read(
         "src/pages/products/ProductBarcodeManager.tsx",
