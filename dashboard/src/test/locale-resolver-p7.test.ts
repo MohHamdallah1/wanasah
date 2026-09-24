@@ -1,4 +1,13 @@
 import {
+  readdirSync,
+  readFileSync,
+} from "node:fs";
+import {
+  join,
+  relative,
+} from "node:path";
+
+import {
   describe,
   expect,
   it,
@@ -68,6 +77,99 @@ describe(
           "not_a_real_locale_@@",
         ),
       ).toBe(DEFAULT_APP_LOCALE);
+    });
+
+    it("keeps production formatting behind the shared locale authority", () => {
+      const sourceRoot =
+        new URL("../", import.meta.url);
+      const offenders: string[] = [];
+
+      const visit = (
+        directory: URL,
+      ) => {
+        for (const entry of readdirSync(
+          directory,
+          {
+            withFileTypes: true,
+          },
+        )) {
+          const url = new URL(
+            entry.name +
+              (entry.isDirectory()
+                ? "/"
+                : ""),
+            directory,
+          );
+
+          if (entry.isDirectory()) {
+            if (
+              entry.name === "test"
+            ) {
+              continue;
+            }
+            visit(url);
+            continue;
+          }
+
+          if (
+            !/\.(ts|tsx)$/.test(
+              entry.name,
+            )
+          ) {
+            continue;
+          }
+
+          const filePath =
+            url.pathname;
+          if (
+            filePath.endsWith(
+              "/lib/locale.ts",
+            )
+          ) {
+            continue;
+          }
+
+          const source =
+            readFileSync(
+              url,
+              "utf8",
+            );
+          const compact =
+            source.replace(
+              /\s+/g,
+              " ",
+            );
+
+          const hardcodedIntl =
+            /Intl\.(?:NumberFormat|DateTimeFormat)\(\s*["'][A-Za-z]{2}(?:-[A-Za-z0-9]{2,8})*["']/;
+          const hardcodedLocaleMethod =
+            /\.toLocale(?:String|DateString|TimeString)\(\s*["'][A-Za-z]{2}(?:-[A-Za-z0-9]{2,8})*["']/;
+          const binaryArabicFallback =
+            /i18n\.language\.startsWith\(\s*["']ar["']\s*\)/;
+
+          if (
+            hardcodedIntl.test(
+              compact,
+            ) ||
+            hardcodedLocaleMethod.test(
+              compact,
+            ) ||
+            binaryArabicFallback.test(
+              compact,
+            )
+          ) {
+            offenders.push(
+              filePath,
+            );
+          }
+        }
+      };
+
+      visit(sourceRoot);
+
+      expect(
+        offenders,
+      ).toEqual([]);
     });
   },
 );
