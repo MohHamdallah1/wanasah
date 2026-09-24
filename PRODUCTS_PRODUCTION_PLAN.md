@@ -1454,9 +1454,15 @@ The post-review hardening passed targeted verification and the complete aggregat
 - The P4 performance gate now sizes the benchmark from the largest current tenant (bounded by a 250,000-row safety cap), records PostgreSQL cost-based planner decisions, validates installed trigram-index shape, and verifies barcode GIN planner capability with an isolated temporary exact-DDL probe so competing validity indexes cannot create false evidence.
 - Targeted performance verification passed: 25 checks / 0 failures / `PRODUCTS_P4_PERFORMANCE_AUDIT=PASS` / `PRODUCTS_P8_PERFORMANCE_GATE=PASS`.
 - Final full aggregate after all three release-cleanup fixes: 17 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
-- Local `main` and `origin/main` were previously aligned at PR #25 merge SHA `06ee2f0dc6aafacf074a576719a8b71b6b54158e`; alignment must be re-verified after this cleanup PR merges.
+- A dedicated 250,000-variant growth certification exposed a real `common_filters` seek problem: the prior ACTIVE-name index removed 175,001 rows and the main plan executed in roughly 365 ms.
+- A measured partial seek index, `ix_product_variant_simple_common_filters_seek`, now targets the proven filter shape without changing endpoint or business semantics. On the same 250,000-variant probe the planner used the new index, removed only 1 row, and the main SQL plan executed in roughly 0.4 ms.
+- The permanent P4 performance gate now verifies that the common-filter seek index is installed, ready, valid, and structurally correct.
+- The 250,000-row growth probe passed with 20 runs and cleanup PASS. Its endpoint wall-time is recorded as diagnostic evidence only; no arbitrary latency SLA was introduced because the main SQL seek regression was independently proven fixed and the project has no agreed fixed-environment latency budget.
+- Post-index regression verification passed: Dashboard 31 files / 188 tests, production build PASS, and the complete aggregate production gate again returned 17 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+- No endpoint, pricing, filtering, lifecycle, tenant-isolation, or other business behavior was changed by the growth fix; the branch diff is limited to the migration/model index metadata, performance-gate index verification, and the dedicated growth-certification script.
+- Local `main` and `origin/main` were previously aligned at cleanup PR #26 merge SHA `da703ef68e4ac285ee4e9a100d26bd44a4a7f790`; alignment must be re-verified after this growth-fix PR merges.
 
-Production gate is closed. Current task: final cleanup PR review + merge, then re-verify local/GitHub alignment. Do **not** mark PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
+Production gate is closed. Current task: final growth-fix PR review + merge, then re-verify local/GitHub alignment. Do **not** mark PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
 
 Current P7 state:
 
