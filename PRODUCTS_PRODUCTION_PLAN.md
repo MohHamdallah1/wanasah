@@ -1443,9 +1443,11 @@ PR review found two governance blockers after the successful aggregate gate:
 - The modified legacy `CatalogLifecyclePanel.tsx` still contained hardcoded Arabic user-facing copy and non-durable ProductLocation mutation request IDs.
 - ProductLocation DELETE idempotency checked the source row before replay lookup, so an ambiguous successful delete could not replay after the row was gone.
 
-The frontend review fix localizes the touched ProductLocation surface and persists full ProductLocation commands with durable request identity. Because production code changed after the prior 17/17 result, `production gate` is intentionally reopened.
+The review fixes now localize the touched ProductLocation surface, persist full ProductLocation commands with durable request identity, retain unresolved commands on ambiguous/invalid responses, and make ProductLocation DELETE replay-safe after the source row is removed. The Stage 3 lifecycle gate now contains an exact runtime replay regression for this case.
 
-Current task: finish the backend DELETE replay fix and runtime regression, then rerun targeted verification and the full aggregate P8 production gate. Do **not** open or merge the PR until the new code passes.
+Because production code changed after the prior 17/17 result, `production gate` remains intentionally reopened.
+
+Current task: rerun targeted frontend + Stage 3 verification, then rerun the full aggregate P8 production gate. Do **not** open or merge the PR until the new code passes.
 
 Current P7 state:
 

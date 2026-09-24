@@ -7,7 +7,8 @@ Invariants checked:
      session_2 is verified WAITING for the SAME lock (same classid/objid) in pg_locks.
   3. Audit append-only: UPDATE/DELETE on domain_audit_events raises 55000.
   4. ProductLocation unique constraint (company, location, variant).
-  5. RLS catalog audit: Stage 3 tables have ENABLE + FORCE.
+  5. ProductLocation delete replays the exact completed response after the row is gone.
+  6. RLS catalog audit: Stage 3 tables have ENABLE + FORCE.
 
 Cleanup guarantee: every test uses a dedicated company created inside the run.
 All companies seeded by this gate are deleted via CASCADE in a finally block.
@@ -29,8 +30,14 @@ sys.path.insert(0, str(_backend_dir))
 from dotenv import load_dotenv
 load_dotenv(_backend_dir / ".env", override=False)
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+from api.product_locations import (
+    ProductLocationDelete,
+    delete_product_location,
+)
+from models import Driver
 
 _migration_url = os.environ["DATABASE_URL_MIGRATION"]
 _app_url       = os.environ["DATABASE_URL"]
@@ -428,8 +435,198 @@ async def test_product_location_unique() -> None:
             await cleanup_company(co)
 
 
+
 # ===========================================================================
-# Test 5 — RLS catalog audit (no tenant data; no cleanup needed)
+# Test 5 — ProductLocation delete replay survives deleted source row
+# ===========================================================================
+async def test_product_location_delete_replay() -> None:
+    print(
+        "\n[5] ProductLocation delete idempotency replay after row removal"
+    )
+    company_id = None
+    try:
+        async with Session_su() as su:
+            await su.begin()
+            (
+                company_id,
+                location_id,
+                variant_id,
+                driver_id,
+            ) = await make_tenant(su)
+
+            product_location_id = int(
+                (
+                    await su.execute(
+                        text(
+                            """
+                            INSERT INTO product_locations (
+                                company_id,
+                                location_id,
+                                product_variant_id,
+                                created_by,
+                                operational_flags,
+                                version,
+                                created_at,
+                                updated_at
+                            )
+                            VALUES (
+                                :company_id,
+                                :location_id,
+                                :variant_id,
+                                :driver_id,
+                                '{"inbound_enabled": true, "outbound_enabled": true}'::jsonb,
+                                1,
+                                NOW(),
+                                NOW()
+                            )
+                            RETURNING id
+                            """
+                        ),
+                        {
+                            "company_id":
+                                company_id,
+                            "location_id":
+                                location_id,
+                            "variant_id":
+                                variant_id,
+                            "driver_id":
+                                driver_id,
+                        },
+                    )
+                ).scalar_one()
+            )
+            await su.commit()
+
+        request_id = uuid4()
+        payload = ProductLocationDelete(
+            request_id=request_id,
+            expected_version=1,
+            location_id=location_id,
+            reason=(
+                "stage3 delete replay verification"
+            ),
+        )
+
+        async with Session_app() as app:
+            await app.begin()
+            await set_tenant(
+                app,
+                company_id,
+            )
+            actor = await app.scalar(
+                select(Driver).where(
+                    Driver.company_id
+                    == company_id,
+                    Driver.id
+                    == driver_id,
+                )
+            )
+            if actor is None:
+                await app.rollback()
+                record(
+                    "ProductLocation delete exact replay survives missing row",
+                    False,
+                    "seeded admin actor not visible",
+                )
+                return
+
+            first = (
+                await delete_product_location(
+                    product_location_id,
+                    payload,
+                    db=app,
+                    actor=actor,
+                )
+            )
+
+            await app.begin()
+            await set_tenant(
+                app,
+                company_id,
+            )
+            second = (
+                await delete_product_location(
+                    product_location_id,
+                    payload,
+                    db=app,
+                    actor=actor,
+                )
+            )
+
+        async with Session_su() as su:
+            await su.begin()
+            remaining = int(
+                (
+                    await su.execute(
+                        text(
+                            """
+                            SELECT count(*)
+                            FROM product_locations
+                            WHERE company_id = :company_id
+                              AND id = :product_location_id
+                            """
+                        ),
+                        {
+                            "company_id":
+                                company_id,
+                            "product_location_id":
+                                product_location_id,
+                        },
+                    )
+                ).scalar_one()
+            )
+            idem_rows = int(
+                (
+                    await su.execute(
+                        text(
+                            """
+                            SELECT count(*)
+                            FROM operation_idempotency
+                            WHERE company_id = :company_id
+                              AND operation = 'PRODUCT_LOCATION_DELETE'
+                              AND request_id = :request_id
+                            """
+                        ),
+                        {
+                            "company_id":
+                                company_id,
+                            "request_id":
+                                str(request_id),
+                        },
+                    )
+                ).scalar_one()
+            )
+            await su.rollback()
+
+        record(
+            "ProductLocation delete exact replay survives missing row",
+            (
+                first == second
+                and first.get(
+                    "product_location_id"
+                )
+                == product_location_id
+                and first.get(
+                    "location_id"
+                )
+                == location_id
+                and remaining == 0
+                and idem_rows == 1
+            ),
+            (
+                f"remaining={remaining} "
+                f"idempotency_rows={idem_rows}"
+            ),
+        )
+    finally:
+        if company_id:
+            await cleanup_company(
+                company_id
+            )
+
+
+# ===========================================================================
+# Test 6 — RLS catalog audit (no tenant data; no cleanup needed)
 # ===========================================================================
 async def test_rls_catalog() -> None:
     print("\n[5] RLS catalog audit for Stage 3 tables")
@@ -484,6 +681,7 @@ async def main() -> int:
     await test_lifecycle_advisory_lock_race()
     await test_audit_append_only()
     await test_product_location_unique()
+    await test_product_location_delete_replay()
     await test_rls_catalog()
 
     await engine_su.dispose()
