@@ -104,6 +104,20 @@ type ProductSortDirection =
   | "asc"
   | "desc";
 
+type CreateFieldError = {
+  field:
+    | "name"
+    | "units"
+    | "packagePrice"
+    | "unitPrice";
+  message: string;
+};
+
+type PriceFieldError = {
+  field: "packagePrice" | "unitPrice";
+  message: string;
+};
+
 type ProductDraft = {
   name: string;
   family: string;
@@ -331,6 +345,28 @@ export default function ProductsDashboard() {
     useRef<string | null>(
       null
     );
+  const [
+    createFieldError,
+    setCreateFieldError,
+  ] = useState<CreateFieldError | null>(
+    null
+  );
+  const createNameRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const createUnitsRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const createPackagePriceRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const createUnitPriceRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
 
   const [
     trackingDefaultsOpen,
@@ -394,6 +430,20 @@ export default function ProductsDashboard() {
     editUnitPrice,
     setEditUnitPrice,
   ] = useState("");
+  const [
+    priceFieldError,
+    setPriceFieldError,
+  ] = useState<PriceFieldError | null>(
+    null
+  );
+  const editPackagePriceRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const editUnitPriceRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
 
   const [
     familiesOpen,
@@ -1419,6 +1469,7 @@ export default function ProductsDashboard() {
           setDraft(
             emptyDraft
           );
+          setCreateFieldError(null);
           setCreateTrackingExpanded(
             false
           );
@@ -1460,6 +1511,76 @@ export default function ProductsDashboard() {
           )
         ),
     });
+
+  const submitCreate = () => {
+    if (!draft.name.trim()) {
+      setCreateFieldError({
+        field: "name",
+        message: t(
+          "products.errors.nameRequired"
+        ),
+      });
+      window.requestAnimationFrame(
+        () => createNameRef.current?.focus()
+      );
+      return;
+    }
+
+    const units =
+      draft.has_package
+        ? Number(
+            draft.units_per_package
+          )
+        : 1;
+    if (
+      draft.has_package &&
+      (!Number.isInteger(units) ||
+        units < 2)
+    ) {
+      setCreateFieldError({
+        field: "units",
+        message: t(
+          "products.errors.packageUnitsInvalid"
+        ),
+      });
+      window.requestAnimationFrame(
+        () => createUnitsRef.current?.focus()
+      );
+      return;
+    }
+
+    if (
+      !draft.package_price.trim() &&
+      !draft.unit_price.trim()
+    ) {
+      const packageField =
+        draft.has_package;
+      setCreateFieldError({
+        field: packageField
+          ? "packagePrice"
+          : "unitPrice",
+        message: packageField
+          ? t(
+              "products.errors.priceRequired"
+            )
+          : t(
+              "products.errors.unitPriceRequired"
+            ),
+      });
+      window.requestAnimationFrame(
+        () =>
+          (
+            packageField
+              ? createPackagePriceRef
+              : createUnitPriceRef
+          ).current?.focus()
+      );
+      return;
+    }
+
+    setCreateFieldError(null);
+    createMutation.mutate();
+  };
 
   const priceMutation =
     useMutation({
@@ -1535,6 +1656,7 @@ export default function ProductsDashboard() {
           );
         }
         setPriceEdit(null);
+        setPriceFieldError(null);
         toast.success(
           t(
             "products.priceUpdated"
@@ -1558,6 +1680,44 @@ export default function ProductsDashboard() {
           )
         ),
     });
+
+  const submitPriceEdit = () => {
+    if (!priceEdit) {
+      return;
+    }
+    if (
+      !editPackagePrice.trim() &&
+      !editUnitPrice.trim()
+    ) {
+      const packageField =
+        Boolean(
+          priceEdit.package_uom_code
+        );
+      setPriceFieldError({
+        field: packageField
+          ? "packagePrice"
+          : "unitPrice",
+        message: packageField
+          ? t(
+              "products.errors.priceRequired"
+            )
+          : t(
+              "products.errors.unitPriceRequired"
+            ),
+      });
+      window.requestAnimationFrame(
+        () =>
+          (
+            packageField
+              ? editPackagePriceRef
+              : editUnitPriceRef
+          ).current?.focus()
+      );
+      return;
+    }
+    setPriceFieldError(null);
+    priceMutation.mutate();
+  };
 
   const importMutation =
     useMutation({
@@ -2159,6 +2319,7 @@ export default function ProductsDashboard() {
   const cancelCreate =
     () => {
       setCreateOpen(false);
+      setCreateFieldError(null);
       setCreateTrackingExpanded(
         false
       );
@@ -3274,9 +3435,7 @@ export default function ProductsDashboard() {
                 !draft.lot_control_mode ||
                 !draft.expiry_control_mode
               }
-              onClick={() =>
-                createMutation.mutate()
-              }
+              onClick={submitCreate}
               className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
             >
               {t(
@@ -3899,6 +4058,7 @@ export default function ProductsDashboard() {
             setPriceEdit(
               null
             );
+            setPriceFieldError(null);
           }
         }}
         title={`${t(
@@ -3929,9 +4089,7 @@ export default function ProductsDashboard() {
                 priceMutation.isPending ||
                 !isOnline
               }
-              onClick={() =>
-                priceMutation.mutate()
-              }
+              onClick={submitPriceEdit}
               className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
             >
               {t(
