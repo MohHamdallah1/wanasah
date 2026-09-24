@@ -80,6 +80,9 @@ from models import (
     ProductVariant,
     SystemAuditLog,
 )
+from product_import_localization import (
+    CANONICAL_IMPORT_FIELDS,
+)
 from product_import_queue import (
     enqueue_new_import,
     requeue_import,
@@ -99,18 +102,9 @@ router = APIRouter(
 MAX_IMPORT_FILE_BYTES = 8 * 1024 * 1024
 _ALLOWED_IMPORT_SUFFIXES = {".csv", ".xlsx"}
 
-_CANONICAL_MAPPING_FIELDS = {
-    "name",
-    "family",
-    "package_uom",
-    "units_per_package",
-    "package_price",
-    "unit_price",
-    "unit_barcode",
-    "package_barcode",
-    "lot_control_mode",
-    "expiry_control_mode",
-}
+_CANONICAL_MAPPING_FIELDS = frozenset(
+    CANONICAL_IMPORT_FIELDS,
+)
 
 
 class StrictRequest(BaseModel):
