@@ -527,6 +527,8 @@ async def test_family_concurrency(
             + uuid4().hex[:8]
         ),
     )
+    family_a_id = int(family_a.id)
+    family_b_id = int(family_b.id)
     await seed_db.commit()
     await seed_db.close()
 
@@ -541,10 +543,11 @@ async def test_family_concurrency(
     renamed = await rename_family(
         rename_db,
         company_id=company_id,
-        family_id=int(family_a.id),
+        family_id=family_a_id,
         expected_version=1,
         name=target_name,
     )
+    renamed_version = int(renamed.version)
 
     rename_started = asyncio.Event()
 
@@ -557,9 +560,7 @@ async def test_family_concurrency(
             await rename_family(
                 db,
                 company_id=company_id,
-                family_id=int(
-                    family_b.id
-                ),
+                family_id=family_b_id,
                 expected_version=1,
                 name=target_name,
             )
@@ -607,9 +608,7 @@ async def test_family_concurrency(
         await rename_family(
             stale_db,
             company_id=company_id,
-            family_id=int(
-                family_a.id
-            ),
+            family_id=family_a_id,
             expected_version=1,
             name=(
                 target_name
@@ -624,11 +623,11 @@ async def test_family_concurrency(
 
     record(
         "Family stale version fails closed",
-        int(renamed.version) == 2
+        renamed_version == 2
         and stale_code
         == "SIMPLE_PRODUCT_FAMILY_VERSION_CONFLICT",
         (
-            f"version={renamed.version} "
+            f"version={renamed_version} "
             f"code={stale_code}"
         ),
     )
@@ -916,7 +915,7 @@ async def cleanup_pricing_history(
                 text(
                     "SELECT id, name, company_code "
                     "FROM companies "
-                    "WHERE id = ANY(:company_ids)"
+                    "WHERE id = ANY(CAST(:company_ids AS integer[]))"
                 ),
                 {
                     "company_ids":
@@ -973,7 +972,7 @@ async def cleanup_pricing_history(
             await su.execute(
                 text(
                     "DELETE FROM price_book_entries "
-                    "WHERE company_id = ANY(:company_ids)"
+                    "WHERE company_id = ANY(CAST(:company_ids AS integer[]))"
                 ),
                 {
                     "company_ids":
@@ -983,7 +982,7 @@ async def cleanup_pricing_history(
             await su.execute(
                 text(
                     "DELETE FROM price_publications "
-                    "WHERE company_id = ANY(:company_ids)"
+                    "WHERE company_id = ANY(CAST(:company_ids AS integer[]))"
                 ),
                 {
                     "company_ids":
@@ -993,7 +992,7 @@ async def cleanup_pricing_history(
             await su.execute(
                 text(
                     "DELETE FROM price_book_assignments "
-                    "WHERE company_id = ANY(:company_ids)"
+                    "WHERE company_id = ANY(CAST(:company_ids AS integer[]))"
                 ),
                 {
                     "company_ids":
@@ -1015,7 +1014,7 @@ async def cleanup_pricing_history(
         await su.execute(
             text(
                 "DELETE FROM product_barcodes "
-                "WHERE company_id = ANY(:company_ids)"
+                "WHERE company_id = ANY(CAST(:company_ids AS integer[]))"
             ),
             {
                 "company_ids":
@@ -1025,7 +1024,7 @@ async def cleanup_pricing_history(
         await su.execute(
             text(
                 "DELETE FROM product_uom_conversions "
-                "WHERE company_id = ANY(:company_ids)"
+                "WHERE company_id = ANY(CAST(:company_ids AS integer[]))"
             ),
             {
                 "company_ids":
