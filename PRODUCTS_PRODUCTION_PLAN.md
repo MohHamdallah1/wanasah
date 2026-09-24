@@ -682,7 +682,7 @@ Required:
 - [x] Show "Advanced product setup required" or equivalent translated wording.
 - [x] Do not leave a silent `—` action cell.
 - [x] Advanced management entry point appears only when implemented and authorized.
-- [x] Hide/remove permanently disabled Advanced Pricing button until the destination is actually usable, or connect it properly.
+- [x] Preserve the Advanced Pricing roadmap control as visibly disabled until the destination is explicitly activated.
 
 ---
 
@@ -1265,7 +1265,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 21. Performance-audit `%LIKE%` search before production signoff.
 - [x] 22. Preserve batched enrichment / avoid N+1.
 - [x] 23. Explain `simple_compatible=false` rather than showing an unexplained dash.
-- [x] 24. Connect or hide the permanently disabled Advanced Pricing control.
+- [x] 24. Preserve the Advanced Pricing roadmap control as visibly disabled until the destination is explicitly activated.
 - [x] 25. Replace TypeScript-only raw-response casts with runtime parsers.
 - [ ] 26. Runtime-validate families/UOM/import/mutation contracts too.
 - [x] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
