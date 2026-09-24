@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -48,6 +49,13 @@ import {
   type UomConversion,
   type UomConversionCommandPayload,
 } from "@/pages/inventory/catalog/contracts";
+
+type ConversionField =
+  | "from"
+  | "to"
+  | "numerator"
+  | "denominator"
+  | "scale";
 
 type ConversionDraft = {
   from_uom_id: string;
@@ -219,6 +227,33 @@ export default function AdvancedUomDashboard() {
   const [draft, setDraft] =
     useState<ConversionDraft>(
       EMPTY_DRAFT,
+    );
+  const [
+    conversionFieldError,
+    setConversionFieldError,
+  ] = useState<{
+    field: ConversionField;
+    message: string;
+  } | null>(null);
+  const fromUomRef =
+    useRef<HTMLSelectElement | null>(
+      null,
+    );
+  const toUomRef =
+    useRef<HTMLSelectElement | null>(
+      null,
+    );
+  const numeratorRef =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+  const denominatorRef =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+  const scaleRef =
+    useRef<HTMLInputElement | null>(
+      null,
     );
   const [editing, setEditing] =
     useState<UomConversion | null>(
@@ -824,6 +859,7 @@ export default function AdvancedUomDashboard() {
     ) {
       return;
     }
+    setConversionFieldError(null);
     setEditing(item);
     setDraft({
       from_uom_id:
@@ -846,8 +882,115 @@ export default function AdvancedUomDashboard() {
     ) {
       return;
     }
+    setConversionFieldError(null);
     setEditing(null);
     setDraft(EMPTY_DRAFT);
+  };
+
+  const submitConversion = () => {
+    const fromId =
+      Number(draft.from_uom_id);
+    if (
+      !Number.isSafeInteger(fromId) ||
+      fromId <= 0
+    ) {
+      setConversionFieldError({
+        field: "from",
+        message: t(
+          "products.advancedUom.uomRequired",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => fromUomRef.current?.focus(),
+      );
+      return;
+    }
+
+    const toId =
+      Number(draft.to_uom_id);
+    if (
+      !Number.isSafeInteger(toId) ||
+      toId <= 0
+    ) {
+      setConversionFieldError({
+        field: "to",
+        message: t(
+          "products.advancedUom.uomRequired",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => toUomRef.current?.focus(),
+      );
+      return;
+    }
+
+    const exactPositive =
+      (value: string) =>
+        /^\d+(?:\.\d{1,6})?$/.test(
+          value,
+        ) &&
+        Number(value) > 0;
+
+    if (
+      !exactPositive(
+        draft.numerator,
+      )
+    ) {
+      setConversionFieldError({
+        field: "numerator",
+        message: t(
+          "products.advancedUom.invalidValue",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => numeratorRef.current?.focus(),
+      );
+      return;
+    }
+
+    if (
+      !exactPositive(
+        draft.denominator,
+      )
+    ) {
+      setConversionFieldError({
+        field: "denominator",
+        message: t(
+          "products.advancedUom.invalidValue",
+        ),
+      });
+      window.requestAnimationFrame(
+        () =>
+          denominatorRef.current?.focus(),
+      );
+      return;
+    }
+
+    const scale =
+      Number(draft.quantity_scale);
+    if (
+      !Number.isSafeInteger(scale) ||
+      scale < 0 ||
+      scale > 6
+    ) {
+      setConversionFieldError({
+        field: "scale",
+        message: t(
+          "products.advancedUom.invalidValue",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => scaleRef.current?.focus(),
+      );
+      return;
+    }
+
+    setConversionFieldError(null);
+    if (editing) {
+      updateMutation.mutate();
+    } else {
+      createMutation.mutate();
+    }
   };
 
   const busy =
@@ -1285,11 +1428,7 @@ export default function AdvancedUomDashboard() {
                   className="mt-5 rounded-2xl border border-slate-200 p-4"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    if (editing) {
-                      updateMutation.mutate();
-                    } else {
-                      createMutation.mutate();
-                    }
+                    submitConversion();
                   }}
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
