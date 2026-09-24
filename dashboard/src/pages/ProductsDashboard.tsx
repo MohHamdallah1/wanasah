@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  SlidersHorizontal,
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +36,11 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   apiErrorMessage,
 } from "@/lib/apiErrors";
+import {
+  readProductDisplayPreferences,
+  writeProductDisplayPreferences,
+  type ProductDisplayPreferences,
+} from "@/lib/productDisplayPreferences";
 import {
   abandonDurableOperation,
   completeDurableOperation,
@@ -62,6 +68,7 @@ import {
 } from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
+import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayPreferences";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
@@ -323,11 +330,71 @@ export default function ProductsDashboard() {
     useState<ProductSortDirection>(
       "asc"
     );
+  const [
+    displayPreferences,
+    setDisplayPreferences,
+  ] =
+    useState<ProductDisplayPreferences>(
+      () =>
+        readProductDisplayPreferences(
+          Number(
+            localStorage.getItem(
+              "company_id"
+            )
+          ),
+          Number(
+            localStorage.getItem(
+              "driver_id"
+            )
+          )
+        )
+    );
+  const [
+    displayPreferencesOpen,
+    setDisplayPreferencesOpen,
+  ] = useState(false);
+  const displayPreferenceScopeRef =
+    useRef<string | null>(null);
 
   const resetProductPagination = () => {
     setCursor(null);
     setHistory([]);
   };
+
+  useEffect(() => {
+    if (
+      companyId === null ||
+      driverId === null
+    ) {
+      return;
+    }
+
+    const scope =
+      `${companyId}:${driverId}`;
+    if (
+      displayPreferenceScopeRef.current ===
+      scope
+    ) {
+      return;
+    }
+
+    const next =
+      readProductDisplayPreferences(
+        companyId,
+        driverId
+      );
+    displayPreferenceScopeRef.current =
+      scope;
+    setDisplayPreferences(next);
+    setSortBy(
+      next.defaultSort.field
+    );
+    setSortDir(
+      next.defaultSort.direction
+    );
+    setCursor(null);
+    setHistory([]);
+  }, [companyId, driverId]);
 
   const [
     createOpen,
@@ -1103,6 +1170,42 @@ export default function ProductsDashboard() {
       );
       setTrackingDefaultsOpen(true);
     };
+
+  const saveDisplayPreferences = (
+    next: ProductDisplayPreferences
+  ) => {
+    if (
+      companyId === null ||
+      driverId === null ||
+      !writeProductDisplayPreferences(
+        companyId,
+        driverId,
+        next
+      )
+    ) {
+      toast.error(
+        t(
+          "products.displayPreferences.saveFailed"
+        )
+      );
+      return;
+    }
+
+    setDisplayPreferences(next);
+    setSortBy(
+      next.defaultSort.field
+    );
+    setSortDir(
+      next.defaultSort.direction
+    );
+    resetProductPagination();
+    setDisplayPreferencesOpen(false);
+    toast.success(
+      t(
+        "products.displayPreferences.saved"
+      )
+    );
+  };
 
   const openPriceEditor = (
     product: SimpleProduct
