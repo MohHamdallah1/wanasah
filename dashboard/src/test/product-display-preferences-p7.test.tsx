@@ -42,6 +42,10 @@ vi.mock(
 );
 
 import {
+  clearLocalStoragePreservingLoginHintsAndPreferences,
+  rememberLastCompanyCode,
+} from "@/lib/authStorage";
+import {
   DEFAULT_PRODUCT_DISPLAY_PREFERENCES,
   readProductDisplayPreferences,
   writeProductDisplayPreferences,
@@ -232,6 +236,72 @@ describe(
       ).toEqual(
         DEFAULT_PRODUCT_DISPLAY_PREFERENCES,
       );
+    });
+
+    it("preserves non-sensitive scoped preferences across logout while clearing session credentials", () => {
+      const custom =
+        clonePreferences();
+      custom.columns.lifecycle =
+        true;
+
+      writeProductDisplayPreferences(
+        3,
+        44,
+        custom,
+      );
+      rememberLastCompanyCode(
+        "ACME-03",
+      );
+      localStorage.setItem(
+        "admin_token",
+        "secret-token",
+      );
+      localStorage.setItem(
+        "refresh_token",
+        "secret-refresh",
+      );
+      localStorage.setItem(
+        "company_id",
+        "3",
+      );
+      localStorage.setItem(
+        "driver_id",
+        "44",
+      );
+
+      clearLocalStoragePreservingLoginHintsAndPreferences();
+
+      expect(
+        localStorage.getItem(
+          "admin_token",
+        ),
+      ).toBeNull();
+      expect(
+        localStorage.getItem(
+          "refresh_token",
+        ),
+      ).toBeNull();
+      expect(
+        localStorage.getItem(
+          "company_id",
+        ),
+      ).toBeNull();
+      expect(
+        localStorage.getItem(
+          "driver_id",
+        ),
+      ).toBeNull();
+      expect(
+        localStorage.getItem(
+          "wanasah_last_company_code",
+        ),
+      ).toBe("ACME-03");
+      expect(
+        readProductDisplayPreferences(
+          3,
+          44,
+        ),
+      ).toEqual(custom);
     });
 
     it("renders only selected Product columns and applies table density", () => {
