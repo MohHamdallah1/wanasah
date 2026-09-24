@@ -76,7 +76,13 @@ def main() -> int:
             ),
             (
                 "dashboard:lint",
-                [npm, "run", "lint"],
+                [
+                    npm,
+                    "run",
+                    "lint",
+                    "--",
+                    "--max-warnings=0",
+                ],
             ),
             (
                 "dashboard:build",
