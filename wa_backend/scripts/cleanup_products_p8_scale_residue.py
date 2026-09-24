@@ -124,8 +124,10 @@ async def main() -> None:
                         "WHERE name = 'P2 Read Contract Gate B' "
                         "AND company_code LIKE 'P2READ-%' "
                         "AND created_at BETWEEN "
-                        ":created_at - INTERVAL '10 seconds' "
-                        "AND :created_at + INTERVAL '10 seconds'"
+                        "CAST(:created_at AS timestamp without time zone) "
+                        "- INTERVAL '10 seconds' "
+                        "AND CAST(:created_at AS timestamp without time zone) "
+                        "+ INTERVAL '10 seconds'"
                     ),
                     {
                         "created_at": candidate[
