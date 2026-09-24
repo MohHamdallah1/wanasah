@@ -3,6 +3,10 @@ import {
   readFileSync,
 } from "node:fs";
 import {
+  join,
+  resolve,
+} from "node:path";
+import {
   describe,
   expect,
   it,
@@ -77,9 +81,9 @@ describe(
     it("keeps currentLocale delegated to the shared resolver", () => {
       const source =
         readFileSync(
-          new URL(
-            "../i18n/index.ts",
-            import.meta.url,
+          resolve(
+            process.cwd(),
+            "src/i18n/index.ts",
           ),
           "utf8",
         );
@@ -93,12 +97,14 @@ describe(
     });
 
     it("keeps production formatting behind the shared locale authority", () => {
-      const sourceRoot =
-        new URL("../", import.meta.url);
+      const sourceRoot = resolve(
+        process.cwd(),
+        "src",
+      );
       const offenders: string[] = [];
 
       const visit = (
-        directory: URL,
+        directory: string,
       ) => {
         for (const entry of readdirSync(
           directory,
@@ -106,12 +112,9 @@ describe(
             withFileTypes: true,
           },
         )) {
-          const url = new URL(
-            entry.name +
-              (entry.isDirectory()
-                ? "/"
-                : ""),
+          const filePath = join(
             directory,
+            entry.name,
           );
 
           if (entry.isDirectory()) {
@@ -120,7 +123,7 @@ describe(
             ) {
               continue;
             }
-            visit(url);
+            visit(filePath);
             continue;
           }
 
@@ -132,11 +135,9 @@ describe(
             continue;
           }
 
-          const filePath =
-            url.pathname;
           if (
             filePath.endsWith(
-              "/lib/locale.ts",
+              join("lib", "locale.ts"),
             )
           ) {
             continue;
@@ -144,7 +145,7 @@ describe(
 
           const source =
             readFileSync(
-              url,
+              filePath,
               "utf8",
             );
           const compact =
