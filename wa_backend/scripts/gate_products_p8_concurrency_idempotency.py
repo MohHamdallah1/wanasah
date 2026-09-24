@@ -1040,6 +1040,34 @@ async def cleanup_pricing_history(
         await su.commit()
 
 
+async def cleanup_release_evidence(
+    company_ids: list[int],
+) -> None:
+    if not company_ids:
+        return
+
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+        params = {
+            "company_ids": company_ids,
+        }
+        for table_name in (
+            "transactional_outbox",
+            "domain_audit_events",
+            "system_audit_logs",
+            "operation_idempotency",
+        ):
+            await su.execute(
+                text(
+                    f"DELETE FROM {table_name} "
+                    "WHERE company_id = ANY("
+                    "CAST(:company_ids AS integer[]))"
+                ),
+                params,
+            )
+        await su.commit()
+
+
 async def cleanup_all(
     ids: dict[str, int],
     actor_meta: dict[
@@ -1062,26 +1090,9 @@ async def cleanup_all(
             company_ids
         )
 
-        async with p2_gate.SessionSU() as su:
-            await su.begin()
-            params = {
-                "company_ids": company_ids,
-            }
-            for table_name in (
-                "transactional_outbox",
-                "domain_audit_events",
-                "system_audit_logs",
-                "operation_idempotency",
-            ):
-                await su.execute(
-                    text(
-                        f"DELETE FROM {table_name} "
-                        "WHERE company_id = ANY("
-                        "CAST(:company_ids AS integer[]))"
-                    ),
-                    params,
-                )
-            await su.commit()
+        await cleanup_release_evidence(
+            company_ids
+        )
 
         base_ok, base_detail = (
             await p2_gate.cleanup(ids)
