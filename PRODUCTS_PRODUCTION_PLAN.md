@@ -1410,7 +1410,55 @@ Do not work on all items randomly.
 
 ---
 
-# 54. Immediate next task
+# 54. Products page completion — P9 (active)
+
+P0–P8 hardened the Products backend contracts, security, performance, durability, and release gates. The Products **page itself is not owner-complete yet**. P9 remains active until functional coverage and final visual acceptance are complete.
+
+## P9.1 — Map backend capabilities to the normal Products page
+
+- [ ] Inventory every Product/Catalog backend capability and classify it as: expose in normal Products, expose only in Advanced, or intentionally keep admin/internal with a documented reason.
+- [ ] Add safe editing of the product display name from the normal Products experience.
+- [ ] Add safe movement of a product/SKU to another family where backend history/lifecycle rules allow it.
+- [ ] Keep family creation and family rename available and make existing-family vs new-family selection unmistakable during product creation.
+- [ ] Decide whether SKU/code may be edited after creation; expose it only in lifecycle states where the backend allows it.
+- [ ] Complete safe package/unit-structure editing for simple-compatible products.
+- [ ] Show the base selling/stock unit and package conversion clearly in Product Details (for example: carton = 50 pieces).
+- [ ] Ensure barcode, tracking, lifecycle/hold, pricing, advanced unit management, and family actions are reachable from one coherent Product experience.
+- [ ] Define the safe delete/archive policy; never expose unsafe hard delete.
+- [ ] Audit Product-location/warehouse capabilities and expose only useful operator actions without implying every product must be manually assigned to every warehouse.
+
+## P9.2 — Remove avoidable frontend technical debt before the visual rebuild
+
+- [ ] Split the oversized `ProductsDashboard.tsx` by responsibility where it materially improves maintainability: page orchestration, create/edit product flow, import flow, filters/search, and price editing.
+- [ ] Keep business rules in backend/domain authorities; extracted React components must not duplicate them.
+- [ ] Keep shared runtime parsers, durable command handling, permissions, request cancellation, and retry behavior centralized and tested.
+- [ ] Re-run the full Product test/build gates after structural extraction before visual redesign.
+
+## P9.3 — Final Products UX and visual redesign
+
+- [ ] Rebuild the page information hierarchy with owner approval before coding cosmetic polish.
+- [ ] Redesign header, primary actions, search, filters, product list/cards, pagination, empty/error/loading states, and whitespace usage.
+- [ ] Redesign Product Details so the important identity, family, package structure, tracking, barcodes, lifecycle/hold, pricing, and available actions are understandable without technical terminology.
+- [ ] Redesign Create Product so ordinary creation is fast while advanced settings remain available without clutter.
+- [ ] Redesign Families, Barcode, Tracking, Lifecycle, Pricing, and Advanced-unit flows into one consistent visual language.
+- [ ] Preserve responsive behavior, accessibility, keyboard flow, RTL/LTR, translations, and configurable display preferences during the redesign.
+- [ ] Owner visual acceptance is required; passing automated tests alone does not close P9.
+
+## P9.4 — Final verification and close-out
+
+- [ ] Functional walkthrough covers create, edit name, family selection/change, tracking, barcodes, lifecycle/hold, pricing, package structure, import, search/filter/sort, permissions, and error/retry states.
+- [ ] Verify every backend capability intentionally exposed/hidden; no accidental missing Product function remains.
+- [ ] Run targeted Product tests, full Dashboard tests, TypeScript, zero-warning lint, production build, backend Product gates, and the aggregate Products production gate.
+- [ ] Review final diff for duplicated authority, stale/legacy UI paths, dead code, and technical debt introduced during redesign.
+- [ ] Owner approves final Products page design and workflow.
+- [ ] PR + merge.
+- [ ] local `main == origin/main`.
+- [ ] Only then declare the Products page fully complete and return this plan to the archive.
+
+---
+
+# 55. Historical P0–P8 release evidence
+
 
 Products P0–P8 is closed and **Production Ready** on `main`.
 
@@ -1471,7 +1519,7 @@ The post-review hardening passed targeted verification and the complete aggregat
 - No endpoint, pricing, filtering, lifecycle, tenant-isolation, or other business behavior was changed by the growth fix; the branch diff is limited to the migration/model index metadata, performance-gate index verification, and the dedicated growth-certification script.
 - PR #27 is merged, the post-index aggregate gate passed again at 17 checks / 0 failures, and the local/GitHub transition was completed before the user's current `main` commit.
 
-**Products close-out:** P0–P8, PR/merge, local/GitHub alignment, and Production Ready declaration are complete. Remaining unchecked checkboxes in this file are intentionally deferred items: downstream Inbound/Batches behavior, optional enterprise policy/features, future deletion policy, and non-blocking maintainability/customization work. The next implementation area is **Inbound**, not another Products release blocker.
+**Historical P0–P8 close-out:** backend/release hardening was completed, but the Products page was reopened by owner decision for functional completeness and final redesign. P9 above is now the active source of truth before leaving Products.
 
 Current P7 state:
 
