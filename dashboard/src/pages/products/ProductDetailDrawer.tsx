@@ -9,6 +9,10 @@ import {
   formatLocaleDecimal,
   formatLocaleMoney,
 } from "@/lib/localeNumbers";
+import {
+  DEFAULT_PRODUCT_DISPLAY_PREFERENCES,
+  type ProductDetailSection,
+} from "@/lib/productDisplayPreferences";
 import type { SimpleProduct } from "@/pages/products/contracts";
 
 
@@ -19,6 +23,10 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageAdvancedUom: boolean;
+  detailSections?: Record<
+    ProductDetailSection,
+    boolean
+  >;
   onClose: () => void;
   onEditPrice: (product: SimpleProduct) => void;
   onEditTracking: (product: SimpleProduct) => void;
@@ -33,6 +41,8 @@ export function ProductDetailDrawer({
   canEditTracking,
   canManageBarcodes,
   canManageAdvancedUom,
+  detailSections =
+    DEFAULT_PRODUCT_DISPLAY_PREFERENCES.detailSections,
   onClose,
   onEditPrice,
   onEditTracking,
@@ -140,120 +150,127 @@ export function ProductDetailDrawer({
             </dl>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black text-slate-900">
-              {t(
-                "products.details.package"
-              )}
-            </h3>
-            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.columns.package"
-                  )}
-                </dt>
-                <dd className="mt-1 text-sm font-black text-slate-800">
-                  {product.package_uom_code
-                    ? t(
-                        `uom.${product.package_uom_code}`
-                      )
-                    : t("uom.NONE")}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.columns.unitsPerPackage"
-                  )}
-                </dt>
-                <dd className="mt-1 text-sm font-black text-slate-800">
-                  {product.package_uom_code &&
-                  product.units_per_package !==
-                    null
-                    ? formatLocaleDecimal(
-                        String(
-                          product.units_per_package
-                        ),
-                        locale,
-                      )
-                    : "—"}
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black text-slate-900">
-              {t(
-                "products.details.tracking"
-              )}
-            </h3>
-            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.tracking.shortLot"
-                  )}
-                </dt>
-                <dd className="mt-1 text-sm font-black text-slate-800">
-                  {t(
-                    `products.tracking.lotModes.${product.lot_control_mode}`
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.tracking.shortExpiry"
-                  )}
-                </dt>
-                <dd className="mt-1 text-sm font-black text-slate-800">
-                  {t(
-                    `products.tracking.expiryModes.${product.expiry_control_mode}`
-                  )}
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black text-slate-900">
-              {t(
-                "products.details.barcodes"
-              )}
-            </h3>
-            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.unitBarcode"
-                  )}
-                </dt>
-                <dd className="mt-1 break-all font-mono text-sm font-black text-slate-800">
-                  {product.unit_barcode ??
-                    t(
-                      "products.details.notSet"
+          {detailSections.package ? (
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-black text-slate-900">
+                {t(
+                  "products.details.package"
+                )}
+              </h3>
+              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-[11px] font-black text-slate-400">
+                    {t(
+                      "products.columns.package"
                     )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.packageBarcode"
-                  )}
-                </dt>
-                <dd className="mt-1 break-all font-mono text-sm font-black text-slate-800">
-                  {product.package_barcode ??
-                    t(
-                      "products.details.notSet"
+                  </dt>
+                  <dd className="mt-1 text-sm font-black text-slate-800">
+                    {product.package_uom_code
+                      ? t(
+                          `uom.${product.package_uom_code}`
+                        )
+                      : t("uom.NONE")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] font-black text-slate-400">
+                    {t(
+                      "products.columns.unitsPerPackage"
                     )}
-                </dd>
-              </div>
-            </dl>
-          </section>
+                  </dt>
+                  <dd className="mt-1 text-sm font-black text-slate-800">
+                    {product.package_uom_code &&
+                    product.units_per_package !==
+                      null
+                      ? formatLocaleDecimal(
+                          String(
+                            product.units_per_package
+                          ),
+                          locale,
+                        )
+                      : "—"}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          ) : null}
 
-          {pricingVisible ? (
+          {detailSections.tracking ? (
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-black text-slate-900">
+                {t(
+                  "products.details.tracking"
+                )}
+              </h3>
+              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-[11px] font-black text-slate-400">
+                    {t(
+                      "products.tracking.shortLot"
+                    )}
+                  </dt>
+                  <dd className="mt-1 text-sm font-black text-slate-800">
+                    {t(
+                      `products.tracking.lotModes.${product.lot_control_mode}`
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] font-black text-slate-400">
+                    {t(
+                      "products.tracking.shortExpiry"
+                    )}
+                  </dt>
+                  <dd className="mt-1 text-sm font-black text-slate-800">
+                    {t(
+                      `products.tracking.expiryModes.${product.expiry_control_mode}`
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          ) : null}
+
+          {detailSections.barcodes ? (
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-black text-slate-900">
+                {t(
+                  "products.details.barcodes"
+                )}
+              </h3>
+              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-[11px] font-black text-slate-400">
+                    {t(
+                      "products.unitBarcode"
+                    )}
+                  </dt>
+                  <dd className="mt-1 break-all font-mono text-sm font-black text-slate-800">
+                    {product.unit_barcode ??
+                      t(
+                        "products.details.notSet"
+                      )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] font-black text-slate-400">
+                    {t(
+                      "products.packageBarcode"
+                    )}
+                  </dt>
+                  <dd className="mt-1 break-all font-mono text-sm font-black text-slate-800">
+                    {product.package_barcode ??
+                      t(
+                        "products.details.notSet"
+                      )}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          ) : null}
+
+          {pricingVisible &&
+          detailSections.pricing ? (
             <section className="rounded-2xl border border-slate-200 p-4">
               <h3 className="text-sm font-black text-slate-900">
                 {t(
@@ -289,20 +306,22 @@ export function ProductDetailDrawer({
             </section>
           ) : null}
 
-          <section className="rounded-2xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black text-slate-900">
-              {t(
-                "products.details.compatibility"
-              )}
-            </h3>
-            <p className="mt-2 text-xs font-bold leading-6 text-slate-600">
-              {t(
-                product.simple_compatible
-                  ? "products.details.simpleCompatible"
-                  : "products.details.advancedOnly"
-              )}
-            </p>
-          </section>
+          {detailSections.compatibility ? (
+            <section className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="text-sm font-black text-slate-900">
+                {t(
+                  "products.details.compatibility"
+                )}
+              </h3>
+              <p className="mt-2 text-xs font-bold leading-6 text-slate-600">
+                {t(
+                  product.simple_compatible
+                    ? "products.details.simpleCompatible"
+                    : "products.details.advancedOnly"
+                )}
+              </p>
+            </section>
+          ) : null}
         </div>
 
         {canEditPrice ||
