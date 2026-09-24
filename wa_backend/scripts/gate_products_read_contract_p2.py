@@ -744,7 +744,7 @@ async def main() -> None:
                 == ids["variant_id"],
             )
             record(
-                "catalog-only read exposes SKU tracking and lifecycle identity",
+                "catalog-only read exposes SKU tracking lifecycle and operational hold identity",
                 isinstance(catalog_row, dict)
                 and isinstance(
                     catalog_row.get("sku"),
@@ -761,7 +761,11 @@ async def main() -> None:
                 and catalog_row.get(
                     "lifecycle_status"
                 )
-                == "ACTIVE",
+                == "ACTIVE"
+                and catalog_row.get(
+                    "operational_hold"
+                )
+                == "NONE",
             )
             record(
                 "pricing-authorized reader receives the seeded real price",

@@ -84,6 +84,25 @@ export type ProductTrackingSource =
   | "COMPANY"
   | "PLATFORM_FALLBACK";
 
+export type ProductOperationalHold =
+  | "NONE"
+  | "SALES_HOLD"
+  | "RECALL";
+
+const operationalHold = (
+  value: unknown,
+  code: string,
+): ProductOperationalHold => {
+  if (
+    value !== "NONE" &&
+    value !== "SALES_HOLD" &&
+    value !== "RECALL"
+  ) {
+    return contractError(code);
+  }
+  return value;
+};
+
 const trackingMode = (
   value: unknown,
   code: string,
@@ -218,6 +237,7 @@ export interface SimpleProduct {
   lot_control_mode: ProductTrackingMode;
   expiry_control_mode: ProductTrackingMode;
   lifecycle_status: "ACTIVE" | "RETIRING";
+  operational_hold: ProductOperationalHold;
   simple_compatible: boolean;
 }
 
@@ -500,6 +520,10 @@ export function parseSimpleProductPage(
       lifecycle_status: lifecycle as
         | "ACTIVE"
         | "RETIRING",
+      operational_hold: operationalHold(
+        row.operational_hold,
+        code,
+      ),
       simple_compatible:
         simpleCompatible,
     };
