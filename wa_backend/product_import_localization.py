@@ -417,9 +417,9 @@ def suggest_import_mapping(
     # Multiple source columns matching the same
     # canonical field are deliberately not guessed.
     return {
-        field: matches[0]
-        for field, matches in by_field.items()
-        if len(matches) == 1
+        field: by_field[field][0]
+        for field in CANONICAL_IMPORT_FIELDS
+        if len(by_field.get(field, ())) == 1
     }
 
 
