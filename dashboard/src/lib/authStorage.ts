@@ -1,6 +1,11 @@
 const LAST_COMPANY_CODE_KEY =
   "wanasah_last_company_code";
 
+const PERSISTENT_LOCAL_STORAGE_PREFIXES =
+  [
+    "wanasah:products:display:v",
+  ] as const;
+
 export const readLastCompanyCode = (): string =>
   localStorage.getItem(
     LAST_COMPANY_CODE_KEY,
@@ -23,15 +28,61 @@ export const rememberLastCompanyCode = (
   );
 };
 
-export const clearLocalStoragePreservingLastCompanyCode =
+export const clearLocalStoragePreservingLoginHintsAndPreferences =
   (): void => {
     const lastCompanyCode =
       readLastCompanyCode();
+
+    const persistentEntries =
+      Array.from(
+        {
+          length:
+            localStorage.length,
+        },
+        (_, index) => {
+          const key =
+            localStorage.key(index);
+          if (
+            !key ||
+            !PERSISTENT_LOCAL_STORAGE_PREFIXES.some(
+              (prefix) =>
+                key.startsWith(prefix),
+            )
+          ) {
+            return null;
+          }
+
+          const value =
+            localStorage.getItem(key);
+          return value === null
+            ? null
+            : ([key, value] as const);
+        },
+      ).filter(
+        (
+          entry,
+        ): entry is readonly [
+          string,
+          string,
+        ] => entry !== null,
+      );
+
     localStorage.clear();
+
     if (lastCompanyCode) {
       localStorage.setItem(
         LAST_COMPANY_CODE_KEY,
         lastCompanyCode,
+      );
+    }
+
+    for (const [
+      key,
+      value,
+    ] of persistentEntries) {
+      localStorage.setItem(
+        key,
+        value,
       );
     }
   };
