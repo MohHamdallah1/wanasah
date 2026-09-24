@@ -113,6 +113,8 @@ const product: SimpleProduct = {
     "NONE",
   lifecycle_status:
     "ACTIVE",
+  operational_hold:
+    "NONE",
   simple_compatible: true,
 };
 

@@ -222,11 +222,18 @@ export const resources = {
           title: "تفاصيل المنتج",
           identity: "هوية المنتج",
           lifecycle: "حالة المنتج",
+          operationalHold:
+            "الإيقاف التشغيلي",
           lifecycleModes: {
             DRAFT: "مسودة",
             ACTIVE: "نشط",
             RETIRING: "قيد الإيقاف",
             ARCHIVED: "مؤرشف",
+          },
+          holdModes: {
+            NONE: "بدون إيقاف",
+            SALES_HOLD: "إيقاف بيع",
+            RECALL: "استدعاء",
           },
           package: "العبوة",
           tracking: "التتبع",
@@ -238,6 +245,13 @@ export const resources = {
           advancedOnly:
             "هذا المنتج يحتوي إعدادات متقدمة؛ اعرض تفاصيله هنا واستخدم الإدارة المتقدمة عند الحاجة للتعديل.",
           notSet: "غير محدد",
+        },
+        lifecycleManager: {
+          action: "إدارة دورة الحياة",
+          title:
+            "إدارة دورة الحياة — {{name}}",
+          loadFailed:
+            "تعذر تحميل الحالة التشغيلية الحالية للمنتج.",
         },
         barcodeManager: {
           action: "إدارة الباركود",
@@ -496,6 +510,10 @@ export const resources = {
             "فشل طلب المنتجات، لذلك لن نعرض حالة فارغة مضللة. تحقق من الاتصال ثم أعد المحاولة.",
           familiesLoad:
             "تعذر تحميل العائلات. أعد المحاولة.",
+          packageUomsLoad:
+            "تعذر تحميل أنواع العبوات. أعد المحاولة قبل حفظ المنتج.",
+          importStatusLoad:
+            "تعذر تحديث حالة الاستيراد. سنواصل المحاولة ويمكنك إعادة المحاولة الآن.",
           nameRequired: "اسم المنتج مطلوب.",
           packageUnitsInvalid:
             "عدد الحبات داخل العبوة يجب أن يكون رقماً صحيحاً أكبر من 1.",
@@ -529,6 +547,133 @@ export const resources = {
             "تعذر اعتماد ربط الأعمدة.",
           retryFailed:
             "تعذر إعادة عملية الاستيراد.",
+        },
+      },
+      catalogLifecycle: {
+        title: "دورة الحياة والإيقاف التشغيلي",
+        summary:
+          "الحالة: {{lifecycle}} · الإيقاف: {{hold}} · الإصدار: {{version}}",
+        reason: "سبب الإجراء",
+        reasonPlaceholder:
+          "سبب واضح لا يقل عن 3 أحرف",
+        preflightPassed:
+          "فحص الأرشفة ناجح؛ لا توجد موانع حالية.",
+        blockersTitle:
+          "الأرشفة متوقفة حتى معالجة الموانع التالية:",
+        pendingRetry:
+          "هناك أمر سابق ({{action}}) نتيجته غير مؤكدة. يجب إعادة نفس الأمر قبل تنفيذ أمر مختلف.",
+        retryPending:
+          "إعادة إرسال الأمر المعلّق",
+        pendingBlocked:
+          "تعذر التحقق من الأمر المعلّق المحفوظ. تم إيقاف أوامر دورة الحياة حتى تتم تسويته بأمان.",
+        actions: {
+          publish: "نشر",
+          deleteDraft: "حذف المسودة",
+          retire: "بدء التقاعد",
+          restore: "استعادة",
+          checkArchive: "فحص الأرشفة",
+          archive: "أرشفة نهائية",
+          salesHold: "إيقاف بيع",
+          releaseSalesHold: "تحرير الإيقاف",
+          recall: "استدعاء",
+          closeRecall: "إغلاق الاستدعاء",
+        },
+        success: {
+          publish: "تم نشر الصنف.",
+          deleteDraft:
+            "تم حذف مسودة الصنف.",
+          retire:
+            "بدأت عملية تقاعد الصنف.",
+          restore:
+            "تمت استعادة الصنف.",
+          archive:
+            "تمت أرشفة الصنف.",
+          salesHold:
+            "تم إيقاف بيع الصنف.",
+          releaseSalesHold:
+            "تم تحرير إيقاف البيع.",
+          recall:
+            "تم وضع الصنف تحت الاستدعاء.",
+          closeRecall:
+            "تم إغلاق استدعاء الصنف.",
+        },
+        assignments: {
+          title:
+            "تهيئة الصنف للمستودعات",
+          description:
+            "الربط لا ينشئ رصيداً أو سياسة مخزون.",
+          removeReason:
+            "سبب إزالة الربط",
+          removeReasonPlaceholder:
+            "مطلوب فقط عند إزالة ربط قائم",
+          loading:
+            "جارٍ تحميل الروابط...",
+          empty:
+            "الصنف غير مهيأ لأي مستودع.",
+          inbound: "استلام",
+          outbound: "صرف",
+          chooseLocation:
+            "اختر مستودعاً...",
+          link: "ربط",
+          remove:
+            "حذف ربط الصنف بالمستودع",
+          pendingRetry:
+            "هناك أمر ربط سابق ({{action}}) نتيجته غير مؤكدة. أعد نفس الأمر قبل تنفيذ تغيير مختلف.",
+          retryPending:
+            "إعادة إرسال أمر الربط المعلّق",
+          pendingBlocked:
+            "تعذر التحقق من أمر الربط المعلّق المحفوظ. تم إيقاف تغييرات الربط حتى تتم تسويته بأمان.",
+          actions: {
+            create: "إنشاء الربط",
+            update: "تحديث الربط",
+            delete: "حذف الربط",
+          },
+          success: {
+            create:
+              "تم ربط الصنف بالمستودع.",
+            update:
+              "تم تحديث تشغيل الصنف في المستودع.",
+            delete:
+              "تم حذف ربط الصنف بالمستودع.",
+          },
+          errors: {
+            load:
+              "تعذر جلب روابط الصنف بالمواقع.",
+            locationRequired:
+              "اختر مستودعاً صالحاً.",
+            create:
+              "تعذر ربط الصنف بالمستودع.",
+            update:
+              "تعذر تحديث تشغيل الصنف في المستودع.",
+            delete:
+              "تعذر حذف ربط الصنف بالمستودع.",
+            reason:
+              "سبب إزالة الربط مطلوب وبحد أدنى 3 أحرف.",
+            pending:
+              "تعذر التحقق من أمر الربط المعلّق.",
+          },
+        },
+        errors: {
+          action:
+            "تعذر تنفيذ أمر دورة الحياة.",
+          preflight:
+            "تعذر فحص موانع الأرشفة.",
+          preflightRequired:
+            "نفّذ فحص الأرشفة الحالي قبل الأرشفة النهائية.",
+          reason:
+            "سبب الإجراء مطلوب وبحد أدنى 3 أحرف.",
+        },
+        blockers: {
+          INVENTORY_BALANCE: "رصيد أو حجز مخزون",
+          PRODUCT_LOCATION: "ربط تشغيلي بموقع",
+          STOCK_POLICY: "سياسة مخزون فعالة",
+          OPEN_TRANSFER: "حوالة مفتوحة",
+          ACTIVE_ROUTE_LOAD: "حمولة مسار فعالة",
+          OPEN_STOCKTAKE: "جرد مفتوح",
+          ACTIVE_INVENTORY_LOCK: "قفل مخزون فعال",
+          OPEN_CUSTODY: "عهدة مندوب مفتوحة",
+          OPEN_SHORTAGE: "طلب نقص مفتوح",
+          ACTIVE_OFFER: "عرض فعال",
         },
       },
       inventoryInbound: {
@@ -933,6 +1078,17 @@ export const resources = {
           INTERNAL_SERVER_ERROR: "حدث خطأ داخلي في الخادم.",
           IDENTITY_NOT_READY: "هوية الشركة أو المستخدم غير جاهزة بعد. حدّث الصفحة وأعد المحاولة.",
           CATALOG_CONTRACT_INVALID: "وصلت بيانات كتالوج غير صالحة أو غير مكتملة.",
+          CATALOG_LIFECYCLE_SCOPE_MISMATCH: "استجابة أمر دورة الحياة لا تطابق المنتج المحدد.",
+          CATALOG_LIFECYCLE_PREFLIGHT_STALE: "تغير المنتج منذ فحص الأرشفة. حدّث البيانات وأعد الفحص.",
+          CATALOG_PRODUCT_LOCATIONS_LIMIT_EXCEEDED: "عدد روابط الصنف تجاوز الحد الآمن للواجهة.",
+          CATALOG_PRODUCT_LOCATION_SCOPE_MISMATCH: "استجابة ربط الصنف بالمستودع لا تطابق النطاق المحدد.",
+          PRODUCT_LOCATION_NOT_FOUND: "ربط الصنف بالمستودع غير موجود أو لم يعد متاحاً.",
+          PRODUCT_LOCATION_TARGET_NOT_FOUND: "المستودع غير موجود أو غير قابل للربط.",
+          PRODUCT_LOCATION_VARIANT_NOT_ACTIVE: "يمكن إنشاء ربط جديد لمنتج نشط فقط.",
+          PRODUCT_LOCATION_CONFLICT: "تعذر حفظ ربط الصنف بالمستودع بسبب تعارض في البيانات.",
+          PRODUCT_LOCATION_VERSION_CONFLICT: "تغير ربط الصنف بالمستودع. حدّث البيانات وأعد المحاولة.",
+          PRODUCT_LOCATION_DELETE_BLOCKED: "لا يمكن حذف ربط مستخدم أو مرتبط بسجل تشغيلي.",
+          PRODUCT_LOCATION_SCOPE_MISMATCH: "المستودع المرسل لا يطابق ربط الصنف المطلوب.",
           PACKAGE_UOMS_RESPONSE_INVALID: "استجابة وحدات العبوة غير صالحة أو غير مكتملة.",
           PRODUCT_FAMILIES_RESPONSE_INVALID: "استجابة عائلات المنتجات غير صالحة أو غير مكتملة.",
           PRODUCT_BARCODES_RESPONSE_INVALID: "استجابة باركودات المنتج غير صالحة أو غير مكتملة.",
@@ -940,6 +1096,8 @@ export const resources = {
           PRODUCT_BARCODES_SCOPE_MISMATCH: "بيانات الباركود لا تطابق المنتج المحدد.",
           PRODUCT_BARCODES_CURSOR_DUPLICATE: "صفحات الباركود تحتوي سجلاً مكرراً.",
           PRODUCT_IMPORT_ACCEPTED_RESPONSE_INVALID: "استجابة بدء استيراد المنتجات غير صالحة أو غير مكتملة.",
+          PRODUCT_IMPORT_COMMAND_RESPONSE_INVALID: "استجابة أمر استيراد المنتجات غير صالحة أو غير مكتملة.",
+          PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH: "استجابة أمر الاستيراد لا تطابق عملية الاستيراد الحالية.",
           PRODUCT_IMPORT_STATE_RESPONSE_INVALID: "استجابة حالة استيراد المنتجات غير صالحة أو غير مكتملة.",
           PRODUCT_IMPORT_ERRORS_RESPONSE_INVALID: "استجابة أخطاء استيراد المنتجات غير صالحة أو غير مكتملة.",
           COMPANY_NOT_FOUND: "الشركة غير موجودة أو غير متاحة.",
@@ -1059,6 +1217,9 @@ export const resources = {
           TENANT_NOT_FOUND: "الشركة غير موجودة أو غير متاحة.",
           PRODUCT_NOT_OPERATIONAL: "المنتج غير متاح تشغيلياً حالياً.",
           SIMPLE_PRODUCTS_RESPONSE_INVALID: "استجابة قائمة المنتجات غير صالحة أو غير مكتملة.",
+          SIMPLE_PRODUCT_CREATE_RESPONSE_INVALID: "استجابة إنشاء المنتج غير صالحة أو غير مكتملة.",
+          SIMPLE_PRODUCT_PRICE_RESPONSE_INVALID: "استجابة تحديث سعر المنتج غير صالحة أو غير مكتملة.",
+          SIMPLE_PRODUCT_PRICE_SCOPE_MISMATCH: "استجابة تحديث السعر لا تطابق المنتج المحدد.",
           PRODUCT_TRACKING_DEFAULTS_RESPONSE_INVALID: "استجابة إعدادات تتبع المنتجات غير صالحة.",
           PRODUCT_TRACKING_MUTATION_RESPONSE_INVALID: "استجابة تعديل تتبع المنتج غير صالحة.",
           PRODUCT_TRACKING_LOCKED: "لا يمكن تغيير إعدادات التتبع بالطريقة العادية لأن للمنتج سجل دفعات سابقاً. استخدم مسار ترحيل معتمد إذا كان التغيير ضرورياً.",
@@ -1381,11 +1542,18 @@ export const resources = {
           title: "Product details",
           identity: "Product identity",
           lifecycle: "Product status",
+          operationalHold:
+            "Operational hold",
           lifecycleModes: {
             DRAFT: "Draft",
             ACTIVE: "Active",
             RETIRING: "Retiring",
             ARCHIVED: "Archived",
+          },
+          holdModes: {
+            NONE: "No hold",
+            SALES_HOLD: "Sales hold",
+            RECALL: "Recall",
           },
           package: "Packaging",
           tracking: "Tracking",
@@ -1397,6 +1565,13 @@ export const resources = {
           advancedOnly:
             "This product has advanced settings; review its details here and use advanced management when an edit is required.",
           notSet: "Not set",
+        },
+        lifecycleManager: {
+          action: "Manage lifecycle",
+          title:
+            "Manage lifecycle — {{name}}",
+          loadFailed:
+            "Could not load the product's current operational state.",
         },
         barcodeManager: {
           action: "Manage barcodes",
@@ -1653,6 +1828,10 @@ export const resources = {
             "The products request failed, so an empty catalog is not shown. Check the connection and try again.",
           familiesLoad:
             "Could not load families. Try again.",
+          packageUomsLoad:
+            "Could not load package types. Retry before saving the product.",
+          importStatusLoad:
+            "Could not refresh the import status. Automatic retries will continue, or retry now.",
           nameRequired:
             "Product name is required.",
           packageUnitsInvalid:
@@ -1687,6 +1866,133 @@ export const resources = {
             "Could not save the column mapping.",
           retryFailed:
             "Could not retry the import.",
+        },
+      },
+      catalogLifecycle: {
+        title: "Lifecycle and operational hold",
+        summary:
+          "Status: {{lifecycle}} · Hold: {{hold}} · Version: {{version}}",
+        reason: "Reason",
+        reasonPlaceholder:
+          "Provide a clear reason of at least 3 characters",
+        preflightPassed:
+          "Archive preflight passed; no blockers remain.",
+        blockersTitle:
+          "Archiving is blocked until these dependencies are resolved:",
+        pendingRetry:
+          "A previous {{action}} command has an unknown outcome. Retry the same command before sending a different lifecycle action.",
+        retryPending:
+          "Retry pending command",
+        pendingBlocked:
+          "The saved pending lifecycle command could not be verified. Lifecycle actions are blocked until it is safely reconciled.",
+        actions: {
+          publish: "Publish",
+          deleteDraft: "Delete draft",
+          retire: "Start retirement",
+          restore: "Restore",
+          checkArchive: "Check archive",
+          archive: "Archive",
+          salesHold: "Sales hold",
+          releaseSalesHold: "Release hold",
+          recall: "Recall",
+          closeRecall: "Close recall",
+        },
+        success: {
+          publish: "Product published.",
+          deleteDraft:
+            "Draft product deleted.",
+          retire:
+            "Product retirement started.",
+          restore:
+            "Product restored.",
+          archive:
+            "Product archived.",
+          salesHold:
+            "Product sales placed on hold.",
+          releaseSalesHold:
+            "Product sales hold released.",
+          recall:
+            "Product placed under recall.",
+          closeRecall:
+            "Product recall closed.",
+        },
+        assignments: {
+          title:
+            "Warehouse product setup",
+          description:
+            "This assignment does not create stock or a stock policy.",
+          removeReason:
+            "Removal reason",
+          removeReasonPlaceholder:
+            "Required only when removing an existing assignment",
+          loading:
+            "Loading assignments...",
+          empty:
+            "This product is not assigned to any warehouse.",
+          inbound: "Inbound",
+          outbound: "Outbound",
+          chooseLocation:
+            "Choose a warehouse...",
+          link: "Assign",
+          remove:
+            "Remove warehouse product assignment",
+          pendingRetry:
+            "A previous assignment command ({{action}}) has an unknown outcome. Retry the same command before making a different change.",
+          retryPending:
+            "Retry pending assignment command",
+          pendingBlocked:
+            "The saved pending assignment command could not be verified. Assignment changes are blocked until it is safely reconciled.",
+          actions: {
+            create: "Create assignment",
+            update: "Update assignment",
+            delete: "Delete assignment",
+          },
+          success: {
+            create:
+              "Product assigned to the warehouse.",
+            update:
+              "Warehouse product operation settings updated.",
+            delete:
+              "Warehouse product assignment removed.",
+          },
+          errors: {
+            load:
+              "Could not load product-location assignments.",
+            locationRequired:
+              "Choose a valid warehouse.",
+            create:
+              "Could not assign the product to the warehouse.",
+            update:
+              "Could not update warehouse product operation settings.",
+            delete:
+              "Could not remove the warehouse product assignment.",
+            reason:
+              "A removal reason of at least 3 characters is required.",
+            pending:
+              "Could not verify the saved pending assignment command.",
+          },
+        },
+        errors: {
+          action:
+            "Could not complete the lifecycle action.",
+          preflight:
+            "Could not check archive blockers.",
+          preflightRequired:
+            "Run a current archive preflight before archiving.",
+          reason:
+            "A reason of at least 3 characters is required.",
+        },
+        blockers: {
+          INVENTORY_BALANCE: "Inventory balance or reservation",
+          PRODUCT_LOCATION: "Operational location assignment",
+          STOCK_POLICY: "Active stock policy",
+          OPEN_TRANSFER: "Open transfer",
+          ACTIVE_ROUTE_LOAD: "Active route load",
+          OPEN_STOCKTAKE: "Open stocktake",
+          ACTIVE_INVENTORY_LOCK: "Active inventory lock",
+          OPEN_CUSTODY: "Open driver custody",
+          OPEN_SHORTAGE: "Open shortage request",
+          ACTIVE_OFFER: "Active offer",
         },
       },
       inventoryInbound: {
@@ -2091,6 +2397,17 @@ export const resources = {
           INTERNAL_SERVER_ERROR: "An internal server error occurred.",
           IDENTITY_NOT_READY: "The company or user identity is not ready yet. Refresh and try again.",
           CATALOG_CONTRACT_INVALID: "The catalog response is invalid or incomplete.",
+          CATALOG_LIFECYCLE_SCOPE_MISMATCH: "The lifecycle response does not match the selected product.",
+          CATALOG_LIFECYCLE_PREFLIGHT_STALE: "The product changed after archive preflight. Refresh and run the check again.",
+          CATALOG_PRODUCT_LOCATIONS_LIMIT_EXCEEDED: "The product has more warehouse assignments than this screen can safely load.",
+          CATALOG_PRODUCT_LOCATION_SCOPE_MISMATCH: "The warehouse assignment response does not match the requested scope.",
+          PRODUCT_LOCATION_NOT_FOUND: "The warehouse product assignment was not found or is no longer available.",
+          PRODUCT_LOCATION_TARGET_NOT_FOUND: "The warehouse was not found or cannot be assigned.",
+          PRODUCT_LOCATION_VARIANT_NOT_ACTIVE: "A new warehouse assignment can be created only for an active product.",
+          PRODUCT_LOCATION_CONFLICT: "The warehouse product assignment could not be saved because the data conflicted.",
+          PRODUCT_LOCATION_VERSION_CONFLICT: "The warehouse product assignment changed. Refresh and retry.",
+          PRODUCT_LOCATION_DELETE_BLOCKED: "A used or operationally referenced warehouse assignment cannot be removed.",
+          PRODUCT_LOCATION_SCOPE_MISMATCH: "The supplied warehouse does not match the requested product assignment.",
           PACKAGE_UOMS_RESPONSE_INVALID: "The package-UOM response is invalid or incomplete.",
           PRODUCT_FAMILIES_RESPONSE_INVALID: "The product-family response is invalid or incomplete.",
           PRODUCT_BARCODES_RESPONSE_INVALID: "The product-barcode response is invalid or incomplete.",
@@ -2098,6 +2415,8 @@ export const resources = {
           PRODUCT_BARCODES_SCOPE_MISMATCH: "The barcode data does not match the selected product.",
           PRODUCT_BARCODES_CURSOR_DUPLICATE: "Barcode pagination returned a duplicate record.",
           PRODUCT_IMPORT_ACCEPTED_RESPONSE_INVALID: "The product-import start response is invalid or incomplete.",
+          PRODUCT_IMPORT_COMMAND_RESPONSE_INVALID: "The product-import command response is invalid or incomplete.",
+          PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH: "The import-command response does not match the active import job.",
           PRODUCT_IMPORT_STATE_RESPONSE_INVALID: "The product-import status response is invalid or incomplete.",
           PRODUCT_IMPORT_ERRORS_RESPONSE_INVALID: "The product-import error response is invalid or incomplete.",
           COMPANY_NOT_FOUND: "The company was not found or is unavailable.",
@@ -2217,6 +2536,9 @@ export const resources = {
           TENANT_NOT_FOUND: "The company was not found or is unavailable.",
           PRODUCT_NOT_OPERATIONAL: "The product is not operationally available right now.",
           SIMPLE_PRODUCTS_RESPONSE_INVALID: "The product-list response is invalid or incomplete.",
+          SIMPLE_PRODUCT_CREATE_RESPONSE_INVALID: "The product-create response is invalid or incomplete.",
+          SIMPLE_PRODUCT_PRICE_RESPONSE_INVALID: "The product-price update response is invalid or incomplete.",
+          SIMPLE_PRODUCT_PRICE_SCOPE_MISMATCH: "The price-update response does not match the selected product.",
           PRODUCT_TRACKING_DEFAULTS_RESPONSE_INVALID: "The product-tracking defaults response is invalid.",
           PRODUCT_TRACKING_MUTATION_RESPONSE_INVALID: "The product-tracking update response is invalid.",
           PRODUCT_TRACKING_LOCKED: "Tracking settings cannot be changed through the normal editor because this product already has batch history. Use an approved migration workflow if a change is required.",

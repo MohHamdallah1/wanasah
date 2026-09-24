@@ -55,6 +55,10 @@ def static_checks() -> None:
     page = (
         ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
     ).read_text(encoding="utf-8")
+    families_ui = (
+        ROOT
+        / "dashboard/src/pages/products/ProductFamiliesManager.tsx"
+    ).read_text(encoding="utf-8")
     sidebar = (
         ROOT / "dashboard/src/components/operations/OperationsSidebar.tsx"
     ).read_text(encoding="utf-8")
@@ -139,8 +143,13 @@ def static_checks() -> None:
     check(
         'async def create_product_family(' in api
         and 'async def update_product_family(' in api
+        and '"SIMPLE_PRODUCT_FAMILY_CREATE_V1"' in api
+        and '"SIMPLE_PRODUCT_FAMILY_RENAME_V1"' in api
         and "begin_idempotent_operation" in api
-        and "familiesTitle" in page,
+        and "<ProductFamiliesManager" in page
+        and '"products.familiesTitle"' in families_ui
+        and "getOrCreateDurableCommand" in families_ui
+        and "parseProductFamilyMutation" in families_ui,
         "Family create/rename is managed inside Products and idempotent",
     )
     check(

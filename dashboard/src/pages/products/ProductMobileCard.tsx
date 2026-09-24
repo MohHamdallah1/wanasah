@@ -181,10 +181,20 @@ export function ProductMobileCard({
                 "products.columns.lifecycle",
               )}
             </dt>
-            <dd className="mt-1 break-words text-xs font-black text-slate-800">
-              {t(
-                `products.details.lifecycleModes.${item.lifecycle_status}`,
-              )}
+            <dd className="mt-1 flex flex-col gap-1 break-words text-xs font-black text-slate-800">
+              <span>
+                {t(
+                  `products.details.lifecycleModes.${item.lifecycle_status}`,
+                )}
+              </span>
+              {item.operational_hold !==
+              "NONE" ? (
+                <span className="text-[10px] text-rose-700">
+                  {t(
+                    `products.details.holdModes.${item.operational_hold}`,
+                  )}
+                </span>
+              ) : null}
             </dd>
           </div>
         ) : null}

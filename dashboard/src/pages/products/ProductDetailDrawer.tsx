@@ -22,6 +22,7 @@ type Props = {
   canEditPrice: boolean;
   canEditTracking: boolean;
   canManageBarcodes: boolean;
+  canManageLifecycle: boolean;
   canManageAdvancedUom: boolean;
   detailSections?: Record<
     ProductDetailSection,
@@ -31,6 +32,7 @@ type Props = {
   onEditPrice: (product: SimpleProduct) => void;
   onEditTracking: (product: SimpleProduct) => void;
   onManageBarcodes: (product: SimpleProduct) => void;
+  onManageLifecycle: (product: SimpleProduct) => void;
   onManageAdvancedUom: (product: SimpleProduct) => void;
 };
 
@@ -40,6 +42,7 @@ export function ProductDetailDrawer({
   canEditPrice,
   canEditTracking,
   canManageBarcodes,
+  canManageLifecycle,
   canManageAdvancedUom,
   detailSections =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.detailSections,
@@ -47,6 +50,7 @@ export function ProductDetailDrawer({
   onEditPrice,
   onEditTracking,
   onManageBarcodes,
+  onManageLifecycle,
   onManageAdvancedUom,
 }: Props) {
   const { t, i18n } = useTranslation();
@@ -144,6 +148,18 @@ export function ProductDetailDrawer({
                 <dd className="mt-1 text-sm font-black text-slate-800">
                   {t(
                     `products.details.lifecycleModes.${product.lifecycle_status}`
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-black text-slate-400">
+                  {t(
+                    "products.details.operationalHold"
+                  )}
+                </dt>
+                <dd className="mt-1 text-sm font-black text-slate-800">
+                  {t(
+                    `products.details.holdModes.${product.operational_hold}`
                   )}
                 </dd>
               </div>
@@ -327,6 +343,7 @@ export function ProductDetailDrawer({
         {canEditPrice ||
         canEditTracking ||
         canManageBarcodes ||
+        canManageLifecycle ||
         (canManageAdvancedUom &&
           !product.simple_compatible) ? (
           <footer className="grid shrink-0 grid-cols-1 gap-2 border-t border-slate-100 bg-slate-50 px-3 py-3 sm:flex sm:flex-wrap sm:justify-end sm:px-5 sm:py-4">
@@ -341,6 +358,20 @@ export function ProductDetailDrawer({
               >
                 {t(
                   "products.editPrice"
+                )}
+              </button>
+            ) : null}
+
+            {canManageLifecycle ? (
+              <button
+                type="button"
+                onClick={() =>
+                  onManageLifecycle(product)
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
+              >
+                {t(
+                  "products.lifecycleManager.action"
                 )}
               </button>
             ) : null}

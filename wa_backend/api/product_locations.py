@@ -62,6 +62,7 @@ class ProductLocationUpdate(StrictRequest):
 class ProductLocationDelete(StrictRequest):
     request_id: UUID
     expected_version: int = Field(gt=0)
+    location_id: int | None = Field(default=None, gt=0)
     reason: str = Field(min_length=3, max_length=1000)
 
     @field_validator("reason", mode="before")
@@ -77,6 +78,31 @@ def _hash(payload: BaseModel, **scope: Any) -> str:
     body.update(scope)
     raw = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _delete_hash(
+    payload: ProductLocationDelete,
+    *,
+    product_location_id: int,
+) -> str:
+    # Preserve the pre-location_id request hash for old clients/replays.
+    # New clients include location_id so replay can re-authorize exactly
+    # after the ProductLocation row itself has been deleted.
+    body = payload.model_dump(
+        mode="json",
+        exclude={"request_id"},
+        exclude_none=True,
+    )
+    body["product_location_id"] = product_location_id
+    raw = json.dumps(
+        body,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(
+        raw.encode("utf-8")
+    ).hexdigest()
 
 
 def _cursor(value: Optional[str]) -> int:
@@ -284,55 +310,179 @@ async def delete_product_location(
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
-    scope = (await db.execute(select(ProductLocation.location_id, ProductLocation.product_variant_id).where(
-        ProductLocation.company_id == actor.company_id,
-        ProductLocation.id == product_location_id,
-    ))).one_or_none()
-    if scope is None:
-        raise _error(404, "PRODUCT_LOCATION_NOT_FOUND", "ربط الصنف بالموقع غير موجود.")
-    await InventoryAccess(db, actor).require("product_location.manage", scope.location_id)
+    access = InventoryAccess(db, actor)
+    await access.require(
+        "product_location.manage",
+        any_location=True,
+    )
     try:
         idem, replay = await begin_idempotent_operation(
-            db, company_id=actor.company_id, actor_id=actor.id,
-            operation="PRODUCT_LOCATION_DELETE", request_id=str(payload.request_id),
-            request_hash=_hash(payload, product_location_id=product_location_id),
+            db,
+            company_id=actor.company_id,
+            actor_id=actor.id,
+            operation="PRODUCT_LOCATION_DELETE",
+            request_id=str(payload.request_id),
+            request_hash=_delete_hash(
+                payload,
+                product_location_id=product_location_id,
+            ),
         )
         if replay is not None:
+            replay_location_id = replay.get(
+                "location_id",
+                payload.location_id,
+            )
+            if (
+                isinstance(replay_location_id, int)
+                and replay_location_id > 0
+            ):
+                await access.require(
+                    "product_location.manage",
+                    replay_location_id,
+                )
             await db.rollback()
             return replay
-        await acquire_product_lifecycle_guards(db, actor.company_id, [scope.product_variant_id], exclusive=True)
-        item = await db.scalar(select(ProductLocation).where(
-            ProductLocation.company_id == actor.company_id,
-            ProductLocation.id == product_location_id,
-        ).with_for_update())
+
+        scope = (
+            await db.execute(
+                select(
+                    ProductLocation.location_id,
+                    ProductLocation.product_variant_id,
+                ).where(
+                    ProductLocation.company_id
+                    == actor.company_id,
+                    ProductLocation.id
+                    == product_location_id,
+                )
+            )
+        ).one_or_none()
+        if scope is None:
+            raise _error(
+                404,
+                "PRODUCT_LOCATION_NOT_FOUND",
+                "ربط الصنف بالموقع غير موجود.",
+            )
+
+        location_id = int(
+            scope.location_id
+        )
+        if (
+            payload.location_id
+            is not None
+            and payload.location_id
+            != location_id
+        ):
+            raise _error(
+                409,
+                "PRODUCT_LOCATION_SCOPE_MISMATCH",
+                "نطاق ربط الصنف بالموقع غير متطابق.",
+            )
+
+        await access.require(
+            "product_location.manage",
+            location_id,
+        )
+        await acquire_product_lifecycle_guards(
+            db,
+            actor.company_id,
+            [
+                scope.product_variant_id
+            ],
+            exclusive=True,
+        )
+
+        item = await db.scalar(
+            select(ProductLocation)
+            .where(
+                ProductLocation.company_id
+                == actor.company_id,
+                ProductLocation.id
+                == product_location_id,
+            )
+            .with_for_update()
+        )
         if item is None:
-            raise _error(404, "PRODUCT_LOCATION_NOT_FOUND", "ربط الصنف بالموقع غير موجود.")
-        if item.version != payload.expected_version:
-            raise _error(409, "PRODUCT_LOCATION_VERSION_CONFLICT", "تغير الربط؛ حدّث البيانات وأعد المحاولة.", current_version=item.version)
+            raise _error(
+                404,
+                "PRODUCT_LOCATION_NOT_FOUND",
+                "ربط الصنف بالموقع غير موجود.",
+            )
+        if (
+            item.version
+            != payload.expected_version
+        ):
+            raise _error(
+                409,
+                "PRODUCT_LOCATION_VERSION_CONFLICT",
+                "تغير الربط؛ حدّث البيانات وأعد المحاولة.",
+                current_version=item.version,
+            )
+
         blockers = await product_location_delete_blockers(
-            db, actor.company_id, item.location_id, item.product_variant_id,
+            db,
+            actor.company_id,
+            item.location_id,
+            item.product_variant_id,
         )
         if blockers:
-            raise _error(409, "PRODUCT_LOCATION_DELETE_BLOCKED", "لا يمكن حذف ربط مستخدم أو ذي سجل تاريخي.", blockers=blockers)
+            raise _error(
+                409,
+                "PRODUCT_LOCATION_DELETE_BLOCKED",
+                "لا يمكن حذف ربط مستخدم أو ذي سجل تاريخي.",
+                blockers=blockers,
+            )
+
         before = {
-            "id": item.id, "location_id": item.location_id,
-            "product_variant_id": item.product_variant_id,
-            "operational_flags": validate_product_location_flags(item.operational_flags),
-            "version": item.version,
+            "id": item.id,
+            "location_id":
+                item.location_id,
+            "product_variant_id":
+                item.product_variant_id,
+            "operational_flags":
+                validate_product_location_flags(
+                    item.operational_flags
+                ),
+            "version":
+                item.version,
         }
         await db.delete(item)
         record_domain_event(
-            db, company_id=actor.company_id, actor_id=actor.id, request_id=payload.request_id,
-            event_type="ProductLocationRemoved", entity_type="ProductLocation", entity_id=item.id,
-            reason=payload.reason, before=before, after=None,
+            db,
+            company_id=actor.company_id,
+            actor_id=actor.id,
+            request_id=payload.request_id,
+            event_type="ProductLocationRemoved",
+            entity_type="ProductLocation",
+            entity_id=item.id,
+            reason=payload.reason,
+            before=before,
+            after=None,
         )
-        response = {"message": "تم حذف الربط غير المستخدم.", "product_location_id": item.id}
-        complete_idempotent_operation(idem, response)
+
+        response = {
+            "message":
+                "تم حذف الربط غير المستخدم.",
+            "product_location_id":
+                item.id,
+            "location_id":
+                location_id,
+        }
+        complete_idempotent_operation(
+            idem,
+            response,
+        )
         await db.commit()
         return response
     except HTTPException:
         await db.rollback()
         raise
-    except (IntegrityError, InventoryMutationError) as exc:
+    except (
+        IntegrityError,
+        InventoryMutationError,
+    ) as exc:
         await db.rollback()
-        raise _error(409, "PRODUCT_LOCATION_CONFLICT", str(exc)) from exc
+        raise _error(
+            409,
+            "PRODUCT_LOCATION_CONFLICT",
+            str(exc),
+        ) from exc

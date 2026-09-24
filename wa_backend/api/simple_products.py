@@ -1829,6 +1829,9 @@ async def list_simple_products(
                     "lifecycle_status": str(
                         variant.lifecycle_status
                     ),
+                    "operational_hold": str(
+                        variant.operational_hold
+                    ),
                     "simple_compatible": bool(
                         compatible.get(
                             int(variant.id),

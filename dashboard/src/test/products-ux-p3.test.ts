@@ -37,6 +37,12 @@ describe("Products P3 detail foundation", () => {
       "product.lifecycle_status",
     );
     expect(drawer).toContain(
+      "product.operational_hold",
+    );
+    expect(drawer).toContain(
+      "products.details.holdModes.",
+    );
+    expect(drawer).toContain(
       "product.lot_control_mode",
     );
     expect(drawer).toContain(

@@ -42,6 +42,7 @@ const baseItem = {
   lot_control_mode: "OPTIONAL",
   expiry_control_mode: "NONE",
   lifecycle_status: "ACTIVE",
+  operational_hold: "NONE",
   simple_compatible: true,
 } as const;
 
@@ -60,8 +61,26 @@ describe("products P2 read contract", () => {
     expect(page.items[0].lot_control_mode).toBe("OPTIONAL");
     expect(page.items[0].expiry_control_mode).toBe("NONE");
     expect(page.items[0].lifecycle_status).toBe("ACTIVE");
+    expect(page.items[0].operational_hold).toBe("NONE");
     expect(page.items[0].package_price).toBeNull();
     expect(page.items[0].unit_price).toBeNull();
+  });
+
+  it("fails closed on an invalid operational hold", () => {
+    expect(() =>
+      parseSimpleProductPage({
+        currency_code: "JOD",
+        pricing_visible: false,
+        items: [
+          {
+            ...baseItem,
+            operational_hold: "UNKNOWN",
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+      }),
+    ).toThrow("SIMPLE_PRODUCTS_RESPONSE_INVALID");
   });
 
   it("accepts incompatible products while keeping legacy pack factors separate from package identity", () => {

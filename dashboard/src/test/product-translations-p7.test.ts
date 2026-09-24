@@ -425,6 +425,18 @@ describe(
         ),
       ).toBe(false);
 
+      const tableRow = read(
+        "src/pages/products/ProductTableRow.tsx",
+      );
+      expect(tableRow).toContain(
+        "products.details.holdModes.${item.operational_hold}",
+      );
+      expect(
+        /(^|[^$])\{item\.operational_hold\}/m.test(
+          tableRow,
+        ),
+      ).toBe(false);
+
       const barcodeManager = read(
         "src/pages/products/ProductBarcodeManager.tsx",
       );

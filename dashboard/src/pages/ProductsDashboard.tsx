@@ -55,11 +55,14 @@ import {
   parsePackageUoms,
   parseProductFamilies,
   parseProductImportAccepted,
+  parseProductImportCommandResponse,
   parseProductImportErrorPage,
   parseProductImportState,
   parseProductTrackingDefaults,
   parseProductTrackingMutation,
+  parseSimpleProductCreateResponse,
   parseSimpleProductPage,
+  parseSimpleProductPriceMutationResponse,
   type PackageUom,
   type ProductImportState,
   type ProductFamily,
@@ -70,14 +73,15 @@ import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayPreferences";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
+import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
 
-type MutationResult = {
-  result: unknown;
+type MutationResult<T> = {
+  result: T;
   requestId: string;
   scope: string;
 };
@@ -226,6 +230,20 @@ export default function ProductsDashboard() {
     canManageCatalog;
   const canEditSimplePrice =
     canManagePricing;
+  const canManageLifecycle =
+    access.isCompanyAdmin ||
+    access.can(
+      "catalog.retire"
+    ) ||
+    access.can(
+      "catalog.restore"
+    ) ||
+    access.can(
+      "catalog.archive"
+    ) ||
+    access.can(
+      "catalog.hold"
+    );
 
   const [
     searchInput,
@@ -434,6 +452,12 @@ export default function ProductsDashboard() {
     null
   );
   const [
+    lifecycleProduct,
+    setLifecycleProduct,
+  ] = useState<SimpleProduct | null>(
+    null
+  );
+  const [
     trackingEdit,
     setTrackingEdit,
   ] = useState<SimpleProduct | null>(
@@ -514,6 +538,12 @@ export default function ProductsDashboard() {
     useState<ProductImportState | null>(
       null
     );
+  const [
+    importPollError,
+    setImportPollError,
+  ] = useState<string | null>(
+    null
+  );
   const [
     mapping,
     setMapping,
@@ -1445,7 +1475,13 @@ export default function ProductsDashboard() {
   const createMutation =
     useMutation({
       mutationFn:
-        async (): Promise<MutationResult> => {
+        async (): Promise<
+          MutationResult<
+            ReturnType<
+              typeof parseSimpleProductCreateResponse
+            >
+          >
+        > => {
           if (
             !draft.name.trim()
           ) {
@@ -1499,6 +1535,19 @@ export default function ProductsDashboard() {
               t(
                 "products.errors.trackingDefaultsRequired"
               )
+            );
+          }
+
+          if (
+            draft.has_package &&
+            !packageUoms.some(
+              (item) =>
+                item.code ===
+                draft.package_uom_code
+            )
+          ) {
+            throw new Error(
+              "PACKAGE_UOMS_RESPONSE_INVALID"
             );
           }
 
@@ -1562,18 +1611,20 @@ export default function ProductsDashboard() {
               body
             );
           const result =
-            await authFetch(
-              "/simple-products",
-              {
-                method: "POST",
-                body: JSON.stringify(
-                  {
-                    request_id:
-                      requestId,
-                    ...body,
-                  }
-                ),
-              }
+            parseSimpleProductCreateResponse(
+              await authFetch(
+                "/simple-products",
+                {
+                  method: "POST",
+                  body: JSON.stringify(
+                    {
+                      request_id:
+                        requestId,
+                      ...body,
+                    }
+                  ),
+                }
+              )
             );
 
           return {
@@ -1718,7 +1769,12 @@ export default function ProductsDashboard() {
     useMutation({
       mutationFn:
         async (): Promise<
-          MutationResult | undefined
+          | MutationResult<
+              ReturnType<
+                typeof parseSimpleProductPriceMutationResponse
+              >
+            >
+          | undefined
         > => {
           if (!priceEdit) {
             return undefined;
@@ -1759,19 +1815,29 @@ export default function ProductsDashboard() {
               body
             );
           const result =
-            await authFetch(
-              `/simple-products/${priceEdit.id}/price`,
-              {
-                method: "PATCH",
-                body: JSON.stringify(
-                  {
-                    request_id:
-                      requestId,
-                    ...body,
-                  }
-                ),
-              }
+            parseSimpleProductPriceMutationResponse(
+              await authFetch(
+                `/simple-products/${priceEdit.id}/price`,
+                {
+                  method: "PATCH",
+                  body: JSON.stringify(
+                    {
+                      request_id:
+                        requestId,
+                      ...body,
+                    }
+                  ),
+                }
+              )
             );
+          if (
+            result.product_variant_id !==
+            priceEdit.id
+          ) {
+            throw new Error(
+              "SIMPLE_PRODUCT_PRICE_SCOPE_MISMATCH"
+            );
+          }
           return {
             result,
             requestId,
@@ -1950,6 +2016,7 @@ export default function ProductsDashboard() {
           result.default_expiry_control_mode
         );
         setImportStatus(null);
+        setImportPollError(null);
         if (
           importSessionKey
         ) {
@@ -1981,24 +2048,38 @@ export default function ProductsDashboard() {
         if (!importJobId) {
           return;
         }
-        return authFetch(
-          `/simple-products/imports/${importJobId}/mapping`,
-          {
-            method: "PUT",
-            body: JSON.stringify({
-              mapping,
-            }),
-          }
-        );
+        const result =
+          parseProductImportCommandResponse(
+            await authFetch(
+              `/simple-products/imports/${importJobId}/mapping`,
+              {
+                method: "PUT",
+                body: JSON.stringify({
+                  mapping,
+                }),
+              }
+            )
+          );
+        if (
+          result.job_id !==
+          importJobId
+        ) {
+          throw new Error(
+            "PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH"
+          );
+        }
+        return result;
       },
-      onSuccess: () => {
+      onSuccess: (result) => {
+        setImportPollError(null);
         setImportStatus(
           (current) =>
             current
               ? {
                   ...current,
                   status:
-                    "VALIDATING",
+                    result?.status ??
+                    current.status,
                 }
               : current
         );
@@ -2029,20 +2110,35 @@ export default function ProductsDashboard() {
         if (!importJobId) {
           return;
         }
-        return authFetch(
-          `/simple-products/imports/${importJobId}/retry`,
-          {
-            method: "POST",
-          }
-        );
+        const result =
+          parseProductImportCommandResponse(
+            await authFetch(
+              `/simple-products/imports/${importJobId}/retry`,
+              {
+                method: "POST",
+              }
+            )
+          );
+        if (
+          result.job_id !==
+          importJobId
+        ) {
+          throw new Error(
+            "PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH"
+          );
+        }
+        return result;
       },
-      onSuccess: () => {
+      onSuccess: (result) => {
+        setImportPollError(null);
         setImportStatus(
           (current) =>
             current
               ? {
                   ...current,
-                  status: "QUEUED",
+                  status:
+                    result?.status ??
+                    current.status,
                 }
               : current
         );
@@ -2099,6 +2195,7 @@ export default function ProductsDashboard() {
           return;
         }
 
+        setImportPollError(null);
         setImportStatus(
           status
         );
@@ -2166,8 +2263,16 @@ export default function ProductsDashboard() {
               1500
             );
         }
-      } catch {
+      } catch (error) {
         if (!disposed) {
+          setImportPollError(
+            apiErrorMessage(
+              error,
+              t(
+                "products.errors.importStatusLoad"
+              )
+            )
+          );
           timer =
             window.setTimeout(
               poll,
@@ -2225,6 +2330,7 @@ export default function ProductsDashboard() {
     setImportFile(file);
     setImportJobId(null);
     setImportStatus(null);
+    setImportPollError(null);
     setMapping({});
     if (
       importSessionKey
@@ -2240,6 +2346,7 @@ export default function ProductsDashboard() {
       setImportFile(null);
       setImportJobId(null);
       setImportStatus(null);
+      setImportPollError(null);
       setMapping({});
       setImportLotControlMode(
         trackingDefaultsQuery.data
@@ -3594,6 +3701,9 @@ export default function ProductsDashboard() {
         canManageBarcodes={
           canManageCatalog
         }
+        canManageLifecycle={
+          canManageLifecycle
+        }
         canManageAdvancedUom={
           canManageCatalog
         }
@@ -3614,6 +3724,12 @@ export default function ProductsDashboard() {
             product
           );
         }}
+        onManageLifecycle={(product) => {
+          setDetailProduct(null);
+          setLifecycleProduct(
+            product
+          );
+        }}
         onManageBarcodes={(product) => {
           setDetailProduct(null);
           setBarcodeProduct(
@@ -3624,6 +3740,22 @@ export default function ProductsDashboard() {
           setDetailProduct(null);
           navigate(
             `/products/advanced-uom?variant=${product.id}`
+          );
+        }}
+      />
+
+      <ProductLifecycleManager
+        product={lifecycleProduct}
+        onClose={() =>
+          setLifecycleProduct(null)
+        }
+        onChanged={async () => {
+          await queryClient.invalidateQueries(
+            {
+              queryKey: [
+                "simple-products",
+              ],
+            }
           );
         }}
       />
@@ -3754,7 +3886,15 @@ export default function ProductsDashboard() {
                 createMutation.isPending ||
                 !isOnline ||
                 !draft.lot_control_mode ||
-                !draft.expiry_control_mode
+                !draft.expiry_control_mode ||
+                (draft.has_package &&
+                  (packageUomsQuery.isLoading ||
+                    packageUomsQuery.isError ||
+                    !packageUoms.some(
+                      (item) =>
+                        item.code ===
+                        draft.package_uom_code
+                    )))
               }
               onClick={submitCreate}
               className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
@@ -3875,6 +4015,19 @@ export default function ProductsDashboard() {
                   )
                 )}
               </datalist>
+              {familyOptionsQuery.isError ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void familyOptionsQuery.refetch()
+                  }
+                  className="mt-1 text-[11px] font-black text-rose-700"
+                >
+                  {t(
+                    "products.errors.familiesLoad"
+                  )}
+                </button>
+              ) : null}
             </label>
           </div>
 
@@ -4007,46 +4160,76 @@ export default function ProductsDashboard() {
 
           {draft.has_package ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-black text-slate-600">
-                {t(
-                  "products.packageType"
-                )}
-                <select
-                  value={
-                    draft.package_uom_code
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setDraft(
-                      (current) => ({
-                        ...current,
-                        package_uom_code:
-                          event.target
-                            .value,
-                      })
-                    )
-                  }
-                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold"
-                >
-                  {packageUoms.map(
-                    (uom) => (
-                      <option
-                        key={
-                          uom.code
-                        }
-                        value={
-                          uom.code
-                        }
-                      >
-                        {t(
-                          `uom.${uom.code}`
-                        )}
-                      </option>
-                    )
+              {packageUomsQuery.isLoading ? (
+                <div className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
+                  {t(
+                    "common.loading"
                   )}
-                </select>
-              </label>
+                </div>
+              ) : packageUomsQuery.isError ? (
+                <div
+                  role="alert"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-rose-50 p-3"
+                >
+                  <span className="text-xs font-bold text-rose-800">
+                    {t(
+                      "products.errors.packageUomsLoad"
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void packageUomsQuery.refetch()
+                    }
+                    className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                  >
+                    {t(
+                      "common.retry"
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <label className="text-xs font-black text-slate-600">
+                  {t(
+                    "products.packageType"
+                  )}
+                  <select
+                    value={
+                      draft.package_uom_code
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setDraft(
+                        (current) => ({
+                          ...current,
+                          package_uom_code:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold"
+                  >
+                    {packageUoms.map(
+                      (uom) => (
+                        <option
+                          key={
+                            uom.code
+                          }
+                          value={
+                            uom.code
+                          }
+                        >
+                          {t(
+                            `uom.${uom.code}`
+                          )}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+              )}
 
               <label className="text-xs font-black text-slate-600">
                 {t(
@@ -4956,6 +5139,33 @@ export default function ProductsDashboard() {
                 )}
               </button>
             </>
+          ) : null}
+
+          {importJobId &&
+          importPollError ? (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-rose-50 p-4"
+            >
+              <span className="text-xs font-bold leading-6 text-rose-800">
+                {importPollError}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setImportPollError(null);
+                  setImportPollKey(
+                    (current) =>
+                      current + 1
+                  );
+                }}
+                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+              >
+                {t(
+                  "common.retry"
+                )}
+              </button>
+            </div>
           ) : null}
 
           {importJobId &&
