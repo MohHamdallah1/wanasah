@@ -204,8 +204,12 @@ export const parseConversionMutation = (
     raw,
     "استجابة تحويل UOM غير صالحة.",
   );
+  const conversionRaw = record(
+    row.conversion,
+    "استجابة تحويل UOM غير صالحة.",
+  );
   const parsed = parseConversions({
-    items: [row.conversion],
+    items: [conversionRaw],
   });
   if (parsed.length !== 1) {
     throw new Error(
