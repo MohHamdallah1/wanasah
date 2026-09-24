@@ -1133,10 +1133,10 @@ export default function AdvancedUomDashboard() {
                   }
                   className="mb-2 w-full rounded-xl border border-slate-200 p-3 text-start data-[active=true]:border-slate-900 data-[active=true]:bg-slate-50"
                 >
-                  <p className="font-black text-slate-900">
+                  <p className="break-words font-black text-slate-900">
                     {item.name}
                   </p>
-                  <p className="mt-1 font-mono text-[11px] text-slate-500">
+                  <p className="mt-1 break-all font-mono text-[11px] text-slate-500">
                     {item.sku}
                   </p>
                   <p className="mt-1 text-[11px] font-bold text-slate-500">
@@ -1153,7 +1153,7 @@ export default function AdvancedUomDashboard() {
 
           {history.length > 0 ||
           page?.next_cursor ? (
-            <div className="flex justify-end gap-2 border-t border-slate-100 p-3">
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-100 p-3 sm:flex sm:justify-end">
               <button
                 type="button"
                 disabled={
@@ -1173,7 +1173,7 @@ export default function AdvancedUomDashboard() {
                   );
                   setCursor(previous);
                 }}
-                className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+                className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
               >
                 {t(
                   "products.familyPrevious",
@@ -1201,7 +1201,7 @@ export default function AdvancedUomDashboard() {
                     page.next_cursor,
                   );
                 }}
-                className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+                className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
               >
                 {t(
                   "products.familyNext",
@@ -1409,7 +1409,7 @@ export default function AdvancedUomDashboard() {
                                 item,
                               )
                             }
-                            className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+                            className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
                           >
                             <Pencil className="me-1 inline h-4 w-4" />
                             {t(
