@@ -1395,7 +1395,7 @@ Do not work on all items randomly.
 
 ## Phase P8 — Performance / security / release
 
-- [ ] query benchmark.
+- [~] query benchmark.
 - [ ] EXPLAIN.
 - [ ] isolation tests.
 - [ ] concurrency/idempotency tests.
@@ -1408,7 +1408,13 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Phase P7 implementation and close-out review are complete. **P8 must not start until the P7 pull request is merged to `main` and local/GitHub alignment is verified.**
+Phase P8 is open on `feat/products-performance-security-release-p8`.
+
+Immediate task: run the **final Products query benchmark** through `wa_backend/scripts/gate_products_p8_performance.py`. The P8 wrapper intentionally reuses the proven P4 performance audit rather than duplicating benchmark logic.
+
+The final run must use the full default evidence profile: 5,000 seeded Product rows and 20 repeated runs per measured scenario. It must emit SQL-count stability, DB execution timing, endpoint p50/p95/p99, payload size, page-continuation behavior, N+1/bounded-enrichment checks, search-index evidence, and `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` plans.
+
+Do not mark query benchmark or EXPLAIN complete until the final PostgreSQL run passes and its measured output is reviewed.
 
 Current P7 state:
 
@@ -1533,6 +1539,7 @@ Next implementation order:
 5. Configurable display preferences are complete and verified.
 6. P7 implementation is complete.
 7. P7 close-out review / gate synchronization is complete.
-8. Transition prerequisite: merge the reviewed P7 PR to `main`, then verify local `main == origin/main` before starting P8.
+8. P7 PR merged and local/GitHub transition prerequisite satisfied.
+9. P8 order: final query benchmark → EXPLAIN review → isolation tests → concurrency/idempotency tests → production gate → PR/merge → local/GitHub alignment → Production Ready declaration.
 
-Do not start P8 until P7 is complete, reviewed, and merged to `main`.
+P8 is now active. Do not skip forward past a failing gate.
