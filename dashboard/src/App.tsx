@@ -13,6 +13,7 @@ const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
 const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
 const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
 const ProductsDashboard = lazy(() => import("./pages/ProductsDashboard"));
+const AdvancedUomDashboard = lazy(() => import("./pages/products/AdvancedUomDashboard"));
 const CommercialRulesDashboard = lazy(() => import("./pages/CommercialRulesDashboard"));
 const SalesReturnsDashboard = lazy(() => import("./pages/SalesReturnsDashboard"));
 const Login = lazy(() => import("./pages/Login"));
@@ -187,6 +188,7 @@ const App = () => (
                 <Route path="/dispatch" element={<DispatchBoard />} />
                 <Route path="/inventory" element={<MainInventory />} />
                 <Route path="/products" element={<ProductsDashboard />} />
+                <Route path="/products/advanced-uom" element={<AdvancedUomDashboard />} />
                 <Route path="/pricing" element={<Navigate to="/products" replace />} />
                 <Route path="/commercial-rules" element={<CommercialRulesDashboard />} />
                 <Route path="/sales-returns" element={<SalesReturnsDashboard />} />
