@@ -1046,25 +1046,130 @@ async def cleanup_release_evidence(
     if not company_ids:
         return
 
+    normalized_company_ids = sorted(
+        {int(value) for value in company_ids}
+    )
+
     async with p2_gate.SessionSU() as su:
         await su.begin()
         params = {
-            "company_ids": company_ids,
+            "company_ids":
+                normalized_company_ids,
         }
-        for table_name in (
-            "transactional_outbox",
-            "domain_audit_events",
-            "system_audit_logs",
-            "operation_idempotency",
-        ):
+
+        rows = (
             await su.execute(
                 text(
-                    f"DELETE FROM {table_name} "
-                    "WHERE company_id = ANY("
-                    "CAST(:company_ids AS integer[]))"
+                    "SELECT id, name, company_code "
+                    "FROM companies "
+                    "WHERE id = ANY("
+                    "CAST(:company_ids AS integer[])) "
+                    "ORDER BY id"
                 ),
                 params,
             )
+        ).mappings().all()
+
+        if len(rows) != len(
+            normalized_company_ids
+        ):
+            raise RuntimeError(
+                "P8 release-evidence cleanup company set is incomplete."
+            )
+
+        for row in rows:
+            if (
+                str(row["name"])
+                not in {
+                    "P2 Read Contract Gate A",
+                    "P2 Read Contract Gate B",
+                }
+                or not str(
+                    row["company_code"]
+                ).startswith("P2READ-")
+            ):
+                raise RuntimeError(
+                    "Refusing release-evidence cleanup outside synthetic P8 companies."
+                )
+
+        await su.execute(
+            text(
+                "DELETE FROM transactional_outbox "
+                "WHERE company_id = ANY("
+                "CAST(:company_ids AS integer[]))"
+            ),
+            params,
+        )
+
+        append_only_tables = (
+            "domain_audit_events",
+            "system_audit_logs",
+        )
+        disabled_tables: list[str] = []
+        try:
+            for table_name in append_only_tables:
+                await su.execute(
+                    text(
+                        f"ALTER TABLE {table_name} "
+                        "DISABLE TRIGGER USER"
+                    )
+                )
+                disabled_tables.append(
+                    table_name
+                )
+                await su.execute(
+                    text(
+                        f"DELETE FROM {table_name} "
+                        "WHERE company_id = ANY("
+                        "CAST(:company_ids AS integer[]))"
+                    ),
+                    params,
+                )
+        finally:
+            for table_name in reversed(
+                disabled_tables
+            ):
+                await su.execute(
+                    text(
+                        f"ALTER TABLE {table_name} "
+                        "ENABLE TRIGGER USER"
+                    )
+                )
+
+        await su.execute(
+            text(
+                "DELETE FROM operation_idempotency "
+                "WHERE company_id = ANY("
+                "CAST(:company_ids AS integer[]))"
+            ),
+            params,
+        )
+
+        remaining = (
+            await su.execute(
+                text(
+                    "SELECT "
+                    "(SELECT COUNT(*) FROM transactional_outbox "
+                    " WHERE company_id = ANY(CAST(:company_ids AS integer[]))) "
+                    "+ "
+                    "(SELECT COUNT(*) FROM domain_audit_events "
+                    " WHERE company_id = ANY(CAST(:company_ids AS integer[]))) "
+                    "+ "
+                    "(SELECT COUNT(*) FROM system_audit_logs "
+                    " WHERE company_id = ANY(CAST(:company_ids AS integer[]))) "
+                    "+ "
+                    "(SELECT COUNT(*) FROM operation_idempotency "
+                    " WHERE company_id = ANY(CAST(:company_ids AS integer[])))"
+                ),
+                params,
+            )
+        ).scalar_one()
+
+        if int(remaining or 0) != 0:
+            raise RuntimeError(
+                "P8 release-evidence cleanup left synthetic rows behind."
+            )
+
         await su.commit()
 
 
