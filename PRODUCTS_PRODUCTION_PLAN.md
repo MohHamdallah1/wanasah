@@ -648,7 +648,7 @@ Required:
 - [x] Do not duplicate conversion graph logic in React.
 - [x] Keep simple workflow for common EACH + one outer package.
 - [x] Explain when a product is not `simple_compatible`.
-- [ ] Provide a route to advanced UOM management for complex products.
+- [x] Provide a route to advanced UOM management for complex products.
 - [x] Do not show only `—` when advanced management is required.
 - [x] Changing package/UOM after operational use must follow safe business rules.
 - [x] Determine which UOM fields become immutable after inventory/pricing history exists.
@@ -681,8 +681,8 @@ Required:
 - [x] Explain `simple_compatible=false` in UI.
 - [x] Show "Advanced product setup required" or equivalent translated wording.
 - [x] Do not leave a silent `—` action cell.
-- [ ] Advanced management entry point appears only when implemented and authorized.
-- [ ] Hide/remove permanently disabled Advanced Pricing button until the destination is actually usable, or connect it properly.
+- [x] Advanced management entry point appears only when implemented and authorized.
+- [x] Hide/remove permanently disabled Advanced Pricing button until the destination is actually usable, or connect it properly.
 
 ---
 
@@ -1265,7 +1265,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 21. Performance-audit `%LIKE%` search before production signoff.
 - [x] 22. Preserve batched enrichment / avoid N+1.
 - [x] 23. Explain `simple_compatible=false` rather than showing an unexplained dash.
-- [ ] 24. Connect or hide the permanently disabled Advanced Pricing control.
+- [x] 24. Connect or hide the permanently disabled Advanced Pricing control.
 - [x] 25. Replace TypeScript-only raw-response casts with runtime parsers.
 - [ ] 26. Runtime-validate families/UOM/import/mutation contracts too.
 - [x] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
@@ -1374,7 +1374,7 @@ Do not work on all items randomly.
 
 - [x] Replace float-based money handling.
 - [x] Review package/UOM edit safety.
-- [ ] Connect advanced management where appropriate.
+- [x] Connect advanced management where appropriate.
 - [x] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
 
 ## Phase P6 — Bulk import
@@ -1408,21 +1408,22 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Proceed to **Phase P5 — Exact pricing / UOM** on branch `feat/products-exact-pricing-uom-p5`.
+Proceed to **Phase P6 — Bulk import** after Phase P5 is merged to `main` and the local repository is aligned with `origin/main`.
 
-Current P5 state:
+Current P6 state:
 
-- [x] Replace float-based money handling.
-- [x] Review package/UOM edit safety.
-- [ ] Connect advanced management where appropriate.
-- [x] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
+- [x] Tracking columns/defaults.
+- [ ] Generic localization mapping.
+- [x] Runtime contracts.
+- [x] regression tests.
 
-Implementation order for P5:
+Implementation order for P6:
 
-1. Audit all Products money parsing/calculation/display paths and remove JavaScript floating-point business authority while preserving decimal-string API contracts.
-2. Audit package/UOM edit paths against authoritative UOM/pricing/inventory history and define which mutations are safe, restricted, or workflow-controlled.
-3. Audit the legacy advanced catalog surface before reconnecting it; fix the A→B stale-write race first, then explicitly decide retain/split/remove.
-4. Connect only the advanced management entry points that are authoritative, permission-aware, and production-safe.
-5. Complete P5 gates/review before moving to Phase P6.
+1. Audit the import mapping flow end-to-end and identify every hardcoded Arabic/English header assumption.
+2. Keep canonical import field IDs language-neutral and preserve mapping UI as the authoritative fallback.
+3. Add extensible locale/alias packs without moving business logic into translations.
+4. Ensure unknown-language headers never trigger guessing and can always be explicitly mapped.
+5. Localize template/download/error presentation without changing stable backend contracts.
+6. Complete P6 gates/review before moving to Phase P7.
 
-Do not start P6 until P5 is complete, reviewed, and merged to `main`.
+Do not start P7 until P6 is complete, reviewed, and merged to `main`.
