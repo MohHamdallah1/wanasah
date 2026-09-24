@@ -61,7 +61,7 @@ describe("Products P3 detail foundation", () => {
     );
 
     expect(drawer).toContain(
-      "{pricingVisible ? (",
+      "{pricingVisible && detailSections.pricing ? (",
     );
     expect(drawer).toContain(
       "canEditPrice && product.simple_compatible",
