@@ -3273,6 +3273,13 @@ export default function ProductsDashboard() {
                       canEditTracking={
                         canManageCatalog
                       }
+                      columns={
+                        visibleColumns
+                      }
+                      density={
+                        displayPreferences
+                          .density
+                      }
                       onOpenDetails={
                         setDetailProduct
                       }
@@ -3293,41 +3300,70 @@ export default function ProductsDashboard() {
             <table className="w-full min-w-[1050px] text-start text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black text-slate-500">
                 <tr>
-                  <th className="px-5 py-3">
+                  <th className={tableHeaderSpacing}>
                     {t(
                       "products.columns.product"
                     )}
                   </th>
-                  <th className="px-5 py-3">
-                    {t(
-                      "products.columns.package"
-                    )}
-                  </th>
-                  <th className="px-5 py-3">
-                    {t(
-                      "products.columns.unitsPerPackage"
-                    )}
-                  </th>
-                  <th className="px-5 py-3">
-                    {t(
-                      "products.columns.tracking"
-                    )}
-                  </th>
-                  {pricingVisible ? (
-                    <>
-                      <th className="px-5 py-3">
-                        {t(
-                          "products.columns.packagePrice"
-                        )}
-                      </th>
-                      <th className="px-5 py-3">
-                        {t(
-                          "products.columns.unitPrice"
-                        )}
-                      </th>
-                    </>
+                  {visibleColumns.package ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.package"
+                      )}
+                    </th>
                   ) : null}
-                  <th className="px-5 py-3">
+                  {visibleColumns.unitsPerPackage ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.unitsPerPackage"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.tracking ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.tracking"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.lifecycle ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.lifecycle"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.unitBarcode ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.unitBarcode"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.packageBarcode ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.packageBarcode"
+                      )}
+                    </th>
+                  ) : null}
+                  {pricingVisible &&
+                  visibleColumns.packagePrice ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.packagePrice"
+                      )}
+                    </th>
+                  ) : null}
+                  {pricingVisible &&
+                  visibleColumns.unitPrice ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.unitPrice"
+                      )}
+                    </th>
+                  ) : null}
+                  <th className={tableHeaderSpacing}>
                     {t(
                       "products.columns.action"
                     )}
@@ -3425,6 +3461,13 @@ export default function ProductsDashboard() {
                       canEditTracking={
                         canManageCatalog
                       }
+                      columns={
+                        visibleColumns
+                      }
+                      density={
+                        displayPreferences
+                          .density
+                      }
                       onOpenDetails={
                         setDetailProduct
                       }
@@ -3520,6 +3563,10 @@ export default function ProductsDashboard() {
         }
         canManageAdvancedUom={
           canManageCatalog
+        }
+        detailSections={
+          displayPreferences
+            .detailSections
         }
         onClose={() =>
           setDetailProduct(null)
