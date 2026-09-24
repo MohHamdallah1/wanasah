@@ -138,7 +138,7 @@ async def seed_growth_catalog(
                     "CASE WHEN gs % 10 = 0 "
                     "THEN NOW() - INTERVAL '1 day' ELSE NULL END, "
                     "NULL, 1, false, 0, NOW(), NOW() "
-                    "FROM generate_series(:start_row, :end_row) AS gs"
+                    "FROM generate_series(CAST(:start_row AS bigint), CAST(:end_row AS bigint)) AS gs"
                 ),
                 {
                     "company_id": company_id,
@@ -165,7 +165,7 @@ async def seed_growth_catalog(
                     ":prefix || '-BC-' || LPAD(gs::text, 6, '0'), "
                     "'INTERNAL', true, NOW() - INTERVAL '1 day', NULL, "
                     "true, 1, NOW(), NOW() "
-                    "FROM generate_series(:start_row, :end_row) AS gs "
+                    "FROM generate_series(CAST(:start_row AS bigint), CAST(:end_row AS bigint)) AS gs "
                     "JOIN product_variants AS pv "
                     "ON pv.company_id = :company_id "
                     "AND pv.sku = "
