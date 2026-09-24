@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { resolveI18nLocale } from "@/lib/locale";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 
 import { useInventoryAccess, useLocationCapabilities } from "@/hooks/useInventoryAccess";
@@ -187,7 +188,8 @@ const asMutationResponse = (value: unknown): WarehouseLocationMutationResponse =
 
 export function TabWarehouseLocations({ onLocationsChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = resolveI18nLocale(i18n);
 
   const [items, setItems] = useState<WarehouseLocationItem[]>([]);
   const access = useInventoryAccess();
@@ -508,7 +510,7 @@ export function TabWarehouseLocations({ onLocationsChanged }: Props) {
                     </span>
                   </td>
                   <td className="p-3 text-xs text-slate-500">
-                    {new Date(location.updated_at).toLocaleString("ar-EG")}
+                    {new Date(location.updated_at).toLocaleString(locale)}
                   </td>
                   <td className="p-3">
                     <div className="flex justify-center gap-2">
