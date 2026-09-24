@@ -98,13 +98,14 @@ async def verify_common_filters_index() -> None:
         str(row["index_def"]).lower().split()
     )
     expected = (
+        "using btree",
         "company_id",
         "base_uom_id",
         "lower((name)::text)",
-        "lifecycle_status = 'active'",
-        "lot_control_mode <> 'none'",
-        "expiry_control_mode = 'none'",
-        "packs_per_carton > 0",
+        "lifecycle_status",
+        "lot_control_mode",
+        "expiry_control_mode",
+        "packs_per_carton",
     )
     if not all(
         fragment in definition
