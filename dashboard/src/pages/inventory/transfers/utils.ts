@@ -1,4 +1,5 @@
 import type { TransferDraftItem } from "./types";
+import { currentLocale } from "@/i18n";
 import { validateVariantQuantity, type Quantity } from "../quantity";
 
 export const totalDraftQuantity = (item: TransferDraftItem): Quantity =>
@@ -20,4 +21,4 @@ export const getMutationMessage = (raw: unknown): string => {
 };
 
 export const formatDate = (value: string | null): string =>
-  value ? new Date(value).toLocaleString("ar-EG") : "—";
+  value ? new Date(value).toLocaleString(currentLocale()) : "—";
