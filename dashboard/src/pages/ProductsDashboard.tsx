@@ -3480,7 +3480,7 @@ export default function ProductsDashboard() {
                   ) {
                     setCreateFieldError(null);
                   }
-                }
+                }}
                 placeholder={t(
                   "products.productNamePlaceholder"
                 )}
@@ -3755,7 +3755,7 @@ export default function ProductsDashboard() {
                     ) {
                       setCreateFieldError(null);
                     }
-                  }
+                  }}
                   aria-invalid={
                     createFieldError?.field ===
                     "units"
@@ -3818,7 +3818,7 @@ export default function ProductsDashboard() {
                     ) {
                       setCreateFieldError(null);
                     }
-                  }
+                  }}
                   placeholder={t(
                     "products.packagePricePlaceholder"
                   )}
@@ -3883,7 +3883,7 @@ export default function ProductsDashboard() {
                   ) {
                     setCreateFieldError(null);
                   }
-                }
+                }}
                 placeholder={t(
                   "products.unitPricePlaceholder"
                 )}
@@ -4247,7 +4247,7 @@ export default function ProductsDashboard() {
                     ) {
                       setPriceFieldError(null);
                     }
-                  }
+                  }}
                   aria-invalid={
                     priceFieldError?.field ===
                     "packagePrice"
@@ -4297,7 +4297,7 @@ export default function ProductsDashboard() {
                   ) {
                     setPriceFieldError(null);
                   }
-                }
+                }}
                 aria-invalid={
                   priceFieldError?.field ===
                   "unitPrice"
