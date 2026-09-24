@@ -1390,7 +1390,7 @@ Do not work on all items randomly.
 - [x] all translation keys.
 - [x] RTL/LTR.
 - [x] accessibility.
-- [ ] responsive polish.
+- [~] responsive polish.
 - [ ] configurable display preferences.
 
 ## Phase P8 — Performance / security / release
@@ -1408,7 +1408,7 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **responsive polish** as the next open item.
+Continue **Phase P7 — i18n / accessibility / polish** with **responsive polish** in verification.
 
 Current P7 state:
 
@@ -1416,7 +1416,7 @@ Current P7 state:
 - [x] all translation keys.
 - [x] RTL/LTR.
 - [x] accessibility.
-- [ ] responsive polish.
+- [~] responsive polish.
 - [ ] configurable display preferences.
 
 Verified P7 locale-resolver checkpoint:
