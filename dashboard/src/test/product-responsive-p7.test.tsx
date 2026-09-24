@@ -200,8 +200,8 @@ describe(
         "src/pages/ProductsDashboard.tsx",
       );
 
-      expect(page).toContain(
-        'useMediaQuery(\n      "(max-width: 767px)"',
+      expect(page).toMatch(
+        /useMediaQuery\(\s*["']\(max-width: 767px\)["']\s*\)/,
       );
       expect(page).toContain(
         "{isNarrowViewport ? (",
