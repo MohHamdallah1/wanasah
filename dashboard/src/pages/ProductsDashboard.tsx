@@ -41,6 +41,9 @@ import {
   getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
 import {
+  deriveExactMoneyPair,
+} from "@/lib/exactMoney";
+import {
   parsePackageUoms,
   parseProductFamilies,
   parseProductImportAccepted,
@@ -141,78 +144,6 @@ const importMappingFields = [
   "lot_control_mode",
   "expiry_control_mode",
 ] as const;
-
-const derivedPrices = (
-  hasPackage: boolean,
-  unitsRaw: string,
-  packageRaw: string,
-  unitRaw: string
-) => {
-  const unit = unitRaw.trim()
-    ? Number(unitRaw)
-    : null;
-
-  if (
-    unit !== null &&
-    (!Number.isFinite(unit) ||
-      unit <= 0)
-  ) {
-    return null;
-  }
-
-  if (!hasPackage) {
-    return unit === null
-      ? null
-      : {
-          packagePrice: null,
-          unitPrice: unit,
-          independent: false,
-        };
-  }
-
-  const units = Number(
-    unitsRaw
-  );
-  const packagePrice =
-    packageRaw.trim()
-      ? Number(packageRaw)
-      : null;
-
-  if (
-    !Number.isInteger(units) ||
-    units < 2 ||
-    (packagePrice !== null &&
-      (!Number.isFinite(
-        packagePrice
-      ) ||
-        packagePrice <= 0))
-  ) {
-    return null;
-  }
-
-  if (
-    packagePrice === null &&
-    unit === null
-  ) {
-    return null;
-  }
-
-  return {
-    packagePrice:
-      packagePrice ??
-      (unit !== null
-        ? unit * units
-        : null),
-    unitPrice:
-      unit ??
-      (packagePrice !== null
-        ? packagePrice / units
-        : null),
-    independent:
-      packagePrice !== null &&
-      unit !== null,
-  };
-};
 
 export default function ProductsDashboard() {
   const { t, i18n } =
@@ -2255,7 +2186,7 @@ export default function ProductsDashboard() {
     };
 
   const draftDerived =
-    derivedPrices(
+    deriveExactMoneyPair(
       draft.has_package,
       draft.units_per_package,
       draft.package_price,
@@ -2264,7 +2195,7 @@ export default function ProductsDashboard() {
 
   const editDerived =
     priceEdit
-      ? derivedPrices(
+      ? deriveExactMoneyPair(
           Boolean(
             priceEdit.package_uom_code
           ),
