@@ -3,6 +3,9 @@ import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
+  resolveI18nLocale,
+} from "@/lib/locale";
+import {
   formatLocaleDecimal,
   formatLocaleMoney,
 } from "@/lib/localeNumbers";
@@ -38,8 +41,7 @@ export function ProductDetailDrawer({
 }: Props) {
   const { t, i18n } = useTranslation();
   const locale =
-    i18n.resolvedLanguage ??
-    i18n.language;
+    resolveI18nLocale(i18n);
 
   useEffect(() => {
     if (!product) {
