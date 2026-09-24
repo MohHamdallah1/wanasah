@@ -109,6 +109,9 @@ export const resources = {
         addProduct: "إضافة منتج",
         importFile: "استيراد ملف",
         families: "العائلات",
+        advancedPricing: "التسعير المتقدم",
+        advancedPricingHint:
+          "غير مفعّل حالياً وسيتم تفعيله في مرحلة لاحقة.",
         advancedUom: {
           action: "إدارة وحدات القياس المتقدمة",
           productAction: "إدارة وحدات القياس",
@@ -1225,6 +1228,9 @@ export const resources = {
         addProduct: "Add product",
         importFile: "Import file",
         families: "Families",
+        advancedPricing: "Advanced pricing",
+        advancedPricingHint:
+          "Not enabled yet. It will be activated in a later stage.",
         advancedUom: {
           action: "Advanced UOM management",
           productAction: "Manage units of measure",
