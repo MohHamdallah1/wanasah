@@ -16,7 +16,6 @@ import {
   Copy,
   FileSpreadsheet,
   FolderTree,
-  LockKeyhole,
   PackagePlus,
   RefreshCw,
   Search,
@@ -24,6 +23,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
@@ -148,6 +148,8 @@ const importMappingFields = [
 export default function ProductsDashboard() {
   const { t, i18n } =
     useTranslation();
+  const navigate =
+    useNavigate();
   const authFetch =
     useAuthFetch();
   const queryClient =
@@ -2332,19 +2334,22 @@ export default function ProductsDashboard() {
               </button>
             ) : null}
 
-            <button
-              type="button"
-              disabled
-              title={t(
-                "products.advancedPricingHint"
-              )}
-              className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-400"
-            >
-              <LockKeyhole className="h-4 w-4" />
-              {t(
-                "products.advancedPricing"
-              )}
-            </button>
+            {canManageCatalog ? (
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(
+                    "/products/advanced-uom"
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+              >
+                <Settings2 className="h-4 w-4" />
+                {t(
+                  "products.advancedUom.action"
+                )}
+              </button>
+            ) : null}
 
             {canManageFamilies ? (
               <button
@@ -3102,6 +3107,9 @@ export default function ProductsDashboard() {
         canManageBarcodes={
           canManageCatalog
         }
+        canManageAdvancedUom={
+          canManageCatalog
+        }
         onClose={() =>
           setDetailProduct(null)
         }
@@ -3119,6 +3127,12 @@ export default function ProductsDashboard() {
           setDetailProduct(null);
           setBarcodeProduct(
             product
+          );
+        }}
+        onManageAdvancedUom={(product) => {
+          setDetailProduct(null);
+          navigate(
+            `/products/advanced-uom?variant=${product.id}`
           );
         }}
       />
