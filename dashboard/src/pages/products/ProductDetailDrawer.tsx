@@ -147,6 +147,18 @@ export function ProductDetailDrawer({
                   )}
                 </dd>
               </div>
+              <div>
+                <dt className="text-[11px] font-black text-slate-400">
+                  {t(
+                    "products.details.operationalHold"
+                  )}
+                </dt>
+                <dd className="mt-1 text-sm font-black text-slate-800">
+                  {t(
+                    `products.details.holdModes.${product.operational_hold}`
+                  )}
+                </dd>
+              </div>
             </dl>
           </section>
 

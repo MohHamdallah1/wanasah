@@ -151,11 +151,21 @@ export function ProductTableRow({
 
       {visibleColumns.lifecycle ? (
         <td className={cellSpacing}>
-          <span className="text-xs font-black text-slate-700">
-            {t(
-              `products.details.lifecycleModes.${item.lifecycle_status}`,
-            )}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-black text-slate-700">
+              {t(
+                `products.details.lifecycleModes.${item.lifecycle_status}`,
+              )}
+            </span>
+            {item.operational_hold !==
+            "NONE" ? (
+              <span className="text-[10px] font-black text-rose-700">
+                {t(
+                  `products.details.holdModes.${item.operational_hold}`,
+                )}
+              </span>
+            ) : null}
+          </div>
         </td>
       ) : null}
 

@@ -222,11 +222,18 @@ export const resources = {
           title: "تفاصيل المنتج",
           identity: "هوية المنتج",
           lifecycle: "حالة المنتج",
+          operationalHold:
+            "الإيقاف التشغيلي",
           lifecycleModes: {
             DRAFT: "مسودة",
             ACTIVE: "نشط",
             RETIRING: "قيد الإيقاف",
             ARCHIVED: "مؤرشف",
+          },
+          holdModes: {
+            NONE: "بدون إيقاف",
+            SALES_HOLD: "إيقاف بيع",
+            RECALL: "استدعاء",
           },
           package: "العبوة",
           tracking: "التتبع",
@@ -1448,11 +1455,18 @@ export const resources = {
           title: "Product details",
           identity: "Product identity",
           lifecycle: "Product status",
+          operationalHold:
+            "Operational hold",
           lifecycleModes: {
             DRAFT: "Draft",
             ACTIVE: "Active",
             RETIRING: "Retiring",
             ARCHIVED: "Archived",
+          },
+          holdModes: {
+            NONE: "No hold",
+            SALES_HOLD: "Sales hold",
+            RECALL: "Recall",
           },
           package: "Packaging",
           tracking: "Tracking",
