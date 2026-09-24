@@ -535,6 +535,62 @@ export const resources = {
             "تعذر إعادة عملية الاستيراد.",
         },
       },
+      catalogLifecycle: {
+        title: "دورة الحياة والإيقاف التشغيلي",
+        summary:
+          "الحالة: {{lifecycle}} · الإيقاف: {{hold}} · الإصدار: {{version}}",
+        reason: "سبب الإجراء",
+        reasonPlaceholder:
+          "سبب واضح لا يقل عن 3 أحرف",
+        preflightPassed:
+          "فحص الأرشفة ناجح؛ لا توجد موانع حالية.",
+        blockersTitle:
+          "الأرشفة متوقفة حتى معالجة الموانع التالية:",
+        pendingRetry:
+          "هناك أمر سابق ({{action}}) نتيجته غير مؤكدة. يجب إعادة نفس الأمر قبل تنفيذ أمر مختلف.",
+        retryPending:
+          "إعادة إرسال الأمر المعلّق",
+        pendingBlocked:
+          "تعذر التحقق من الأمر المعلّق المحفوظ. تم إيقاف أوامر دورة الحياة حتى تتم تسويته بأمان.",
+        actions: {
+          publish: "نشر",
+          deleteDraft: "حذف المسودة",
+          retire: "بدء التقاعد",
+          restore: "استعادة",
+          checkArchive: "فحص الأرشفة",
+          archive: "أرشفة نهائية",
+          salesHold: "إيقاف بيع",
+          releaseSalesHold: "تحرير الإيقاف",
+          recall: "استدعاء",
+          closeRecall: "إغلاق الاستدعاء",
+        },
+        success: {
+          deleteDraft:
+            "تم حذف مسودة الصنف.",
+        },
+        errors: {
+          action:
+            "تعذر تنفيذ أمر دورة الحياة.",
+          preflight:
+            "تعذر فحص موانع الأرشفة.",
+          preflightRequired:
+            "نفّذ فحص الأرشفة الحالي قبل الأرشفة النهائية.",
+          reason:
+            "سبب الإجراء مطلوب وبحد أدنى 3 أحرف.",
+        },
+        blockers: {
+          INVENTORY_BALANCE: "رصيد أو حجز مخزون",
+          PRODUCT_LOCATION: "ربط تشغيلي بموقع",
+          STOCK_POLICY: "سياسة مخزون فعالة",
+          OPEN_TRANSFER: "حوالة مفتوحة",
+          ACTIVE_ROUTE_LOAD: "حمولة مسار فعالة",
+          OPEN_STOCKTAKE: "جرد مفتوح",
+          ACTIVE_INVENTORY_LOCK: "قفل مخزون فعال",
+          OPEN_CUSTODY: "عهدة مندوب مفتوحة",
+          OPEN_SHORTAGE: "طلب نقص مفتوح",
+          ACTIVE_OFFER: "عرض فعال",
+        },
+      },
       inventoryInbound: {
         title: "توريد بضاعة",
         product: "المنتج",
@@ -937,6 +993,8 @@ export const resources = {
           INTERNAL_SERVER_ERROR: "حدث خطأ داخلي في الخادم.",
           IDENTITY_NOT_READY: "هوية الشركة أو المستخدم غير جاهزة بعد. حدّث الصفحة وأعد المحاولة.",
           CATALOG_CONTRACT_INVALID: "وصلت بيانات كتالوج غير صالحة أو غير مكتملة.",
+          CATALOG_LIFECYCLE_SCOPE_MISMATCH: "استجابة أمر دورة الحياة لا تطابق المنتج المحدد.",
+          CATALOG_LIFECYCLE_PREFLIGHT_STALE: "تغير المنتج منذ فحص الأرشفة. حدّث البيانات وأعد الفحص.",
           PACKAGE_UOMS_RESPONSE_INVALID: "استجابة وحدات العبوة غير صالحة أو غير مكتملة.",
           PRODUCT_FAMILIES_RESPONSE_INVALID: "استجابة عائلات المنتجات غير صالحة أو غير مكتملة.",
           PRODUCT_BARCODES_RESPONSE_INVALID: "استجابة باركودات المنتج غير صالحة أو غير مكتملة.",
@@ -1702,6 +1760,62 @@ export const resources = {
             "Could not retry the import.",
         },
       },
+      catalogLifecycle: {
+        title: "Lifecycle and operational hold",
+        summary:
+          "Status: {{lifecycle}} · Hold: {{hold}} · Version: {{version}}",
+        reason: "Reason",
+        reasonPlaceholder:
+          "Provide a clear reason of at least 3 characters",
+        preflightPassed:
+          "Archive preflight passed; no blockers remain.",
+        blockersTitle:
+          "Archiving is blocked until these dependencies are resolved:",
+        pendingRetry:
+          "A previous {{action}} command has an unknown outcome. Retry the same command before sending a different lifecycle action.",
+        retryPending:
+          "Retry pending command",
+        pendingBlocked:
+          "The saved pending lifecycle command could not be verified. Lifecycle actions are blocked until it is safely reconciled.",
+        actions: {
+          publish: "Publish",
+          deleteDraft: "Delete draft",
+          retire: "Start retirement",
+          restore: "Restore",
+          checkArchive: "Check archive",
+          archive: "Archive",
+          salesHold: "Sales hold",
+          releaseSalesHold: "Release hold",
+          recall: "Recall",
+          closeRecall: "Close recall",
+        },
+        success: {
+          deleteDraft:
+            "Draft product deleted.",
+        },
+        errors: {
+          action:
+            "Could not complete the lifecycle action.",
+          preflight:
+            "Could not check archive blockers.",
+          preflightRequired:
+            "Run a current archive preflight before archiving.",
+          reason:
+            "A reason of at least 3 characters is required.",
+        },
+        blockers: {
+          INVENTORY_BALANCE: "Inventory balance or reservation",
+          PRODUCT_LOCATION: "Operational location assignment",
+          STOCK_POLICY: "Active stock policy",
+          OPEN_TRANSFER: "Open transfer",
+          ACTIVE_ROUTE_LOAD: "Active route load",
+          OPEN_STOCKTAKE: "Open stocktake",
+          ACTIVE_INVENTORY_LOCK: "Active inventory lock",
+          OPEN_CUSTODY: "Open driver custody",
+          OPEN_SHORTAGE: "Open shortage request",
+          ACTIVE_OFFER: "Active offer",
+        },
+      },
       inventoryInbound: {
         title: "Receive stock",
         product: "Product",
@@ -2104,6 +2218,8 @@ export const resources = {
           INTERNAL_SERVER_ERROR: "An internal server error occurred.",
           IDENTITY_NOT_READY: "The company or user identity is not ready yet. Refresh and try again.",
           CATALOG_CONTRACT_INVALID: "The catalog response is invalid or incomplete.",
+          CATALOG_LIFECYCLE_SCOPE_MISMATCH: "The lifecycle response does not match the selected product.",
+          CATALOG_LIFECYCLE_PREFLIGHT_STALE: "The product changed after archive preflight. Refresh and run the check again.",
           PACKAGE_UOMS_RESPONSE_INVALID: "The package-UOM response is invalid or incomplete.",
           PRODUCT_FAMILIES_RESPONSE_INVALID: "The product-family response is invalid or incomplete.",
           PRODUCT_BARCODES_RESPONSE_INVALID: "The product-barcode response is invalid or incomplete.",
