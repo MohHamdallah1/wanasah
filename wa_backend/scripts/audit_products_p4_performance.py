@@ -51,6 +51,9 @@ SEARCH_INDEXES = (
 BARCODE_FILTER_INDEX = (
     "ix_product_barcodes_company_variant_active_validity"
 )
+COMMON_FILTERS_INDEX = (
+    "ix_product_variant_simple_common_filters_seek"
+)
 
 
 def record(name: str, ok: bool, detail: str = "") -> None:
@@ -503,6 +506,66 @@ async def inspect_search_indexes(session) -> None:
     record(
         "effective barcode filter index is installed and valid",
         barcode_filter_ok,
+    )
+
+    common_filters_row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    i.indisvalid,
+                    i.indisready,
+                    pg_get_indexdef(i.indexrelid) AS index_def
+                FROM pg_index AS i
+                JOIN pg_class AS idx
+                  ON idx.oid = i.indexrelid
+                WHERE idx.relname = :index_name
+                """
+            ),
+            {"index_name": COMMON_FILTERS_INDEX},
+        )
+    ).mappings().one_or_none()
+    common_filters_definition = (
+        " ".join(
+            str(
+                common_filters_row["index_def"]
+            ).lower().split()
+        )
+        if common_filters_row is not None
+        else ""
+    )
+    common_filters_ok = (
+        common_filters_row is not None
+        and bool(common_filters_row["indisvalid"])
+        and bool(common_filters_row["indisready"])
+        and all(
+            fragment in common_filters_definition
+            for fragment in (
+                "using btree",
+                "company_id",
+                "base_uom_id",
+                "lower((name)::text)",
+                "lifecycle_status",
+                "lot_control_mode",
+                "expiry_control_mode",
+                "packs_per_carton",
+            )
+        )
+    )
+    print(
+        "INDEX_STATE "
+        f"name={COMMON_FILTERS_INDEX} "
+        f"valid={common_filters_ok} "
+        "definition="
+        + (
+            str(common_filters_row["index_def"])
+            if common_filters_row is not None
+            else "MISSING"
+        )
+    )
+    record(
+        "common-filter growth seek index is installed and valid",
+        common_filters_ok,
     )
 
 
