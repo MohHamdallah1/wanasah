@@ -1399,7 +1399,7 @@ Do not work on all items randomly.
 - [x] EXPLAIN.
 - [x] isolation tests.
 - [x] concurrency/idempotency tests.
-- [ ] production gate.
+- [x] production gate.
 - [ ] PR + merge.
 - [ ] local/GitHub alignment.
 - [ ] declare Products Production Ready.
@@ -1428,7 +1428,17 @@ Production-gate evidence completed on this branch:
 - Existing-product result: 8 checks / 0 failures / `PRODUCTS_P8_EXISTING_PRODUCTS_GATE=PASS`.
 - No TODO/FIXME/HACK/XXX marker remains in the reviewed touched Product production path.
 
-Current task: build and run the final aggregate P8 production gate. Do **not** mark `production gate`, PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
+Final aggregate P8 production gate is complete:
+
+- Dashboard TypeScript PASS.
+- Dashboard full suite PASS: 31 files / 188 tests.
+- ESLint PASS with 0 errors; 7 pre-existing Fast Refresh warnings remain outside the touched Products production scope.
+- Production build PASS in 13.43s.
+- All 13 backend release gates included by `gate_products_p8_production.py` passed after stale source-layout assertions were updated to the current component architecture.
+- Aggregate result: 17 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+- The stale-gate repair changed only release-gate assertions; it did not change Product runtime/business logic.
+
+Current task: PR review + merge. Do **not** mark PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
 
 Current P7 state:
 
