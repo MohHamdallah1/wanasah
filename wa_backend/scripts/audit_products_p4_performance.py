@@ -669,6 +669,113 @@ async def explain_query(
             )
 
 
+async def explain_isolated_barcode_trgm_capability(
+    session,
+    *,
+    company_id: int,
+    pattern: str,
+) -> dict[str, Any]:
+    table_name = "p8_barcode_trgm_probe"
+    index_name = "p8_barcode_trgm_probe_idx"
+
+    await session.execute(
+        text(
+            f"""
+            DROP TABLE IF EXISTS {table_name}
+            """
+        )
+    )
+    await session.execute(
+        text(
+            f"""
+            CREATE TEMP TABLE {table_name}
+            ON COMMIT DROP
+            AS
+            SELECT
+                company_id,
+                product_variant_id,
+                barcode,
+                is_active
+            FROM public.product_barcodes
+            WHERE company_id = :company_id
+            """
+        ),
+        {
+            "company_id": company_id,
+        },
+    )
+    await session.execute(
+        text(
+            f"""
+            CREATE INDEX {index_name}
+            ON {table_name}
+            USING gin (
+                company_id,
+                lower((barcode)::text) gin_trgm_ops
+            )
+            WHERE is_active IS TRUE
+            """
+        )
+    )
+    await session.execute(
+        text(
+            f"ANALYZE {table_name}"
+        )
+    )
+
+    await session.execute(
+        text(
+            "SET LOCAL enable_seqscan = off"
+        )
+    )
+    try:
+        result = await session.execute(
+            text(
+                f"""
+                EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                SELECT product_variant_id
+                FROM {table_name}
+                WHERE company_id = :company_id
+                  AND is_active IS TRUE
+                  AND lower((barcode)::text) LIKE :pattern
+                """
+            ),
+            {
+                "company_id": company_id,
+                "pattern": pattern,
+            },
+        )
+        plan = summarize_plan(
+            result.scalar_one()
+        )
+    finally:
+        await session.execute(
+            text(
+                "SET LOCAL enable_seqscan = on"
+            )
+        )
+        await session.execute(
+            text(
+                f"DROP TABLE IF EXISTS {table_name}"
+            )
+        )
+
+    if (
+        index_name
+        not in set(plan["indexes"])
+    ):
+        raise RuntimeError(
+            "Isolated barcode trigram probe did not use "
+            f"{index_name}; indexes="
+            + (
+                "|".join(plan["indexes"])
+                or "-"
+            )
+        )
+
+    return plan
+
+
 async def explain_search_branch_plans(
     ids: dict[str, int],
 ) -> None:
@@ -780,57 +887,67 @@ async def explain_search_branch_plans(
                 )
             )
 
-            # Capability probe:
-            # - keep identical tenant semantics but make company_id
-            #   unusable as a leading B-tree equality;
-            # - disable sequential and plain index scans;
-            # - leave bitmap scans enabled, which is the native access
-            #   path expected from these GIN trigram indexes.
-            #
-            # For barcode capability, validity predicates are omitted
-            # deliberately because they are NOT part of the trigram GIN
-            # index and would allow the separate validity B-tree index to
-            # satisfy the probe. The production plan above still exercises
-            # the full effective-barcode predicate.
-            await su.execute(
-                text(
-                    "SET LOCAL enable_seqscan = off"
+            if name == "active_barcode":
+                capability_plan = (
+                    await explain_isolated_barcode_trgm_capability(
+                        su,
+                        company_id=company_id,
+                        pattern=str(
+                            parameters["pattern"]
+                        ),
+                    )
                 )
-            )
-            await su.execute(
-                text(
-                    "SET LOCAL enable_indexscan = off"
+                planner_usable = True
+                capability_mode = (
+                    "isolated_exact_ddl"
                 )
-            )
-            try:
-                capability_result = await su.execute(
-                    text(
-                        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
-                        + capability_sql
-                    ),
-                    parameters,
-                )
-                capability_plan = summarize_plan(
-                    capability_result.scalar_one()
-                )
-            finally:
+            else:
+                # For variant/family probes, make tenant equality
+                # non-indexable and leave bitmap scans available.
+                # No competing partial index can satisfy these
+                # expressions, so the expected GIN must be usable.
                 await su.execute(
                     text(
-                        "SET LOCAL enable_indexscan = on"
+                        "SET LOCAL enable_seqscan = off"
                     )
                 )
                 await su.execute(
                     text(
-                        "SET LOCAL enable_seqscan = on"
+                        "SET LOCAL enable_indexscan = off"
                     )
                 )
+                try:
+                    capability_result = await su.execute(
+                        text(
+                            "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+                            + capability_sql
+                        ),
+                        parameters,
+                    )
+                    capability_plan = summarize_plan(
+                        capability_result.scalar_one()
+                    )
+                finally:
+                    await su.execute(
+                        text(
+                            "SET LOCAL enable_indexscan = on"
+                        )
+                    )
+                    await su.execute(
+                        text(
+                            "SET LOCAL enable_seqscan = on"
+                        )
+                    )
 
-            planner_usable = (
-                expected_index
-                in set(
-                    capability_plan["indexes"]
+                planner_usable = (
+                    expected_index
+                    in set(
+                        capability_plan["indexes"]
+                    )
                 )
-            )
+                capability_mode = (
+                    "isolated_predicate"
+                )
 
             print(
                 "SEARCH_BRANCH_PLAN "
@@ -844,7 +961,7 @@ async def explain_search_branch_plans(
                 f"indexes="
                 f"{'|'.join(production_plan['indexes']) or '-'} "
                 f"planner_usable={planner_usable} "
-                f"capability_access=bitmap_only "
+                f"capability_mode={capability_mode} "
                 f"capability_execution_ms="
                 f"{capability_plan['execution_ms']:.3f} "
                 f"capability_scans="
@@ -860,7 +977,7 @@ async def explain_search_branch_plans(
             )
 
             record(
-                f"search index {expected_index} is planner-usable for its trigram predicate",
+                f"search index {expected_index} has verified trigram planner capability",
                 planner_usable,
                 (
                     "capability_indexes="
@@ -1710,8 +1827,9 @@ async def main() -> None:
             "PERFORMANCE_NOTE="
             "No arbitrary latency threshold is used without an agreed SLA. "
             "Measured p50/p95/p99, payload size, production-scale "
-            "planner decisions, isolated trigram index usability, bounded "
-            "query count, and bounded enrichment are gated."
+            "planner decisions, installed index shape, isolated exact-DDL "
+            "trigram capability, bounded query count, and bounded enrichment "
+            "are gated."
         )
         print(
             "INDEX_DECISION="
