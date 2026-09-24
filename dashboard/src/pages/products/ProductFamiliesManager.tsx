@@ -938,7 +938,7 @@ export function ProductFamiliesManager({
                     />
                   ) : (
                     <div className="min-w-0 flex-1">
-                      <strong className="block truncate text-sm text-slate-900">
+                      <strong className="block break-words text-sm text-slate-900 sm:truncate">
                         {
                           family.name
                         }
@@ -1024,7 +1024,7 @@ export function ProductFamiliesManager({
         {history.length > 0 ||
         familiesQuery.data
           ?.next_cursor ? (
-          <div className="flex justify-end gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
             <button
               type="button"
               disabled={
@@ -1047,7 +1047,7 @@ export function ProductFamiliesManager({
                   previous
                 );
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30 sm:w-auto"
             >
               {t(
                 "products.familyPrevious"
@@ -1077,7 +1077,7 @@ export function ProductFamiliesManager({
                   next
                 );
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30 sm:w-auto"
             >
               {t(
                 "products.familyNext"
