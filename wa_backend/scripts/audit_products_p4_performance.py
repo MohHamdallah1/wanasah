@@ -35,7 +35,7 @@ from models import Driver
 
 DEFAULT_ROWS = 5000
 MIN_ROWS = 1000
-MAX_ROWS = 20000
+MAX_ROWS = 250000
 DEFAULT_RUNS = 20
 MIN_RUNS = 3
 MAX_RUNS = 50
@@ -79,6 +79,58 @@ def bounded_env_int(
             f"{name} must be between {minimum} and {maximum}."
         )
     return value
+
+
+async def resolve_benchmark_rows() -> tuple[int, int, str]:
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+        real_peak = int(
+            (
+                await su.execute(
+                    text(
+                        """
+                        SELECT COALESCE(MAX(variant_count), 0)
+                        FROM (
+                            SELECT
+                                company_id,
+                                count(*)::bigint AS variant_count
+                            FROM product_variants
+                            GROUP BY company_id
+                        ) AS tenant_sizes
+                        """
+                    )
+                )
+            ).scalar_one()
+        )
+        await su.rollback()
+
+    requested = os.getenv("P4_PERF_ROWS")
+    if requested is not None:
+        rows = bounded_env_int(
+            "P4_PERF_ROWS",
+            DEFAULT_ROWS,
+            MIN_ROWS,
+            MAX_ROWS,
+        )
+        source = "environment"
+    else:
+        rows = max(
+            DEFAULT_ROWS,
+            min(real_peak, MAX_ROWS),
+        )
+        source = "largest_current_tenant"
+
+    record(
+        "performance benchmark capacity covers the largest current tenant",
+        rows >= real_peak,
+        (
+            f"benchmark_rows={rows} "
+            f"largest_tenant_rows={real_peak} "
+            f"max_supported_rows={MAX_ROWS} "
+            f"source={source}"
+        ),
+    )
+    return rows, real_peak, source
 
 
 def nearest_rank_percentile(
@@ -687,24 +739,90 @@ async def explain_search_branch_plans(
             query_sql,
             parameters,
         ) in checks:
+            explain_sql = (
+                "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+                + query_sql
+            )
             result = await su.execute(
-                text(
-                    "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
-                    + query_sql
-                ),
+                text(explain_sql),
                 parameters,
             )
             plan = summarize_plan(
                 result.scalar_one()
             )
+            normal_chosen = (
+                expected_index
+                in set(plan["indexes"])
+            )
+
+            await su.execute(
+                text(
+                    "SET LOCAL enable_seqscan = off"
+                )
+            )
+            await su.execute(
+                text(
+                    "SET LOCAL enable_indexscan = off"
+                )
+            )
+            try:
+                forced_result = await su.execute(
+                    text(explain_sql),
+                    parameters,
+                )
+                forced_plan = summarize_plan(
+                    forced_result.scalar_one()
+                )
+            finally:
+                await su.execute(
+                    text(
+                        "SET LOCAL enable_indexscan = on"
+                    )
+                )
+                await su.execute(
+                    text(
+                        "SET LOCAL enable_seqscan = on"
+                    )
+                )
+
+            forced_chosen = (
+                expected_index
+                in set(
+                    forced_plan["indexes"]
+                )
+            )
             print(
                 "SEARCH_BRANCH_PLAN "
                 f"name={name} "
                 f"expected_index={expected_index} "
-                f"chosen={expected_index in set(plan['indexes'])} "
+                f"chosen={normal_chosen} "
                 f"execution_ms={plan['execution_ms']:.3f} "
                 f"scans={'|'.join(plan['scans']) or '-'} "
-                f"indexes={'|'.join(plan['indexes']) or '-'}"
+                f"indexes={'|'.join(plan['indexes']) or '-'} "
+                f"forced_chosen={forced_chosen} "
+                f"forced_execution_ms="
+                f"{forced_plan['execution_ms']:.3f} "
+                f"forced_scans="
+                f"{'|'.join(forced_plan['scans']) or '-'} "
+                f"forced_indexes="
+                f"{'|'.join(forced_plan['indexes']) or '-'}"
+            )
+            record(
+                f"production-scale search branch {name} chooses its trigram index",
+                normal_chosen,
+                (
+                    f"expected_index={expected_index} "
+                    f"actual_indexes="
+                    f"{'|'.join(plan['indexes']) or '-'}"
+                ),
+            )
+            record(
+                f"search index {expected_index} is planner-usable",
+                forced_chosen,
+                (
+                    "forced_indexes="
+                    f"{'|'.join(forced_plan['indexes']) or '-'}"
+                ),
             )
         await su.rollback()
 
@@ -1227,11 +1345,8 @@ def page_contains(
 async def main() -> None:
     ids: dict[str, int] = {}
     prefix = "P4PERF" + uuid4().hex[:8].upper()
-    row_count = bounded_env_int(
-        "P4_PERF_ROWS",
-        DEFAULT_ROWS,
-        MIN_ROWS,
-        MAX_ROWS,
+    row_count, real_peak, row_source = (
+        await resolve_benchmark_rows()
     )
     runs = bounded_env_int(
         "P4_PERF_RUNS",
@@ -1243,6 +1358,14 @@ async def main() -> None:
     attached = False
 
     print(f"AUDIT_ROWS={row_count}")
+    print(
+        "AUDIT_REAL_MAX_TENANT_ROWS="
+        f"{real_peak}"
+    )
+    print(
+        "AUDIT_ROWS_SOURCE="
+        f"{row_source}"
+    )
     print(f"AUDIT_RUNS={runs}")
 
     record(
@@ -1541,9 +1664,10 @@ async def main() -> None:
 
         print(
             "PERFORMANCE_NOTE="
-            "No arbitrary latency threshold is used. "
-            "Measured p50/p95/p99, payload size, EXPLAIN plans, "
-            "bounded query count, and bounded enrichment are gated."
+            "No arbitrary latency threshold is used without an agreed SLA. "
+            "Measured p50/p95/p99, payload size, production-scale "
+            "planner index choice, forced planner usability, bounded "
+            "query count, and bounded enrichment are gated."
         )
         print(
             "INDEX_DECISION="
