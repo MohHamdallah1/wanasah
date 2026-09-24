@@ -213,6 +213,29 @@ describe(
           (value) =>
             `uom.${value}`,
         ),
+        ...[
+          "package",
+          "unitsPerPackage",
+          "tracking",
+          "lifecycle",
+          "unitBarcode",
+          "packageBarcode",
+          "packagePrice",
+          "unitPrice",
+        ].map(
+          (value) =>
+            `products.displayPreferences.columns.${value}`,
+        ),
+        ...[
+          "package",
+          "tracking",
+          "barcodes",
+          "pricing",
+          "compatibility",
+        ].map(
+          (value) =>
+            `products.displayPreferences.detailSectionsOptions.${value}`,
+        ),
       ];
 
       for (const key of keys) {
