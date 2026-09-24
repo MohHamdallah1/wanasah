@@ -756,7 +756,7 @@ Required:
 - [ ] Currency formatting uses correct currency + locale.
 - [ ] RTL/LTR is derived from i18n configuration.
 - [ ] Long translated labels tested.
-- [ ] Translation keys for all tracking/lifecycle/UOM labels.
+- [x] Translation keys for all tracking/lifecycle/UOM labels.
 
 ---
 
@@ -769,7 +769,7 @@ Required:
 - [ ] Product APIs return stable business error codes.
 - [ ] UI maps known codes to translations.
 - [ ] UI never branches on Arabic/English `message`.
-- [ ] FastAPI validation errors are normalized or mapped into a consistent presentation layer.
+- [x] FastAPI validation errors are normalized or mapped into a consistent presentation layer.
 - [ ] Backend messages may remain diagnostic but are not the localization contract.
 
 ---
@@ -1283,7 +1283,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 39. Replace binary Arabic-vs-English locale fallback with generic locale resolution.
 - [x] 40. Make all new number/date/money rendering language-agnostic.
 - [x] 41. Keep API enums stable and translate only in UI.
-- [ ] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
+- [x] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
 - [ ] 43. Separate Quick Create from optional enterprise review/maker-checker policy.
 - [x] 44. Add a Product Detail Drawer instead of adding too many list columns.
 - [x] 45. Keep ordinary creation simple and move complexity to Advanced settings.
@@ -1387,7 +1387,7 @@ Do not work on all items randomly.
 ## Phase P7 — i18n / accessibility / polish
 
 - [x] Generic locale resolver.
-- [~] all translation keys.
+- [x] all translation keys.
 - [ ] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
@@ -1408,12 +1408,12 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **all translation keys** in verification.
+Continue **Phase P7 — i18n / accessibility / polish** with **RTL/LTR** as the next open item.
 
 Current P7 state:
 
 - [x] Generic locale resolver.
-- [~] all translation keys.
+- [x] all translation keys.
 - [ ] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
