@@ -2253,7 +2253,7 @@ export default function ProductsDashboard() {
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="products-a11y-scope flex min-h-0 flex-1 flex-col overflow-hidden"
       dir={i18n.dir()}
     >
       <header className="shrink-0 rounded-[26px] border border-white/70 bg-white/85 px-5 py-4 shadow-sm backdrop-blur-xl">
@@ -2411,6 +2411,9 @@ export default function ProductsDashboard() {
                   )
                 }
                 placeholder={t(
+                  "products.searchPlaceholder"
+                )}
+                aria-label={t(
                   "products.searchPlaceholder"
                 )}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pe-9 ps-3 text-sm font-bold outline-none focus:border-slate-400 focus:bg-white"
@@ -3061,6 +3064,9 @@ export default function ProductsDashboard() {
                   previous
                 );
               }}
+              aria-label={t(
+                "products.familyPrevious"
+              )}
               className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
             >
               <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
@@ -3087,6 +3093,9 @@ export default function ProductsDashboard() {
                   page.next_cursor
                 );
               }}
+              aria-label={t(
+                "products.familyNext"
+              )}
               className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
             >
               <ChevronRight className="h-4 w-4 rtl:rotate-180" />
