@@ -176,6 +176,14 @@ const parseVariantParam = (
 
 export default function AdvancedUomDashboard() {
   const { t } = useTranslation();
+  const uomLabel = (uom: {
+    code: string;
+    name: string;
+  }) =>
+    t(`uom.${uom.code}`, {
+      defaultValue:
+        uom.name || uom.code,
+    });
   const navigate = useNavigate();
   const [searchParams, setSearchParams] =
     useSearchParams();
@@ -986,9 +994,11 @@ export default function AdvancedUomDashboard() {
                     {item.sku}
                   </p>
                   <p className="mt-1 text-[11px] font-bold text-slate-500">
-                    {item.lifecycle_status}
+                    {t(
+                      `products.details.lifecycleModes.${item.lifecycle_status}`
+                    )}
                     {" · "}
-                    {item.base_uom.code}
+                    {uomLabel(item.base_uom)}
                   </p>
                 </button>
               ),
@@ -1118,7 +1128,9 @@ export default function AdvancedUomDashboard() {
                       "products.advancedUom.baseUom",
                     )}
                     :{" "}
-                    {selectedVariant.base_uom.name}
+                    {uomLabel(
+                      selectedVariant.base_uom
+                    )}
                     {" ("}
                     {selectedVariant.base_uom.code}
                     {")"}
@@ -1366,7 +1378,7 @@ export default function AdvancedUomDashboard() {
                               >
                                 {uom.code}
                                 {" — "}
-                                {uom.name}
+                                {uomLabel(uom)}
                               </option>
                             ),
                           )}
@@ -1407,7 +1419,7 @@ export default function AdvancedUomDashboard() {
                               >
                                 {uom.code}
                                 {" — "}
-                                {uom.name}
+                                {uomLabel(uom)}
                               </option>
                             ),
                           )}
