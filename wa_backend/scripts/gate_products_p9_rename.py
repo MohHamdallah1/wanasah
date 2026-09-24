@@ -306,7 +306,9 @@ async def seed(conn) -> dict[str, int]:
                         + retired_sql
                         + ", "
                         + archived_sql
-                        + ", 1, false, 0, NOW(), NOW()) "
+                        + ", 1, false, 0, "
+                        "TIMEZONE('UTC', CURRENT_TIMESTAMP), "
+                        "TIMEZONE('UTC', CURRENT_TIMESTAMP)) "
                         "RETURNING id"
                     ),
                     {
@@ -604,16 +606,29 @@ async def main() -> None:
                 "packs_per_carton",
                 "package_uses_base_barcode",
             )
-            record(
-                "rename changes only name/version/update timestamp",
-                all(
-                    before[field] == after[field]
-                    for field in immutable_fields
-                )
+            changed_immutable_fields = [
+                field
+                for field in immutable_fields
+                if before[field] != after[field]
+            ]
+            rename_shape_ok = (
+                not changed_immutable_fields
                 and after["name"] == "P9 Rename Published"
                 and int(after["version"])
                 == int(before["version"]) + 1
-                and after["updated_at"] >= before["updated_at"],
+                and after["updated_at"] >= before["updated_at"]
+            )
+            record(
+                "rename changes only name/version/update timestamp",
+                rename_shape_ok,
+                (
+                    "changed_immutable="
+                    f"{changed_immutable_fields} "
+                    f"name={after['name']!r} "
+                    f"version={before['version']}->{after['version']} "
+                    "updated_at="
+                    f"{before['updated_at']}->{after['updated_at']}"
+                ),
             )
             record(
                 "rename preserves lifecycle revision",
