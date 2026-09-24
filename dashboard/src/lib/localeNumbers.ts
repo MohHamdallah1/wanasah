@@ -4,7 +4,7 @@ const localeDigitMap = (
   locale: string,
 ): string[] => {
   const formatter =
-    new Intl.NumberFormat(resolvedLocale, {
+    new Intl.NumberFormat(locale, {
       useGrouping: false,
       maximumFractionDigits: 0,
     });
@@ -18,7 +18,7 @@ const localeDigitMap = (
 const decimalSeparator = (
   locale: string,
 ): string =>
-  new Intl.NumberFormat(resolvedLocale, {
+  new Intl.NumberFormat(locale, {
     useGrouping: false,
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
