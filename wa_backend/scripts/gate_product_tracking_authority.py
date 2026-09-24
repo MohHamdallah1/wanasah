@@ -99,6 +99,9 @@ def static_checks() -> None:
     main_py = (
         BACKEND / "main.py"
     ).read_text(encoding="utf-8")
+    simple_api_compact = " ".join(
+        simple_api.split()
+    )
 
     check(
         'lot_control_mode="REQUIRED"' not in simple_service
@@ -114,9 +117,14 @@ def static_checks() -> None:
         "Simple create contract accepts explicit tracking modes",
     )
     check(
-        '"version": int(variant.version)' in simple_api
-        and '"lot_control_mode": str(' in simple_api
-        and '"expiry_control_mode": str(' in simple_api,
+        '"version": int( variant.version )'
+        in simple_api_compact
+        and '"lot_control_mode": str( variant.lot_control_mode )'
+        in simple_api_compact
+        and '"expiry_control_mode": str( variant.expiry_control_mode )'
+        in simple_api_compact
+        and '"operational_hold": str( variant.operational_hold )'
+        in simple_api_compact,
         "Simple product reads expose versioned tracking state",
     )
 

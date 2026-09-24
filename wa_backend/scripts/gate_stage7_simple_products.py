@@ -230,6 +230,14 @@ def static_checks() -> None:
     page = (
         ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
     ).read_text(encoding="utf-8")
+    details = (
+        ROOT
+        / "dashboard/src/pages/products/ProductDetailDrawer.tsx"
+    ).read_text(encoding="utf-8")
+    families_ui = (
+        ROOT
+        / "dashboard/src/pages/products/ProductFamiliesManager.tsx"
+    ).read_text(encoding="utf-8")
     backend = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
     simple_service = (
         BACKEND / "domains/simple_products/service.py"
@@ -267,8 +275,11 @@ def static_checks() -> None:
     check(
         "package_uom_code" in page
         and "unit_price" in page
-        and "package_barcode" in page
-        and "familiesTitle" in page,
+        and "product.package_uom_code" in details
+        and "product.unit_price" in details
+        and "product.package_barcode" in details
+        and "<ProductFamiliesManager" in page
+        and '"products.familiesTitle"' in families_ui,
         "Simple product flow exposes generalized package, price, barcode and family workflow",
     )
     check(
