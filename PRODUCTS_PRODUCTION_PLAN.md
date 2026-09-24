@@ -1431,11 +1431,23 @@ Verified P7 locale-resolver checkpoint:
 - full dashboard suite passed: 25 files / 157 tests;
 - production build passed in 17.96s.
 
+Verified P7 translation-key checkpoint:
+
+- Product translation resources are Arabic/English key-parity gated.
+- Static Products translation references and bounded dynamic lifecycle/tracking/UOM/barcode label families are bilingually covered.
+- Product-facing stable error codes are gated against translation resources.
+- FastAPI/Pydantic validation arrays normalize to stable `VALIDATION_ERROR` presentation.
+- Coded backend diagnostic messages are not used as localized UI copy when a stable code is present.
+- TypeScript passed with no output.
+- Targeted P7 translation/error/UOM/barcode tests passed: 6 files / 44 tests.
+- Full dashboard suite passed: 26 files / 164 tests.
+- Production build passed in 25.54s.
+
 Next implementation order:
 
-1. Audit Products user-facing text and translation keys, including lifecycle/UOM/status/error surfaces.
-2. Do not begin RTL/LTR work until the translation-key item is complete and verified.
-3. Then continue P7 in order: RTL/LTR → accessibility → responsive polish → configurable display preferences.
+1. Translation-key audit is complete and verified.
+2. Continue with RTL/LTR.
+3. Then continue P7 in order: accessibility → responsive polish → configurable display preferences.
 4. Complete P7 gates/review before moving to Phase P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
