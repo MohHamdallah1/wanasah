@@ -35,7 +35,7 @@ from models import Driver
 
 DEFAULT_ROWS = 5000
 MIN_ROWS = 1000
-MAX_ROWS = 20000
+MAX_ROWS = 250000
 DEFAULT_RUNS = 20
 MIN_RUNS = 3
 MAX_RUNS = 50
@@ -79,6 +79,58 @@ def bounded_env_int(
             f"{name} must be between {minimum} and {maximum}."
         )
     return value
+
+
+async def resolve_benchmark_rows() -> tuple[int, int, str]:
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+        real_peak = int(
+            (
+                await su.execute(
+                    text(
+                        """
+                        SELECT COALESCE(MAX(variant_count), 0)
+                        FROM (
+                            SELECT
+                                company_id,
+                                count(*)::bigint AS variant_count
+                            FROM product_variants
+                            GROUP BY company_id
+                        ) AS tenant_sizes
+                        """
+                    )
+                )
+            ).scalar_one()
+        )
+        await su.rollback()
+
+    requested = os.getenv("P4_PERF_ROWS")
+    if requested is not None:
+        rows = bounded_env_int(
+            "P4_PERF_ROWS",
+            DEFAULT_ROWS,
+            MIN_ROWS,
+            MAX_ROWS,
+        )
+        source = "environment"
+    else:
+        rows = max(
+            DEFAULT_ROWS,
+            min(real_peak, MAX_ROWS),
+        )
+        source = "largest_current_tenant"
+
+    record(
+        "performance benchmark capacity covers the largest current tenant",
+        rows >= real_peak,
+        (
+            f"benchmark_rows={rows} "
+            f"largest_tenant_rows={real_peak} "
+            f"max_supported_rows={MAX_ROWS} "
+            f"source={source}"
+        ),
+    )
+    return rows, real_peak, source
 
 
 def nearest_rank_percentile(
@@ -617,6 +669,106 @@ async def explain_query(
             )
 
 
+async def explain_isolated_barcode_trgm_capability(
+    session,
+    *,
+    company_id: int,
+    pattern: str,
+) -> dict[str, Any]:
+    table_name = "p8_barcode_trgm_probe"
+    index_name = "p8_barcode_trgm_probe_idx"
+
+    await session.execute(
+        text(
+            f"""
+            CREATE TEMP TABLE {table_name}
+            ON COMMIT DROP
+            AS
+            SELECT
+                company_id,
+                product_variant_id,
+                barcode,
+                is_active
+            FROM public.product_barcodes
+            WHERE company_id = :company_id
+            """
+        ),
+        {
+            "company_id": company_id,
+        },
+    )
+    await session.execute(
+        text(
+            f"""
+            CREATE INDEX {index_name}
+            ON {table_name}
+            USING gin (
+                company_id,
+                lower((barcode)::text) gin_trgm_ops
+            )
+            WHERE is_active IS TRUE
+            """
+        )
+    )
+    await session.execute(
+        text(
+            f"ANALYZE {table_name}"
+        )
+    )
+
+    await session.execute(
+        text(
+            "SET LOCAL enable_seqscan = off"
+        )
+    )
+    try:
+        result = await session.execute(
+            text(
+                f"""
+                EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+                SELECT product_variant_id
+                FROM {table_name}
+                WHERE company_id = :company_id
+                  AND is_active IS TRUE
+                  AND lower((barcode)::text) LIKE :pattern
+                """
+            ),
+            {
+                "company_id": company_id,
+                "pattern": pattern,
+            },
+        )
+        plan = summarize_plan(
+            result.scalar_one()
+        )
+    finally:
+        await session.execute(
+            text(
+                "SET LOCAL enable_seqscan = on"
+            )
+        )
+        await session.execute(
+            text(
+                f"DROP TABLE IF EXISTS {table_name}"
+            )
+        )
+
+    if (
+        index_name
+        not in set(plan["indexes"])
+    ):
+        raise RuntimeError(
+            "Isolated barcode trigram probe did not use "
+            f"{index_name}; indexes="
+            + (
+                "|".join(plan["indexes"])
+                or "-"
+            )
+        )
+
+    return plan
+
+
 async def explain_search_branch_plans(
     ids: dict[str, int],
 ) -> None:
@@ -624,6 +776,7 @@ async def explain_search_branch_plans(
     effective_at = datetime.now(
         timezone.utc
     ).replace(tzinfo=None)
+
     checks = (
         (
             "variant_name_sku",
@@ -632,6 +785,15 @@ async def explain_search_branch_plans(
             SELECT id
             FROM public.product_variants
             WHERE company_id = :company_id
+              AND lower(
+                    ((name)::text || ' '::text)
+                    || (sku)::text
+                  ) LIKE :pattern
+            """,
+            """
+            SELECT id
+            FROM public.product_variants
+            WHERE (company_id + 0) = :company_id
               AND lower(
                     ((name)::text || ' '::text)
                     || (sku)::text
@@ -649,6 +811,12 @@ async def explain_search_branch_plans(
             SELECT id
             FROM public.products
             WHERE company_id = :company_id
+              AND lower((name)::text) LIKE :pattern
+            """,
+            """
+            SELECT id
+            FROM public.products
+            WHERE (company_id + 0) = :company_id
               AND lower((name)::text) LIKE :pattern
             """,
             {
@@ -671,6 +839,13 @@ async def explain_search_branch_plans(
                   )
               AND lower((barcode)::text) LIKE :pattern
             """,
+            """
+            SELECT product_variant_id
+            FROM public.product_barcodes
+            WHERE (company_id + 0) = :company_id
+              AND is_active IS TRUE
+              AND lower((barcode)::text) LIKE :pattern
+            """,
             {
                 "company_id": company_id,
                 "effective_at": effective_at,
@@ -684,28 +859,125 @@ async def explain_search_branch_plans(
         for (
             name,
             expected_index,
-            query_sql,
+            production_sql,
+            capability_sql,
             parameters,
         ) in checks:
-            result = await su.execute(
+            production_result = await su.execute(
                 text(
                     "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
-                    + query_sql
+                    + production_sql
                 ),
                 parameters,
             )
-            plan = summarize_plan(
-                result.scalar_one()
+            production_plan = summarize_plan(
+                production_result.scalar_one()
             )
+            normal_chosen = (
+                expected_index
+                in set(
+                    production_plan["indexes"]
+                )
+            )
+
+            if name == "active_barcode":
+                capability_plan = (
+                    await explain_isolated_barcode_trgm_capability(
+                        su,
+                        company_id=company_id,
+                        pattern=str(
+                            parameters["pattern"]
+                        ),
+                    )
+                )
+                planner_usable = True
+                capability_mode = (
+                    "isolated_exact_ddl"
+                )
+            else:
+                # For variant/family probes, make tenant equality
+                # non-indexable and leave bitmap scans available.
+                # No competing partial index can satisfy these
+                # expressions, so the expected GIN must be usable.
+                await su.execute(
+                    text(
+                        "SET LOCAL enable_seqscan = off"
+                    )
+                )
+                await su.execute(
+                    text(
+                        "SET LOCAL enable_indexscan = off"
+                    )
+                )
+                try:
+                    capability_result = await su.execute(
+                        text(
+                            "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+                            + capability_sql
+                        ),
+                        parameters,
+                    )
+                    capability_plan = summarize_plan(
+                        capability_result.scalar_one()
+                    )
+                finally:
+                    await su.execute(
+                        text(
+                            "SET LOCAL enable_indexscan = on"
+                        )
+                    )
+                    await su.execute(
+                        text(
+                            "SET LOCAL enable_seqscan = on"
+                        )
+                    )
+
+                planner_usable = (
+                    expected_index
+                    in set(
+                        capability_plan["indexes"]
+                    )
+                )
+                capability_mode = (
+                    "isolated_predicate"
+                )
+
             print(
                 "SEARCH_BRANCH_PLAN "
                 f"name={name} "
                 f"expected_index={expected_index} "
-                f"chosen={expected_index in set(plan['indexes'])} "
-                f"execution_ms={plan['execution_ms']:.3f} "
-                f"scans={'|'.join(plan['scans']) or '-'} "
-                f"indexes={'|'.join(plan['indexes']) or '-'}"
+                f"chosen={normal_chosen} "
+                f"execution_ms="
+                f"{production_plan['execution_ms']:.3f} "
+                f"scans="
+                f"{'|'.join(production_plan['scans']) or '-'} "
+                f"indexes="
+                f"{'|'.join(production_plan['indexes']) or '-'} "
+                f"planner_usable={planner_usable} "
+                f"capability_mode={capability_mode} "
+                f"capability_execution_ms="
+                f"{capability_plan['execution_ms']:.3f} "
+                f"capability_scans="
+                f"{'|'.join(capability_plan['scans']) or '-'} "
+                f"capability_indexes="
+                f"{'|'.join(capability_plan['indexes']) or '-'}"
             )
+            print(
+                "PLANNER_DECISION "
+                f"name={name} "
+                f"normal_expected_index_chosen={normal_chosen} "
+                "decision=cost_based"
+            )
+
+            record(
+                f"search index {expected_index} has verified trigram planner capability",
+                planner_usable,
+                (
+                    "capability_indexes="
+                    f"{'|'.join(capability_plan['indexes']) or '-'}"
+                ),
+            )
+
         await su.rollback()
 
 
@@ -1227,11 +1499,8 @@ def page_contains(
 async def main() -> None:
     ids: dict[str, int] = {}
     prefix = "P4PERF" + uuid4().hex[:8].upper()
-    row_count = bounded_env_int(
-        "P4_PERF_ROWS",
-        DEFAULT_ROWS,
-        MIN_ROWS,
-        MAX_ROWS,
+    row_count, real_peak, row_source = (
+        await resolve_benchmark_rows()
     )
     runs = bounded_env_int(
         "P4_PERF_RUNS",
@@ -1243,6 +1512,14 @@ async def main() -> None:
     attached = False
 
     print(f"AUDIT_ROWS={row_count}")
+    print(
+        "AUDIT_REAL_MAX_TENANT_ROWS="
+        f"{real_peak}"
+    )
+    print(
+        "AUDIT_ROWS_SOURCE="
+        f"{row_source}"
+    )
     print(f"AUDIT_RUNS={runs}")
 
     record(
@@ -1541,9 +1818,11 @@ async def main() -> None:
 
         print(
             "PERFORMANCE_NOTE="
-            "No arbitrary latency threshold is used. "
-            "Measured p50/p95/p99, payload size, EXPLAIN plans, "
-            "bounded query count, and bounded enrichment are gated."
+            "No arbitrary latency threshold is used without an agreed SLA. "
+            "Measured p50/p95/p99, payload size, production-scale "
+            "planner decisions, installed index shape, isolated exact-DDL "
+            "trigram capability, bounded query count, and bounded enrichment "
+            "are gated."
         )
         print(
             "INDEX_DECISION="

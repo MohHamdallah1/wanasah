@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -609,7 +609,9 @@ async def verify_barcode_uom_isolation(
             expected_version=1,
             is_primary=False,
             valid_to=(
-                datetime.utcnow()
+                datetime.now(
+                    timezone.utc
+                ).replace(tzinfo=None)
                 + timedelta(days=1)
             ),
             is_active=False,
