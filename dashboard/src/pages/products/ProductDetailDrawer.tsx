@@ -79,7 +79,7 @@ export function ProductDetailDrawer({
         dir={i18n.dir()}
         className="absolute inset-y-0 end-0 flex w-full max-w-xl flex-col border-s border-slate-200 bg-white shadow-2xl"
       >
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
           <div className="min-w-0">
             <p className="text-xs font-black text-slate-400">
               {t(
@@ -88,7 +88,7 @@ export function ProductDetailDrawer({
             </p>
             <h2
               id="product-detail-title"
-              className="mt-1 truncate text-xl font-black text-slate-950"
+              className="mt-1 break-words text-lg font-black text-slate-950 sm:truncate sm:text-xl"
             >
               {product.name}
             </h2>
@@ -107,7 +107,7 @@ export function ProductDetailDrawer({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:space-y-4 sm:p-5">
           <section className="rounded-2xl border border-slate-200 p-4">
             <h3 className="text-sm font-black text-slate-900">
               {t(
@@ -310,7 +310,7 @@ export function ProductDetailDrawer({
         canManageBarcodes ||
         (canManageAdvancedUom &&
           !product.simple_compatible) ? (
-          <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
+          <footer className="grid shrink-0 grid-cols-1 gap-2 border-t border-slate-100 bg-slate-50 px-3 py-3 sm:flex sm:flex-wrap sm:justify-end sm:px-5 sm:py-4">
             {canEditPrice &&
             product.simple_compatible ? (
               <button
@@ -318,7 +318,7 @@ export function ProductDetailDrawer({
                 onClick={() =>
                   onEditPrice(product)
                 }
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
               >
                 {t(
                   "products.editPrice"
@@ -332,7 +332,7 @@ export function ProductDetailDrawer({
                 onClick={() =>
                   onManageBarcodes(product)
                 }
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
               >
                 {t(
                   "products.barcodeManager.action"
@@ -349,7 +349,7 @@ export function ProductDetailDrawer({
                     product
                   )
                 }
-                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-900 hover:bg-amber-100"
+                className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-900 hover:bg-amber-100 sm:w-auto"
               >
                 {t(
                   "products.advancedUom.productAction"
@@ -363,7 +363,7 @@ export function ProductDetailDrawer({
                 onClick={() =>
                   onEditTracking(product)
                 }
-                className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white"
+                className="w-full rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white sm:w-auto"
               >
                 {t(
                   "products.trackingEditor.action"
