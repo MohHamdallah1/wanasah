@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
@@ -39,7 +40,7 @@ export default function Login() {
   // تشغيل الساعة الرقمية
   useEffect(() => {
     // +++  (E-09): إزالة الثواني وتحديث الشاشة كل 10 ثوانٍ فقط لمنع الـ Re-render المفرط +++
-    const updateTime = () => setCurrentTime(new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }));
+    const updateTime = () => setCurrentTime(new Date().toLocaleTimeString(currentLocale(), { hour12: false, hour: '2-digit', minute: '2-digit' }));
     updateTime();
     const timer = setInterval(updateTime, 10000);
     return () => clearInterval(timer);
