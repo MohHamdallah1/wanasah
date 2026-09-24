@@ -20,6 +20,7 @@ type Props = {
   product: SimpleProduct | null;
   pricingVisible: boolean;
   canEditPrice: boolean;
+  canRenameProduct: boolean;
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
@@ -29,6 +30,7 @@ type Props = {
     boolean
   >;
   onClose: () => void;
+  onRenameProduct: (product: SimpleProduct) => void;
   onEditPrice: (product: SimpleProduct) => void;
   onEditTracking: (product: SimpleProduct) => void;
   onManageBarcodes: (product: SimpleProduct) => void;
@@ -40,6 +42,7 @@ export function ProductDetailDrawer({
   product,
   pricingVisible,
   canEditPrice,
+  canRenameProduct,
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
@@ -47,6 +50,7 @@ export function ProductDetailDrawer({
   detailSections =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.detailSections,
   onClose,
+  onRenameProduct,
   onEditPrice,
   onEditTracking,
   onManageBarcodes,
@@ -341,12 +345,28 @@ export function ProductDetailDrawer({
         </div>
 
         {canEditPrice ||
+        canRenameProduct ||
         canEditTracking ||
         canManageBarcodes ||
         canManageLifecycle ||
         (canManageAdvancedUom &&
           !product.simple_compatible) ? (
           <footer className="grid shrink-0 grid-cols-1 gap-2 border-t border-slate-100 bg-slate-50 px-3 py-3 sm:flex sm:flex-wrap sm:justify-end sm:px-5 sm:py-4">
+            {canRenameProduct &&
+            ["ACTIVE", "RETIRING"].includes(
+              product.lifecycle_status,
+            ) ? (
+              <button
+                type="button"
+                onClick={() =>
+                  onRenameProduct(product)
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
+              >
+                {t("products.rename.action")}
+              </button>
+            ) : null}
+
             {canEditPrice &&
             product.simple_compatible ? (
               <button
