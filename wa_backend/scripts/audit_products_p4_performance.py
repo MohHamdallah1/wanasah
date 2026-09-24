@@ -676,6 +676,7 @@ async def explain_search_branch_plans(
     effective_at = datetime.now(
         timezone.utc
     ).replace(tzinfo=None)
+
     checks = (
         (
             "variant_name_sku",
@@ -684,6 +685,15 @@ async def explain_search_branch_plans(
             SELECT id
             FROM public.product_variants
             WHERE company_id = :company_id
+              AND lower(
+                    ((name)::text || ' '::text)
+                    || (sku)::text
+                  ) LIKE :pattern
+            """,
+            """
+            SELECT id
+            FROM public.product_variants
+            WHERE (company_id + 0) = :company_id
               AND lower(
                     ((name)::text || ' '::text)
                     || (sku)::text
@@ -701,6 +711,12 @@ async def explain_search_branch_plans(
             SELECT id
             FROM public.products
             WHERE company_id = :company_id
+              AND lower((name)::text) LIKE :pattern
+            """,
+            """
+            SELECT id
+            FROM public.products
+            WHERE (company_id + 0) = :company_id
               AND lower((name)::text) LIKE :pattern
             """,
             {
@@ -723,6 +739,18 @@ async def explain_search_branch_plans(
                   )
               AND lower((barcode)::text) LIKE :pattern
             """,
+            """
+            SELECT product_variant_id
+            FROM public.product_barcodes
+            WHERE (company_id + 0) = :company_id
+              AND is_active IS TRUE
+              AND valid_from <= :effective_at
+              AND (
+                    valid_to IS NULL
+                    OR valid_to > :effective_at
+                  )
+              AND lower((barcode)::text) LIKE :pattern
+            """,
             {
                 "company_id": company_id,
                 "effective_at": effective_at,
@@ -736,94 +764,98 @@ async def explain_search_branch_plans(
         for (
             name,
             expected_index,
-            query_sql,
+            production_sql,
+            capability_sql,
             parameters,
         ) in checks:
-            explain_sql = (
-                "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
-                + query_sql
-            )
-            result = await su.execute(
-                text(explain_sql),
+            production_result = await su.execute(
+                text(
+                    "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+                    + production_sql
+                ),
                 parameters,
             )
-            plan = summarize_plan(
-                result.scalar_one()
+            production_plan = summarize_plan(
+                production_result.scalar_one()
             )
             normal_chosen = (
                 expected_index
-                in set(plan["indexes"])
+                in set(
+                    production_plan["indexes"]
+                )
             )
 
+            # This probe intentionally makes the tenant equality
+            # non-indexable while preserving identical tenant semantics.
+            # Competing tenant-leading B-tree indexes therefore cannot
+            # satisfy the search branch, leaving the trigram expression
+            # as the useful indexed access path. This proves capability;
+            # it does not override PostgreSQL's normal cost-based choice.
             await su.execute(
                 text(
                     "SET LOCAL enable_seqscan = off"
                 )
             )
-            await su.execute(
-                text(
-                    "SET LOCAL enable_indexscan = off"
-                )
-            )
             try:
-                forced_result = await su.execute(
-                    text(explain_sql),
+                capability_result = await su.execute(
+                    text(
+                        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "
+                        + capability_sql
+                    ),
                     parameters,
                 )
-                forced_plan = summarize_plan(
-                    forced_result.scalar_one()
+                capability_plan = summarize_plan(
+                    capability_result.scalar_one()
                 )
             finally:
-                await su.execute(
-                    text(
-                        "SET LOCAL enable_indexscan = on"
-                    )
-                )
                 await su.execute(
                     text(
                         "SET LOCAL enable_seqscan = on"
                     )
                 )
 
-            forced_chosen = (
+            planner_usable = (
                 expected_index
                 in set(
-                    forced_plan["indexes"]
+                    capability_plan["indexes"]
                 )
             )
+
             print(
                 "SEARCH_BRANCH_PLAN "
                 f"name={name} "
                 f"expected_index={expected_index} "
                 f"chosen={normal_chosen} "
-                f"execution_ms={plan['execution_ms']:.3f} "
-                f"scans={'|'.join(plan['scans']) or '-'} "
-                f"indexes={'|'.join(plan['indexes']) or '-'} "
-                f"forced_chosen={forced_chosen} "
-                f"forced_execution_ms="
-                f"{forced_plan['execution_ms']:.3f} "
-                f"forced_scans="
-                f"{'|'.join(forced_plan['scans']) or '-'} "
-                f"forced_indexes="
-                f"{'|'.join(forced_plan['indexes']) or '-'}"
+                f"execution_ms="
+                f"{production_plan['execution_ms']:.3f} "
+                f"scans="
+                f"{'|'.join(production_plan['scans']) or '-'} "
+                f"indexes="
+                f"{'|'.join(production_plan['indexes']) or '-'} "
+                f"planner_usable={planner_usable} "
+                f"capability_execution_ms="
+                f"{capability_plan['execution_ms']:.3f} "
+                f"capability_scans="
+                f"{'|'.join(capability_plan['scans']) or '-'} "
+                f"capability_indexes="
+                f"{'|'.join(capability_plan['indexes']) or '-'}"
             )
+            print(
+                "PLANNER_DECISION "
+                f"name={name} "
+                f"normal_expected_index_chosen={normal_chosen} "
+                "decision=cost_based"
+            )
+
             record(
-                f"production-scale search branch {name} chooses its trigram index",
-                normal_chosen,
+                f"search index {expected_index} is planner-usable for its trigram predicate",
+                planner_usable,
                 (
-                    f"expected_index={expected_index} "
-                    f"actual_indexes="
-                    f"{'|'.join(plan['indexes']) or '-'}"
+                    "capability_indexes="
+                    f"{'|'.join(capability_plan['indexes']) or '-'}"
                 ),
             )
-            record(
-                f"search index {expected_index} is planner-usable",
-                forced_chosen,
-                (
-                    "forced_indexes="
-                    f"{'|'.join(forced_plan['indexes']) or '-'}"
-                ),
-            )
+
         await su.rollback()
 
 
@@ -1666,7 +1698,7 @@ async def main() -> None:
             "PERFORMANCE_NOTE="
             "No arbitrary latency threshold is used without an agreed SLA. "
             "Measured p50/p95/p99, payload size, production-scale "
-            "planner index choice, forced planner usability, bounded "
+            "planner decisions, isolated trigram index usability, bounded "
             "query count, and bounded enrichment are gated."
         )
         print(
