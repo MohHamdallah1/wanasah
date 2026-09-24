@@ -113,6 +113,76 @@ describe("Products P8 production frontend gate", () => {
     );
   });
 
+  it("routes Products lifecycle management through the authoritative durable catalog workflow", () => {
+    const page = compact(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
+    );
+    const drawer = compact(
+      readSource(
+        "../pages/products/ProductDetailDrawer.tsx",
+      ),
+    );
+    const manager = compact(
+      readSource(
+        "../pages/products/ProductLifecycleManager.tsx",
+      ),
+    );
+    const actions = compact(
+      readSource(
+        "../pages/inventory/catalog/CatalogLifecycleActions.tsx",
+      ),
+    );
+    const catalogPanel = compact(
+      readSource(
+        "../pages/inventory/catalog/CatalogLifecyclePanel.tsx",
+      ),
+    );
+    const backend = compact(
+      readSource(
+        "../../../wa_backend/api/simple_products.py",
+      ),
+    );
+
+    expect(page).toContain(
+      "<ProductLifecycleManager",
+    );
+    expect(page).toContain(
+      "canManageLifecycle={ canManageLifecycle }",
+    );
+    expect(drawer).toContain(
+      '"products.lifecycleManager.action"',
+    );
+    expect(manager).toContain(
+      '"/catalog/variants/resolve"',
+    );
+    expect(manager).toContain(
+      "parseCatalogPage(",
+    );
+    expect(actions).toContain(
+      "getOrCreateDurableCommand(",
+    );
+    expect(actions).toContain(
+      "readDurableCommand<unknown>(",
+    );
+    expect(actions).toContain(
+      '"catalog-lifecycle-command-v1"',
+    );
+    expect(actions).toContain(
+      "isAmbiguousRequestError(",
+    );
+    expect(actions).not.toContain(
+      "crypto.randomUUID()",
+    );
+    expect(catalogPanel).toContain(
+      "<CatalogLifecycleActions",
+    );
+    expect(backend).toContain(
+      '"operational_hold": str( variant.operational_hold )',
+    );
+  });
+
   it("distinguishes package-UOM and import-poll failures from empty/loading states", () => {
     const page = compact(
       readSource(

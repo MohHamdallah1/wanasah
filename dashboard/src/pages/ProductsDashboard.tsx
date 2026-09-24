@@ -73,6 +73,7 @@ import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayPreferences";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
+import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
@@ -229,6 +230,20 @@ export default function ProductsDashboard() {
     canManageCatalog;
   const canEditSimplePrice =
     canManagePricing;
+  const canManageLifecycle =
+    access.isCompanyAdmin ||
+    access.can(
+      "catalog.retire"
+    ) ||
+    access.can(
+      "catalog.restore"
+    ) ||
+    access.can(
+      "catalog.archive"
+    ) ||
+    access.can(
+      "catalog.hold"
+    );
 
   const [
     searchInput,
@@ -433,6 +448,12 @@ export default function ProductsDashboard() {
   const [
     barcodeProduct,
     setBarcodeProduct,
+  ] = useState<SimpleProduct | null>(
+    null
+  );
+  const [
+    lifecycleProduct,
+    setLifecycleProduct,
   ] = useState<SimpleProduct | null>(
     null
   );
@@ -3680,6 +3701,9 @@ export default function ProductsDashboard() {
         canManageBarcodes={
           canManageCatalog
         }
+        canManageLifecycle={
+          canManageLifecycle
+        }
         canManageAdvancedUom={
           canManageCatalog
         }
@@ -3700,6 +3724,12 @@ export default function ProductsDashboard() {
             product
           );
         }}
+        onManageLifecycle={(product) => {
+          setDetailProduct(null);
+          setLifecycleProduct(
+            product
+          );
+        }}
         onManageBarcodes={(product) => {
           setDetailProduct(null);
           setBarcodeProduct(
@@ -3710,6 +3740,22 @@ export default function ProductsDashboard() {
           setDetailProduct(null);
           navigate(
             `/products/advanced-uom?variant=${product.id}`
+          );
+        }}
+      />
+
+      <ProductLifecycleManager
+        product={lifecycleProduct}
+        onClose={() =>
+          setLifecycleProduct(null)
+        }
+        onChanged={async () => {
+          await queryClient.invalidateQueries(
+            {
+              queryKey: [
+                "simple-products",
+              ],
+            }
           );
         }}
       />

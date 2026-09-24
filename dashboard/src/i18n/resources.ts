@@ -246,6 +246,13 @@ export const resources = {
             "هذا المنتج يحتوي إعدادات متقدمة؛ اعرض تفاصيله هنا واستخدم الإدارة المتقدمة عند الحاجة للتعديل.",
           notSet: "غير محدد",
         },
+        lifecycleManager: {
+          action: "إدارة دورة الحياة",
+          title:
+            "إدارة دورة الحياة — {{name}}",
+          loadFailed:
+            "تعذر تحميل الحالة التشغيلية الحالية للمنتج.",
+        },
         barcodeManager: {
           action: "إدارة الباركود",
           title: "إدارة الباركود — {{name}}",
@@ -1478,6 +1485,13 @@ export const resources = {
           advancedOnly:
             "This product has advanced settings; review its details here and use advanced management when an edit is required.",
           notSet: "Not set",
+        },
+        lifecycleManager: {
+          action: "Manage lifecycle",
+          title:
+            "Manage lifecycle — {{name}}",
+          loadFailed:
+            "Could not load the product's current operational state.",
         },
         barcodeManager: {
           action: "Manage barcodes",
