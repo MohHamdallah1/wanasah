@@ -103,6 +103,8 @@ describe(
         screen.getByRole("button", {
           name: "Open",
         });
+      opener.focus();
+      expect(opener).toHaveFocus();
       fireEvent.click(opener);
 
       const first =
