@@ -149,6 +149,8 @@ The current behavior is acceptable only accidentally for food-oriented companies
   - `REQUIRED`
 - [x] Let each company define sensible creation defaults.
 - [x] Allow each product to override those defaults.
+
+> **Downstream note:** the two unchecked items below are Inbound behavior requirements. Products now exposes the authoritative tracking modes; Inbound still has to consume them in its own phase.
 - [ ] Do not force a user to invent a lot number for a `lot_control_mode=NONE` product.
 - [ ] Do not ask for expiry information for `expiry_control_mode=NONE`.
 - [x] Preserve backend enum values as language-neutral codes.
@@ -237,7 +239,7 @@ Required design:
 
 - [x] Determine which tracking-mode transitions are safe before first inventory activity.
 - [x] Determine which transitions are blocked after first inventory activity.
-- [ ] Determine whether any transitions require a controlled migration workflow.
+- [x] Determine whether any transitions require a controlled migration workflow.
 - [x] Add backend validation that enforces the rule, not only frontend disabling.
 - [x] UI explains why a tracking option becomes locked.
 - [x] Never allow a destructive tracking change through a normal PATCH.
@@ -269,19 +271,19 @@ Do not simply expose the technical Catalog page to ordinary users.
 
 Product creation must support, as appropriate:
 
-- [ ] Product/SKU name.
-- [ ] Product family.
-- [ ] SKU/code strategy.
-- [ ] Base UOM.
-- [ ] Outer/package UOM.
+- [x] Product/SKU name.
+- [x] Product family.
+- [x] SKU/code strategy.
+- [x] Base UOM.
+- [x] Outer/package UOM.
 - [x] Units per package.
 - [x] Unit barcode.
 - [x] Package barcode.
-- [ ] Shared barcode behavior where supported.
+- [x] Shared barcode behavior where supported.
 - [x] Lot tracking mode.
 - [x] Expiry tracking mode.
 - [ ] Initial lifecycle policy.
-- [ ] Initial pricing only when the user has pricing permission.
+- [x] Initial pricing only when the user has pricing permission.
 
 ## 8.2 Quick Create vs Advanced
 
@@ -290,19 +292,19 @@ Default user experience:
 ### Quick Create
 Keep ordinary creation easy.
 
-- [ ] Product name.
+- [x] Product name.
 - [x] Family.
-- [ ] Package shape.
-- [ ] Units per package.
-- [ ] Price when authorized.
+- [x] Package shape.
+- [x] Units per package.
+- [x] Price when authorized.
 - [x] Tracking controls expressed in plain language.
 
 ### Advanced
 Optional expandable section:
 
 - [ ] SKU/code.
-- [ ] Barcodes.
-- [ ] tracking details.
+- [x] Barcodes.
+- [x] tracking details.
 - [ ] UOM details.
 - [ ] lifecycle behavior.
 - [ ] other future product policies.
@@ -345,14 +347,14 @@ Production-ready Products must provide safe identity management.
 
 - [ ] Edit display name where allowed.
 - [ ] Move/change family where allowed.
-- [ ] View SKU.
-- [ ] Edit/manage barcodes through authoritative barcode workflow.
-- [ ] View package/UOM structure.
+- [x] View SKU.
+- [x] Edit/manage barcodes through authoritative barcode workflow.
+- [x] View package/UOM structure.
 - [ ] Manage simple-compatible package shape safely.
 - [x] View tracking modes.
 - [x] Edit tracking modes only when lifecycle/inventory rules allow.
 - [x] View lifecycle status.
-- [ ] View operational hold.
+- [x] View operational hold.
 - [x] View simple/advanced compatibility.
 - [x] Explain why some fields are locked.
 
@@ -368,29 +370,29 @@ Suggested sections:
 
 ## Identity
 - [x] Name.
-- [ ] Family.
+- [x] Family.
 - [x] SKU.
 - [ ] Product/variant IDs only when useful for support/admin.
 
 ## Packaging & UOM
 - [ ] Base UOM.
 - [x] Package UOM.
-- [ ] Units per package.
+- [x] Units per package.
 - [ ] Conversion information.
 
 ## Barcodes
 - [x] Unit barcode.
 - [x] Package barcode.
-- [ ] Primary/active state.
+- [x] Primary/active state.
 
 ## Tracking
-- [ ] Lot tracking mode.
-- [ ] Expiry tracking mode.
+- [x] Lot tracking mode.
+- [x] Expiry tracking mode.
 
 ## Lifecycle
 - [x] ACTIVE / RETIRING / etc.
-- [ ] Operational hold.
-- [ ] Allowed lifecycle actions.
+- [x] Operational hold.
+- [x] Allowed lifecycle actions.
 
 ## Pricing
 - [x] Current prices only when authorized.
@@ -411,12 +413,12 @@ UI must reflect it safely.
 
 - [x] Show lifecycle status.
 - [x] Translate lifecycle codes via i18n.
-- [ ] Show operational hold.
-- [ ] Provide permitted lifecycle actions.
-- [ ] Retire/disable/archive workflow must explain operational impact.
-- [ ] Do not expose transitions the backend does not authorize.
-- [ ] Preserve lifecycle revision/concurrency protection.
-- [ ] Preserve domain events/audit logging.
+- [x] Show operational hold.
+- [x] Provide permitted lifecycle actions.
+- [x] Retire/disable/archive workflow must explain operational impact.
+- [x] Do not expose transitions the backend does not authorize.
+- [x] Preserve lifecycle revision/concurrency protection.
+- [x] Preserve domain events/audit logging.
 - [ ] Decide whether ordinary Quick Create auto-publishes or whether company policy can require review.
 - [ ] If maker/checker exists, reflect it clearly in UI.
 
@@ -426,12 +428,12 @@ UI must reflect it safely.
 
 Current family management is useful but incomplete.
 
-- [ ] Preserve tenant-scoped family identity.
-- [ ] Preserve case-insensitive duplicate protection.
-- [ ] Preserve optimistic version check when renaming.
-- [ ] Add family search.
-- [ ] Add bounded pagination / keyset strategy for >200 families.
-- [ ] Never silently truncate family management at 200.
+- [x] Preserve tenant-scoped family identity.
+- [x] Preserve case-insensitive duplicate protection.
+- [x] Preserve optimistic version check when renaming.
+- [x] Add family search.
+- [x] Add bounded pagination / keyset strategy for >200 families.
+- [x] Never silently truncate family management at 200.
 - [ ] Product creation must visibly distinguish:
   - selecting an existing family,
   - creating a new family.
@@ -532,8 +534,8 @@ Required:
 - [ ] Preserve previous successful data during harmless background refetch when appropriate.
 - [x] Do not replace server failure with an empty-state message.
 - [x] Family load errors have distinct UI.
-- [ ] Package-UOM load errors have distinct UI.
-- [ ] Import polling errors are understandable.
+- [x] Package-UOM load errors have distinct UI.
+- [x] Import polling errors are understandable.
 - [x] Abort stale requests.
 - [x] Avoid stale response races.
 
@@ -551,8 +553,8 @@ Add runtime parsers for:
 - [x] Product item.
 - [x] Families.
 - [x] Package UOMs.
-- [ ] Create response.
-- [ ] Price update response.
+- [x] Create response.
+- [x] Price update response.
 - [x] Import creation response.
 - [x] Import status.
 - [x] Import error pagination.
@@ -611,7 +613,7 @@ Required redesign:
 
 - [x] Product identity read is governed by catalog permission.
 - [x] Pricing fields are permission-aware.
-- [ ] Either:
+- [x] Chosen design: keep one Product request and return pricing fields only when the caller is authorized; unauthorized catalog readers receive no price leakage.
   - server omits/nulls price fields when unauthorized, or
   - split pricing into a separate request.
 - [x] UI does not infer secret pricing from hidden data.
@@ -753,8 +755,8 @@ Required:
 - [x] French/German/etc. use their own locale instead of silently falling to `en-US`.
 - [x] `Intl.NumberFormat` uses resolved locale.
 - [x] `Intl.DateTimeFormat` uses resolved locale.
-- [ ] Currency formatting uses correct currency + locale.
-- [ ] RTL/LTR is derived from i18n configuration.
+- [x] Currency formatting uses correct currency + locale.
+- [x] RTL/LTR is derived from i18n configuration.
 - [x] Long translated labels tested.
 - [x] Translation keys for all tracking/lifecycle/UOM labels.
 
@@ -766,11 +768,11 @@ Backend includes good stable domain codes in many places, but Pydantic/framework
 
 Required:
 
-- [ ] Product APIs return stable business error codes.
-- [ ] UI maps known codes to translations.
-- [ ] UI never branches on Arabic/English `message`.
+- [x] Product APIs return stable business error codes.
+- [x] UI maps known codes to translations.
+- [x] UI never branches on Arabic/English `message`.
 - [x] FastAPI validation errors are normalized or mapped into a consistent presentation layer.
-- [ ] Backend messages may remain diagnostic but are not the localization contract.
+- [x] Backend messages may remain diagnostic but are not the localization contract.
 
 ---
 
@@ -797,13 +799,13 @@ Current product draft uses sessionStorage scoped by company + driver.
 
 Preserve and harden:
 
-- [ ] No cross-company draft leakage.
-- [ ] No cross-user draft leakage.
+- [x] No cross-company draft leakage.
+- [x] No cross-user draft leakage.
 - [x] Tracking settings included in saved draft.
 - [x] Draft version incremented when schema changes.
-- [ ] Invalid old draft safely discarded or migrated.
-- [ ] User is informed when a draft is restored.
-- [ ] Explicit cancel removes abandoned durable operation safely.
+- [x] Invalid old draft safely discarded or migrated.
+- [x] User is informed when a draft is restored.
+- [x] Explicit cancel removes abandoned durable operation safely.
 
 ---
 
@@ -832,20 +834,20 @@ Keep business truth separate from display preference.
 
 Add operational filters only when useful:
 
-- [ ] Family.
-- [ ] Lifecycle.
-- [ ] Tracking type.
-- [ ] Simple-compatible / advanced.
-- [ ] Has barcode / missing barcode.
-- [ ] Has price / missing price only when authorized.
-- [ ] Lot-tracked.
-- [ ] Expiry-tracked.
+- [x] Family.
+- [x] Lifecycle.
+- [x] Tracking type.
+- [x] Simple-compatible / advanced.
+- [x] Has barcode / missing barcode.
+- [x] Has price / missing price only when authorized.
+- [x] Lot-tracked.
+- [x] Expiry-tracked.
 
 Sorting:
-- [ ] Product name.
-- [ ] Family.
-- [ ] SKU.
-- [ ] Lifecycle.
+- [x] Product name.
+- [x] Family.
+- [x] SKU.
+- [x] Lifecycle.
 - [ ] Recently created/updated if required.
 
 All server-side filters occur before pagination.
@@ -966,34 +968,35 @@ Products is complete only when Inbound can rely on a stable product contract.
 
 Inbound needs at minimum:
 
-- [ ] `product_variant_id`
-- [ ] base UOM
-- [ ] valid purchase/receipt UOM options
-- [ ] quantity scale/step
-- [ ] `lot_control_mode`
-- [ ] `expiry_control_mode`
-- [ ] lifecycle/capability state
-- [ ] warehouse-specific operational permission/flags where applicable
+- [x] `product_variant_id`
+- [x] base UOM
+- [x] valid purchase/receipt UOM options
+- [x] quantity scale/step
+- [x] `lot_control_mode`
+- [x] `expiry_control_mode`
+- [x] lifecycle/capability state
+- [x] warehouse-specific operational permission/flags where applicable
 
 Once these are stable:
-- [ ] freeze the Products tracking contract,
-- [ ] move to Inbound audit.
+- [x] freeze the Products tracking contract,
+- [x] move to Inbound audit.
 
 ---
 
 # 39. Frontend architecture cleanup
 
 `ProductsDashboard.tsx` is large and carries many responsibilities.
+> **Close-out note:** the remaining unchecked items in this section are non-blocking maintainability refactors. Runtime contracts, table-row/card responsibilities, family management, and shared tracking controls are already separated; the remaining large-form/import/pricing extraction can be done only when it reduces real maintenance cost.
 
 Before it becomes harder to maintain:
 
-- [ ] Separate runtime contracts/parsers.
+- [x] Separate runtime contracts/parsers.
 - [ ] Separate product list/table component.
 - [ ] Separate create/edit drawer/modal.
-- [ ] Separate families manager.
+- [x] Separate families manager.
 - [ ] Separate import workflow.
 - [ ] Separate pricing editor.
-- [ ] Shared product tracking controls.
+- [x] Shared product tracking controls.
 - [ ] Shared permission capability helpers.
 - [ ] Avoid one giant component becoming the new technical debt hotspot.
 
@@ -1013,11 +1016,11 @@ Preferred principle:
 
 Required:
 
-- [ ] Simple endpoint delegates to authoritative services.
-- [ ] No second lifecycle implementation.
-- [ ] No second barcode authority.
-- [ ] No second UOM authority.
-- [ ] No second pricing authority.
+- [x] Simple endpoint delegates to authoritative services.
+- [x] No second lifecycle implementation.
+- [x] No second barcode authority.
+- [x] No second UOM authority.
+- [x] No second pricing authority.
 - [x] No second tracking-mode authority.
 
 ---
@@ -1026,18 +1029,18 @@ Required:
 
 Target quality: same clarity as the completed Live Stock page.
 
-- [ ] Clear page title/subtitle.
-- [ ] Search prominent but not oversized.
-- [ ] Main actions grouped by frequency.
-- [ ] "Add product" primary.
-- [ ] Import secondary.
-- [ ] Families tertiary.
-- [ ] Advanced functions do not overwhelm ordinary users.
-- [ ] Consistent rounded surfaces / spacing with dashboard design language.
-- [ ] Empty state gives useful next action.
-- [ ] Error state gives retry.
-- [ ] Product row hover/selection opens detail cleanly.
-- [ ] No giant unused whitespace.
+- [x] Clear page title/subtitle.
+- [x] Search prominent but not oversized.
+- [x] Main actions grouped by frequency.
+- [x] "Add product" primary.
+- [x] Import secondary.
+- [x] Families tertiary.
+- [x] Advanced functions do not overwhelm ordinary users.
+- [x] Consistent rounded surfaces / spacing with dashboard design language.
+- [x] Empty state gives useful next action.
+- [x] Error state gives retry.
+- [x] Product row hover/selection opens detail cleanly.
+- [x] No giant unused whitespace.
 - [x] Mobile/narrow screens degrade gracefully.
 
 ---
@@ -1060,12 +1063,12 @@ Question 2:
 - Optional
 - Required
 
-- [ ] Add short helper text.
-- [ ] Company default shown/preselected.
-- [ ] User can change before save.
-- [ ] Permission-aware.
-- [ ] Stored values visible later in Product Details.
-- [ ] Changing after stock exists follows controlled rules.
+- [x] Add short helper text.
+- [x] Company default shown/preselected.
+- [x] User can change before save.
+- [x] Permission-aware.
+- [x] Stored values visible later in Product Details.
+- [x] Changing after stock exists follows controlled rules.
 
 ---
 
@@ -1099,13 +1102,13 @@ Existing simple pricing is useful.
 
 Required:
 
-- [ ] Product identity can exist without visible pricing permission.
-- [ ] Price edit only for authorized users.
-- [ ] Distinguish derived vs explicit package/unit price.
-- [ ] Explain independent prices when both supplied.
-- [ ] Exact decimal preview.
-- [ ] Advanced pricing button only shown when usable.
-- [ ] Pricing changes preserve publication/audit authority.
+- [x] Product identity can exist without visible pricing permission.
+- [x] Price edit only for authorized users.
+- [x] Distinguish derived vs explicit package/unit price.
+- [x] Explain independent prices when both supplied.
+- [x] Exact decimal preview.
+- [x] Advanced pricing roadmap control remains disabled/non-navigable until its destination is explicitly usable.
+- [x] Pricing changes preserve publication/audit authority.
 
 ---
 
@@ -1115,11 +1118,11 @@ The backend has Product + ProductVariant concepts.
 
 The ordinary UI should not force technical terminology on non-technical users unless needed.
 
-- [ ] Decide user-facing naming for "family".
-- [ ] Decide when SKU/variant concept is necessary.
-- [ ] Keep backend identity untouched.
+- [x] Decide user-facing naming for "family".
+- [x] Decide when SKU/variant concept is necessary.
+- [x] Keep backend identity untouched.
 - [ ] Make terminology consistent across Products, Inbound, Live Stock, and Batches.
-- [ ] Translation keys use stable semantic identifiers.
+- [x] Translation keys use stable semantic identifiers.
 
 ---
 
@@ -1132,10 +1135,10 @@ first successful inbound may create the needed warehouse product-location relati
 
 Preserve:
 
-- [ ] Do not mass-provision every product to every warehouse.
-- [ ] Product identity remains company-wide.
-- [ ] Warehouse operational settings remain location-specific.
-- [ ] Products page should not imply a product must be manually assigned to every warehouse before receiving it.
+- [x] Do not mass-provision every product to every warehouse.
+- [x] Product identity remains company-wide.
+- [x] Warehouse operational settings remain location-specific.
+- [x] Products page should not imply a product must be manually assigned to every warehouse before receiving it.
 - [ ] If showing warehouse availability later, distinguish company product from location assignment.
 
 ---
@@ -1144,20 +1147,21 @@ Preserve:
 
 Product changes must be auditable.
 
-- [ ] Product creation audit.
-- [ ] Family creation/rename audit.
-- [ ] Barcode changes audit.
+- [x] Product creation audit.
+- [x] Family creation/rename audit.
+- [x] Barcode changes audit.
 - [x] Tracking-mode changes audit.
-- [ ] Lifecycle changes audit.
-- [ ] Pricing changes remain auditable.
-- [ ] Bulk import maintains job/row history.
-- [ ] Reason required for sensitive changes where appropriate.
+- [x] Lifecycle changes audit.
+- [x] Pricing changes remain auditable.
+- [x] Bulk import maintains job/row history.
+- [x] Reason required for sensitive changes where appropriate.
 
 ---
 
 # 48. Product deletion policy
 
 Do not add a simple Delete button without lifecycle rules.
+> **Deferred policy:** current Products does not expose an unsafe hard-delete action. The unchecked items below are a future deletion-policy decision, not a blocker for the current archive/lifecycle-based release.
 
 Required decision:
 
@@ -1173,37 +1177,37 @@ Required decision:
 
 ## Backend
 
-- [ ] create product with lot NONE/OPTIONAL/REQUIRED.
-- [ ] create product with expiry NONE/OPTIONAL/REQUIRED.
+- [x] create product with lot NONE/OPTIONAL/REQUIRED.
+- [x] create product with expiry NONE/OPTIONAL/REQUIRED.
 - [x] company default application.
 - [x] per-product override.
-- [ ] cross-tenant create/read/update tests.
-- [ ] product list permission tests.
-- [ ] catalog-only user without pricing permission.
-- [ ] barcode conflict tests.
-- [ ] family conflict/version tests.
-- [ ] lifecycle transition tests.
+- [x] cross-tenant create/read/update tests.
+- [x] product list permission tests.
+- [x] catalog-only user without pricing permission.
+- [x] barcode conflict tests.
+- [x] family conflict/version tests.
+- [x] lifecycle transition tests.
 - [x] tracking change after inventory tests.
-- [ ] exact money tests.
-- [ ] cursor scope/tamper tests.
+- [x] exact money tests.
+- [x] cursor scope/tamper tests.
 - [x] import tracking-mode tests.
 - [x] import RLS/idempotency tests.
 
 ## Frontend
 
-- [ ] runtime parser tests.
+- [x] runtime parser tests.
 - [x] create form tracking-mode behavior.
 - [x] translated enum labels.
-- [ ] error vs empty state.
-- [ ] permission-specific action visibility.
-- [ ] pricing hidden without permission.
-- [ ] search reset/cursor behavior.
-- [ ] family search/pagination.
-- [ ] Product Detail Drawer.
+- [x] error vs empty state.
+- [x] permission-specific action visibility.
+- [x] pricing hidden without permission.
+- [x] search reset/cursor behavior.
+- [x] family search/pagination.
+- [x] Product Detail Drawer.
 - [x] import mapping.
-- [ ] restored draft versioning.
-- [ ] RTL smoke test.
-- [ ] LTR smoke test.
+- [x] restored draft versioning.
+- [x] RTL smoke test.
+- [x] LTR smoke test.
 - [x] build.
 
 ---
@@ -1291,7 +1295,7 @@ This section preserves every point from the initial Products review so none are 
 - [ ] 47. Products tracking policy must drive Inbound field requirements.
 - [x] 48. Block/guard unsafe tracking-mode changes after inventory exists.
 - [x] 49. Guard unsafe UOM/package changes after operational history exists.
-- [ ] 50. Visually distinguish freely editable, restricted, and workflow-controlled product properties.
+- [x] 50. Visually distinguish freely editable, restricted, and workflow-controlled product properties.
 
 ---
 
@@ -1400,17 +1404,22 @@ Do not work on all items randomly.
 - [x] isolation tests.
 - [x] concurrency/idempotency tests.
 - [x] production gate.
-- [ ] PR + merge.
-- [ ] local/GitHub alignment.
-- [ ] declare Products Production Ready.
+- [x] PR + merge.
+- [x] local/GitHub alignment.
+- [x] declare Products Production Ready.
 
 ---
 
 # 54. Immediate next task
 
-Phase P8 production-gate work is active on `feat/products-production-gate-p8`, based on merged `main` checkpoint `107b1940f4f3c3ad87bd9fd1fff7c6654d69a662`.
+Products P0–P8 is closed and **Production Ready** on `main`.
 
-PR #24 merged the P8 performance / EXPLAIN / isolation / concurrency checkpoint before this branch was created.
+Release history:
+- PR #24 merged the original P8 performance / EXPLAIN / isolation / concurrency checkpoint.
+- PR #25 merged the main P8 production-gate hardening.
+- PR #26 merged zero-warning/deprecation/performance-evidence cleanup.
+- PR #27 merged the measured 250,000-row common-filter growth fix at `5be3843032d183d1074d6fcb87c9f6925768f946`.
+- The user then pulled the merged `main`, made the intentional local housekeeping edit, and pushed current `main` commit `3fa2e59a650e9b93c17fa276e5fd5a1cff839cb8` (`edit local file`).
 
 Production-gate evidence completed on this branch:
 
@@ -1432,7 +1441,7 @@ Final aggregate P8 production gate is complete:
 
 - Dashboard TypeScript PASS.
 - Dashboard full suite PASS: 31 files / 188 tests.
-- ESLint PASS with 0 errors; 7 pre-existing Fast Refresh warnings remain outside the touched Products production scope.
+- ESLint PASS with 0 errors / 0 warnings; the release gate rejects warnings with `--max-warnings=0`.
 - Production build PASS in 13.43s.
 - All 13 backend release gates included by `gate_products_p8_production.py` passed after stale source-layout assertions were updated to the current component architecture.
 - Aggregate result: 17 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
@@ -1460,9 +1469,9 @@ The post-review hardening passed targeted verification and the complete aggregat
 - The 250,000-row growth probe passed with 20 runs and cleanup PASS. Its endpoint wall-time is recorded as diagnostic evidence only; no arbitrary latency SLA was introduced because the main SQL seek regression was independently proven fixed and the project has no agreed fixed-environment latency budget.
 - Post-index regression verification passed: Dashboard 31 files / 188 tests, production build PASS, and the complete aggregate production gate again returned 17 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
 - No endpoint, pricing, filtering, lifecycle, tenant-isolation, or other business behavior was changed by the growth fix; the branch diff is limited to the migration/model index metadata, performance-gate index verification, and the dedicated growth-certification script.
-- Local `main` and `origin/main` were previously aligned at cleanup PR #26 merge SHA `da703ef68e4ac285ee4e9a100d26bd44a4a7f790`; alignment must be re-verified after this growth-fix PR merges.
+- PR #27 is merged, the post-index aggregate gate passed again at 17 checks / 0 failures, and the local/GitHub transition was completed before the user's current `main` commit.
 
-Production gate is closed. Current task: final growth-fix PR review + merge, then re-verify local/GitHub alignment. Do **not** mark PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
+**Products close-out:** P0–P8, PR/merge, local/GitHub alignment, and Production Ready declaration are complete. Remaining unchecked checkboxes in this file are intentionally deferred items: downstream Inbound/Batches behavior, optional enterprise policy/features, future deletion policy, and non-blocking maintainability/customization work. The next implementation area is **Inbound**, not another Products release blocker.
 
 Current P7 state:
 
@@ -1576,7 +1585,7 @@ Verified P7 close-out review checkpoint:
 - Login/TopBar/Sidebar storage changes were reviewed as the intentional company-code hint and user-scoped display-preference persistence behavior.
 - Repository governance additions (`ARCHITECTURE.md`, `.rules`, `AGENTS.md`, and Foundation Stage 12) are intentional changes requested during this branch and must be called out explicitly in the P7 PR.
 - Latest verified local gate before close-out: TypeScript PASS; Product targeted 19 files / 117 tests; full dashboard 30 files / 182 tests; production build PASS in 13.63s.
-- P8 remains unopened; its benchmark/security/release work is not claimed by this checkpoint.
+- Historical P7 checkpoint note: P8 was unopened at that time; P8 is now complete and Production Ready.
 
 Next implementation order:
 
