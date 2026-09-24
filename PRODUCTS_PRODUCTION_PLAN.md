@@ -871,43 +871,43 @@ All server-side filters occur before pagination.
 Before Production Ready:
 
 ## Product list
-- [ ] Measure normal unfiltered page.
-- [ ] Measure name search.
-- [ ] Measure family search.
-- [ ] Measure SKU search.
-- [ ] Measure barcode search.
-- [ ] Measure common filters.
-- [ ] Measure page continuation.
+- [x] Measure normal unfiltered page.
+- [x] Measure name search.
+- [x] Measure family search.
+- [x] Measure SKU search.
+- [x] Measure barcode search.
+- [x] Measure common filters.
+- [x] Measure page continuation.
 
 Metrics:
-- [ ] SQL count.
-- [ ] DB execution time.
-- [ ] endpoint p50.
-- [ ] endpoint p95.
-- [ ] endpoint p99 where practical.
-- [ ] payload size.
+- [x] SQL count.
+- [x] DB execution time.
+- [x] endpoint p50.
+- [x] endpoint p95.
+- [x] endpoint p99 where practical.
+- [x] payload size.
 
 Review:
-- [ ] No N+1.
-- [ ] No unbounded `.all()`.
-- [ ] Stable query count.
-- [ ] Bounded enrichment.
-- [ ] EXPLAIN reviewed.
-- [ ] Indexes justified by evidence.
-- [ ] Permanent regression gate.
+- [x] No N+1.
+- [x] No unbounded `.all()`.
+- [x] Stable query count.
+- [x] Bounded enrichment.
+- [x] EXPLAIN reviewed.
+- [x] Indexes justified by evidence.
+- [x] Permanent regression gate.
 
 ---
 
 # 35. Backend isolation tests
 
-- [ ] Cross-company product ID lookup fails closed.
-- [ ] Cross-company family ID fails closed.
-- [ ] Cross-company barcode cannot be read/modified.
-- [ ] Cross-company UOM conversion cannot be read/modified.
-- [ ] Search never leaks foreign product names.
-- [ ] Import worker sets and enforces tenant context.
-- [ ] Import job RLS remains ENABLE + FORCE.
-- [ ] Product import rows remain tenant-isolated.
+- [x] Cross-company product ID lookup fails closed.
+- [x] Cross-company family ID fails closed.
+- [x] Cross-company barcode cannot be read/modified.
+- [x] Cross-company UOM conversion cannot be read/modified.
+- [x] Search never leaks foreign product names.
+- [x] Import worker sets and enforces tenant context.
+- [x] Import job RLS remains ENABLE + FORCE.
+- [x] Product import rows remain tenant-isolated.
 
 ---
 
@@ -917,14 +917,14 @@ Preserve existing strong foundations.
 
 Required tests:
 
-- [ ] Product create replay is idempotent.
-- [ ] Changed payload with reused request ID fails.
-- [ ] Family create/rename concurrency.
-- [ ] Family version conflict.
-- [ ] Price update idempotency.
-- [ ] Barcode uniqueness race.
+- [x] Product create replay is idempotent.
+- [x] Changed payload with reused request ID fails.
+- [x] Family create/rename concurrency.
+- [x] Family version conflict.
+- [x] Price update idempotency.
+- [x] Barcode uniqueness race.
 - [x] Tracking-mode update concurrency.
-- [ ] Lifecycle transition revision conflict.
+- [x] Lifecycle transition revision conflict.
 - [x] Import replay/resume remains safe.
 
 ---
@@ -1395,10 +1395,10 @@ Do not work on all items randomly.
 
 ## Phase P8 — Performance / security / release
 
-- [ ] query benchmark.
-- [ ] EXPLAIN.
-- [ ] isolation tests.
-- [ ] concurrency/idempotency tests.
+- [x] query benchmark.
+- [x] EXPLAIN.
+- [x] isolation tests.
+- [x] concurrency/idempotency tests.
 - [ ] production gate.
 - [ ] PR + merge.
 - [ ] local/GitHub alignment.
@@ -1408,7 +1408,15 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Phase P7 implementation and close-out review are complete. **P8 must not start until the P7 pull request is merged to `main` and local/GitHub alignment is verified.**
+Phase P8 is open on `feat/products-performance-security-release-p8`.
+
+Performance benchmark and EXPLAIN review are complete.
+
+Backend isolation tests are complete.
+
+P8 concurrency / idempotency verification is complete.
+
+**Checkpoint stop:** do not start the production gate in this work session. Merge the completed P8 performance / isolation / concurrency checkpoint to `main`. The next P8 work item remains `production gate`, intentionally unopened until work resumes from a fresh branch based on the merged `main`.
 
 Current P7 state:
 
@@ -1533,6 +1541,55 @@ Next implementation order:
 5. Configurable display preferences are complete and verified.
 6. P7 implementation is complete.
 7. P7 close-out review / gate synchronization is complete.
-8. Transition prerequisite: merge the reviewed P7 PR to `main`, then verify local `main == origin/main` before starting P8.
+8. P7 PR merged and local/GitHub transition prerequisite satisfied.
+9. P8 order: final query benchmark → EXPLAIN review → isolation tests → concurrency/idempotency tests → production gate → PR/merge → local/GitHub alignment → Production Ready declaration.
 
-Do not start P8 until P7 is complete, reviewed, and merged to `main`.
+P8 is now active. Do not skip forward past a failing gate.
+
+Verified P8 Product performance / EXPLAIN checkpoint:
+
+- Final Product performance gate ran with 5,000 seeded Product rows and 20 measured runs per scenario.
+- All 21 performance checks passed; `PRODUCTS_P4_PERFORMANCE_AUDIT=PASS` and `PRODUCTS_P8_PERFORMANCE_GATE=PASS`.
+- Measured scenarios include unfiltered page, name/family/SKU/barcode search, common filters, has-price filter, page continuation, and page-size scaling.
+- SQL query count remained stable; 10-row and 100-row pages both executed 17 queries, proving no page-size N+1 growth.
+- Product-list enrichment remained page-bounded and there is no unbounded list materialization.
+- Endpoint/application+DB p50/p95/p99, payload bytes, SQL profiles, and DB EXPLAIN execution were captured.
+- Search trigram indexes were present and valid. PostgreSQL did not select them at the measured 5,000-row cardinality; forced-index plans were not faster, so no additional search index change is justified.
+- The initial has-price EXPLAIN used a repeated Seq Scan on the very small `price_publications` test table. This was treated as a scale-evidence question rather than as an automatic index defect.
+- A permanent `gate_products_p8_price_publication_scale.py` regression gate now seeds 10,000 additional Product-publication rows, runs ANALYZE, executes the real has-price Product query, and fails on a repeated full-table Seq Scan.
+- At 10,001 tenant publications PostgreSQL selected `Index Scan` on `uq_price_publication_company_id_book`, with 501 loops, one row per loop, zero rows removed, and Product-plan execution of 2.963 ms.
+- Scale gate result: `PRICE_PUBLICATION_SCALE_DECISION=NO_REPEATED_FULL_SCAN`, cleanup PASS, statistics restoration PASS, and `PRODUCTS_P8_PRICE_PUBLICATION_SCALE_GATE=PASS`.
+- No new `price_publications` index is justified by the measured evidence.
+- The temporary failed scale fixture exposed the immutable published-history trigger as designed; the fixture was changed to deletable DRAFT rows and the guarded one-time residue cleanup recovered the synthetic 10,000-row tenant successfully.
+- Performance and EXPLAIN are closed; P8 proceeds to backend isolation tests.
+
+Verified P8 backend isolation checkpoint:
+
+- Permanent gate added: `wa_backend/scripts/gate_products_p8_isolation.py`.
+- Final PostgreSQL isolation run passed: 15 checks / 0 failures / `PRODUCTS_P8_ISOLATION_GATE=PASS`.
+- Foreign Product IDs and foreign Family IDs fail closed through the real Product APIs.
+- Foreign barcode and UOM-conversion reads and modifications fail closed.
+- Direct RLS reads hide foreign barcode and UOM-conversion rows.
+- Product search returns no foreign-tenant Product/family identity.
+- `product_import_jobs` and `product_import_rows` both retain ENABLE + FORCE RLS.
+- Product-import worker sessions set the exact `app.current_tenant` value before tenant-owned reads.
+- Foreign import jobs and rows remain invisible inside the worker tenant session.
+- Gate cleanup completed successfully; no synthetic isolation fixture residue remains.
+- Isolation is closed; P8 proceeds to concurrency/idempotency verification.
+
+Verified P8 concurrency / idempotency checkpoint:
+
+- Permanent runtime gate: `wa_backend/scripts/gate_products_p8_concurrency_idempotency.py`.
+- Final PostgreSQL run passed: 10 checks / 0 failures / `PRODUCTS_P8_CONCURRENCY_IDEMPOTENCY_GATE=PASS`.
+- Exact Product-create replay returns the original response and persists exactly one idempotency record.
+- Reusing a Product-create request ID with a changed payload fails closed.
+- Price-update replay returns the original response and does not publish a duplicate price revision.
+- Concurrent family creation with the same normalized name serializes correctly and produces one winner.
+- Concurrent family rename to the same target name serializes correctly and rejects the conflicting contender.
+- Stale family versions fail with `SIMPLE_PRODUCT_FAMILY_VERSION_CONFLICT`.
+- Concurrent barcode creation with the same active barcode produces one winner and one `BARCODE_CONFLICT`.
+- Lifecycle mutation increments Product version/lifecycle revision once and a stale expected version fails with `VARIANT_VERSION_CONFLICT`.
+- Existing tracking-mode concurrency and import replay/resume gates remain part of the accepted foundation.
+- Gate cleanup completed successfully after guarded cleanup of synthetic pricing, idempotency, outbox, and append-only audit evidence.
+- One-time residue cleanup support is guarded to synthetic `P2 Read Contract Gate A/B` companies with `P2READ-*` codes and fails closed outside that scope.
+- Concurrency/idempotency is closed. Production-gate work is intentionally not started in this checkpoint.
