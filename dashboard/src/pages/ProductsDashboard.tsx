@@ -3063,7 +3063,7 @@ export default function ProductsDashboard() {
               }}
               className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
             </button>
             <button
               type="button"
@@ -3089,7 +3089,7 @@ export default function ProductsDashboard() {
               }}
               className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronRight className="h-4 w-4 rtl:rotate-180" />
             </button>
           </div>
         ) : null}
