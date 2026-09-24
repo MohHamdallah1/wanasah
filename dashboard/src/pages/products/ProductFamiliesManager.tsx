@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -168,6 +169,14 @@ export function ProductFamiliesManager({
     newFamilyName,
     setNewFamilyName,
   ] = useState("");
+  const [
+    newFamilyError,
+    setNewFamilyError,
+  ] = useState<string | null>(null);
+  const newFamilyRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
   const [
     createCommandPending,
     setCreateCommandPending,
@@ -483,6 +492,7 @@ export function ProductFamiliesManager({
           requestId
         );
         setNewFamilyName("");
+        setNewFamilyError(null);
         setCreateCommandPending(false);
         setCreateCommandBlocked(false);
         setCursor(null);
@@ -510,6 +520,23 @@ export function ProductFamiliesManager({
           )
         ),
     });
+
+  const submitNewFamily = () => {
+    if (!newFamilyName.trim()) {
+      setNewFamilyError(
+        t(
+          "products.newFamilyPlaceholder"
+        )
+      );
+      window.requestAnimationFrame(
+        () =>
+          newFamilyRef.current?.focus()
+      );
+      return;
+    }
+    setNewFamilyError(null);
+    createFamilyMutation.mutate();
+  };
 
   const updateFamilyMutation =
     useMutation({
@@ -754,12 +781,16 @@ export function ProductFamiliesManager({
             placeholder={t(
               "products.familySearchPlaceholder"
             )}
+            aria-label={t(
+              "products.familySearchPlaceholder"
+            )}
             className="w-full rounded-xl border border-slate-200 py-2.5 pe-10 ps-3 text-sm font-bold outline-none"
           />
         </div>
 
         <div className="flex gap-2">
           <input
+            ref={newFamilyRef}
             value={
               newFamilyName
             }
@@ -770,14 +801,30 @@ export function ProductFamiliesManager({
             }
             onChange={(
               event
-            ) =>
+            ) => {
               setNewFamilyName(
                 event.target.value
-              )
+              );
+              if (newFamilyError) {
+                setNewFamilyError(null);
+              }
             }
             placeholder={t(
               "products.newFamilyPlaceholder"
             )}
+            aria-label={t(
+              "products.newFamilyPlaceholder"
+            )}
+            aria-invalid={
+              newFamilyError
+                ? "true"
+                : undefined
+            }
+            aria-describedby={
+              newFamilyError
+                ? "product-family-name-error"
+                : undefined
+            }
             className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold"
           />
           <button
@@ -787,9 +834,7 @@ export function ProductFamiliesManager({
               createCommandBlocked ||
               !isOnline
             }
-            onClick={() =>
-              createFamilyMutation.mutate()
-            }
+            onClick={submitNewFamily}
             className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40"
           >
             {t(
@@ -797,6 +842,16 @@ export function ProductFamiliesManager({
             )}
           </button>
         </div>
+
+        {newFamilyError ? (
+          <p
+            id="product-family-name-error"
+            role="alert"
+            className="text-xs font-bold text-rose-700"
+          >
+            {newFamilyError}
+          </p>
+        ) : null}
 
         {createCommandPending ? (
           <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
@@ -859,6 +914,9 @@ export function ProductFamiliesManager({
                   family.id ? (
                     <input
                       autoFocus
+                      aria-label={t(
+                        "products.family"
+                      )}
                       value={
                         editingFamilyName
                       }
