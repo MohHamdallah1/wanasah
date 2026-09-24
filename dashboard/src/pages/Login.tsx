@@ -1,4 +1,9 @@
 import { currentLocale } from "@/i18n";
+import { useTranslation } from "react-i18next";
+import {
+  readLastCompanyCode,
+  rememberLastCompanyCode,
+} from "@/lib/authStorage";
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react';
@@ -27,8 +32,10 @@ interface LoginResponsePayload {
 
 export default function Login() {
   const navigate = useNavigate();
-  // +++ حقن رمز الشركة الافتراضي في بيئة التطوير فقط (Dev Environment) +++
-  const [companyCode, setCompanyCode] = useState('');
+  const { i18n } = useTranslation();
+  const [companyCode, setCompanyCode] = useState(
+    () => readLastCompanyCode()
+  );
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -117,6 +124,7 @@ export default function Login() {
       localStorage.setItem('company_id', nextCompanyId);
       localStorage.setItem('driver_id', String(data.driver_id));
       localStorage.setItem('company_code', data.company_code);
+      rememberLastCompanyCode(data.company_code);
       localStorage.setItem('admin_name', data.driver_name);
 
       // 6. التوجيه
@@ -134,7 +142,7 @@ export default function Login() {
   };
 
   return (
-    <section className="login-shell relative min-h-screen flex items-center justify-center overflow-hidden w-full text-white" dir="rtl">
+    <section className="login-shell relative min-h-screen flex items-center justify-center overflow-hidden w-full text-white" dir={i18n.dir()}>
       <div className="login-background cosmic-background" />
       <div ref={spotlightRef} id="mouse-spotlight-login" className="fixed inset-0 pointer-events-none z-0 transition-all duration-300" />
 
@@ -173,7 +181,7 @@ export default function Login() {
             {/* +++ حقل إدخال رمز الشركة +++ */}
             <label className="login-field" htmlFor="company-code">
               <span>رمز الشركة</span>
-              <div><Building2 /><input id="company-code" type="text" value={companyCode} onChange={(e) => setCompanyCode(e.target.value)} placeholder="مثال: WNS-01" disabled={isSubmitting} autoComplete="organization" /></div>
+              <div><Building2 /><input id="company-code" name="company-code" type="text" value={companyCode} onChange={(e) => setCompanyCode(e.target.value)} placeholder="مثال: WNS-01" disabled={isSubmitting} autoComplete="organization" /></div>
             </label>
 
             <label className="login-field" htmlFor="username">
