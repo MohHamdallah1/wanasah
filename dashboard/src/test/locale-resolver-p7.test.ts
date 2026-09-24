@@ -74,6 +74,24 @@ describe(
       ).toBe(DEFAULT_APP_LOCALE);
     });
 
+    it("keeps currentLocale delegated to the shared resolver", () => {
+      const source =
+        readFileSync(
+          new URL(
+            "../i18n/index.ts",
+            import.meta.url,
+          ),
+          "utf8",
+        );
+
+      expect(source).toContain(
+        "resolveI18nLocale(i18n)",
+      );
+      expect(source).not.toContain(
+        'i18n.language.startsWith("ar")',
+      );
+    });
+
     it("keeps production formatting behind the shared locale authority", () => {
       const sourceRoot =
         new URL("../", import.meta.url);
@@ -141,6 +159,8 @@ describe(
             /\.toLocale(?:String|DateString|TimeString)\(\s*["'][A-Za-z]{2}(?:-[A-Za-z0-9]{2,8})*["']/;
           const binaryArabicFallback =
             /i18n\.language\.startsWith\(\s*["']ar["']\s*\)/;
+          const regionalLocaleLiteral =
+            /["'](?:ar-JO|ar-EG|en-US)["']/;
 
           if (
             hardcodedIntl.test(
@@ -150,6 +170,9 @@ describe(
               compact,
             ) ||
             binaryArabicFallback.test(
+              compact,
+            ) ||
+            regionalLocaleLiteral.test(
               compact,
             )
           ) {
