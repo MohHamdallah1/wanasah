@@ -1,7 +1,9 @@
-import { useEffect, useId } from "react";
+import { useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+
+import { useDialogFocusTrap } from "@/hooks/useDialogFocusTrap";
 
 interface ModalProps {
   isOpen: boolean;
@@ -22,14 +24,11 @@ export function Modal({
 }: ModalProps) {
   const { t, i18n } = useTranslation();
   const titleId = useId();
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef =
+    useDialogFocusTrap<HTMLDivElement>(
+      isOpen,
+      onClose,
+    );
   return (
     <AnimatePresence>
       {isOpen && (
@@ -45,6 +44,8 @@ export function Modal({
             className="app-modal-backdrop absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
           />
           <motion.div
+            ref={dialogRef}
+            tabIndex={-1}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
