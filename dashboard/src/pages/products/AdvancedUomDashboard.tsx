@@ -587,10 +587,12 @@ export default function AdvancedUomDashboard() {
           selectedVariant.id,
         );
         const command =
-          await getOrCreateDurableCommand(
+          pendingCreate ??
+          (await getOrCreateDurableCommand(
             scope,
             payload,
-          );
+          ));
+        setPendingCreate(command);
 
         try {
           const result =
@@ -611,10 +613,17 @@ export default function AdvancedUomDashboard() {
             scope,
             command.requestId,
           );
+          setPendingCreate(null);
           return result;
         } catch (error) {
           const code =
             apiErrorCode(error);
+          if (
+            code ===
+            "DURABLE_OPERATION_CORRUPT"
+          ) {
+            setPendingBlocked(true);
+          }
           if (
             !isAmbiguousRequestError(
               error,
@@ -627,6 +636,7 @@ export default function AdvancedUomDashboard() {
             abandonDurableOperation(
               scope,
             );
+            setPendingCreate(null);
           }
           throw error;
         }
@@ -681,10 +691,17 @@ export default function AdvancedUomDashboard() {
           editing.id,
         );
         const command =
-          await getOrCreateDurableCommand(
-            scope,
-            payload,
-          );
+          pendingUpdate?.conversionId ===
+            editing.id
+            ? pendingUpdate.command
+            : await getOrCreateDurableCommand(
+                scope,
+                payload,
+              );
+        setPendingUpdate({
+          conversionId: editing.id,
+          command,
+        });
 
         try {
           const result =
@@ -705,10 +722,17 @@ export default function AdvancedUomDashboard() {
             scope,
             command.requestId,
           );
+          setPendingUpdate(null);
           return result;
         } catch (error) {
           const code =
             apiErrorCode(error);
+          if (
+            code ===
+            "DURABLE_OPERATION_CORRUPT"
+          ) {
+            setPendingBlocked(true);
+          }
           if (
             !isAmbiguousRequestError(
               error,
@@ -721,6 +745,7 @@ export default function AdvancedUomDashboard() {
             abandonDurableOperation(
               scope,
             );
+            setPendingUpdate(null);
           }
           throw error;
         }
@@ -772,6 +797,13 @@ export default function AdvancedUomDashboard() {
   const editConversion = (
     item: UomConversion,
   ) => {
+    if (
+      pendingCreate ||
+      pendingUpdate ||
+      pendingBlocked
+    ) {
+      return;
+    }
     setEditing(item);
     setDraft({
       from_uom_id:
@@ -788,6 +820,12 @@ export default function AdvancedUomDashboard() {
   };
 
   const resetEditor = () => {
+    if (
+      pendingCreate ||
+      pendingUpdate
+    ) {
+      return;
+    }
     setEditing(null);
     setDraft(EMPTY_DRAFT);
   };
@@ -803,6 +841,13 @@ export default function AdvancedUomDashboard() {
         "DRAFT" &&
       canManage,
     );
+  const pendingCommand =
+    pendingCreate !== null ||
+    pendingUpdate !== null;
+  const fieldsLocked =
+    busy ||
+    pendingCommand ||
+    pendingBlocked;
 
   if (
     access.isSuccess &&
