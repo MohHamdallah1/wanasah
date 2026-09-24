@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
 
 import {
+  resolveI18nLocale,
+} from "@/lib/locale";
+import {
   formatLocaleDecimal,
 } from "@/lib/localeNumbers";
 import type {
@@ -35,8 +38,7 @@ export function ProductTableRow({
   const { t, i18n } =
     useTranslation();
   const locale =
-    i18n.resolvedLanguage ??
-    i18n.language;
+    resolveI18nLocale(i18n);
 
   const formatMoney = (
     value: string | null,
