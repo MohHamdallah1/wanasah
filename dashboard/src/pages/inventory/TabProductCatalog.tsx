@@ -36,6 +36,8 @@ export function TabProductCatalog({ locations, onCatalogChanged }: Props) {
   const [refreshKey, setRefreshKey] = useState(0);
   const sequence = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const identitySequence = useRef(0);
+  const identityAbortRef = useRef<AbortController | null>(null);
   const [productOpen, setProductOpen] = useState(false);
   const [variantOpen, setVariantOpen] = useState(false);
   const [productDraft, setProductDraft] = useState<ProductDraft>(EMPTY_PRODUCT);
@@ -84,18 +86,78 @@ export function TabProductCatalog({ locations, onCatalogChanged }: Props) {
   useEffect(() => () => { sequence.current += 1; abortRef.current?.abort(); }, []);
 
   const loadIdentity = useCallback(async (variant: CatalogVariant) => {
+    const current = ++identitySequence.current;
+    identityAbortRef.current?.abort();
+    const controller = new AbortController();
+    identityAbortRef.current = controller;
+
     try {
       const [conversionRaw, barcodeRaw] = await Promise.all([
-        authenticatedFetch(`/catalog/variants/${variant.id}/conversions`),
-        authenticatedFetch(`/catalog/variants/${variant.id}/barcodes`),
+        authenticatedFetch(
+          `/catalog/variants/${variant.id}/conversions`,
+          { signal: controller.signal },
+        ),
+        authenticatedFetch(
+          `/catalog/variants/${variant.id}/barcodes`,
+          { signal: controller.signal },
+        ),
       ]);
-      setConversions(parseConversions(conversionRaw));
-      setBarcodes(parseBarcodes(barcodeRaw));
+
+      if (
+        current !== identitySequence.current ||
+        controller.signal.aborted
+      ) {
+        return;
+      }
+
+      const nextConversions = parseConversions(conversionRaw);
+      const nextBarcodes = parseBarcodes(barcodeRaw);
+
+      if (
+        current !== identitySequence.current ||
+        controller.signal.aborted
+      ) {
+        return;
+      }
+
+      setConversions(nextConversions);
+      setBarcodes(nextBarcodes);
     } catch (error) {
+      if (
+        current !== identitySequence.current ||
+        controller.signal.aborted ||
+        (error instanceof Error && error.name === "AbortError")
+      ) {
+        return;
+      }
       toast.error(apiErrorMessage(error, "تعذر تحميل تحويلات UOM والباركود."));
+    } finally {
+      if (identityAbortRef.current === controller) {
+        identityAbortRef.current = null;
+      }
     }
   }, [authenticatedFetch]);
-  useEffect(() => { if (managedVariant) void loadIdentity(managedVariant); }, [managedVariant, loadIdentity]);
+
+  useEffect(() => {
+    if (!managedVariant) {
+      identitySequence.current += 1;
+      identityAbortRef.current?.abort();
+      identityAbortRef.current = null;
+      setConversions([]);
+      setBarcodes([]);
+      return;
+    }
+
+    setConversions([]);
+    setBarcodes([]);
+    void loadIdentity(managedVariant);
+
+    return () => {
+      identitySequence.current += 1;
+      identityAbortRef.current?.abort();
+      identityAbortRef.current = null;
+    };
+  }, [managedVariant, loadIdentity]);
 
   const saveProduct = async () => {
     setSaving(true);
