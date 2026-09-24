@@ -900,14 +900,14 @@ Review:
 
 # 35. Backend isolation tests
 
-- [ ] Cross-company product ID lookup fails closed.
-- [ ] Cross-company family ID fails closed.
-- [ ] Cross-company barcode cannot be read/modified.
-- [ ] Cross-company UOM conversion cannot be read/modified.
-- [ ] Search never leaks foreign product names.
-- [ ] Import worker sets and enforces tenant context.
-- [ ] Import job RLS remains ENABLE + FORCE.
-- [ ] Product import rows remain tenant-isolated.
+- [x] Cross-company product ID lookup fails closed.
+- [x] Cross-company family ID fails closed.
+- [x] Cross-company barcode cannot be read/modified.
+- [x] Cross-company UOM conversion cannot be read/modified.
+- [x] Search never leaks foreign product names.
+- [x] Import worker sets and enforces tenant context.
+- [x] Import job RLS remains ENABLE + FORCE.
+- [x] Product import rows remain tenant-isolated.
 
 ---
 
@@ -1397,8 +1397,8 @@ Do not work on all items randomly.
 
 - [x] query benchmark.
 - [x] EXPLAIN.
-- [~] isolation tests.
-- [ ] concurrency/idempotency tests.
+- [x] isolation tests.
+- [~] concurrency/idempotency tests.
 - [ ] production gate.
 - [ ] PR + merge.
 - [ ] local/GitHub alignment.
@@ -1412,7 +1412,9 @@ Phase P8 is open on `feat/products-performance-security-release-p8`.
 
 Performance benchmark and EXPLAIN review are complete.
 
-Immediate task: complete **P8 backend isolation tests**. Reuse the already-proven Product search/import/warehouse isolation gates, and add only the missing direct Product/Family/Barcode/UOM negative isolation coverage. Do not mark isolation complete until every Section 35 item has an executable final gate and the PostgreSQL run passes.
+Backend isolation tests are complete.
+
+Immediate task: complete **P8 concurrency / idempotency verification**. Reuse the already-proven tracking/import foundations, and add only the missing Product-create, family, price, barcode-race, and lifecycle-revision runtime evidence. Do not mark concurrency/idempotency complete until every open Section 36 item is covered by an executable gate and the PostgreSQL run passes.
 
 Current P7 state:
 
@@ -1558,3 +1560,17 @@ Verified P8 Product performance / EXPLAIN checkpoint:
 - No new `price_publications` index is justified by the measured evidence.
 - The temporary failed scale fixture exposed the immutable published-history trigger as designed; the fixture was changed to deletable DRAFT rows and the guarded one-time residue cleanup recovered the synthetic 10,000-row tenant successfully.
 - Performance and EXPLAIN are closed; P8 proceeds to backend isolation tests.
+
+Verified P8 backend isolation checkpoint:
+
+- Permanent gate added: `wa_backend/scripts/gate_products_p8_isolation.py`.
+- Final PostgreSQL isolation run passed: 15 checks / 0 failures / `PRODUCTS_P8_ISOLATION_GATE=PASS`.
+- Foreign Product IDs and foreign Family IDs fail closed through the real Product APIs.
+- Foreign barcode and UOM-conversion reads and modifications fail closed.
+- Direct RLS reads hide foreign barcode and UOM-conversion rows.
+- Product search returns no foreign-tenant Product/family identity.
+- `product_import_jobs` and `product_import_rows` both retain ENABLE + FORCE RLS.
+- Product-import worker sessions set the exact `app.current_tenant` value before tenant-owned reads.
+- Foreign import jobs and rows remain invisible inside the worker tenant session.
+- Gate cleanup completed successfully; no synthetic isolation fixture residue remains.
+- Isolation is closed; P8 proceeds to concurrency/idempotency verification.
