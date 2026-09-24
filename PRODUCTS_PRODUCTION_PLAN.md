@@ -917,14 +917,14 @@ Preserve existing strong foundations.
 
 Required tests:
 
-- [ ] Product create replay is idempotent.
-- [ ] Changed payload with reused request ID fails.
-- [ ] Family create/rename concurrency.
-- [ ] Family version conflict.
-- [ ] Price update idempotency.
-- [ ] Barcode uniqueness race.
+- [x] Product create replay is idempotent.
+- [x] Changed payload with reused request ID fails.
+- [x] Family create/rename concurrency.
+- [x] Family version conflict.
+- [x] Price update idempotency.
+- [x] Barcode uniqueness race.
 - [x] Tracking-mode update concurrency.
-- [ ] Lifecycle transition revision conflict.
+- [x] Lifecycle transition revision conflict.
 - [x] Import replay/resume remains safe.
 
 ---
@@ -1398,7 +1398,7 @@ Do not work on all items randomly.
 - [x] query benchmark.
 - [x] EXPLAIN.
 - [x] isolation tests.
-- [~] concurrency/idempotency tests.
+- [x] concurrency/idempotency tests.
 - [ ] production gate.
 - [ ] PR + merge.
 - [ ] local/GitHub alignment.
@@ -1414,7 +1414,9 @@ Performance benchmark and EXPLAIN review are complete.
 
 Backend isolation tests are complete.
 
-Immediate task: complete **P8 concurrency / idempotency verification**. Reuse the already-proven tracking/import foundations, and add only the missing Product-create, family, price, barcode-race, and lifecycle-revision runtime evidence. Do not mark concurrency/idempotency complete until every open Section 36 item is covered by an executable gate and the PostgreSQL run passes.
+P8 concurrency / idempotency verification is complete.
+
+**Checkpoint stop:** do not start the production gate in this work session. Merge the completed P8 performance / isolation / concurrency checkpoint to `main`. The next P8 work item remains `production gate`, intentionally unopened until work resumes from a fresh branch based on the merged `main`.
 
 Current P7 state:
 
@@ -1574,3 +1576,20 @@ Verified P8 backend isolation checkpoint:
 - Foreign import jobs and rows remain invisible inside the worker tenant session.
 - Gate cleanup completed successfully; no synthetic isolation fixture residue remains.
 - Isolation is closed; P8 proceeds to concurrency/idempotency verification.
+
+Verified P8 concurrency / idempotency checkpoint:
+
+- Permanent runtime gate: `wa_backend/scripts/gate_products_p8_concurrency_idempotency.py`.
+- Final PostgreSQL run passed: 10 checks / 0 failures / `PRODUCTS_P8_CONCURRENCY_IDEMPOTENCY_GATE=PASS`.
+- Exact Product-create replay returns the original response and persists exactly one idempotency record.
+- Reusing a Product-create request ID with a changed payload fails closed.
+- Price-update replay returns the original response and does not publish a duplicate price revision.
+- Concurrent family creation with the same normalized name serializes correctly and produces one winner.
+- Concurrent family rename to the same target name serializes correctly and rejects the conflicting contender.
+- Stale family versions fail with `SIMPLE_PRODUCT_FAMILY_VERSION_CONFLICT`.
+- Concurrent barcode creation with the same active barcode produces one winner and one `BARCODE_CONFLICT`.
+- Lifecycle mutation increments Product version/lifecycle revision once and a stale expected version fails with `VARIANT_VERSION_CONFLICT`.
+- Existing tracking-mode concurrency and import replay/resume gates remain part of the accepted foundation.
+- Gate cleanup completed successfully after guarded cleanup of synthetic pricing, idempotency, outbox, and append-only audit evidence.
+- One-time residue cleanup support is guarded to synthetic `P2 Read Contract Gate A/B` companies with `P2READ-*` codes and fails closed outside that scope.
+- Concurrency/idempotency is closed. Production-gate work is intentionally not started in this checkpoint.
