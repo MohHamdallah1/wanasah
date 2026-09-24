@@ -447,17 +447,17 @@ Current simple product list searches product/variant name and family name only.
 
 Required:
 
-- [ ] Search by product name.
-- [ ] Search by family.
-- [ ] Search by SKU.
-- [ ] Search by unit barcode.
-- [ ] Search by package barcode.
-- [ ] Define multi-token semantics.
-- [ ] Escape `%`, `_`, and `\`.
-- [ ] Search is company-scoped from the beginning.
-- [ ] Search filters before pagination.
-- [ ] Run a measured performance audit before declaring production-ready.
-- [ ] Add search index only if EXPLAIN/benchmark evidence justifies it.
+- [x] Search by product name.
+- [x] Search by family.
+- [x] Search by SKU.
+- [x] Search by unit barcode.
+- [x] Search by package barcode.
+- [x] Define multi-token semantics.
+- [x] Escape `%`, `_`, and `\`.
+- [x] Search is company-scoped from the beginning.
+- [x] Search filters before pagination.
+- [x] Run a measured performance audit before declaring production-ready.
+- [x] Add search index only if EXPLAIN/benchmark evidence justifies it.
 
 ---
 
@@ -467,14 +467,14 @@ Current simple product list uses id-based keyset pagination.
 
 Keep the bounded keyset approach, but harden the contract.
 
-- [ ] Preserve hard page-size bound.
-- [ ] Preserve no-offset pagination.
-- [ ] Cursor must encode enough scope to reject reuse under a different search/filter state.
-- [ ] Invalid cursor returns a stable error code.
-- [ ] Tampered cursor fails closed.
-- [ ] Search/filter changes reset cursor history.
-- [ ] Tests cover first/next/previous flows.
-- [ ] Do not convert the Products page to unbounded "load all".
+- [x] Preserve hard page-size bound.
+- [x] Preserve no-offset pagination.
+- [x] Cursor must encode enough scope to reject reuse under a different search/filter state.
+- [x] Invalid cursor returns a stable error code.
+- [x] Tampered cursor fails closed.
+- [x] Search/filter changes reset cursor history.
+- [x] Tests cover first/next/previous flows.
+- [x] Do not convert the Products page to unbounded "load all".
 
 ---
 
@@ -493,14 +493,14 @@ Production design should keep the main list compact.
 
 Recommended default columns:
 
-- [ ] Product.
-- [ ] Family.
-- [ ] SKU or compact identity hint.
-- [ ] Package/UOM.
-- [ ] Tracking summary.
+- [x] Product.
+- [x] Family.
+- [x] SKU or compact identity hint.
+- [x] Package/UOM.
+- [x] Tracking summary.
 - [ ] Lifecycle status.
-- [ ] Pricing only when authorized.
-- [ ] Actions.
+- [x] Pricing only when authorized.
+- [x] Actions.
 
 Optional columns:
 
@@ -512,8 +512,8 @@ Optional columns:
 - [ ] Other company-specific display preferences.
 
 - [ ] Add configurable visible columns.
-- [ ] Use drawer for secondary details.
-- [ ] Keep sticky header.
+- [x] Use drawer for secondary details.
+- [x] Keep sticky header.
 - [ ] RTL/LTR safe.
 - [ ] Avoid widths tied to Arabic only.
 
@@ -526,16 +526,16 @@ Current defect:
 
 Required:
 
-- [ ] Separate loading from empty.
-- [ ] Separate first-load failure from "no products".
-- [ ] Add in-page retry action.
+- [x] Separate loading from empty.
+- [x] Separate first-load failure from "no products".
+- [x] Add in-page retry action.
 - [ ] Preserve previous successful data during harmless background refetch when appropriate.
-- [ ] Do not replace server failure with an empty-state message.
-- [ ] Family load errors have distinct UI.
+- [x] Do not replace server failure with an empty-state message.
+- [x] Family load errors have distinct UI.
 - [ ] Package-UOM load errors have distinct UI.
 - [ ] Import polling errors are understandable.
-- [ ] Abort stale requests.
-- [ ] Avoid stale response races.
+- [x] Abort stale requests.
+- [x] Avoid stale response races.
 
 ---
 
@@ -547,17 +547,17 @@ This is not enough.
 
 Add runtime parsers for:
 
-- [ ] Product page.
-- [ ] Product item.
-- [ ] Families.
-- [ ] Package UOMs.
+- [x] Product page.
+- [x] Product item.
+- [x] Families.
+- [x] Package UOMs.
 - [ ] Create response.
 - [ ] Price update response.
-- [ ] Import creation response.
-- [ ] Import status.
-- [ ] Import error pagination.
-- [ ] Tracking settings.
-- [ ] Lifecycle detail.
+- [x] Import creation response.
+- [x] Import status.
+- [x] Import error pagination.
+- [x] Tracking settings.
+- [x] Lifecycle detail.
 - [ ] Product detail drawer response if a dedicated endpoint is created.
 
 Malformed backend payload must fail explicitly and safely.
@@ -578,23 +578,23 @@ This can hide actions a user is actually allowed to perform.
 
 Split UI capability checks.
 
-- [ ] `catalog.read`
-- [ ] `catalog.manage`
-- [ ] `catalog.publish`
-- [ ] `pricing.view`
-- [ ] `pricing.manage`
+- [x] `catalog.read`
+- [x] `catalog.manage`
+- [x] `catalog.publish`
+- [x] `pricing.view`
+- [x] `pricing.manage`
 - [ ] import permission if separated later
-- [ ] lifecycle permission if separated
+- [x] lifecycle permission if separated
 - [ ] barcode/UOM management if separated
 
 Required:
 
-- [ ] Family management follows `catalog.manage`.
-- [ ] Price editing follows `pricing.manage`.
-- [ ] Price display follows `pricing.view`.
-- [ ] Product identity can be viewed without price permission where appropriate.
-- [ ] Product list must not require `pricing.view` merely to see product identity.
-- [ ] Backend, not React, remains final permission authority.
+- [x] Family management follows `catalog.manage`.
+- [x] Price editing follows `pricing.manage`.
+- [x] Price display follows `pricing.view`.
+- [x] Product identity can be viewed without price permission where appropriate.
+- [x] Product list must not require `pricing.view` merely to see product identity.
+- [x] Backend, not React, remains final permission authority.
 
 ---
 
@@ -609,13 +609,13 @@ This prevents a user from viewing products when they are not allowed to view pri
 
 Required redesign:
 
-- [ ] Product identity read is governed by catalog permission.
-- [ ] Pricing fields are permission-aware.
+- [x] Product identity read is governed by catalog permission.
+- [x] Pricing fields are permission-aware.
 - [ ] Either:
   - server omits/nulls price fields when unauthorized, or
   - split pricing into a separate request.
-- [ ] UI does not infer secret pricing from hidden data.
-- [ ] Tests prove a catalog-only user can view products without price leakage.
+- [x] UI does not infer secret pricing from hidden data.
+- [x] Tests prove a catalog-only user can view products without price leakage.
 
 ---
 
@@ -647,9 +647,9 @@ Required:
 - [x] Preserve `domains/uom_authority.py` as authority.
 - [x] Do not duplicate conversion graph logic in React.
 - [x] Keep simple workflow for common EACH + one outer package.
-- [ ] Explain when a product is not `simple_compatible`.
+- [x] Explain when a product is not `simple_compatible`.
 - [ ] Provide a route to advanced UOM management for complex products.
-- [ ] Do not show only `—` when advanced management is required.
+- [x] Do not show only `—` when advanced management is required.
 - [x] Changing package/UOM after operational use must follow safe business rules.
 - [x] Determine which UOM fields become immutable after inventory/pricing history exists.
 
@@ -661,14 +661,14 @@ Backend already supports proper barcode records.
 
 Required:
 
-- [ ] Show active primary barcode(s) in product detail.
-- [ ] Search by barcode.
-- [ ] Manage barcodes through backend authority.
-- [ ] Preserve company-scoped barcode uniqueness.
-- [ ] Preserve UOM association.
-- [ ] Preserve effective/active semantics.
-- [ ] Handle shared base/package barcode safely.
-- [ ] Do not allow arbitrary client-only barcode replacement.
+- [x] Show active primary barcode(s) in product detail.
+- [x] Search by barcode.
+- [x] Manage barcodes through backend authority.
+- [x] Preserve company-scoped barcode uniqueness.
+- [x] Preserve UOM association.
+- [x] Preserve effective/active semantics.
+- [x] Handle shared base/package barcode safely.
+- [x] Do not allow arbitrary client-only barcode replacement.
 
 ---
 
@@ -678,9 +678,9 @@ Current backend computes `simple_compatible`.
 
 Required:
 
-- [ ] Explain `simple_compatible=false` in UI.
-- [ ] Show "Advanced product setup required" or equivalent translated wording.
-- [ ] Do not leave a silent `—` action cell.
+- [x] Explain `simple_compatible=false` in UI.
+- [x] Show "Advanced product setup required" or equivalent translated wording.
+- [x] Do not leave a silent `—` action cell.
 - [ ] Advanced management entry point appears only when implemented and authorized.
 - [ ] Hide/remove permanently disabled Advanced Pricing button until the destination is actually usable, or connect it properly.
 
@@ -1215,19 +1215,19 @@ Products can be declared **Production Ready** only when:
 - [x] Critical silent REQUIRED/REQUIRED defect is fixed.
 - [x] Tracking modes are explicit end-to-end.
 - [ ] Existing products are handled safely.
-- [ ] Product read is decoupled from mandatory price access.
-- [ ] Permissions are granular and correct.
+- [x] Product read is decoupled from mandatory price access.
+- [x] Permissions are granular and correct.
 - [ ] Runtime frontend contracts are strict.
-- [ ] Money handling is exact.
-- [ ] Product search includes identity fields users actually use.
+- [x] Money handling is exact.
+- [x] Product search includes identity fields users actually use.
 - [ ] Error states are distinct.
-- [ ] Families no longer silently truncate.
+- [x] Families no longer silently truncate.
 - [ ] Product detail management reflects the important backend authorities.
 - [ ] Lifecycle is visible/manageable safely.
 - [x] Bulk import supports tracking configuration.
 - [ ] i18n architecture is language-agnostic.
 - [ ] RTL + LTR pass.
-- [ ] Performance audit passes.
+- [x] Performance audit passes.
 - [ ] Security/isolation tests pass.
 - [x] Relevant backend gates pass.
 - [x] Frontend tests/build pass.
@@ -1246,36 +1246,36 @@ This section preserves every point from the initial Products review so none are 
 - [x] 2. Bulk import currently inherits the same silent forced tracking behavior.
 - [x] 3. Add an explicit "Inventory tracking" section to product creation.
 - [x] 4. Support company-level defaults instead of one global hardcoded tracking policy.
-- [ ] 5. Add real post-create product identity management beyond price editing.
-- [ ] 6. Surface and manage barcodes after creation.
-- [ ] 7. Show SKU in the normal product experience.
-- [ ] 8. Search by SKU and barcode, not only product/family name.
-- [ ] 9. Improve list information hierarchy without turning it into a giant table.
-- [ ] 10. Surface product lifecycle state.
+- [x] 5. Add real post-create product identity management beyond price editing.
+- [x] 6. Surface and manage barcodes after creation.
+- [x] 7. Show SKU in the normal product experience.
+- [x] 8. Search by SKU and barcode, not only product/family name.
+- [x] 9. Improve list information hierarchy without turning it into a giant table.
+- [x] 10. Surface product lifecycle state.
 - [ ] 11. Make instant DRAFT→ACTIVE behavior explicit/configurable where appropriate.
 - [ ] 12. Add safe retire/archive/hold workflows.
-- [ ] 13. Split coarse frontend `canManage` into capability-specific permissions.
-- [ ] 14. Stop requiring `pricing.view` just to read product identity.
-- [ ] 15. Decouple catalog/product read from pricing visibility.
-- [ ] 16. Add distinct `productsQuery.isError` UI instead of showing empty state.
-- [ ] 17. Add in-page retry for list failure.
-- [ ] 18. Fix family management's silent 200-item limit with search/pagination.
-- [ ] 19. Preserve id-based keyset pagination.
-- [ ] 20. Scope/harden cursors against reuse across different searches/filters.
-- [ ] 21. Performance-audit `%LIKE%` search before production signoff.
-- [ ] 22. Preserve batched enrichment / avoid N+1.
-- [ ] 23. Explain `simple_compatible=false` rather than showing an unexplained dash.
+- [x] 13. Split coarse frontend `canManage` into capability-specific permissions.
+- [x] 14. Stop requiring `pricing.view` just to read product identity.
+- [x] 15. Decouple catalog/product read from pricing visibility.
+- [x] 16. Add distinct `productsQuery.isError` UI instead of showing empty state.
+- [x] 17. Add in-page retry for list failure.
+- [x] 18. Fix family management's silent 200-item limit with search/pagination.
+- [x] 19. Preserve id-based keyset pagination.
+- [x] 20. Scope/harden cursors against reuse across different searches/filters.
+- [x] 21. Performance-audit `%LIKE%` search before production signoff.
+- [x] 22. Preserve batched enrichment / avoid N+1.
+- [x] 23. Explain `simple_compatible=false` rather than showing an unexplained dash.
 - [ ] 24. Connect or hide the permanently disabled Advanced Pricing control.
-- [ ] 25. Replace TypeScript-only raw-response casts with runtime parsers.
+- [x] 25. Replace TypeScript-only raw-response casts with runtime parsers.
 - [ ] 26. Runtime-validate families/UOM/import/mutation contracts too.
 - [x] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
 - [x] 28. Keep frontend derived prices as preview; backend remains authoritative.
 - [x] 29. Integer package quantity use of Number is acceptable within bounded validation.
 - [ ] 30. Make existing-family vs new-family creation explicit in UX.
 - [ ] 31. Reconsider/clarify automatic product-name-as-family behavior.
-- [ ] 32. Add search/pagination inside family manager.
-- [ ] 33. Preserve backend case-insensitive family duplicate locking.
-- [ ] 34. Surface existing barcode authority in normal product UX.
+- [x] 32. Add search/pagination inside family manager.
+- [x] 33. Preserve backend case-insensitive family duplicate locking.
+- [x] 34. Surface existing barcode authority in normal product UX.
 - [x] 35. Preserve strong async/durable import architecture.
 - [x] 36. Add lot/expiry configuration to bulk import/template/defaults.
 - [ ] 37. Generalize import header localization beyond Arabic/English-only alias assumptions.
@@ -1285,8 +1285,8 @@ This section preserves every point from the initial Products review so none are 
 - [x] 41. Keep API enums stable and translate only in UI.
 - [ ] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
 - [ ] 43. Separate Quick Create from optional enterprise review/maker-checker policy.
-- [ ] 44. Add a Product Detail Drawer instead of adding too many list columns.
-- [ ] 45. Keep ordinary creation simple and move complexity to Advanced settings.
+- [x] 44. Add a Product Detail Drawer instead of adding too many list columns.
+- [x] 45. Keep ordinary creation simple and move complexity to Advanced settings.
 - [x] 46. Present lot/expiry tracking in plain user language, not backend field names.
 - [ ] 47. Products tracking policy must drive Inbound field requirements.
 - [x] 48. Block/guard unsafe tracking-mode changes after inventory exists.
@@ -1299,10 +1299,10 @@ This section preserves every point from the initial Products review so none are 
 
 - [x] 51. Add company defaults for lot/expiry tracking without rewriting existing SKUs.
 - [x] 52. Define internal batch identity for `lot_control_mode=NONE`.
-- [ ] 53. Create a migration/review strategy for existing products that were silently created REQUIRED/REQUIRED.
+- [x] 53. Create a migration/review strategy for existing products that were silently created REQUIRED/REQUIRED.
 - [x] 54. Version the saved product draft schema when tracking fields are added.
 - [ ] 55. Separate business defaults from user display preferences.
-- [ ] 56. Add Product page performance map and permanent regression gate.
+- [x] 56. Add Product page performance map and permanent regression gate.
 - [ ] 57. Add accessibility/keyboard requirements to release gate.
 - [ ] 58. Define safe product deletion/archive semantics.
 - [ ] 59. Ensure normal Products does not duplicate Catalog lifecycle/UOM/barcode authorities.
@@ -1375,7 +1375,7 @@ Do not work on all items randomly.
 - [x] Replace float-based money handling.
 - [x] Review package/UOM edit safety.
 - [ ] Connect advanced management where appropriate.
-- [ ] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
+- [x] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
 
 ## Phase P6 — Bulk import
 
@@ -1415,7 +1415,7 @@ Current P5 state:
 - [x] Replace float-based money handling.
 - [x] Review package/UOM edit safety.
 - [ ] Connect advanced management where appropriate.
-- [ ] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
+- [x] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
 
 Implementation order for P5:
 
