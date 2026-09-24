@@ -97,7 +97,7 @@ describe(
 
     it("uses logical edge utilities throughout Product UI", () => {
       const physicalUtility =
-        /(?:^|[\s"'\`])(?:m[lr]|p[lr]|left|right|border-[lr]|rounded-[lr]|text-(?:left|right)|space-x)-[^\s"'\`}>]+/gm;
+        /(?:^|[\s"'`])(?:m[lr]|p[lr]|left|right|border-[lr]|rounded-[lr]|text-(?:left|right)|space-x)-[^\s"'`}>]+/gm;
       const offenders: Array<{
         filePath: string;
         matches: string[];
