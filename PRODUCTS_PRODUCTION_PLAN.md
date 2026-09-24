@@ -1391,7 +1391,7 @@ Do not work on all items randomly.
 - [x] RTL/LTR.
 - [x] accessibility.
 - [x] responsive polish.
-- [ ] configurable display preferences.
+- [~] configurable display preferences.
 
 ## Phase P8 — Performance / security / release
 
@@ -1408,7 +1408,7 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **configurable display preferences** as the next open item.
+Continue **Phase P7 — i18n / accessibility / polish** with **configurable display preferences** in verification.
 
 Current P7 state:
 
@@ -1417,7 +1417,7 @@ Current P7 state:
 - [x] RTL/LTR.
 - [x] accessibility.
 - [x] responsive polish.
-- [ ] configurable display preferences.
+- [~] configurable display preferences.
 
 Verified P7 locale-resolver checkpoint:
 
