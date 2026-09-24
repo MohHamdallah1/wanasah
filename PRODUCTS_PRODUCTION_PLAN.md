@@ -24,6 +24,12 @@ Use these markers only:
 3. regression review is complete,
 4. Git diff is clean and intentional.
 
+**Execution-status source of truth:** Section **53 — Recommended execution order** is the canonical phase tracker (P0–P8).
+
+Sections **4–52** are the detailed requirements, design constraints, audit observations, and release criteria. Their checkboxes are not separate execution phases and may intentionally repeat the same requirement in more than one context. During each phase close-out, synchronize only the detailed items that were actually verified; never infer completion from duplication alone.
+
+Section **54 — Immediate next task** must always point to the next open phase in Section 53.
+
 ---
 
 # 2. Non-negotiable engineering rules
@@ -1402,25 +1408,21 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Proceed to **Phase P3 — Product UX foundation**.
+Proceed to **Phase P5 — Exact pricing / UOM** on branch `feat/products-exact-pricing-uom-p5`.
 
-Current P3 state:
+Current P5 state:
 
-- [ ] Product Detail Drawer.
-- [ ] Quick Create + Advanced.
-- [x] Tracking controls.
-- [ ] Error/retry states.
-- [ ] granular permissions.
-- [ ] lifecycle visibility.
-- [ ] barcode visibility/management.
-- [ ] simple-compatible explanation.
+- [ ] Replace float-based money handling.
+- [ ] Review package/UOM edit safety.
+- [ ] Connect advanced management where appropriate.
+- [ ] Before retaining or reconnecting the legacy advanced catalog surface, harden `TabProductCatalog.loadIdentity` against cross-variant stale writes with AbortController plus request-sequence revalidation, and add a runtime A→B race regression test. Decide in P5 whether that surface is retained/split or removed rather than reconnecting it unchanged.
 
-Implementation order for P3:
+Implementation order for P5:
 
-1. Establish the Product Detail Drawer as the canonical detailed product view.
-2. Preserve Quick Create for the common path and move advanced controls into the appropriate detailed/advanced surface.
-3. Surface lifecycle, tracking, barcode, compatibility, and permission state without duplicating backend authority.
-4. Add explicit loading/error/retry states and regression coverage.
-5. Complete P3 gates/review before moving to Phase P4.
+1. Audit all Products money parsing/calculation/display paths and remove JavaScript floating-point business authority while preserving decimal-string API contracts.
+2. Audit package/UOM edit paths against authoritative UOM/pricing/inventory history and define which mutations are safe, restricted, or workflow-controlled.
+3. Audit the legacy advanced catalog surface before reconnecting it; fix the A→B stale-write race first, then explicitly decide retain/split/remove.
+4. Connect only the advanced management entry points that are authoritative, permission-aware, and production-safe.
+5. Complete P5 gates/review before moving to Phase P6.
 
-Do not start Phase P4 until P3 is complete, reviewed, and merged to `main`.
+Do not start P6 until P5 is complete, reviewed, and merged to `main`.
