@@ -514,7 +514,7 @@ Optional columns:
 - [ ] Add configurable visible columns.
 - [x] Use drawer for secondary details.
 - [x] Keep sticky header.
-- [ ] RTL/LTR safe.
+- [x] RTL/LTR safe.
 - [ ] Avoid widths tied to Arabic only.
 
 ---
@@ -1388,7 +1388,7 @@ Do not work on all items randomly.
 
 - [x] Generic locale resolver.
 - [x] all translation keys.
-- [~] RTL/LTR.
+- [x] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
 - [ ] configurable display preferences.
@@ -1408,13 +1408,13 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **RTL/LTR** in verification.
+Continue **Phase P7 — i18n / accessibility / polish** with **accessibility** as the next open item.
 
 Current P7 state:
 
 - [x] Generic locale resolver.
 - [x] all translation keys.
-- [~] RTL/LTR.
+- [x] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
 - [ ] configurable display preferences.
@@ -1443,11 +1443,24 @@ Verified P7 translation-key checkpoint:
 - Full dashboard suite passed: 26 files / 164 tests.
 - Production build passed in 25.54s.
 
+Verified P7 Products RTL/LTR checkpoint:
+
+- Product root, Product detail drawer, and shared Product modal direction follow `i18n.dir()`.
+- Product UI uses logical edge utilities instead of physical left/right spacing utilities.
+- Product pagination arrows and Advanced UOM back navigation mirror correctly by direction.
+- Permanent RTL/LTR source gate added in `dashboard/src/test/product-rtl-ltr-p7.test.ts`.
+- TypeScript passed with no output.
+- RTL/LTR gate passed: 1 file / 4 tests.
+- Related Product tests passed: 16 files / 103 tests.
+- Full dashboard suite passed: 27 files / 168 tests.
+- Production build passed in 24.20s.
+- Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for RTL/LTR.
+
 Next implementation order:
 
 1. Translation-key audit is complete and verified.
-2. Continue with RTL/LTR.
-3. Then continue P7 in order: accessibility → responsive polish → configurable display preferences.
+2. RTL/LTR is complete and verified for Products surfaces.
+3. Continue P7 in order: accessibility → responsive polish → configurable display preferences.
 4. Complete P7 gates/review before moving to Phase P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
