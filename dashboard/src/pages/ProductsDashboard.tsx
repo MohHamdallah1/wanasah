@@ -31,6 +31,7 @@ import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   apiErrorMessage,
 } from "@/lib/apiErrors";
@@ -62,6 +63,7 @@ import {
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
+import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
@@ -173,6 +175,10 @@ export default function ProductsDashboard() {
     useInventoryAccess();
   const isOnline =
     useNetworkStatus();
+  const isNarrowViewport =
+    useMediaQuery(
+      "(max-width: 767px)"
+    );
 
   const companyId =
     access.data?.company_id ??
@@ -2419,19 +2425,19 @@ export default function ProductsDashboard() {
       className="products-a11y-scope flex min-h-0 flex-1 flex-col overflow-hidden"
       dir={i18n.dir()}
     >
-      <header className="shrink-0 rounded-[26px] border border-white/70 bg-white/85 px-5 py-4 shadow-sm backdrop-blur-xl">
+      <header className="shrink-0 rounded-[22px] border border-white/70 bg-white/85 px-4 py-4 shadow-sm backdrop-blur-xl sm:rounded-[26px] sm:px-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+          <div className="min-w-0 flex flex-1 items-center gap-3 sm:flex-none">
             <span className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-slate-950 text-white">
               <Boxes className="h-5 w-5" />
             </span>
-            <div>
-              <h1 className="text-xl font-black text-slate-950">
+            <div className="min-w-0">
+              <h1 className="break-words text-xl font-black text-slate-950">
                 {t(
                   "products.title"
                 )}
               </h1>
-              <p className="mt-0.5 text-xs font-semibold text-slate-500">
+              <p className="mt-0.5 break-words text-xs font-semibold text-slate-500">
                 {t(
                   "products.subtitle"
                 )}
@@ -2439,7 +2445,7 @@ export default function ProductsDashboard() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center [&>button]:min-w-0 [&>button]:justify-center [&>button]:whitespace-normal [&>button]:text-center">
             <button
               type="button"
               onClick={() =>
@@ -2573,10 +2579,10 @@ export default function ProductsDashboard() {
         </div>
       </header>
 
-      <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl">
+      <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl sm:rounded-[26px]">
         <div className="shrink-0 border-b border-slate-100 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[260px] max-w-md flex-1">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <div className="relative col-span-2 w-full min-w-0 sm:max-w-md sm:flex-1">
               <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
@@ -2606,7 +2612,7 @@ export default function ProductsDashboard() {
                     !current
                 )
               }
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center text-xs font-black text-slate-700 sm:w-auto"
             >
               <Settings2 className="h-4 w-4" />
               {t(
@@ -2633,7 +2639,7 @@ export default function ProductsDashboard() {
                   setSortDir("asc");
                   resetProductPagination();
                 }}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-black text-slate-600"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-xs font-black text-slate-600 sm:w-auto"
               >
                 {t(
                   "products.filters.clear"
