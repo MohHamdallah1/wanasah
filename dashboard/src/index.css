@@ -147,6 +147,19 @@
   animation: pulse-border 2.5s ease-in-out infinite;
 }
 
+/* Product accessibility: visible keyboard focus without changing pointer focus. */
+.products-a11y-scope :where(
+  button,
+  a[href],
+  input,
+  select,
+  textarea,
+  [tabindex]
+):focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 /* RTL-aware switch fix */
 [dir="rtl"] .switch-thumb[data-state="checked"] {
   transform: translateX(-20px);
