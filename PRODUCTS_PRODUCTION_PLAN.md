@@ -941,7 +941,7 @@ Do **not** silently change them.
 
 Required:
 
-- [ ] Inventory existing products and their tracking modes.
+- [x] Inventory existing products and their tracking modes.
 - [x] Do not assume existing REQUIRED values were intentional.
 - [x] Provide a safe review/migration strategy if the company wants to correct them.
 - [x] Products with operational inventory/history require controlled change rules.
@@ -1214,24 +1214,24 @@ Products can be declared **Production Ready** only when:
 
 - [x] Critical silent REQUIRED/REQUIRED defect is fixed.
 - [x] Tracking modes are explicit end-to-end.
-- [ ] Existing products are handled safely.
+- [x] Existing products are handled safely.
 - [x] Product read is decoupled from mandatory price access.
 - [x] Permissions are granular and correct.
-- [ ] Runtime frontend contracts are strict.
+- [x] Runtime frontend contracts are strict.
 - [x] Money handling is exact.
 - [x] Product search includes identity fields users actually use.
-- [ ] Error states are distinct.
+- [x] Error states are distinct.
 - [x] Families no longer silently truncate.
-- [ ] Product detail management reflects the important backend authorities.
-- [ ] Lifecycle is visible/manageable safely.
+- [x] Product detail management reflects the important backend authorities.
+- [x] Lifecycle is visible/manageable safely.
 - [x] Bulk import supports tracking configuration.
 - [x] i18n architecture is language-agnostic.
 - [x] RTL + LTR pass.
 - [x] Performance audit passes.
-- [ ] Security/isolation tests pass.
+- [x] Security/isolation tests pass.
 - [x] Relevant backend gates pass.
 - [x] Frontend tests/build pass.
-- [ ] No unresolved blocker/TODO in touched production path.
+- [x] No unresolved blocker/TODO in touched production path.
 - [x] PR review complete.
 - [x] merged to `main`.
 - [x] local `main == origin/main`.
@@ -1253,7 +1253,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 9. Improve list information hierarchy without turning it into a giant table.
 - [x] 10. Surface product lifecycle state.
 - [ ] 11. Make instant DRAFT→ACTIVE behavior explicit/configurable where appropriate.
-- [ ] 12. Add safe retire/archive/hold workflows.
+- [x] 12. Add safe retire/archive/hold workflows.
 - [x] 13. Split coarse frontend `canManage` into capability-specific permissions.
 - [x] 14. Stop requiring `pricing.view` just to read product identity.
 - [x] 15. Decouple catalog/product read from pricing visibility.
@@ -1267,7 +1267,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 23. Explain `simple_compatible=false` rather than showing an unexplained dash.
 - [x] 24. Preserve the Advanced Pricing roadmap control as visibly disabled until the destination is explicitly activated.
 - [x] 25. Replace TypeScript-only raw-response casts with runtime parsers.
-- [ ] 26. Runtime-validate families/UOM/import/mutation contracts too.
+- [x] 26. Runtime-validate families/UOM/import/mutation contracts too.
 - [x] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
 - [x] 28. Keep frontend derived prices as preview; backend remains authoritative.
 - [x] 29. Integer package quantity use of Number is acceptable within bounded validation.
@@ -1305,7 +1305,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 56. Add Product page performance map and permanent regression gate.
 - [x] 57. Add accessibility/keyboard requirements to release gate.
 - [ ] 58. Define safe product deletion/archive semantics.
-- [ ] 59. Ensure normal Products does not duplicate Catalog lifecycle/UOM/barcode authorities.
+- [x] 59. Ensure normal Products does not duplicate Catalog lifecycle/UOM/barcode authorities.
 - [x] 60. Freeze the product tracking contract before beginning final Inbound work.
 
 ---
@@ -1408,15 +1408,27 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Phase P8 is open on `feat/products-performance-security-release-p8`.
+Phase P8 production-gate work is active on `feat/products-production-gate-p8`, based on merged `main` checkpoint `107b1940f4f3c3ad87bd9fd1fff7c6654d69a662`.
 
-Performance benchmark and EXPLAIN review are complete.
+PR #24 merged the P8 performance / EXPLAIN / isolation / concurrency checkpoint before this branch was created.
 
-Backend isolation tests are complete.
+Production-gate evidence completed on this branch:
 
-P8 concurrency / idempotency verification is complete.
+- Runtime mutation contracts are strict for Product create, price update, import mapping, and import retry.
+- Package-UOM and import-polling failures are distinct from loading/empty states and are retryable.
+- Normal Products lifecycle management reuses the authoritative Catalog lifecycle implementation instead of creating a second authority.
+- Lifecycle commands use durable request identity, optimistic versioning, archive preflight, existing backend permissions, audit/outbox, and the existing lifecycle lock/idempotency authorities.
+- `operational_hold` is a strict Simple Products read-contract field and is visible in Product table/card/detail surfaces.
+- Full Dashboard verification after the frontend changes passed: 31 files / 188 tests, ESLint 0 errors (7 pre-existing Fast Refresh warnings outside touched Products scope), and production build PASS.
+- Corrected Product read-contract runtime gate passed: 11 checks / 0 failures / `PRODUCTS_READ_CONTRACT_P2_GATE=PASS`.
+- Permanent read-only existing-product audit added: `wa_backend/scripts/gate_products_p8_existing_products.py`.
+- Real database inventory classified 120,212 Product variants: 120,173 history-bearing and 39 history-free.
+- 120,154 REQUIRED/REQUIRED review candidates were safely classified: 120,133 `HISTORY_LOCKED`, 21 `REVIEWABLE_NOW`, 0 `LIFECYCLE_BLOCKED`.
+- Existing-product audit ran with `transaction_read_only=on`, found no invalid tracking/lifecycle states, no orphan/cross-tenant batch history, and matched the real `PRODUCT_TRACKING_LOCKED` authority.
+- Existing-product result: 8 checks / 0 failures / `PRODUCTS_P8_EXISTING_PRODUCTS_GATE=PASS`.
+- No TODO/FIXME/HACK/XXX marker remains in the reviewed touched Product production path.
 
-**Checkpoint stop:** do not start the production gate in this work session. Merge the completed P8 performance / isolation / concurrency checkpoint to `main`. The next P8 work item remains `production gate`, intentionally unopened until work resumes from a fresh branch based on the merged `main`.
+Current task: build and run the final aggregate P8 production gate. Do **not** mark `production gate`, PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
 
 Current P7 state:
 
