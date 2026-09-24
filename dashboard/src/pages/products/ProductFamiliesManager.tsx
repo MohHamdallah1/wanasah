@@ -908,7 +908,7 @@ export function ProductFamiliesManager({
                   key={
                     family.id
                   }
-                  className="flex items-center gap-3 border-b border-slate-100 p-3 last:border-b-0"
+                  className="flex flex-col items-stretch gap-2 border-b border-slate-100 p-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-3"
                 >
                   {editingFamily?.id ===
                   family.id ? (
@@ -968,7 +968,7 @@ export function ProductFamiliesManager({
                         onClick={() =>
                           updateFamilyMutation.mutate()
                         }
-                        className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                        className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40 sm:w-auto"
                       >
                         {t(
                           "common.save"
@@ -993,7 +993,7 @@ export function ProductFamiliesManager({
                             false
                           );
                         }}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 sm:w-auto"
                       >
                         {t(
                           "common.cancel"
@@ -1008,7 +1008,7 @@ export function ProductFamiliesManager({
                           family
                         )
                       }
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 sm:w-auto"
                     >
                       {t(
                         "common.edit"
