@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
-import re
 import zipfile
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -36,6 +35,13 @@ from models import (
     ProductImportJob,
     ProductImportRow,
 )
+from product_import_localization import (
+    CANONICAL_IMPORT_FIELDS,
+    canonical_package_value,
+    canonical_tracking_value,
+    normalize_import_token,
+    suggest_import_mapping,
+)
 
 MAX_IMPORT_ROWS = 50_000
 MAX_IMPORT_COLUMNS = 100
@@ -50,135 +56,7 @@ class ProductImportTerminalError(RuntimeError):
     """Deterministic import failure that must not be retried automatically."""
 
 
-_CANONICAL_FIELDS = (
-    "name",
-    "family",
-    "package_uom",
-    "units_per_package",
-    "package_price",
-    "unit_price",
-    "unit_barcode",
-    "package_barcode",
-    "lot_control_mode",
-    "expiry_control_mode",
-)
-
-_ALIASES = {
-    "name": {
-        "name",
-        "product name",
-        "product",
-        "item",
-        "item name",
-        "اسم المنتج",
-        "المنتج",
-        "اسم الصنف",
-        "الصنف",
-    },
-    "family": {
-        "family",
-        "product family",
-        "group",
-        "العائلة",
-        "عائلة",
-        "عائلة المنتج",
-    },
-    "package_uom": {
-        "package",
-        "package type",
-        "outer package",
-        "package uom",
-        "نوع العبوة",
-        "العبوة",
-        "وحدة العبوة",
-    },
-    "units_per_package": {
-        "units per package",
-        "units/package",
-        "pieces per package",
-        "units per carton",
-        "units/carton",
-        "pieces per carton",
-        "pcs per carton",
-        "pack per carton",
-        "packs per carton",
-        "عدد الوحدات في العبوة",
-        "عدد الحبات في العبوة",
-        "عدد الحبات في الكرتونة",
-        "الحبات بالكرتونة",
-        "حبة بالكرتونة",
-        "عدد القطع في الكرتونة",
-    },
-    "package_price": {
-        "package price",
-        "outer price",
-        "carton price",
-        "case price",
-        "سعر العبوة",
-        "سعر الكرتونة",
-        "سعر كرتونة",
-    },
-    "unit_price": {
-        "unit price",
-        "piece price",
-        "each price",
-        "سعر الوحدة",
-        "سعر الحبة",
-        "سعر القطعة",
-    },
-    "unit_barcode": {
-        "unit barcode",
-        "piece barcode",
-        "each barcode",
-        "باركود الوحدة",
-        "باركود الحبة",
-        "باركود القطعة",
-        "باركود",
-    },
-    "package_barcode": {
-        "package barcode",
-        "outer barcode",
-        "carton barcode",
-        "case barcode",
-        "باركود العبوة",
-        "باركود الكرتونة",
-    },
-    "lot_control_mode": {
-        "lot control",
-        "lot tracking",
-        "batch tracking",
-        "lot control mode",
-        "batch control mode",
-        "تتبع الدفعة",
-        "تتبع الدفعات",
-        "تتبع التشغيلة",
-        "نمط تتبع الدفعة",
-    },
-    "expiry_control_mode": {
-        "expiry control",
-        "expiry tracking",
-        "expiration tracking",
-        "expiry control mode",
-        "expiration control mode",
-        "تتبع الصلاحية",
-        "تتبع تاريخ الصلاحية",
-        "نمط تتبع الصلاحية",
-    },
-}
-
-_TRACKING_VALUE_ALIASES = {
-    "none": "NONE",
-    "no": "NONE",
-    "without": "NONE",
-    "بدون": "NONE",
-    "لا": "NONE",
-    "optional": "OPTIONAL",
-    "اختياري": "OPTIONAL",
-    "required": "REQUIRED",
-    "mandatory": "REQUIRED",
-    "إلزامي": "REQUIRED",
-    "الزامي": "REQUIRED",
-}
+_CANONICAL_FIELDS = CANONICAL_IMPORT_FIELDS
 
 
 def _tracking_import_mode(
@@ -193,65 +71,13 @@ def _tracking_import_mode(
             field_name=field_name,
         )
 
-    normalized_value = _normalize_header(raw_value)
-    canonical = _TRACKING_VALUE_ALIASES.get(
-        normalized_value,
-        str(raw_value).strip(),
+    canonical = canonical_tracking_value(
+        raw_value,
     )
     return normalize_tracking_mode(
         canonical,
         field_name=field_name,
     )
-
-
-_PACKAGE_VALUE_ALIASES = {
-    "carton": "CARTON",
-    "كرتونة": "CARTON",
-    "case": "CASE",
-    "box": "CASE",
-    "صندوق": "CASE",
-    "pack": "PACK",
-    "packet": "PACK",
-    "باكيت": "PACK",
-    "bag": "BAG",
-    "كيس": "BAG",
-    "sack": "SACK",
-    "شوال": "SACK",
-    "tray": "TRAY",
-    "صينية": "TRAY",
-    "crate": "CRATE",
-    "قفص": "CRATE",
-    "bundle": "BUNDLE",
-    "حزمة": "BUNDLE",
-    "pallet": "PALLET",
-    "طبلية": "PALLET",
-    "none": "NONE",
-    "no package": "NONE",
-    "unit only": "NONE",
-    "بدون": "NONE",
-    "بدون عبوة": "NONE",
-    "لا يوجد": "NONE",
-}
-
-
-def _normalize_header(value: Any) -> str:
-    normalized = (
-        str(value or "")
-        .strip()
-        .lower()
-        .replace("_", " ")
-        .replace("-", " ")
-    )
-    return re.sub(r"\s+", " ", normalized)
-
-
-_NORMALIZED_ALIASES = {
-    key: {
-        _normalize_header(value)
-        for value in aliases
-    }
-    for key, aliases in _ALIASES.items()
-}
 
 
 def _json_cell(value: Any) -> str | None:
@@ -284,7 +110,7 @@ def _header_layout(
         )
 
     normalized = [
-        _normalize_header(header)
+        normalize_import_token(header)
         for _, header in layout
     ]
     if len(normalized) != len(set(normalized)):
@@ -501,23 +327,7 @@ def parse_source(
 def suggest_mapping(
     headers: list[str],
 ) -> dict[str, str]:
-    normalized = {
-        header: _normalize_header(header)
-        for header in headers
-    }
-    result: dict[str, str] = {}
-    for canonical in _CANONICAL_FIELDS:
-        matches = [
-            header
-            for header, value in normalized.items()
-            if value
-            in _NORMALIZED_ALIASES[
-                canonical
-            ]
-        ]
-        if len(matches) == 1:
-            result[canonical] = matches[0]
-    return result
+    return suggest_import_mapping(headers)
 
 
 def mapping_complete(
@@ -570,12 +380,8 @@ def _package_code(
     if raw_package is not None and str(
         raw_package
     ).strip():
-        normalized = _normalize_header(
-            raw_package
-        )
-        canonical = _PACKAGE_VALUE_ALIASES.get(
-            normalized,
-            str(raw_package).strip().upper(),
+        canonical = canonical_package_value(
+            raw_package,
         )
         return normalize_package_code(canonical)
 

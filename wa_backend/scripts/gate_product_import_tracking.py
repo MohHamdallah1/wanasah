@@ -113,6 +113,9 @@ def static_checks() -> None:
     worker = (
         BACKEND / "product_import_worker.py"
     ).read_text(encoding="utf-8")
+    localization = (
+        BACKEND / "product_import_localization.py"
+    ).read_text(encoding="utf-8")
     queue = (
         BACKEND / "product_import_queue.py"
     ).read_text(encoding="utf-8")
@@ -160,11 +163,12 @@ def static_checks() -> None:
         "Worker forwards normalized tracking through SimpleProductSpec",
     )
     check(
-        "_TRACKING_VALUE_ALIASES" in worker
-        and '"لا": "NONE"' in worker
-        and '"اختياري": "OPTIONAL"' in worker
-        and '"إلزامي": "REQUIRED"' in worker
-        and '"required": "REQUIRED"' in worker,
+        "canonical_tracking_value" in worker
+        and "tracking_value_aliases" in localization
+        and '"لا": "NONE"' in localization
+        and '"اختياري": "OPTIONAL"' in localization
+        and '"إلزامي": "REQUIRED"' in localization
+        and '"required": "REQUIRED"' in localization,
         "Import accepts user-friendly localized tracking values without changing stored codes",
     )
     check(
