@@ -629,7 +629,7 @@ async def test_product_location_delete_replay() -> None:
 # Test 6 — RLS catalog audit (no tenant data; no cleanup needed)
 # ===========================================================================
 async def test_rls_catalog() -> None:
-    print("\n[5] RLS catalog audit for Stage 3 tables")
+    print("\n[6] RLS catalog audit for Stage 3 tables")
     stage3_tables = [
         "product_locations",
         "domain_audit_events",
