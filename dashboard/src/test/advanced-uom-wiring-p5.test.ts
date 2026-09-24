@@ -50,7 +50,7 @@ describe(
       );
     });
 
-    it("replaces the dead Advanced Pricing placeholder with an authorized UOM entry point", () => {
+    it("keeps Advanced UOM usable while preserving the disabled Advanced Pricing roadmap control", () => {
       const products = compact(
         source(
           "../pages/ProductsDashboard.tsx",
@@ -63,11 +63,17 @@ describe(
       expect(products).toContain(
         '"products.advancedUom.action"',
       );
-      expect(products).not.toContain(
+      expect(products).toContain(
         '"products.advancedPricing"',
       );
-      expect(products).not.toContain(
+      expect(products).toContain(
+        '"products.advancedPricingHint"',
+      );
+      expect(products).toContain(
         "LockKeyhole",
+      );
+      expect(products).toMatch(
+        /type="button" disabled title=\{t\( "products\.advancedPricingHint" \)\}/,
       );
     });
 
