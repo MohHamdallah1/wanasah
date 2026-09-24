@@ -28,7 +28,7 @@ interface LoginResponsePayload {
 export default function Login() {
   const navigate = useNavigate();
   // +++ حقن رمز الشركة الافتراضي في بيئة التطوير فقط (Dev Environment) +++
-  const [companyCode, setCompanyCode] = useState(import.meta.env.DEV ? 'WNS-01' : '');
+  const [companyCode, setCompanyCode] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
