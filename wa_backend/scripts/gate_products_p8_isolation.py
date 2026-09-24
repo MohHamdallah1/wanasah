@@ -527,7 +527,7 @@ async def verify_direct_product_family_isolation(
             package_uom_code=None,
             units_per_package=1,
             package_price=None,
-            unit_price=None,
+            unit_price=Decimal("1.000000"),
             unit_barcode=None,
             package_barcode=None,
             lot_control_mode="NONE",
