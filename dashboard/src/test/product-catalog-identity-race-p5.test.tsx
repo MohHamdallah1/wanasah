@@ -362,7 +362,7 @@ describe(
 
       expect(
         await screen.findByText(
-          "B-CODE",
+          /B-CODE/,
         ),
       ).toBeInTheDocument();
       expect(
@@ -399,7 +399,7 @@ describe(
       await waitFor(() => {
         expect(
           screen.queryByText(
-            "A-CODE",
+            /A-CODE/,
           ),
         ).not.toBeInTheDocument();
         expect(
@@ -411,7 +411,7 @@ describe(
 
       expect(
         screen.getByText(
-          "B-CODE",
+          /B-CODE/,
         ),
       ).toBeInTheDocument();
       expect(
