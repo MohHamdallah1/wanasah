@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import {
   describe,
   expect,
@@ -7,6 +9,17 @@ import {
 import {
   deriveExactMoneyPair,
 } from "../lib/exactMoney";
+
+const readSource = (
+  relativePath: string,
+): string =>
+  readFileSync(
+    new URL(
+      relativePath,
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
 describe(
   "Products exact money preview",
@@ -144,6 +157,54 @@ describe(
           "",
         ),
       ).toBeNull();
+    });
+
+    it("keeps product money paths string/exact and backend-authoritative", () => {
+      const products = readSource(
+        "../pages/ProductsDashboard.tsx",
+      );
+      const pricing = readSource(
+        "../pages/PricingDashboard.tsx",
+      );
+      const localeNumbers = readSource(
+        "../lib/localeNumbers.ts",
+      );
+
+      expect(products).toContain(
+        "deriveExactMoneyPair(",
+      );
+      expect(products).not.toContain(
+        "const derivedPrices =",
+      );
+      expect(products).not.toContain(
+        "Number(unitRaw)",
+      );
+      expect(products).not.toContain(
+        "Number(packageRaw)",
+      );
+      expect(products).toContain(
+        "package_price.trim()",
+      );
+      expect(products).toContain(
+        "unit_price.trim()",
+      );
+
+      expect(pricing).toContain(
+        "amount: entryForm.amount.trim()",
+      );
+      expect(pricing).not.toContain(
+        "parseFloat(",
+      );
+      expect(pricing).not.toContain(
+        "toFixed(",
+      );
+
+      expect(localeNumbers).toContain(
+        "BigInt(match[2])",
+      );
+      expect(localeNumbers).not.toContain(
+        "Number(value)",
+      );
     });
   },
 );
