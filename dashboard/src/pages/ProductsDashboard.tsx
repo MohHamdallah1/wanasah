@@ -2589,6 +2589,21 @@ export default function ProductsDashboard() {
               )}
             </button>
 
+            <button
+              type="button"
+              onClick={() =>
+                setDisplayPreferencesOpen(
+                  true
+                )
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {t(
+                "products.displayPreferences.action"
+              )}
+            </button>
+
             {canManageCatalog ? (
               <button
                 type="button"
@@ -3548,6 +3563,24 @@ export default function ProductsDashboard() {
           </div>
         ) : null}
       </section>
+
+      <ProductDisplayPreferencesModal
+        open={displayPreferencesOpen}
+        preferences={
+          displayPreferences
+        }
+        pricingAvailable={
+          canViewPricing
+        }
+        onClose={() =>
+          setDisplayPreferencesOpen(
+            false
+          )
+        }
+        onSave={
+          saveDisplayPreferences
+        }
+      />
 
       <ProductDetailDrawer
         product={detailProduct}
