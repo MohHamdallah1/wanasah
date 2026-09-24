@@ -353,48 +353,11 @@ export default function ProductsDashboard() {
     displayPreferencesOpen,
     setDisplayPreferencesOpen,
   ] = useState(false);
-  const displayPreferenceScopeRef =
-    useRef<string | null>(null);
 
   const resetProductPagination = () => {
     setCursor(null);
     setHistory([]);
   };
-
-  useEffect(() => {
-    if (
-      companyId === null ||
-      driverId === null
-    ) {
-      return;
-    }
-
-    const scope =
-      `${companyId}:${driverId}`;
-    if (
-      displayPreferenceScopeRef.current ===
-      scope
-    ) {
-      return;
-    }
-
-    const next =
-      readProductDisplayPreferences(
-        companyId,
-        driverId
-      );
-    displayPreferenceScopeRef.current =
-      scope;
-    setDisplayPreferences(next);
-    setSortBy(
-      next.defaultSort.field
-    );
-    setSortDir(
-      next.defaultSort.direction
-    );
-    setCursor(null);
-    setHistory([]);
-  }, [companyId, driverId]);
 
   const [
     createOpen,
@@ -985,6 +948,21 @@ export default function ProductsDashboard() {
     });
 
   useEffect(() => {
+    const nextDisplayPreferences =
+      companyId !== null &&
+      driverId !== null
+        ? readProductDisplayPreferences(
+            companyId,
+            driverId
+          )
+        : readProductDisplayPreferences(
+            Number.NaN,
+            Number.NaN
+          );
+
+    setDisplayPreferences(
+      nextDisplayPreferences
+    );
     setCursor(null);
     setHistory([]);
     setFiltersOpen(false);
@@ -999,8 +977,14 @@ export default function ProductsDashboard() {
     setPriceFilter("");
     setLotFilter("");
     setExpiryFilter("");
-    setSortBy("id");
-    setSortDir("asc");
+    setSortBy(
+      nextDisplayPreferences.defaultSort
+        .field
+    );
+    setSortDir(
+      nextDisplayPreferences.defaultSort
+        .direction
+    );
     setDetailProduct(null);
     setBarcodeProduct(null);
     setPriceEdit(null);
@@ -1018,7 +1002,7 @@ export default function ProductsDashboard() {
     setTrackingEditLot(null);
     setTrackingEditExpiry(null);
     setFamilyOptionSearch("");
-  }, [companyId]);
+  }, [companyId, driverId]);
 
   useEffect(() => {
     const defaults =
