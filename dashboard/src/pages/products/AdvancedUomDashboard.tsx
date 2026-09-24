@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import {
   apiErrorCode,
   apiErrorMessage,
@@ -34,6 +35,8 @@ import {
   completeDurableOperation,
   durableScope,
   getOrCreateDurableCommand,
+  readDurableCommand,
+  type DurableCommand,
 } from "@/lib/durableOperations";
 import {
   buildConversionCommandPayload,
@@ -58,6 +61,97 @@ type ConversionUpdateCommand =
   UomConversionCommandPayload & {
     expected_version: number;
   };
+
+const commandPayload = (
+  value: unknown,
+): UomConversionCommandPayload | null => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+  const row =
+    value as Record<string, unknown>;
+  if (
+    typeof row.from_uom_id !== "number" ||
+    !Number.isSafeInteger(row.from_uom_id) ||
+    row.from_uom_id <= 0 ||
+    typeof row.to_uom_id !== "number" ||
+    !Number.isSafeInteger(row.to_uom_id) ||
+    row.to_uom_id <= 0 ||
+    typeof row.numerator !== "string" ||
+    typeof row.denominator !== "string" ||
+    typeof row.quantity_scale !== "number" ||
+    !Number.isSafeInteger(row.quantity_scale)
+  ) {
+    return null;
+  }
+
+  try {
+    const parsed =
+      buildConversionCommandPayload({
+        from_uom_id:
+          String(row.from_uom_id),
+        to_uom_id:
+          String(row.to_uom_id),
+        numerator: row.numerator,
+        denominator: row.denominator,
+        quantity_scale:
+          String(row.quantity_scale),
+      });
+    return (
+      parsed.from_uom_id === row.from_uom_id &&
+      parsed.to_uom_id === row.to_uom_id &&
+      parsed.numerator === row.numerator &&
+      parsed.denominator === row.denominator &&
+      parsed.quantity_scale === row.quantity_scale
+    )
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const updateCommandPayload = (
+  value: unknown,
+): ConversionUpdateCommand | null => {
+  const base = commandPayload(value);
+  if (
+    !base ||
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+  const expectedVersion = (
+    value as Record<string, unknown>
+  ).expected_version;
+  if (
+    typeof expectedVersion !== "number" ||
+    !Number.isSafeInteger(expectedVersion) ||
+    expectedVersion <= 0
+  ) {
+    return null;
+  }
+  return {
+    ...base,
+    expected_version: expectedVersion,
+  };
+};
+
+const draftFromPayload = (
+  payload: UomConversionCommandPayload,
+): ConversionDraft => ({
+  from_uom_id: String(payload.from_uom_id),
+  to_uom_id: String(payload.to_uom_id),
+  numerator: payload.numerator,
+  denominator: payload.denominator,
+  quantity_scale: String(payload.quantity_scale),
+});
 
 const EMPTY_DRAFT: ConversionDraft = {
   from_uom_id: "",
@@ -87,6 +181,7 @@ export default function AdvancedUomDashboard() {
     useSearchParams();
   const authFetch = useAuthFetch();
   const access = useInventoryAccess();
+  const isOnline = useNetworkStatus();
   const queryClient = useQueryClient();
 
   const companyId =
@@ -121,6 +216,23 @@ export default function AdvancedUomDashboard() {
     useState<UomConversion | null>(
       null,
     );
+  const [
+    pendingCreate,
+    setPendingCreate,
+  ] = useState<
+    DurableCommand<UomConversionCommandPayload> | null
+  >(null);
+  const [
+    pendingUpdate,
+    setPendingUpdate,
+  ] = useState<{
+    conversionId: number;
+    command: DurableCommand<ConversionUpdateCommand>;
+  } | null>(null);
+  const [
+    pendingBlocked,
+    setPendingBlocked,
+  ] = useState(false);
 
   useEffect(() => {
     const timer =
