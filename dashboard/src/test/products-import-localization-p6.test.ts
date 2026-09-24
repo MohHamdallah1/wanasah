@@ -28,13 +28,13 @@ describe(
   () => {
     it("keeps locale aliases outside the import worker and shares canonical field IDs", () => {
       const worker = readSource(
-        "../../wa_backend/product_import_worker.py",
+        "../../../wa_backend/product_import_worker.py",
       );
       const localization = readSource(
-        "../../wa_backend/product_import_localization.py",
+        "../../../wa_backend/product_import_localization.py",
       );
       const api = readSource(
-        "../../wa_backend/api/simple_products.py",
+        "../../../wa_backend/api/simple_products.py",
       );
 
       expect(localization).toContain(
@@ -87,8 +87,8 @@ describe(
       expect(page).toContain(
         "importStatus.detected_headers.map",
       );
-      expect(page).toContain(
-        'setMapping( ( current ) => ({ ...current, [field]: event .target .value, }) )',
+      expect(page).toMatch(
+        /setMapping\(\s*\(\s*current\s*\)\s*=>\s*\(\{\s*\.\.\.current,\s*\[field\]:\s*event\s*\.target\s*\.value,/,
       );
     });
 
@@ -169,7 +169,7 @@ describe(
 
     it("has translation keys for every import row validation code emitted by the worker", () => {
       const worker = readSource(
-        "../../wa_backend/product_import_worker.py",
+        "../../../wa_backend/product_import_worker.py",
       );
       const translations = readSource(
         "../i18n/resources.ts",
