@@ -2113,8 +2113,8 @@ export default function ProductsDashboard() {
       const lines = [
         headers.join(","),
         [
-          "Lolo Chips Cheese 20g",
-          "Lolo Chips",
+          t("products.importTemplateSampleName"),
+          t("products.importTemplateSampleFamily"),
           t("uom.CARTON"),
           "50",
           "10.000",
