@@ -105,6 +105,8 @@ def main() -> int:
             label=label,
             command=[
                 sys.executable,
+                "-W",
+                "error::DeprecationWarning",
                 str(
                     BACKEND
                     / relative_path
