@@ -13,13 +13,13 @@ type CodedCatalogError = Error & {
 
 const catalogContractError = (
   message: string,
-): never => {
+): CodedCatalogError => {
   const error = new Error(
     message,
   ) as CodedCatalogError;
   error.code =
     "CATALOG_CONTRACT_INVALID";
-  throw error;
+  return error;
 };
 
 const parseQuantity = (
@@ -37,7 +37,7 @@ const parseQuantity = (
       options,
     );
   } catch (error) {
-    return catalogContractError(
+    throw catalogContractError(
       error instanceof Error
         ? error.message
         : "Invalid catalog quantity.",
@@ -61,7 +61,7 @@ const validateVariantQuantity = (
       allowZero,
     );
   } catch (error) {
-    return catalogContractError(
+    throw catalogContractError(
       error instanceof Error
         ? error.message
         : "Invalid catalog quantity.",
@@ -92,15 +92,15 @@ export interface ProductBarcode { id:number; product_variant_id:number; uom:UomR
 export interface CursorPage<T> { items: T[]; next_cursor: string | null; has_more: boolean }
 
 const record = (value: unknown, message: string): Record<string, unknown> => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) catalogContractError(message);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw catalogContractError(message);
   return value as Record<string, unknown>;
 };
 const integer = (value: unknown, field: string, min = 0): number => {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > DB_INT_MAX) catalogContractError(`حقل ${field} في عقد الكتالوج غير صالح.`);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > DB_INT_MAX) throw catalogContractError(`حقل ${field} في عقد الكتالوج غير صالح.`);
   return value;
 };
 const requiredString = (value: unknown, field: string, max: number): string => {
-  if (typeof value !== "string" || !value.trim() || value.length > max) catalogContractError(`حقل ${field} في عقد الكتالوج غير صالح.`);
+  if (typeof value !== "string" || !value.trim() || value.length > max) throw catalogContractError(`حقل ${field} في عقد الكتالوج غير صالح.`);
   return value;
 };
 const optionalString = (value: unknown, field: string, max: number): string | null =>
@@ -111,15 +111,15 @@ const parseUom = (raw: unknown): UomRef => {
 };
 const cursorPage = <T>(raw: unknown, parseItem: (value: unknown) => T): CursorPage<T> => {
   const row = record(raw, "صفحة الكتالوج غير صالحة.");
-  if (!Array.isArray(row.items) || row.items.length > 200 || typeof row.has_more !== "boolean") catalogContractError("صفحة الكتالوج غير صالحة.");
+  if (!Array.isArray(row.items) || row.items.length > 200 || typeof row.has_more !== "boolean") throw catalogContractError("صفحة الكتالوج غير صالحة.");
   const next = row.next_cursor === null ? null : requiredString(row.next_cursor, "next_cursor", MAX_CURSOR_LENGTH);
-  if (row.has_more !== (next !== null)) catalogContractError("ترقيم الكتالوج غير متسق.");
+  if (row.has_more !== (next !== null)) throw catalogContractError("ترقيم الكتالوج غير متسق.");
   return { items: row.items.map(parseItem), next_cursor: next, has_more: row.has_more };
 };
 
 export const parseUoms = (raw: unknown): UomRef[] => {
   const row = record(raw, "استجابة وحدات القياس غير صالحة.");
-  if (!Array.isArray(row.items) || row.items.length > 100) catalogContractError("قائمة وحدات القياس غير صالحة.");
+  if (!Array.isArray(row.items) || row.items.length > 100) throw catalogContractError("قائمة وحدات القياس غير صالحة.");
   return row.items.map(parseUom);
 };
 export const parseProducts = (raw: unknown): CursorPage<CatalogProduct> => cursorPage(raw, (item) => {
@@ -134,15 +134,15 @@ export const parseProducts = (raw: unknown): CursorPage<CatalogProduct> => curso
 export const parseCatalogVariant = (item: unknown): CatalogVariant => {
   const row = record(item, "SKU غير صالح.");
   const scale = integer(row.quantity_scale, "quantity_scale");
-  if (scale > 6) catalogContractError("دقة كمية SKU غير صالحة.");
+  if (scale > 6) throw catalogContractError("دقة كمية SKU غير صالحة.");
   const step = parseQuantity(row.quantity_step, "quantity_step");
   const lifecycle = row.lifecycle_status;
   const hold = row.operational_hold;
   const lot = row.lot_control_mode;
   const expiry = row.expiry_control_mode;
-  if (!["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"].includes(String(lifecycle))) catalogContractError("حالة SKU غير صالحة.");
-  if (!["NONE", "SALES_HOLD", "RECALL"].includes(String(hold))) catalogContractError("حالة إيقاف SKU غير صالحة.");
-  if (!["NONE", "OPTIONAL", "REQUIRED"].includes(String(lot)) || !["NONE", "OPTIONAL", "REQUIRED"].includes(String(expiry))) catalogContractError("سياسة الدفعة أو الصلاحية غير صالحة.");
+  if (!["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"].includes(String(lifecycle))) throw catalogContractError("حالة SKU غير صالحة.");
+  if (!["NONE", "SALES_HOLD", "RECALL"].includes(String(hold))) throw catalogContractError("حالة إيقاف SKU غير صالحة.");
+  if (!["NONE", "OPTIONAL", "REQUIRED"].includes(String(lot)) || !["NONE", "OPTIONAL", "REQUIRED"].includes(String(expiry))) throw catalogContractError("سياسة الدفعة أو الصلاحية غير صالحة.");
   return {
     id: integer(row.id, "variant.id", 1), product_id: integer(row.product_id, "product_id", 1),
     sku: requiredString(row.sku, "sku", 100), gtin: optionalString(row.gtin, "gtin", 14), name: requiredString(row.name, "name", 200),
@@ -158,12 +158,12 @@ export const parseCatalogVariant = (item: unknown): CatalogVariant => {
 };
 export const parseVariants = (raw: unknown): CursorPage<CatalogVariant> => cursorPage(raw, parseCatalogVariant);
 export const parseConversions = (raw:unknown):UomConversion[] => {
-  const page=record(raw,"استجابة تحويلات UOM غير صالحة."); if(!Array.isArray(page.items)||page.items.length>200)catalogContractError("تحويلات UOM غير صالحة.");
+  const page=record(raw,"استجابة تحويلات UOM غير صالحة."); if(!Array.isArray(page.items)||page.items.length>200)throw catalogContractError("تحويلات UOM غير صالحة.");
   return page.items.map((item)=>{const row=record(item,"تحويل UOM غير صالح.");return{id:integer(row.id,"conversion.id",1),product_variant_id:integer(row.product_variant_id,"product_variant_id",1),from_uom:parseUom(row.from_uom),to_uom:parseUom(row.to_uom),numerator:parseQuantity(row.numerator,"numerator"),denominator:parseQuantity(row.denominator,"denominator"),quantity_scale:integer(row.quantity_scale,"quantity_scale"),version:integer(row.version,"version",1)};});
 };
 export const parseBarcodes = (raw:unknown):ProductBarcode[] => {
-  const page=record(raw,"استجابة الباركود غير صالحة."); if(!Array.isArray(page.items)||page.items.length>500)catalogContractError("قائمة الباركود غير صالحة.");
-  return page.items.map((item)=>{const row=record(item,"باركود غير صالح.");const type=String(row.barcode_type) as ProductBarcode["barcode_type"];if(!["EAN8","EAN13","UPC_A","GTIN14","GS1_128","INTERNAL"].includes(type))catalogContractError("نوع الباركود غير صالح.");return{id:integer(row.id,"barcode.id",1),product_variant_id:integer(row.product_variant_id,"product_variant_id",1),uom:parseUom(row.uom),barcode:requiredString(row.barcode,"barcode",128),barcode_type:type,is_primary:row.is_primary===true,valid_from:requiredString(row.valid_from,"valid_from",64),valid_to:row.valid_to===null?null:requiredString(row.valid_to,"valid_to",64),is_active:row.is_active===true,version:integer(row.version,"version",1)};});
+  const page=record(raw,"استجابة الباركود غير صالحة."); if(!Array.isArray(page.items)||page.items.length>500)throw catalogContractError("قائمة الباركود غير صالحة.");
+  return page.items.map((item)=>{const row=record(item,"باركود غير صالح.");const type=String(row.barcode_type) as ProductBarcode["barcode_type"];if(!["EAN8","EAN13","UPC_A","GTIN14","GS1_128","INTERNAL"].includes(type))throw catalogContractError("نوع الباركود غير صالح.");return{id:integer(row.id,"barcode.id",1),product_variant_id:integer(row.product_variant_id,"product_variant_id",1),uom:parseUom(row.uom),barcode:requiredString(row.barcode,"barcode",128),barcode_type:type,is_primary:row.is_primary===true,valid_from:requiredString(row.valid_from,"valid_from",64),valid_to:row.valid_to===null?null:requiredString(row.valid_to,"valid_to",64),is_active:row.is_active===true,version:integer(row.version,"version",1)};});
 };
 
 export interface ProductDraft { code: string; name: string; description: string; brand: string; category: string }
@@ -177,23 +177,23 @@ const cleanOptional = (value: string): string | null => value.trim() || null;
 export const buildProductPayload = (draft: ProductDraft) => {
   const code = draft.code.trim().toUpperCase();
   const name = draft.name.trim();
-  if (!/^[A-Z0-9][A-Z0-9_.-]*$/.test(code) || code.length > 100) catalogContractError("كود العائلة غير صالح.");
-  if (!name || name.length > 150) catalogContractError("اسم عائلة المنتج غير صالح.");
+  if (!/^[A-Z0-9][A-Z0-9_.-]*$/.test(code) || code.length > 100) throw catalogContractError("كود العائلة غير صالح.");
+  if (!name || name.length > 150) throw catalogContractError("اسم عائلة المنتج غير صالح.");
   return { request_id: crypto.randomUUID(), code, name, description: cleanOptional(draft.description), brand: cleanOptional(draft.brand), category: cleanOptional(draft.category) };
 };
 export const buildVariantPayload = (draft: VariantDraft) => {
   const productId = integer(Number(draft.product_id), "product_id", 1);
   const baseUomId = integer(Number(draft.base_uom_id), "base_uom_id", 1);
   const scale = integer(Number(draft.quantity_scale), "quantity_scale");
-  if (scale > 6) catalogContractError("دقة الكمية يجب أن تكون بين 0 و6.");
+  if (scale > 6) throw catalogContractError("دقة الكمية يجب أن تكون بين 0 و6.");
   const rawStep = parseQuantity(draft.quantity_step.trim(), "quantity_step");
   const step = validateVariantQuantity(rawStep, scale, rawStep, "quantity_step");
   const sku = draft.sku.trim().toUpperCase();
   const name = draft.name.trim();
   const gtin = cleanOptional(draft.gtin);
-  if (!sku || sku.length > 100) catalogContractError("SKU مطلوب ولا يتجاوز 100 حرف.");
-  if (!name || name.length > 200) catalogContractError("اسم SKU مطلوب ولا يتجاوز 200 حرف.");
-  if (gtin && !/^(?:\d{8}|\d{12}|\d{13}|\d{14})$/.test(gtin)) catalogContractError("GTIN غير صالح.");
+  if (!sku || sku.length > 100) throw catalogContractError("SKU مطلوب ولا يتجاوز 100 حرف.");
+  if (!name || name.length > 200) throw catalogContractError("اسم SKU مطلوب ولا يتجاوز 200 حرف.");
+  if (gtin && !/^(?:\d{8}|\d{12}|\d{13}|\d{14})$/.test(gtin)) throw catalogContractError("GTIN غير صالح.");
   return { request_id: crypto.randomUUID(), product_id: productId, sku, gtin, name, base_uom_id: baseUomId, quantity_scale: scale, quantity_step: step, lot_control_mode: draft.lot_control_mode, expiry_control_mode: draft.expiry_control_mode };
 };
 export interface UomConversionCommandPayload {
@@ -218,7 +218,7 @@ export const buildConversionCommandPayload = (
     "quantity_scale",
   );
   if (quantityScale > 6) {
-    catalogContractError(
+    throw catalogContractError(
       "دقة التحويل يجب أن تكون بين 0 و6.",
     );
   }
@@ -278,7 +278,7 @@ export const parseConversionMutation = (
     items: [conversionRaw],
   });
   if (parsed.length !== 1) {
-    catalogContractError(
+    throw catalogContractError(
       "استجابة تحويل UOM غير صالحة.",
     );
   }
@@ -312,7 +312,7 @@ export interface ProductLocationAssignment {
 }
 
 const parseLifecycle = (value: unknown): CatalogVariant["lifecycle_status"] => {
-  if (!["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"].includes(String(value))) catalogContractError("حالة دورة الحياة غير صالحة.");
+  if (!["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"].includes(String(value))) throw catalogContractError("حالة دورة الحياة غير صالحة.");
   return value as CatalogVariant["lifecycle_status"];
 };
 const parseBlocker = (value: unknown): ArchiveBlocker => {
@@ -329,7 +329,7 @@ export const parseVariantMutation = (raw: unknown): { message: string; variant: 
 };
 export const parseArchivePreflight = (raw: unknown): ArchivePreflight => {
   const row = record(raw, "استجابة فحص الأرشفة غير صالحة.");
-  if (!Array.isArray(row.blockers) || row.blockers.length > 20 || typeof row.can_archive !== "boolean") catalogContractError("قائمة موانع الأرشفة غير صالحة.");
+  if (!Array.isArray(row.blockers) || row.blockers.length > 20 || typeof row.can_archive !== "boolean") throw catalogContractError("قائمة موانع الأرشفة غير صالحة.");
   return {
     variant_id: integer(row.variant_id, "variant_id", 1),
     lifecycle_status: parseLifecycle(row.lifecycle_status),
@@ -343,7 +343,7 @@ const parseProductLocation = (value: unknown): ProductLocationAssignment => {
   const location = record(row.location, "هوية الموقع غير صالحة.");
   const variant = record(row.product_variant, "هوية الصنف غير صالحة.");
   const flags = record(row.operational_flags, "صلاحيات تشغيل الصنف غير صالحة.");
-  if (typeof flags.inbound_enabled !== "boolean" || typeof flags.outbound_enabled !== "boolean") catalogContractError("صلاحيات تشغيل الصنف غير صالحة.");
+  if (typeof flags.inbound_enabled !== "boolean" || typeof flags.outbound_enabled !== "boolean") throw catalogContractError("صلاحيات تشغيل الصنف غير صالحة.");
   return {
     id: integer(row.id, "product_location.id", 1),
     location: { id: integer(location.id, "location.id", 1), code: requiredString(location.code, "location.code", 100), name: requiredString(location.name, "location.name", 150), location_type: requiredString(location.location_type, "location.location_type", 30) },
@@ -356,7 +356,7 @@ const parseProductLocation = (value: unknown): ProductLocationAssignment => {
 export const parseProductLocations = (raw: unknown): CursorPage<ProductLocationAssignment> => cursorPage(raw, parseProductLocation);
 export const buildLifecycleCommand = (variant: CatalogVariant, reason: string) => {
   const clean = reason.trim();
-  if (clean.length < 3 || clean.length > 1000) catalogContractError("سبب الإجراء مطلوب وبحد أدنى 3 أحرف.");
+  if (clean.length < 3 || clean.length > 1000) throw catalogContractError("سبب الإجراء مطلوب وبحد أدنى 3 أحرف.");
   return { request_id: crypto.randomUUID(), expected_version: variant.version, reason: clean };
 };
 
