@@ -886,7 +886,7 @@ export default function AdvancedUomDashboard() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+    <div className="products-a11y-scope flex min-h-0 flex-1 flex-col p-4 sm:p-6">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <button
@@ -928,6 +928,9 @@ export default function AdvancedUomDashboard() {
                   )
                 }
                 placeholder={t(
+                  "products.advancedUom.searchPlaceholder",
+                )}
+                aria-label={t(
                   "products.advancedUom.searchPlaceholder",
                 )}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 pe-9 text-sm"
