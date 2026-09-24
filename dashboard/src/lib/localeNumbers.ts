@@ -1,8 +1,10 @@
+import { resolveAppLocale } from "@/lib/locale";
+
 const localeDigitMap = (
   locale: string,
 ): string[] => {
   const formatter =
-    new Intl.NumberFormat(locale, {
+    new Intl.NumberFormat(resolvedLocale, {
       useGrouping: false,
       maximumFractionDigits: 0,
     });
@@ -16,7 +18,7 @@ const localeDigitMap = (
 const decimalSeparator = (
   locale: string,
 ): string =>
-  new Intl.NumberFormat(locale, {
+  new Intl.NumberFormat(resolvedLocale, {
     useGrouping: false,
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
@@ -49,6 +51,8 @@ export const formatLocaleDecimal = (
   minimumFractionDigits = 0,
   maximumFractionDigits = 6,
 ): string => {
+  const resolvedLocale =
+    resolveAppLocale(locale);
   const raw = value.trim();
   const match =
     /^(-?)(\d+)(?:\.(\d+))?$/.exec(
@@ -97,7 +101,7 @@ export const formatLocaleDecimal = (
   );
 
   const integerText =
-    new Intl.NumberFormat(locale, {
+    new Intl.NumberFormat(resolvedLocale, {
       useGrouping: true,
       maximumFractionDigits: 0,
     }).format(integer);
@@ -108,10 +112,10 @@ export const formatLocaleDecimal = (
 
   return (
     integerText +
-    decimalSeparator(locale) +
+    decimalSeparator(resolvedLocale) +
     localizeFraction(
       fraction,
-      locale,
+      resolvedLocale,
     )
   );
 };
