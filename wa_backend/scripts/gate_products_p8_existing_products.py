@@ -37,21 +37,6 @@ Session = async_sessionmaker(
     autobegin=False,
 )
 
-VALID_TRACKING_MODES = {
-    "NONE",
-    "OPTIONAL",
-    "REQUIRED",
-}
-EDITABLE_LIFECYCLES = {
-    "DRAFT",
-    "ACTIVE",
-}
-VALID_LIFECYCLES = {
-    "DRAFT",
-    "ACTIVE",
-    "RETIRING",
-    "ARCHIVED",
-}
 MAX_SAMPLE_ROWS = 20
 
 RESULTS: list[tuple[str, bool, str]] = []
@@ -460,7 +445,7 @@ LIMIT 1
                 )
             )
             record(
-                "real history-free classification matches normal tracking authority",
+                "real history-free classification matches tracking-history guard",
                 free_ok,
                 free_detail,
             )
