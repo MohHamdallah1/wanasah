@@ -324,6 +324,7 @@ async def test_product_and_price_idempotency(
     )
 
     async with p2_gate.SessionSU() as su:
+        await su.begin()
         create_idem_count = int(
             (
                 await su.execute(
@@ -352,6 +353,7 @@ async def test_product_and_price_idempotency(
     )
 
     async with p2_gate.SessionSU() as su:
+        await su.begin()
         before_publications = int(
             (
                 await su.execute(
@@ -394,6 +396,7 @@ async def test_product_and_price_idempotency(
     )
 
     async with p2_gate.SessionSU() as su:
+        await su.begin()
         after_publications = int(
             (
                 await su.execute(
@@ -766,6 +769,7 @@ async def test_barcode_race_and_lifecycle(
     ]
 
     async with p2_gate.SessionSU() as su:
+        await su.begin()
         barcode_rows = int(
             (
                 await su.execute(
@@ -798,6 +802,7 @@ async def test_barcode_race_and_lifecycle(
     )
 
     async with p2_gate.SessionSU() as su:
+        await su.begin()
         before = (
             await su.execute(
                 text(
@@ -857,6 +862,7 @@ async def test_barcode_race_and_lifecycle(
         stale_code = http_code(exc)
 
     async with p2_gate.SessionSU() as su:
+        await su.begin()
         after = (
             await su.execute(
                 text(
@@ -1055,6 +1061,27 @@ async def cleanup_all(
         await cleanup_pricing_history(
             company_ids
         )
+
+        async with p2_gate.SessionSU() as su:
+            await su.begin()
+            params = {
+                "company_ids": company_ids,
+            }
+            for table_name in (
+                "transactional_outbox",
+                "domain_audit_events",
+                "system_audit_logs",
+                "operation_idempotency",
+            ):
+                await su.execute(
+                    text(
+                        f"DELETE FROM {table_name} "
+                        "WHERE company_id = ANY("
+                        "CAST(:company_ids AS integer[]))"
+                    ),
+                    params,
+                )
+            await su.commit()
 
         base_ok, base_detail = (
             await p2_gate.cleanup(ids)
