@@ -58,6 +58,7 @@ def static_checks() -> None:
     page = (
         ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
     ).read_text(encoding="utf-8")
+    page_compact = " ".join(page.split())
     translations = (
         ROOT / "dashboard/src/i18n/resources.ts"
     ).read_text(encoding="utf-8")
@@ -87,8 +88,8 @@ def static_checks() -> None:
     )
 
     check(
-        'status.status ===\n          "NEEDS_MAPPING"'
-        in page
+        'status.status === "NEEDS_MAPPING"'
+        in page_compact
         and "status.suggested_mapping" in page
         and "status.column_mapping" in page
         and "importStatus.detected_headers.map" in page,
@@ -125,7 +126,7 @@ def static_checks() -> None:
     import_codes = sorted(
         set(
             re.findall(
-                r'["\\\'](IMPORT_[A-Z0-9_]+)["\\\']',
+                r"""["'](IMPORT_[A-Z0-9_]+)["']""",
                 worker,
             )
         )
