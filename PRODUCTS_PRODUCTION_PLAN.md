@@ -1388,7 +1388,7 @@ Do not work on all items randomly.
 
 - [x] Generic locale resolver.
 - [x] all translation keys.
-- [ ] RTL/LTR.
+- [~] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
 - [ ] configurable display preferences.
@@ -1408,13 +1408,13 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** with **RTL/LTR** as the next open item.
+Continue **Phase P7 — i18n / accessibility / polish** with **RTL/LTR** in verification.
 
 Current P7 state:
 
 - [x] Generic locale resolver.
 - [x] all translation keys.
-- [ ] RTL/LTR.
+- [~] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
 - [ ] configurable display preferences.
