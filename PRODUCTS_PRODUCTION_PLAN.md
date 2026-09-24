@@ -1408,7 +1408,7 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Phase P7 close-out review is complete. Open/review the **P7 pull request**, merge it to `main` after repository checks are green, then verify local/GitHub alignment before starting P8.
+Phase P7 implementation and close-out review are complete. **P8 must not start until the P7 pull request is merged to `main` and local/GitHub alignment is verified.**
 
 Current P7 state:
 
@@ -1533,6 +1533,6 @@ Next implementation order:
 5. Configurable display preferences are complete and verified.
 6. P7 implementation is complete.
 7. P7 close-out review / gate synchronization is complete.
-8. Open/review the P7 PR, merge it after repository checks are green, then verify local `main == origin/main` before starting P8.
+8. Transition prerequisite: merge the reviewed P7 PR to `main`, then verify local `main == origin/main` before starting P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
