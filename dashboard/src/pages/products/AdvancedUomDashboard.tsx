@@ -233,6 +233,10 @@ export default function AdvancedUomDashboard() {
     pendingBlocked,
     setPendingBlocked,
   ] = useState(false);
+  const [
+    pendingCheckReady,
+    setPendingCheckReady,
+  ] = useState(false);
 
   useEffect(() => {
     const timer =
@@ -376,6 +380,7 @@ export default function AdvancedUomDashboard() {
     setPendingCreate(null);
     setPendingUpdate(null);
     setPendingBlocked(false);
+    setPendingCheckReady(false);
   }, [selectedVariant?.id]);
 
   useEffect(() => {
@@ -417,6 +422,7 @@ export default function AdvancedUomDashboard() {
             );
           if (!payload) {
             setPendingBlocked(true);
+            setPendingCheckReady(true);
             return;
           }
           setDraft(
@@ -430,6 +436,7 @@ export default function AdvancedUomDashboard() {
             createdAt:
               createPending.createdAt,
           });
+          setPendingCheckReady(true);
           return;
         }
 
@@ -463,6 +470,7 @@ export default function AdvancedUomDashboard() {
             );
           if (!payload) {
             setPendingBlocked(true);
+            setPendingCheckReady(true);
             return;
           }
           found.push({
@@ -477,14 +485,16 @@ export default function AdvancedUomDashboard() {
           });
         }
 
-        if (
-          cancelled ||
-          found.length === 0
-        ) {
+        if (cancelled) {
+          return;
+        }
+        if (found.length === 0) {
+          setPendingCheckReady(true);
           return;
         }
         if (found.length !== 1) {
           setPendingBlocked(true);
+          setPendingCheckReady(true);
           return;
         }
 
@@ -504,11 +514,13 @@ export default function AdvancedUomDashboard() {
           command:
             restored.command,
         });
+        setPendingCheckReady(true);
       } catch (error) {
         if (cancelled) {
           return;
         }
         setPendingBlocked(true);
+        setPendingCheckReady(true);
         toast.error(
           apiErrorMessage(
             error,
@@ -839,7 +851,8 @@ export default function AdvancedUomDashboard() {
       selectedVariant
         .lifecycle_status ===
         "DRAFT" &&
-      canManage,
+      canManage &&
+      pendingCheckReady,
     );
   const pendingCommand =
     pendingCreate !== null ||
