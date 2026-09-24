@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Menu, LogOut, User, MapPin, Calendar, ChevronDown, Settings } from "lucide-react";
 import { formatTenantDate } from "@/features/tenantIdentity/contracts";
 import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
+import { clearLocalStoragePreservingLastCompanyCode } from "@/lib/authStorage";
 import { resolveI18nLocale } from "@/lib/locale";
 
 interface TopBarProps {
@@ -60,7 +61,7 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     }
 
     // 2. مسح كل البيانات من المتصفح
-    localStorage.clear();
+    clearLocalStoragePreservingLastCompanyCode();
     sessionStorage.clear();
     
     // 3. الخيار النووي: طرد المتصفح بالكامل وإعادة تحميل الصفحة من الصفر
