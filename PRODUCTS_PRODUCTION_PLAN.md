@@ -1387,7 +1387,7 @@ Do not work on all items randomly.
 ## Phase P7 — i18n / accessibility / polish
 
 - [x] Generic locale resolver.
-- [ ] all translation keys.
+- [~] all translation keys.
 - [ ] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
@@ -1408,12 +1408,12 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Continue **Phase P7 — i18n / accessibility / polish** from the next open item: **all translation keys**.
+Continue **Phase P7 — i18n / accessibility / polish** with **all translation keys** in verification.
 
 Current P7 state:
 
 - [x] Generic locale resolver.
-- [ ] all translation keys.
+- [~] all translation keys.
 - [ ] RTL/LTR.
 - [ ] accessibility.
 - [ ] responsive polish.
