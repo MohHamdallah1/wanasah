@@ -178,6 +178,31 @@ describe("Products P8 production frontend gate", () => {
     expect(catalogPanel).toContain(
       "<CatalogLifecycleActions",
     );
+    expect(catalogPanel).toContain(
+      "getOrCreateDurableCommand(",
+    );
+    expect(catalogPanel).toContain(
+      "readDurableCommand<unknown>(",
+    );
+    expect(catalogPanel).toContain(
+      '"catalog-product-location-command-v1"',
+    );
+    expect(catalogPanel).toContain(
+      "isAmbiguousRequestError(",
+    );
+    expect(catalogPanel).not.toContain(
+      "crypto.randomUUID()",
+    );
+    expect(
+      /[\u0600-\u06FF]/.test(
+        readSource(
+          "../pages/inventory/catalog/CatalogLifecyclePanel.tsx",
+        ),
+      ),
+    ).toBe(false);
+    expect(actions).not.toContain(
+      "toast.success( result.message",
+    );
     expect(backend).toContain(
       '"operational_hold": str( variant.operational_hold )',
     );

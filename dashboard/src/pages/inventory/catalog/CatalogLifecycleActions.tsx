@@ -48,6 +48,27 @@ type LifecycleCommandName =
   | "recall"
   | "close-recall";
 
+const lifecycleActionKey = (
+  command: LifecycleCommandName,
+) => {
+  if (command === "delete-draft") {
+    return "deleteDraft";
+  }
+  if (command === "sales-hold") {
+    return "salesHold";
+  }
+  if (
+    command ===
+    "release-sales-hold"
+  ) {
+    return "releaseSalesHold";
+  }
+  if (command === "close-recall") {
+    return "closeRecall";
+  }
+  return command;
+};
+
 type LifecyclePayload = {
   command: LifecycleCommandName;
   expected_version: number;
@@ -449,7 +470,11 @@ export function CatalogLifecycleActions({
       setReason("");
       setPreflight(null);
       toast.success(
-        result.message,
+        t(
+          `catalogLifecycle.success.${lifecycleActionKey(
+            payload.command,
+          )}`,
+        ),
       );
       await onVariantChanged(
         result.variant,
@@ -463,6 +488,11 @@ export function CatalogLifecycleActions({
       const durableCorrupt =
         code ===
         "DURABLE_OPERATION_CORRUPT";
+      const uncertainResponse =
+        code ===
+          "CATALOG_CONTRACT_INVALID" ||
+        code ===
+          "CATALOG_LIFECYCLE_SCOPE_MISMATCH";
 
       if (durableCorrupt) {
         setPendingBlocked(true);
@@ -471,6 +501,7 @@ export function CatalogLifecycleActions({
       if (
         !durableConflict &&
         !durableCorrupt &&
+        !uncertainResponse &&
         !isAmbiguousRequestError(
           error,
         ) &&
@@ -906,7 +937,9 @@ export function CatalogLifecycleActions({
               "catalogLifecycle.pendingRetry",
               {
                 action: t(
-                  `catalogLifecycle.actions.${pending.payload.command === "delete-draft" ? "deleteDraft" : pending.payload.command === "sales-hold" ? "salesHold" : pending.payload.command === "release-sales-hold" ? "releaseSalesHold" : pending.payload.command === "close-recall" ? "closeRecall" : pending.payload.command}`,
+                  `catalogLifecycle.actions.${lifecycleActionKey(
+                    pending.payload.command,
+                  )}`,
                 ),
               },
             )}

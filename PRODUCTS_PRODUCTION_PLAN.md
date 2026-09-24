@@ -1399,7 +1399,7 @@ Do not work on all items randomly.
 - [x] EXPLAIN.
 - [x] isolation tests.
 - [x] concurrency/idempotency tests.
-- [x] production gate.
+- [ ] production gate.
 - [ ] PR + merge.
 - [ ] local/GitHub alignment.
 - [ ] declare Products Production Ready.
@@ -1438,7 +1438,14 @@ Final aggregate P8 production gate is complete:
 - Aggregate result: 17 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
 - The stale-gate repair changed only release-gate assertions; it did not change Product runtime/business logic.
 
-Current task: PR review + merge. Do **not** mark PR/merge, local/GitHub alignment, or Production Ready complete until their own evidence passes.
+PR review found two governance blockers after the successful aggregate gate:
+
+- The modified legacy `CatalogLifecyclePanel.tsx` still contained hardcoded Arabic user-facing copy and non-durable ProductLocation mutation request IDs.
+- ProductLocation DELETE idempotency checked the source row before replay lookup, so an ambiguous successful delete could not replay after the row was gone.
+
+The frontend review fix localizes the touched ProductLocation surface and persists full ProductLocation commands with durable request identity. Because production code changed after the prior 17/17 result, `production gate` is intentionally reopened.
+
+Current task: finish the backend DELETE replay fix and runtime regression, then rerun targeted verification and the full aggregate P8 production gate. Do **not** open or merge the PR until the new code passes.
 
 Current P7 state:
 
