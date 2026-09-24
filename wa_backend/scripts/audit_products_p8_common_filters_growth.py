@@ -102,9 +102,17 @@ async def seed_growth_catalog(
             start + chunk_size - 1,
             row_count,
         )
+        print(
+            "GROWTH_CHUNK_START "
+            f"start={start} end={end}"
+        )
         async with p2_gate.SessionSU() as su:
             await su.begin()
 
+            print(
+                "GROWTH_CHUNK_STAGE "
+                f"start={start} end={end} stage=variants"
+            )
             await su.execute(
                 text(
                     "INSERT INTO product_variants "
@@ -142,6 +150,10 @@ async def seed_growth_catalog(
                 },
             )
 
+            print(
+                "GROWTH_CHUNK_STAGE "
+                f"start={start} end={end} stage=barcodes"
+            )
             await su.execute(
                 text(
                     "INSERT INTO product_barcodes "
@@ -283,6 +295,7 @@ async def main() -> None:
     probe = QueryProbe()
     attached = False
     measured = False
+    failure: BaseException | None = None
 
     print(
         "P8_COMMON_FILTERS_GROWTH_ROWS="
@@ -294,7 +307,13 @@ async def main() -> None:
     )
 
     try:
+        print(
+            "GROWTH_STAGE=bootstrap"
+        )
         ids = await p2_gate.bootstrap()
+        print(
+            "GROWTH_STAGE=seed"
+        )
         product_id = await seed_growth_catalog(
             ids,
             prefix=prefix,
@@ -391,6 +410,14 @@ async def main() -> None:
             measured = True
             await app.rollback()
 
+    except BaseException as exc:
+        failure = exc
+        print(
+            "P8_COMMON_FILTERS_GROWTH_ERROR "
+            f"type={type(exc).__name__} "
+            f"message={exc}"
+        )
+
     finally:
         if attached:
             probe.detach()
@@ -418,6 +445,12 @@ async def main() -> None:
 
         await p2_gate.engine_app.dispose()
         await p2_gate.engine_su.dispose()
+
+        if failure is not None:
+            print(
+                "P8_COMMON_FILTERS_GROWTH_PROBE=FAIL"
+            )
+            raise failure
 
         if not measured or not cleanup_ok:
             print(
