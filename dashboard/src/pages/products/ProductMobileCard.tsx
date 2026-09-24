@@ -6,6 +6,11 @@ import {
 import {
   formatLocaleDecimal,
 } from "@/lib/localeNumbers";
+import {
+  DEFAULT_PRODUCT_DISPLAY_PREFERENCES,
+  type ProductDisplayColumn,
+  type ProductDisplayDensity,
+} from "@/lib/productDisplayPreferences";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
@@ -15,6 +20,11 @@ type Props = {
   pricingVisible: boolean;
   canEditPrice: boolean;
   canEditTracking: boolean;
+  columns?: Record<
+    ProductDisplayColumn,
+    boolean
+  >;
+  density?: ProductDisplayDensity;
   onOpenDetails: (
     item: SimpleProduct,
   ) => void;
@@ -31,6 +41,9 @@ export function ProductMobileCard({
   pricingVisible,
   canEditPrice,
   canEditTracking,
+  columns,
+  density =
+    DEFAULT_PRODUCT_DISPLAY_PREFERENCES.density,
   onOpenDetails,
   onEditPrice,
   onEditTracking,
@@ -39,6 +52,13 @@ export function ProductMobileCard({
     useTranslation();
   const locale =
     resolveI18nLocale(i18n);
+  const visibleColumns =
+    columns ??
+    DEFAULT_PRODUCT_DISPLAY_PREFERENCES.columns;
+  const cardSpacing =
+    density === "compact"
+      ? "p-3"
+      : "p-4";
 
   const money = (
     value: string | null,
@@ -66,7 +86,7 @@ export function ProductMobileCard({
         );
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${cardSpacing}`}>
       <div className="min-w-0">
         <h3 className="break-words text-sm font-black text-slate-950">
           {item.name}
@@ -85,94 +105,155 @@ export function ProductMobileCard({
         </p>
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4">
-        <div className="min-w-0">
-          <dt className="text-[10px] font-black text-slate-400">
-            {t(
-              "products.columns.package",
-            )}
-          </dt>
-          <dd className="mt-1 break-words text-xs font-black text-slate-800">
-            {item.package_uom_code
-              ? t(
-                  `uom.${item.package_uom_code}`,
-                )
-              : t("uom.NONE")}
-          </dd>
-        </div>
+      <dl
+        className={
+          density === "compact"
+            ? "mt-3 grid grid-cols-2 gap-x-3 gap-y-3"
+            : "mt-4 grid grid-cols-2 gap-x-3 gap-y-4"
+        }
+      >
+        {visibleColumns.package ? (
+          <div className="min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
+              {t(
+                "products.columns.package",
+              )}
+            </dt>
+            <dd className="mt-1 break-words text-xs font-black text-slate-800">
+              {item.package_uom_code
+                ? t(
+                    `uom.${item.package_uom_code}`,
+                  )
+                : t("uom.NONE")}
+            </dd>
+          </div>
+        ) : null}
 
-        <div className="min-w-0">
-          <dt className="text-[10px] font-black text-slate-400">
-            {t(
-              "products.columns.unitsPerPackage",
-            )}
-          </dt>
-          <dd className="mt-1 text-xs font-black tabular-nums text-slate-800">
-            {item.package_uom_code
-              ? units
-              : "—"}
-          </dd>
-        </div>
+        {visibleColumns.unitsPerPackage ? (
+          <div className="min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
+              {t(
+                "products.columns.unitsPerPackage",
+              )}
+            </dt>
+            <dd className="mt-1 text-xs font-black tabular-nums text-slate-800">
+              {item.package_uom_code
+                ? units
+                : "—"}
+            </dd>
+          </div>
+        ) : null}
 
-        <div className="col-span-2 min-w-0">
-          <dt className="text-[10px] font-black text-slate-400">
-            {t(
-              "products.columns.tracking",
-            )}
-          </dt>
-          <dd className="mt-1 grid grid-cols-1 gap-1 text-[11px] font-bold text-slate-600 min-[360px]:grid-cols-2">
-            <span className="break-words">
+        {visibleColumns.tracking ? (
+          <div className="col-span-2 min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
               {t(
-                "products.tracking.shortLot",
+                "products.columns.tracking",
               )}
-              :{" "}
-              {t(
-                `products.tracking.shortModes.${item.lot_control_mode}`,
-              )}
-            </span>
-            <span className="break-words">
-              {t(
-                "products.tracking.shortExpiry",
-              )}
-              :{" "}
-              {t(
-                `products.tracking.shortModes.${item.expiry_control_mode}`,
-              )}
-            </span>
-          </dd>
-        </div>
-
-        {pricingVisible ? (
-          <>
-            <div className="min-w-0">
-              <dt className="text-[10px] font-black text-slate-400">
+            </dt>
+            <dd className="mt-1 grid grid-cols-1 gap-1 text-[11px] font-bold text-slate-600 min-[360px]:grid-cols-2">
+              <span className="break-words">
                 {t(
-                  "products.columns.packagePrice",
+                  "products.tracking.shortLot",
                 )}
-              </dt>
-              <dd className="mt-1 break-words text-xs font-black tabular-nums text-slate-800">
-                {item.package_uom_code
-                  ? `${money(
-                      item.package_price,
-                    )} ${item.currency_code}`
-                  : "—"}
-              </dd>
-            </div>
-
-            <div className="min-w-0">
-              <dt className="text-[10px] font-black text-slate-400">
+                :{" "}
                 {t(
-                  "products.columns.unitPrice",
+                  `products.tracking.shortModes.${item.lot_control_mode}`,
                 )}
-              </dt>
-              <dd className="mt-1 break-words text-xs font-black tabular-nums text-slate-800">
-                {money(
-                  item.unit_price,
-                )}{" "}
-                {item.currency_code}
-              </dd>
-            </div>
-          </>
+              </span>
+              <span className="break-words">
+                {t(
+                  "products.tracking.shortExpiry",
+                )}
+                :{" "}
+                {t(
+                  `products.tracking.shortModes.${item.expiry_control_mode}`,
+                )}
+              </span>
+            </dd>
+          </div>
+        ) : null}
+
+        {visibleColumns.lifecycle ? (
+          <div className="min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
+              {t(
+                "products.columns.lifecycle",
+              )}
+            </dt>
+            <dd className="mt-1 break-words text-xs font-black text-slate-800">
+              {t(
+                `products.details.lifecycleModes.${item.lifecycle_status}`,
+              )}
+            </dd>
+          </div>
+        ) : null}
+
+        {visibleColumns.unitBarcode ? (
+          <div className="min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
+              {t(
+                "products.columns.unitBarcode",
+              )}
+            </dt>
+            <dd className="mt-1 break-all font-mono text-xs font-bold text-slate-700">
+              {item.unit_barcode ??
+                t(
+                  "products.details.notSet",
+                )}
+            </dd>
+          </div>
+        ) : null}
+
+        {visibleColumns.packageBarcode ? (
+          <div className="min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
+              {t(
+                "products.columns.packageBarcode",
+              )}
+            </dt>
+            <dd className="mt-1 break-all font-mono text-xs font-bold text-slate-700">
+              {item.package_barcode ??
+                t(
+                  "products.details.notSet",
+                )}
+            </dd>
+          </div>
+        ) : null}
+
+        {pricingVisible &&
+        visibleColumns.packagePrice ? (
+          <div className="min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
+              {t(
+                "products.columns.packagePrice",
+              )}
+            </dt>
+            <dd className="mt-1 break-words text-xs font-black tabular-nums text-slate-800">
+              {item.package_uom_code
+                ? `${money(
+                    item.package_price,
+                  )} ${item.currency_code}`
+                : "—"}
+            </dd>
+          </div>
+        ) : null}
+
+        {pricingVisible &&
+        visibleColumns.unitPrice ? (
+          <div className="min-w-0">
+            <dt className="text-[10px] font-black text-slate-400">
+              {t(
+                "products.columns.unitPrice",
+              )}
+            </dt>
+            <dd className="mt-1 break-words text-xs font-black tabular-nums text-slate-800">
+              {money(
+                item.unit_price,
+              )}{" "}
+              {item.currency_code}
+            </dd>
+          </div>
         ) : null}
       </dl>
 
