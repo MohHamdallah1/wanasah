@@ -373,7 +373,164 @@ export default function AdvancedUomDashboard() {
   useEffect(() => {
     setDraft(EMPTY_DRAFT);
     setEditing(null);
+    setPendingCreate(null);
+    setPendingUpdate(null);
+    setPendingBlocked(false);
   }, [selectedVariant?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (
+      !selectedVariant ||
+      selectedVariant.lifecycle_status !==
+        "DRAFT" ||
+      companyId === null ||
+      driverId === null ||
+      !conversionsQuery.isSuccess
+    ) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      try {
+        const createScope =
+          durableScope(
+            companyId,
+            driverId,
+            "catalog-uom-conversion-create",
+            selectedVariant.id,
+          );
+        const createPending =
+          await readDurableCommand<unknown>(
+            createScope,
+          );
+        if (cancelled) {
+          return;
+        }
+        if (createPending) {
+          const payload =
+            commandPayload(
+              createPending.payload,
+            );
+          if (!payload) {
+            setPendingBlocked(true);
+            return;
+          }
+          setDraft(
+            draftFromPayload(payload),
+          );
+          setEditing(null);
+          setPendingCreate({
+            requestId:
+              createPending.requestId,
+            payload,
+            createdAt:
+              createPending.createdAt,
+          });
+          return;
+        }
+
+        const found: Array<{
+          conversion: UomConversion;
+          command: DurableCommand<ConversionUpdateCommand>;
+        }> = [];
+
+        for (
+          const conversion of
+          conversionsQuery.data ?? []
+        ) {
+          const scope =
+            durableScope(
+              companyId,
+              driverId,
+              "catalog-uom-conversion-update",
+              conversion.id,
+            );
+          const pending =
+            await readDurableCommand<unknown>(
+              scope,
+            );
+          if (!pending) {
+            continue;
+          }
+
+          const payload =
+            updateCommandPayload(
+              pending.payload,
+            );
+          if (!payload) {
+            setPendingBlocked(true);
+            return;
+          }
+          found.push({
+            conversion,
+            command: {
+              requestId:
+                pending.requestId,
+              payload,
+              createdAt:
+                pending.createdAt,
+            },
+          });
+        }
+
+        if (
+          cancelled ||
+          found.length === 0
+        ) {
+          return;
+        }
+        if (found.length !== 1) {
+          setPendingBlocked(true);
+          return;
+        }
+
+        const restored =
+          found[0];
+        setEditing(
+          restored.conversion,
+        );
+        setDraft(
+          draftFromPayload(
+            restored.command.payload,
+          ),
+        );
+        setPendingUpdate({
+          conversionId:
+            restored.conversion.id,
+          command:
+            restored.command,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setPendingBlocked(true);
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.advancedUom.saveFailed",
+            ),
+          ),
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    companyId,
+    conversionsQuery.data,
+    conversionsQuery.isSuccess,
+    driverId,
+    selectedVariant,
+    t,
+  ]);
 
   const durableBase = (
     operation: string,
