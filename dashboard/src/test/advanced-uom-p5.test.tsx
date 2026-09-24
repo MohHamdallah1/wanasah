@@ -719,7 +719,7 @@ describe(
       ).toBeInTheDocument();
 
       fireEvent.click(
-        screen.getByRole(
+        await screen.findByRole(
           "button",
           {
             name: "common.edit",
