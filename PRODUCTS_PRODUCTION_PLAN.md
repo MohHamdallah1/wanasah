@@ -710,26 +710,26 @@ Required additions:
 - [x] Import template includes tracking columns or a documented default policy.
 - [x] Import validation uses the same backend product authority as manual creation.
 - [x] Imported products must not silently become REQUIRED/REQUIRED unless that is an explicit selected default.
-- [ ] Error report uses stable codes.
+- [x] Error report uses stable codes.
 - [x] Retry/resume semantics remain durable.
 
 ---
 
 # 26. Import internationalization
 
-Current worker recognizes a hardcoded set of Arabic/English aliases.
+P6 moved import header/value localization out of the business worker into validated locale packs while preserving explicit mapping as the fail-safe fallback.
 
-This is useful but not enough for arbitrary future languages.
+Additional languages can extend alias coverage without changing product import workflow logic.
 
 Required:
 
-- [ ] Mapping UI remains primary fallback when automatic detection does not understand a header.
-- [ ] Canonical field IDs stay language-neutral.
-- [ ] Downloaded template uses current UI language.
-- [ ] New languages can add alias packs without changing business logic.
-- [ ] Unknown-language headers do not cause guessing.
-- [ ] User can explicitly map unknown headers.
-- [ ] Error report is translated on download/display from stable error codes.
+- [x] Mapping UI remains primary fallback when automatic detection does not understand a header.
+- [x] Canonical field IDs stay language-neutral.
+- [x] Downloaded template uses current UI language.
+- [x] New languages can add alias packs without changing business logic.
+- [x] Unknown-language headers do not cause guessing.
+- [x] User can explicitly map unknown headers.
+- [x] Error report is translated on download/display from stable error codes.
 
 ---
 
@@ -1278,7 +1278,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 34. Surface existing barcode authority in normal product UX.
 - [x] 35. Preserve strong async/durable import architecture.
 - [x] 36. Add lot/expiry configuration to bulk import/template/defaults.
-- [ ] 37. Generalize import header localization beyond Arabic/English-only alias assumptions.
+- [x] 37. Generalize import header localization beyond Arabic/English-only alias assumptions.
 - [x] 38. Preserve good existing `t(...)` and `dir={i18n.dir()}` foundation.
 - [ ] 39. Replace binary Arabic-vs-English locale fallback with generic locale resolution.
 - [ ] 40. Make all new number/date/money rendering language-agnostic.
@@ -1380,7 +1380,7 @@ Do not work on all items randomly.
 ## Phase P6 — Bulk import
 
 - [x] Tracking columns/defaults.
-- [ ] Generic localization mapping.
+- [x] Generic localization mapping.
 - [x] Runtime contracts.
 - [x] regression tests.
 
@@ -1408,22 +1408,25 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Proceed to **Phase P6 — Bulk import** after Phase P5 is merged to `main` and the local repository is aligned with `origin/main`.
+Proceed to **Phase P7 — i18n / accessibility / polish** after Phase P6 is merged to `main` and the local repository is aligned with `origin/main`.
 
-Current P6 state:
+Current P7 state:
 
-- [x] Tracking columns/defaults.
-- [ ] Generic localization mapping.
-- [x] Runtime contracts.
-- [x] regression tests.
+- [ ] Generic locale resolver.
+- [ ] all translation keys.
+- [ ] RTL/LTR.
+- [ ] accessibility.
+- [ ] responsive polish.
+- [ ] configurable display preferences.
 
-Implementation order for P6:
+Implementation order for P7:
 
-1. Audit the import mapping flow end-to-end and identify every hardcoded Arabic/English header assumption.
-2. Keep canonical import field IDs language-neutral and preserve mapping UI as the authoritative fallback.
-3. Add extensible locale/alias packs without moving business logic into translations.
-4. Ensure unknown-language headers never trigger guessing and can always be explicitly mapped.
-5. Localize template/download/error presentation without changing stable backend contracts.
-6. Complete P6 gates/review before moving to Phase P7.
+1. Audit all Products number/date/money locale selection and remove binary Arabic-vs-English locale fallbacks.
+2. Add one shared locale resolver and route Products formatting through it.
+3. Audit Products user-facing text and translation keys, including lifecycle/UOM/status/error surfaces.
+4. Verify RTL and LTR layouts, long labels, drawer/dialog/table behavior, and responsive breakpoints.
+5. Close keyboard/focus/aria/accessibility gaps without weakening existing workflows.
+6. Add/configure display preferences only where the existing architecture can keep business truth separate from presentation.
+7. Complete P7 gates/review before moving to Phase P8.
 
-Do not start P7 until P6 is complete, reviewed, and merged to `main`.
+Do not start P8 until P7 is complete, reviewed, and merged to `main`.
