@@ -130,6 +130,32 @@ async def main() -> None:
 
         recovered += 1
 
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+        remaining = int(
+            (
+                await su.execute(
+                    text(
+                        "SELECT COUNT(*) "
+                        "FROM companies AS c "
+                        "WHERE c.name = 'P2 Read Contract Gate A' "
+                        "AND c.company_code LIKE 'P2READ-%' "
+                        "AND EXISTS ("
+                        "SELECT 1 FROM drivers AS d "
+                        "WHERE d.company_id = c.id "
+                        "AND d.full_name = 'P8 Concurrency Actor'"
+                        ")"
+                    )
+                )
+            ).scalar_one()
+        )
+        await su.rollback()
+
+    if remaining != 0:
+        raise RuntimeError(
+            "Synthetic P8 concurrency residue remains after cleanup."
+        )
+
     await p2_gate.engine_app.dispose()
     await p2_gate.engine_su.dispose()
 
