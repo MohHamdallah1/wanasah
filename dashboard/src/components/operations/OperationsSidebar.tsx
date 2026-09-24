@@ -25,6 +25,7 @@ import {
   useTenantIdentity,
 } from "@/features/tenantIdentity/useTenantIdentity";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { clearLocalStoragePreservingLastCompanyCode } from "@/lib/authStorage";
 import { resolveI18nLocale } from "@/lib/locale";
 
 interface OperationsSidebarProps {
@@ -221,7 +222,7 @@ export function OperationsSidebar({
       }
     }
 
-    localStorage.clear();
+    clearLocalStoragePreservingLastCompanyCode();
     sessionStorage.clear();
     window.location.replace(
       "/login"
