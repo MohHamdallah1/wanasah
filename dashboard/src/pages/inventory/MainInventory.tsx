@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Package, History, Lock, RefreshCcw, FilePlus, Building2, ArrowRightLeft, Layers3 } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { resolveI18nLocale } from "@/lib/locale";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { TabBatches } from "./TabBatches";
 import { Tab2Inbound } from "./Tab2Inbound";
@@ -196,6 +197,7 @@ const isTabId = (value: string | null): value is TabId =>
 export default function MainInventory() {
   const authFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
+  const locale = resolveI18nLocale(i18n);
 
   // UI preference only. Server token + RLS remain the security authority.
   const companyId = localStorage.getItem("company_id") || "";
@@ -1083,8 +1085,7 @@ export default function MainInventory() {
                     {stockTotal === null
                       ? "—"
                       : new Intl.NumberFormat(
-                          i18n.resolvedLanguage ||
-                            i18n.language,
+                          locale,
                           { numberingSystem: "latn" },
                         ).format(stockTotal)}
                   </span>
@@ -1100,9 +1101,7 @@ export default function MainInventory() {
                   {t("inventoryShell.lastUpdated")}:{" "}
                   {lastSync
                     ? new Intl.DateTimeFormat(
-                        i18n.resolvedLanguage ||
-                          i18n.language ||
-                          "en",
+                        locale,
                         {
                           hour: "2-digit",
                           minute: "2-digit",
