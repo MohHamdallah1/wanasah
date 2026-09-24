@@ -871,30 +871,30 @@ All server-side filters occur before pagination.
 Before Production Ready:
 
 ## Product list
-- [ ] Measure normal unfiltered page.
-- [ ] Measure name search.
-- [ ] Measure family search.
-- [ ] Measure SKU search.
-- [ ] Measure barcode search.
-- [ ] Measure common filters.
-- [ ] Measure page continuation.
+- [x] Measure normal unfiltered page.
+- [x] Measure name search.
+- [x] Measure family search.
+- [x] Measure SKU search.
+- [x] Measure barcode search.
+- [x] Measure common filters.
+- [x] Measure page continuation.
 
 Metrics:
-- [ ] SQL count.
-- [ ] DB execution time.
-- [ ] endpoint p50.
-- [ ] endpoint p95.
-- [ ] endpoint p99 where practical.
-- [ ] payload size.
+- [x] SQL count.
+- [x] DB execution time.
+- [x] endpoint p50.
+- [x] endpoint p95.
+- [x] endpoint p99 where practical.
+- [x] payload size.
 
 Review:
-- [ ] No N+1.
-- [ ] No unbounded `.all()`.
-- [ ] Stable query count.
-- [ ] Bounded enrichment.
-- [ ] EXPLAIN reviewed.
-- [ ] Indexes justified by evidence.
-- [ ] Permanent regression gate.
+- [x] No N+1.
+- [x] No unbounded `.all()`.
+- [x] Stable query count.
+- [x] Bounded enrichment.
+- [x] EXPLAIN reviewed.
+- [x] Indexes justified by evidence.
+- [x] Permanent regression gate.
 
 ---
 
@@ -1395,9 +1395,9 @@ Do not work on all items randomly.
 
 ## Phase P8 — Performance / security / release
 
-- [~] query benchmark.
-- [ ] EXPLAIN.
-- [ ] isolation tests.
+- [x] query benchmark.
+- [x] EXPLAIN.
+- [~] isolation tests.
 - [ ] concurrency/idempotency tests.
 - [ ] production gate.
 - [ ] PR + merge.
@@ -1410,11 +1410,9 @@ Do not work on all items randomly.
 
 Phase P8 is open on `feat/products-performance-security-release-p8`.
 
-Immediate task: run the **final Products query benchmark** through `wa_backend/scripts/gate_products_p8_performance.py`. The P8 wrapper intentionally reuses the proven P4 performance audit rather than duplicating benchmark logic.
+Performance benchmark and EXPLAIN review are complete.
 
-The final run must use the full default evidence profile: 5,000 seeded Product rows and 20 repeated runs per measured scenario. It must emit SQL-count stability, DB execution timing, endpoint p50/p95/p99, payload size, page-continuation behavior, N+1/bounded-enrichment checks, search-index evidence, and `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` plans.
-
-Do not mark query benchmark or EXPLAIN complete until the final PostgreSQL run passes and its measured output is reviewed.
+Immediate task: complete **P8 backend isolation tests**. Reuse the already-proven Product search/import/warehouse isolation gates, and add only the missing direct Product/Family/Barcode/UOM negative isolation coverage. Do not mark isolation complete until every Section 35 item has an executable final gate and the PostgreSQL run passes.
 
 Current P7 state:
 
@@ -1543,3 +1541,20 @@ Next implementation order:
 9. P8 order: final query benchmark → EXPLAIN review → isolation tests → concurrency/idempotency tests → production gate → PR/merge → local/GitHub alignment → Production Ready declaration.
 
 P8 is now active. Do not skip forward past a failing gate.
+
+Verified P8 Product performance / EXPLAIN checkpoint:
+
+- Final Product performance gate ran with 5,000 seeded Product rows and 20 measured runs per scenario.
+- All 21 performance checks passed; `PRODUCTS_P4_PERFORMANCE_AUDIT=PASS` and `PRODUCTS_P8_PERFORMANCE_GATE=PASS`.
+- Measured scenarios include unfiltered page, name/family/SKU/barcode search, common filters, has-price filter, page continuation, and page-size scaling.
+- SQL query count remained stable; 10-row and 100-row pages both executed 17 queries, proving no page-size N+1 growth.
+- Product-list enrichment remained page-bounded and there is no unbounded list materialization.
+- Endpoint/application+DB p50/p95/p99, payload bytes, SQL profiles, and DB EXPLAIN execution were captured.
+- Search trigram indexes were present and valid. PostgreSQL did not select them at the measured 5,000-row cardinality; forced-index plans were not faster, so no additional search index change is justified.
+- The initial has-price EXPLAIN used a repeated Seq Scan on the very small `price_publications` test table. This was treated as a scale-evidence question rather than as an automatic index defect.
+- A permanent `gate_products_p8_price_publication_scale.py` regression gate now seeds 10,000 additional Product-publication rows, runs ANALYZE, executes the real has-price Product query, and fails on a repeated full-table Seq Scan.
+- At 10,001 tenant publications PostgreSQL selected `Index Scan` on `uq_price_publication_company_id_book`, with 501 loops, one row per loop, zero rows removed, and Product-plan execution of 2.963 ms.
+- Scale gate result: `PRICE_PUBLICATION_SCALE_DECISION=NO_REPEATED_FULL_SCAN`, cleanup PASS, statistics restoration PASS, and `PRODUCTS_P8_PRICE_PUBLICATION_SCALE_GATE=PASS`.
+- No new `price_publications` index is justified by the measured evidence.
+- The temporary failed scale fixture exposed the immutable published-history trigger as designed; the fixture was changed to deletable DRAFT rows and the guarded one-time residue cleanup recovered the synthetic 10,000-row tenant successfully.
+- Performance and EXPLAIN are closed; P8 proceeds to backend isolation tests.
