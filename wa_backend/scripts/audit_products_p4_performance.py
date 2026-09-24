@@ -744,11 +744,6 @@ async def explain_search_branch_plans(
             FROM public.product_barcodes
             WHERE (company_id + 0) = :company_id
               AND is_active IS TRUE
-              AND valid_from <= :effective_at
-              AND (
-                    valid_to IS NULL
-                    OR valid_to > :effective_at
-                  )
               AND lower((barcode)::text) LIKE :pattern
             """,
             {
@@ -785,15 +780,26 @@ async def explain_search_branch_plans(
                 )
             )
 
-            # This probe intentionally makes the tenant equality
-            # non-indexable while preserving identical tenant semantics.
-            # Competing tenant-leading B-tree indexes therefore cannot
-            # satisfy the search branch, leaving the trigram expression
-            # as the useful indexed access path. This proves capability;
-            # it does not override PostgreSQL's normal cost-based choice.
+            # Capability probe:
+            # - keep identical tenant semantics but make company_id
+            #   unusable as a leading B-tree equality;
+            # - disable sequential and plain index scans;
+            # - leave bitmap scans enabled, which is the native access
+            #   path expected from these GIN trigram indexes.
+            #
+            # For barcode capability, validity predicates are omitted
+            # deliberately because they are NOT part of the trigram GIN
+            # index and would allow the separate validity B-tree index to
+            # satisfy the probe. The production plan above still exercises
+            # the full effective-barcode predicate.
             await su.execute(
                 text(
                     "SET LOCAL enable_seqscan = off"
+                )
+            )
+            await su.execute(
+                text(
+                    "SET LOCAL enable_indexscan = off"
                 )
             )
             try:
@@ -808,6 +814,11 @@ async def explain_search_branch_plans(
                     capability_result.scalar_one()
                 )
             finally:
+                await su.execute(
+                    text(
+                        "SET LOCAL enable_indexscan = on"
+                    )
+                )
                 await su.execute(
                     text(
                         "SET LOCAL enable_seqscan = on"
@@ -833,6 +844,7 @@ async def explain_search_branch_plans(
                 f"indexes="
                 f"{'|'.join(production_plan['indexes']) or '-'} "
                 f"planner_usable={planner_usable} "
+                f"capability_access=bitmap_only "
                 f"capability_execution_ms="
                 f"{capability_plan['execution_ms']:.3f} "
                 f"capability_scans="
