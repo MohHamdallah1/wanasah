@@ -56,6 +56,71 @@ def bounded_env_int(
     return value
 
 
+async def verify_common_filters_index() -> None:
+    index_name = (
+        "ix_product_variant_simple_common_filters_seek"
+    )
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+        row = (
+            await su.execute(
+                text(
+                    """
+                    SELECT
+                        i.indisvalid,
+                        i.indisready,
+                        pg_get_indexdef(i.indexrelid)
+                            AS index_def
+                    FROM pg_index AS i
+                    JOIN pg_class AS idx
+                      ON idx.oid = i.indexrelid
+                    WHERE idx.relname = :index_name
+                    """
+                ),
+                {
+                    "index_name": index_name,
+                },
+            )
+        ).mappings().one_or_none()
+        await su.rollback()
+
+    if (
+        row is None
+        or not bool(row["indisvalid"])
+        or not bool(row["indisready"])
+    ):
+        raise RuntimeError(
+            f"{index_name} is missing or invalid. "
+            "Run alembic upgrade head first."
+        )
+
+    definition = " ".join(
+        str(row["index_def"]).lower().split()
+    )
+    expected = (
+        "company_id",
+        "base_uom_id",
+        "lower((name)::text)",
+        "lifecycle_status = 'active'",
+        "lot_control_mode <> 'none'",
+        "expiry_control_mode = 'none'",
+        "packs_per_carton > 0",
+    )
+    if not all(
+        fragment in definition
+        for fragment in expected
+    ):
+        raise RuntimeError(
+            f"{index_name} has unexpected definition: "
+            + str(row["index_def"])
+        )
+
+    print(
+        "P8_COMMON_FILTERS_INDEX=PASS "
+        f"name={index_name}"
+    )
+
+
 async def seed_growth_catalog(
     ids: dict[str, int],
     *,
@@ -311,6 +376,10 @@ async def main() -> None:
             "GROWTH_STAGE=bootstrap"
         )
         ids = await p2_gate.bootstrap()
+        print(
+            "GROWTH_STAGE=index_preflight"
+        )
+        await verify_common_filters_index()
         print(
             "GROWTH_STAGE=seed"
         )

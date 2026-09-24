@@ -274,6 +274,19 @@ class ProductVariant(Base):
             'company_id', 'name', 'id',
             postgresql_where=text("lifecycle_status = 'ACTIVE'"),
         ),
+        Index(
+            'ix_product_variant_simple_common_filters_seek',
+            'company_id',
+            'base_uom_id',
+            text("lower((name)::text)"),
+            'id',
+            postgresql_where=text(
+                "lifecycle_status = 'ACTIVE' "
+                "AND lot_control_mode <> 'NONE' "
+                "AND expiry_control_mode = 'NONE' "
+                "AND packs_per_carton > 0"
+            ),
+        ),
         Index('uq_product_variant_company_gtin', 'company_id', 'gtin', unique=True, postgresql_where=text('gtin IS NOT NULL')),
         ForeignKeyConstraint(
             ['company_id', 'product_id'],
