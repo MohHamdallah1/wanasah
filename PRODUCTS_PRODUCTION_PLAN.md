@@ -1418,16 +1418,20 @@ P0–P8 hardened the Products backend contracts, security, performance, durabili
 
 ## P9.0 — Freeze the current behavior before any refactor
 
-- [ ] Record the exact current behavior of the Products page before structural work: queries, mutations, permissions, durable operation scopes, request IDs, retry behavior, cancellation/request-sequence guards, cache invalidation, saved-draft keys, pagination/cursor behavior, and runtime contracts.
-- [ ] Record a targeted test baseline for every current Product workflow before moving code.
-- [ ] Create a backend-to-frontend capability matrix covering Simple Products, Catalog, Pricing, lifecycle/hold, barcodes, package/unit structure, families, import, and Product-location/warehouse capabilities.
-- [ ] For every backend capability, classify it as:
+Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
+
+- [x] Record the exact current behavior of the Products page before structural work: queries, mutations, permissions, durable operation scopes, request IDs, retry behavior, cancellation/request-sequence guards, cache invalidation, saved-draft keys, pagination/cursor behavior, and runtime contracts.
+- [x] Record a targeted test baseline for every current Product workflow before moving code.
+- [x] Create a backend-to-frontend capability matrix covering Simple Products, Catalog, Pricing, lifecycle/hold, barcodes, package/unit structure, families, import, and Product-location/warehouse capabilities.
+- [x] For every backend capability, classify it as:
   - normal Products action,
   - advanced Products action,
   - read-only information,
   - intentionally admin/internal only, with the reason documented.
-- [ ] Identify every Product behavior that currently exists in backend authority but is missing or incomplete in the normal Products page.
-- [ ] Do not change page behavior or visual design while establishing this baseline.
+- [x] Identify every Product behavior that currently exists in backend authority but is missing or incomplete in the normal Products page.
+- [x] Do not change page behavior or visual design while establishing this baseline.
+
+**P9.0 result:** behavior is frozen at the documented checkpoint. The first functional gaps to resolve in P9.1 are published Product rename, safe family reassignment policy, archived-Product reachability/restore, plain-language unit/package detail, safe package-structure policy, and intentional treatment of family metadata/Product-location/GS1/draft-only capabilities.
 
 ## P9.1 — Finish the Product functions before visual polish
 
