@@ -1080,6 +1080,16 @@ export default function AdvancedUomDashboard() {
             </div>
           ) : null}
 
+          {selectedVariantId &&
+          resolvedVariantQuery.isSuccess &&
+          !selectedVariant ? (
+            <p className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-600">
+              {t(
+                "products.advancedUom.variantNotFound",
+              )}
+            </p>
+          ) : null}
+
           {selectedVariant ? (
             <div>
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
