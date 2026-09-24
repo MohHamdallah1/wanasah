@@ -14,7 +14,6 @@ from audit_products_p4_performance import (
     cleanup_committed_catalog,
     endpoint_kwargs,
     main_product_query,
-    seed_benchmark_prices,
     seed_committed_catalog,
     summarize_plan,
     walk_plan,
@@ -103,6 +102,216 @@ def publication_scan_nodes(root):
     return nodes
 
 
+async def seed_committed_publication_scale(
+    *,
+    company_id: int,
+    publication_rows: int,
+) -> int:
+    marker = uuid4().hex
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+
+        existing = int(
+            (
+                await su.execute(
+                    text(
+                        "SELECT COUNT(*) "
+                        "FROM price_publications "
+                        "WHERE company_id = :company_id"
+                    ),
+                    {
+                        "company_id": company_id,
+                    },
+                )
+            ).scalar_one()
+        )
+        if existing != 0:
+            raise RuntimeError(
+                "Publication scale company is not clean before seeding."
+            )
+
+        actor_id = int(
+            (
+                await su.execute(
+                    text(
+                        "INSERT INTO drivers "
+                        "(company_id, username, password_hash, "
+                        "full_name, is_active, is_admin, created_at) "
+                        "VALUES "
+                        "(:company_id, :username, 'x', "
+                        "'P8 Publication Scale Seeder', "
+                        "true, false, NOW()) "
+                        "RETURNING id"
+                    ),
+                    {
+                        "company_id": company_id,
+                        "username": (
+                            "p8pub_"
+                            + marker[:10]
+                        ),
+                    },
+                )
+            ).scalar_one()
+        )
+
+        book_id = int(
+            (
+                await su.execute(
+                    text(
+                        "INSERT INTO price_books "
+                        "(company_id, code, name, currency_code, "
+                        "status, applicability_metadata, version, "
+                        "created_by, created_at, updated_at) "
+                        "VALUES "
+                        "(:company_id, :code, "
+                        "'P8 Publication Scale Book', 'JOD', "
+                        "'ACTIVE', '{}'::jsonb, 1, :actor_id, "
+                        "NOW(), NOW()) "
+                        "RETURNING id"
+                    ),
+                    {
+                        "company_id": company_id,
+                        "code": (
+                            "P8PUB-"
+                            + marker[:10].upper()
+                        ),
+                        "actor_id": actor_id,
+                    },
+                )
+            ).scalar_one()
+        )
+
+        await su.execute(
+            text(
+                "INSERT INTO price_publications "
+                "(company_id, price_book_id, revision, status, "
+                "effective_at, created_by, approved_by, "
+                "approved_at, published_at, request_id, "
+                "version, created_at, updated_at) "
+                "SELECT :company_id, :book_id, "
+                "gs + 1, 'SUPERSEDED', "
+                "NOW() - INTERVAL '2 days', :actor_id, :actor_id, "
+                "NOW() - INTERVAL '2 days', "
+                "NOW() - INTERVAL '2 days', "
+                "md5(:request_prefix || ':' || gs::text)::uuid, "
+                "1, NOW(), NOW() "
+                "FROM generate_series(1, :row_count) AS gs"
+            ),
+            {
+                "company_id": company_id,
+                "book_id": book_id,
+                "actor_id": actor_id,
+                "request_prefix": (
+                    "p8-price-publication-scale-"
+                    + marker
+                ),
+                "row_count": publication_rows,
+            },
+        )
+        await su.commit()
+
+    async with p2_gate.SessionSU() as su:
+        await su.begin()
+        await su.execute(
+            text(
+                "ANALYZE price_publications"
+            )
+        )
+        count = int(
+            (
+                await su.execute(
+                    text(
+                        "SELECT COUNT(*) "
+                        "FROM price_publications "
+                        "WHERE company_id = :company_id"
+                    ),
+                    {
+                        "company_id": company_id,
+                    },
+                )
+            ).scalar_one()
+        )
+        await su.commit()
+    return count
+
+
+async def seed_endpoint_benchmark_prices(
+    app,
+    *,
+    company_id: int,
+    each_uom_id: int,
+    prefix: str,
+) -> None:
+    book_id = int(
+        (
+            await app.execute(
+                text(
+                    "SELECT id FROM price_books "
+                    "WHERE company_id = :company_id "
+                    "AND code LIKE 'P2-BOOK-%' "
+                    "ORDER BY id DESC LIMIT 1"
+                ),
+                {
+                    "company_id": company_id,
+                },
+            )
+        ).scalar_one()
+    )
+    publication_id = int(
+        (
+            await app.execute(
+                text(
+                    "SELECT id FROM price_publications "
+                    "WHERE company_id = :company_id "
+                    "AND price_book_id = :book_id "
+                    "AND status = 'PUBLISHED' "
+                    "ORDER BY id DESC LIMIT 1"
+                ),
+                {
+                    "company_id": company_id,
+                    "book_id": book_id,
+                },
+            )
+        ).scalar_one()
+    )
+
+    await app.execute(
+        text(
+            "WITH seeded AS ("
+            "SELECT pv.id AS variant_id, "
+            "RIGHT(p.code, 6)::integer AS n "
+            "FROM product_variants AS pv "
+            "JOIN products AS p "
+            "ON p.company_id = pv.company_id "
+            "AND p.id = pv.product_id "
+            "WHERE pv.company_id = :company_id "
+            "AND p.code LIKE :prefix_like"
+            ") "
+            "INSERT INTO price_book_entries "
+            "(company_id, price_book_id, publication_id, "
+            "product_variant_id, uom_id, amount, effectivity, "
+            "priority, is_published, metadata, version, "
+            "created_at, updated_at) "
+            "SELECT :company_id, :book_id, :publication_id, "
+            "seeded.variant_id, :uom_id, "
+            "(1 + (seeded.n % 100))::numeric(20, 6), "
+            "tstzrange(NOW() - INTERVAL '1 day', NULL, '[)'), "
+            "0, true, "
+            "'{\"managed_by\":\"p8_publication_scale\"}'::jsonb, "
+            "1, NOW(), NOW() "
+            "FROM seeded "
+            "WHERE seeded.n % 2 = 0"
+        ),
+        {
+            "company_id": company_id,
+            "book_id": book_id,
+            "publication_id": publication_id,
+            "uom_id": each_uom_id,
+            "prefix_like": prefix + "-%",
+        },
+    )
+
+
 async def restore_publication_stats() -> None:
     async with p2_gate.SessionSU() as su:
         await su.begin()
@@ -145,6 +354,16 @@ async def main() -> None:
         company_id = int(
             ids["company_id"]
         )
+        committed_count = (
+            await seed_committed_publication_scale(
+                company_id=company_id,
+                publication_rows=publication_rows,
+            )
+        )
+        print(
+            "PRICE_PUBLICATION_SCALE_COMMITTED_COUNT="
+            f"{committed_count}"
+        )
 
         async with p2_gate.SessionApp() as app:
             await app.begin()
@@ -173,82 +392,13 @@ async def main() -> None:
                     "Pricing scale actor is not visible."
                 )
 
-            book_id = int(
-                (
-                    await app.execute(
-                        text(
-                            "SELECT id "
-                            "FROM price_books "
-                            "WHERE company_id = :company_id "
-                            "ORDER BY id DESC LIMIT 1"
-                        ),
-                        {
-                            "company_id": company_id,
-                        },
-                    )
-                ).scalar_one()
-            )
-
-            await seed_benchmark_prices(
+            await seed_endpoint_benchmark_prices(
                 app,
                 company_id=company_id,
                 each_uom_id=int(
                     ids["each_uom_id"]
                 ),
                 prefix=prefix,
-            )
-
-            base_revision = int(
-                (
-                    await app.execute(
-                        text(
-                            "SELECT COALESCE(MAX(revision), 0) "
-                            "FROM price_publications "
-                            "WHERE company_id = :company_id"
-                        ),
-                        {
-                            "company_id": company_id,
-                        },
-                    )
-                ).scalar_one()
-            )
-            request_prefix = (
-                "p8-price-publication-scale-"
-                + uuid4().hex
-            )
-
-            await app.execute(
-                text(
-                    "INSERT INTO price_publications "
-                    "(company_id, price_book_id, revision, status, "
-                    "effective_at, created_by, approved_by, "
-                    "approved_at, published_at, request_id, "
-                    "version, created_at, updated_at) "
-                    "SELECT :company_id, :book_id, "
-                    ":base_revision + gs, 'SUPERSEDED', "
-                    "NOW() - INTERVAL '2 days', :actor_id, :actor_id, "
-                    "NOW() - INTERVAL '2 days', "
-                    "NOW() - INTERVAL '2 days', "
-                    "md5(:request_prefix || ':' || gs::text)::uuid, "
-                    "1, NOW(), NOW() "
-                    "FROM generate_series(1, :row_count) AS gs"
-                ),
-                {
-                    "company_id": company_id,
-                    "book_id": book_id,
-                    "base_revision": base_revision,
-                    "actor_id": int(
-                        pricing_actor.id
-                    ),
-                    "request_prefix": request_prefix,
-                    "row_count": publication_rows,
-                },
-            )
-
-            await app.execute(
-                text(
-                    "ANALYZE price_publications"
-                )
             )
 
             publication_count = int(
@@ -337,7 +487,7 @@ async def main() -> None:
             )
             enough_rows = (
                 publication_count
-                >= publication_rows
+                >= publication_rows + 1
             )
             page_ok = (
                 isinstance(
