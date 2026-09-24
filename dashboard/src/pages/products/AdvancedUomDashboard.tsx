@@ -896,7 +896,7 @@ export default function AdvancedUomDashboard() {
             }
             className="mb-2 inline-flex items-center gap-2 text-xs font-black text-slate-500"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
             {t(
               "products.advancedUom.back",
             )}
