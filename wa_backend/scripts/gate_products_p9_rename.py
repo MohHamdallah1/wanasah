@@ -267,15 +267,20 @@ async def seed(conn) -> dict[str, int]:
         version: int,
         lifecycle_revision: int,
     ) -> int:
-        archived_sql = (
-            "NOW()"
-            if lifecycle == "ARCHIVED"
-            else "NULL"
-        )
         published_sql = (
             "NULL"
             if lifecycle == "DRAFT"
             else "NOW()"
+        )
+        retired_sql = (
+            "NOW()"
+            if lifecycle in {"RETIRING", "ARCHIVED"}
+            else "NULL"
+        )
+        archived_sql = (
+            "NOW()"
+            if lifecycle == "ARCHIVED"
+            else "NULL"
         )
         return int(
             (
@@ -287,7 +292,7 @@ async def seed(conn) -> dict[str, int]:
                         "lot_control_mode, expiry_control_mode, "
                         "lifecycle_status, operational_hold, "
                         "lifecycle_revision, version, published_at, "
-                        "archived_at, packs_per_carton, "
+                        "retired_at, archived_at, packs_per_carton, "
                         "package_uses_base_barcode, "
                         "default_max_samples_per_day, "
                         "created_at, updated_at) "
@@ -297,6 +302,8 @@ async def seed(conn) -> dict[str, int]:
                         ":lifecycle, 'NONE', :lifecycle_revision, "
                         ":version, "
                         + published_sql
+                        + ", "
+                        + retired_sql
                         + ", "
                         + archived_sql
                         + ", 1, false, 0, NOW(), NOW()) "
