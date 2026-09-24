@@ -130,20 +130,101 @@ export const buildVariantPayload = (draft: VariantDraft) => {
   if (gtin && !/^(?:\d{8}|\d{12}|\d{13}|\d{14})$/.test(gtin)) throw new Error("GTIN غير صالح.");
   return { request_id: crypto.randomUUID(), product_id: productId, sku, gtin, name, base_uom_id: baseUomId, quantity_scale: scale, quantity_step: step, lot_control_mode: draft.lot_control_mode, expiry_control_mode: draft.expiry_control_mode };
 };
-export const buildConversionPayload = (draft: { from_uom_id: string; to_uom_id: string; numerator: string; denominator: string; quantity_scale: string }) => {
-  const quantityScale = integer(Number(draft.quantity_scale), "quantity_scale");
-  if (quantityScale > 6) throw new Error("دقة التحويل يجب أن تكون بين 0 و6.");
+export interface UomConversionCommandPayload {
+  from_uom_id: number;
+  to_uom_id: number;
+  numerator: Quantity;
+  denominator: Quantity;
+  quantity_scale: number;
+}
+
+export const buildConversionCommandPayload = (
+  draft: {
+    from_uom_id: string;
+    to_uom_id: string;
+    numerator: string;
+    denominator: string;
+    quantity_scale: string;
+  },
+): UomConversionCommandPayload => {
+  const quantityScale = integer(
+    Number(draft.quantity_scale),
+    "quantity_scale",
+  );
+  if (quantityScale > 6) {
+    throw new Error(
+      "دقة التحويل يجب أن تكون بين 0 و6.",
+    );
+  }
   return {
-    request_id: crypto.randomUUID(),
-    from_uom_id: integer(Number(draft.from_uom_id), "from_uom_id", 1),
-    to_uom_id: integer(Number(draft.to_uom_id), "to_uom_id", 1),
-    numerator: parseQuantity(draft.numerator, "numerator"),
-    denominator: parseQuantity(draft.denominator, "denominator"),
+    from_uom_id: integer(
+      Number(draft.from_uom_id),
+      "from_uom_id",
+      1,
+    ),
+    to_uom_id: integer(
+      Number(draft.to_uom_id),
+      "to_uom_id",
+      1,
+    ),
+    numerator: parseQuantity(
+      draft.numerator,
+      "numerator",
+    ),
+    denominator: parseQuantity(
+      draft.denominator,
+      "denominator",
+    ),
     quantity_scale: quantityScale,
   };
 };
+
+export const buildConversionPayload = (
+  draft: {
+    from_uom_id: string;
+    to_uom_id: string;
+    numerator: string;
+    denominator: string;
+    quantity_scale: string;
+  },
+) => ({
+  request_id: crypto.randomUUID(),
+  ...buildConversionCommandPayload(draft),
+});
 export const buildBarcodePayload=(draft:{uom_id:string;barcode:string;barcode_type:ProductBarcode["barcode_type"];is_primary:boolean})=>({request_id:crypto.randomUUID(),uom_id:integer(Number(draft.uom_id),"uom_id",1),barcode:requiredString(draft.barcode.trim(),"barcode",128),barcode_type:draft.barcode_type,is_primary:draft.is_primary,valid_from:new Date().toISOString(),valid_to:null});
 export const parseMutationMessage = (raw: unknown): string => requiredString(record(raw, "استجابة الكتالوج غير صالحة.").message, "message", 1000);
+
+export const parseConversionMutation = (
+  raw: unknown,
+): {
+  message: string;
+  conversion: UomConversion;
+} => {
+  const row = record(
+    raw,
+    "استجابة تحويل UOM غير صالحة.",
+  );
+  const conversionRaw = record(
+    row.conversion,
+    "استجابة تحويل UOM غير صالحة.",
+  );
+  const parsed = parseConversions({
+    items: [conversionRaw],
+  });
+  if (parsed.length !== 1) {
+    throw new Error(
+      "استجابة تحويل UOM غير صالحة.",
+    );
+  }
+  return {
+    message: requiredString(
+      row.message,
+      "message",
+      1000,
+    ),
+    conversion: parsed[0],
+  };
+};
 
 export interface ArchiveBlocker { code: string; count: number; sample_id: number | null }
 export interface ArchivePreflight {

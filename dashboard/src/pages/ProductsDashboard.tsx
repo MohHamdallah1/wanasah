@@ -16,7 +16,6 @@ import {
   Copy,
   FileSpreadsheet,
   FolderTree,
-  LockKeyhole,
   PackagePlus,
   RefreshCw,
   Search,
@@ -24,6 +23,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
@@ -40,6 +40,9 @@ import {
   fileFingerprint,
   getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
+import {
+  deriveExactMoneyPair,
+} from "@/lib/exactMoney";
 import {
   parsePackageUoms,
   parseProductFamilies,
@@ -142,81 +145,11 @@ const importMappingFields = [
   "expiry_control_mode",
 ] as const;
 
-const derivedPrices = (
-  hasPackage: boolean,
-  unitsRaw: string,
-  packageRaw: string,
-  unitRaw: string
-) => {
-  const unit = unitRaw.trim()
-    ? Number(unitRaw)
-    : null;
-
-  if (
-    unit !== null &&
-    (!Number.isFinite(unit) ||
-      unit <= 0)
-  ) {
-    return null;
-  }
-
-  if (!hasPackage) {
-    return unit === null
-      ? null
-      : {
-          packagePrice: null,
-          unitPrice: unit,
-          independent: false,
-        };
-  }
-
-  const units = Number(
-    unitsRaw
-  );
-  const packagePrice =
-    packageRaw.trim()
-      ? Number(packageRaw)
-      : null;
-
-  if (
-    !Number.isInteger(units) ||
-    units < 2 ||
-    (packagePrice !== null &&
-      (!Number.isFinite(
-        packagePrice
-      ) ||
-        packagePrice <= 0))
-  ) {
-    return null;
-  }
-
-  if (
-    packagePrice === null &&
-    unit === null
-  ) {
-    return null;
-  }
-
-  return {
-    packagePrice:
-      packagePrice ??
-      (unit !== null
-        ? unit * units
-        : null),
-    unitPrice:
-      unit ??
-      (packagePrice !== null
-        ? packagePrice / units
-        : null),
-    independent:
-      packagePrice !== null &&
-      unit !== null,
-  };
-};
-
 export default function ProductsDashboard() {
   const { t, i18n } =
     useTranslation();
+  const navigate =
+    useNavigate();
   const authFetch =
     useAuthFetch();
   const queryClient =
@@ -2255,7 +2188,7 @@ export default function ProductsDashboard() {
     };
 
   const draftDerived =
-    derivedPrices(
+    deriveExactMoneyPair(
       draft.has_package,
       draft.units_per_package,
       draft.package_price,
@@ -2264,7 +2197,7 @@ export default function ProductsDashboard() {
 
   const editDerived =
     priceEdit
-      ? derivedPrices(
+      ? deriveExactMoneyPair(
           Boolean(
             priceEdit.package_uom_code
           ),
@@ -2401,19 +2334,22 @@ export default function ProductsDashboard() {
               </button>
             ) : null}
 
-            <button
-              type="button"
-              disabled
-              title={t(
-                "products.advancedPricingHint"
-              )}
-              className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-400"
-            >
-              <LockKeyhole className="h-4 w-4" />
-              {t(
-                "products.advancedPricing"
-              )}
-            </button>
+            {canManageCatalog ? (
+              <button
+                type="button"
+                onClick={() =>
+                  navigate(
+                    "/products/advanced-uom"
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+              >
+                <Settings2 className="h-4 w-4" />
+                {t(
+                  "products.advancedUom.action"
+                )}
+              </button>
+            ) : null}
 
             {canManageFamilies ? (
               <button
@@ -3171,6 +3107,9 @@ export default function ProductsDashboard() {
         canManageBarcodes={
           canManageCatalog
         }
+        canManageAdvancedUom={
+          canManageCatalog
+        }
         onClose={() =>
           setDetailProduct(null)
         }
@@ -3188,6 +3127,12 @@ export default function ProductsDashboard() {
           setDetailProduct(null);
           setBarcodeProduct(
             product
+          );
+        }}
+        onManageAdvancedUom={(product) => {
+          setDetailProduct(null);
+          navigate(
+            `/products/advanced-uom?variant=${product.id}`
           );
         }}
       />

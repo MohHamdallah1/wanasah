@@ -109,9 +109,46 @@ export const resources = {
         addProduct: "إضافة منتج",
         importFile: "استيراد ملف",
         families: "العائلات",
-        advancedPricing: "التسعير المتقدم",
-        advancedPricingHint:
-          "سيتم تفعيله لاحقاً",
+        advancedUom: {
+          action: "إدارة وحدات القياس المتقدمة",
+          productAction: "إدارة وحدات القياس",
+          title: "إدارة وحدات القياس المتقدمة",
+          description:
+            "استخدم هذه الصفحة فقط للمنتجات التي تحتاج تحويلات UOM تتجاوز المسار المبسط. بنية الوحدات تصبح للقراءة فقط بعد نشر الصنف.",
+          back: "العودة إلى المنتجات",
+          searchPlaceholder: "ابحث باسم SKU أو رمزه...",
+          noAccess: "لا تملك صلاحية قراءة كتالوج المنتجات.",
+          variantsLoadFailed: "تعذر تحميل أصناف الكتالوج.",
+          noVariants: "لا توجد أصناف مطابقة.",
+          selectVariant: "اختر SKU لعرض تحويلات وحدات القياس.",
+          variantLoadFailed: "تعذر تحميل الصنف المطلوب.",
+          variantNotFound: "الصنف المطلوب غير موجود أو لم يعد متاحاً.",
+          baseUom: "وحدة الأساس",
+          lockedAfterPublish:
+            "تم نشر هذا الصنف، لذلك أصبحت بنية وحدات القياس غير قابلة للتعديل حفاظاً على السجل التشغيلي. يمكنك مراجعة التحويلات فقط.",
+          draftEditable:
+            "هذا الصنف ما زال مسودة، ويمكن تعديل تحويلات وحدات القياس قبل النشر.",
+          readOnly:
+            "يمكنك مراجعة التحويلات، لكن تعديلها يتطلب صلاحية إدارة الكتالوج.",
+          conversions: "تحويلات وحدات القياس",
+          conversionsLoadFailed: "تعذر تحميل تحويلات وحدات القياس.",
+          noConversions: "لا توجد تحويلات مسجلة لهذا الصنف.",
+          addConversion: "إضافة تحويل",
+          editConversion: "تعديل التحويل",
+          from: "من وحدة",
+          to: "إلى وحدة",
+          chooseUom: "اختر وحدة...",
+          numerator: "البسط",
+          denominator: "المقام",
+          scale: "دقة الكمية",
+          uomsLoadFailed: "تعذر تحميل دليل وحدات القياس.",
+          saved: "تم حفظ تحويل وحدة القياس.",
+          saveFailed: "تعذر حفظ تحويل وحدة القياس.",
+          pendingRetry:
+            "نتيجة المحاولة السابقة غير مؤكدة. يجب إعادة إرسال نفس الأمر قبل السماح بتغيير القيم.",
+          pendingBlocked:
+            "تعذر التحقق من الأمر المعلّق المحفوظ. أوقفت التعديلات لحماية البيانات من التكرار.",
+        },
         quickCreate: {
           advancedTitle: "إعدادات متقدمة",
           advancedHint:
@@ -1041,9 +1078,46 @@ export const resources = {
         addProduct: "Add product",
         importFile: "Import file",
         families: "Families",
-        advancedPricing: "Advanced pricing",
-        advancedPricingHint:
-          "Will be enabled later",
+        advancedUom: {
+          action: "Advanced UOM management",
+          productAction: "Manage units of measure",
+          title: "Advanced units of measure",
+          description:
+            "Use this page only for products that need UOM conversions beyond the simple product flow. Unit structure becomes read-only after the SKU is published.",
+          back: "Back to products",
+          searchPlaceholder: "Search by SKU name or code...",
+          noAccess: "You do not have permission to read the product catalog.",
+          variantsLoadFailed: "Could not load catalog SKUs.",
+          noVariants: "No matching SKUs.",
+          selectVariant: "Select a SKU to review its UOM conversions.",
+          variantLoadFailed: "Could not load the selected SKU.",
+          variantNotFound: "The selected SKU does not exist or is no longer available.",
+          baseUom: "Base unit",
+          lockedAfterPublish:
+            "This SKU has been published, so its unit structure is locked to protect operational history. You can still review the conversions.",
+          draftEditable:
+            "This SKU is still a draft, so its UOM conversions can be edited before publication.",
+          readOnly:
+            "You can review conversions, but catalog management permission is required to change them.",
+          conversions: "UOM conversions",
+          conversionsLoadFailed: "Could not load UOM conversions.",
+          noConversions: "No conversions are registered for this SKU.",
+          addConversion: "Add conversion",
+          editConversion: "Edit conversion",
+          from: "From unit",
+          to: "To unit",
+          chooseUom: "Choose a unit...",
+          numerator: "Numerator",
+          denominator: "Denominator",
+          scale: "Quantity scale",
+          uomsLoadFailed: "Could not load the UOM catalog.",
+          saved: "UOM conversion saved.",
+          saveFailed: "Could not save the UOM conversion.",
+          pendingRetry:
+            "The previous attempt has an unknown outcome. The exact same command must be retried before values can change.",
+          pendingBlocked:
+            "The saved pending command could not be verified. Editing is blocked to prevent duplicate or conflicting changes.",
+        },
         quickCreate: {
           advancedTitle: "Advanced settings",
           advancedHint:

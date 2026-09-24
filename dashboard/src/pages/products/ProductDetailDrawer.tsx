@@ -15,10 +15,12 @@ type Props = {
   canEditPrice: boolean;
   canEditTracking: boolean;
   canManageBarcodes: boolean;
+  canManageAdvancedUom: boolean;
   onClose: () => void;
   onEditPrice: (product: SimpleProduct) => void;
   onEditTracking: (product: SimpleProduct) => void;
   onManageBarcodes: (product: SimpleProduct) => void;
+  onManageAdvancedUom: (product: SimpleProduct) => void;
 };
 
 export function ProductDetailDrawer({
@@ -27,10 +29,12 @@ export function ProductDetailDrawer({
   canEditPrice,
   canEditTracking,
   canManageBarcodes,
+  canManageAdvancedUom,
   onClose,
   onEditPrice,
   onEditTracking,
   onManageBarcodes,
+  onManageAdvancedUom,
 }: Props) {
   const { t, i18n } = useTranslation();
   const locale =
@@ -312,7 +316,9 @@ export function ProductDetailDrawer({
 
         {canEditPrice ||
         canEditTracking ||
-        canManageBarcodes ? (
+        canManageBarcodes ||
+        (canManageAdvancedUom &&
+          !product.simple_compatible) ? (
           <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
             {canEditPrice &&
             product.simple_compatible ? (
@@ -339,6 +345,23 @@ export function ProductDetailDrawer({
               >
                 {t(
                   "products.barcodeManager.action"
+                )}
+              </button>
+            ) : null}
+
+            {canManageAdvancedUom &&
+            !product.simple_compatible ? (
+              <button
+                type="button"
+                onClick={() =>
+                  onManageAdvancedUom(
+                    product
+                  )
+                }
+                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-900 hover:bg-amber-100"
+              >
+                {t(
+                  "products.advancedUom.productAction"
                 )}
               </button>
             ) : null}
