@@ -1,4 +1,4 @@
----
+
 name: add-animated-top-dock
 description: "Build Animated Top Dock from its verified authored source using DOM + CSS + WebGL + Three.js r128, including the complete renderer, interactions, and required assets. Use when Codex needs to implement, port, or adapt this effect without requiring the ThreeUI package or reconstructing the visual from an approximation."
 ---
