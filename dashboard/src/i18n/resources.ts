@@ -496,6 +496,10 @@ export const resources = {
             "فشل طلب المنتجات، لذلك لن نعرض حالة فارغة مضللة. تحقق من الاتصال ثم أعد المحاولة.",
           familiesLoad:
             "تعذر تحميل العائلات. أعد المحاولة.",
+          packageUomsLoad:
+            "تعذر تحميل أنواع العبوات. أعد المحاولة قبل حفظ المنتج.",
+          importStatusLoad:
+            "تعذر تحديث حالة الاستيراد. سنواصل المحاولة ويمكنك إعادة المحاولة الآن.",
           nameRequired: "اسم المنتج مطلوب.",
           packageUnitsInvalid:
             "عدد الحبات داخل العبوة يجب أن يكون رقماً صحيحاً أكبر من 1.",
@@ -940,6 +944,8 @@ export const resources = {
           PRODUCT_BARCODES_SCOPE_MISMATCH: "بيانات الباركود لا تطابق المنتج المحدد.",
           PRODUCT_BARCODES_CURSOR_DUPLICATE: "صفحات الباركود تحتوي سجلاً مكرراً.",
           PRODUCT_IMPORT_ACCEPTED_RESPONSE_INVALID: "استجابة بدء استيراد المنتجات غير صالحة أو غير مكتملة.",
+          PRODUCT_IMPORT_COMMAND_RESPONSE_INVALID: "استجابة أمر استيراد المنتجات غير صالحة أو غير مكتملة.",
+          PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH: "استجابة أمر الاستيراد لا تطابق عملية الاستيراد الحالية.",
           PRODUCT_IMPORT_STATE_RESPONSE_INVALID: "استجابة حالة استيراد المنتجات غير صالحة أو غير مكتملة.",
           PRODUCT_IMPORT_ERRORS_RESPONSE_INVALID: "استجابة أخطاء استيراد المنتجات غير صالحة أو غير مكتملة.",
           COMPANY_NOT_FOUND: "الشركة غير موجودة أو غير متاحة.",
@@ -1059,6 +1065,9 @@ export const resources = {
           TENANT_NOT_FOUND: "الشركة غير موجودة أو غير متاحة.",
           PRODUCT_NOT_OPERATIONAL: "المنتج غير متاح تشغيلياً حالياً.",
           SIMPLE_PRODUCTS_RESPONSE_INVALID: "استجابة قائمة المنتجات غير صالحة أو غير مكتملة.",
+          SIMPLE_PRODUCT_CREATE_RESPONSE_INVALID: "استجابة إنشاء المنتج غير صالحة أو غير مكتملة.",
+          SIMPLE_PRODUCT_PRICE_RESPONSE_INVALID: "استجابة تحديث سعر المنتج غير صالحة أو غير مكتملة.",
+          SIMPLE_PRODUCT_PRICE_SCOPE_MISMATCH: "استجابة تحديث السعر لا تطابق المنتج المحدد.",
           PRODUCT_TRACKING_DEFAULTS_RESPONSE_INVALID: "استجابة إعدادات تتبع المنتجات غير صالحة.",
           PRODUCT_TRACKING_MUTATION_RESPONSE_INVALID: "استجابة تعديل تتبع المنتج غير صالحة.",
           PRODUCT_TRACKING_LOCKED: "لا يمكن تغيير إعدادات التتبع بالطريقة العادية لأن للمنتج سجل دفعات سابقاً. استخدم مسار ترحيل معتمد إذا كان التغيير ضرورياً.",
@@ -1653,6 +1662,10 @@ export const resources = {
             "The products request failed, so an empty catalog is not shown. Check the connection and try again.",
           familiesLoad:
             "Could not load families. Try again.",
+          packageUomsLoad:
+            "Could not load package types. Retry before saving the product.",
+          importStatusLoad:
+            "Could not refresh the import status. Automatic retries will continue, or retry now.",
           nameRequired:
             "Product name is required.",
           packageUnitsInvalid:
@@ -2098,6 +2111,8 @@ export const resources = {
           PRODUCT_BARCODES_SCOPE_MISMATCH: "The barcode data does not match the selected product.",
           PRODUCT_BARCODES_CURSOR_DUPLICATE: "Barcode pagination returned a duplicate record.",
           PRODUCT_IMPORT_ACCEPTED_RESPONSE_INVALID: "The product-import start response is invalid or incomplete.",
+          PRODUCT_IMPORT_COMMAND_RESPONSE_INVALID: "The product-import command response is invalid or incomplete.",
+          PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH: "The import-command response does not match the active import job.",
           PRODUCT_IMPORT_STATE_RESPONSE_INVALID: "The product-import status response is invalid or incomplete.",
           PRODUCT_IMPORT_ERRORS_RESPONSE_INVALID: "The product-import error response is invalid or incomplete.",
           COMPANY_NOT_FOUND: "The company was not found or is unavailable.",
@@ -2217,6 +2232,9 @@ export const resources = {
           TENANT_NOT_FOUND: "The company was not found or is unavailable.",
           PRODUCT_NOT_OPERATIONAL: "The product is not operationally available right now.",
           SIMPLE_PRODUCTS_RESPONSE_INVALID: "The product-list response is invalid or incomplete.",
+          SIMPLE_PRODUCT_CREATE_RESPONSE_INVALID: "The product-create response is invalid or incomplete.",
+          SIMPLE_PRODUCT_PRICE_RESPONSE_INVALID: "The product-price update response is invalid or incomplete.",
+          SIMPLE_PRODUCT_PRICE_SCOPE_MISMATCH: "The price-update response does not match the selected product.",
           PRODUCT_TRACKING_DEFAULTS_RESPONSE_INVALID: "The product-tracking defaults response is invalid.",
           PRODUCT_TRACKING_MUTATION_RESPONSE_INVALID: "The product-tracking update response is invalid.",
           PRODUCT_TRACKING_LOCKED: "Tracking settings cannot be changed through the normal editor because this product already has batch history. Use an approved migration workflow if a change is required.",

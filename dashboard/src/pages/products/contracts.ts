@@ -244,6 +244,28 @@ export interface ProductTrackingMutationResponse {
   changed: boolean;
 }
 
+export interface SimpleProductCreateResponse {
+  message: string;
+  product_variant_id: number;
+  package_price: string | null;
+  unit_price: string;
+  lot_control_mode: ProductTrackingMode;
+  expiry_control_mode: ProductTrackingMode;
+}
+
+export interface SimpleProductPriceMutationResponse {
+  message: string;
+  product_variant_id: number;
+  package_price: string | null;
+  unit_price: string;
+}
+
+export interface ProductImportCommandResponse {
+  job_id: string;
+  status: ProductImportStatus;
+  message: string;
+}
+
 export interface ProductFamily {
   id: number;
   name: string;
@@ -550,6 +572,80 @@ export function parseProductTrackingMutation(
       code,
     ),
     changed: bool(row.changed, code),
+  };
+}
+
+export function parseSimpleProductCreateResponse(
+  raw: unknown,
+): SimpleProductCreateResponse {
+  const code = "SIMPLE_PRODUCT_CREATE_RESPONSE_INVALID";
+  const row = record(raw, code);
+  const unitPrice = moneyOrNull(
+    row.unit_price,
+    code,
+  );
+  if (unitPrice === null) {
+    return contractError(code);
+  }
+  return {
+    message: str(row.message, code, 1000),
+    product_variant_id: int(
+      row.product_variant_id,
+      code,
+      1,
+    ),
+    package_price: moneyOrNull(
+      row.package_price,
+      code,
+    ),
+    unit_price: unitPrice,
+    lot_control_mode: trackingMode(
+      row.lot_control_mode,
+      code,
+    ),
+    expiry_control_mode: trackingMode(
+      row.expiry_control_mode,
+      code,
+    ),
+  };
+}
+
+export function parseSimpleProductPriceMutationResponse(
+  raw: unknown,
+): SimpleProductPriceMutationResponse {
+  const code = "SIMPLE_PRODUCT_PRICE_RESPONSE_INVALID";
+  const row = record(raw, code);
+  const unitPrice = moneyOrNull(
+    row.unit_price,
+    code,
+  );
+  if (unitPrice === null) {
+    return contractError(code);
+  }
+  return {
+    message: str(row.message, code, 1000),
+    product_variant_id: int(
+      row.product_variant_id,
+      code,
+      1,
+    ),
+    package_price: moneyOrNull(
+      row.package_price,
+      code,
+    ),
+    unit_price: unitPrice,
+  };
+}
+
+export function parseProductImportCommandResponse(
+  raw: unknown,
+): ProductImportCommandResponse {
+  const code = "PRODUCT_IMPORT_COMMAND_RESPONSE_INVALID";
+  const row = record(raw, code);
+  return {
+    job_id: uuid(row.job_id, code),
+    status: importStatus(row.status, code),
+    message: str(row.message, code, 1000),
   };
 }
 
