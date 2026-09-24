@@ -96,7 +96,7 @@ describe(
         'canManageAdvancedUom={ canManageCatalog }',
       );
       expect(products).toContain(
-        '`/products/advanced-uom?variant=\${product.id}`',
+        "`/products/advanced-uom?variant=${product.id}`",
       );
     });
   },
