@@ -67,6 +67,10 @@ vi.mock("sonner", () => ({
 }));
 
 import {
+  durableScope,
+  getOrCreateDurableCommand,
+} from "../lib/durableOperations";
+import {
   parseConversionMutation,
 } from "../pages/inventory/catalog/contracts";
 import AdvancedUomDashboard from "../pages/products/AdvancedUomDashboard";
@@ -466,6 +470,157 @@ describe(
           "wanasah:durable:v1:1:2:catalog-uom-conversion-create:10",
         ),
       ).toBeNull();
+    });
+
+    it("restores a pending create after remount and retries its original request identity", async () => {
+      const scope = durableScope(
+        1,
+        2,
+        "catalog-uom-conversion-create",
+        10,
+      );
+      const pending =
+        await getOrCreateDurableCommand(
+          scope,
+          {
+            from_uom_id: 1,
+            to_uom_id: 2,
+            numerator: "4",
+            denominator: "1",
+            quantity_scale: 0,
+          },
+        );
+      const mutationBodies:
+        Array<Record<string, unknown>> =
+        [];
+
+      mocks.authFetch.mockImplementation(
+        async (
+          url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            url.startsWith(
+              "/catalog/variants?",
+            )
+          ) {
+            return {
+              items: [],
+              next_cursor: null,
+              has_more: false,
+            };
+          }
+          if (
+            url ===
+            "/catalog/variants/resolve"
+          ) {
+            return {
+              items: [
+                variant(10, "DRAFT"),
+              ],
+              next_cursor: null,
+              has_more: false,
+            };
+          }
+          if (
+            url === "/catalog/uoms"
+          ) {
+            return {
+              items: [
+                uom(1, "EACH"),
+                uom(2, "CARTON"),
+              ],
+            };
+          }
+          if (
+            url ===
+              "/catalog/variants/10/conversions" &&
+            options?.method === "POST"
+          ) {
+            const body =
+              JSON.parse(
+                String(options.body),
+              ) as Record<
+                string,
+                unknown
+              >;
+            mutationBodies.push(body);
+            return {
+              message: "saved",
+              conversion: conversion(
+                101,
+                10,
+                "4",
+              ),
+            };
+          }
+          if (
+            url ===
+            "/catalog/variants/10/conversions"
+          ) {
+            return {
+              items: [],
+            };
+          }
+          throw new Error(
+            `Unexpected URL: ${url}`,
+          );
+        },
+      );
+
+      renderPage(
+        "/products/advanced-uom?variant=10",
+      );
+
+      expect(
+        await screen.findByText(
+          "products.advancedUom.pendingRetry",
+        ),
+      ).toBeInTheDocument();
+
+      const numerator =
+        screen.getByLabelText(
+          "products.advancedUom.numerator",
+        );
+      expect(
+        numerator,
+      ).toHaveValue("4");
+      expect(
+        numerator,
+      ).toBeDisabled();
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "common.retry",
+          },
+        ),
+      );
+
+      await waitFor(() => {
+        expect(
+          mutationBodies,
+        ).toHaveLength(1);
+      });
+      expect(
+        mutationBodies[0]
+          .request_id,
+      ).toBe(
+        pending.requestId,
+      );
+      expect(
+        mutationBodies[0]
+          .numerator,
+      ).toBe("4");
+
+      await waitFor(() => {
+        expect(
+          localStorage.getItem(
+            scope,
+          ),
+        ).toBeNull();
+      });
     });
 
     it("keeps a draft read-only without catalog.manage", async () => {
