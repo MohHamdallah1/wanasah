@@ -1069,8 +1069,41 @@ export default function ProductsDashboard() {
       page?.pricing_visible &&
         canViewPricing
     );
+  const visibleColumns =
+    displayPreferences.columns;
   const productTableColumnCount =
-    pricingVisible ? 7 : 5;
+    2 +
+    Number(
+      visibleColumns.package
+    ) +
+    Number(
+      visibleColumns.unitsPerPackage
+    ) +
+    Number(
+      visibleColumns.tracking
+    ) +
+    Number(
+      visibleColumns.lifecycle
+    ) +
+    Number(
+      visibleColumns.unitBarcode
+    ) +
+    Number(
+      visibleColumns.packageBarcode
+    ) +
+    Number(
+      pricingVisible &&
+        visibleColumns.packagePrice
+    ) +
+    Number(
+      pricingVisible &&
+        visibleColumns.unitPrice
+    );
+  const tableHeaderSpacing =
+    displayPreferences.density ===
+    "compact"
+      ? "px-4 py-2"
+      : "px-5 py-3";
   const hasProductListControls =
     Boolean(
       familyFilterId ||
@@ -1082,8 +1115,12 @@ export default function ProductsDashboard() {
           priceFilter) ||
         lotFilter ||
         expiryFilter ||
-        sortBy !== "id" ||
-        sortDir !== "asc"
+        sortBy !==
+          displayPreferences.defaultSort
+            .field ||
+        sortDir !==
+          displayPreferences.defaultSort
+            .direction
     );
 
   const importTrackingUsesCompanyDefaults =
@@ -2722,8 +2759,16 @@ export default function ProductsDashboard() {
                   setPriceFilter("");
                   setLotFilter("");
                   setExpiryFilter("");
-                  setSortBy("id");
-                  setSortDir("asc");
+                  setSortBy(
+                    displayPreferences
+                      .defaultSort
+                      .field
+                  );
+                  setSortDir(
+                    displayPreferences
+                      .defaultSort
+                      .direction
+                  );
                   resetProductPagination();
                 }}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-xs font-black text-slate-600 sm:w-auto"
