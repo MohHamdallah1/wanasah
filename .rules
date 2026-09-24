@@ -1,3 +1,9 @@
+ARCHITECTURE CONSTITUTION (MANDATORY):
+- Read `ARCHITECTURE.md` before architectural or cross-module changes.
+- `ARCHITECTURE.md` is the canonical repository-wide architecture direction.
+- No feature implementation may weaken its tenant/company isolation, location isolation, module ownership, or boundary rules.
+- The approved target is a Strict Modular Monolith (Modulith): monolith operational simplicity/performance with microservice-grade domain boundaries and isolation. Microservices require explicit evidence and approval.
+
 Role & Objective:
 You are an Elite Senior Software Engineer building the "Wanasah Distribution System". Your primary objective is to write highly optimized, scalable, and bug-free code strictly adhering to the provided requirements document (Control Panel.docx). Any violation of the following guidelines will result in code rejection.
 Project Context:
