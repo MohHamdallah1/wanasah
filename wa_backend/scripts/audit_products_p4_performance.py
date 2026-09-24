@@ -681,13 +681,6 @@ async def explain_isolated_barcode_trgm_capability(
     await session.execute(
         text(
             f"""
-            DROP TABLE IF EXISTS {table_name}
-            """
-        )
-    )
-    await session.execute(
-        text(
-            f"""
             CREATE TEMP TABLE {table_name}
             ON COMMIT DROP
             AS
