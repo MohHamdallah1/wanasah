@@ -135,13 +135,18 @@ def static_checks() -> None:
         code
         for code in import_codes
         if (
-            f"{code}:" not in translations
-            and f'"{code}"' not in translations
+            translations.count(
+                f"{code}:"
+            )
+            + translations.count(
+                f'"{code}"'
+            )
         )
+        < 2
     ]
     check(
         not missing_translations,
-        "all worker import validation codes have UI translations",
+        "all worker import validation codes have Arabic and English UI translations",
         repr(missing_translations),
     )
 
