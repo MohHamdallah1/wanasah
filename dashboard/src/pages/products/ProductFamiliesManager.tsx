@@ -808,7 +808,7 @@ export function ProductFamiliesManager({
               if (newFamilyError) {
                 setNewFamilyError(null);
               }
-            }
+            }}
             placeholder={t(
               "products.newFamilyPlaceholder"
             )}
