@@ -1,0 +1,1147 @@
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  ArrowLeft,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+
+import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import {
+  apiErrorCode,
+  apiErrorMessage,
+  isAmbiguousRequestError,
+} from "@/lib/apiErrors";
+import {
+  abandonDurableOperation,
+  completeDurableOperation,
+  durableScope,
+  getOrCreateDurableCommand,
+} from "@/lib/durableOperations";
+import {
+  buildConversionCommandPayload,
+  parseConversionMutation,
+  parseConversions,
+  parseUoms,
+  parseVariants,
+  type CatalogVariant,
+  type UomConversion,
+  type UomConversionCommandPayload,
+} from "@/pages/inventory/catalog/contracts";
+
+type ConversionDraft = {
+  from_uom_id: string;
+  to_uom_id: string;
+  numerator: string;
+  denominator: string;
+  quantity_scale: string;
+};
+
+type ConversionUpdateCommand =
+  UomConversionCommandPayload & {
+    expected_version: number;
+  };
+
+const EMPTY_DRAFT: ConversionDraft = {
+  from_uom_id: "",
+  to_uom_id: "",
+  numerator: "1",
+  denominator: "1",
+  quantity_scale: "0",
+};
+
+const parseVariantParam = (
+  raw: string | null,
+): number | null => {
+  if (!raw) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isSafeInteger(value) &&
+    value > 0
+    ? value
+    : null;
+};
+
+export default function AdvancedUomDashboard() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] =
+    useSearchParams();
+  const authFetch = useAuthFetch();
+  const access = useInventoryAccess();
+  const queryClient = useQueryClient();
+
+  const companyId =
+    access.data?.company_id ?? null;
+  const driverId =
+    access.data?.driver_id ?? null;
+  const canRead =
+    access.isCompanyAdmin ||
+    access.canAny("catalog.read");
+  const canManage =
+    access.isCompanyAdmin ||
+    access.canAny("catalog.manage");
+
+  const selectedVariantId =
+    parseVariantParam(
+      searchParams.get("variant"),
+    );
+
+  const [searchInput, setSearchInput] =
+    useState("");
+  const [search, setSearch] =
+    useState("");
+  const [cursor, setCursor] =
+    useState<string | null>(null);
+  const [history, setHistory] =
+    useState<Array<string | null>>([]);
+  const [draft, setDraft] =
+    useState<ConversionDraft>(
+      EMPTY_DRAFT,
+    );
+  const [editing, setEditing] =
+    useState<UomConversion | null>(
+      null,
+    );
+
+  useEffect(() => {
+    const timer =
+      window.setTimeout(() => {
+        const clean =
+          searchInput
+            .trim()
+            .slice(0, 100);
+        setSearch(
+          clean.length >= 2
+            ? clean
+            : "",
+        );
+        setCursor(null);
+        setHistory([]);
+      }, 250);
+    return () =>
+      window.clearTimeout(timer);
+  }, [searchInput]);
+
+  const variantParams = useMemo(
+    () => {
+      const params =
+        new URLSearchParams({
+          limit: "50",
+        });
+      if (search) {
+        params.set("search", search);
+      }
+      if (cursor) {
+        params.set("cursor", cursor);
+      }
+      return params.toString();
+    },
+    [cursor, search],
+  );
+
+  const variantsQuery = useQuery({
+    queryKey: [
+      "advanced-uom-variants",
+      companyId,
+      variantParams,
+    ],
+    enabled:
+      Boolean(companyId) &&
+      canRead,
+    queryFn: async ({ signal }) =>
+      parseVariants(
+        await authFetch(
+          `/catalog/variants?${variantParams}`,
+          { signal },
+        ),
+      ),
+  });
+
+  const resolvedVariantQuery =
+    useQuery({
+      queryKey: [
+        "advanced-uom-resolved-variant",
+        companyId,
+        selectedVariantId,
+      ],
+      enabled:
+        Boolean(
+          companyId &&
+          selectedVariantId,
+        ) && canRead,
+      queryFn: async ({ signal }) =>
+        parseVariants(
+          await authFetch(
+            "/catalog/variants/resolve",
+            {
+              method: "POST",
+              signal,
+              body: JSON.stringify({
+                ids: [
+                  selectedVariantId,
+                ],
+              }),
+            },
+          ),
+        ),
+    });
+
+  const uomsQuery = useQuery({
+    queryKey: [
+      "advanced-uom-catalog-uoms",
+      companyId,
+    ],
+    enabled:
+      Boolean(companyId) &&
+      canRead,
+    queryFn: async ({ signal }) =>
+      parseUoms(
+        await authFetch(
+          "/catalog/uoms",
+          { signal },
+        ),
+      ),
+  });
+
+  const page =
+    variantsQuery.data;
+  const selectedVariant:
+    CatalogVariant | null =
+    (
+      page?.items.find(
+        (item) =>
+          item.id ===
+          selectedVariantId,
+      ) ??
+      resolvedVariantQuery.data
+        ?.items[0]
+    ) ?? null;
+
+  const conversionsQuery =
+    useQuery({
+      queryKey: [
+        "advanced-uom-conversions",
+        companyId,
+        selectedVariant?.id ??
+          null,
+      ],
+      enabled:
+        Boolean(
+          companyId &&
+          selectedVariant,
+        ) && canRead,
+      queryFn: async ({ signal }) =>
+        parseConversions(
+          await authFetch(
+            `/catalog/variants/${selectedVariant!.id}/conversions`,
+            { signal },
+          ),
+        ),
+    });
+
+  useEffect(() => {
+    setDraft(EMPTY_DRAFT);
+    setEditing(null);
+  }, [selectedVariant?.id]);
+
+  const durableBase = (
+    operation: string,
+    target: number,
+  ) => {
+    if (
+      companyId === null ||
+      driverId === null
+    ) {
+      throw new Error(
+        "IDENTITY_NOT_READY",
+      );
+    }
+    return durableScope(
+      companyId,
+      driverId,
+      operation,
+      target,
+    );
+  };
+
+  const refreshConversions =
+    async () => {
+      await queryClient.invalidateQueries({
+        queryKey: [
+          "advanced-uom-conversions",
+          companyId,
+          selectedVariant?.id ??
+            null,
+        ],
+      });
+    };
+
+  const createMutation =
+    useMutation({
+      mutationFn: async () => {
+        if (
+          !selectedVariant ||
+          selectedVariant
+            .lifecycle_status !==
+            "DRAFT"
+        ) {
+          throw new Error(
+            "UOM_STRUCTURE_LOCKED",
+          );
+        }
+
+        const payload =
+          buildConversionCommandPayload(
+            draft,
+          );
+        const scope = durableBase(
+          "catalog-uom-conversion-create",
+          selectedVariant.id,
+        );
+        const command =
+          await getOrCreateDurableCommand(
+            scope,
+            payload,
+          );
+
+        try {
+          const result =
+            parseConversionMutation(
+              await authFetch(
+                `/catalog/variants/${selectedVariant.id}/conversions`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    request_id:
+                      command.requestId,
+                    ...command.payload,
+                  }),
+                },
+              ),
+            );
+          completeDurableOperation(
+            scope,
+            command.requestId,
+          );
+          return result;
+        } catch (error) {
+          const code =
+            apiErrorCode(error);
+          if (
+            !isAmbiguousRequestError(
+              error,
+            ) &&
+            code !==
+              "DURABLE_OPERATION_PENDING" &&
+            code !==
+              "DURABLE_OPERATION_CORRUPT"
+          ) {
+            abandonDurableOperation(
+              scope,
+            );
+          }
+          throw error;
+        }
+      },
+      onSuccess: async () => {
+        toast.success(
+          t(
+            "products.advancedUom.saved",
+          ),
+        );
+        setDraft(EMPTY_DRAFT);
+        await refreshConversions();
+      },
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.advancedUom.saveFailed",
+            ),
+          ),
+        ),
+    });
+
+  const updateMutation =
+    useMutation({
+      mutationFn: async () => {
+        if (
+          !selectedVariant ||
+          selectedVariant
+            .lifecycle_status !==
+            "DRAFT" ||
+          !editing
+        ) {
+          throw new Error(
+            "UOM_STRUCTURE_LOCKED",
+          );
+        }
+
+        const base =
+          buildConversionCommandPayload(
+            draft,
+          );
+        const payload:
+          ConversionUpdateCommand = {
+          ...base,
+          expected_version:
+            editing.version,
+        };
+        const scope = durableBase(
+          "catalog-uom-conversion-update",
+          editing.id,
+        );
+        const command =
+          await getOrCreateDurableCommand(
+            scope,
+            payload,
+          );
+
+        try {
+          const result =
+            parseConversionMutation(
+              await authFetch(
+                `/catalog/conversions/${editing.id}`,
+                {
+                  method: "PATCH",
+                  body: JSON.stringify({
+                    request_id:
+                      command.requestId,
+                    ...command.payload,
+                  }),
+                },
+              ),
+            );
+          completeDurableOperation(
+            scope,
+            command.requestId,
+          );
+          return result;
+        } catch (error) {
+          const code =
+            apiErrorCode(error);
+          if (
+            !isAmbiguousRequestError(
+              error,
+            ) &&
+            code !==
+              "DURABLE_OPERATION_PENDING" &&
+            code !==
+              "DURABLE_OPERATION_CORRUPT"
+          ) {
+            abandonDurableOperation(
+              scope,
+            );
+          }
+          throw error;
+        }
+      },
+      onSuccess: async () => {
+        toast.success(
+          t(
+            "products.advancedUom.saved",
+          ),
+        );
+        setDraft(EMPTY_DRAFT);
+        setEditing(null);
+        await refreshConversions();
+      },
+      onError: (error) =>
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.advancedUom.saveFailed",
+            ),
+          ),
+        ),
+    });
+
+  const selectVariant = (
+    id: number,
+  ) => {
+    const next =
+      new URLSearchParams(
+        searchParams,
+      );
+    next.set(
+      "variant",
+      String(id),
+    );
+    setSearchParams(next);
+  };
+
+  const clearSelection = () => {
+    const next =
+      new URLSearchParams(
+        searchParams,
+      );
+    next.delete("variant");
+    setSearchParams(next);
+  };
+
+  const editConversion = (
+    item: UomConversion,
+  ) => {
+    setEditing(item);
+    setDraft({
+      from_uom_id:
+        String(item.from_uom.id),
+      to_uom_id:
+        String(item.to_uom.id),
+      numerator:
+        item.numerator,
+      denominator:
+        item.denominator,
+      quantity_scale:
+        String(item.quantity_scale),
+    });
+  };
+
+  const resetEditor = () => {
+    setEditing(null);
+    setDraft(EMPTY_DRAFT);
+  };
+
+  const busy =
+    createMutation.isPending ||
+    updateMutation.isPending;
+  const editable =
+    Boolean(
+      selectedVariant &&
+      selectedVariant
+        .lifecycle_status ===
+        "DRAFT" &&
+      canManage,
+    );
+
+  if (
+    access.isSuccess &&
+    !canRead
+  ) {
+    return (
+      <div className="p-6">
+        <p className="rounded-2xl bg-rose-50 p-4 text-sm font-black text-rose-800">
+          {t(
+            "products.advancedUom.noAccess",
+          )}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <button
+            type="button"
+            onClick={() =>
+              navigate("/products")
+            }
+            className="mb-2 inline-flex items-center gap-2 text-xs font-black text-slate-500"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t(
+              "products.advancedUom.back",
+            )}
+          </button>
+          <h1 className="text-2xl font-black text-slate-900">
+            {t(
+              "products.advancedUom.title",
+            )}
+          </h1>
+          <p className="mt-1 max-w-3xl text-xs font-semibold leading-6 text-slate-500">
+            {t(
+              "products.advancedUom.description",
+            )}
+          </p>
+        </div>
+      </header>
+
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.6fr)]">
+        <section className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 p-3">
+            <div className="relative">
+              <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(event) =>
+                  setSearchInput(
+                    event.target.value,
+                  )
+                }
+                placeholder={t(
+                  "products.advancedUom.searchPlaceholder",
+                )}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 pe-9 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto p-2">
+            {variantsQuery.isLoading ? (
+              <p className="p-4 text-xs font-bold text-slate-400">
+                {t("common.loading")}
+              </p>
+            ) : null}
+
+            {variantsQuery.isError ? (
+              <div className="m-2 rounded-xl bg-rose-50 p-3">
+                <p className="text-xs font-bold text-rose-800">
+                  {t(
+                    "products.advancedUom.variantsLoadFailed",
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void variantsQuery.refetch()
+                  }
+                  className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                >
+                  {t("common.retry")}
+                </button>
+              </div>
+            ) : null}
+
+            {!variantsQuery.isLoading &&
+            !variantsQuery.isError &&
+            !page?.items.length ? (
+              <p className="p-4 text-xs font-bold text-slate-400">
+                {t(
+                  "products.advancedUom.noVariants",
+                )}
+              </p>
+            ) : null}
+
+            {page?.items.map(
+              (item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() =>
+                    selectVariant(
+                      item.id,
+                    )
+                  }
+                  data-active={
+                    item.id ===
+                    selectedVariantId
+                  }
+                  className="mb-2 w-full rounded-xl border border-slate-200 p-3 text-start data-[active=true]:border-slate-900 data-[active=true]:bg-slate-50"
+                >
+                  <p className="font-black text-slate-900">
+                    {item.name}
+                  </p>
+                  <p className="mt-1 font-mono text-[11px] text-slate-500">
+                    {item.sku}
+                  </p>
+                  <p className="mt-1 text-[11px] font-bold text-slate-500">
+                    {item.lifecycle_status}
+                    {" · "}
+                    {item.base_uom.code}
+                  </p>
+                </button>
+              ),
+            )}
+          </div>
+
+          {history.length > 0 ||
+          page?.next_cursor ? (
+            <div className="flex justify-end gap-2 border-t border-slate-100 p-3">
+              <button
+                type="button"
+                disabled={
+                  !history.length ||
+                  variantsQuery.isFetching
+                }
+                onClick={() => {
+                  const previous =
+                    history.at(-1) ??
+                    null;
+                  setHistory(
+                    (current) =>
+                      current.slice(
+                        0,
+                        -1,
+                      ),
+                  );
+                  setCursor(previous);
+                }}
+                className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+              >
+                {t(
+                  "products.familyPrevious",
+                )}
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !page?.next_cursor ||
+                  variantsQuery.isFetching
+                }
+                onClick={() => {
+                  if (
+                    !page?.next_cursor
+                  ) {
+                    return;
+                  }
+                  setHistory(
+                    (current) => [
+                      ...current,
+                      cursor,
+                    ],
+                  );
+                  setCursor(
+                    page.next_cursor,
+                  );
+                }}
+                className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+              >
+                {t(
+                  "products.familyNext",
+                )}
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="min-h-0 overflow-auto rounded-2xl border border-slate-200 bg-white p-4">
+          {!selectedVariantId ? (
+            <p className="text-sm font-bold text-slate-500">
+              {t(
+                "products.advancedUom.selectVariant",
+              )}
+            </p>
+          ) : null}
+
+          {selectedVariantId &&
+          resolvedVariantQuery.isLoading &&
+          !selectedVariant ? (
+            <p className="text-sm font-bold text-slate-400">
+              {t("common.loading")}
+            </p>
+          ) : null}
+
+          {selectedVariantId &&
+          resolvedVariantQuery.isError &&
+          !selectedVariant ? (
+            <div className="rounded-xl bg-rose-50 p-4">
+              <p className="text-sm font-bold text-rose-800">
+                {t(
+                  "products.advancedUom.variantLoadFailed",
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  void resolvedVariantQuery.refetch()
+                }
+                className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          ) : null}
+
+          {selectedVariant ? (
+            <div>
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">
+                    {selectedVariant.name}
+                  </h2>
+                  <p className="mt-1 font-mono text-xs text-slate-500">
+                    {selectedVariant.sku}
+                  </p>
+                  <p className="mt-2 text-xs font-bold text-slate-500">
+                    {t(
+                      "products.advancedUom.baseUom",
+                    )}
+                    :{" "}
+                    {selectedVariant.base_uom.name}
+                    {" ("}
+                    {selectedVariant.base_uom.code}
+                    {")"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="rounded-lg border px-3 py-2 text-xs font-black"
+                >
+                  {t("common.close")}
+                </button>
+              </div>
+
+              {selectedVariant.lifecycle_status !==
+              "DRAFT" ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold leading-6 text-amber-900">
+                  {t(
+                    "products.advancedUom.lockedAfterPublish",
+                  )}
+                </div>
+              ) : canManage ? (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-bold text-emerald-900">
+                  {t(
+                    "products.advancedUom.draftEditable",
+                  )}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl bg-slate-50 p-4 text-xs font-bold text-slate-600">
+                  {t(
+                    "products.advancedUom.readOnly",
+                  )}
+                </div>
+              )}
+
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-black text-slate-900">
+                    {t(
+                      "products.advancedUom.conversions",
+                    )}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void conversionsQuery.refetch()
+                    }
+                    disabled={
+                      conversionsQuery.isFetching
+                    }
+                    className="rounded-lg border p-2 disabled:opacity-40"
+                    aria-label={t(
+                      "common.refresh",
+                    )}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {conversionsQuery.isLoading ? (
+                  <p className="mt-3 text-xs font-bold text-slate-400">
+                    {t("common.loading")}
+                  </p>
+                ) : null}
+
+                {conversionsQuery.isError ? (
+                  <div className="mt-3 rounded-xl bg-rose-50 p-3">
+                    <p className="text-xs font-bold text-rose-800">
+                      {t(
+                        "products.advancedUom.conversionsLoadFailed",
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void conversionsQuery.refetch()
+                      }
+                      className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                    >
+                      {t("common.retry")}
+                    </button>
+                  </div>
+                ) : null}
+
+                {!conversionsQuery.isLoading &&
+                !conversionsQuery.isError &&
+                !conversionsQuery.data
+                  ?.length ? (
+                  <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
+                    {t(
+                      "products.advancedUom.noConversions",
+                    )}
+                  </p>
+                ) : null}
+
+                <div className="mt-3 space-y-2">
+                  {conversionsQuery.data?.map(
+                    (item) => (
+                      <div
+                        key={item.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3"
+                      >
+                        <div>
+                          <p className="text-sm font-black text-slate-900">
+                            {item.from_uom.code}
+                            {" × "}
+                            {item.numerator}
+                            {"/"}
+                            {item.denominator}
+                            {" → "}
+                            {item.to_uom.code}
+                          </p>
+                          <p className="mt-1 text-[11px] font-bold text-slate-500">
+                            {t(
+                              "products.advancedUom.scale",
+                            )}
+                            :{" "}
+                            {item.quantity_scale}
+                          </p>
+                        </div>
+                        {editable ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              editConversion(
+                                item,
+                              )
+                            }
+                            className="rounded-lg border px-3 py-2 text-xs font-black"
+                          >
+                            <Pencil className="me-1 inline h-4 w-4" />
+                            {t(
+                              "common.edit",
+                            )}
+                          </button>
+                        ) : null}
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+
+              {editable ? (
+                <form
+                  className="mt-5 rounded-2xl border border-slate-200 p-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (editing) {
+                      updateMutation.mutate();
+                    } else {
+                      createMutation.mutate();
+                    }
+                  }}
+                >
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-black text-slate-900">
+                      {editing
+                        ? t(
+                            "products.advancedUom.editConversion",
+                          )
+                        : t(
+                            "products.advancedUom.addConversion",
+                          )}
+                    </h3>
+                    {editing ? (
+                      <button
+                        type="button"
+                        onClick={resetEditor}
+                        className="text-xs font-black text-slate-500"
+                      >
+                        {t("common.cancel")}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {uomsQuery.isError ? (
+                    <div className="rounded-xl bg-rose-50 p-3">
+                      <p className="text-xs font-bold text-rose-800">
+                        {t(
+                          "products.advancedUom.uomsLoadFailed",
+                        )}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void uomsQuery.refetch()
+                        }
+                        className="mt-2 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+                      >
+                        {t("common.retry")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="text-xs font-black text-slate-600">
+                        {t(
+                          "products.advancedUom.from",
+                        )}
+                        <select
+                          value={draft.from_uom_id}
+                          onChange={(event) =>
+                            setDraft(
+                              (current) => ({
+                                ...current,
+                                from_uom_id:
+                                  event.target.value,
+                              }),
+                            )
+                          }
+                          disabled={
+                            busy ||
+                            uomsQuery.isLoading
+                          }
+                          className="mt-1 w-full rounded-lg border p-2"
+                        >
+                          <option value="">
+                            {t(
+                              "products.advancedUom.chooseUom",
+                            )}
+                          </option>
+                          {uomsQuery.data?.map(
+                            (uom) => (
+                              <option
+                                key={uom.id}
+                                value={uom.id}
+                              >
+                                {uom.code}
+                                {" — "}
+                                {uom.name}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+
+                      <label className="text-xs font-black text-slate-600">
+                        {t(
+                          "products.advancedUom.to",
+                        )}
+                        <select
+                          value={draft.to_uom_id}
+                          onChange={(event) =>
+                            setDraft(
+                              (current) => ({
+                                ...current,
+                                to_uom_id:
+                                  event.target.value,
+                              }),
+                            )
+                          }
+                          disabled={
+                            busy ||
+                            uomsQuery.isLoading
+                          }
+                          className="mt-1 w-full rounded-lg border p-2"
+                        >
+                          <option value="">
+                            {t(
+                              "products.advancedUom.chooseUom",
+                            )}
+                          </option>
+                          {uomsQuery.data?.map(
+                            (uom) => (
+                              <option
+                                key={uom.id}
+                                value={uom.id}
+                              >
+                                {uom.code}
+                                {" — "}
+                                {uom.name}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </label>
+
+                      <label className="text-xs font-black text-slate-600">
+                        {t(
+                          "products.advancedUom.numerator",
+                        )}
+                        <input
+                          value={draft.numerator}
+                          onChange={(event) =>
+                            setDraft(
+                              (current) => ({
+                                ...current,
+                                numerator:
+                                  event.target.value,
+                              }),
+                            )
+                          }
+                          disabled={busy}
+                          className="mt-1 w-full rounded-lg border p-2"
+                        />
+                      </label>
+
+                      <label className="text-xs font-black text-slate-600">
+                        {t(
+                          "products.advancedUom.denominator",
+                        )}
+                        <input
+                          value={draft.denominator}
+                          onChange={(event) =>
+                            setDraft(
+                              (current) => ({
+                                ...current,
+                                denominator:
+                                  event.target.value,
+                              }),
+                            )
+                          }
+                          disabled={busy}
+                          className="mt-1 w-full rounded-lg border p-2"
+                        />
+                      </label>
+
+                      <label className="text-xs font-black text-slate-600 sm:col-span-2">
+                        {t(
+                          "products.advancedUom.scale",
+                        )}
+                        <input
+                          value={draft.quantity_scale}
+                          onChange={(event) =>
+                            setDraft(
+                              (current) => ({
+                                ...current,
+                                quantity_scale:
+                                  event.target.value,
+                              }),
+                            )
+                          }
+                          disabled={busy}
+                          className="mt-1 w-full rounded-lg border p-2"
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={
+                      busy ||
+                      uomsQuery.isLoading ||
+                      uomsQuery.isError
+                    }
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
+                  >
+                    <Plus className="h-4 w-4" />
+                    {editing
+                      ? t("common.save")
+                      : t(
+                          "products.advancedUom.addConversion",
+                        )}
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </div>
+  );
+}
