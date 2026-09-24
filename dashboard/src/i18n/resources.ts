@@ -960,6 +960,12 @@ export const resources = {
             "يوجد صفوف بحاجة تصحيح قبل الاستيراد.",
           IMPORT_NAME_REQUIRED:
             "اسم المنتج مطلوب.",
+          IMPORT_NAME_TOO_LONG:
+            "اسم المنتج أطول من الحد المسموح.",
+          IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE:
+            "لا يمكن إضافة باركود عبوة لمنتج بدون عبوة خارجية.",
+          IMPORT_ROW_INVALID:
+            "بيانات الصف غير صالحة للاستيراد.",
           IMPORT_PACKAGING_REQUIRED:
             "عدد الحبات داخل العبوة مطلوب.",
           IMPORT_PACKAGING_INVALID:
@@ -1929,6 +1935,12 @@ export const resources = {
             "Some rows must be corrected before import.",
           IMPORT_NAME_REQUIRED:
             "Product name is required.",
+          IMPORT_NAME_TOO_LONG:
+            "Product name exceeds the supported length.",
+          IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE:
+            "A package barcode cannot be supplied without an outer package.",
+          IMPORT_ROW_INVALID:
+            "The row contains invalid import data.",
           IMPORT_PACKAGING_REQUIRED:
             "Units per package are required.",
           IMPORT_PACKAGING_INVALID:
