@@ -623,6 +623,170 @@ describe(
       });
     });
 
+    it("updates a DRAFT conversion with exact values, expected version, and durable identity", async () => {
+      let current = conversion(
+        100,
+        10,
+        "3",
+      );
+      const patchBodies:
+        Array<Record<string, unknown>> =
+        [];
+
+      mocks.authFetch.mockImplementation(
+        async (
+          url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            url.startsWith(
+              "/catalog/variants?",
+            )
+          ) {
+            return {
+              items: [],
+              next_cursor: null,
+              has_more: false,
+            };
+          }
+          if (
+            url ===
+            "/catalog/variants/resolve"
+          ) {
+            return {
+              items: [
+                variant(10, "DRAFT"),
+              ],
+              next_cursor: null,
+              has_more: false,
+            };
+          }
+          if (
+            url === "/catalog/uoms"
+          ) {
+            return {
+              items: [
+                uom(1, "EACH"),
+                uom(2, "CARTON"),
+              ],
+            };
+          }
+          if (
+            url ===
+              "/catalog/conversions/100" &&
+            options?.method === "PATCH"
+          ) {
+            const body =
+              JSON.parse(
+                String(options.body),
+              ) as Record<
+                string,
+                unknown
+              >;
+            patchBodies.push(body);
+            current = {
+              ...current,
+              numerator: "5",
+              version: 2,
+            };
+            return {
+              message: "updated",
+              conversion: current,
+            };
+          }
+          if (
+            url ===
+            "/catalog/variants/10/conversions"
+          ) {
+            return {
+              items: [current],
+            };
+          }
+          throw new Error(
+            `Unexpected URL: ${url}`,
+          );
+        },
+      );
+
+      renderPage(
+        "/products/advanced-uom?variant=10",
+      );
+
+      expect(
+        await screen.findByText(
+          "EACH × 3/1 → CARTON",
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "common.edit",
+          },
+        ),
+      );
+
+      const numerator =
+        screen.getByLabelText(
+          "products.advancedUom.numerator",
+        );
+      fireEvent.change(
+        numerator,
+        {
+          target: {
+            value: "5",
+          },
+        },
+      );
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name: "common.save",
+          },
+        ),
+      );
+
+      await waitFor(() => {
+        expect(
+          patchBodies,
+        ).toHaveLength(1);
+      });
+
+      expect(
+        patchBodies[0],
+      ).toMatchObject({
+        from_uom_id: 1,
+        to_uom_id: 2,
+        numerator: "5",
+        denominator: "1",
+        quantity_scale: 0,
+        expected_version: 1,
+      });
+      expect(
+        patchBodies[0]
+          .request_id,
+      ).toEqual(
+        expect.any(String),
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "EACH × 5/1 → CARTON",
+          ),
+        ).toBeInTheDocument();
+      });
+
+      expect(
+        localStorage.getItem(
+          "wanasah:durable:v1:1:2:catalog-uom-conversion-update:100",
+        ),
+      ).toBeNull();
+    });
+
     it("keeps a draft read-only without catalog.manage", async () => {
       mocks.canManage = false;
       mocks.authFetch.mockImplementation(
