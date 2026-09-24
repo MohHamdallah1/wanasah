@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -56,6 +57,9 @@ def static_checks() -> None:
     ).read_text(encoding="utf-8")
     page = (
         ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
+    ).read_text(encoding="utf-8")
+    translations = (
+        ROOT / "dashboard/src/i18n/resources.ts"
     ).read_text(encoding="utf-8")
 
     check(
@@ -116,6 +120,28 @@ def static_checks() -> None:
         and "i18n.exists(key)" in report_source
         and "row.message" not in report_source,
         "error report localization is code-driven",
+    )
+
+    import_codes = sorted(
+        set(
+            re.findall(
+                r'["\\\'](IMPORT_[A-Z0-9_]+)["\\\']',
+                worker,
+            )
+        )
+    )
+    missing_translations = [
+        code
+        for code in import_codes
+        if (
+            f"{code}:" not in translations
+            and f'"{code}"' not in translations
+        )
+    ]
+    check(
+        not missing_translations,
+        "all worker import validation codes have UI translations",
+        repr(missing_translations),
     )
 
 
