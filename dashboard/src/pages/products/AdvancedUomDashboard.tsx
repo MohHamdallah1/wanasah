@@ -1219,12 +1219,16 @@ export default function AdvancedUomDashboard() {
                         {editable ? (
                           <button
                             type="button"
+                            disabled={
+                              pendingCommand ||
+                              pendingBlocked
+                            }
                             onClick={() =>
                               editConversion(
                                 item,
                               )
                             }
-                            className="rounded-lg border px-3 py-2 text-xs font-black"
+                            className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
                           >
                             <Pencil className="me-1 inline h-4 w-4" />
                             {t(
@@ -1260,7 +1264,8 @@ export default function AdvancedUomDashboard() {
                             "products.advancedUom.addConversion",
                           )}
                     </h3>
-                    {editing ? (
+                    {editing &&
+                    !pendingCommand ? (
                       <button
                         type="button"
                         onClick={resetEditor}
@@ -1270,6 +1275,20 @@ export default function AdvancedUomDashboard() {
                       </button>
                     ) : null}
                   </div>
+
+                  {pendingBlocked ? (
+                    <div className="mb-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">
+                      {t(
+                        "products.advancedUom.pendingBlocked",
+                      )}
+                    </div>
+                  ) : pendingCommand ? (
+                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-900">
+                      {t(
+                        "products.advancedUom.pendingRetry",
+                      )}
+                    </div>
+                  ) : null}
 
                   {uomsQuery.isError ? (
                     <div className="rounded-xl bg-rose-50 p-3">
@@ -1306,7 +1325,7 @@ export default function AdvancedUomDashboard() {
                             )
                           }
                           disabled={
-                            busy ||
+                            fieldsLocked ||
                             uomsQuery.isLoading
                           }
                           className="mt-1 w-full rounded-lg border p-2"
@@ -1347,7 +1366,7 @@ export default function AdvancedUomDashboard() {
                             )
                           }
                           disabled={
-                            busy ||
+                            fieldsLocked ||
                             uomsQuery.isLoading
                           }
                           className="mt-1 w-full rounded-lg border p-2"
@@ -1387,7 +1406,7 @@ export default function AdvancedUomDashboard() {
                               }),
                             )
                           }
-                          disabled={busy}
+                          disabled={fieldsLocked}
                           className="mt-1 w-full rounded-lg border p-2"
                         />
                       </label>
@@ -1407,7 +1426,7 @@ export default function AdvancedUomDashboard() {
                               }),
                             )
                           }
-                          disabled={busy}
+                          disabled={fieldsLocked}
                           className="mt-1 w-full rounded-lg border p-2"
                         />
                       </label>
@@ -1427,7 +1446,7 @@ export default function AdvancedUomDashboard() {
                               }),
                             )
                           }
-                          disabled={busy}
+                          disabled={fieldsLocked}
                           className="mt-1 w-full rounded-lg border p-2"
                         />
                       </label>
@@ -1438,17 +1457,21 @@ export default function AdvancedUomDashboard() {
                     type="submit"
                     disabled={
                       busy ||
+                      !isOnline ||
+                      pendingBlocked ||
                       uomsQuery.isLoading ||
                       uomsQuery.isError
                     }
                     className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
                   >
                     <Plus className="h-4 w-4" />
-                    {editing
-                      ? t("common.save")
-                      : t(
-                          "products.advancedUom.addConversion",
-                        )}
+                    {pendingCommand
+                      ? t("common.retry")
+                      : editing
+                        ? t("common.save")
+                        : t(
+                            "products.advancedUom.addConversion",
+                          )}
                   </button>
                 </form>
               ) : null}
