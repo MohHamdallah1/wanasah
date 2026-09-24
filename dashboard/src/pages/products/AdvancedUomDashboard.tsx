@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -48,6 +49,13 @@ import {
   type UomConversion,
   type UomConversionCommandPayload,
 } from "@/pages/inventory/catalog/contracts";
+
+type ConversionField =
+  | "from"
+  | "to"
+  | "numerator"
+  | "denominator"
+  | "scale";
 
 type ConversionDraft = {
   from_uom_id: string;
@@ -176,6 +184,14 @@ const parseVariantParam = (
 
 export default function AdvancedUomDashboard() {
   const { t } = useTranslation();
+  const uomLabel = (uom: {
+    code: string;
+    name: string;
+  }) =>
+    t(`uom.${uom.code}`, {
+      defaultValue:
+        uom.name || uom.code,
+    });
   const navigate = useNavigate();
   const [searchParams, setSearchParams] =
     useSearchParams();
@@ -211,6 +227,33 @@ export default function AdvancedUomDashboard() {
   const [draft, setDraft] =
     useState<ConversionDraft>(
       EMPTY_DRAFT,
+    );
+  const [
+    conversionFieldError,
+    setConversionFieldError,
+  ] = useState<{
+    field: ConversionField;
+    message: string;
+  } | null>(null);
+  const fromUomRef =
+    useRef<HTMLSelectElement | null>(
+      null,
+    );
+  const toUomRef =
+    useRef<HTMLSelectElement | null>(
+      null,
+    );
+  const numeratorRef =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+  const denominatorRef =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+  const scaleRef =
+    useRef<HTMLInputElement | null>(
+      null,
     );
   const [editing, setEditing] =
     useState<UomConversion | null>(
@@ -816,6 +859,7 @@ export default function AdvancedUomDashboard() {
     ) {
       return;
     }
+    setConversionFieldError(null);
     setEditing(item);
     setDraft({
       from_uom_id:
@@ -838,8 +882,115 @@ export default function AdvancedUomDashboard() {
     ) {
       return;
     }
+    setConversionFieldError(null);
     setEditing(null);
     setDraft(EMPTY_DRAFT);
+  };
+
+  const submitConversion = () => {
+    const fromId =
+      Number(draft.from_uom_id);
+    if (
+      !Number.isSafeInteger(fromId) ||
+      fromId <= 0
+    ) {
+      setConversionFieldError({
+        field: "from",
+        message: t(
+          "products.advancedUom.uomRequired",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => fromUomRef.current?.focus(),
+      );
+      return;
+    }
+
+    const toId =
+      Number(draft.to_uom_id);
+    if (
+      !Number.isSafeInteger(toId) ||
+      toId <= 0
+    ) {
+      setConversionFieldError({
+        field: "to",
+        message: t(
+          "products.advancedUom.uomRequired",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => toUomRef.current?.focus(),
+      );
+      return;
+    }
+
+    const exactPositive =
+      (value: string) =>
+        /^\d+(?:\.\d{1,6})?$/.test(
+          value,
+        ) &&
+        Number(value) > 0;
+
+    if (
+      !exactPositive(
+        draft.numerator,
+      )
+    ) {
+      setConversionFieldError({
+        field: "numerator",
+        message: t(
+          "products.advancedUom.invalidValue",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => numeratorRef.current?.focus(),
+      );
+      return;
+    }
+
+    if (
+      !exactPositive(
+        draft.denominator,
+      )
+    ) {
+      setConversionFieldError({
+        field: "denominator",
+        message: t(
+          "products.advancedUom.invalidValue",
+        ),
+      });
+      window.requestAnimationFrame(
+        () =>
+          denominatorRef.current?.focus(),
+      );
+      return;
+    }
+
+    const scale =
+      Number(draft.quantity_scale);
+    if (
+      !Number.isSafeInteger(scale) ||
+      scale < 0 ||
+      scale > 6
+    ) {
+      setConversionFieldError({
+        field: "scale",
+        message: t(
+          "products.advancedUom.invalidValue",
+        ),
+      });
+      window.requestAnimationFrame(
+        () => scaleRef.current?.focus(),
+      );
+      return;
+    }
+
+    setConversionFieldError(null);
+    if (editing) {
+      updateMutation.mutate();
+    } else {
+      createMutation.mutate();
+    }
   };
 
   const busy =
@@ -878,7 +1029,7 @@ export default function AdvancedUomDashboard() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+    <div className="products-a11y-scope flex min-h-0 flex-1 flex-col p-3 sm:p-6">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <button
@@ -888,12 +1039,12 @@ export default function AdvancedUomDashboard() {
             }
             className="mb-2 inline-flex items-center gap-2 text-xs font-black text-slate-500"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4 rtl:rotate-180" />
             {t(
               "products.advancedUom.back",
             )}
           </button>
-          <h1 className="text-2xl font-black text-slate-900">
+          <h1 className="break-words text-xl font-black text-slate-900 sm:text-2xl">
             {t(
               "products.advancedUom.title",
             )}
@@ -906,8 +1057,8 @@ export default function AdvancedUomDashboard() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.6fr)]">
-        <section className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.6fr)] lg:overflow-hidden">
+        <section className="flex min-h-[280px] max-h-[45dvh] flex-col rounded-2xl border border-slate-200 bg-white lg:min-h-0 lg:max-h-none">
           <div className="border-b border-slate-100 p-3">
             <div className="relative">
               <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -920,6 +1071,9 @@ export default function AdvancedUomDashboard() {
                   )
                 }
                 placeholder={t(
+                  "products.advancedUom.searchPlaceholder",
+                )}
+                aria-label={t(
                   "products.advancedUom.searchPlaceholder",
                 )}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 pe-9 text-sm"
@@ -979,16 +1133,18 @@ export default function AdvancedUomDashboard() {
                   }
                   className="mb-2 w-full rounded-xl border border-slate-200 p-3 text-start data-[active=true]:border-slate-900 data-[active=true]:bg-slate-50"
                 >
-                  <p className="font-black text-slate-900">
+                  <p className="break-words font-black text-slate-900">
                     {item.name}
                   </p>
-                  <p className="mt-1 font-mono text-[11px] text-slate-500">
+                  <p className="mt-1 break-all font-mono text-[11px] text-slate-500">
                     {item.sku}
                   </p>
                   <p className="mt-1 text-[11px] font-bold text-slate-500">
-                    {item.lifecycle_status}
+                    {t(
+                      `products.details.lifecycleModes.${item.lifecycle_status}`
+                    )}
                     {" · "}
-                    {item.base_uom.code}
+                    {uomLabel(item.base_uom)}
                   </p>
                 </button>
               ),
@@ -997,7 +1153,7 @@ export default function AdvancedUomDashboard() {
 
           {history.length > 0 ||
           page?.next_cursor ? (
-            <div className="flex justify-end gap-2 border-t border-slate-100 p-3">
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-100 p-3 sm:flex sm:justify-end">
               <button
                 type="button"
                 disabled={
@@ -1017,7 +1173,7 @@ export default function AdvancedUomDashboard() {
                   );
                   setCursor(previous);
                 }}
-                className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+                className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
               >
                 {t(
                   "products.familyPrevious",
@@ -1045,7 +1201,7 @@ export default function AdvancedUomDashboard() {
                     page.next_cursor,
                   );
                 }}
-                className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+                className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
               >
                 {t(
                   "products.familyNext",
@@ -1055,7 +1211,7 @@ export default function AdvancedUomDashboard() {
           ) : null}
         </section>
 
-        <section className="min-h-0 overflow-auto rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="min-h-0 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 lg:overflow-auto">
           {!selectedVariantId ? (
             <p className="text-sm font-bold text-slate-500">
               {t(
@@ -1118,7 +1274,9 @@ export default function AdvancedUomDashboard() {
                       "products.advancedUom.baseUom",
                     )}
                     :{" "}
-                    {selectedVariant.base_uom.name}
+                    {uomLabel(
+                      selectedVariant.base_uom
+                    )}
                     {" ("}
                     {selectedVariant.base_uom.code}
                     {")"}
@@ -1251,7 +1409,7 @@ export default function AdvancedUomDashboard() {
                                 item,
                               )
                             }
-                            className="rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40"
+                            className="w-full rounded-lg border px-3 py-2 text-xs font-black disabled:opacity-40 sm:w-auto"
                           >
                             <Pencil className="me-1 inline h-4 w-4" />
                             {t(
@@ -1270,11 +1428,7 @@ export default function AdvancedUomDashboard() {
                   className="mt-5 rounded-2xl border border-slate-200 p-4"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    if (editing) {
-                      updateMutation.mutate();
-                    } else {
-                      createMutation.mutate();
-                    }
+                    submitConversion();
                   }}
                 >
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -1337,19 +1491,40 @@ export default function AdvancedUomDashboard() {
                           "products.advancedUom.from",
                         )}
                         <select
+                          ref={fromUomRef}
                           value={draft.from_uom_id}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setDraft(
                               (current) => ({
                                 ...current,
                                 from_uom_id:
                                   event.target.value,
                               }),
-                            )
-                          }
+                            );
+                            if (
+                              conversionFieldError?.field ===
+                              "from"
+                            ) {
+                              setConversionFieldError(
+                                null,
+                              );
+                            }
+                          }}
                           disabled={
                             fieldsLocked ||
                             uomsQuery.isLoading
+                          }
+                          aria-invalid={
+                            conversionFieldError?.field ===
+                            "from"
+                              ? "true"
+                              : undefined
+                          }
+                          aria-describedby={
+                            conversionFieldError?.field ===
+                            "from"
+                              ? "advanced-uom-from-error"
+                              : undefined
                           }
                           className="mt-1 w-full rounded-lg border p-2"
                         >
@@ -1366,11 +1541,23 @@ export default function AdvancedUomDashboard() {
                               >
                                 {uom.code}
                                 {" — "}
-                                {uom.name}
+                                {uomLabel(uom)}
                               </option>
                             ),
                           )}
                         </select>
+                        {conversionFieldError?.field ===
+                        "from" ? (
+                          <span
+                            id="advanced-uom-from-error"
+                            role="alert"
+                            className="mt-1 block text-[11px] font-bold text-rose-700"
+                          >
+                            {
+                              conversionFieldError.message
+                            }
+                          </span>
+                        ) : null}
                       </label>
 
                       <label className="text-xs font-black text-slate-600">
@@ -1378,19 +1565,40 @@ export default function AdvancedUomDashboard() {
                           "products.advancedUom.to",
                         )}
                         <select
+                          ref={toUomRef}
                           value={draft.to_uom_id}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setDraft(
                               (current) => ({
                                 ...current,
                                 to_uom_id:
                                   event.target.value,
                               }),
-                            )
-                          }
+                            );
+                            if (
+                              conversionFieldError?.field ===
+                              "to"
+                            ) {
+                              setConversionFieldError(
+                                null,
+                              );
+                            }
+                          }}
                           disabled={
                             fieldsLocked ||
                             uomsQuery.isLoading
+                          }
+                          aria-invalid={
+                            conversionFieldError?.field ===
+                            "to"
+                              ? "true"
+                              : undefined
+                          }
+                          aria-describedby={
+                            conversionFieldError?.field ===
+                            "to"
+                              ? "advanced-uom-to-error"
+                              : undefined
                           }
                           className="mt-1 w-full rounded-lg border p-2"
                         >
@@ -1407,11 +1615,23 @@ export default function AdvancedUomDashboard() {
                               >
                                 {uom.code}
                                 {" — "}
-                                {uom.name}
+                                {uomLabel(uom)}
                               </option>
                             ),
                           )}
                         </select>
+                        {conversionFieldError?.field ===
+                        "to" ? (
+                          <span
+                            id="advanced-uom-to-error"
+                            role="alert"
+                            className="mt-1 block text-[11px] font-bold text-rose-700"
+                          >
+                            {
+                              conversionFieldError.message
+                            }
+                          </span>
+                        ) : null}
                       </label>
 
                       <label className="text-xs font-black text-slate-600">
@@ -1419,19 +1639,52 @@ export default function AdvancedUomDashboard() {
                           "products.advancedUom.numerator",
                         )}
                         <input
+                          ref={numeratorRef}
                           value={draft.numerator}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setDraft(
                               (current) => ({
                                 ...current,
                                 numerator:
                                   event.target.value,
                               }),
-                            )
-                          }
+                            );
+                            if (
+                              conversionFieldError?.field ===
+                              "numerator"
+                            ) {
+                              setConversionFieldError(
+                                null,
+                              );
+                            }
+                          }}
                           disabled={fieldsLocked}
+                          aria-invalid={
+                            conversionFieldError?.field ===
+                            "numerator"
+                              ? "true"
+                              : undefined
+                          }
+                          aria-describedby={
+                            conversionFieldError?.field ===
+                            "numerator"
+                              ? "advanced-uom-numerator-error"
+                              : undefined
+                          }
                           className="mt-1 w-full rounded-lg border p-2"
                         />
+                        {conversionFieldError?.field ===
+                        "numerator" ? (
+                          <span
+                            id="advanced-uom-numerator-error"
+                            role="alert"
+                            className="mt-1 block text-[11px] font-bold text-rose-700"
+                          >
+                            {
+                              conversionFieldError.message
+                            }
+                          </span>
+                        ) : null}
                       </label>
 
                       <label className="text-xs font-black text-slate-600">
@@ -1439,19 +1692,52 @@ export default function AdvancedUomDashboard() {
                           "products.advancedUom.denominator",
                         )}
                         <input
+                          ref={denominatorRef}
                           value={draft.denominator}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setDraft(
                               (current) => ({
                                 ...current,
                                 denominator:
                                   event.target.value,
                               }),
-                            )
-                          }
+                            );
+                            if (
+                              conversionFieldError?.field ===
+                              "denominator"
+                            ) {
+                              setConversionFieldError(
+                                null,
+                              );
+                            }
+                          }}
                           disabled={fieldsLocked}
+                          aria-invalid={
+                            conversionFieldError?.field ===
+                            "denominator"
+                              ? "true"
+                              : undefined
+                          }
+                          aria-describedby={
+                            conversionFieldError?.field ===
+                            "denominator"
+                              ? "advanced-uom-denominator-error"
+                              : undefined
+                          }
                           className="mt-1 w-full rounded-lg border p-2"
                         />
+                        {conversionFieldError?.field ===
+                        "denominator" ? (
+                          <span
+                            id="advanced-uom-denominator-error"
+                            role="alert"
+                            className="mt-1 block text-[11px] font-bold text-rose-700"
+                          >
+                            {
+                              conversionFieldError.message
+                            }
+                          </span>
+                        ) : null}
                       </label>
 
                       <label className="text-xs font-black text-slate-600 sm:col-span-2">
@@ -1459,19 +1745,52 @@ export default function AdvancedUomDashboard() {
                           "products.advancedUom.scale",
                         )}
                         <input
+                          ref={scaleRef}
                           value={draft.quantity_scale}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setDraft(
                               (current) => ({
                                 ...current,
                                 quantity_scale:
                                   event.target.value,
                               }),
-                            )
-                          }
+                            );
+                            if (
+                              conversionFieldError?.field ===
+                              "scale"
+                            ) {
+                              setConversionFieldError(
+                                null,
+                              );
+                            }
+                          }}
                           disabled={fieldsLocked}
+                          aria-invalid={
+                            conversionFieldError?.field ===
+                            "scale"
+                              ? "true"
+                              : undefined
+                          }
+                          aria-describedby={
+                            conversionFieldError?.field ===
+                            "scale"
+                              ? "advanced-uom-scale-error"
+                              : undefined
+                          }
                           className="mt-1 w-full rounded-lg border p-2"
                         />
+                        {conversionFieldError?.field ===
+                        "scale" ? (
+                          <span
+                            id="advanced-uom-scale-error"
+                            role="alert"
+                            className="mt-1 block text-[11px] font-bold text-rose-700"
+                          >
+                            {
+                              conversionFieldError.message
+                            }
+                          </span>
+                        ) : null}
                       </label>
                     </div>
                   )}

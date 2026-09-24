@@ -72,6 +72,22 @@ describe("normalizeApiErrorResponse", () => {
       message: "specific safe reason",
     });
   });
+
+  it("normalizes FastAPI validation arrays to a stable code", () => {
+    expect(
+      normalizeApiErrorResponse({
+        detail: [
+          {
+            type: "missing",
+            loc: ["body", "name"],
+            msg: "Field required",
+          },
+        ],
+      })
+    ).toEqual({
+      code: "VALIDATION_ERROR",
+    });
+  });
 });
 
 describe("apiErrorMessage", () => {
@@ -188,14 +204,14 @@ describe("apiErrorMessage", () => {
     );
   });
 
-  it("keeps an unknown deterministic 4xx reason and diagnostics", () => {
+  it("keeps unknown coded 4xx diagnostics language-neutral", () => {
     const error = Object.assign(
       new Error("transport fallback"),
       {
         status: 409,
         code: "NEW_BUSINESS_RULE",
         serverMessage:
-          "Specific safe business reason.",
+          "Specific server-language business reason.",
         requestId: "req-3",
       }
     );
@@ -204,12 +220,27 @@ describe("apiErrorMessage", () => {
       error,
       "fallback"
     );
-    expect(shown).toContain(
-      "Specific safe business reason."
-    );
+    expect(shown).toContain("fallback");
     expect(shown).toContain(
       "NEW_BUSINESS_RULE"
     );
     expect(shown).toContain("req-3");
+    expect(shown).not.toContain(
+      "Specific server-language business reason."
+    );
+  });
+
+  it("treats a code-like local Error message as a stable code", () => {
+    const shown = apiErrorMessage(
+      new Error("LOCAL_PRODUCT_CONTRACT_INVALID"),
+      "localized fallback"
+    );
+
+    expect(shown).toContain(
+      "localized fallback"
+    );
+    expect(shown).toContain(
+      "LOCAL_PRODUCT_CONTRACT_INVALID"
+    );
   });
 });

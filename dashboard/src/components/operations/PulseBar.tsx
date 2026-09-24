@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { Banknote, Package, Store, Users, RefreshCw, Eye } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
@@ -37,7 +38,7 @@ export function PulseBar({
 
   // +++ المحركات اللغوية والرياضية الذكية +++
   const GLOBAL_CURRENCY = "د.أ"; 
-  const formatMoney = (val: number) => parseFloat(Number(val).toFixed(2)).toLocaleString('en-US');
+  const formatMoney = (val: number) => parseFloat(Number(val).toFixed(2)).toLocaleString(currentLocale());
   
   const getCartonWord = (n: number) => {
     if (n === 1) return "كرتونة";

@@ -868,10 +868,10 @@ export function ProductBarcodeManager({
               ? items.map((item) => (
                   <div
                     key={item.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"
+                    className="flex flex-col items-stretch gap-3 rounded-xl bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div>
-                      <p className="font-mono text-sm font-black text-slate-900">
+                    <div className="min-w-0">
+                      <p className="break-all font-mono text-sm font-black text-slate-900">
                         {item.barcode}
                       </p>
                       <p className="mt-1 text-[11px] font-bold text-slate-500">
@@ -879,14 +879,14 @@ export function ProductBarcodeManager({
                           `uom.${item.uom.code}`,
                           {
                             defaultValue:
-                              item.uom
-                                .code,
+                              item.uom.name ||
+                              item.uom.code,
                           }
                         )}{" "}
                         ·{" "}
-                        {
-                          item.barcode_type
-                        }
+                        {t(
+                          `products.barcodeManager.types.${item.barcode_type}`
+                        )}
                         {item.is_primary
                           ? " · " +
                             t(
@@ -913,7 +913,7 @@ export function ProductBarcodeManager({
                             item
                           )
                         }
-                        className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-black text-amber-800 disabled:opacity-40"
+                        className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-black text-amber-800 disabled:opacity-40 sm:w-auto"
                       >
                         {t(
                           "products.barcodeManager.deactivate"
@@ -1054,7 +1054,9 @@ export function ProductBarcodeManager({
                       key={value}
                       value={value}
                     >
-                      {value}
+                      {t(
+                        `products.barcodeManager.types.${value}`
+                      )}
                     </option>
                   ))}
                 </select>

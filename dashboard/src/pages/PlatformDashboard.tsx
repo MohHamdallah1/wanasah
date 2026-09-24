@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -72,7 +73,7 @@ function formatCreatedAt(value: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("ar-JO", {
+  return new Intl.DateTimeFormat(currentLocale(), {
     year: "numeric",
     month: "short",
     day: "2-digit",

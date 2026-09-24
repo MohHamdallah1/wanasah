@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -168,6 +169,14 @@ export function ProductFamiliesManager({
     newFamilyName,
     setNewFamilyName,
   ] = useState("");
+  const [
+    newFamilyError,
+    setNewFamilyError,
+  ] = useState<string | null>(null);
+  const newFamilyRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
   const [
     createCommandPending,
     setCreateCommandPending,
@@ -483,6 +492,7 @@ export function ProductFamiliesManager({
           requestId
         );
         setNewFamilyName("");
+        setNewFamilyError(null);
         setCreateCommandPending(false);
         setCreateCommandBlocked(false);
         setCursor(null);
@@ -510,6 +520,23 @@ export function ProductFamiliesManager({
           )
         ),
     });
+
+  const submitNewFamily = () => {
+    if (!newFamilyName.trim()) {
+      setNewFamilyError(
+        t(
+          "products.newFamilyPlaceholder"
+        )
+      );
+      window.requestAnimationFrame(
+        () =>
+          newFamilyRef.current?.focus()
+      );
+      return;
+    }
+    setNewFamilyError(null);
+    createFamilyMutation.mutate();
+  };
 
   const updateFamilyMutation =
     useMutation({
@@ -754,12 +781,16 @@ export function ProductFamiliesManager({
             placeholder={t(
               "products.familySearchPlaceholder"
             )}
+            aria-label={t(
+              "products.familySearchPlaceholder"
+            )}
             className="w-full rounded-xl border border-slate-200 py-2.5 pe-10 ps-3 text-sm font-bold outline-none"
           />
         </div>
 
         <div className="flex gap-2">
           <input
+            ref={newFamilyRef}
             value={
               newFamilyName
             }
@@ -770,14 +801,30 @@ export function ProductFamiliesManager({
             }
             onChange={(
               event
-            ) =>
+            ) => {
               setNewFamilyName(
                 event.target.value
-              )
-            }
+              );
+              if (newFamilyError) {
+                setNewFamilyError(null);
+              }
+            }}
             placeholder={t(
               "products.newFamilyPlaceholder"
             )}
+            aria-label={t(
+              "products.newFamilyPlaceholder"
+            )}
+            aria-invalid={
+              newFamilyError
+                ? "true"
+                : undefined
+            }
+            aria-describedby={
+              newFamilyError
+                ? "product-family-name-error"
+                : undefined
+            }
             className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold"
           />
           <button
@@ -787,9 +834,7 @@ export function ProductFamiliesManager({
               createCommandBlocked ||
               !isOnline
             }
-            onClick={() =>
-              createFamilyMutation.mutate()
-            }
+            onClick={submitNewFamily}
             className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40"
           >
             {t(
@@ -797,6 +842,16 @@ export function ProductFamiliesManager({
             )}
           </button>
         </div>
+
+        {newFamilyError ? (
+          <p
+            id="product-family-name-error"
+            role="alert"
+            className="text-xs font-bold text-rose-700"
+          >
+            {newFamilyError}
+          </p>
+        ) : null}
 
         {createCommandPending ? (
           <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
@@ -853,12 +908,15 @@ export function ProductFamiliesManager({
                   key={
                     family.id
                   }
-                  className="flex items-center gap-3 border-b border-slate-100 p-3 last:border-b-0"
+                  className="flex flex-col items-stretch gap-2 border-b border-slate-100 p-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-3"
                 >
                   {editingFamily?.id ===
                   family.id ? (
                     <input
                       autoFocus
+                      aria-label={t(
+                        "products.family"
+                      )}
                       value={
                         editingFamilyName
                       }
@@ -880,7 +938,7 @@ export function ProductFamiliesManager({
                     />
                   ) : (
                     <div className="min-w-0 flex-1">
-                      <strong className="block truncate text-sm text-slate-900">
+                      <strong className="block break-words text-sm text-slate-900 sm:truncate">
                         {
                           family.name
                         }
@@ -910,7 +968,7 @@ export function ProductFamiliesManager({
                         onClick={() =>
                           updateFamilyMutation.mutate()
                         }
-                        className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                        className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40 sm:w-auto"
                       >
                         {t(
                           "common.save"
@@ -935,7 +993,7 @@ export function ProductFamiliesManager({
                             false
                           );
                         }}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 sm:w-auto"
                       >
                         {t(
                           "common.cancel"
@@ -950,7 +1008,7 @@ export function ProductFamiliesManager({
                           family
                         )
                       }
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 sm:w-auto"
                     >
                       {t(
                         "common.edit"
@@ -966,7 +1024,7 @@ export function ProductFamiliesManager({
         {history.length > 0 ||
         familiesQuery.data
           ?.next_cursor ? (
-          <div className="flex justify-end gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
             <button
               type="button"
               disabled={
@@ -989,7 +1047,7 @@ export function ProductFamiliesManager({
                   previous
                 );
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30 sm:w-auto"
             >
               {t(
                 "products.familyPrevious"
@@ -1019,7 +1077,7 @@ export function ProductFamiliesManager({
                   next
                 );
               }}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30 sm:w-auto"
             >
               {t(
                 "products.familyNext"

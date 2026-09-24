@@ -274,12 +274,12 @@ Product creation must support, as appropriate:
 - [ ] SKU/code strategy.
 - [ ] Base UOM.
 - [ ] Outer/package UOM.
-- [ ] Units per package.
-- [ ] Unit barcode.
-- [ ] Package barcode.
+- [x] Units per package.
+- [x] Unit barcode.
+- [x] Package barcode.
 - [ ] Shared barcode behavior where supported.
-- [ ] Lot tracking mode.
-- [ ] Expiry tracking mode.
+- [x] Lot tracking mode.
+- [x] Expiry tracking mode.
 - [ ] Initial lifecycle policy.
 - [ ] Initial pricing only when the user has pricing permission.
 
@@ -291,7 +291,7 @@ Default user experience:
 Keep ordinary creation easy.
 
 - [ ] Product name.
-- [ ] Family.
+- [x] Family.
 - [ ] Package shape.
 - [ ] Units per package.
 - [ ] Price when authorized.
@@ -351,9 +351,9 @@ Production-ready Products must provide safe identity management.
 - [ ] Manage simple-compatible package shape safely.
 - [x] View tracking modes.
 - [x] Edit tracking modes only when lifecycle/inventory rules allow.
-- [ ] View lifecycle status.
+- [x] View lifecycle status.
 - [ ] View operational hold.
-- [ ] View simple/advanced compatibility.
+- [x] View simple/advanced compatibility.
 - [x] Explain why some fields are locked.
 
 ---
@@ -367,20 +367,20 @@ Add a Product Detail Drawer / Side Panel.
 Suggested sections:
 
 ## Identity
-- [ ] Name.
+- [x] Name.
 - [ ] Family.
-- [ ] SKU.
+- [x] SKU.
 - [ ] Product/variant IDs only when useful for support/admin.
 
 ## Packaging & UOM
 - [ ] Base UOM.
-- [ ] Package UOM.
+- [x] Package UOM.
 - [ ] Units per package.
 - [ ] Conversion information.
 
 ## Barcodes
-- [ ] Unit barcode.
-- [ ] Package barcode.
+- [x] Unit barcode.
+- [x] Package barcode.
 - [ ] Primary/active state.
 
 ## Tracking
@@ -388,12 +388,12 @@ Suggested sections:
 - [ ] Expiry tracking mode.
 
 ## Lifecycle
-- [ ] ACTIVE / RETIRING / etc.
+- [x] ACTIVE / RETIRING / etc.
 - [ ] Operational hold.
 - [ ] Allowed lifecycle actions.
 
 ## Pricing
-- [ ] Current prices only when authorized.
+- [x] Current prices only when authorized.
 - [ ] Advanced pricing link only when actually usable.
 
 ## Inventory relationship
@@ -409,8 +409,8 @@ Backend already contains product lifecycle authority.
 
 UI must reflect it safely.
 
-- [ ] Show lifecycle status.
-- [ ] Translate lifecycle codes via i18n.
+- [x] Show lifecycle status.
+- [x] Translate lifecycle codes via i18n.
 - [ ] Show operational hold.
 - [ ] Provide permitted lifecycle actions.
 - [ ] Retire/disable/archive workflow must explain operational impact.
@@ -498,24 +498,24 @@ Recommended default columns:
 - [x] SKU or compact identity hint.
 - [x] Package/UOM.
 - [x] Tracking summary.
-- [ ] Lifecycle status.
+- [x] Lifecycle status.
 - [x] Pricing only when authorized.
 - [x] Actions.
 
 Optional columns:
 
-- [ ] Unit barcode.
-- [ ] Package barcode.
-- [ ] Unit price.
-- [ ] Package price.
-- [ ] Units/package.
+- [x] Unit barcode.
+- [x] Package barcode.
+- [x] Unit price.
+- [x] Package price.
+- [x] Units/package.
 - [ ] Other company-specific display preferences.
 
-- [ ] Add configurable visible columns.
+- [x] Add configurable visible columns.
 - [x] Use drawer for secondary details.
 - [x] Keep sticky header.
-- [ ] RTL/LTR safe.
-- [ ] Avoid widths tied to Arabic only.
+- [x] RTL/LTR safe.
+- [x] Avoid widths tied to Arabic only.
 
 ---
 
@@ -682,7 +682,7 @@ Required:
 - [x] Show "Advanced product setup required" or equivalent translated wording.
 - [x] Do not leave a silent `—` action cell.
 - [x] Advanced management entry point appears only when implemented and authorized.
-- [x] Hide/remove permanently disabled Advanced Pricing button until the destination is actually usable, or connect it properly.
+- [x] Preserve the Advanced Pricing roadmap control as visibly disabled until the destination is explicitly activated.
 
 ---
 
@@ -747,16 +747,16 @@ i18n.language.startsWith("ar")
 
 Required:
 
-- [ ] Central locale resolver.
-- [ ] Arabic may use an Arabic locale.
-- [ ] English may use an English locale.
-- [ ] French/German/etc. use their own locale instead of silently falling to `en-US`.
-- [ ] `Intl.NumberFormat` uses resolved locale.
-- [ ] `Intl.DateTimeFormat` uses resolved locale.
+- [x] Central locale resolver.
+- [x] Arabic may use an Arabic locale.
+- [x] English may use an English locale.
+- [x] French/German/etc. use their own locale instead of silently falling to `en-US`.
+- [x] `Intl.NumberFormat` uses resolved locale.
+- [x] `Intl.DateTimeFormat` uses resolved locale.
 - [ ] Currency formatting uses correct currency + locale.
 - [ ] RTL/LTR is derived from i18n configuration.
-- [ ] Long translated labels tested.
-- [ ] Translation keys for all tracking/lifecycle/UOM labels.
+- [x] Long translated labels tested.
+- [x] Translation keys for all tracking/lifecycle/UOM labels.
 
 ---
 
@@ -769,7 +769,7 @@ Required:
 - [ ] Product APIs return stable business error codes.
 - [ ] UI maps known codes to translations.
 - [ ] UI never branches on Arabic/English `message`.
-- [ ] FastAPI validation errors are normalized or mapped into a consistent presentation layer.
+- [x] FastAPI validation errors are normalized or mapped into a consistent presentation layer.
 - [ ] Backend messages may remain diagnostic but are not the localization contract.
 
 ---
@@ -809,7 +809,7 @@ Preserve and harden:
 
 # 31. Company customization
 
-Company-level configurable defaults/preferences should include, where appropriate:
+Configuration must keep company-level business defaults separate from user-scoped display preferences:
 
 Business defaults:
 - [x] default lot tracking mode,
@@ -819,10 +819,10 @@ Business defaults:
 - [ ] product publication workflow policy.
 
 Display preferences:
-- [ ] visible product columns,
-- [ ] table density,
-- [ ] default sort,
-- [ ] optional detail sections.
+- [x] visible product columns,
+- [x] table density,
+- [x] default sort,
+- [x] optional detail sections.
 
 Keep business truth separate from display preference.
 
@@ -854,15 +854,15 @@ All server-side filters occur before pagination.
 
 # 33. Accessibility / operator UX
 
-- [ ] Keyboard accessible search.
-- [ ] Keyboard accessible dialogs.
-- [ ] Visible focus states.
-- [ ] Buttons/icons have translated aria-labels.
-- [ ] Status is not communicated by color only.
-- [ ] Form errors associate with exact field.
-- [ ] First invalid field receives focus.
-- [ ] Drawer is keyboard accessible.
-- [ ] RTL/LTR keyboard and layout smoke tests.
+- [x] Keyboard accessible search.
+- [x] Keyboard accessible dialogs.
+- [x] Visible focus states.
+- [x] Buttons/icons have translated aria-labels.
+- [x] Status is not communicated by color only.
+- [x] Form errors associate with exact field.
+- [x] First invalid field receives focus.
+- [x] Drawer is keyboard accessible.
+- [x] RTL/LTR keyboard and layout smoke tests.
 
 ---
 
@@ -1038,7 +1038,7 @@ Target quality: same clarity as the completed Live Stock page.
 - [ ] Error state gives retry.
 - [ ] Product row hover/selection opens detail cleanly.
 - [ ] No giant unused whitespace.
-- [ ] Mobile/narrow screens degrade gracefully.
+- [x] Mobile/narrow screens degrade gracefully.
 
 ---
 
@@ -1225,8 +1225,8 @@ Products can be declared **Production Ready** only when:
 - [ ] Product detail management reflects the important backend authorities.
 - [ ] Lifecycle is visible/manageable safely.
 - [x] Bulk import supports tracking configuration.
-- [ ] i18n architecture is language-agnostic.
-- [ ] RTL + LTR pass.
+- [x] i18n architecture is language-agnostic.
+- [x] RTL + LTR pass.
 - [x] Performance audit passes.
 - [ ] Security/isolation tests pass.
 - [x] Relevant backend gates pass.
@@ -1265,7 +1265,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 21. Performance-audit `%LIKE%` search before production signoff.
 - [x] 22. Preserve batched enrichment / avoid N+1.
 - [x] 23. Explain `simple_compatible=false` rather than showing an unexplained dash.
-- [x] 24. Connect or hide the permanently disabled Advanced Pricing control.
+- [x] 24. Preserve the Advanced Pricing roadmap control as visibly disabled until the destination is explicitly activated.
 - [x] 25. Replace TypeScript-only raw-response casts with runtime parsers.
 - [ ] 26. Runtime-validate families/UOM/import/mutation contracts too.
 - [x] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
@@ -1280,10 +1280,10 @@ This section preserves every point from the initial Products review so none are 
 - [x] 36. Add lot/expiry configuration to bulk import/template/defaults.
 - [x] 37. Generalize import header localization beyond Arabic/English-only alias assumptions.
 - [x] 38. Preserve good existing `t(...)` and `dir={i18n.dir()}` foundation.
-- [ ] 39. Replace binary Arabic-vs-English locale fallback with generic locale resolution.
-- [ ] 40. Make all new number/date/money rendering language-agnostic.
+- [x] 39. Replace binary Arabic-vs-English locale fallback with generic locale resolution.
+- [x] 40. Make all new number/date/money rendering language-agnostic.
 - [x] 41. Keep API enums stable and translate only in UI.
-- [ ] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
+- [x] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
 - [ ] 43. Separate Quick Create from optional enterprise review/maker-checker policy.
 - [x] 44. Add a Product Detail Drawer instead of adding too many list columns.
 - [x] 45. Keep ordinary creation simple and move complexity to Advanced settings.
@@ -1301,9 +1301,9 @@ This section preserves every point from the initial Products review so none are 
 - [x] 52. Define internal batch identity for `lot_control_mode=NONE`.
 - [x] 53. Create a migration/review strategy for existing products that were silently created REQUIRED/REQUIRED.
 - [x] 54. Version the saved product draft schema when tracking fields are added.
-- [ ] 55. Separate business defaults from user display preferences.
+- [x] 55. Separate business defaults from user display preferences.
 - [x] 56. Add Product page performance map and permanent regression gate.
-- [ ] 57. Add accessibility/keyboard requirements to release gate.
+- [x] 57. Add accessibility/keyboard requirements to release gate.
 - [ ] 58. Define safe product deletion/archive semantics.
 - [ ] 59. Ensure normal Products does not duplicate Catalog lifecycle/UOM/barcode authorities.
 - [x] 60. Freeze the product tracking contract before beginning final Inbound work.
@@ -1386,12 +1386,12 @@ Do not work on all items randomly.
 
 ## Phase P7 — i18n / accessibility / polish
 
-- [ ] Generic locale resolver.
-- [ ] all translation keys.
-- [ ] RTL/LTR.
-- [ ] accessibility.
-- [ ] responsive polish.
-- [ ] configurable display preferences.
+- [x] Generic locale resolver.
+- [x] all translation keys.
+- [x] RTL/LTR.
+- [x] accessibility.
+- [x] responsive polish.
+- [x] configurable display preferences.
 
 ## Phase P8 — Performance / security / release
 
@@ -1408,25 +1408,131 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Proceed to **Phase P7 — i18n / accessibility / polish** after Phase P6 is merged to `main` and the local repository is aligned with `origin/main`.
+Phase P7 implementation and close-out review are complete. **P8 must not start until the P7 pull request is merged to `main` and local/GitHub alignment is verified.**
 
 Current P7 state:
 
-- [ ] Generic locale resolver.
-- [ ] all translation keys.
-- [ ] RTL/LTR.
-- [ ] accessibility.
-- [ ] responsive polish.
-- [ ] configurable display preferences.
+- [x] Generic locale resolver.
+- [x] all translation keys.
+- [x] RTL/LTR.
+- [x] accessibility.
+- [x] responsive polish.
+- [x] configurable display preferences.
 
-Implementation order for P7:
+Verified P7 locale-resolver checkpoint:
 
-1. Audit all Products number/date/money locale selection and remove binary Arabic-vs-English locale fallbacks.
-2. Add one shared locale resolver and route Products formatting through it.
-3. Audit Products user-facing text and translation keys, including lifecycle/UOM/status/error surfaces.
-4. Verify RTL and LTR layouts, long labels, drawer/dialog/table behavior, and responsive breakpoints.
-5. Close keyboard/focus/aria/accessibility gaps without weakening existing workflows.
-6. Add/configure display preferences only where the existing architecture can keep business truth separate from presentation.
-7. Complete P7 gates/review before moving to Phase P8.
+- shared project-level locale authority exists in `dashboard/src/lib/locale.ts`;
+- `currentLocale()` delegates to the shared resolver;
+- production formatting is gated against hardcoded regional locales, binary Arabic/English fallbacks, and direct raw i18n locale bypasses;
+- bare `ar` / `en` use app regional defaults while explicit/future locales remain language-correct;
+- TypeScript passed;
+- locale resolver tests passed: 8/8;
+- targeted P7 tests passed: 3 files / 13 tests;
+- full dashboard suite passed: 25 files / 157 tests;
+- production build passed in 17.96s.
+
+Verified P7 translation-key checkpoint:
+
+- Product translation resources are Arabic/English key-parity gated.
+- Static Products translation references and bounded dynamic lifecycle/tracking/UOM/barcode label families are bilingually covered.
+- Product-facing stable error codes are gated against translation resources.
+- FastAPI/Pydantic validation arrays normalize to stable `VALIDATION_ERROR` presentation.
+- Coded backend diagnostic messages are not used as localized UI copy when a stable code is present.
+- TypeScript passed with no output.
+- Targeted P7 translation/error/UOM/barcode tests passed: 6 files / 44 tests.
+- Full dashboard suite passed: 26 files / 164 tests.
+- Production build passed in 25.54s.
+
+Verified P7 Products RTL/LTR checkpoint:
+
+- Product root, Product detail drawer, and shared Product modal direction follow `i18n.dir()`.
+- Product UI uses logical edge utilities instead of physical left/right spacing utilities.
+- Product pagination arrows and Advanced UOM back navigation mirror correctly by direction.
+- Permanent RTL/LTR source gate added in `dashboard/src/test/product-rtl-ltr-p7.test.ts`.
+- TypeScript passed with no output.
+- RTL/LTR gate passed: 1 file / 4 tests.
+- Related Product tests passed: 16 files / 103 tests.
+- Full dashboard suite passed: 27 files / 168 tests.
+- Production build passed in 24.20s.
+- Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for RTL/LTR.
+
+Verified P7 Products accessibility checkpoint:
+
+- Product search controls are keyboard reachable and have translated accessible names.
+- Shared Product modal and Product detail drawer use a reusable focus trap with Tab/Shift+Tab containment, Escape close, initial focus, and opener-focus restoration.
+- Product surfaces expose visible `focus-visible` styling.
+- Product icon-only controls covered in this scope have translated `aria-label` values.
+- Product status/lock/compatibility meaning is conveyed with text, not color alone.
+- Client-side Product, pricing, family, and Advanced UOM validation errors use `aria-invalid` / `aria-describedby` and inline alert text.
+- First invalid Product form field receives focus.
+- Permanent accessibility gate added in `dashboard/src/test/product-accessibility-p7.test.tsx`.
+- TypeScript passed with no output.
+- Accessibility gate passed: 1 file / 4 tests.
+- Related Product tests passed: 17 files / 107 tests.
+- Full dashboard suite passed: 28 files / 172 tests.
+- Production build passed in 12.13s.
+- Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for accessibility.
+
+Verified P7 Products responsive checkpoint:
+
+- Products switches from the wide data table to dedicated Product cards below 768px; the desktop table remains unchanged for wider screens.
+- Product header actions, search controls, filters, pagination, modal footers, drawer actions, family rows, barcode rows, and Advanced UOM layout degrade without horizontal UI dependence on narrow screens.
+- Shared Product modals use dynamic viewport height and stacked narrow-screen actions.
+- Long Product/family/SKU values and synthetic long translated labels are wrap-safe on narrow surfaces.
+- Permanent responsive gate added in `dashboard/src/test/product-responsive-p7.test.tsx`.
+- Runtime media-query test proves breakpoint changes react without reload.
+- TypeScript passed with no output.
+- Responsive gate passed: 1 file / 5 tests.
+- Related Product tests passed: 18 files / 112 tests.
+- Full dashboard suite passed: 29 files / 177 tests.
+- Production build passed in 12.19s.
+- Scope is Products P7; this checkpoint does not claim every non-Product dashboard surface has been audited for responsive behavior.
+
+Verified P7 Products configurable display-preferences checkpoint:
+
+- Product display preferences are explicitly separated from company business defaults.
+- Preferences are versioned and scoped by authenticated `company_id + driver_id`; one company/user cannot reuse another scope's saved view.
+- Unsupported/corrupt preference schemas fail safely to current defaults.
+- Visible Product columns are configurable for package, units/package, tracking, lifecycle, unit barcode, package barcode, package price, and unit price while Product identity/actions remain fixed.
+- Pricing columns and the pricing detail section remain subordinate to pricing permission; display preference cannot grant pricing visibility.
+- Desktop table and mobile Product cards consume the same visible-column and density preferences.
+- Table density supports comfortable and compact modes.
+- Default sort field/direction are configurable and become the reset baseline for Product list filters.
+- Product detail drawer sections are configurable for package, tracking, barcodes, pricing, and compatibility.
+- Preferences persist across normal logout while session credentials and tenant/session identifiers are cleared.
+- Dynamic preference labels are covered by the bilingual translation gate.
+- Permanent regression gate added in `dashboard/src/test/product-display-preferences-p7.test.tsx`.
+- Focused verification passed: 6 files / 30 tests.
+- Corrected P2 read-contract gate passed independently: 1 file / 10 tests.
+- TypeScript passed with no output.
+- Related Product tests passed: 19 files / 117 tests.
+- Full dashboard suite passed: 30 files / 182 tests.
+- Production build passed in 13.63s.
+- Scope is Products P7; these are user-scoped display preferences, not company-wide business policy.
+
+Verified P7 close-out review checkpoint:
+
+- `feat/products-i18n-accessibility-p7` is based directly on current `main` with no behind commits at close-out review time.
+- Branch compare at review: 131 commits ahead / 0 behind, with 59 changed files.
+- Product P7 implementation trackers are all complete: locale resolver, translation keys, RTL/LTR, accessibility, responsive polish, and configurable display preferences.
+- No `[~]` implementation item remains in the Products plan; the only `[~]` text left is the legend definition.
+- No TODO/FIXME/HACK/XXX marker exists in the reviewed touched Product production files; the plan's release-gate checklist text itself still contains the word TODO by design.
+- Non-Product frontend changes in this branch were reviewed: they are the generic locale-resolver rollout needed to remove hardcoded regional formatting assumptions.
+- Catalog-contract changes were reviewed as stable coded-error normalization supporting bilingual Product error presentation.
+- Login/TopBar/Sidebar storage changes were reviewed as the intentional company-code hint and user-scoped display-preference persistence behavior.
+- Repository governance additions (`ARCHITECTURE.md`, `.rules`, `AGENTS.md`, and Foundation Stage 12) are intentional changes requested during this branch and must be called out explicitly in the P7 PR.
+- Latest verified local gate before close-out: TypeScript PASS; Product targeted 19 files / 117 tests; full dashboard 30 files / 182 tests; production build PASS in 13.63s.
+- P8 remains unopened; its benchmark/security/release work is not claimed by this checkpoint.
+
+Next implementation order:
+
+1. Translation-key audit is complete and verified.
+2. RTL/LTR is complete and verified for Products surfaces.
+3. Accessibility is complete and verified for Products surfaces.
+4. Responsive polish is complete and verified for Products surfaces.
+5. Configurable display preferences are complete and verified.
+6. P7 implementation is complete.
+7. P7 close-out review / gate synchronization is complete.
+8. Transition prerequisite: merge the reviewed P7 PR to `main`, then verify local `main == origin/main` before starting P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.

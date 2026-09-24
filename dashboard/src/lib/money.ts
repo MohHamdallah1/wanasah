@@ -1,3 +1,5 @@
+import { resolveAppLocale } from "@/lib/locale";
+
 const MONEY_PATTERN = /^\d+(?:\.\d{1,6})?$/;
 
 const canonicalMoney = (value: string): string => {
@@ -32,7 +34,8 @@ const formatLocalizedCurrencyAmount = (
   locale: string,
 ): string => {
   const currency = currencyCode.trim().toUpperCase();
-  const resolvedLocale = locale.trim() || "en";
+  const resolvedLocale =
+    resolveAppLocale(locale);
   const localizedAmount = amount.replace(
     ".",
     decimalSeparator(resolvedLocale),
@@ -93,11 +96,17 @@ const currencyDisplayFractionDigits = (
   if (!/^[A-Z]{3}$/.test(currency)) return 2;
 
   try {
-    return new Intl.NumberFormat(locale.trim() || "en", {
-      style: "currency",
-      currency,
-      numberingSystem: "latn",
-    }).resolvedOptions().maximumFractionDigits;
+    const resolvedLocale =
+      resolveAppLocale(locale);
+    return new Intl.NumberFormat(
+      resolvedLocale,
+      {
+        style: "currency",
+        currency,
+        numberingSystem: "latn",
+      },
+    ).resolvedOptions()
+      .maximumFractionDigits;
   } catch {
     return 2;
   }

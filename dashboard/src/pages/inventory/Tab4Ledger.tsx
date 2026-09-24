@@ -1,4 +1,5 @@
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { resolveI18nLocale } from "@/lib/locale";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +36,7 @@ const ledgerUiContractError = (code: string): never => {
 export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props) {
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
+  const locale = resolveI18nLocale(i18n);
   const access = useInventoryAccess(locationId);
 
   const uomLabel = (code: string | null) =>
@@ -47,7 +49,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
     if (!Number.isFinite(numeric)) return value;
     try {
       return new Intl.NumberFormat(
-        i18n.language.startsWith("ar") ? "ar-JO" : "en-US",
+        locale,
         {
           style: "currency",
           currency,
@@ -434,7 +436,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-500 text-[11px] font-semibold whitespace-nowrap" dir="ltr">
-                      {formatLedgerDate(entry.date, i18n.resolvedLanguage || i18n.language)}
+                      {formatLedgerDate(entry.date, locale)}
                     </td>
                   </tr>
                 );

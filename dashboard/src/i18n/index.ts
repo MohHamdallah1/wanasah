@@ -6,6 +6,9 @@ import {
   supportedLanguages,
   type SupportedLanguage,
 } from "./resources";
+import {
+  resolveI18nLocale,
+} from "@/lib/locale";
 
 const STORAGE_KEY = "wanasah.language";
 
@@ -71,8 +74,6 @@ export const setAppLanguage = async (
 };
 
 export const currentLocale = () =>
-  i18n.language.startsWith("ar")
-    ? "ar-JO"
-    : "en-US";
+  resolveI18nLocale(i18n);
 
 export default i18n;

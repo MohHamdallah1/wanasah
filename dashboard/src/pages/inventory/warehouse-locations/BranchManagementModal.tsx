@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Pencil, Plus, Power, PowerOff, RefreshCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { resolveI18nLocale } from "@/lib/locale";
 import { parseBranchMutation, parseBranchPage, type BranchItem } from "./branchContracts";
 
 interface BranchManagementModalProps {
@@ -18,6 +20,8 @@ const BRANCH_CODE_RE = /^[A-Z0-9][A-Z0-9_-]*$/;
 
 export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: BranchManagementModalProps) {
   const authenticatedFetch = useAuthFetch();
+  const { i18n } = useTranslation();
+  const locale = resolveI18nLocale(i18n);
   const requestSeq = useRef(0);
   const [view, setView] = useState<View>("list");
   const [items, setItems] = useState<BranchItem[]>([]);
@@ -239,7 +243,7 @@ export function BranchManagementModal({ isOpen, onClose, onBranchesChanged }: Br
                       </span>
                     </td>
                     <td className="p-3 text-xs text-slate-500">
-                      {new Date(branch.created_at).toLocaleDateString("ar-JO")}
+                      {new Date(branch.created_at).toLocaleDateString(locale)}
                     </td>
                     <td className="p-3">
                       <div className="flex justify-center gap-2">

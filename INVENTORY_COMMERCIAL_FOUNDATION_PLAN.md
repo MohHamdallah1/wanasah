@@ -1757,7 +1757,7 @@ Gate:
 
 - FLUTTER_OFFLINE_CONTRACT_GATE=PASS
 
-### Stage 11 — Legacy Removal, Clean Baseline and Final Freeze
+### Stage 11 — Legacy Removal and Clean Baseline
 
 - البحث عن بقايا single-warehouse/live-price/is_active legacy.
 - إزالة الحقول والمسارات القديمة بعد إثبات عدم استخدامها.
@@ -1766,6 +1766,77 @@ Gate:
 - لا create_all في Production.
 - Regression/E2E.
 - Dashboard freeze.
+
+Gate:
+
+- LEGACY_REMOVAL_CLEAN_BASELINE_GATE=PASS
+
+### Stage 12 — Architecture Foundation / Modulith Hardening
+
+الهدف ليس Microservices ولا Big-Bang Rewrite. الهدف نقل النظام تدريجياً من Monolith ذي فصل Domains متنامٍ إلى **Strict Modular Monolith (Modulith)** وفق `ARCHITECTURE.md`، مع الحفاظ على سرعة وبساطة التشغيل داخل Monolith وفرض حدود بمستوى Microservices.
+
+#### 12.1 Dependency and ownership map
+
+- استخراج Dependency graph فعلي لكل Backend domain/module.
+- إعلان Owner واضح لكل جدول/Business authority.
+- تحديد Public contracts لكل Module.
+- توثيق Legacy cross-module dependencies بدلاً من إخفائها.
+
+#### 12.2 Strict boundaries
+
+- منع أي Module جديد من الكتابة مباشرة في جداول يملكها Module آخر.
+- منع imports إلى internals الخاصة بموديول آخر.
+- التواصل بين Modules عبر Application/Public contracts أوEvents معتمدة.
+- منع Circular domain dependencies.
+- إضافة Architecture CI gate يفشل عند خرق dependency rules.
+- أي Exception مؤقتة تكون مسجلة ومحددة بتاريخ إزالة.
+
+#### 12.3 Progressive extraction from globals
+
+- تفكيك `models.py` تدريجياً حسب Ownership بدون إعادة كتابة شاملة.
+- تفكيك `services.py` والـAPI files الكبيرة تدريجياً إلى Application/Domain services مملوكة للموديولات.
+- عدم نقل كود لمجرد التنظيم؛ كل نقل يجب أن يحسن Authority/Boundary ويملك Regression coverage.
+- لا تغيير Business Workflow ضمن هذه المرحلة إلا بموافقة منفصلة.
+
+#### 12.4 Module migrations and upgrades
+
+- كل Schema change يحمل Module ownership واضح.
+- يبقى Alembic revision graph واحداً ومضبوطاً ما لم يثبت سبب قوي لتغييره.
+- العقود العامة/API/Event contracts تكون Versioned عندما تتطلب Backward compatibility.
+- إضافة Upgrade tests من حالات/إصدارات مدعومة إلى Head للموديولات الحرجة.
+- Destructive migrations تتطلب Expand/Contract أوخطة Rollout صريحة.
+
+#### 12.5 Isolation architecture — Priority #1
+
+- Tenant/company isolation يبقى Fail-closed ومطلقاً.
+- RLS + Composite tenant FKs + Backend authorization + negative tests تبقى Defense in Depth.
+- كل Job/Event/Cache/WebSocket/Import/Export يحمل Tenant context صريحاً.
+- Location/Warehouse scope يفرض في Backend على المصدر والوجهة.
+- Staff/Driver/Vehicle/Route scopes تبنى كPolicy مرنة للشركة: Company / Branch / Location / Route / Vehicle / Team حسب الحاجة، بدون implicit access.
+- Platform admin يبقى Security boundary منفصل عن Tenant identities.
+
+#### 12.6 Events and asynchronous boundaries
+
+- In-process synchronous calls هي Default عندما تكون أفضل للاتساق والأداء.
+- Domain/Application events تستخدم فقط عندما تحقق Decoupling حقيقي.
+- Side effects غير المتزامنة الحرجة تستخدم Transactional Outbox أوPattern مكافئ.
+- Handlers Tenant-safe وIdempotent وObservable وbounded.
+
+#### 12.7 Microservice extraction rule
+
+لا يفصل أي Module إلى Microservice إلا بوجود دليل على واحد أوأكثر من:
+
+- Scaling مستقل فعلي.
+- Failure isolation مختلف جوهرياً.
+- Security/Compliance boundary صلب.
+- Runtime/Workload مختلف.
+- Deployment/team ownership مستقل يبرر التكلفة.
+
+قبل الفصل يجب أن يكون الموديول نظيف الحدود داخل الـModulith أولاً.
+
+Gate:
+
+- ARCHITECTURE_MODULITH_GATE=PASS
 
 Final gate:
 
@@ -2043,6 +2114,13 @@ Final gate:
 - [ ] Flutter/offline implementation later.
 - [ ] Performance and concurrency gates.
 - [ ] Minimal meaningful tests at checkpoints.
+- [ ] Strict module ownership and public contracts.
+- [ ] Architecture dependency/boundary gate.
+- [ ] Versioned module contracts where compatibility matters.
+- [ ] Module-owned migration changes + upgrade tests for critical upgrades.
+- [ ] Tenant/company isolation remains fail-closed across sync/async/cache/events/websockets.
+- [ ] Flexible but explicit branch/location/route/vehicle/team scope with no implicit access.
+- [ ] No premature Microservices; extraction requires evidence.
 - [ ] No temporary artifacts.
 - [ ] No project file or directory deletion.
 - [ ] No unapproved Business Workflow change.
@@ -2059,5 +2137,6 @@ Final gate:
 | 2026-09-11 | Stage 0 | Baseline غير مثبت وقاعدة التطوير تحمل بيانات اختبار | تثبيت Schema/API/Enum contracts ومسح بيانات Tenant التجريبية المصرح بها | إغلاق Contract Freeze على قاعدة Tenant فارغة | Approved in conversation |
 | 2026-09-12 | Stage 3 | PRODUCT_LIFECYCLE_GATE غير مغلق | اكتمال Stage 3: ProductLocation + FSM + Capability + Archive + Audit/Outbox + Dashboard lifecycle + PRODUCT_LIFECYCLE_GATE=PASS (13/13) | إغلاق gate_stage3_lifecycle.py مع مزامنة advisory lock عبر pg_locks | Approved — gate passed |
 | 2026-09-12 | Stage 4 | Batch Disposition | Completed Stage 4 (Transfer Purposes, Batch Disposition, FEFO min shelf life) | Passed gate_stage4_batch_expiry.py (7/7) | Approved - gate passed |
+| 2026-09-24 | Architecture | Monolith مع فصل Domains جزئي بلا دستور حدود جامع | اعتماد `ARCHITECTURE.md` والهدف Strict Modular Monolith وإضافة Stage 12 — Architecture Foundation / Modulith Hardening | تثبيت أساس توسع SaaS طويل الأمد مع عزل صارم وقابلية إضافة Modules بدون Premature Microservices | Approved in conversation |
 
 لا يعد تنفيذ الكود موافقة ضمنية على تغيير الخطة. عند اكتشاف تعارض حقيقي بين الخطة والكود الحالي، يتوقف الجزء المتعارض ويعرض CURRENT / GAP / OPTIONS / RECOMMENDATION على مالك المشروع قبل تغيير Workflow.

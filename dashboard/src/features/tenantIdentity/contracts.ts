@@ -1,3 +1,4 @@
+import { resolveAppLocale } from "@/lib/locale";
 import { z } from "zod";
 
 const tenantIdentitySchema = z
@@ -57,9 +58,11 @@ export function parseTenantIdentity(
 }
 
 export function formatTenantDate(
-  timezone?: string,
-  locale = "ar-JO"
+  timezone: string | undefined,
+  locale: string
 ): string {
+  const resolvedLocale =
+    resolveAppLocale(locale);
   const options: Intl.DateTimeFormatOptions = {
     weekday: "long",
     year: "numeric",
@@ -72,12 +75,12 @@ export function formatTenantDate(
 
   try {
     return new Intl.DateTimeFormat(
-      locale,
+      resolvedLocale,
       options
     ).format(new Date());
   } catch {
     return new Intl.DateTimeFormat(
-      locale,
+      resolvedLocale,
       {
         weekday: "long",
         year: "numeric",

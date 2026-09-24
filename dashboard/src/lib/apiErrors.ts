@@ -68,6 +68,13 @@ export function normalizeApiErrorResponse(
     return {};
   }
 
+  // FastAPI/Pydantic validation payloads use an array in `detail`.
+  // Normalize that framework shape to a stable client-owned code instead
+  // of letting framework English become a localization contract.
+  if (Array.isArray(root.detail)) {
+    return { code: "VALIDATION_ERROR" };
+  }
+
   // Canonical contract first, then all supported legacy envelopes.
   for (const candidate of [
     root.error,
@@ -105,6 +112,15 @@ export function apiErrorCode(
     record.code.trim()
   ) {
     return record.code.trim();
+  }
+
+  if (
+    error instanceof Error &&
+    /^[A-Z][A-Z0-9_]*$/.test(
+      error.message.trim()
+    )
+  ) {
+    return error.message.trim();
   }
 
   return normalizeApiErrorResponse(
@@ -234,26 +250,7 @@ export function apiErrorMessage(
 
   const serverMessage =
     apiErrorServerMessage(error);
-  if (serverMessage) {
-    if (code && requestId) {
-      return i18n.t(
-        "errors.serverReasonWithCodeAndReference",
-        {
-          message: serverMessage,
-          code,
-          requestId,
-        }
-      );
-    }
-    if (code) {
-      return i18n.t(
-        "errors.serverReasonWithCode",
-        {
-          message: serverMessage,
-          code,
-        }
-      );
-    }
+  if (!code && serverMessage) {
     if (requestId) {
       return i18n.t(
         "errors.serverReasonWithReference",
@@ -267,6 +264,7 @@ export function apiErrorMessage(
   }
 
   if (
+    !code &&
     error instanceof Error &&
     !(
       "status" in

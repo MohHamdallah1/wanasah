@@ -1,18 +1,26 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Menu, LogOut, User, MapPin, Calendar, ChevronDown, Settings } from "lucide-react";
 import { formatTenantDate } from "@/features/tenantIdentity/contracts";
 import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
+import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
+import { resolveI18nLocale } from "@/lib/locale";
 
 interface TopBarProps {
   onMenuToggle: () => void;
 }
 
 export function TopBar({ onMenuToggle }: TopBarProps) {
+  const { i18n } = useTranslation();
+  const locale = resolveI18nLocale(i18n);
   const adminName = localStorage.getItem('admin_name') || 'المدير';
   const tenantIdentity = useTenantIdentity();
   const displayLocation = tenantIdentity.data?.display_location || "الموقع غير محدد";
-  const currentDate = formatTenantDate(tenantIdentity.data?.timezone);
+  const currentDate = formatTenantDate(
+    tenantIdentity.data?.timezone,
+    locale,
+  );
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -53,7 +61,7 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     }
 
     // 2. مسح كل البيانات من المتصفح
-    localStorage.clear();
+    clearLocalStoragePreservingLoginHintsAndPreferences();
     sessionStorage.clear();
     
     // 3. الخيار النووي: طرد المتصفح بالكامل وإعادة تحميل الصفحة من الصفر

@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { Truck, UserMinus, Clock, AlertTriangle, CircleStop, Package, Radar, Lock } from "lucide-react";
 import { PendingRoute } from "@/types/dispatch";
 
@@ -16,7 +17,7 @@ interface PendingRoutesTableProps {
 const formatCommercialLockTime = (value: string): string => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "وقت قفل غير صالح";
-  return new Intl.DateTimeFormat("ar-JO", {
+  return new Intl.DateTimeFormat(currentLocale(), {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);

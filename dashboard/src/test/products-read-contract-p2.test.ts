@@ -331,7 +331,10 @@ describe("products P2 read contract", () => {
       "page?.pricing_visible && canViewPricing",
     );
     expect(row).toContain(
-      "{pricingVisible ? (",
+      "{pricingVisible && visibleColumns.packagePrice ? (",
+    );
+    expect(row).toContain(
+      "{pricingVisible && visibleColumns.unitPrice ? (",
     );
     expect(row).toContain(
       '"products.fields.sku"',

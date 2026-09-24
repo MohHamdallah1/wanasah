@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import type { Session, SettlementReport, InventoryItem } from "@/data/operations-data";
 import { CheckCircle } from "lucide-react";
 
@@ -15,7 +16,7 @@ export function HeroSettlement({ driver }: HeroSettlementProps) {
   if (!driver) return null;
 
   const GLOBAL_CURRENCY = "د.أ";
-  const formatMoney = (val: number | string | undefined) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
+  const formatMoney = (val: number | string | undefined) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString(currentLocale());
 
   // الاستخراج الآمن للبيانات لتجنب أخطاء Undefined
   const s = driver.session || {};

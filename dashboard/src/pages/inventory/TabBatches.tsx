@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyExact } from "@/lib/money";
 import {
   parseBatchDetailResponse,
@@ -56,7 +57,7 @@ const dispositionTone = (
 export function TabBatches({ locationId }: Props) {
   const authFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
-  const locale = i18n.resolvedLanguage || i18n.language || "en";
+  const locale = resolveI18nLocale(i18n);
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");

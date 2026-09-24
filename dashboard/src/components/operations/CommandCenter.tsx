@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { Radar, CheckCircle2, RotateCcw, Eye, Package, Banknote, Search } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
@@ -60,7 +61,7 @@ export function CommandCenter({ driver, onApproveSettlement, onUndoEndWork }: Co
     driver?.settlement?.status === SESSION_STATUS.AWAITING_INVENTORY_RECONCILIATION;
   const GLOBAL_CURRENCY = "د.أ";
   // +++ الكي الجراحي: السماح للدالة باستقبال النصوص وتحويلها بأمان تام +++
-  const formatMoney = (val: string | number) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString('en-US');
+  const formatMoney = (val: string | number) => parseFloat(Number(val || 0).toFixed(2)).toLocaleString(currentLocale());
 
   // +++ الدرع اللغوي: أخذ الحرف الأول فقط لتجنب كوارث دمج الحروف العربية (مت، سم، دم) +++
   const getInitials = (name: string) => {

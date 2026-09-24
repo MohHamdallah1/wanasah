@@ -16,10 +16,12 @@ import {
   Copy,
   FileSpreadsheet,
   FolderTree,
+  LockKeyhole,
   PackagePlus,
   RefreshCw,
   Search,
   Settings2,
+  SlidersHorizontal,
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -30,9 +32,15 @@ import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   apiErrorMessage,
 } from "@/lib/apiErrors";
+import {
+  readProductDisplayPreferences,
+  writeProductDisplayPreferences,
+  type ProductDisplayPreferences,
+} from "@/lib/productDisplayPreferences";
 import {
   abandonDurableOperation,
   completeDurableOperation,
@@ -60,7 +68,9 @@ import {
 } from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
+import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayPreferences";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
+import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
@@ -103,6 +113,20 @@ type ProductSortField =
 type ProductSortDirection =
   | "asc"
   | "desc";
+
+type CreateFieldError = {
+  field:
+    | "name"
+    | "units"
+    | "packagePrice"
+    | "unitPrice";
+  message: string;
+};
+
+type PriceFieldError = {
+  field: "packagePrice" | "unitPrice";
+  message: string;
+};
 
 type ProductDraft = {
   name: string;
@@ -158,6 +182,10 @@ export default function ProductsDashboard() {
     useInventoryAccess();
   const isOnline =
     useNetworkStatus();
+  const isNarrowViewport =
+    useMediaQuery(
+      "(max-width: 767px)"
+    );
 
   const companyId =
     access.data?.company_id ??
@@ -302,6 +330,29 @@ export default function ProductsDashboard() {
     useState<ProductSortDirection>(
       "asc"
     );
+  const [
+    displayPreferences,
+    setDisplayPreferences,
+  ] =
+    useState<ProductDisplayPreferences>(
+      () =>
+        readProductDisplayPreferences(
+          Number(
+            localStorage.getItem(
+              "company_id"
+            )
+          ),
+          Number(
+            localStorage.getItem(
+              "driver_id"
+            )
+          )
+        )
+    );
+  const [
+    displayPreferencesOpen,
+    setDisplayPreferencesOpen,
+  ] = useState(false);
 
   const resetProductPagination = () => {
     setCursor(null);
@@ -329,6 +380,28 @@ export default function ProductsDashboard() {
     );
   const restoredDraftKey =
     useRef<string | null>(
+      null
+    );
+  const [
+    createFieldError,
+    setCreateFieldError,
+  ] = useState<CreateFieldError | null>(
+    null
+  );
+  const createNameRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const createUnitsRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const createPackagePriceRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const createUnitPriceRef =
+    useRef<HTMLInputElement | null>(
       null
     );
 
@@ -394,6 +467,20 @@ export default function ProductsDashboard() {
     editUnitPrice,
     setEditUnitPrice,
   ] = useState("");
+  const [
+    priceFieldError,
+    setPriceFieldError,
+  ] = useState<PriceFieldError | null>(
+    null
+  );
+  const editPackagePriceRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+  const editUnitPriceRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
 
   const [
     familiesOpen,
@@ -861,6 +948,21 @@ export default function ProductsDashboard() {
     });
 
   useEffect(() => {
+    const nextDisplayPreferences =
+      companyId !== null &&
+      driverId !== null
+        ? readProductDisplayPreferences(
+            companyId,
+            driverId
+          )
+        : readProductDisplayPreferences(
+            Number.NaN,
+            Number.NaN
+          );
+
+    setDisplayPreferences(
+      nextDisplayPreferences
+    );
     setCursor(null);
     setHistory([]);
     setFiltersOpen(false);
@@ -875,8 +977,14 @@ export default function ProductsDashboard() {
     setPriceFilter("");
     setLotFilter("");
     setExpiryFilter("");
-    setSortBy("id");
-    setSortDir("asc");
+    setSortBy(
+      nextDisplayPreferences.defaultSort
+        .field
+    );
+    setSortDir(
+      nextDisplayPreferences.defaultSort
+        .direction
+    );
     setDetailProduct(null);
     setBarcodeProduct(null);
     setPriceEdit(null);
@@ -894,7 +1002,7 @@ export default function ProductsDashboard() {
     setTrackingEditLot(null);
     setTrackingEditExpiry(null);
     setFamilyOptionSearch("");
-  }, [companyId]);
+  }, [companyId, driverId]);
 
   useEffect(() => {
     const defaults =
@@ -961,8 +1069,41 @@ export default function ProductsDashboard() {
       page?.pricing_visible &&
         canViewPricing
     );
+  const visibleColumns =
+    displayPreferences.columns;
   const productTableColumnCount =
-    pricingVisible ? 7 : 5;
+    2 +
+    Number(
+      visibleColumns.package
+    ) +
+    Number(
+      visibleColumns.unitsPerPackage
+    ) +
+    Number(
+      visibleColumns.tracking
+    ) +
+    Number(
+      visibleColumns.lifecycle
+    ) +
+    Number(
+      visibleColumns.unitBarcode
+    ) +
+    Number(
+      visibleColumns.packageBarcode
+    ) +
+    Number(
+      pricingVisible &&
+        visibleColumns.packagePrice
+    ) +
+    Number(
+      pricingVisible &&
+        visibleColumns.unitPrice
+    );
+  const tableHeaderSpacing =
+    displayPreferences.density ===
+    "compact"
+      ? "px-4 py-2"
+      : "px-5 py-3";
   const hasProductListControls =
     Boolean(
       familyFilterId ||
@@ -974,8 +1115,12 @@ export default function ProductsDashboard() {
           priceFilter) ||
         lotFilter ||
         expiryFilter ||
-        sortBy !== "id" ||
-        sortDir !== "asc"
+        sortBy !==
+          displayPreferences.defaultSort
+            .field ||
+        sortDir !==
+          displayPreferences.defaultSort
+            .direction
     );
 
   const importTrackingUsesCompanyDefaults =
@@ -1047,9 +1192,46 @@ export default function ProductsDashboard() {
       setTrackingDefaultsOpen(true);
     };
 
+  const saveDisplayPreferences = (
+    next: ProductDisplayPreferences
+  ) => {
+    if (
+      companyId === null ||
+      driverId === null ||
+      !writeProductDisplayPreferences(
+        companyId,
+        driverId,
+        next
+      )
+    ) {
+      toast.error(
+        t(
+          "products.displayPreferences.saveFailed"
+        )
+      );
+      return;
+    }
+
+    setDisplayPreferences(next);
+    setSortBy(
+      next.defaultSort.field
+    );
+    setSortDir(
+      next.defaultSort.direction
+    );
+    resetProductPagination();
+    setDisplayPreferencesOpen(false);
+    toast.success(
+      t(
+        "products.displayPreferences.saved"
+      )
+    );
+  };
+
   const openPriceEditor = (
     product: SimpleProduct
   ) => {
+    setPriceFieldError(null);
     setPriceEdit(product);
     setEditPackagePrice(
       product.package_price ?? ""
@@ -1419,6 +1601,7 @@ export default function ProductsDashboard() {
           setDraft(
             emptyDraft
           );
+          setCreateFieldError(null);
           setCreateTrackingExpanded(
             false
           );
@@ -1460,6 +1643,76 @@ export default function ProductsDashboard() {
           )
         ),
     });
+
+  const submitCreate = () => {
+    if (!draft.name.trim()) {
+      setCreateFieldError({
+        field: "name",
+        message: t(
+          "products.errors.nameRequired"
+        ),
+      });
+      window.requestAnimationFrame(
+        () => createNameRef.current?.focus()
+      );
+      return;
+    }
+
+    const units =
+      draft.has_package
+        ? Number(
+            draft.units_per_package
+          )
+        : 1;
+    if (
+      draft.has_package &&
+      (!Number.isInteger(units) ||
+        units < 2)
+    ) {
+      setCreateFieldError({
+        field: "units",
+        message: t(
+          "products.errors.packageUnitsInvalid"
+        ),
+      });
+      window.requestAnimationFrame(
+        () => createUnitsRef.current?.focus()
+      );
+      return;
+    }
+
+    if (
+      !draft.package_price.trim() &&
+      !draft.unit_price.trim()
+    ) {
+      const packageField =
+        draft.has_package;
+      setCreateFieldError({
+        field: packageField
+          ? "packagePrice"
+          : "unitPrice",
+        message: packageField
+          ? t(
+              "products.errors.priceRequired"
+            )
+          : t(
+              "products.errors.unitPriceRequired"
+            ),
+      });
+      window.requestAnimationFrame(
+        () =>
+          (
+            packageField
+              ? createPackagePriceRef
+              : createUnitPriceRef
+          ).current?.focus()
+      );
+      return;
+    }
+
+    setCreateFieldError(null);
+    createMutation.mutate();
+  };
 
   const priceMutation =
     useMutation({
@@ -1535,6 +1788,7 @@ export default function ProductsDashboard() {
           );
         }
         setPriceEdit(null);
+        setPriceFieldError(null);
         toast.success(
           t(
             "products.priceUpdated"
@@ -1558,6 +1812,44 @@ export default function ProductsDashboard() {
           )
         ),
     });
+
+  const submitPriceEdit = () => {
+    if (!priceEdit) {
+      return;
+    }
+    if (
+      !editPackagePrice.trim() &&
+      !editUnitPrice.trim()
+    ) {
+      const packageField =
+        Boolean(
+          priceEdit.package_uom_code
+        );
+      setPriceFieldError({
+        field: packageField
+          ? "packagePrice"
+          : "unitPrice",
+        message: packageField
+          ? t(
+              "products.errors.priceRequired"
+            )
+          : t(
+              "products.errors.unitPriceRequired"
+            ),
+      });
+      window.requestAnimationFrame(
+        () =>
+          (
+            packageField
+              ? editPackagePriceRef
+              : editUnitPriceRef
+          ).current?.focus()
+      );
+      return;
+    }
+    setPriceFieldError(null);
+    priceMutation.mutate();
+  };
 
   const importMutation =
     useMutation({
@@ -2113,8 +2405,8 @@ export default function ProductsDashboard() {
       const lines = [
         headers.join(","),
         [
-          "Lolo Chips Cheese 20g",
-          "Lolo Chips",
+          t("products.importTemplateSampleName"),
+          t("products.importTemplateSampleFamily"),
           t("uom.CARTON"),
           "50",
           "10.000",
@@ -2159,6 +2451,7 @@ export default function ProductsDashboard() {
   const cancelCreate =
     () => {
       setCreateOpen(false);
+      setCreateFieldError(null);
       setCreateTrackingExpanded(
         false
       );
@@ -2253,22 +2546,22 @@ export default function ProductsDashboard() {
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="products-a11y-scope flex min-h-0 flex-1 flex-col overflow-hidden"
       dir={i18n.dir()}
     >
-      <header className="shrink-0 rounded-[26px] border border-white/70 bg-white/85 px-5 py-4 shadow-sm backdrop-blur-xl">
+      <header className="shrink-0 rounded-[22px] border border-white/70 bg-white/85 px-4 py-4 shadow-sm backdrop-blur-xl sm:rounded-[26px] sm:px-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+          <div className="min-w-0 flex flex-1 items-center gap-3 sm:flex-none">
             <span className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-slate-950 text-white">
               <Boxes className="h-5 w-5" />
             </span>
-            <div>
-              <h1 className="text-xl font-black text-slate-950">
+            <div className="min-w-0">
+              <h1 className="break-words text-xl font-black text-slate-950">
                 {t(
                   "products.title"
                 )}
               </h1>
-              <p className="mt-0.5 text-xs font-semibold text-slate-500">
+              <p className="mt-0.5 break-words text-xs font-semibold text-slate-500">
                 {t(
                   "products.subtitle"
                 )}
@@ -2276,7 +2569,7 @@ export default function ProductsDashboard() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center [&>button]:min-w-0 [&>button]:justify-center [&>button]:whitespace-normal [&>button]:text-center">
             <button
               type="button"
               onClick={() =>
@@ -2293,6 +2586,21 @@ export default function ProductsDashboard() {
               />
               {t(
                 "common.refresh"
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setDisplayPreferencesOpen(
+                  true
+                )
+              }
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              {t(
+                "products.displayPreferences.action"
               )}
             </button>
 
@@ -2335,20 +2643,36 @@ export default function ProductsDashboard() {
             ) : null}
 
             {canManageCatalog ? (
-              <button
-                type="button"
-                onClick={() =>
-                  navigate(
-                    "/products/advanced-uom"
-                  )
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-              >
-                <Settings2 className="h-4 w-4" />
-                {t(
-                  "products.advancedUom.action"
-                )}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      "/products/advanced-uom"
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  {t(
+                    "products.advancedUom.action"
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  disabled
+                  title={t(
+                    "products.advancedPricingHint"
+                  )}
+                  className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-400"
+                >
+                  <LockKeyhole className="h-4 w-4" />
+                  {t(
+                    "products.advancedPricing"
+                  )}
+                </button>
+              </>
             ) : null}
 
             {canManageFamilies ? (
@@ -2394,10 +2718,10 @@ export default function ProductsDashboard() {
         </div>
       </header>
 
-      <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl">
+      <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl sm:rounded-[26px]">
         <div className="shrink-0 border-b border-slate-100 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[260px] max-w-md flex-1">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <div className="relative col-span-2 w-full min-w-0 sm:max-w-md sm:flex-1">
               <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
@@ -2413,6 +2737,9 @@ export default function ProductsDashboard() {
                 placeholder={t(
                   "products.searchPlaceholder"
                 )}
+                aria-label={t(
+                  "products.searchPlaceholder"
+                )}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pe-9 ps-3 text-sm font-bold outline-none focus:border-slate-400 focus:bg-white"
               />
             </div>
@@ -2424,7 +2751,7 @@ export default function ProductsDashboard() {
                     !current
                 )
               }
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center text-xs font-black text-slate-700 sm:w-auto"
             >
               <Settings2 className="h-4 w-4" />
               {t(
@@ -2447,11 +2774,19 @@ export default function ProductsDashboard() {
                   setPriceFilter("");
                   setLotFilter("");
                   setExpiryFilter("");
-                  setSortBy("id");
-                  setSortDir("asc");
+                  setSortBy(
+                    displayPreferences
+                      .defaultSort
+                      .field
+                  );
+                  setSortDir(
+                    displayPreferences
+                      .defaultSort
+                      .direction
+                  );
                   resetProductPagination();
                 }}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-black text-slate-600"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-xs font-black text-slate-600 sm:w-auto"
               >
                 {t(
                   "products.filters.clear"
@@ -2885,157 +3220,285 @@ export default function ProductsDashboard() {
           ) : null}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full min-w-[1050px] text-start text-sm">
-            <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black text-slate-500">
-              <tr>
-                <th className="px-5 py-3">
+        {isNarrowViewport ? (
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {productsQuery.isLoading ? (
+              <div className="py-12 text-center text-sm font-bold text-slate-400">
+                {t("common.loading")}
+              </div>
+            ) : null}
+
+            {productsQuery.isError ? (
+              <div className="rounded-2xl bg-rose-50 p-5 text-center">
+                <p className="font-black text-rose-900">
                   {t(
-                    "products.columns.product"
+                    "products.errors.listLoadTitle"
                   )}
-                </th>
-                <th className="px-5 py-3">
+                </p>
+                <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
                   {t(
-                    "products.columns.package"
+                    "products.errors.listLoadDescription"
                   )}
-                </th>
-                <th className="px-5 py-3">
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void productsQuery.refetch()
+                  }
+                  className="mt-3 w-full rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-xs font-black text-rose-800"
+                >
+                  {t("common.retry")}
+                </button>
+              </div>
+            ) : null}
+
+            {!productsQuery.isLoading &&
+            !productsQuery.isError &&
+            !page?.items.length ? (
+              <div className="py-12 text-center">
+                <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+                <p className="font-black text-slate-700">
                   {t(
-                    "products.columns.unitsPerPackage"
+                    "products.emptyTitle"
                   )}
-                </th>
-                <th className="px-5 py-3">
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
                   {t(
-                    "products.columns.tracking"
+                    "products.emptyDescription"
                   )}
-                </th>
-                {pricingVisible ? (
-                  <>
-                    <th className="px-5 py-3">
+                </p>
+              </div>
+            ) : null}
+
+            {!productsQuery.isLoading &&
+            !productsQuery.isError &&
+            page?.items.length ? (
+              <div className="space-y-3">
+                {page.items.map(
+                  (item) => (
+                    <ProductMobileCard
+                      key={item.id}
+                      item={item}
+                      pricingVisible={
+                        pricingVisible
+                      }
+                      canEditPrice={
+                        canEditSimplePrice
+                      }
+                      canEditTracking={
+                        canManageCatalog
+                      }
+                      columns={
+                        visibleColumns
+                      }
+                      density={
+                        displayPreferences
+                          .density
+                      }
+                      onOpenDetails={
+                        setDetailProduct
+                      }
+                      onEditPrice={
+                        openPriceEditor
+                      }
+                      onEditTracking={
+                        openTrackingEditor
+                      }
+                    />
+                  )
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto">
+            <table className="w-full min-w-[1050px] text-start text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black text-slate-500">
+                <tr>
+                  <th className={tableHeaderSpacing}>
+                    {t(
+                      "products.columns.product"
+                    )}
+                  </th>
+                  {visibleColumns.package ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.package"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.unitsPerPackage ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.unitsPerPackage"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.tracking ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.tracking"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.lifecycle ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.lifecycle"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.unitBarcode ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.unitBarcode"
+                      )}
+                    </th>
+                  ) : null}
+                  {visibleColumns.packageBarcode ? (
+                    <th className={tableHeaderSpacing}>
+                      {t(
+                        "products.columns.packageBarcode"
+                      )}
+                    </th>
+                  ) : null}
+                  {pricingVisible &&
+                  visibleColumns.packagePrice ? (
+                    <th className={tableHeaderSpacing}>
                       {t(
                         "products.columns.packagePrice"
                       )}
                     </th>
-                    <th className="px-5 py-3">
+                  ) : null}
+                  {pricingVisible &&
+                  visibleColumns.unitPrice ? (
+                    <th className={tableHeaderSpacing}>
                       {t(
                         "products.columns.unitPrice"
                       )}
                     </th>
-                  </>
-                ) : null}
-                <th className="px-5 py-3">
-                  {t(
-                    "products.columns.action"
-                  )}
-                </th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-100">
-              {productsQuery.isLoading ? (
-                <tr>
-                  <td
-                    colSpan={
-                      productTableColumnCount
-                    }
-                    className="py-16 text-center font-bold text-slate-400"
-                  >
+                  ) : null}
+                  <th className={tableHeaderSpacing}>
                     {t(
-                      "common.loading"
+                      "products.columns.action"
                     )}
-                  </td>
+                  </th>
                 </tr>
-              ) : null}
-
-              {productsQuery.isError ? (
-                <tr>
-                  <td
-                    colSpan={
-                      productTableColumnCount
-                    }
-                    className="py-14 text-center"
-                  >
-                    <div className="mx-auto max-w-md rounded-2xl bg-rose-50 p-5">
-                      <p className="font-black text-rose-900">
+              </thead>
+  
+              <tbody className="divide-y divide-slate-100">
+                {productsQuery.isLoading ? (
+                  <tr>
+                    <td
+                      colSpan={
+                        productTableColumnCount
+                      }
+                      className="py-16 text-center font-bold text-slate-400"
+                    >
+                      {t(
+                        "common.loading"
+                      )}
+                    </td>
+                  </tr>
+                ) : null}
+  
+                {productsQuery.isError ? (
+                  <tr>
+                    <td
+                      colSpan={
+                        productTableColumnCount
+                      }
+                      className="py-14 text-center"
+                    >
+                      <div className="mx-auto max-w-md rounded-2xl bg-rose-50 p-5">
+                        <p className="font-black text-rose-900">
+                          {t(
+                            "products.errors.listLoadTitle"
+                          )}
+                        </p>
+                        <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
+                          {t(
+                            "products.errors.listLoadDescription"
+                          )}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void productsQuery.refetch()
+                          }
+                          className="mt-3 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-800"
+                        >
+                          {t(
+                            "common.retry"
+                          )}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+  
+                {!productsQuery.isLoading &&
+                !productsQuery.isError &&
+                !page?.items.length ? (
+                  <tr>
+                    <td
+                      colSpan={
+                        productTableColumnCount
+                      }
+                      className="py-16 text-center"
+                    >
+                      <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+                      <p className="font-black text-slate-700">
                         {t(
-                          "products.errors.listLoadTitle"
+                          "products.emptyTitle"
                         )}
                       </p>
-                      <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
+                      <p className="mt-1 text-xs text-slate-400">
                         {t(
-                          "products.errors.listLoadDescription"
+                          "products.emptyDescription"
                         )}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void productsQuery.refetch()
-                        }
-                        className="mt-3 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-800"
-                      >
-                        {t(
-                          "common.retry"
-                        )}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
-
-              {!productsQuery.isLoading &&
-              !productsQuery.isError &&
-              !page?.items.length ? (
-                <tr>
-                  <td
-                    colSpan={
-                      productTableColumnCount
-                    }
-                    className="py-16 text-center"
-                  >
-                    <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                    <p className="font-black text-slate-700">
-                      {t(
-                        "products.emptyTitle"
-                      )}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {t(
-                        "products.emptyDescription"
-                      )}
-                    </p>
-                  </td>
-                </tr>
-              ) : null}
-
-              {page?.items.map(
-                (item) => (
-                  <ProductTableRow
-                    key={item.id}
-                    item={item}
-                    pricingVisible={
-                      pricingVisible
-                    }
-                    canEditPrice={
-                      canEditSimplePrice
-                    }
-                    canEditTracking={
-                      canManageCatalog
-                    }
-                    onOpenDetails={
-                      setDetailProduct
-                    }
-                    onEditPrice={
-                      openPriceEditor
-                    }
-                    onEditTracking={
-                      openTrackingEditor
-                    }
-                  />
-                )
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </td>
+                  </tr>
+                ) : null}
+  
+                {page?.items.map(
+                  (item) => (
+                    <ProductTableRow
+                      key={item.id}
+                      item={item}
+                      pricingVisible={
+                        pricingVisible
+                      }
+                      canEditPrice={
+                        canEditSimplePrice
+                      }
+                      canEditTracking={
+                        canManageCatalog
+                      }
+                      columns={
+                        visibleColumns
+                      }
+                      density={
+                        displayPreferences
+                          .density
+                      }
+                      onOpenDetails={
+                        setDetailProduct
+                      }
+                      onEditPrice={
+                        openPriceEditor
+                      }
+                      onEditTracking={
+                        openTrackingEditor
+                      }
+                    />
+                  )
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {history.length > 0 ||
         page?.next_cursor ? (
@@ -3061,9 +3524,12 @@ export default function ProductsDashboard() {
                   previous
                 );
               }}
+              aria-label={t(
+                "products.familyPrevious"
+              )}
               className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
             </button>
             <button
               type="button"
@@ -3087,13 +3553,34 @@ export default function ProductsDashboard() {
                   page.next_cursor
                 );
               }}
+              aria-label={t(
+                "products.familyNext"
+              )}
               className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronRight className="h-4 w-4 rtl:rotate-180" />
             </button>
           </div>
         ) : null}
       </section>
+
+      <ProductDisplayPreferencesModal
+        open={displayPreferencesOpen}
+        preferences={
+          displayPreferences
+        }
+        pricingAvailable={
+          canViewPricing
+        }
+        onClose={() =>
+          setDisplayPreferencesOpen(
+            false
+          )
+        }
+        onSave={
+          saveDisplayPreferences
+        }
+      />
 
       <ProductDetailDrawer
         product={detailProduct}
@@ -3109,6 +3596,10 @@ export default function ProductsDashboard() {
         }
         canManageAdvancedUom={
           canManageCatalog
+        }
+        detailSections={
+          displayPreferences
+            .detailSections
         }
         onClose={() =>
           setDetailProduct(null)
@@ -3265,9 +3756,7 @@ export default function ProductsDashboard() {
                 !draft.lot_control_mode ||
                 !draft.expiry_control_mode
               }
-              onClick={() =>
-                createMutation.mutate()
-              }
+              onClick={submitCreate}
               className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
             >
               {t(
@@ -3292,10 +3781,11 @@ export default function ProductsDashboard() {
                 "products.productName"
               )}
               <input
+                ref={createNameRef}
                 value={draft.name}
                 onChange={(
                   event
-                ) =>
+                ) => {
                   setDraft(
                     (current) => ({
                       ...current,
@@ -3303,13 +3793,41 @@ export default function ProductsDashboard() {
                         event.target
                           .value,
                     })
-                  )
-                }
+                  );
+                  if (
+                    createFieldError?.field ===
+                    "name"
+                  ) {
+                    setCreateFieldError(null);
+                  }
+                }}
                 placeholder={t(
                   "products.productNamePlaceholder"
                 )}
+                aria-invalid={
+                  createFieldError?.field ===
+                  "name"
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  createFieldError?.field ===
+                  "name"
+                    ? "product-name-error"
+                    : undefined
+                }
                 className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none"
               />
+              {createFieldError?.field ===
+              "name" ? (
+                <span
+                  id="product-name-error"
+                  role="alert"
+                  className="mt-1 block text-[11px] font-bold text-rose-700"
+                >
+                  {createFieldError.message}
+                </span>
+              ) : null}
             </label>
 
             <label className="text-xs font-black text-slate-600">
@@ -3535,13 +4053,14 @@ export default function ProductsDashboard() {
                   "products.unitsPerPackage"
                 )}
                 <input
+                  ref={createUnitsRef}
                   inputMode="numeric"
                   value={
                     draft.units_per_package
                   }
                   onChange={(
                     event
-                  ) =>
+                  ) => {
                     setDraft(
                       (current) => ({
                         ...current,
@@ -3549,10 +4068,38 @@ export default function ProductsDashboard() {
                           event.target
                             .value,
                       })
-                    )
+                    );
+                    if (
+                      createFieldError?.field ===
+                      "units"
+                    ) {
+                      setCreateFieldError(null);
+                    }
+                  }}
+                  aria-invalid={
+                    createFieldError?.field ===
+                    "units"
+                      ? "true"
+                      : undefined
+                  }
+                  aria-describedby={
+                    createFieldError?.field ===
+                    "units"
+                      ? "product-units-error"
+                      : undefined
                   }
                   className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold"
                 />
+                {createFieldError?.field ===
+                "units" ? (
+                  <span
+                    id="product-units-error"
+                    role="alert"
+                    className="mt-1 block text-[11px] font-bold text-rose-700"
+                  >
+                    {createFieldError.message}
+                  </span>
+                ) : null}
               </label>
             </div>
           ) : null}
@@ -3569,13 +4116,14 @@ export default function ProductsDashboard() {
                   )}
                 </span>
                 <input
+                  ref={createPackagePriceRef}
                   inputMode="decimal"
                   value={
                     draft.package_price
                   }
                   onChange={(
                     event
-                  ) =>
+                  ) => {
                     setDraft(
                       (current) => ({
                         ...current,
@@ -3583,13 +4131,41 @@ export default function ProductsDashboard() {
                           event.target
                             .value,
                       })
-                    )
-                  }
+                    );
+                    if (
+                      createFieldError?.field ===
+                      "packagePrice"
+                    ) {
+                      setCreateFieldError(null);
+                    }
+                  }}
                   placeholder={t(
                     "products.packagePricePlaceholder"
                   )}
+                  aria-invalid={
+                    createFieldError?.field ===
+                    "packagePrice"
+                      ? "true"
+                      : undefined
+                  }
+                  aria-describedby={
+                    createFieldError?.field ===
+                    "packagePrice"
+                      ? "product-package-price-error"
+                      : undefined
+                  }
                   className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-black"
                 />
+                {createFieldError?.field ===
+                "packagePrice" ? (
+                  <span
+                    id="product-package-price-error"
+                    role="alert"
+                    className="mt-1 block text-[11px] font-bold text-rose-700"
+                  >
+                    {createFieldError.message}
+                  </span>
+                ) : null}
               </label>
             ) : null}
 
@@ -3605,13 +4181,14 @@ export default function ProductsDashboard() {
                 </span>
               ) : null}
               <input
+                ref={createUnitPriceRef}
                 inputMode="decimal"
                 value={
                   draft.unit_price
                 }
                 onChange={(
                   event
-                ) =>
+                ) => {
                   setDraft(
                     (current) => ({
                       ...current,
@@ -3619,13 +4196,41 @@ export default function ProductsDashboard() {
                         event.target
                           .value,
                     })
-                  )
-                }
+                  );
+                  if (
+                    createFieldError?.field ===
+                    "unitPrice"
+                  ) {
+                    setCreateFieldError(null);
+                  }
+                }}
                 placeholder={t(
                   "products.unitPricePlaceholder"
                 )}
+                aria-invalid={
+                  createFieldError?.field ===
+                  "unitPrice"
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  createFieldError?.field ===
+                  "unitPrice"
+                    ? "product-unit-price-error"
+                    : undefined
+                }
                 className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-black"
               />
+              {createFieldError?.field ===
+              "unitPrice" ? (
+                <span
+                  id="product-unit-price-error"
+                  role="alert"
+                  className="mt-1 block text-[11px] font-bold text-rose-700"
+                >
+                  {createFieldError.message}
+                </span>
+              ) : null}
             </label>
           </div>
 
@@ -3890,6 +4495,7 @@ export default function ProductsDashboard() {
             setPriceEdit(
               null
             );
+            setPriceFieldError(null);
           }
         }}
         title={`${t(
@@ -3920,9 +4526,7 @@ export default function ProductsDashboard() {
                 priceMutation.isPending ||
                 !isOnline
               }
-              onClick={() =>
-                priceMutation.mutate()
-              }
+              onClick={submitPriceEdit}
               className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
             >
               {t(
@@ -3946,19 +4550,48 @@ export default function ProductsDashboard() {
                   "products.packagePrice"
                 )}
                 <input
+                  ref={editPackagePriceRef}
                   inputMode="decimal"
                   value={
                     editPackagePrice
                   }
                   onChange={(
                     event
-                  ) =>
+                  ) => {
                     setEditPackagePrice(
                       event.target.value
-                    )
+                    );
+                    if (
+                      priceFieldError?.field ===
+                      "packagePrice"
+                    ) {
+                      setPriceFieldError(null);
+                    }
+                  }}
+                  aria-invalid={
+                    priceFieldError?.field ===
+                    "packagePrice"
+                      ? "true"
+                      : undefined
+                  }
+                  aria-describedby={
+                    priceFieldError?.field ===
+                    "packagePrice"
+                      ? "edit-package-price-error"
+                      : undefined
                   }
                   className="mt-1.5 w-full rounded-xl border p-2.5 font-black"
                 />
+                {priceFieldError?.field ===
+                "packagePrice" ? (
+                  <span
+                    id="edit-package-price-error"
+                    role="alert"
+                    className="mt-1 block text-[11px] font-bold text-rose-700"
+                  >
+                    {priceFieldError.message}
+                  </span>
+                ) : null}
               </label>
             ) : null}
 
@@ -3967,19 +4600,48 @@ export default function ProductsDashboard() {
                 "products.unitPrice"
               )}
               <input
+                ref={editUnitPriceRef}
                 inputMode="decimal"
                 value={
                   editUnitPrice
                 }
                 onChange={(
                   event
-                ) =>
+                ) => {
                   setEditUnitPrice(
                     event.target.value
-                  )
+                  );
+                  if (
+                    priceFieldError?.field ===
+                    "unitPrice"
+                  ) {
+                    setPriceFieldError(null);
+                  }
+                }}
+                aria-invalid={
+                  priceFieldError?.field ===
+                  "unitPrice"
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  priceFieldError?.field ===
+                  "unitPrice"
+                    ? "edit-unit-price-error"
+                    : undefined
                 }
                 className="mt-1.5 w-full rounded-xl border p-2.5 font-black"
               />
+              {priceFieldError?.field ===
+              "unitPrice" ? (
+                <span
+                  id="edit-unit-price-error"
+                  role="alert"
+                  className="mt-1 block text-[11px] font-bold text-rose-700"
+                >
+                  {priceFieldError.message}
+                </span>
+              ) : null}
             </label>
           </div>
 

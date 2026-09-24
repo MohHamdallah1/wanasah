@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { useState, useEffect, useRef } from "react";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -244,16 +245,16 @@ export function SettlementModal({
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200">
             <p className="text-xs font-bold text-slate-500 mb-1">الكاش المتوقع من النظام</p>
             <p className="text-4xl font-extrabold tabular-nums text-slate-800">
-              {expected.toLocaleString("ar-JO", { minimumFractionDigits: 2 })}
+              {expected.toLocaleString(currentLocale(), { minimumFractionDigits: 2 })}
               <span className="text-lg font-bold text-slate-400 mr-1">د.أ</span>
             </p>
             <div className="flex gap-3 mt-2 text-xs text-slate-500">
               {/* +++ الكي الجراحي: تمرير النصوص للدوال الرياضية يتطلب ParseFloat +++ */}
-              <span>مبيعات: <strong>{parseFloat(report.financials.cash_from_sales || "0").toLocaleString("ar-JO")} د.أ</strong></span>
+              <span>مبيعات: <strong>{parseFloat(report.financials.cash_from_sales || "0").toLocaleString(currentLocale())} د.أ</strong></span>
               <span className="text-slate-300">•</span>
-              <span>ذمم: <strong>{parseFloat(report.financials.cash_from_debts || "0").toLocaleString("ar-JO")} د.أ</strong></span>
+              <span>ذمم: <strong>{parseFloat(report.financials.cash_from_debts || "0").toLocaleString(currentLocale())} د.أ</strong></span>
               <span className="text-slate-300">•</span>
-              <span>فروقات مخزنية: <strong>{parseFloat(report.financials.inventory_shortage_cash || "0").toLocaleString("ar-JO")} د.أ</strong></span>
+              <span>فروقات مخزنية: <strong>{parseFloat(report.financials.inventory_shortage_cash || "0").toLocaleString(currentLocale())} د.أ</strong></span>
             </div>
           </div>
 

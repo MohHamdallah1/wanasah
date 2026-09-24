@@ -21,6 +21,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import {
   parseLiveStockFamilies,
@@ -109,7 +110,7 @@ export function Tab1LiveStock({
 }: Props) {
   const authFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
-  const locale = i18n.resolvedLanguage || i18n.language || "en";
+  const locale = resolveI18nLocale(i18n);
 
   const [searchInput, setSearchInput] = useState("");
   const [familySearch, setFamilySearch] = useState("");

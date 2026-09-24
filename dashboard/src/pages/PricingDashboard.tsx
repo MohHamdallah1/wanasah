@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -153,7 +154,7 @@ const formatDate = (value: string | null) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "—"
-    : new Intl.DateTimeFormat("ar", {
+    : new Intl.DateTimeFormat(currentLocale(), {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(date);

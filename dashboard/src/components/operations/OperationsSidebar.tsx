@@ -25,6 +25,8 @@ import {
   useTenantIdentity,
 } from "@/features/tenantIdentity/useTenantIdentity";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
+import { resolveI18nLocale } from "@/lib/locale";
 
 interface OperationsSidebarProps {
   open: boolean;
@@ -89,9 +91,7 @@ export function OperationsSidebar({
     tenantIdentity.data?.display_location ||
     t("nav.locationUnknown");
   const locale =
-    i18n.language.startsWith("ar")
-      ? "ar-JO"
-      : "en-US";
+    resolveI18nLocale(i18n);
   const currentDate = formatTenantDate(
     tenantIdentity.data?.timezone,
     locale
@@ -222,7 +222,7 @@ export function OperationsSidebar({
       }
     }
 
-    localStorage.clear();
+    clearLocalStoragePreservingLoginHintsAndPreferences();
     sessionStorage.clear();
     window.location.replace(
       "/login"

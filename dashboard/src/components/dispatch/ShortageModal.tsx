@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { useState, useMemo } from "react";
 import {
   Minus, Plus, Trash2, Pencil, ChevronDown, ChevronUp,
@@ -93,8 +94,8 @@ function formatTimestamp(isoStr?: string | null): string {
   else if (diffHrs < 24) relative = `منذ ${diffHrs} ساعة`;
   else relative = `منذ ${Math.floor(diffHrs / 24)} يوم`;
 
-  const timeStr = date.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit", hour12: true });
-  const dateStr = date.toLocaleDateString("ar-EG", { day: "numeric", month: "short" });
+  const timeStr = date.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit", hour12: true });
+  const dateStr = date.toLocaleDateString(currentLocale(), { day: "numeric", month: "short" });
 
   return `${relative}  •  ${timeStr}، ${dateStr}`;
 }
