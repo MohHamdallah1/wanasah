@@ -207,11 +207,17 @@ const assignmentFallbackKey = (
 
 const parseAssignmentMutation = (
   raw: unknown,
-  *,
-  variantId: number,
-  locationId: number,
-  assignmentId?: number,
+  options: {
+    variantId: number;
+    locationId: number;
+    assignmentId?: number;
+  },
 ): ProductLocationAssignment => {
+  const {
+    variantId,
+    locationId,
+    assignmentId,
+  } = options;
   parseMutationMessage(raw);
   if (
     raw === null ||
@@ -256,10 +262,15 @@ const parseAssignmentMutation = (
 
 const parseAssignmentDelete = (
   raw: unknown,
-  *,
-  assignmentId: number,
-  locationId: number,
+  options: {
+    assignmentId: number;
+    locationId: number;
+  },
 ) => {
+  const {
+    assignmentId,
+    locationId,
+  } = options;
   parseMutationMessage(raw);
   if (
     raw === null ||

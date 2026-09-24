@@ -80,6 +80,31 @@ def _hash(payload: BaseModel, **scope: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _delete_hash(
+    payload: ProductLocationDelete,
+    *,
+    product_location_id: int,
+) -> str:
+    # Preserve the pre-location_id request hash for old clients/replays.
+    # New clients include location_id so replay can re-authorize exactly
+    # after the ProductLocation row itself has been deleted.
+    body = payload.model_dump(
+        mode="json",
+        exclude={"request_id"},
+        exclude_none=True,
+    )
+    body["product_location_id"] = product_location_id
+    raw = json.dumps(
+        body,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(
+        raw.encode("utf-8")
+    ).hexdigest()
+
+
 def _cursor(value: Optional[str]) -> int:
     if value is None:
         return 0
@@ -297,7 +322,7 @@ async def delete_product_location(
             actor_id=actor.id,
             operation="PRODUCT_LOCATION_DELETE",
             request_id=str(payload.request_id),
-            request_hash=_hash(
+            request_hash=_delete_hash(
                 payload,
                 product_location_id=product_location_id,
             ),
