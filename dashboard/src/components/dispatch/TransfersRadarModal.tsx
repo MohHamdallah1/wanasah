@@ -1,3 +1,4 @@
+import { currentLocale } from "@/i18n";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -72,7 +73,7 @@ const parseTransferTime = (
 
   return {
     timestamp: date.getTime(),
-    formatted: date.toLocaleString("ar-EG", {
+    formatted: date.toLocaleString(currentLocale(), {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
