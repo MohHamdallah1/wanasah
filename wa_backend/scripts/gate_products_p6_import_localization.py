@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import sys
 from pathlib import Path
 
@@ -102,12 +101,20 @@ def static_checks() -> None:
         "downloaded template derives headers from UI translations",
     )
 
+    report_start = page.index(
+        "const downloadErrorReport"
+    )
+    report_end = page.index(
+        "const downloadTemplate",
+        report_start,
+    )
+    report_source = page[
+        report_start:report_end
+    ]
     check(
-        "row.code" in page
-        and "i18n.exists(key)" in page
-        and "row.message" not in inspect.getsource(
-            lambda: None
-        ),
+        "row.code" in report_source
+        and "i18n.exists(key)" in report_source
+        and "row.message" not in report_source,
         "error report localization is code-driven",
     )
 
