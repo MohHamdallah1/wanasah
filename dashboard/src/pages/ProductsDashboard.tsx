@@ -1100,6 +1100,7 @@ export default function ProductsDashboard() {
   const openPriceEditor = (
     product: SimpleProduct
   ) => {
+    setPriceFieldError(null);
     setPriceEdit(product);
     setEditPackagePrice(
       product.package_price ?? ""
@@ -4229,19 +4230,48 @@ export default function ProductsDashboard() {
                   "products.packagePrice"
                 )}
                 <input
+                  ref={editPackagePriceRef}
                   inputMode="decimal"
                   value={
                     editPackagePrice
                   }
                   onChange={(
                     event
-                  ) =>
+                  ) => {
                     setEditPackagePrice(
                       event.target.value
-                    )
+                    );
+                    if (
+                      priceFieldError?.field ===
+                      "packagePrice"
+                    ) {
+                      setPriceFieldError(null);
+                    }
+                  }
+                  aria-invalid={
+                    priceFieldError?.field ===
+                    "packagePrice"
+                      ? "true"
+                      : undefined
+                  }
+                  aria-describedby={
+                    priceFieldError?.field ===
+                    "packagePrice"
+                      ? "edit-package-price-error"
+                      : undefined
                   }
                   className="mt-1.5 w-full rounded-xl border p-2.5 font-black"
                 />
+                {priceFieldError?.field ===
+                "packagePrice" ? (
+                  <span
+                    id="edit-package-price-error"
+                    role="alert"
+                    className="mt-1 block text-[11px] font-bold text-rose-700"
+                  >
+                    {priceFieldError.message}
+                  </span>
+                ) : null}
               </label>
             ) : null}
 
@@ -4250,19 +4280,48 @@ export default function ProductsDashboard() {
                 "products.unitPrice"
               )}
               <input
+                ref={editUnitPriceRef}
                 inputMode="decimal"
                 value={
                   editUnitPrice
                 }
                 onChange={(
                   event
-                ) =>
+                ) => {
                   setEditUnitPrice(
                     event.target.value
-                  )
+                  );
+                  if (
+                    priceFieldError?.field ===
+                    "unitPrice"
+                  ) {
+                    setPriceFieldError(null);
+                  }
+                }
+                aria-invalid={
+                  priceFieldError?.field ===
+                  "unitPrice"
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  priceFieldError?.field ===
+                  "unitPrice"
+                    ? "edit-unit-price-error"
+                    : undefined
                 }
                 className="mt-1.5 w-full rounded-xl border p-2.5 font-black"
               />
+              {priceFieldError?.field ===
+              "unitPrice" ? (
+                <span
+                  id="edit-unit-price-error"
+                  role="alert"
+                  className="mt-1 block text-[11px] font-bold text-rose-700"
+                >
+                  {priceFieldError.message}
+                </span>
+              ) : null}
             </label>
           </div>
 
