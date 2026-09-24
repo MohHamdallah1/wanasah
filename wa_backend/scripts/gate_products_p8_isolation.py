@@ -385,7 +385,7 @@ async def seed_isolation_fixture(
                     "updated_at) "
                     "VALUES "
                     "(:company_id, :job_id, 2, "
-                    ":raw_data::jsonb, '{}'::jsonb, "
+                    "CAST(:raw_data AS jsonb), '{}'::jsonb, "
                     "'STAGED', 1, NOW(), NOW())"
                 ),
                 {
