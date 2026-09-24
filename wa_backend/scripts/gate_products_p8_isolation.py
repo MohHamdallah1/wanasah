@@ -110,6 +110,18 @@ async def seed_isolation_fixture(
                 "catalog.manage",
             )
         )
+        publish_permission_id, publish_created = (
+            await ensure_permission(
+                su,
+                "catalog.publish",
+            )
+        )
+        pricing_manage_permission_id, pricing_manage_created = (
+            await ensure_permission(
+                su,
+                "pricing.manage",
+            )
+        )
 
         carton_uom_id = int(
             (
@@ -194,6 +206,8 @@ async def seed_isolation_fixture(
                 ]
             ),
             manage_permission_id,
+            publish_permission_id,
+            pricing_manage_permission_id,
         ):
             await su.execute(
                 text(
@@ -421,6 +435,14 @@ async def seed_isolation_fixture(
             manage_permission_id,
         "manage_permission_created":
             manage_created,
+        "publish_permission_id":
+            publish_permission_id,
+        "publish_permission_created":
+            publish_created,
+        "pricing_manage_permission_id":
+            pricing_manage_permission_id,
+        "pricing_manage_permission_created":
+            pricing_manage_created,
     }
 
 
@@ -974,14 +996,30 @@ async def cleanup_fixture(
         if not base_ok:
             return False, base_detail
 
-        if bool(
-            fixture.get(
+        created_permission_keys = (
+            (
                 "manage_permission_created",
-                False,
-            )
-        ):
-            async with p2_gate.SessionSU() as su:
-                await su.begin()
+                "manage_permission_id",
+            ),
+            (
+                "publish_permission_created",
+                "publish_permission_id",
+            ),
+            (
+                "pricing_manage_permission_created",
+                "pricing_manage_permission_id",
+            ),
+        )
+        async with p2_gate.SessionSU() as su:
+            await su.begin()
+            for created_key, permission_key in created_permission_keys:
+                if not bool(
+                    fixture.get(
+                        created_key,
+                        False,
+                    )
+                ):
+                    continue
                 await su.execute(
                     text(
                         "DELETE FROM permissions AS p "
@@ -995,12 +1033,12 @@ async def cleanup_fixture(
                     {
                         "permission_id": int(
                             fixture[
-                                "manage_permission_id"
+                                permission_key
                             ]
                         )
                     },
                 )
-                await su.commit()
+            await su.commit()
 
         return True, ""
     except Exception as exc:
