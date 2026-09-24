@@ -3460,10 +3460,11 @@ export default function ProductsDashboard() {
                 "products.productName"
               )}
               <input
+                ref={createNameRef}
                 value={draft.name}
                 onChange={(
                   event
-                ) =>
+                ) => {
                   setDraft(
                     (current) => ({
                       ...current,
@@ -3471,13 +3472,41 @@ export default function ProductsDashboard() {
                         event.target
                           .value,
                     })
-                  )
+                  );
+                  if (
+                    createFieldError?.field ===
+                    "name"
+                  ) {
+                    setCreateFieldError(null);
+                  }
                 }
                 placeholder={t(
                   "products.productNamePlaceholder"
                 )}
+                aria-invalid={
+                  createFieldError?.field ===
+                  "name"
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  createFieldError?.field ===
+                  "name"
+                    ? "product-name-error"
+                    : undefined
+                }
                 className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none"
               />
+              {createFieldError?.field ===
+              "name" ? (
+                <span
+                  id="product-name-error"
+                  role="alert"
+                  className="mt-1 block text-[11px] font-bold text-rose-700"
+                >
+                  {createFieldError.message}
+                </span>
+              ) : null}
             </label>
 
             <label className="text-xs font-black text-slate-600">
@@ -3703,13 +3732,14 @@ export default function ProductsDashboard() {
                   "products.unitsPerPackage"
                 )}
                 <input
+                  ref={createUnitsRef}
                   inputMode="numeric"
                   value={
                     draft.units_per_package
                   }
                   onChange={(
                     event
-                  ) =>
+                  ) => {
                     setDraft(
                       (current) => ({
                         ...current,
@@ -3717,10 +3747,38 @@ export default function ProductsDashboard() {
                           event.target
                             .value,
                       })
-                    )
+                    );
+                    if (
+                      createFieldError?.field ===
+                      "units"
+                    ) {
+                      setCreateFieldError(null);
+                    }
+                  }
+                  aria-invalid={
+                    createFieldError?.field ===
+                    "units"
+                      ? "true"
+                      : undefined
+                  }
+                  aria-describedby={
+                    createFieldError?.field ===
+                    "units"
+                      ? "product-units-error"
+                      : undefined
                   }
                   className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold"
                 />
+                {createFieldError?.field ===
+                "units" ? (
+                  <span
+                    id="product-units-error"
+                    role="alert"
+                    className="mt-1 block text-[11px] font-bold text-rose-700"
+                  >
+                    {createFieldError.message}
+                  </span>
+                ) : null}
               </label>
             </div>
           ) : null}
@@ -3737,13 +3795,14 @@ export default function ProductsDashboard() {
                   )}
                 </span>
                 <input
+                  ref={createPackagePriceRef}
                   inputMode="decimal"
                   value={
                     draft.package_price
                   }
                   onChange={(
                     event
-                  ) =>
+                  ) => {
                     setDraft(
                       (current) => ({
                         ...current,
@@ -3751,13 +3810,41 @@ export default function ProductsDashboard() {
                           event.target
                             .value,
                       })
-                    )
+                    );
+                    if (
+                      createFieldError?.field ===
+                      "packagePrice"
+                    ) {
+                      setCreateFieldError(null);
+                    }
                   }
                   placeholder={t(
                     "products.packagePricePlaceholder"
                   )}
+                  aria-invalid={
+                    createFieldError?.field ===
+                    "packagePrice"
+                      ? "true"
+                      : undefined
+                  }
+                  aria-describedby={
+                    createFieldError?.field ===
+                    "packagePrice"
+                      ? "product-package-price-error"
+                      : undefined
+                  }
                   className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-black"
                 />
+                {createFieldError?.field ===
+                "packagePrice" ? (
+                  <span
+                    id="product-package-price-error"
+                    role="alert"
+                    className="mt-1 block text-[11px] font-bold text-rose-700"
+                  >
+                    {createFieldError.message}
+                  </span>
+                ) : null}
               </label>
             ) : null}
 
@@ -3773,13 +3860,14 @@ export default function ProductsDashboard() {
                 </span>
               ) : null}
               <input
+                ref={createUnitPriceRef}
                 inputMode="decimal"
                 value={
                   draft.unit_price
                 }
                 onChange={(
                   event
-                ) =>
+                ) => {
                   setDraft(
                     (current) => ({
                       ...current,
@@ -3787,13 +3875,41 @@ export default function ProductsDashboard() {
                         event.target
                           .value,
                     })
-                  )
+                  );
+                  if (
+                    createFieldError?.field ===
+                    "unitPrice"
+                  ) {
+                    setCreateFieldError(null);
+                  }
                 }
                 placeholder={t(
                   "products.unitPricePlaceholder"
                 )}
+                aria-invalid={
+                  createFieldError?.field ===
+                  "unitPrice"
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  createFieldError?.field ===
+                  "unitPrice"
+                    ? "product-unit-price-error"
+                    : undefined
+                }
                 className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-black"
               />
+              {createFieldError?.field ===
+              "unitPrice" ? (
+                <span
+                  id="product-unit-price-error"
+                  role="alert"
+                  className="mt-1 block text-[11px] font-bold text-rose-700"
+                >
+                  {createFieldError.message}
+                </span>
+              ) : null}
             </label>
           </div>
 
