@@ -1408,7 +1408,7 @@ Do not work on all items randomly.
 
 # 54. Immediate next task
 
-Phase P7 implementation is complete. Perform the **P7 close-out review / gate synchronization** next; do not start P8 until P7 is reviewed and merged.
+Phase P7 close-out review is complete. Open/review the **P7 pull request**, merge it to `main` after repository checks are green, then verify local/GitHub alignment before starting P8.
 
 Current P7 state:
 
@@ -1510,6 +1510,20 @@ Verified P7 Products configurable display-preferences checkpoint:
 - Production build passed in 13.63s.
 - Scope is Products P7; these are user-scoped display preferences, not company-wide business policy.
 
+Verified P7 close-out review checkpoint:
+
+- `feat/products-i18n-accessibility-p7` is based directly on current `main` with no behind commits at close-out review time.
+- Branch compare at review: 131 commits ahead / 0 behind, with 59 changed files.
+- Product P7 implementation trackers are all complete: locale resolver, translation keys, RTL/LTR, accessibility, responsive polish, and configurable display preferences.
+- No `[~]` implementation item remains in the Products plan; the only `[~]` text left is the legend definition.
+- No TODO/FIXME/HACK/XXX marker exists in the reviewed touched Product production files; the plan's release-gate checklist text itself still contains the word TODO by design.
+- Non-Product frontend changes in this branch were reviewed: they are the generic locale-resolver rollout needed to remove hardcoded regional formatting assumptions.
+- Catalog-contract changes were reviewed as stable coded-error normalization supporting bilingual Product error presentation.
+- Login/TopBar/Sidebar storage changes were reviewed as the intentional company-code hint and user-scoped display-preference persistence behavior.
+- Repository governance additions (`ARCHITECTURE.md`, `.rules`, `AGENTS.md`, and Foundation Stage 12) are intentional changes requested during this branch and must be called out explicitly in the P7 PR.
+- Latest verified local gate before close-out: TypeScript PASS; Product targeted 19 files / 117 tests; full dashboard 30 files / 182 tests; production build PASS in 13.63s.
+- P8 remains unopened; its benchmark/security/release work is not claimed by this checkpoint.
+
 Next implementation order:
 
 1. Translation-key audit is complete and verified.
@@ -1518,6 +1532,7 @@ Next implementation order:
 4. Responsive polish is complete and verified for Products surfaces.
 5. Configurable display preferences are complete and verified.
 6. P7 implementation is complete.
-7. Perform P7 close-out review / gate synchronization, then merge P7 before moving to Phase P8.
+7. P7 close-out review / gate synchronization is complete.
+8. Open/review the P7 PR, merge it after repository checks are green, then verify local `main == origin/main` before starting P8.
 
 Do not start P8 until P7 is complete, reviewed, and merged to `main`.
