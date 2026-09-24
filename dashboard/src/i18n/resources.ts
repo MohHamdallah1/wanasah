@@ -122,6 +122,7 @@ export const resources = {
           noVariants: "لا توجد أصناف مطابقة.",
           selectVariant: "اختر SKU لعرض تحويلات وحدات القياس.",
           variantLoadFailed: "تعذر تحميل الصنف المطلوب.",
+          variantNotFound: "الصنف المطلوب غير موجود أو لم يعد متاحاً.",
           baseUom: "وحدة الأساس",
           lockedAfterPublish:
             "تم نشر هذا الصنف، لذلك أصبحت بنية وحدات القياس غير قابلة للتعديل حفاظاً على السجل التشغيلي. يمكنك مراجعة التحويلات فقط.",
@@ -1090,6 +1091,7 @@ export const resources = {
           noVariants: "No matching SKUs.",
           selectVariant: "Select a SKU to review its UOM conversions.",
           variantLoadFailed: "Could not load the selected SKU.",
+          variantNotFound: "The selected SKU does not exist or is no longer available.",
           baseUom: "Base unit",
           lockedAfterPublish:
             "This SKU has been published, so its unit structure is locked to protect operational history. You can still review the conversions.",
