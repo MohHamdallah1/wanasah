@@ -53,10 +53,13 @@ describe("product import tracking workflow", () => {
     const importModal = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductModal.tsx"),
     );
+    const importHelpers = normalizeWhitespace(
+      readSource("../pages/products/import/helpers.ts"),
+    );
     const translations = readSource("../i18n/resources.ts");
 
-    expect(page).toContain(
-      "importTrackingUsesCompanyDefaults",
+    expect(importHelpers).toContain(
+      "usesCompanyImportTrackingDefaults",
     );
     expect(importModal).toContain(
       "!trackingExpanded ?",
@@ -92,9 +95,12 @@ describe("product import tracking workflow", () => {
     const importModal = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductModal.tsx"),
     );
+    const importDownloads = normalizeWhitespace(
+      readSource("../pages/products/import/createImportDownloads.ts"),
+    );
     const translations = readSource("../i18n/resources.ts");
 
-    expect(page).toContain(
+    expect(importDownloads).toContain(
       '"products.tracking.importValues.REQUIRED"',
     );
     expect(importModal).toContain(
