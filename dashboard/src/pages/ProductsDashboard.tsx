@@ -37,13 +37,9 @@ import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { deriveProductsCapabilities } from "@/pages/products/deriveProductsCapabilities";
 import { useProductsIdentityScopeReset } from "@/pages/products/useProductsIdentityScopeReset";
 import { useProductRenameState } from "@/pages/products/rename/useProductRenameState";
-import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
-import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
-import { createProductTrackingActions } from "@/pages/products/tracking/createProductTrackingActions";
-import { useProductTrackingEditState } from "@/pages/products/tracking/useProductTrackingEditState";
-import { useProductTrackingMutations } from "@/pages/products/tracking/useProductTrackingMutations";
+import { ProductTrackingOverlays } from "@/pages/products/tracking/ProductTrackingOverlays";
+import { useProductTrackingWorkflow } from "@/pages/products/tracking/useProductTrackingWorkflow";
 import { useTrackingDefaultsQuery } from "@/pages/products/tracking/useTrackingDefaultsQuery";
-import { useTrackingDefaultsState } from "@/pages/products/tracking/useTrackingDefaultsState";
 
 export default function ProductsDashboard() {
   const { t, i18n } =
@@ -136,16 +132,6 @@ export default function ProductsDashboard() {
     useProductDisplayPreferencesState();
 
   const {
-    trackingDefaultsOpen,
-    setTrackingDefaultsOpen,
-    trackingDefaultsLot,
-    setTrackingDefaultsLot,
-    trackingDefaultsExpiry,
-    setTrackingDefaultsExpiry,
-    closeTrackingDefaults,
-  } = useTrackingDefaultsState();
-
-  const {
     detailProduct,
     setDetailProduct,
     openProductDetails,
@@ -168,16 +154,6 @@ export default function ProductsDashboard() {
     openLifecycleManager,
     closeLifecycleManager,
   } = useProductLifecycleState();
-  const {
-    trackingEdit,
-    setTrackingEdit,
-    trackingEditLot,
-    setTrackingEditLot,
-    trackingEditExpiry,
-    setTrackingEditExpiry,
-    closeTrackingEditor,
-  } = useProductTrackingEditState();
-
   const {
     familiesOpen,
     openFamilies,
@@ -280,6 +256,20 @@ export default function ProductsDashboard() {
       online: isOnline,
     });
 
+  const trackingWorkflow =
+    useProductTrackingWorkflow({
+      companyId,
+      driverId,
+      authFetch,
+      queryClient,
+      t,
+      online: isOnline,
+      defaults:
+        trackingDefaultsQuery.data,
+      importTrackingBridge:
+        importWorkflow.trackingMutationScope,
+    });
+
   useProductsIdentityScopeReset({
     companyId,
     driverId,
@@ -315,14 +305,8 @@ export default function ProductsDashboard() {
       importWorkflow.identityScope,
     create:
       createWorkflow.identityScope,
-    tracking: {
-      setTrackingDefaultsOpen,
-      setTrackingDefaultsLot,
-      setTrackingDefaultsExpiry,
-      setTrackingEdit,
-      setTrackingEditLot,
-      setTrackingEditExpiry,
-    },
+    tracking:
+      trackingWorkflow.identityScope,
   });
 
   const page =
@@ -391,21 +375,6 @@ export default function ProductsDashboard() {
   });
 
   const {
-    openTrackingDefaults,
-    openTrackingEditor,
-  } = createProductTrackingActions({
-    defaults:
-      trackingDefaultsQuery.data,
-    setTrackingDefaultsOpen,
-    setTrackingDefaultsLot,
-    setTrackingDefaultsExpiry,
-    setTrackingEdit,
-    setTrackingEditLot,
-    setTrackingEditExpiry,
-    t,
-  });
-
-  const {
     renameProductFromDetails,
     editPriceFromDetails,
     editTrackingFromDetails,
@@ -417,7 +386,8 @@ export default function ProductsDashboard() {
     openRenameProduct,
     openPriceEditor:
       priceWorkflow.openPriceEditor,
-    openTrackingEditor,
+    openTrackingEditor:
+      trackingWorkflow.openTrackingEditor,
     openLifecycleManager,
     openBarcodeManager,
     navigate,
@@ -433,29 +403,6 @@ export default function ProductsDashboard() {
     setSortDir,
     resetProductPagination,
     setDisplayPreferencesOpen,
-    t,
-  });
-
-  const {
-    trackingDefaultsMutation,
-    trackingMutation,
-  } = useProductTrackingMutations({
-    trackingDefaultsLot,
-    trackingDefaultsExpiry,
-    trackingEdit,
-    trackingEditLot,
-    trackingEditExpiry,
-    companyId,
-    driverId,
-    authFetch,
-    setTrackingDefaultsOpen,
-    setTrackingDefaultsLot,
-    setTrackingDefaultsExpiry,
-    ...importWorkflow.trackingMutationScope,
-    setTrackingEdit,
-    setTrackingEditLot,
-    setTrackingEditExpiry,
-    queryClient,
     t,
   });
 
@@ -490,7 +437,7 @@ export default function ProductsDashboard() {
           openDisplayPreferences
         }
         onOpenTrackingDefaults={
-          openTrackingDefaults
+          trackingWorkflow.openTrackingDefaults
         }
         onOpenImport={
           importWorkflow.openImport
@@ -597,7 +544,7 @@ export default function ProductsDashboard() {
           onEditPrice:
             priceWorkflow.openPriceEditor,
           onEditTracking:
-            openTrackingEditor,
+            trackingWorkflow.openTrackingEditor,
           onPrevious:
             goPrevious,
           onNext: () =>
@@ -718,74 +665,9 @@ export default function ProductsDashboard() {
         }}
       />
 
-      {trackingDefaultsOpen &&
-      trackingDefaultsLot &&
-      trackingDefaultsExpiry &&
-      trackingDefaultsQuery.data ? (
-        <ProductTrackingSettings
-          open={trackingDefaultsOpen}
-          lotControlMode={
-            trackingDefaultsLot
-          }
-          expiryControlMode={
-            trackingDefaultsExpiry
-          }
-          lotControlSource={
-            trackingDefaultsQuery.data
-              .lot_control_source
-          }
-          expiryControlSource={
-            trackingDefaultsQuery.data
-              .expiry_control_source
-          }
-          saving={
-            trackingDefaultsMutation.isPending
-          }
-          online={isOnline}
-          onLotControlModeChange={
-            setTrackingDefaultsLot
-          }
-          onExpiryControlModeChange={
-            setTrackingDefaultsExpiry
-          }
-          onClose={
-            closeTrackingDefaults
-          }
-          onSave={() =>
-            trackingDefaultsMutation.mutate()
-          }
-        />
-      ) : null}
-
-      {trackingEdit &&
-      trackingEditLot &&
-      trackingEditExpiry ? (
-        <ProductTrackingEditor
-          product={trackingEdit}
-          lotControlMode={
-            trackingEditLot
-          }
-          expiryControlMode={
-            trackingEditExpiry
-          }
-          saving={
-            trackingMutation.isPending
-          }
-          online={isOnline}
-          onLotControlModeChange={
-            setTrackingEditLot
-          }
-          onExpiryControlModeChange={
-            setTrackingEditExpiry
-          }
-          onClose={
-            closeTrackingEditor
-          }
-          onSave={() =>
-            trackingMutation.mutate()
-          }
-        />
-      ) : null}
+      <ProductTrackingOverlays
+        {...trackingWorkflow.overlaysProps}
+      />
 
       <CreateProductModal
         {...createWorkflow.modalProps}
