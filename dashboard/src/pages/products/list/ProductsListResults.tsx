@@ -9,8 +9,8 @@ import type {
   ProductDisplayColumn,
   ProductDisplayDensity,
 } from "@/lib/productDisplayPreferences";
-import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
-import { ProductTableRow } from "@/pages/products/ProductTableRow";
+import { ProductMobileCard } from "@/pages/products/list/ProductMobileCard";
+import { ProductTableRow } from "@/pages/products/list/ProductTableRow";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
