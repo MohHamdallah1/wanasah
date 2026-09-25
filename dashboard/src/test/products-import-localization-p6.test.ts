@@ -84,6 +84,11 @@ describe(
           "../pages/products/import/useImportProductPolling.ts",
         ),
       );
+      const importCommands = compact(
+        readSource(
+          "../pages/products/import/useImportProductCommands.ts",
+        ),
+      );
 
       expect(importPolling).toContain(
         'status.status === "NEEDS_MAPPING"',
@@ -97,8 +102,8 @@ describe(
       expect(importModal).toContain(
         "status.detected_headers.map",
       );
-      expect(page).toMatch(
-        /onMappingChange=\{\s*\(\s*field,\s*value\s*\)\s*=>\s*setMapping\(\s*\(\s*current\s*\)\s*=>\s*\(\{\s*\.\.\.current,\s*\[field\]:\s*value,/,
+      expect(importCommands).toMatch(
+        /const updateMapping = \( field: string, value: string, \) => setMapping\( \(current\) => \(\{ \.\.\.current, \[field\]: value,/,
       );
       expect(importModal).toContain(
         "onMappingChange( field, event.target.value )",
