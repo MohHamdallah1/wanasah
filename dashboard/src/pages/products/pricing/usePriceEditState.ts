@@ -3,6 +3,9 @@ import {
   useState,
 } from "react";
 
+import {
+  deriveExactMoneyPair,
+} from "@/lib/exactMoney";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
@@ -41,6 +44,66 @@ export function usePriceEditState() {
       null
     );
 
+  const openPriceEditor = (
+    product: SimpleProduct
+  ) => {
+    setPriceFieldError(null);
+    setPriceEdit(product);
+    setEditPackagePrice(
+      product.package_price ?? ""
+    );
+    setEditUnitPrice(
+      product.unit_price ?? ""
+    );
+  };
+
+  const cancelPriceEdit =
+    () => {
+      setPriceEdit(null);
+    };
+
+  const updatePackagePrice = (
+    value: string
+  ) => {
+    setEditPackagePrice(
+      value
+    );
+    if (
+      priceFieldError?.field ===
+      "packagePrice"
+    ) {
+      setPriceFieldError(null);
+    }
+  };
+
+  const updateUnitPrice = (
+    value: string
+  ) => {
+    setEditUnitPrice(
+      value
+    );
+    if (
+      priceFieldError?.field ===
+      "unitPrice"
+    ) {
+      setPriceFieldError(null);
+    }
+  };
+
+  const editDerived =
+    priceEdit
+      ? deriveExactMoneyPair(
+          Boolean(
+            priceEdit.package_uom_code
+          ),
+          String(
+            priceEdit.units_per_package
+          ),
+          editPackagePrice,
+          editUnitPrice
+        )
+      : null;
+
   return {
     priceEdit,
     setPriceEdit,
@@ -52,5 +115,10 @@ export function usePriceEditState() {
     setPriceFieldError,
     editPackagePriceRef,
     editUnitPriceRef,
+    openPriceEditor,
+    cancelPriceEdit,
+    updatePackagePrice,
+    updateUnitPrice,
+    editDerived,
   };
 }
