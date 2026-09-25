@@ -10,6 +10,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  Boxes,
   Copy,
   FileSpreadsheet,
   FolderTree,
