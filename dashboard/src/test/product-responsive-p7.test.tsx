@@ -260,6 +260,9 @@ describe(
         read(
           "src/pages/products/pricing/PriceEditModal.tsx",
         ),
+        read(
+          "src/pages/products/display-preferences/ProductDisplayPreferencesModal.tsx",
+        ),
       ];
 
       for (const source of files) {
