@@ -288,6 +288,15 @@ export const resources = {
             RECALL: "استدعاء",
           },
           package: "العبوة",
+          baseUnit: "وحدة المخزون الأساسية",
+          packageConversion:
+            "1 {{package}} = {{units}} {{base}}",
+          unitOnlyStructure:
+            "هذا المنتج يُخزّن ويباع مباشرة بوحدة {{base}} بدون عبوة خارجية.",
+          packageStructureLockedPublished:
+            "بنية الوحدة/العبوة مقفلة بعد النشر. راجع إدارة الوحدات المتقدمة للتفاصيل؛ التعديلات البنيوية متاحة فقط ضمن الحالات التي يسمح بها الكتالوج.",
+          advancedUomManaged:
+            "يُدار عبر الوحدات المتقدمة",
           tracking: "التتبع",
           barcodes: "الباركود",
           pricing: "التسعير",
@@ -1685,6 +1694,15 @@ export const resources = {
             RECALL: "Recall",
           },
           package: "Packaging",
+          baseUnit: "Base stock/selling unit",
+          packageConversion:
+            "1 {{package}} = {{units}} {{base}}",
+          unitOnlyStructure:
+            "This product is stocked and sold directly as {{base}} with no outer package.",
+          packageStructureLockedPublished:
+            "Unit/package structure is locked after publication. Use Advanced UOM for authoritative details; structural edits are available only in catalog states that permit them.",
+          advancedUomManaged:
+            "Managed in Advanced UOM",
           tracking: "Tracking",
           barcodes: "Barcodes",
           pricing: "Pricing",
