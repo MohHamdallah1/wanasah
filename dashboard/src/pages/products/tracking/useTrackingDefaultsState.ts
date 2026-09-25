@@ -20,7 +20,6 @@ export function useTrackingDefaultsState() {
   const [
     trackingDefaultsExpiry,
     setTrackingDefaultsExpiry,
-    closeTrackingDefaults,
   ] = useState<ProductTrackingMode | null>(
     null
   );
@@ -35,5 +34,6 @@ export function useTrackingDefaultsState() {
     setTrackingDefaultsLot,
     trackingDefaultsExpiry,
     setTrackingDefaultsExpiry,
+    closeTrackingDefaults,
   };
 }
