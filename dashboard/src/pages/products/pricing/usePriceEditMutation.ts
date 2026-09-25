@@ -26,6 +26,9 @@ import {
 import type {
   PriceFieldError,
 } from "@/pages/products/pricing/types";
+import {
+  productDurableScope,
+} from "@/pages/products/productDurableScope";
 
 type MutationResult<T> = {
   result: T;
@@ -42,10 +45,8 @@ type Params = {
   priceEdit: SimpleProduct | null;
   editPackagePrice: string;
   editUnitPrice: string;
-  operationScope: (
-    operation: string,
-    target?: string | number,
-  ) => string;
+  companyId: number | null;
+  driverId: number | null;
   authFetch: AuthFetch;
   setPriceEdit: Dispatch<
     SetStateAction<SimpleProduct | null>
@@ -63,7 +64,8 @@ export function usePriceEditMutation({
   priceEdit,
   editPackagePrice,
   editUnitPrice,
-  operationScope,
+  companyId,
+  driverId,
   authFetch,
   setPriceEdit,
   setPriceFieldError,
@@ -112,7 +114,9 @@ export function usePriceEditMutation({
               null,
           };
           const scope =
-            operationScope(
+            productDurableScope(
+              companyId,
+              driverId,
               "product-price",
               priceEdit.id
             );
