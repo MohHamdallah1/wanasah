@@ -242,6 +242,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/create/CreateProductModal.tsx",
       ),
     );
+    const importModal = compact(
+      readSource(
+        "../pages/products/import/ImportProductModal.tsx",
+      ),
+    );
     const translations = readSource(
       "../i18n/resources.ts",
     );
@@ -271,7 +276,10 @@ describe("Products P8 production frontend gate", () => {
       "void familyOptionsQuery.refetch()",
     );
     expect(page).toContain(
-      "importJobId && importPollError ? (",
+      "pollError={ importPollError }",
+    );
+    expect(importModal).toContain(
+      "jobId && pollError ? (",
     );
     expect(page).toContain(
       "setImportPollError( apiErrorMessage(",
