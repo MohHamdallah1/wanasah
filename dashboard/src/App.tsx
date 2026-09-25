@@ -13,7 +13,7 @@ const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
 const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
 const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
 const ProductsPage = lazy(() => import("./pages/products/ProductsPage"));
-const AdvancedUomDashboard = lazy(() => import("./pages/products/AdvancedUomDashboard"));
+const AdvancedUomDashboard = lazy(() => import("./pages/products/advanced-uom/AdvancedUomDashboard"));
 const CommercialRulesDashboard = lazy(() => import("./pages/CommercialRulesDashboard"));
 const SalesReturnsDashboard = lazy(() => import("./pages/SalesReturnsDashboard"));
 const Login = lazy(() => import("./pages/Login"));
