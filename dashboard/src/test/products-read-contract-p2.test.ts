@@ -387,7 +387,7 @@ describe("products P2 read contract", () => {
       "canEditPrice && item.simple_compatible",
     );
     expect(page).toContain(
-      "canEditPrice={ canEditSimplePrice }",
+      "canEditPrice: canEditSimplePrice",
     );
     expect(identityReset).toContain(
       "setCursor(null); setHistory([]);",
