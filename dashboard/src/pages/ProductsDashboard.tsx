@@ -19,7 +19,6 @@ import {
   LockKeyhole,
   PackagePlus,
   RefreshCw,
-  Search,
   Settings2,
   SlidersHorizontal,
   Upload,
@@ -75,6 +74,7 @@ import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayP
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
+import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
@@ -2835,80 +2835,43 @@ export default function ProductsDashboard() {
 
       <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl sm:rounded-[26px]">
         <div className="shrink-0 border-b border-slate-100 p-4">
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-            <div className="relative col-span-2 w-full min-w-0 sm:max-w-md sm:flex-1">
-              <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={searchInput}
-                maxLength={100}
-                onChange={(
-                  event
-                ) =>
-                  setSearchInput(
-                    event.target.value
-                  )
-                }
-                placeholder={t(
-                  "products.searchPlaceholder"
-                )}
-                aria-label={t(
-                  "products.searchPlaceholder"
-                )}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pe-9 ps-3 text-sm font-bold outline-none focus:border-slate-400 focus:bg-white"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() =>
-                setFiltersOpen(
-                  (current) =>
-                    !current
-                )
-              }
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-center text-xs font-black text-slate-700 sm:w-auto"
-            >
-              <Settings2 className="h-4 w-4" />
-              {t(
-                filtersOpen
-                  ? "products.filters.hide"
-                  : "products.filters.show"
-              )}
-            </button>
-            {hasProductListControls ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setFamilyFilterId("");
-                  setFamilyFilterName("");
-                  setFamilyFilterSearchInput("");
-                  setLifecycleFilter("");
-                  setTrackingTypeFilter("");
-                  setCompatibilityFilter("");
-                  setBarcodeFilter("");
-                  setPriceFilter("");
-                  setLotFilter("");
-                  setExpiryFilter("");
-                  setSortBy(
-                    displayPreferences
-                      .defaultSort
-                      .field
-                  );
-                  setSortDir(
-                    displayPreferences
-                      .defaultSort
-                      .direction
-                  );
-                  resetProductPagination();
-                }}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-xs font-black text-slate-600 sm:w-auto"
-              >
-                {t(
-                  "products.filters.clear"
-                )}
-              </button>
-            ) : null}
-          </div>
+          <ProductsListToolbar
+            searchInput={searchInput}
+            filtersOpen={filtersOpen}
+            hasActiveControls={
+              hasProductListControls
+            }
+            onSearchInputChange={
+              setSearchInput
+            }
+            onToggleFilters={() =>
+              setFiltersOpen(
+                (current) =>
+                  !current
+              )
+            }
+            onClearControls={() => {
+              setFamilyFilterId("");
+              setFamilyFilterName("");
+              setFamilyFilterSearchInput("");
+              setLifecycleFilter("");
+              setTrackingTypeFilter("");
+              setCompatibilityFilter("");
+              setBarcodeFilter("");
+              setPriceFilter("");
+              setLotFilter("");
+              setExpiryFilter("");
+              setSortBy(
+                displayPreferences
+                  .defaultSort.field
+              );
+              setSortDir(
+                displayPreferences
+                  .defaultSort.direction
+              );
+              resetProductPagination();
+            }}
+          />
 
           {filtersOpen ? (
             <div className="mt-3 grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:grid-cols-2 xl:grid-cols-4">
