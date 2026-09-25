@@ -18,7 +18,7 @@ import {
 import {
   abandonDurableOperation,
   completeDurableOperation,
-   getOrCreateDurableRequestId,
+  getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
 import {
   parseSimpleProductCreateResponse,
@@ -51,7 +51,7 @@ type Params = {
   draft: ProductDraft;
   familyOptions: ProductFamily[];
   packageUoms: PackageUom[];
-   authFetch: AuthFetch;
+  authFetch: AuthFetch;
   draftStorageKey: string | null;
   companyId: number | null;
   driverId: number | null;
@@ -100,7 +100,7 @@ export function useCreateProductMutation({
   draft,
   familyOptions,
   packageUoms,
-   authFetch,
+  authFetch,
   draftStorageKey,
   companyId,
   driverId,
