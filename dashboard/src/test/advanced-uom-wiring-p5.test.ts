@@ -56,23 +56,28 @@ describe(
           "../pages/products/ProductsPage.tsx",
         ),
       );
+      const header = compact(
+        source(
+          "../pages/products/ProductsPageHeader.tsx",
+        ),
+      );
 
       expect(products).toContain(
         'navigate( "/products/advanced-uom" )',
       );
-      expect(products).toContain(
+      expect(header).toContain(
         '"products.advancedUom.action"',
       );
-      expect(products).toContain(
+      expect(header).toContain(
         '"products.advancedPricing"',
       );
-      expect(products).toContain(
+      expect(header).toContain(
         '"products.advancedPricingHint"',
       );
       expect(products).toContain(
         "LockKeyhole",
       );
-      expect(products).toMatch(
+      expect(header).toMatch(
         /type="button" disabled title=\{t\( "products\.advancedPricingHint" \)\}/,
       );
     });
@@ -83,9 +88,14 @@ describe(
           "../pages/products/ProductDetailDrawer.tsx",
         ),
       );
-      const products = compact(
+      const detailWorkflow = compact(
         source(
-          "../pages/products/ProductsPage.tsx",
+          "../pages/products/detail/useProductDetailWorkflow.ts",
+        ),
+      );
+      const detailActions = compact(
+        source(
+          "../pages/products/detail/createProductDetailActions.ts",
         ),
       );
 
@@ -98,10 +108,10 @@ describe(
       expect(drawer).toContain(
         '"products.advancedUom.productAction"',
       );
-      expect(products).toContain(
-        'canManageAdvancedUom={ canManageCatalog }',
+      expect(detailWorkflow).toContain(
+        "canManageAdvancedUom: canManageCatalog",
       );
-      expect(products).toContain(
+      expect(detailActions).toContain(
         "`/products/advanced-uom?variant=${product.id}`",
       );
     });
