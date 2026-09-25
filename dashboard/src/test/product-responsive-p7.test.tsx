@@ -46,7 +46,7 @@ import {
 } from "@/hooks/useMediaQuery";
 import {
   ProductMobileCard,
-} from "@/pages/products/ProductMobileCard";
+} from "@/pages/products/list/ProductMobileCard";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
@@ -237,19 +237,19 @@ describe(
           "src/pages/products/ProductsPage.tsx",
         ),
         read(
-          "src/pages/products/ProductMobileCard.tsx",
+          "src/pages/products/list/ProductMobileCard.tsx",
         ),
         read(
-          "src/pages/products/ProductDetailDrawer.tsx",
+          "src/pages/products/detail/ProductDetailDrawer.tsx",
         ),
         read(
-          "src/pages/products/ProductFamiliesManager.tsx",
+          "src/pages/products/family/ProductFamiliesManager.tsx",
         ),
         read(
-          "src/pages/products/ProductBarcodeManager.tsx",
+          "src/pages/products/barcode/ProductBarcodeManager.tsx",
         ),
         read(
-          "src/pages/products/AdvancedUomDashboard.tsx",
+          "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
         ),
         read(
           "src/pages/products/list/ProductsListResults.tsx",
@@ -349,16 +349,16 @@ describe(
         "src/components/ui/modal.tsx",
       );
       const drawer = read(
-        "src/pages/products/ProductDetailDrawer.tsx",
+        "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
       const families = read(
-        "src/pages/products/ProductFamiliesManager.tsx",
+        "src/pages/products/family/ProductFamiliesManager.tsx",
       );
       const barcodes = read(
-        "src/pages/products/ProductBarcodeManager.tsx",
+        "src/pages/products/barcode/ProductBarcodeManager.tsx",
       );
       const advanced = read(
-        "src/pages/products/AdvancedUomDashboard.tsx",
+        "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
       );
 
       expect(modal).toContain(
