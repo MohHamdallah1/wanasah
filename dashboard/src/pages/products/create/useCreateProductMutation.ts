@@ -16,7 +16,9 @@ import {
   apiErrorMessage,
 } from "@/lib/apiErrors";
 import {
+  abandonDurableOperation,
   completeDurableOperation,
+  durableScope,
   getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
 import {
@@ -53,6 +55,8 @@ type Params = {
   ) => string;
   authFetch: AuthFetch;
   draftStorageKey: string | null;
+  companyId: number | null;
+  driverId: number | null;
   setDraft: Dispatch<
     SetStateAction<ProductDraft>
   >;
@@ -101,6 +105,8 @@ export function useCreateProductMutation({
   operationScope,
   authFetch,
   draftStorageKey,
+  companyId,
+  driverId,
   setDraft,
   setCreateFieldError,
   setCreateTrackingExpanded,
@@ -409,8 +415,41 @@ export function useCreateProductMutation({
   };
 
 
+  const cancelCreate =
+    () => {
+      setCreateOpen(false);
+      setCreateFieldError(null);
+      setCreateTrackingExpanded(
+        false
+      );
+      setCreateAdvancedExpanded(
+        false
+      );
+      setDraft(emptyDraft);
+      if (
+        draftStorageKey
+      ) {
+        sessionStorage.removeItem(
+          draftStorageKey
+        );
+      }
+      if (
+        companyId &&
+        driverId
+      ) {
+        abandonDurableOperation(
+          durableScope(
+            companyId,
+            driverId,
+            "product-create"
+          )
+        );
+      }
+    };
+
   return {
     createMutation,
     submitCreate,
+    cancelCreate,
   };
 }
