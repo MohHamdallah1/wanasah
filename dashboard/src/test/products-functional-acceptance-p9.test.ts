@@ -183,8 +183,14 @@ describe(
       expect(advanced).toContain(
         "/catalog/variants/${selectedVariant!.id}/conversions",
       );
-      expect(lifecycle).toContain(
+      expect(advanced).toContain(
         "UOM_STRUCTURE_LOCKED",
+      );
+      expect(lifecycle).toContain(
+        '"DRAFT": frozenset({STRUCTURE_EDIT, METADATA_EDIT, HISTORY})',
+      );
+      expect(lifecycle).not.toContain(
+        '"ACTIVE": frozenset({STRUCTURE_EDIT',
       );
     });
 
