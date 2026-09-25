@@ -1536,11 +1536,28 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 
 ### Delete/archive policy
 
-- [ ] Decide whether a never-used draft product may be physically deleted.
-- [ ] Decide when a used/published product must be retired or archived instead of deleted.
-- [ ] Preserve all stock, sales, audit, import, pricing, and historical references.
-- [ ] Do not expose a hard-delete action until the backend policy is explicitly safe.
-- [ ] Ensure the UI explains why delete is unavailable when history exists.
+- [x] Decide whether a never-used draft product may be physically deleted.
+- [x] Decide when a used/published product must be retired or archived instead of deleted.
+- [x] Preserve all stock, sales, audit, import, pricing, and historical references.
+- [x] Do not expose a hard-delete action until the backend policy is explicitly safe.
+- [x] Ensure the UI explains why delete is unavailable when history exists.
+
+### P9.1 Delete/archive policy closure evidence — 2026-09-25
+
+- Final policy: physical delete is allowed only for an unpublished, never-used `DRAFT` with no operational hold and no preserved business/history references. Any Product that has been published or used follows the lifecycle path (`ACTIVE -> RETIRING -> ARCHIVED`) and is never hard-deleted.
+- Draft hard-delete policy is centralized in `product_lifecycle.py`. The schema audit found 28 company-scoped `ProductVariant` reference surfaces; all 28 are now explicitly classified with no missing/stale references.
+- Only three draft-owned/derived references may disappear with a clean draft: `product_barcodes`, `product_uom_conversions`, and the derived `inventory_live_stock_projection`. The remaining 25 reference surfaces are explicit hard-delete blockers.
+- Blockers are grouped into operator-readable categories covering warehouse/stock history, sales/returns/visits, imports, pricing, offers, and tax references. Audit/outbox history remains append-only and the successful draft deletion itself emits `ProductDraftDeleted` evidence.
+- Backend now exposes `GET /catalog/variants/{variant_id}/delete-draft-preflight`; the destructive endpoint independently rechecks lifecycle state, publish/retire/archive timestamps, optimistic version, and all business blockers inside the protected mutation path.
+- The advanced Catalog lifecycle UI no longer exposes the permanent delete command immediately. It first runs the backend preflight, shows translated blockers when deletion is unsafe, and exposes `Permanently delete draft` only after a current safe preflight.
+- Normal Product Details intentionally still does not pass `onVariantDeleted`, so hard delete remains absent from the normal Products lifecycle surface.
+- Permanent frontend regression: `dashboard/src/test/products-delete-archive-policy-p9.test.ts` — 4 tests PASS.
+- Permanent backend policy/runtime gate: `PRODUCTS_P9_DELETE_ARCHIVE_POLICY_GATE=PASS` — 16 checks / 0 failures. Runtime evidence verifies a clean draft passes preflight, a draft with batch history is blocked, the backend rechecks blockers even after UI preflight, a clean never-used draft can be deleted with audit evidence, and a published Product is rejected from hard delete.
+- Existing lifecycle protection remains green: `PRODUCT_LIFECYCLE_GATE=PASS` — 14/14.
+- Final Dashboard verification: 37 test files / 220 tests PASS, TypeScript PASS, ESLint 0 warnings/errors, production build PASS.
+- Final aggregate Products production gate: 21 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+
+**Next P9.1 group:** Create/import/detail completeness.
 
 ### Create/import/detail completeness
 
