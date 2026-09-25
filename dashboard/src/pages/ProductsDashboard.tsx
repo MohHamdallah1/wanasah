@@ -38,7 +38,6 @@ import {
 import {
   completeDurableOperation,
   durableScope,
-  fileFingerprint,
   getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
 import {
@@ -46,7 +45,6 @@ import {
 } from "@/lib/exactMoney";
 import {
   parsePackageUoms,
-  parseProductImportAccepted,
   parseProductImportCommandResponse,
   parseProductImportErrorPage,
   parseProductTrackingDefaults,
