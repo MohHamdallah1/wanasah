@@ -1,0 +1,35 @@
+import {
+  useState,
+} from "react";
+
+import type {
+  ProductTrackingMode,
+} from "@/pages/products/contracts";
+
+export function useTrackingDefaultsState() {
+  const [
+    trackingDefaultsOpen,
+    setTrackingDefaultsOpen,
+  ] = useState(false);
+  const [
+    trackingDefaultsLot,
+    setTrackingDefaultsLot,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
+  const [
+    trackingDefaultsExpiry,
+    setTrackingDefaultsExpiry,
+  ] = useState<ProductTrackingMode | null>(
+    null
+  );
+
+  return {
+    trackingDefaultsOpen,
+    setTrackingDefaultsOpen,
+    trackingDefaultsLot,
+    setTrackingDefaultsLot,
+    trackingDefaultsExpiry,
+    setTrackingDefaultsExpiry,
+  };
+}
