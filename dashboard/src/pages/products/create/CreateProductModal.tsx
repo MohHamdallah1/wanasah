@@ -15,6 +15,7 @@ import type {
 import type {
   CreateFieldError,
   ProductDraft,
+  ProductFamilyMode,
 } from "@/pages/products/create/types";
 import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
 
@@ -37,13 +38,20 @@ type Props = {
   createAdvancedExpanded: boolean;
   createTrackingExpanded: boolean;
   createNameRef: RefObject<HTMLInputElement>;
+  createFamilyRef: RefObject<HTMLInputElement>;
   createUnitsRef: RefObject<HTMLInputElement>;
   createPackagePriceRef: RefObject<HTMLInputElement>;
   createUnitPriceRef: RefObject<HTMLInputElement>;
   onCancel: () => void;
   onSubmit: () => void;
   onNameChange: (value: string) => void;
-  onFamilyChange: (value: string) => void;
+  onFamilyModeChange: (
+    mode: ProductFamilyMode,
+  ) => void;
+  onFamilyChange: (
+    value: string,
+    familyId?: number | null,
+  ) => void;
   onRetryFamilyOptions: () => void;
   onRetryTrackingDefaults: () => void;
   onHasPackageChange: (checked: boolean) => void;
@@ -83,12 +91,14 @@ export function CreateProductModal({
   createAdvancedExpanded,
   createTrackingExpanded,
   createNameRef,
+  createFamilyRef,
   createUnitsRef,
   createPackagePriceRef,
   createUnitPriceRef,
   onCancel,
   onSubmit,
   onNameChange,
+  onFamilyModeChange,
   onFamilyChange,
   onRetryFamilyOptions,
   onRetryTrackingDefaults,
@@ -216,58 +226,211 @@ export function CreateProductModal({
               ) : null}
             </label>
 
-            <label className="text-xs font-black text-slate-600">
-              {t(
-                "products.family"
-              )}{" "}
-              <span className="font-bold text-slate-400">
+            <fieldset className="text-xs font-black text-slate-600">
+              <legend>
                 {t(
-                  "common.optional"
-                )}
-              </span>
-              <input
-                list="product-family-options"
-                value={
-                  draft.family
-                }
-                onChange={(event) =>
-                  onFamilyChange(
-                    event.target.value
-                  )
-                }
-                placeholder={t(
-                  "products.familyPlaceholder"
-                )}
-                className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none"
-              />
-              <datalist id="product-family-options">
-                {familyOptions.map(
-                  (family) => (
-                    <option
-                      key={
-                        family.id
-                      }
-                      value={
-                        family.name
-                      }
-                    />
-                  )
-                )}
-              </datalist>
-              {familyOptionsError ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onRetryFamilyOptions()
-                  }
-                  className="mt-1 text-[11px] font-black text-rose-700"
-                >
+                  "products.family"
+                )}{" "}
+                <span className="font-bold text-slate-400">
                   {t(
-                    "products.errors.familiesLoad"
+                    "common.optional"
                   )}
-                </button>
+                </span>
+              </legend>
+
+              <div
+                role="group"
+                aria-label={t(
+                  "products.familyModeLabel"
+                )}
+                className="mt-1.5 grid grid-cols-3 gap-2"
+              >
+                {(
+                  [
+                    "none",
+                    "existing",
+                    "new",
+                  ] as const
+                ).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={
+                      draft.family_mode ===
+                      mode
+                    }
+                    onClick={() =>
+                      onFamilyModeChange(
+                        mode
+                      )
+                    }
+                    className={`rounded-xl border px-2 py-2 text-[11px] font-black transition ${
+                      draft.family_mode ===
+                      mode
+                        ? "border-slate-950 bg-slate-950 text-white"
+                        : "border-slate-200 bg-white text-slate-600"
+                    }`}
+                  >
+                    {t(
+                      `products.familyMode.${mode}`
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {draft.family_mode ===
+              "existing" ? (
+                <>
+                  <input
+                    ref={
+                      createFamilyRef
+                    }
+                    list="product-family-options"
+                    value={
+                      draft.family
+                    }
+                    onChange={(
+                      event
+                    ) => {
+                      const value =
+                        event.target
+                          .value;
+                      const normalized =
+                        value
+                          .trim()
+                          .toLocaleLowerCase();
+                      const selected =
+                        familyOptions.find(
+                          (
+                            family
+                          ) =>
+                            family.name
+                              .trim()
+                              .toLocaleLowerCase() ===
+                            normalized
+                        );
+                      onFamilyChange(
+                        value,
+                        selected?.id ??
+                          null
+                      );
+                    }}
+                    placeholder={t(
+                      "products.familyExistingPlaceholder"
+                    )}
+                    aria-invalid={
+                      createFieldError?.field ===
+                      "family"
+                        ? "true"
+                        : undefined
+                    }
+                    aria-describedby={
+                      createFieldError?.field ===
+                      "family"
+                        ? "product-family-error"
+                        : undefined
+                    }
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none"
+                  />
+                  <datalist id="product-family-options">
+                    {familyOptions.map(
+                      (
+                        family
+                      ) => (
+                        <option
+                          key={
+                            family.id
+                          }
+                          value={
+                            family.name
+                          }
+                        />
+                      )
+                    )}
+                  </datalist>
+                  <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                    {t(
+                      "products.familyExistingHint"
+                    )}
+                  </p>
+                  {familyOptionsError ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onRetryFamilyOptions()
+                      }
+                      className="mt-1 text-[11px] font-black text-rose-700"
+                    >
+                      {t(
+                        "products.errors.familiesLoad"
+                      )}
+                    </button>
+                  ) : null}
+                </>
+              ) : draft.family_mode ===
+                "new" ? (
+                <>
+                  <input
+                    ref={
+                      createFamilyRef
+                    }
+                    value={
+                      draft.family
+                    }
+                    maxLength={
+                      150
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      onFamilyChange(
+                        event.target
+                          .value,
+                        null
+                      )
+                    }
+                    placeholder={t(
+                      "products.familyNewPlaceholder"
+                    )}
+                    aria-invalid={
+                      createFieldError?.field ===
+                      "family"
+                        ? "true"
+                        : undefined
+                    }
+                    aria-describedby={
+                      createFieldError?.field ===
+                      "family"
+                        ? "product-family-error"
+                        : undefined
+                    }
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none"
+                  />
+                  <p className="mt-1 text-[11px] font-semibold leading-5 text-amber-700">
+                    {t(
+                      "products.familyNewHint"
+                    )}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold leading-5 text-slate-500">
+                  {t(
+                    "products.familyNoneHint"
+                  )}
+                </p>
+              )}
+
+              {createFieldError?.field ===
+              "family" ? (
+                <span
+                  id="product-family-error"
+                  role="alert"
+                  className="mt-1 block text-[11px] font-bold text-rose-700"
+                >
+                  {createFieldError.message}
+                </span>
               ) : null}
-            </label>
+            </fieldset>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
