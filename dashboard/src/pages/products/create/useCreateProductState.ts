@@ -10,6 +10,8 @@ import type {
 
 export const emptyDraft: ProductDraft = {
   name: "",
+  family_mode: "none",
+  family_id: null,
   family: "",
   has_package: true,
   package_uom_code: "CARTON",
@@ -56,6 +58,10 @@ export function useCreateProductState() {
     useRef<HTMLInputElement | null>(
       null
     );
+  const createFamilyRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
   const createUnitsRef =
     useRef<HTMLInputElement | null>(
       null
@@ -93,6 +99,7 @@ export function useCreateProductState() {
     createFieldError,
     setCreateFieldError,
     createNameRef,
+    createFamilyRef,
     createUnitsRef,
     createPackagePriceRef,
     createUnitPriceRef,
