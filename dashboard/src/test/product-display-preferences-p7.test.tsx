@@ -410,6 +410,9 @@ describe(
           "src/pages/products/display-preferences/createProductDisplayPreferenceActions.ts",
         ),
       );
+      const listViewOwner = read(
+        "src/pages/products/list/deriveProductsListViewState.ts",
+      );
 
       expect(storage).toContain(
         "companyId",
@@ -455,16 +458,16 @@ describe(
         "createProductDisplayPreferenceActions({",
       );
 
-      expect(page).toContain(
+      expect(listViewOwner).toContain(
         "pricingVisible &&",
       );
-      expect(page).toContain(
+      expect(listViewOwner).toContain(
         "visibleColumns.packagePrice",
       );
-      expect(page).toContain(
+      expect(listViewOwner).toContain(
         "visibleColumns.unitPrice",
       );
-      expect(page).toContain(
+      expect(listViewOwner).toContain(
         "displayPreferences.defaultSort",
       );
       expect(page).toContain(
