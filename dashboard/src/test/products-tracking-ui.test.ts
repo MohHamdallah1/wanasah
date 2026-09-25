@@ -103,6 +103,9 @@ describe("products tracking UI contracts", () => {
     const createMutation = normalizeWhitespace(
       readSource("../pages/products/create/useCreateProductMutation.ts"),
     );
+    const draftKey = normalizeWhitespace(
+      readSource("../pages/products/create/productDraftStorageKey.ts"),
+    );
     const trackingQuery = normalizeWhitespace(
       readSource("../pages/products/tracking/useTrackingDefaultsQuery.ts"),
     );
@@ -110,7 +113,7 @@ describe("products tracking UI contracts", () => {
       readSource("../pages/products/tracking/useProductTrackingMutations.ts"),
     );
 
-    expect(page).toContain(
+    expect(draftKey).toContain(
       "wanasah:product-draft:v2:",
     );
     expect(createMutation).toContain(
