@@ -7,9 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, exists, func, select
 
-from database import AsyncSessionLocal
 from models import (
-    Company,
     DispatchRoute,
     InventoryBalance,
     InventoryMovement,
