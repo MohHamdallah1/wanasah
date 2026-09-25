@@ -10,9 +10,6 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
-  Boxes,
-  ChevronLeft,
-  ChevronRight,
   Copy,
   FileSpreadsheet,
   FolderTree,
@@ -73,8 +70,8 @@ import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayPreferences";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
-import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
+import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
 import type {
   ProductBooleanFilter,
@@ -84,7 +81,6 @@ import type {
   ProductTrackingTypeFilter,
 } from "@/pages/products/list/types";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
-import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
@@ -2987,348 +2983,94 @@ export default function ProductsDashboard() {
           ) : null}
         </div>
 
-        {isNarrowViewport ? (
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {productsQuery.isLoading ? (
-              <div className="py-12 text-center text-sm font-bold text-slate-400">
-                {t("common.loading")}
-              </div>
-            ) : null}
-
-            {productsQuery.isError ? (
-              <div className="rounded-2xl bg-rose-50 p-5 text-center">
-                <p className="font-black text-rose-900">
-                  {t(
-                    "products.errors.listLoadTitle"
-                  )}
-                </p>
-                <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
-                  {t(
-                    "products.errors.listLoadDescription"
-                  )}
-                </p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void productsQuery.refetch()
-                  }
-                  className="mt-3 w-full rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-xs font-black text-rose-800"
-                >
-                  {t("common.retry")}
-                </button>
-              </div>
-            ) : null}
-
-            {!productsQuery.isLoading &&
-            !productsQuery.isError &&
-            !page?.items.length ? (
-              <div className="py-12 text-center">
-                <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                <p className="font-black text-slate-700">
-                  {t(
-                    "products.emptyTitle"
-                  )}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  {t(
-                    "products.emptyDescription"
-                  )}
-                </p>
-              </div>
-            ) : null}
-
-            {!productsQuery.isLoading &&
-            !productsQuery.isError &&
-            page?.items.length ? (
-              <div className="space-y-3">
-                {page.items.map(
-                  (item) => (
-                    <ProductMobileCard
-                      key={item.id}
-                      item={item}
-                      pricingVisible={
-                        pricingVisible
-                      }
-                      canEditPrice={
-                        canEditSimplePrice
-                      }
-                      canEditTracking={
-                        canManageCatalog
-                      }
-                      columns={
-                        visibleColumns
-                      }
-                      density={
-                        displayPreferences
-                          .density
-                      }
-                      onOpenDetails={
-                        setDetailProduct
-                      }
-                      onEditPrice={
-                        openPriceEditor
-                      }
-                      onEditTracking={
-                        openTrackingEditor
-                      }
-                    />
-                  )
-                )}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[1050px] text-start text-sm">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black text-slate-500">
-                <tr>
-                  <th className={tableHeaderSpacing}>
-                    {t(
-                      "products.columns.product"
-                    )}
-                  </th>
-                  {visibleColumns.package ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.package"
-                      )}
-                    </th>
-                  ) : null}
-                  {visibleColumns.unitsPerPackage ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.unitsPerPackage"
-                      )}
-                    </th>
-                  ) : null}
-                  {visibleColumns.tracking ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.tracking"
-                      )}
-                    </th>
-                  ) : null}
-                  {visibleColumns.lifecycle ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.lifecycle"
-                      )}
-                    </th>
-                  ) : null}
-                  {visibleColumns.unitBarcode ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.unitBarcode"
-                      )}
-                    </th>
-                  ) : null}
-                  {visibleColumns.packageBarcode ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.packageBarcode"
-                      )}
-                    </th>
-                  ) : null}
-                  {pricingVisible &&
-                  visibleColumns.packagePrice ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.packagePrice"
-                      )}
-                    </th>
-                  ) : null}
-                  {pricingVisible &&
-                  visibleColumns.unitPrice ? (
-                    <th className={tableHeaderSpacing}>
-                      {t(
-                        "products.columns.unitPrice"
-                      )}
-                    </th>
-                  ) : null}
-                  <th className={tableHeaderSpacing}>
-                    {t(
-                      "products.columns.action"
-                    )}
-                  </th>
-                </tr>
-              </thead>
-  
-              <tbody className="divide-y divide-slate-100">
-                {productsQuery.isLoading ? (
-                  <tr>
-                    <td
-                      colSpan={
-                        productTableColumnCount
-                      }
-                      className="py-16 text-center font-bold text-slate-400"
-                    >
-                      {t(
-                        "common.loading"
-                      )}
-                    </td>
-                  </tr>
-                ) : null}
-  
-                {productsQuery.isError ? (
-                  <tr>
-                    <td
-                      colSpan={
-                        productTableColumnCount
-                      }
-                      className="py-14 text-center"
-                    >
-                      <div className="mx-auto max-w-md rounded-2xl bg-rose-50 p-5">
-                        <p className="font-black text-rose-900">
-                          {t(
-                            "products.errors.listLoadTitle"
-                          )}
-                        </p>
-                        <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
-                          {t(
-                            "products.errors.listLoadDescription"
-                          )}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void productsQuery.refetch()
-                          }
-                          className="mt-3 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-800"
-                        >
-                          {t(
-                            "common.retry"
-                          )}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : null}
-  
-                {!productsQuery.isLoading &&
-                !productsQuery.isError &&
-                !page?.items.length ? (
-                  <tr>
-                    <td
-                      colSpan={
-                        productTableColumnCount
-                      }
-                      className="py-16 text-center"
-                    >
-                      <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                      <p className="font-black text-slate-700">
-                        {t(
-                          "products.emptyTitle"
-                        )}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        {t(
-                          "products.emptyDescription"
-                        )}
-                      </p>
-                    </td>
-                  </tr>
-                ) : null}
-  
-                {page?.items.map(
-                  (item) => (
-                    <ProductTableRow
-                      key={item.id}
-                      item={item}
-                      pricingVisible={
-                        pricingVisible
-                      }
-                      canEditPrice={
-                        canEditSimplePrice
-                      }
-                      canEditTracking={
-                        canManageCatalog
-                      }
-                      columns={
-                        visibleColumns
-                      }
-                      density={
-                        displayPreferences
-                          .density
-                      }
-                      onOpenDetails={
-                        setDetailProduct
-                      }
-                      onEditPrice={
-                        openPriceEditor
-                      }
-                      onEditTracking={
-                        openTrackingEditor
-                      }
-                    />
-                  )
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {history.length > 0 ||
-        page?.next_cursor ? (
-          <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3">
-            <button
-              type="button"
-              disabled={
-                !history.length ||
-                productsQuery.isFetching
-              }
-              onClick={() => {
-                const previous =
-                  history.at(-1) ??
-                  null;
-                setHistory(
-                  (current) =>
-                    current.slice(
-                      0,
-                      -1
-                    )
-                );
-                setCursor(
-                  previous
-                );
-              }}
-              aria-label={t(
-                "products.familyPrevious"
-              )}
-              className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
-            >
-              <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
-            </button>
-            <button
-              type="button"
-              disabled={
-                !page?.next_cursor ||
-                productsQuery.isFetching
-              }
-              onClick={() => {
-                if (
-                  !page?.next_cursor
-                ) {
-                  return;
-                }
-                setHistory(
-                  (current) => [
-                    ...current,
-                    cursor,
-                  ]
-                );
-                setCursor(
-                  page.next_cursor
-                );
-              }}
-              aria-label={t(
-                "products.familyNext"
-              )}
-              className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
-            >
-              <ChevronRight className="h-4 w-4 rtl:rotate-180" />
-            </button>
-          </div>
-        ) : null}
+        <ProductsListResults
+          items={
+            page?.items ?? []
+          }
+          isLoading={
+            productsQuery.isLoading
+          }
+          isError={
+            productsQuery.isError
+          }
+          isFetching={
+            productsQuery.isFetching
+          }
+          isNarrowViewport={
+            isNarrowViewport
+          }
+          pricingVisible={
+            pricingVisible
+          }
+          canEditPrice={
+            canEditSimplePrice
+          }
+          canEditTracking={
+            canManageCatalog
+          }
+          columns={
+            visibleColumns
+          }
+          density={
+            displayPreferences
+              .density
+          }
+          tableHeaderSpacing={
+            tableHeaderSpacing
+          }
+          tableColumnCount={
+            productTableColumnCount
+          }
+          hasPrevious={
+            history.length > 0
+          }
+          hasNext={Boolean(
+            page?.next_cursor
+          )}
+          onRetry={() =>
+            void productsQuery.refetch()
+          }
+          onOpenDetails={
+            setDetailProduct
+          }
+          onEditPrice={
+            openPriceEditor
+          }
+          onEditTracking={
+            openTrackingEditor
+          }
+          onPrevious={() => {
+            const previous =
+              history.at(-1) ??
+              null;
+            setHistory(
+              (current) =>
+                current.slice(
+                  0,
+                  -1
+                )
+            );
+            setCursor(
+              previous
+            );
+          }}
+          onNext={() => {
+            if (
+              !page?.next_cursor
+            ) {
+              return;
+            }
+            setHistory(
+              (current) => [
+                ...current,
+                cursor,
+              ]
+            );
+            setCursor(
+              page.next_cursor
+            );
+          }}
+        />
       </section>
 
       <ProductDisplayPreferencesModal
