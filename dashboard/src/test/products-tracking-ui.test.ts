@@ -103,6 +103,12 @@ describe("products tracking UI contracts", () => {
     const createMutation = normalizeWhitespace(
       readSource("../pages/products/create/useCreateProductMutation.ts"),
     );
+    const trackingQuery = normalizeWhitespace(
+      readSource("../pages/products/tracking/useTrackingDefaultsQuery.ts"),
+    );
+    const trackingMutations = normalizeWhitespace(
+      readSource("../pages/products/tracking/useProductTrackingMutations.ts"),
+    );
 
     expect(page).toContain(
       "wanasah:product-draft:v2:",
@@ -116,10 +122,10 @@ describe("products tracking UI contracts", () => {
     expect(listQueries).toContain(
       "parseSimpleProductPage(",
     );
-    expect(page).toContain(
+    expect(trackingQuery).toContain(
       "parseProductTrackingDefaults(",
     );
-    expect(page).toContain(
+    expect(trackingMutations).toContain(
       "parseProductTrackingMutation(",
     );
     expect(page).toContain(
@@ -128,7 +134,7 @@ describe("products tracking UI contracts", () => {
     expect(page).toContain(
       "<ProductTrackingEditor",
     );
-    expect(page).toContain(
+    expect(trackingMutations).toContain(
       "expected_version: trackingEdit.version",
     );
   });
