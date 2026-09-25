@@ -466,7 +466,7 @@ async def run() -> None:
             active = [
                 job
                 for job in active
-                if str(job.status.value) in {"todo", "doing"}
+                if str(job.status) in {"todo", "doing"}
             ]
             record(
                 "company job scheduling prevents duplicate TODO/DOING backlog",
