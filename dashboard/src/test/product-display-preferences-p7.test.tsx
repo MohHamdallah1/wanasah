@@ -395,6 +395,12 @@ describe(
       const editor = read(
         "src/pages/products/display-preferences/ProductDisplayPreferencesModal.tsx",
       );
+      const stateOwner = read(
+        "src/pages/products/display-preferences/useProductDisplayPreferencesState.ts",
+      );
+      const actionsOwner = read(
+        "src/pages/products/display-preferences/createProductDisplayPreferenceActions.ts",
+      );
 
       expect(storage).toContain(
         "companyId",
@@ -407,6 +413,37 @@ describe(
       );
       expect(storage).not.toContain(
         "/tenant/",
+      );
+
+      expect(stateOwner).toContain(
+        "readProductDisplayPreferences(",
+      );
+      expect(stateOwner).toContain(
+        '"company_id"',
+      );
+      expect(stateOwner).toContain(
+        '"driver_id"',
+      );
+      expect(actionsOwner).toContain(
+        "writeProductDisplayPreferences(",
+      );
+      expect(actionsOwner).toContain(
+        "setSortBy( next.defaultSort.field )",
+      );
+      expect(actionsOwner).toContain(
+        "setSortDir( next.defaultSort.direction )",
+      );
+      expect(actionsOwner).toContain(
+        "resetProductPagination()",
+      );
+      expect(actionsOwner).toContain(
+        "setDisplayPreferencesOpen(false)",
+      );
+      expect(page).toContain(
+        "useProductDisplayPreferencesState()",
+      );
+      expect(page).toContain(
+        "createProductDisplayPreferenceActions({",
       );
 
       expect(page).toContain(
