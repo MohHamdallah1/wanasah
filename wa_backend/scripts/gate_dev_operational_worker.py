@@ -5,7 +5,9 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "ops" / "development" / "run_operational_worker.ps1"
+OPERATIONAL_SCRIPT = ROOT / "ops" / "development" / "run_operational_worker.ps1"
+REPORTS_SCRIPT = ROOT / "ops" / "development" / "run_reports_worker.ps1"
+PRODUCT_IMPORT_SCRIPT = ROOT / "ops" / "development" / "run_product_import_worker.ps1"
 RUNBOOK = ROOT / "docs" / "operations" / "DEVELOPMENT_WORKERS.md"
 WORKER_APP = ROOT / "wa_backend" / "workers" / "app.py"
 LIVE_STOCK_TASKS = ROOT / "wa_backend" / "workers" / "tasks" / "live_stock.py"
@@ -21,7 +23,9 @@ def check(condition: bool, label: str) -> None:
         failures.append(label)
 
 
-script = SCRIPT.read_text(encoding="utf-8")
+operational_script = OPERATIONAL_SCRIPT.read_text(encoding="utf-8")
+reports_script = REPORTS_SCRIPT.read_text(encoding="utf-8")
+product_import_script = PRODUCT_IMPORT_SCRIPT.read_text(encoding="utf-8")
 runbook = RUNBOOK.read_text(encoding="utf-8")
 worker_app = WORKER_APP.read_text(encoding="utf-8")
 live_stock_tasks = LIVE_STOCK_TASKS.read_text(encoding="utf-8")
@@ -30,20 +34,36 @@ canonical_app = "--app=workers.app.app"
 canonical_queues = "-q maintenance,notifications"
 
 check(
-    canonical_app in script
-    and canonical_queues in script,
+    canonical_app in operational_script
+    and canonical_queues in operational_script
+    and "-m workers.recover_cli operational" in operational_script,
     "operational worker launcher uses the canonical app and queues",
 )
 check(
-    "venv\\Scripts\\python.exe" in script
-    and "Activate.ps1" not in script,
+    "venv\\Scripts\\python.exe" in operational_script
+    and "Activate.ps1" not in operational_script,
     "launcher uses the repository backend virtual environment directly",
 )
 check(
-    "product_import_queue.app" not in script
-    and "-q reports" not in script,
+    "product_import_queue.app" not in operational_script
+    and "-q reports" not in operational_script,
     "operational launcher does not mix independent worker roles",
 )
+check(
+    "--app=workers.app.app worker -q reports" in reports_script
+    and "-m workers.recover_cli reports" in reports_script
+    and "maintenance,notifications" not in reports_script,
+    "reports launcher is isolated and performs report startup recovery",
+)
+
+check(
+    "--app=product_import_queue.app worker -q product-import"
+    in product_import_script
+    and "-m workers.recover_cli product-import" in product_import_script
+    and "--app=workers.app.app" not in product_import_script,
+    "product-import launcher is isolated and performs import startup recovery",
+)
+
 check(
     "MAINTENANCE_QUEUE = \"maintenance\"" in worker_app
     and "NOTIFICATIONS_QUEUE = \"notifications\"" in worker_app
@@ -58,6 +78,8 @@ check(
 )
 check(
     ".\\ops\\development\\run_operational_worker.ps1" in runbook
+    and ".\\ops\\development\\run_reports_worker.ps1" in runbook
+    and ".\\ops\\development\\run_product_import_worker.ps1" in runbook
     and "maintenance,notifications" in runbook
     and "product_import_queue.app" in runbook,
     "development runbook documents required and optional worker roles",
