@@ -53,7 +53,7 @@ describe(
     it("keeps Advanced UOM usable while preserving the disabled Advanced Pricing roadmap control", () => {
       const products = compact(
         source(
-          "../pages/ProductsDashboard.tsx",
+          "../pages/products/ProductsPage.tsx",
         ),
       );
 
@@ -85,7 +85,7 @@ describe(
       );
       const products = compact(
         source(
-          "../pages/ProductsDashboard.tsx",
+          "../pages/products/ProductsPage.tsx",
         ),
       );
 
