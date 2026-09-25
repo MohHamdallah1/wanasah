@@ -1,6 +1,6 @@
 import type {
   Dispatch,
-  RefObject,
+  MutableRefObject,
   SetStateAction,
 } from "react";
 import {
@@ -24,7 +24,7 @@ type Params = {
   setDraft: Dispatch<
     SetStateAction<ProductDraft>
   >;
-  restoredDraftKey: RefObject<
+  restoredDraftKey: MutableRefObject<
     string | null
   >;
   t: TFunction;
