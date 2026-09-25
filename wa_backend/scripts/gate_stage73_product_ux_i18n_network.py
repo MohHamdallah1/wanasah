@@ -53,11 +53,35 @@ def static_checks() -> None:
     )
 
     page = (
-        ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
+        ROOT / "dashboard/src/pages/products/ProductsPage.tsx"
     ).read_text(encoding="utf-8")
     families_ui = (
         ROOT
-        / "dashboard/src/pages/products/ProductFamiliesManager.tsx"
+        / "dashboard/src/pages/products/family/ProductFamiliesManager.tsx"
+    ).read_text(encoding="utf-8")
+    create_persistence = (
+        ROOT
+        / "dashboard/src/pages/products/create/useCreateProductDraftPersistence.ts"
+    ).read_text(encoding="utf-8")
+    create_mutation = (
+        ROOT
+        / "dashboard/src/pages/products/create/useCreateProductMutation.ts"
+    ).read_text(encoding="utf-8")
+    create_actions = (
+        ROOT
+        / "dashboard/src/pages/products/create/createProductDraftActions.ts"
+    ).read_text(encoding="utf-8")
+    import_upload = (
+        ROOT
+        / "dashboard/src/pages/products/import/useImportProductUpload.ts"
+    ).read_text(encoding="utf-8")
+    import_workflow = (
+        ROOT
+        / "dashboard/src/pages/products/import/useImportProductWorkflow.ts"
+    ).read_text(encoding="utf-8")
+    import_downloads = (
+        ROOT
+        / "dashboard/src/pages/products/import/createImportDownloads.ts"
     ).read_text(encoding="utf-8")
     sidebar = (
         ROOT / "dashboard/src/components/operations/OperationsSidebar.tsx"
@@ -108,17 +132,17 @@ def static_checks() -> None:
         "Arabic/English i18n foundation and pinned runtime packages exist",
     )
     check(
-        "sessionStorage.setItem" in page
-        and "draftStorageKey" in page
-        and "completeDurableOperation" in page
-        and "getOrCreateDurableRequestId" in page,
+        "sessionStorage.setItem" in create_persistence
+        and "draftStorageKey" in create_persistence
+        and "completeDurableOperation" in create_mutation
+        and "getOrCreateDurableRequestId" in create_mutation,
         "Product drafts and logical mutation ids survive refresh/network ambiguity",
     )
     check(
-        "fileFingerprint" in page
-        and "importSessionKey" in page
-        and 'form.append(' in page
-        and '"request_id"' in page,
+        "fileFingerprint" in import_upload
+        and "importSessionKey" in import_workflow
+        and 'form.append(' in import_upload
+        and '"request_id"' in import_upload,
         "Import upload can replay the same file with the same durable request identity",
     )
     check(
@@ -136,7 +160,7 @@ def static_checks() -> None:
     )
     check(
         "package_uses_base_barcode" in service
-        and "copyBarcode" in page
+        and "copyBarcode" in create_actions
         and "package_barcode" in api,
         "Shared unit/package barcode intent is explicit without duplicate barcode rows",
     )
@@ -158,7 +182,7 @@ def static_checks() -> None:
         and "package_price" in worker
         and "package_barcode" in worker
         and '@router.get("/imports/{job_id}/errors")' in api
-        and "downloadErrorReport" in page,
+        and "downloadErrorReport" in import_downloads,
         "Async importer uses generalized package vocabulary and downloadable validation reports",
     )
     check(
