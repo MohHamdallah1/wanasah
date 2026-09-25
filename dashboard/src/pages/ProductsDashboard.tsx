@@ -91,6 +91,7 @@ import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
 import { useProductTrackingEditState } from "@/pages/products/tracking/useProductTrackingEditState";
+import { useProductTrackingMutations } from "@/pages/products/tracking/useProductTrackingMutations";
 import { useTrackingDefaultsQuery } from "@/pages/products/tracking/useTrackingDefaultsQuery";
 import { useTrackingDefaultsState } from "@/pages/products/tracking/useTrackingDefaultsState";
 
@@ -742,194 +743,29 @@ export default function ProductsDashboard() {
     );
   };
 
-  const trackingDefaultsMutation =
-    useMutation({
-      mutationFn: async () => {
-        if (
-          !trackingDefaultsLot ||
-          !trackingDefaultsExpiry
-        ) {
-          throw new Error(
-            t(
-              "products.errors.trackingDefaultsRequired"
-            )
-          );
-        }
-
-        const body = {
-          lot_control_mode:
-            trackingDefaultsLot,
-          expiry_control_mode:
-            trackingDefaultsExpiry,
-        };
-        const scope =
-          operationScope(
-            "product-tracking-defaults"
-          );
-        const requestId =
-          await getOrCreateDurableRequestId(
-            scope,
-            body
-          );
-        const data =
-          parseProductTrackingDefaults(
-            await authFetch(
-              "/simple-products/tracking/defaults",
-              {
-                method: "PUT",
-                body: JSON.stringify({
-                  request_id:
-                    requestId,
-                  ...body,
-                }),
-              }
-            )
-          );
-        return {
-          data,
-          requestId,
-          scope,
-        };
-      },
-      onSuccess: async ({
-        data,
-        requestId,
-        scope,
-      }) => {
-        completeDurableOperation(
-          scope,
-          requestId
-        );
-        setTrackingDefaultsOpen(
-          false
-        );
-        setTrackingDefaultsLot(
-          data.lot_control_mode
-        );
-        setTrackingDefaultsExpiry(
-          data.expiry_control_mode
-        );
-        if (
-          !importJobId
-        ) {
-          setImportLotControlMode(
-            data.lot_control_mode
-          );
-          setImportExpiryControlMode(
-            data.expiry_control_mode
-          );
-        }
-        toast.success(
-          t(
-            "products.trackingSettings.saved"
-          )
-        );
-        await queryClient.invalidateQueries(
-          {
-            queryKey: [
-              "simple-product-tracking-defaults",
-            ],
-          }
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.trackingDefaultsSave"
-            )
-          )
-        ),
-    });
-
-  const trackingMutation =
-    useMutation({
-      mutationFn: async () => {
-        if (
-          !trackingEdit ||
-          !trackingEditLot ||
-          !trackingEditExpiry
-        ) {
-          throw new Error(
-            t(
-              "products.errors.trackingProductRequired"
-            )
-          );
-        }
-
-        const body = {
-          expected_version:
-            trackingEdit.version,
-          lot_control_mode:
-            trackingEditLot,
-          expiry_control_mode:
-            trackingEditExpiry,
-        };
-        const scope =
-          operationScope(
-            "product-tracking",
-            trackingEdit.id
-          );
-        const requestId =
-          await getOrCreateDurableRequestId(
-            scope,
-            body
-          );
-        const data =
-          parseProductTrackingMutation(
-            await authFetch(
-              `/simple-products/tracking/variants/${trackingEdit.id}`,
-              {
-                method: "PATCH",
-                body: JSON.stringify({
-                  request_id:
-                    requestId,
-                  ...body,
-                }),
-              }
-            )
-          );
-        return {
-          data,
-          requestId,
-          scope,
-        };
-      },
-      onSuccess: async ({
-        requestId,
-        scope,
-      }) => {
-        completeDurableOperation(
-          scope,
-          requestId
-        );
-        setTrackingEdit(null);
-        setTrackingEditLot(null);
-        setTrackingEditExpiry(null);
-        toast.success(
-          t(
-            "products.trackingEditor.saved"
-          )
-        );
-        await queryClient.invalidateQueries(
-          {
-            queryKey: [
-              "simple-products",
-            ],
-          }
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.trackingProductSave"
-            )
-          )
-        ),
-    });
+  const {
+    trackingDefaultsMutation,
+    trackingMutation,
+  } = useProductTrackingMutations({
+    trackingDefaultsLot,
+    trackingDefaultsExpiry,
+    trackingEdit,
+    trackingEditLot,
+    trackingEditExpiry,
+    operationScope,
+    authFetch,
+    setTrackingDefaultsOpen,
+    setTrackingDefaultsLot,
+    setTrackingDefaultsExpiry,
+    importJobId,
+    setImportLotControlMode,
+    setImportExpiryControlMode,
+    setTrackingEdit,
+    setTrackingEditLot,
+    setTrackingEditExpiry,
+    queryClient,
+    t,
+  });
 
   const {
     createMutation,
