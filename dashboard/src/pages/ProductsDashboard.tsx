@@ -11,7 +11,6 @@ import {
 } from "@tanstack/react-query";
 import {
   Boxes,
-  Copy,
   FileSpreadsheet,
   FolderTree,
   LockKeyhole,
@@ -59,7 +58,6 @@ import {
   parseProductTrackingMutation,
   parseSimpleProductCreateResponse,
   parseSimpleProductPriceMutationResponse,
-  type PackageUom,
   type ProductImportState,
   type ProductTrackingMode,
   type SimpleProduct,
