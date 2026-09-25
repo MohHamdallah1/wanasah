@@ -74,7 +74,15 @@ import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayP
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
+import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
+import type {
+  ProductBooleanFilter,
+  ProductLifecycleFilter,
+  ProductSortDirection,
+  ProductSortField,
+  ProductTrackingTypeFilter,
+} from "@/pages/products/list/types";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
@@ -94,30 +102,6 @@ const terminalImportStatuses =
     "FAILED",
     "NEEDS_MAPPING",
   ]);
-
-type ProductLifecycleFilter =
-  | ""
-  | "ACTIVE"
-  | "RETIRING";
-type ProductTrackingTypeFilter =
-  | ""
-  | "NONE"
-  | "LOT"
-  | "EXPIRY"
-  | "LOT_EXPIRY";
-type ProductBooleanFilter =
-  | ""
-  | "true"
-  | "false";
-type ProductSortField =
-  | "id"
-  | "name"
-  | "family"
-  | "sku"
-  | "lifecycle";
-type ProductSortDirection =
-  | "asc"
-  | "desc";
 
 type CreateFieldError = {
   field:
@@ -2874,427 +2858,132 @@ export default function ProductsDashboard() {
           />
 
           {filtersOpen ? (
-            <div className="mt-3 grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:grid-cols-2 xl:grid-cols-4">
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.family"
-                  )}
-                </span>
-                <input
-                  type="search"
-                  value={
-                    familyFilterSearchInput
-                  }
-                  maxLength={100}
-                  onChange={(event) =>
-                    setFamilyFilterSearchInput(
-                      event.target.value
-                    )
-                  }
-                  placeholder={t(
-                    "products.filters.familySearch"
-                  )}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-slate-400"
-                />
-                <select
-                  value={familyFilterId}
-                  onChange={(event) => {
-                    const nextId =
-                      event.target.value;
-                    const selected =
-                      familyFilterOptions.find(
-                        (item) =>
-                          String(
-                            item.id
-                          ) ===
-                          nextId
-                      );
-                    setFamilyFilterId(
-                      nextId
-                    );
-                    setFamilyFilterName(
-                      selected?.name ??
-                        ""
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-slate-400"
-                >
-                  <option value="">
-                    {t(
-                      "products.filters.all"
-                    )}
-                  </option>
-                  {familyFilterId &&
-                  !familyFilterOptions.some(
+            <ProductsFiltersPanel
+              familyFilterSearchInput={
+                familyFilterSearchInput
+              }
+              familyFilterId={
+                familyFilterId
+              }
+              familyFilterName={
+                familyFilterName
+              }
+              familyFilterOptions={
+                familyFilterOptions
+              }
+              familyOptionsError={
+                familyFilterOptionsQuery.isError
+              }
+              lifecycleFilter={
+                lifecycleFilter
+              }
+              trackingTypeFilter={
+                trackingTypeFilter
+              }
+              compatibilityFilter={
+                compatibilityFilter
+              }
+              barcodeFilter={
+                barcodeFilter
+              }
+              canViewPricing={
+                canViewPricing
+              }
+              priceFilter={
+                priceFilter
+              }
+              lotFilter={lotFilter}
+              expiryFilter={
+                expiryFilter
+              }
+              sortBy={sortBy}
+              sortDir={sortDir}
+              onFamilySearchInputChange={
+                setFamilyFilterSearchInput
+              }
+              onFamilyFilterChange={(
+                nextId
+              ) => {
+                const selected =
+                  familyFilterOptions.find(
                     (item) =>
                       String(item.id) ===
-                      familyFilterId
-                  ) ? (
-                    <option
-                      value={
-                        familyFilterId
-                      }
-                    >
-                      {familyFilterName ||
-                        familyFilterId}
-                    </option>
-                  ) : null}
-                  {familyFilterOptions.map(
-                    (
-                      family: ProductFamily
-                    ) => (
-                      <option
-                        key={family.id}
-                        value={String(
-                          family.id
-                        )}
-                      >
-                        {family.name}
-                      </option>
-                    )
-                  )}
-                </select>
-                {familyFilterOptionsQuery.isError ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void familyFilterOptionsQuery.refetch()
-                    }
-                    className="text-[11px] font-black text-rose-700"
-                  >
-                    {t(
-                      "products.filters.familyLoadFailed"
-                    )}
-                  </button>
-                ) : null}
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.lifecycle"
-                  )}
-                </span>
-                <select
-                  value={lifecycleFilter}
-                  onChange={(event) => {
-                    setLifecycleFilter(
-                      event.target
-                        .value as ProductLifecycleFilter
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  <option value="">
-                    {t(
-                      "products.filters.all"
-                    )}
-                  </option>
-                  <option value="ACTIVE">
-                    {t(
-                      "products.details.lifecycleModes.ACTIVE"
-                    )}
-                  </option>
-                  <option value="RETIRING">
-                    {t(
-                      "products.details.lifecycleModes.RETIRING"
-                    )}
-                  </option>
-                </select>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.trackingType"
-                  )}
-                </span>
-                <select
-                  value={trackingTypeFilter}
-                  onChange={(event) => {
-                    setTrackingTypeFilter(
-                      event.target
-                        .value as ProductTrackingTypeFilter
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  <option value="">
-                    {t(
-                      "products.filters.all"
-                    )}
-                  </option>
-                  {(
-                    [
-                      "NONE",
-                      "LOT",
-                      "EXPIRY",
-                      "LOT_EXPIRY",
-                    ] as const
-                  ).map((value) => (
-                    <option
-                      key={value}
-                      value={value}
-                    >
-                      {t(
-                        `products.filters.trackingTypes.${value}`
-                      )}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.compatibility"
-                  )}
-                </span>
-                <select
-                  value={
-                    compatibilityFilter
-                  }
-                  onChange={(event) => {
-                    setCompatibilityFilter(
-                      event.target
-                        .value as ProductBooleanFilter
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  <option value="">
-                    {t(
-                      "products.filters.all"
-                    )}
-                  </option>
-                  <option value="true">
-                    {t(
-                      "products.filters.simple"
-                    )}
-                  </option>
-                  <option value="false">
-                    {t(
-                      "products.filters.advanced"
-                    )}
-                  </option>
-                </select>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.barcode"
-                  )}
-                </span>
-                <select
-                  value={barcodeFilter}
-                  onChange={(event) => {
-                    setBarcodeFilter(
-                      event.target
-                        .value as ProductBooleanFilter
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  <option value="">
-                    {t(
-                      "products.filters.all"
-                    )}
-                  </option>
-                  <option value="true">
-                    {t(
-                      "products.filters.present"
-                    )}
-                  </option>
-                  <option value="false">
-                    {t(
-                      "products.filters.missing"
-                    )}
-                  </option>
-                </select>
-              </label>
-
-              {canViewPricing ? (
-                <label className="space-y-1">
-                  <span className="text-[11px] font-black text-slate-500">
-                    {t(
-                      "products.filters.price"
-                    )}
-                  </span>
-                  <select
-                    value={priceFilter}
-                    onChange={(event) => {
-                      setPriceFilter(
-                        event.target
-                          .value as ProductBooleanFilter
-                      );
-                      resetProductPagination();
-                    }}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                  >
-                    <option value="">
-                      {t(
-                        "products.filters.all"
-                      )}
-                    </option>
-                    <option value="true">
-                      {t(
-                        "products.filters.present"
-                      )}
-                    </option>
-                    <option value="false">
-                      {t(
-                        "products.filters.missing"
-                      )}
-                    </option>
-                  </select>
-                </label>
-              ) : null}
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.lot"
-                  )}
-                </span>
-                <select
-                  value={lotFilter}
-                  onChange={(event) => {
-                    setLotFilter(
-                      event.target
-                        .value as ProductBooleanFilter
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  <option value="">
-                    {t(
-                      "products.filters.all"
-                    )}
-                  </option>
-                  <option value="true">
-                    {t(
-                      "products.filters.tracked"
-                    )}
-                  </option>
-                  <option value="false">
-                    {t(
-                      "products.filters.notTracked"
-                    )}
-                  </option>
-                </select>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.expiry"
-                  )}
-                </span>
-                <select
-                  value={expiryFilter}
-                  onChange={(event) => {
-                    setExpiryFilter(
-                      event.target
-                        .value as ProductBooleanFilter
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  <option value="">
-                    {t(
-                      "products.filters.all"
-                    )}
-                  </option>
-                  <option value="true">
-                    {t(
-                      "products.filters.tracked"
-                    )}
-                  </option>
-                  <option value="false">
-                    {t(
-                      "products.filters.notTracked"
-                    )}
-                  </option>
-                </select>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.sortBy"
-                  )}
-                </span>
-                <select
-                  value={sortBy}
-                  onChange={(event) => {
-                    setSortBy(
-                      event.target
-                        .value as ProductSortField
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  {(
-                    [
-                      "id",
-                      "name",
-                      "family",
-                      "sku",
-                      "lifecycle",
-                    ] as const
-                  ).map((value) => (
-                    <option
-                      key={value}
-                      value={value}
-                    >
-                      {t(
-                        `products.filters.sortFields.${value}`
-                      )}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-[11px] font-black text-slate-500">
-                  {t(
-                    "products.filters.sortDirection"
-                  )}
-                </span>
-                <select
-                  value={sortDir}
-                  onChange={(event) => {
-                    setSortDir(
-                      event.target
-                        .value as ProductSortDirection
-                    );
-                    resetProductPagination();
-                  }}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
-                >
-                  <option value="asc">
-                    {t(
-                      "products.filters.ascending"
-                    )}
-                  </option>
-                  <option value="desc">
-                    {t(
-                      "products.filters.descending"
-                    )}
-                  </option>
-                </select>
-              </label>
-            </div>
+                      nextId
+                  );
+                setFamilyFilterId(
+                  nextId
+                );
+                setFamilyFilterName(
+                  selected?.name ?? ""
+                );
+                resetProductPagination();
+              }}
+              onRetryFamilyOptions={() =>
+                void familyFilterOptionsQuery.refetch()
+              }
+              onLifecycleFilterChange={(
+                value
+              ) => {
+                setLifecycleFilter(
+                  value
+                );
+                resetProductPagination();
+              }}
+              onTrackingTypeFilterChange={(
+                value
+              ) => {
+                setTrackingTypeFilter(
+                  value
+                );
+                resetProductPagination();
+              }}
+              onCompatibilityFilterChange={(
+                value
+              ) => {
+                setCompatibilityFilter(
+                  value
+                );
+                resetProductPagination();
+              }}
+              onBarcodeFilterChange={(
+                value
+              ) => {
+                setBarcodeFilter(
+                  value
+                );
+                resetProductPagination();
+              }}
+              onPriceFilterChange={(
+                value
+              ) => {
+                setPriceFilter(value);
+                resetProductPagination();
+              }}
+              onLotFilterChange={(
+                value
+              ) => {
+                setLotFilter(value);
+                resetProductPagination();
+              }}
+              onExpiryFilterChange={(
+                value
+              ) => {
+                setExpiryFilter(value);
+                resetProductPagination();
+              }}
+              onSortByChange={(
+                value
+              ) => {
+                setSortBy(value);
+                resetProductPagination();
+              }}
+              onSortDirChange={(
+                value
+              ) => {
+                setSortDir(value);
+                resetProductPagination();
+              }}
+            />
           ) : null}
         </div>
 
