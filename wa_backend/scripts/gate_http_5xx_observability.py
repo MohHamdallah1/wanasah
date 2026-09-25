@@ -38,6 +38,11 @@ check(
     and "handled_http_exception=False" in main,
     "unhandled exceptions use the same central logger",
 )
+
+check(
+    'headers={"X-Request-Id": request_id}' in main,
+    "unhandled 500 response preserves the issued request id header",
+)
 check(
     'detail="Database connection failed",' in main
     and ") from exc" in main,
