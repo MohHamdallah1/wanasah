@@ -11,11 +11,38 @@ from models import (
     Visit,
     WorkSession,
 )
-from workers.app import REPORTS_QUEUE, app
+from workers.app import (
+    REPORTS_QUEUE,
+    STALLED_WORKER_TIMEOUT_SECONDS,
+    app,
+)
+from workers.recovery import recover_safe_stalled_jobs
 from workers.tenant import tenant_session
 
 
-REPORTS_STALLED_ALLOWLIST = frozenset({"wanasah.report_foundation_probe"})
+REPORTS_STALLED_ALLOWLIST = frozenset(
+    {
+        "wanasah.report_foundation_probe",
+        "wanasah.recover_stalled_reports",
+    }
+)
+
+
+@app.periodic(cron="*/10 * * * *")
+@app.task(
+    name="wanasah.recover_stalled_reports",
+    queue=REPORTS_QUEUE,
+    queueing_lock="reports-stalled-recovery",
+    lock="reports-stalled-recovery",
+)
+async def recover_stalled_reports(
+    timestamp: int | None = None,
+) -> dict[str, int]:
+    return await recover_safe_stalled_jobs(
+        app,
+        allowlist=REPORTS_STALLED_ALLOWLIST,
+        seconds_since_heartbeat=STALLED_WORKER_TIMEOUT_SECONDS,
+    )
 
 
 def _utc_now_iso() -> str:
