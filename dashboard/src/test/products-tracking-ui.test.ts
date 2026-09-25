@@ -231,10 +231,10 @@ describe("products tracking UI contracts", () => {
       'const canManageCatalog = isCompanyAdmin || canAny("catalog.manage");',
     );
     expect(page).toContain(
-      "canEditTracking={ canManageCatalog }",
+      "canEditTracking: canManageCatalog",
     );
     expect(page).toContain(
-      "onEditTracking={ openTrackingEditor }",
+      "onEditTracking: openTrackingEditor",
     );
     expect(row).toContain(
       "{canEditTracking ? (",
