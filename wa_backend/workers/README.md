@@ -19,7 +19,7 @@
 - Company child tasks use transaction advisory locks for same-company serialization where required.
 - Global tenant discovery is bounded/keyset-paginated and skips inactive companies.
 - Duplicate company child backlog is bounded before defer using active `todo`/`doing` lock state.
-- Stalled-job retry is allowlisted to known safe/idempotent tasks only.
+- Stalled-job retry is allowlisted to known safe/idempotent tasks only; non-allowlisted stalled jobs fail closed to `failed` for explicit review.
 - Worker heartbeat is 10 seconds; stalled timeout is 30 seconds.
 - Recovery is available both at process startup and periodically while workers are alive.
 - Report transactions use PostgreSQL `READ ONLY`.
@@ -34,6 +34,7 @@
 - safe operational stalled-job recovery: every 10 minutes;
 - worker-history retention cleanup: daily at 04:13;
 - Live Stock due-transition scan: every 15 minutes at 2/17/32/47;
+- report stalled-job recovery: every 10 minutes;
 - product-import stalled-job recovery: every 5 minutes.
 
 Scheduling is handled by Procrastinate and PostgreSQL. Production still requires process supervision so a terminated worker process is restarted.
