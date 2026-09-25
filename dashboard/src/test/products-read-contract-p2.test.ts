@@ -350,6 +350,11 @@ describe("products P2 read contract", () => {
         "../pages/products/deriveProductsCapabilities.ts",
       ),
     );
+    const identityReset = normalizeWhitespace(
+      readSource(
+        "../pages/products/useProductsIdentityScopeReset.ts",
+      ),
+    );
 
     expect(listQueries).toContain(
       '"simple-products", companyId, params',
@@ -384,7 +389,7 @@ describe("products P2 read contract", () => {
     expect(page).toContain(
       "canEditPrice={ canEditSimplePrice }",
     );
-    expect(page).toContain(
+    expect(identityReset).toContain(
       "setCursor(null); setHistory([]);",
     );
   });
