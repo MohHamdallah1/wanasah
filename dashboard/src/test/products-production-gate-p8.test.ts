@@ -314,7 +314,7 @@ describe("Products P8 production frontend gate", () => {
     expect(importPolling).toContain(
       "setImportPollError( apiErrorMessage(",
     );
-    expect(page).toContain(
+    expect(importPolling).toContain(
       "setImportPollKey( (current) => current + 1",
     );
 
