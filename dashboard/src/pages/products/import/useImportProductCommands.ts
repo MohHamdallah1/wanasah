@@ -173,7 +173,6 @@ export function useImportProductCommands({
         ),
     });
 
-
   const updateMapping = (
     field: string,
     value: string,
