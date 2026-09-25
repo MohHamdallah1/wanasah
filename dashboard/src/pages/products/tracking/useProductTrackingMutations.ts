@@ -12,11 +12,14 @@ import type {
 import { toast } from "sonner";
 
 import {
+  apiErrorCode,
   apiErrorMessage,
+  isAmbiguousRequestError,
 } from "@/lib/apiErrors";
 import {
+  abandonDurableOperation,
   completeDurableOperation,
-  getOrCreateDurableRequestId,
+  getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import {
   parseProductTrackingDefaults,
@@ -32,6 +35,84 @@ type AuthFetch = (
   path: string,
   opts?: RequestInit,
 ) => Promise<unknown>;
+
+export type ProductTrackingDefaultsCommandPayload = {
+  lot_control_mode: ProductTrackingMode;
+  expiry_control_mode: ProductTrackingMode;
+};
+
+export type ProductTrackingCommandPayload =
+  ProductTrackingDefaultsCommandPayload & {
+    expected_version: number;
+  };
+
+const isTrackingMode = (
+  value: unknown,
+): value is ProductTrackingMode =>
+  value === "NONE" ||
+  value === "OPTIONAL" ||
+  value === "REQUIRED";
+
+export const isProductTrackingDefaultsCommandPayload = (
+  value: unknown,
+): value is ProductTrackingDefaultsCommandPayload => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    isTrackingMode(
+      row.lot_control_mode
+    ) &&
+    isTrackingMode(
+      row.expiry_control_mode
+    )
+  );
+};
+
+export const isProductTrackingCommandPayload = (
+  value: unknown,
+): value is ProductTrackingCommandPayload => {
+  if (
+    !isProductTrackingDefaultsCommandPayload(
+      value
+    )
+  ) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.expected_version ===
+      "number" &&
+    Number.isSafeInteger(
+      row.expected_version
+    ) &&
+    row.expected_version > 0
+  );
+};
+
+const keepDurableCommand = (
+  error: unknown,
+  uncertainCodes: string[],
+) => {
+  const code =
+    apiErrorCode(error);
+  return (
+    code ===
+      "DURABLE_OPERATION_PENDING" ||
+    code ===
+      "DURABLE_OPERATION_CORRUPT" ||
+    (
+      code !== undefined &&
+      uncertainCodes.includes(code)
+    ) ||
+    isAmbiguousRequestError(error)
+  );
+};
 
 type Params = {
   trackingDefaultsLot: ProductTrackingMode | null;
@@ -106,20 +187,21 @@ export function useProductTrackingMutations({
           );
         }
 
-        const body = {
-          lot_control_mode:
-            trackingDefaultsLot,
-          expiry_control_mode:
-            trackingDefaultsExpiry,
-        };
+        const body:
+          ProductTrackingDefaultsCommandPayload = {
+            lot_control_mode:
+              trackingDefaultsLot,
+            expiry_control_mode:
+              trackingDefaultsExpiry,
+          };
         const scope =
           productDurableScope(
             companyId,
             driverId,
             "product-tracking-defaults"
           );
-        const requestId =
-          await getOrCreateDurableRequestId(
+        const command =
+          await getOrCreateDurableCommand(
             scope,
             body
           );
@@ -131,15 +213,16 @@ export function useProductTrackingMutations({
                 method: "PUT",
                 body: JSON.stringify({
                   request_id:
-                    requestId,
-                  ...body,
+                    command.requestId,
+                  ...command.payload,
                 }),
               }
             )
           );
         return {
           data,
-          requestId,
+          requestId:
+            command.requestId,
           scope,
         };
       },
@@ -184,7 +267,25 @@ export function useProductTrackingMutations({
           }
         );
       },
-      onError: (error) =>
+      onError: (error) => {
+        if (
+          companyId !== null &&
+          driverId !== null &&
+          !keepDurableCommand(
+            error,
+            [
+              "PRODUCT_TRACKING_DEFAULTS_RESPONSE_INVALID",
+            ]
+          )
+        ) {
+          abandonDurableOperation(
+            productDurableScope(
+              companyId,
+              driverId,
+              "product-tracking-defaults"
+            )
+          );
+        }
         toast.error(
           apiErrorMessage(
             error,
@@ -192,7 +293,8 @@ export function useProductTrackingMutations({
               "products.errors.trackingDefaultsSave"
             )
           )
-        ),
+        );
+      },
     });
 
   const trackingMutation =
@@ -210,14 +312,15 @@ export function useProductTrackingMutations({
           );
         }
 
-        const body = {
-          expected_version:
-            trackingEdit.version,
-          lot_control_mode:
-            trackingEditLot,
-          expiry_control_mode:
-            trackingEditExpiry,
-        };
+        const body:
+          ProductTrackingCommandPayload = {
+            expected_version:
+              trackingEdit.version,
+            lot_control_mode:
+              trackingEditLot,
+            expiry_control_mode:
+              trackingEditExpiry,
+          };
         const scope =
           productDurableScope(
             companyId,
@@ -225,8 +328,8 @@ export function useProductTrackingMutations({
             "product-tracking",
             trackingEdit.id
           );
-        const requestId =
-          await getOrCreateDurableRequestId(
+        const command =
+          await getOrCreateDurableCommand(
             scope,
             body
           );
@@ -238,15 +341,24 @@ export function useProductTrackingMutations({
                 method: "PATCH",
                 body: JSON.stringify({
                   request_id:
-                    requestId,
-                  ...body,
+                    command.requestId,
+                  ...command.payload,
                 }),
               }
             )
           );
+        if (
+          data.product_variant_id !==
+          trackingEdit.id
+        ) {
+          throw new Error(
+            "PRODUCT_TRACKING_SCOPE_MISMATCH"
+          );
+        }
         return {
           data,
-          requestId,
+          requestId:
+            command.requestId,
           scope,
         };
       },
@@ -274,7 +386,28 @@ export function useProductTrackingMutations({
           }
         );
       },
-      onError: (error) =>
+      onError: (error) => {
+        if (
+          trackingEdit &&
+          companyId !== null &&
+          driverId !== null &&
+          !keepDurableCommand(
+            error,
+            [
+              "PRODUCT_TRACKING_MUTATION_RESPONSE_INVALID",
+              "PRODUCT_TRACKING_SCOPE_MISMATCH",
+            ]
+          )
+        ) {
+          abandonDurableOperation(
+            productDurableScope(
+              companyId,
+              driverId,
+              "product-tracking",
+              trackingEdit.id
+            )
+          );
+        }
         toast.error(
           apiErrorMessage(
             error,
@@ -282,7 +415,8 @@ export function useProductTrackingMutations({
               "products.errors.trackingProductSave"
             )
           )
-        ),
+        );
+      },
     });
 
 

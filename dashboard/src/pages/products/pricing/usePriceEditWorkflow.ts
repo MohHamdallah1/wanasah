@@ -4,9 +4,25 @@ import type {
 import type {
   TFunction,
 } from "i18next";
+import { toast } from "sonner";
 
-import { usePriceEditMutation } from "@/pages/products/pricing/usePriceEditMutation";
+import {
+  apiErrorMessage,
+} from "@/lib/apiErrors";
+import {
+  readDurableCommand,
+} from "@/lib/durableOperations";
+import type {
+  SimpleProduct,
+} from "@/pages/products/contracts";
+import {
+  isProductPriceCommandPayload,
+  usePriceEditMutation,
+} from "@/pages/products/pricing/usePriceEditMutation";
 import { usePriceEditState } from "@/pages/products/pricing/usePriceEditState";
+import {
+  productDurableScope,
+} from "@/pages/products/productDurableScope";
 
 type AuthFetch = (
   path: string,
@@ -41,12 +57,71 @@ export function usePriceEditWorkflow({
     setPriceFieldError,
     editPackagePriceRef,
     editUnitPriceRef,
-    openPriceEditor,
+    openPriceEditor:
+      openPriceEditorState,
     cancelPriceEdit,
     updatePackagePrice,
     updateUnitPrice,
     editDerived,
   } = usePriceEditState();
+
+  const openPriceEditor = async (
+    product: SimpleProduct
+  ) => {
+    try {
+      const scope =
+        productDurableScope(
+          companyId,
+          driverId,
+          "product-price",
+          product.id
+        );
+      const pending =
+        await readDurableCommand<unknown>(
+          scope
+        );
+      if (pending) {
+        if (
+          !isProductPriceCommandPayload(
+            pending.payload
+          )
+        ) {
+          throw Object.assign(
+            new Error(),
+            {
+              code:
+                "DURABLE_OPERATION_CORRUPT",
+            }
+          );
+        }
+        setPriceFieldError(null);
+        setPriceEdit(product);
+        setEditPackagePrice(
+          pending.payload
+            .package_price ?? ""
+        );
+        setEditUnitPrice(
+          pending.payload
+            .unit_price ?? ""
+        );
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        apiErrorMessage(
+          error,
+          t(
+            "products.errors.priceFailed"
+          )
+        )
+      );
+      return;
+    }
+
+    openPriceEditorState(
+      product
+    );
+  };
 
   const {
     priceMutation,

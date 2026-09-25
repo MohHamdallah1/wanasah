@@ -13,11 +13,14 @@ import type {
 import { toast } from "sonner";
 
 import {
+  apiErrorCode,
   apiErrorMessage,
+  isAmbiguousRequestError,
 } from "@/lib/apiErrors";
 import {
+  abandonDurableOperation,
   completeDurableOperation,
-  getOrCreateDurableRequestId,
+  getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import {
   parseSimpleProductPriceMutationResponse,
@@ -40,6 +43,34 @@ type AuthFetch = (
   path: string,
   opts?: RequestInit,
 ) => Promise<unknown>;
+
+export type ProductPriceCommandPayload = {
+  package_price: string | null;
+  unit_price: string | null;
+};
+
+export const isProductPriceCommandPayload = (
+  value: unknown,
+): value is ProductPriceCommandPayload => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  const validPrice = (price: unknown) =>
+    price === null ||
+    (typeof price === "string" &&
+      price.trim().length > 0);
+  return (
+    validPrice(row.package_price) &&
+    validPrice(row.unit_price) &&
+    (row.package_price !== null ||
+      row.unit_price !== null)
+  );
+};
 
 type Params = {
   priceEdit: SimpleProduct | null;
@@ -103,16 +134,17 @@ export function usePriceEditMutation({
             );
           }
 
-          const body = {
-            package_price:
-              priceEdit.package_uom_code &&
-              editPackagePrice.trim()
-                ? editPackagePrice.trim()
-                : null,
-            unit_price:
-              editUnitPrice.trim() ||
-              null,
-          };
+          const body:
+            ProductPriceCommandPayload = {
+              package_price:
+                priceEdit.package_uom_code &&
+                editPackagePrice.trim()
+                  ? editPackagePrice.trim()
+                  : null,
+              unit_price:
+                editUnitPrice.trim() ||
+                null,
+            };
           const scope =
             productDurableScope(
               companyId,
@@ -120,8 +152,8 @@ export function usePriceEditMutation({
               "product-price",
               priceEdit.id
             );
-          const requestId =
-            await getOrCreateDurableRequestId(
+          const command =
+            await getOrCreateDurableCommand(
               scope,
               body
             );
@@ -134,8 +166,8 @@ export function usePriceEditMutation({
                   body: JSON.stringify(
                     {
                       request_id:
-                        requestId,
-                      ...body,
+                        command.requestId,
+                      ...command.payload,
                     }
                   ),
                 }
@@ -151,7 +183,8 @@ export function usePriceEditMutation({
           }
           return {
             result,
-            requestId,
+            requestId:
+              command.requestId,
             scope,
           };
         },
@@ -179,7 +212,36 @@ export function usePriceEditMutation({
           }
         );
       },
-      onError: (error) =>
+      onError: (error) => {
+        const code =
+          apiErrorCode(error);
+        const uncertainResponse =
+          code ===
+            "SIMPLE_PRODUCT_PRICE_RESPONSE_INVALID" ||
+          code ===
+            "SIMPLE_PRODUCT_PRICE_SCOPE_MISMATCH";
+        if (
+          priceEdit &&
+          companyId !== null &&
+          driverId !== null &&
+          code !==
+            "DURABLE_OPERATION_PENDING" &&
+          code !==
+            "DURABLE_OPERATION_CORRUPT" &&
+          !uncertainResponse &&
+          !isAmbiguousRequestError(
+            error
+          )
+        ) {
+          abandonDurableOperation(
+            productDurableScope(
+              companyId,
+              driverId,
+              "product-price",
+              priceEdit.id
+            )
+          );
+        }
         toast.error(
           apiErrorMessage(
             error,
@@ -187,7 +249,8 @@ export function usePriceEditMutation({
               "products.errors.priceFailed"
             )
           )
-        ),
+        );
+      },
     });
 
   const submitPriceEdit = () => {

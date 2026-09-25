@@ -105,9 +105,19 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/pricing/usePriceEditMutation.ts",
       ),
     );
+    const priceWorkflow = compact(
+      readSource(
+        "../pages/products/pricing/usePriceEditWorkflow.ts",
+      ),
+    );
     const trackingMutations = compact(
       readSource(
         "../pages/products/tracking/useProductTrackingMutations.ts",
+      ),
+    );
+    const trackingWorkflow = compact(
+      readSource(
+        "../pages/products/tracking/useProductTrackingWorkflow.ts",
       ),
     );
     const importUpload = compact(
@@ -158,10 +168,19 @@ describe("Products P8 production frontend gate", () => {
       "parseSimpleProductPriceMutationResponse( await authFetch(",
     );
     expect(priceMutation).toContain(
-      "getOrCreateDurableRequestId(",
+      "getOrCreateDurableCommand(",
     );
     expect(priceMutation).toContain(
       "completeDurableOperation(",
+    );
+    expect(priceMutation).toContain(
+      "abandonDurableOperation(",
+    );
+    expect(priceMutation).toContain(
+      "isAmbiguousRequestError(",
+    );
+    expect(priceWorkflow).toContain(
+      "readDurableCommand<unknown>(",
     );
     expect(priceMutation).toContain(
       '"product-price"',
@@ -188,7 +207,16 @@ describe("Products P8 production frontend gate", () => {
       "expected_version: trackingEdit.version",
     );
     expect(trackingMutations).toContain(
-      "getOrCreateDurableRequestId(",
+      "getOrCreateDurableCommand(",
+    );
+    expect(trackingMutations).toContain(
+      "abandonDurableOperation(",
+    );
+    expect(trackingMutations).toContain(
+      "isAmbiguousRequestError(",
+    );
+    expect(trackingWorkflow).toContain(
+      "readDurableCommand<unknown>(",
     );
     expect(trackingMutations).toContain(
       "productDurableScope(",
