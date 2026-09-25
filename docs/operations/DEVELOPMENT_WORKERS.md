@@ -8,12 +8,12 @@ A normal runtime that exercises background maintenance uses separate long-runnin
 
 1. Backend API.
 2. Dashboard.
-3. Operational worker ? required for periodic maintenance and notification jobs.
+3. Operational worker — required for periodic maintenance and notification jobs.
 
 From the repository root, start the operational worker in its own PowerShell terminal:
 
 ```powershell
-.\wa_backend\scripts\run_dev_operational_worker.ps1
+.\ops\development\run_operational_worker.ps1
 ```
 
 The script deliberately uses the backend virtual environment directly and starts:
