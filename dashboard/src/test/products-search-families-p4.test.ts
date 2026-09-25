@@ -129,7 +129,7 @@ describe(
     it("wires every P4.2 filter and stable sort into the server query scope", () => {
       const page = compact(
         readSource(
-          "../pages/ProductsDashboard.tsx",
+          "../pages/products/ProductsPage.tsx",
         ),
       );
       const filters = compact(
@@ -375,7 +375,7 @@ describe(
       );
       const page = compact(
         readSource(
-          "../pages/ProductsDashboard.tsx",
+          "../pages/products/ProductsPage.tsx",
         ),
       );
       const toolbar = compact(
