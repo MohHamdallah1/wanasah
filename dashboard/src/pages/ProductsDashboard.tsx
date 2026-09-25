@@ -71,6 +71,7 @@ import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
 import type {
   ProductDraft,
 } from "@/pages/products/create/types";
+import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
 import {
   emptyDraft,
   useCreateProductState,
@@ -476,75 +477,13 @@ export default function ProductsDashboard() {
     draft.family,
   ]);
 
-  useEffect(() => {
-    if (!draftStorageKey) {
-      return;
-    }
-    if (
-      restoredDraftKey.current ===
-      draftStorageKey
-    ) {
-      return;
-    }
-
-    restoredDraftKey.current =
-      draftStorageKey;
-    try {
-      const raw =
-        sessionStorage.getItem(
-          draftStorageKey
-        );
-      if (raw) {
-        const parsed =
-          JSON.parse(
-            raw
-          ) as Partial<ProductDraft>;
-        const restored = {
-          ...emptyDraft,
-          ...parsed,
-        };
-        setDraft(restored);
-        if (
-          restored.name ||
-          restored.family ||
-          restored.package_price ||
-          restored.unit_price ||
-          restored.unit_barcode ||
-          restored.package_barcode
-        ) {
-          toast.message(
-            t(
-              "products.draftRestored"
-            )
-          );
-        }
-      }
-    } catch {
-      sessionStorage.removeItem(
-        draftStorageKey
-      );
-    }
-  }, [
+  useCreateProductDraftPersistence({
     draftStorageKey,
-    t,
-  ]);
-
-  useEffect(() => {
-    if (
-      !draftStorageKey ||
-      restoredDraftKey.current !==
-        draftStorageKey
-    ) {
-      return;
-    }
-    sessionStorage.setItem(
-      draftStorageKey,
-      JSON.stringify(draft)
-    );
-  }, [
     draft,
-    draftStorageKey,
-  ]);
+    setDraft,
+    restoredDraftKey,
+    t,
+  });
 
   useEffect(() => {
     if (!importSessionKey) {
