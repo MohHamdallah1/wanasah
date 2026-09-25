@@ -52,6 +52,56 @@ _STARTED_DOCUMENT_OPERATIONS = frozenset({
 PRODUCT_LOCATION_FLAG_KEYS = frozenset({"inbound_enabled", "outbound_enabled"})
 DEFAULT_PRODUCT_LOCATION_FLAGS = {"inbound_enabled": True, "outbound_enabled": True}
 
+# Hard delete is deliberately narrower than archive. These three references
+# are draft-owned configuration or a derived projection and may disappear with
+# a never-used draft. Every other company-scoped ProductVariant reference is a
+# business/history blocker and must be preserved.
+DRAFT_DELETE_ALLOWED_VARIANT_REFERENCES = {
+    "product_barcodes": "product_variant_id",
+    "product_uom_conversions": "product_variant_id",
+    "inventory_live_stock_projection": "product_variant_id",
+}
+
+DRAFT_DELETE_BLOCKER_REFERENCE_GROUPS = {
+    "WAREHOUSE_OR_STOCK_REFERENCE": (
+        ("dispatch_load_plan_lines", "product_variant_id"),
+        ("inventory_balances", "product_variant_id"),
+        ("inventory_cost_events", "product_variant_id"),
+        ("inventory_cost_layers", "product_variant_id"),
+        ("inventory_cost_states", "product_variant_id"),
+        ("inventory_locks", "product_variant_id"),
+        ("inventory_movements", "product_variant_id"),
+        ("inventory_stock_policies", "product_variant_id"),
+        ("inventory_transfer_lines", "product_variant_id"),
+        ("product_batches", "product_variant_id"),
+        ("product_locations", "product_variant_id"),
+        ("session_inventory_snapshots", "product_variant_id"),
+        ("shortage_requests", "product_variant_id"),
+        ("stocktake_lines", "product_variant_id"),
+        ("stocktake_sessions", "scope_product_variant_id"),
+    ),
+    "OFFER_REFERENCE": (
+        ("offer_rules", "product_variant_id"),
+        ("offer_version_products", "product_variant_id"),
+        ("offer_version_scopes", "product_variant_id"),
+    ),
+    "PRICING_REFERENCE": (
+        ("price_book_entries", "product_variant_id"),
+    ),
+    "IMPORT_REFERENCE": (
+        ("product_import_rows", "product_variant_id"),
+    ),
+    "SALES_REFERENCE": (
+        ("sales_return_lines", "product_variant_id"),
+        ("sales_reward_evidence", "product_variant_id"),
+        ("visit_items", "product_variant_id"),
+        ("visit_returns", "product_variant_id"),
+    ),
+    "TAX_REFERENCE": (
+        ("tax_rule_scopes", "product_variant_id"),
+    ),
+}
+
 
 @dataclass(frozen=True)
 class CapabilityDecision:
@@ -244,6 +294,58 @@ def record_domain_event(
             attempts=0,
             available_at=now,
         ))
+
+
+async def draft_delete_blockers(
+    db: AsyncSession,
+    company_id: int,
+    variant_id: int,
+) -> list[dict[str, Any]]:
+    """Return every business/history reference that forbids hard-deleting a draft.
+
+    Table and column identifiers come only from the immutable registry above;
+    no request value is interpolated into SQL identifiers.
+    """
+    clauses: list[str] = []
+    for blocker_code, references in DRAFT_DELETE_BLOCKER_REFERENCE_GROUPS.items():
+        for table_name, column_name in references:
+            clauses.append(
+                "SELECT "
+                f"'{blocker_code}' AS blocker_code, "
+                "count(*)::bigint AS total "
+                f"FROM {table_name} "
+                "WHERE company_id=:company_id "
+                f"AND {column_name}=:variant_id"
+            )
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT blocker_code, SUM(total)::bigint AS total
+                FROM (
+                """
+                + " UNION ALL ".join(clauses)
+                + """
+                ) refs
+                GROUP BY blocker_code
+                HAVING SUM(total) > 0
+                ORDER BY blocker_code
+                """
+            ),
+            {
+                "company_id": int(company_id),
+                "variant_id": int(variant_id),
+            },
+        )
+    ).all()
+    return [
+        {
+            "code": str(code),
+            "count": int(total),
+            "sample_id": None,
+        }
+        for code, total in rows
+    ]
 
 
 async def archive_blockers(db: AsyncSession, company_id: int, variant_id: int) -> list[dict[str, Any]]:

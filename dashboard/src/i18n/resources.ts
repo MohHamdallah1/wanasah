@@ -640,6 +640,10 @@ export const resources = {
           "سبب واضح لا يقل عن 3 أحرف",
         preflightPassed:
           "فحص الأرشفة ناجح؛ لا توجد موانع حالية.",
+        deletePreflightPassed:
+          "فحص الحذف ناجح: هذه مسودة غير منشورة ولا تحمل مراجع أعمال. الحذف النهائي متاح الآن.",
+        deleteBlockersTitle:
+          "الحذف النهائي غير متاح لأن هذه المسودة تحمل مراجع أو تاريخاً يجب الحفاظ عليه:",
         blockersTitle:
           "الأرشفة متوقفة حتى معالجة الموانع التالية:",
         pendingRetry:
@@ -650,7 +654,9 @@ export const resources = {
           "تعذر التحقق من الأمر المعلّق المحفوظ. تم إيقاف أوامر دورة الحياة حتى تتم تسويته بأمان.",
         actions: {
           publish: "نشر",
-          deleteDraft: "حذف المسودة",
+          checkDeleteDraft:
+            "فحص إمكانية حذف المسودة",
+          deleteDraft: "حذف المسودة نهائياً",
           retire: "بدء التقاعد",
           restore: "استعادة",
           checkArchive: "فحص الأرشفة",
@@ -742,8 +748,32 @@ export const resources = {
             "تعذر فحص موانع الأرشفة.",
           preflightRequired:
             "نفّذ فحص الأرشفة الحالي قبل الأرشفة النهائية.",
+          deletePreflight:
+            "تعذر فحص إمكانية حذف المسودة.",
+          deletePreflightRequired:
+            "نفّذ فحص حذف المسودة الحالي أولاً. الحذف النهائي لا يظهر إلا لمسودة غير مستخدمة وآمنة للحذف.",
           reason:
             "سبب الإجراء مطلوب وبحد أدنى 3 أحرف.",
+        },
+        deleteBlockers: {
+          DELETE_REQUIRES_DRAFT:
+            "المنتج لم يعد مسودة",
+          OPERATIONAL_HOLD:
+            "يوجد إيقاف تشغيلي مفتوح",
+          PUBLISHED_HISTORY:
+            "للمنتج تاريخ نشر أو تقاعد أو أرشفة",
+          WAREHOUSE_OR_STOCK_REFERENCE:
+            "مرجع مخزون أو مستودع أو حركة تشغيلية",
+          SALES_REFERENCE:
+            "مرجع مبيعات أو مرتجع أو زيارة",
+          IMPORT_REFERENCE:
+            "مرجع استيراد محفوظ",
+          PRICING_REFERENCE:
+            "مرجع تسعير محفوظ",
+          OFFER_REFERENCE:
+            "مرجع عرض أو إصدار عرض",
+          TAX_REFERENCE:
+            "مرجع ضريبي محفوظ",
         },
         blockers: {
           INVENTORY_BALANCE: "رصيد أو حجز مخزون",
@@ -2045,6 +2075,10 @@ export const resources = {
           "Provide a clear reason of at least 3 characters",
         preflightPassed:
           "Archive preflight passed; no blockers remain.",
+        deletePreflightPassed:
+          "Delete preflight passed: this is an unpublished draft with no business references. Permanent deletion is now available.",
+        deleteBlockersTitle:
+          "Permanent deletion is unavailable because this draft has references or history that must be preserved:",
         blockersTitle:
           "Archiving is blocked until these dependencies are resolved:",
         pendingRetry:
@@ -2055,7 +2089,10 @@ export const resources = {
           "The saved pending lifecycle command could not be verified. Lifecycle actions are blocked until it is safely reconciled.",
         actions: {
           publish: "Publish",
-          deleteDraft: "Delete draft",
+          checkDeleteDraft:
+            "Check draft deletion",
+          deleteDraft:
+            "Permanently delete draft",
           retire: "Start retirement",
           restore: "Restore",
           checkArchive: "Check archive",
@@ -2147,8 +2184,32 @@ export const resources = {
             "Could not check archive blockers.",
           preflightRequired:
             "Run a current archive preflight before archiving.",
+          deletePreflight:
+            "Could not check whether this draft can be deleted.",
+          deletePreflightRequired:
+            "Run the current draft-delete preflight first. Permanent deletion is exposed only for an unused draft that is safe to remove.",
           reason:
             "A reason of at least 3 characters is required.",
+        },
+        deleteBlockers: {
+          DELETE_REQUIRES_DRAFT:
+            "The product is no longer a draft",
+          OPERATIONAL_HOLD:
+            "An operational hold is open",
+          PUBLISHED_HISTORY:
+            "The product has publish, retirement, or archive history",
+          WAREHOUSE_OR_STOCK_REFERENCE:
+            "Warehouse, stock, movement, or inventory reference",
+          SALES_REFERENCE:
+            "Sales, return, or visit reference",
+          IMPORT_REFERENCE:
+            "Saved import reference",
+          PRICING_REFERENCE:
+            "Saved pricing reference",
+          OFFER_REFERENCE:
+            "Offer or offer-version reference",
+          TAX_REFERENCE:
+            "Saved tax reference",
         },
         blockers: {
           INVENTORY_BALANCE: "Inventory balance or reservation",

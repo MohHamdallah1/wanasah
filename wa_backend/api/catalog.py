@@ -37,6 +37,7 @@ from product_lifecycle import (
     acquire_product_lifecycle_guards,
     apply_variant_publish_transition,
     archive_blockers,
+    draft_delete_blockers,
     record_domain_event,
     variant_snapshot,
 )
@@ -1351,6 +1352,75 @@ async def publish_variant(variant_id: int, payload: LifecycleCommand, db: AsyncS
     return await _run_variant_state_command(variant_id=variant_id, payload=payload, command="publish", permission="catalog.publish", db=db, actor=actor)
 
 
+def _draft_delete_state_blockers(
+    row: ProductVariant,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if row.lifecycle_status != "DRAFT":
+        blockers.append({
+            "code": "DELETE_REQUIRES_DRAFT",
+            "count": 1,
+            "sample_id": None,
+        })
+    if row.operational_hold != "NONE":
+        blockers.append({
+            "code": "OPERATIONAL_HOLD",
+            "count": 1,
+            "sample_id": None,
+        })
+    if any(
+        value is not None
+        for value in (
+            row.published_at,
+            row.retired_at,
+            row.archived_at,
+        )
+    ):
+        blockers.append({
+            "code": "PUBLISHED_HISTORY",
+            "count": 1,
+            "sample_id": None,
+        })
+    return blockers
+
+
+@router.get("/variants/{variant_id}/delete-draft-preflight")
+async def variant_delete_draft_preflight(
+    variant_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.manage")
+    row = await db.scalar(
+        select(ProductVariant).where(
+            ProductVariant.company_id == actor.company_id,
+            ProductVariant.id == variant_id,
+        )
+    )
+    if row is None:
+        raise _error(
+            404,
+            "VARIANT_NOT_FOUND",
+            "الصنف غير موجود.",
+        )
+    blockers = _draft_delete_state_blockers(row)
+    blockers.extend(
+        await draft_delete_blockers(
+            db,
+            actor.company_id,
+            variant_id,
+        )
+    )
+    return {
+        "variant_id": variant_id,
+        "lifecycle_status": row.lifecycle_status,
+        "operational_hold": row.operational_hold,
+        "version": row.version,
+        "can_delete": not blockers,
+        "blockers": blockers,
+    }
+
+
 @router.post("/variants/{variant_id}/delete-draft")
 async def delete_draft_variant(
     variant_id: int,
@@ -1388,25 +1458,27 @@ async def delete_draft_variant(
                 "تغير الصنف؛ حدّث البيانات وأعد المحاولة.",
                 current_version=row.version,
             )
-        if row.lifecycle_status != "DRAFT" or row.operational_hold != "NONE":
+        state_blockers = _draft_delete_state_blockers(row)
+        if state_blockers:
             raise _error(
-                409, "PRODUCT_DELETE_DRAFT_TRANSITION_INVALID",
-                "الحذف النهائي مسموح لمسودة غير منشورة وغير موقوفة فقط.",
+                409,
+                "PRODUCT_DELETE_DRAFT_TRANSITION_INVALID",
+                "الحذف النهائي مسموح فقط لمسودة لم تُنشر ولم تدخل دورة تشغيلية.",
+                variant_id=variant_id,
+                blockers=state_blockers,
             )
-        blockers = await archive_blockers(db, actor.company_id, variant_id)
-        batch_id = await db.scalar(
-            select(ProductBatch.id).where(
-                ProductBatch.company_id == actor.company_id,
-                ProductBatch.product_variant_id == variant_id,
-            ).limit(1)
+        blockers = await draft_delete_blockers(
+            db,
+            actor.company_id,
+            variant_id,
         )
-        if batch_id is not None:
-            blockers.append({"code": "PRODUCT_BATCH", "count": 1, "sample_id": int(batch_id)})
         if blockers:
             raise _error(
-                409, "PRODUCT_DRAFT_DELETE_BLOCKED",
-                "لا يمكن حذف مسودة لها مراجع تشغيلية.",
-                variant_id=variant_id, blockers=blockers,
+                409,
+                "PRODUCT_DRAFT_DELETE_BLOCKED",
+                "لا يمكن حذف المسودة لأنها تحمل مراجع أعمال أو تاريخاً يجب الحفاظ عليه.",
+                variant_id=variant_id,
+                blockers=blockers,
             )
         before = variant_snapshot(row)
         await db.execute(delete(ProductBarcode).where(

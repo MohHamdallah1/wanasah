@@ -300,6 +300,14 @@ export interface ArchivePreflight {
   can_archive: boolean;
   blockers: ArchiveBlocker[];
 }
+export interface DraftDeletePreflight {
+  variant_id: number;
+  lifecycle_status: CatalogVariant["lifecycle_status"];
+  operational_hold: CatalogVariant["operational_hold"];
+  version: number;
+  can_delete: boolean;
+  blockers: ArchiveBlocker[];
+}
 export interface ProductLocationAssignment {
   id: number;
   location: { id: number; code: string; name: string; location_type: string };
@@ -336,6 +344,62 @@ export const parseArchivePreflight = (raw: unknown): ArchivePreflight => {
     version: integer(row.version, "version", 1),
     can_archive: row.can_archive,
     blockers: row.blockers.map(parseBlocker),
+  };
+};
+
+export const parseDraftDeletePreflight = (
+  raw: unknown,
+): DraftDeletePreflight => {
+  const row = record(
+    raw,
+    "استجابة فحص حذف المسودة غير صالحة.",
+  );
+  if (
+    !Array.isArray(row.blockers) ||
+    row.blockers.length > 20 ||
+    typeof row.can_delete !== "boolean"
+  ) {
+    throw catalogContractError(
+      "قائمة موانع حذف المسودة غير صالحة.",
+    );
+  }
+  const hold = String(
+    row.operational_hold,
+  );
+  if (
+    ![
+      "NONE",
+      "SALES_HOLD",
+      "RECALL",
+    ].includes(hold)
+  ) {
+    throw catalogContractError(
+      "حالة إيقاف المسودة غير صالحة.",
+    );
+  }
+  return {
+    variant_id: integer(
+      row.variant_id,
+      "variant_id",
+      1,
+    ),
+    lifecycle_status:
+      parseLifecycle(
+        row.lifecycle_status,
+      ),
+    operational_hold:
+      hold as CatalogVariant["operational_hold"],
+    version: integer(
+      row.version,
+      "version",
+      1,
+    ),
+    can_delete:
+      row.can_delete,
+    blockers:
+      row.blockers.map(
+        parseBlocker,
+      ),
   };
 };
 const parseProductLocation = (value: unknown): ProductLocationAssignment => {

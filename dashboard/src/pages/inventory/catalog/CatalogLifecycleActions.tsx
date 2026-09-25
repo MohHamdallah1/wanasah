@@ -31,10 +31,12 @@ import {
 } from "@/lib/durableOperations";
 import {
   parseArchivePreflight,
+  parseDraftDeletePreflight,
   parseMutationMessage,
   parseVariantMutation,
   type ArchivePreflight,
   type CatalogVariant,
+  type DraftDeletePreflight,
 } from "./contracts";
 
 type LifecycleCommandName =
@@ -169,6 +171,13 @@ export function CatalogLifecycleActions({
       null,
     );
   const [
+    deletePreflight,
+    setDeletePreflight,
+  ] =
+    useState<DraftDeletePreflight | null>(
+      null,
+    );
+  const [
     pending,
     setPending,
   ] = useState<
@@ -204,6 +213,7 @@ export function CatalogLifecycleActions({
 
   useEffect(() => {
     setPreflight(null);
+    setDeletePreflight(null);
   }, [
     variant.id,
     variant.version,
@@ -323,6 +333,25 @@ export function CatalogLifecycleActions({
 
     if (
       !pending &&
+      command === "delete-draft" &&
+      (
+        !deletePreflight?.can_delete ||
+        deletePreflight.variant_id !==
+          variant.id ||
+        deletePreflight.version !==
+          variant.version
+      )
+    ) {
+      toast.error(
+        t(
+          "catalogLifecycle.errors.deletePreflightRequired",
+        ),
+      );
+      return;
+    }
+
+    if (
+      !pending &&
       command === "archive" &&
       (
         !preflight?.can_archive ||
@@ -426,6 +455,7 @@ export function CatalogLifecycleActions({
         );
         setPending(null);
         setReason("");
+        setDeletePreflight(null);
         toast.success(
           t(
             "catalogLifecycle.success.deleteDraft",
@@ -469,6 +499,7 @@ export function CatalogLifecycleActions({
       setPendingBlocked(false);
       setReason("");
       setPreflight(null);
+      setDeletePreflight(null);
       toast.success(
         t(
           `catalogLifecycle.success.${lifecycleActionKey(
@@ -525,6 +556,59 @@ export function CatalogLifecycleActions({
       setBusy(false);
     }
   };
+
+  const checkDeleteDraft =
+    async () => {
+      if (
+        busy ||
+        !isOnline
+      ) {
+        return;
+      }
+      setBusy(true);
+      try {
+        const result =
+          parseDraftDeletePreflight(
+            await authFetch(
+              `/catalog/variants/${variant.id}/delete-draft-preflight`,
+            ),
+          );
+        if (
+          result.variant_id !==
+            variant.id ||
+          result.version !==
+            variant.version
+        ) {
+          throw new Error(
+            "CATALOG_DELETE_PREFLIGHT_STALE",
+          );
+        }
+        setDeletePreflight(
+          result,
+        );
+        if (
+          result.can_delete
+        ) {
+          toast.success(
+            t(
+              "catalogLifecycle.deletePreflightPassed",
+            ),
+          );
+        }
+      } catch (error) {
+        setDeletePreflight(null);
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "catalogLifecycle.errors.deletePreflight",
+            ),
+          ),
+        );
+      } finally {
+        setBusy(false);
+      }
+    };
 
   const checkArchive =
     async () => {
@@ -648,7 +732,37 @@ export function CatalogLifecycleActions({
             <button
               type="button"
               className={
-                `${actionClass} border-red-200 text-red-700`
+                `${actionClass} border-amber-200 text-amber-800`
+              }
+              disabled={
+                actionsDisabled
+              }
+              onClick={() =>
+                void checkDeleteDraft()
+              }
+            >
+              <Trash2 className="me-1 inline h-4 w-4" />
+              {t(
+                "catalogLifecycle.actions.checkDeleteDraft",
+              )}
+            </button>
+          ) : null}
+
+          {variant.lifecycle_status ===
+            "DRAFT" &&
+          deletePreflight?.can_delete &&
+          deletePreflight.variant_id ===
+            variant.id &&
+          deletePreflight.version ===
+            variant.version &&
+          can(
+            "catalog.manage",
+          ) &&
+          onVariantDeleted ? (
+            <button
+              type="button"
+              className={
+                `${actionClass} border-red-200 bg-red-50 text-red-700`
               }
               disabled={
                 actionsDisabled
@@ -970,6 +1084,45 @@ export function CatalogLifecycleActions({
             "catalogLifecycle.pendingBlocked",
           )}
         </p>
+      ) : null}
+
+      {deletePreflight?.can_delete ? (
+        <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-6 text-emerald-900">
+          {t(
+            "catalogLifecycle.deletePreflightPassed",
+          )}
+        </p>
+      ) : null}
+
+      {deletePreflight &&
+      !deletePreflight.can_delete ? (
+        <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-900">
+          <p>
+            {t(
+              "catalogLifecycle.deleteBlockersTitle",
+            )}
+          </p>
+          <ul className="mt-2 space-y-1">
+            {deletePreflight.blockers.map(
+              (item) => (
+                <li
+                  key={
+                    item.code
+                  }
+                >
+                  {t(
+                    `catalogLifecycle.deleteBlockers.${item.code}`,
+                    {
+                      defaultValue:
+                        item.code,
+                    },
+                  )}
+                  : {item.count}
+                </li>
+              ),
+            )}
+          </ul>
+        </div>
       ) : null}
 
       {preflight &&

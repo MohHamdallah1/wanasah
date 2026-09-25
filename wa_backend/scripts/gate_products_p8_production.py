@@ -27,6 +27,7 @@ BACKEND_GATES = (
     "scripts/gate_products_p8_existing_products.py",
     "scripts/gate_products_p9_rename.py",
     "scripts/gate_products_p9_family_reassignment.py",
+    "scripts/gate_products_p9_delete_archive_policy.py",
 )
 
 
