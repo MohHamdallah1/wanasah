@@ -202,7 +202,7 @@ describe(
 
     it("associates client validation errors with fields and focuses the first invalid control", () => {
       const dashboard = read(
-        "src/pages/ProductsDashboard.tsx",
+        "src/pages/products/ProductsPage.tsx",
       );
       const createModal = read(
         "src/pages/products/create/CreateProductModal.tsx",
