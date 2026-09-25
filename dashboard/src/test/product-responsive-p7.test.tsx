@@ -254,6 +254,12 @@ describe(
         read(
           "src/pages/products/create/CreateProductModal.tsx",
         ),
+        read(
+          "src/pages/products/import/ImportProductModal.tsx",
+        ),
+        read(
+          "src/pages/products/pricing/PriceEditModal.tsx",
+        ),
       ];
 
       for (const source of files) {
