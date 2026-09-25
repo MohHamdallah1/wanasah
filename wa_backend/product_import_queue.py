@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 
 from config import Config
 from domains.product_tracking import normalize_tracking_mode
+from workers.recovery import recover_safe_stalled_jobs
 
 
 def _psycopg_dsn() -> str:
@@ -27,11 +28,43 @@ def _psycopg_dsn() -> str:
 
 
 DSN = _psycopg_dsn()
+PRODUCT_IMPORT_HEARTBEAT_SECONDS = 10.0
+PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS = 30.0
+PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
+    {
+        "wanasah.process_product_import",
+        "wanasah.recover_stalled_product_imports",
+    }
+)
+
 app = App(
     connector=PsycopgConnector(
         conninfo=DSN
-    )
+    ),
+    worker_defaults={
+        "delete_jobs": "never",
+        "shutdown_graceful_timeout": 60,
+        "update_heartbeat_interval": PRODUCT_IMPORT_HEARTBEAT_SECONDS,
+        "stalled_worker_timeout": PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS,
+    },
 )
+
+
+@app.periodic(cron="*/5 * * * *")
+@app.task(
+    name="wanasah.recover_stalled_product_imports",
+    queue="product-import",
+    queueing_lock="product-import-stalled-recovery",
+    lock="product-import-stalled-recovery",
+)
+async def recover_stalled_product_imports(
+    timestamp: int | None = None,
+) -> dict[str, int]:
+    return await recover_safe_stalled_jobs(
+        app,
+        allowlist=PRODUCT_IMPORT_STALLED_ALLOWLIST,
+        seconds_since_heartbeat=PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS,
+    )
 
 
 @app.task(
