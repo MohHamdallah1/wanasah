@@ -339,6 +339,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/import/createImportFileActions.ts",
       ),
     );
+    const importWorkflow = compact(
+      readSource(
+        "../pages/products/import/useImportProductWorkflow.ts",
+      ),
+    );
 
     expect(fileActions).toContain(
       'lower.endsWith( ".csv" )',
@@ -365,16 +370,16 @@ describe("Products P8 production frontend gate", () => {
       "setMapping({})",
     );
     expect(page).toContain(
-      "onOpenImport={openImport}",
+      "onOpenImport={ importWorkflow.openImport }",
     );
     expect(header).toContain(
       "onClick={onOpenImport}",
     );
-    expect(page).toContain(
-      "onClose={closeImport}",
+    expect(importWorkflow).toContain(
+      "onClose: closeImport",
     );
-    expect(page).toContain(
-      "onCompletedClose={ completeImport }",
+    expect(importWorkflow).toContain(
+      "onCompletedClose: completeImport",
     );
   });
 
@@ -397,6 +402,11 @@ describe("Products P8 production frontend gate", () => {
     const importModal = compact(
       readSource(
         "../pages/products/import/ImportProductModal.tsx",
+      ),
+    );
+    const importWorkflow = compact(
+      readSource(
+        "../pages/products/import/useImportProductWorkflow.ts",
       ),
     );
     const importPolling = compact(
@@ -432,8 +442,8 @@ describe("Products P8 production frontend gate", () => {
     expect(createWorkflow).toContain(
       "void familyOptionsQuery.refetch()",
     );
-    expect(page).toContain(
-      "pollError={ importPollError }",
+    expect(importWorkflow).toContain(
+      "pollError: importPollError",
     );
     expect(importModal).toContain(
       "jobId && pollError ? (",
