@@ -329,6 +329,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const header = compact(
+      readSource(
+        "../pages/products/ProductsPageHeader.tsx",
+      ),
+    );
     const fileActions = compact(
       readSource(
         "../pages/products/import/createImportFileActions.ts",
@@ -360,7 +365,10 @@ describe("Products P8 production frontend gate", () => {
       "setMapping({})",
     );
     expect(page).toContain(
-      "onClick={ openImport }",
+      "onOpenImport={openImport}",
+    );
+    expect(header).toContain(
+      "onClick={onOpenImport}",
     );
     expect(page).toContain(
       "onClose={closeImport}",
