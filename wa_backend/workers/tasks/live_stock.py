@@ -12,6 +12,7 @@ from domains.live_stock_projection.service import (
 from models import Company, InventoryLiveStockCompanySummary
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
+from workers.scheduling import defer_unique_company_job
 from workers.tenant import acquire_tenant_job_lock, tenant_session
 
 
@@ -33,6 +34,7 @@ async def scan_all_live_stock_transitions(
     after_company_id = 0
     companies_seen = 0
     deferred = 0
+    skipped_duplicate = 0
 
     while True:
         async with AsyncSessionLocal() as db:
@@ -57,10 +59,15 @@ async def scan_all_live_stock_transitions(
             break
 
         for company_id in company_ids:
-            await refresh_company_live_stock_transitions.configure(
-                lock=f"live-stock-transition-company:{company_id}",
-            ).defer_async(company_id=company_id)
-            deferred += 1
+            accepted = await defer_unique_company_job(
+                refresh_company_live_stock_transitions,
+                lock_namespace="live-stock-transition-company",
+                company_id=company_id,
+            )
+            if accepted:
+                deferred += 1
+            else:
+                skipped_duplicate += 1
 
         companies_seen += len(company_ids)
         after_company_id = company_ids[-1]
@@ -70,6 +77,7 @@ async def scan_all_live_stock_transitions(
     return {
         "companies_seen": companies_seen,
         "company_jobs_deferred": deferred,
+        "company_jobs_skipped_duplicate": skipped_duplicate,
     }
 
 
