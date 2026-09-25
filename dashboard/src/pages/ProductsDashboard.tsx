@@ -28,8 +28,7 @@ import { ProductsListSection } from "@/pages/products/list/ProductsListSection";
 import { createProductsListActions } from "@/pages/products/list/createProductsListActions";
 import { deriveProductsListViewState } from "@/pages/products/list/deriveProductsListViewState";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
-import { usePriceEditMutation } from "@/pages/products/pricing/usePriceEditMutation";
-import { usePriceEditState } from "@/pages/products/pricing/usePriceEditState";
+import { usePriceEditWorkflow } from "@/pages/products/pricing/usePriceEditWorkflow";
 import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
 import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
 import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
@@ -180,24 +179,6 @@ export default function ProductsDashboard() {
   } = useProductTrackingEditState();
 
   const {
-    priceEdit,
-    setPriceEdit,
-    editPackagePrice,
-    setEditPackagePrice,
-    editUnitPrice,
-    setEditUnitPrice,
-    priceFieldError,
-    setPriceFieldError,
-    editPackagePriceRef,
-    editUnitPriceRef,
-    openPriceEditor,
-    cancelPriceEdit,
-    updatePackagePrice,
-    updateUnitPrice,
-    editDerived,
-  } = usePriceEditState();
-
-  const {
     familiesOpen,
     openFamilies,
     closeFamilies,
@@ -289,6 +270,16 @@ export default function ProductsDashboard() {
         void trackingDefaultsQuery.refetch(),
     });
 
+  const priceWorkflow =
+    usePriceEditWorkflow({
+      companyId,
+      driverId,
+      authFetch,
+      queryClient,
+      t,
+      online: isOnline,
+    });
+
   useProductsIdentityScopeReset({
     companyId,
     driverId,
@@ -318,11 +309,8 @@ export default function ProductsDashboard() {
       setRenameProduct,
       setBarcodeProduct,
     },
-    pricing: {
-      setPriceEdit,
-      setEditPackagePrice,
-      setEditUnitPrice,
-    },
+    pricing:
+      priceWorkflow.identityScope,
     importScope:
       importWorkflow.identityScope,
     create:
@@ -427,7 +415,7 @@ export default function ProductsDashboard() {
   } = createProductDetailActions({
     closeProductDetails,
     openRenameProduct,
-    openPriceEditor,
+    priceWorkflow.openPriceEditor,
     openTrackingEditor,
     openLifecycleManager,
     openBarcodeManager,
@@ -468,25 +456,6 @@ export default function ProductsDashboard() {
     setTrackingEditExpiry,
     queryClient,
     t,
-  });
-
-  const {
-    priceMutation,
-    submitPriceEdit,
-    closePriceEdit,
-  } = usePriceEditMutation({
-    priceEdit,
-    editPackagePrice,
-    editUnitPrice,
-    companyId,
-    driverId,
-    authFetch,
-    setPriceEdit,
-    setPriceFieldError,
-    queryClient,
-    t,
-    editPackagePriceRef,
-    editUnitPriceRef,
   });
 
   return (
@@ -625,7 +594,7 @@ export default function ProductsDashboard() {
           onOpenDetails:
             openProductDetails,
           onEditPrice:
-            openPriceEditor,
+            priceWorkflow.openPriceEditor,
           onEditTracking:
             openTrackingEditor,
           onPrevious:
@@ -822,42 +791,7 @@ export default function ProductsDashboard() {
       />
 
       <PriceEditModal
-        product={priceEdit}
-        saving={
-          priceMutation.isPending
-        }
-        online={isOnline}
-        packagePrice={
-          editPackagePrice
-        }
-        unitPrice={
-          editUnitPrice
-        }
-        fieldError={
-          priceFieldError
-        }
-        independentPrices={Boolean(
-          editDerived?.independent
-        )}
-        packagePriceRef={
-          editPackagePriceRef
-        }
-        unitPriceRef={
-          editUnitPriceRef
-        }
-        onClose={
-          closePriceEdit
-        }
-        onCancel={
-          cancelPriceEdit
-        }
-        onSubmit={submitPriceEdit}
-        onPackagePriceChange={
-          updatePackagePrice
-        }
-        onUnitPriceChange={
-          updateUnitPrice
-        }
+        {...priceWorkflow.modalProps}
       />
 
       <ProductFamiliesManager
