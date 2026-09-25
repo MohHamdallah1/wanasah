@@ -24,6 +24,9 @@ import {
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
+import {
+  productDurableScope,
+} from "@/pages/products/productDurableScope";
 
 type AuthFetch = (
   path: string,
@@ -36,10 +39,8 @@ type Params = {
   trackingEdit: SimpleProduct | null;
   trackingEditLot: ProductTrackingMode | null;
   trackingEditExpiry: ProductTrackingMode | null;
-  operationScope: (
-    operation: string,
-    target?: string | number,
-  ) => string;
+  companyId: number | null;
+  driverId: number | null;
   authFetch: AuthFetch;
   setTrackingDefaultsOpen: Dispatch<
     SetStateAction<boolean>
@@ -76,7 +77,8 @@ export function useProductTrackingMutations({
   trackingEdit,
   trackingEditLot,
   trackingEditExpiry,
-  operationScope,
+  companyId,
+  driverId,
   authFetch,
   setTrackingDefaultsOpen,
   setTrackingDefaultsLot,
@@ -111,7 +113,9 @@ export function useProductTrackingMutations({
             trackingDefaultsExpiry,
         };
         const scope =
-          operationScope(
+          productDurableScope(
+            companyId,
+            driverId,
             "product-tracking-defaults"
           );
         const requestId =
@@ -215,7 +219,9 @@ export function useProductTrackingMutations({
             trackingEditExpiry,
         };
         const scope =
-          operationScope(
+          productDurableScope(
+            companyId,
+            driverId,
             "product-tracking",
             trackingEdit.id
           );
