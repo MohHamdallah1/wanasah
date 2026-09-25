@@ -74,6 +74,7 @@ import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
 import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
+import { useImportProductUpload } from "@/pages/products/import/useImportProductUpload";
 import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
@@ -1174,130 +1175,22 @@ export default function ProductsDashboard() {
     priceMutation.mutate();
   };
 
-  const importMutation =
-    useMutation({
-      mutationFn: async () => {
-        if (!importFile) {
-          throw new Error(
-            t(
-              "products.errors.fileRequired"
-            )
-          );
-        }
-        if (
-          !importLotControlMode ||
-          !importExpiryControlMode
-        ) {
-          throw new Error(
-            t(
-              "products.errors.trackingDefaultsRequired"
-            )
-          );
-        }
-
-        const fingerprint =
-          await fileFingerprint(
-            importFile
-          );
-        const scope =
-          operationScope(
-            "product-import",
-            `${fingerprint}:${importLotControlMode}:${importExpiryControlMode}`
-          );
-        const requestId =
-          await getOrCreateDurableRequestId(
-            scope,
-            {
-              fingerprint,
-              name: importFile.name,
-              size: importFile.size,
-              default_lot_control_mode:
-                importLotControlMode,
-              default_expiry_control_mode:
-                importExpiryControlMode,
-            }
-          );
-
-        const form =
-          new FormData();
-        form.append(
-          "request_id",
-          requestId
-        );
-        form.append(
-          "default_lot_control_mode",
-          importLotControlMode
-        );
-        form.append(
-          "default_expiry_control_mode",
-          importExpiryControlMode
-        );
-        form.append(
-          "file",
-          importFile
-        );
-
-        const result =
-          parseProductImportAccepted(
-            await authFetch(
-              "/simple-products/imports",
-              {
-                method: "POST",
-                body: form,
-              }
-            )
-          );
-
-        return {
-          result,
-          requestId,
-          scope,
-        };
-      },
-      onSuccess: ({
-        result,
-        requestId,
-        scope,
-      }) => {
-        completeDurableOperation(
-          scope,
-          requestId
-        );
-        setImportJobId(
-          result.job_id
-        );
-        setImportLotControlMode(
-          result.default_lot_control_mode
-        );
-        setImportExpiryControlMode(
-          result.default_expiry_control_mode
-        );
-        setImportStatus(null);
-        setImportPollError(null);
-        if (
-          importSessionKey
-        ) {
-          sessionStorage.setItem(
-            importSessionKey,
-            result.job_id
-          );
-        }
-        toast.success(
-          t(
-            "products.importAccepted"
-          )
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.importFailed"
-            )
-          )
-        ),
-    });
+  const {
+    importMutation,
+  } = useImportProductUpload({
+    importFile,
+    importLotControlMode,
+    importExpiryControlMode,
+    operationScope,
+    authFetch,
+    setImportJobId,
+    setImportLotControlMode,
+    setImportExpiryControlMode,
+    setImportStatus,
+    setImportPollError,
+    importSessionKey,
+    t,
+  });
 
   const {
     mappingMutation,
