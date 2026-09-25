@@ -105,6 +105,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/pricing/usePriceEditMutation.ts",
       ),
     );
+    const trackingMutations = compact(
+      readSource(
+        "../pages/products/tracking/useProductTrackingMutations.ts",
+      ),
+    );
     const importUpload = compact(
       readSource(
         "../pages/products/import/useImportProductUpload.ts",
@@ -150,6 +155,30 @@ describe("Products P8 production frontend gate", () => {
       '"product-price"',
     );
     expect(priceMutation).not.toContain(
+      "crypto.randomUUID()",
+    );
+    expect(trackingMutations).toContain(
+      "parseProductTrackingDefaults( await authFetch(",
+    );
+    expect(trackingMutations).toContain(
+      "parseProductTrackingMutation( await authFetch(",
+    );
+    expect(trackingMutations).toContain(
+      '"product-tracking-defaults"',
+    );
+    expect(trackingMutations).toContain(
+      '"product-tracking"',
+    );
+    expect(trackingMutations).toContain(
+      "expected_version: trackingEdit.version",
+    );
+    expect(trackingMutations).toContain(
+      "getOrCreateDurableRequestId(",
+    );
+    expect(trackingMutations).toContain(
+      "completeDurableOperation(",
+    );
+    expect(trackingMutations).not.toContain(
       "crypto.randomUUID()",
     );
     expect(importUpload).toContain(
