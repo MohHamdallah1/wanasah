@@ -1484,13 +1484,31 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 
 ### Tracking, barcodes, lifecycle, hold, and pricing
 
-- [ ] Keep lot/batch-number tracking and expiry tracking visible in plain language.
-- [ ] Keep safe tracking-mode editing and its history lock behavior.
-- [ ] Keep barcode add/deactivate/manage workflows reachable from Product Details.
-- [ ] Keep lifecycle actions and operational hold/recall actions reachable and understandable.
-- [ ] Keep price visibility permission-aware and price editing permission-aware.
-- [ ] Explain derived versus directly entered package/unit prices in the UI where relevant.
-- [ ] Ensure all sensitive mutations retain durable request identity, retry safety, auditability, and concurrency protection.
+- [x] Keep lot/batch-number tracking and expiry tracking visible in plain language.
+- [x] Keep safe tracking-mode editing and its history lock behavior.
+- [x] Keep barcode add/deactivate/manage workflows reachable from Product Details.
+- [x] Keep lifecycle actions and operational hold/recall actions reachable and understandable.
+- [x] Keep price visibility permission-aware and price editing permission-aware.
+- [x] Explain derived versus directly entered package/unit prices in the UI where relevant.
+- [x] Ensure all sensitive mutations retain durable request identity, retry safety, auditability, and concurrency protection.
+
+### P9.1 Tracking / barcode / lifecycle / hold / pricing closure evidence — 2026-09-25
+
+- Product Details keeps lot/batch and expiry tracking visible through localized plain-language mode labels and keeps the tracking editor reachable with explicit backend-owned history/lifecycle lock guidance.
+- Tracking defaults and Product tracking edits remain tenant-scoped and backend-authoritative. Product tracking writes retain optimistic `expected_version`, exact audit/outbox evidence, and runtime history locking through `PRODUCT_TRACKING_LOCKED`.
+- Barcode management remains reachable from Product Details. Create/deactivate/update workflows preserve durable command identity; barcode updates retain `expected_version`, backend uniqueness authority, and catalog audit evidence.
+- Lifecycle management remains reachable from Product Details and delegates to the shared Catalog lifecycle authority for publish/retire/restore/archive plus sales hold/release and recall/close-recall. Those commands retain durable request identity, `expected_version`, lifecycle guards, domain audit/outbox events, and tenant isolation.
+- Pricing remains permission-separated: `pricing.view` controls visibility while `pricing.manage` controls editing. The UI explains that one entered package/unit price derives the other, while entering both stores them independently.
+- Price and tracking workflows were hardened from request-ID-only persistence to full durable-command persistence. After an ambiguous result they restore and replay the exact original payload/request identity; changed payloads cannot silently create a new logical retry, while deterministic failures may abandon the stale command.
+- Price backend authority remains idempotent, locks the tenant Product row, records `SIMPLE_PRODUCT_PRICE_UPDATED_V3` audit evidence, and delegates price publication rules to the pricing service.
+- Permanent focused P9 frontend regression added in `dashboard/src/test/products-tracking-lifecycle-pricing-p9.test.ts`.
+- Focused frontend verification after hardening: 6 test files / 50 tests PASS, TypeScript PASS, touched-file ESLint PASS.
+- Backend focused verification: `PRODUCT_TRACKING_PRODUCTION_GATE=PASS` (4/4), `PRODUCT_LIFECYCLE_GATE=PASS` (14/14), and `PRODUCTS_P8_CONCURRENCY_IDEMPOTENCY_GATE=PASS` (10/10).
+- During the full release gate, P2 exposed a non-canonical Base64URL cursor-alias edge case. Cursor decoding was hardened to reject non-canonical encodings across Simple/Product/Family cursors and a permanent regression was added; corrected `PRODUCTS_READ_CONTRACT_P2_GATE=PASS` is 12/12 and P4 search/family pagination remains 47/47 PASS.
+- Final Dashboard verification: 36 test files / 216 tests PASS, TypeScript PASS, ESLint 0 warnings/errors, production build PASS.
+- Final aggregate Products production gate: 19 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+
+**Next P9.1 group:** Product-location / warehouse relationship.
 
 ### Product-location / warehouse relationship
 
