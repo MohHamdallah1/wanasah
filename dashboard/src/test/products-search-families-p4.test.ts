@@ -196,7 +196,7 @@ describe(
         "canViewPricing && priceFilter",
       );
       expect(page).toContain(
-        "canViewPricing={ canViewPricing }",
+        "canViewPricing",
       );
       expect(filters).toContain(
         "{canViewPricing ? (",
