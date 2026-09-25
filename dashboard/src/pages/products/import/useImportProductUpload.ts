@@ -197,7 +197,12 @@ export function useImportProductUpload({
     });
 
 
+  const startImport =
+    () =>
+      importMutation.mutate();
+
   return {
     importMutation,
+    startImport,
   };
 }
