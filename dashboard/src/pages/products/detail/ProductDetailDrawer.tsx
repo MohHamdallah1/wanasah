@@ -21,6 +21,7 @@ type Props = {
   pricingVisible: boolean;
   canEditPrice: boolean;
   canRenameProduct: boolean;
+  canReassignFamily: boolean;
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
@@ -31,6 +32,7 @@ type Props = {
   >;
   onClose: () => void;
   onRenameProduct: (product: SimpleProduct) => void;
+  onReassignFamily: (product: SimpleProduct) => void;
   onEditPrice: (product: SimpleProduct) => void;
   onEditTracking: (product: SimpleProduct) => void;
   onManageBarcodes: (product: SimpleProduct) => void;
@@ -43,6 +45,7 @@ export function ProductDetailDrawer({
   pricingVisible,
   canEditPrice,
   canRenameProduct,
+  canReassignFamily,
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
@@ -51,6 +54,7 @@ export function ProductDetailDrawer({
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.detailSections,
   onClose,
   onRenameProduct,
+  onReassignFamily,
   onEditPrice,
   onEditTracking,
   onManageBarcodes,
@@ -142,6 +146,11 @@ export function ProductDetailDrawer({
                 <dd className="mt-1 font-mono text-sm font-black text-slate-800">
                   {product.sku}
                 </dd>
+                <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">
+                  {t(
+                    "products.details.skuLockedPublished"
+                  )}
+                </p>
               </div>
               <div>
                 <dt className="text-[11px] font-black text-slate-400">
@@ -346,6 +355,7 @@ export function ProductDetailDrawer({
 
         {canEditPrice ||
         canRenameProduct ||
+        canReassignFamily ||
         canEditTracking ||
         canManageBarcodes ||
         canManageLifecycle ||
@@ -364,6 +374,23 @@ export function ProductDetailDrawer({
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
               >
                 {t("products.rename.action")}
+              </button>
+            ) : null}
+
+            {canReassignFamily &&
+            ["ACTIVE", "RETIRING"].includes(
+              product.lifecycle_status,
+            ) ? (
+              <button
+                type="button"
+                onClick={() =>
+                  onReassignFamily(product)
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
+              >
+                {t(
+                  "products.familyReassign.action"
+                )}
               </button>
             ) : null}
 
