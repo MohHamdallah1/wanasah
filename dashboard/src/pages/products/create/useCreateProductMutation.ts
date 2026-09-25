@@ -414,7 +414,6 @@ export function useCreateProductMutation({
     createMutation.mutate();
   };
 
-
   const cancelCreate =
     () => {
       setCreateOpen(false);
