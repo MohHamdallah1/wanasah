@@ -20,7 +20,7 @@ describe("Products P3 detail foundation", () => {
   it("provides a canonical product detail drawer with identity and operational context", () => {
     const drawer = compact(
       readSource(
-        "../pages/products/ProductDetailDrawer.tsx",
+        "../pages/products/detail/ProductDetailDrawer.tsx",
       ),
     );
 
@@ -62,7 +62,7 @@ describe("Products P3 detail foundation", () => {
   it("keeps pricing and mutation actions permission aware inside the drawer", () => {
     const drawer = compact(
       readSource(
-        "../pages/products/ProductDetailDrawer.tsx",
+        "../pages/products/detail/ProductDetailDrawer.tsx",
       ),
     );
 
@@ -86,7 +86,7 @@ describe("Products P3 detail foundation", () => {
 
     const row = compact(
       readSource(
-        "../pages/products/ProductTableRow.tsx",
+        "../pages/products/list/ProductTableRow.tsx",
       ),
     );
     const detailWorkflow = compact(
@@ -246,7 +246,7 @@ describe("Products P3 detail foundation", () => {
     );
     const drawer = compact(
       readSource(
-        "../pages/products/ProductDetailDrawer.tsx",
+        "../pages/products/detail/ProductDetailDrawer.tsx",
       ),
     );
     const detailWorkflow = compact(
@@ -256,7 +256,7 @@ describe("Products P3 detail foundation", () => {
     );
     const manager = compact(
       readSource(
-        "../pages/products/ProductBarcodeManager.tsx",
+        "../pages/products/barcode/ProductBarcodeManager.tsx",
       ),
     );
     const catalogBackend = compact(
@@ -352,7 +352,7 @@ describe("Products P3 detail foundation", () => {
       ),
     );
     const row = readSource(
-      "../pages/products/ProductTableRow.tsx",
+      "../pages/products/list/ProductTableRow.tsx",
     );
 
     expect(listResults).toContain(
@@ -399,7 +399,7 @@ describe("Products P3 detail foundation", () => {
 
   it("keeps the new P3 surface locale-driven and direction-aware", () => {
     const drawer = readSource(
-      "../pages/products/ProductDetailDrawer.tsx",
+      "../pages/products/detail/ProductDetailDrawer.tsx",
     );
     const translations = readSource(
       "../i18n/resources.ts",
