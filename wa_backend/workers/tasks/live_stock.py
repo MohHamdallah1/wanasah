@@ -12,7 +12,7 @@ from models import InventoryLiveStockCompanySummary
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
 from workers.scheduling import (
-    defer_unique_company_job,
+    defer_unique_company_jobs,
     iter_active_company_id_pages,
 )
 from workers.tenant import acquire_tenant_job_lock, tenant_session
@@ -37,16 +37,13 @@ async def scan_all_live_stock_transitions(
 
     async for company_ids in iter_active_company_id_pages():
         companies_seen += len(company_ids)
-        for company_id in company_ids:
-            accepted = await defer_unique_company_job(
-                refresh_company_live_stock_transitions,
-                lock_namespace="live-stock-transition-company",
-                company_id=company_id,
-            )
-            if accepted:
-                deferred += 1
-            else:
-                skipped_duplicate += 1
+        page_deferred, page_skipped = await defer_unique_company_jobs(
+            refresh_company_live_stock_transitions,
+            lock_namespace="live-stock-transition-company",
+            company_ids=company_ids,
+        )
+        deferred += page_deferred
+        skipped_duplicate += page_skipped
 
     return {
         "companies_seen": companies_seen,
