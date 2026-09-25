@@ -204,6 +204,9 @@ describe(
       const listResults = read(
         "src/pages/products/list/ProductsListResults.tsx",
       );
+      const header = read(
+        "src/pages/products/ProductsPageHeader.tsx",
+      );
 
       expect(page).toMatch(
         /useMediaQuery\(\s*["']\(max-width: 767px\)["']\s*\)/,
@@ -223,7 +226,7 @@ describe(
       expect(listResults).not.toContain(
         'min-w-[260px]',
       );
-      expect(page).toContain(
+      expect(header).toContain(
         "grid w-full grid-cols-2",
       );
     });
@@ -262,6 +265,9 @@ describe(
         ),
         read(
           "src/pages/products/display-preferences/ProductDisplayPreferencesModal.tsx",
+        ),
+        read(
+          "src/pages/products/ProductsPageHeader.tsx",
         ),
       ];
 
