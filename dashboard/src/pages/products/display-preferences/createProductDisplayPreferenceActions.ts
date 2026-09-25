@@ -81,6 +81,7 @@ export function createProductDisplayPreferenceActions({
     );
   };
 
+
   return {
     saveDisplayPreferences,
   };
