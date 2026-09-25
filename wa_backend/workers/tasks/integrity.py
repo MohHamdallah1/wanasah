@@ -20,7 +20,10 @@ from models import (
 )
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
-from workers.scheduling import defer_unique_company_job
+from workers.scheduling import (
+    defer_unique_company_job,
+    iter_active_company_id_pages,
+)
 from workers.settings import load_integrity_monitor_settings
 from workers.tenant import acquire_tenant_job_lock, tenant_session
 
@@ -254,32 +257,25 @@ async def _collect_integrity_categories(
     lock="integrity-global-scan",
 )
 async def scan_all_integrity(timestamp: int | None = None) -> dict[str, int]:
-    async with AsyncSessionLocal() as db:
-        company_ids = list(
-            (
-                await db.execute(
-                    select(Company.id).order_by(Company.id.asc())
-                )
-            ).scalars().all()
-        )
-        if db.in_transaction():
-            await db.rollback()
-
+    companies_seen = 0
     deferred = 0
     skipped_duplicate = 0
-    for company_id in company_ids:
-        accepted = await defer_unique_company_job(
-            scan_company_integrity,
-            lock_namespace="integrity-company",
-            company_id=int(company_id),
-        )
-        if accepted:
-            deferred += 1
-        else:
-            skipped_duplicate += 1
+
+    async for company_ids in iter_active_company_id_pages():
+        companies_seen += len(company_ids)
+        for company_id in company_ids:
+            accepted = await defer_unique_company_job(
+                scan_company_integrity,
+                lock_namespace="integrity-company",
+                company_id=company_id,
+            )
+            if accepted:
+                deferred += 1
+            else:
+                skipped_duplicate += 1
 
     return {
-        "companies_seen": len(company_ids),
+        "companies_seen": companies_seen,
         "company_jobs_deferred": deferred,
         "company_jobs_skipped_duplicate": skipped_duplicate,
     }
