@@ -102,6 +102,9 @@ describe("Products P9 published-name editing", () => {
     const detailActions = source(
       "src/pages/products/detail/createProductDetailActions.ts",
     );
+    const detailWorkflow = source(
+      "src/pages/products/detail/useProductDetailWorkflow.ts",
+    );
 
     expect(drawer).toContain(
       "canRenameProduct: boolean",
@@ -112,8 +115,11 @@ describe("Products P9 published-name editing", () => {
     expect(drawer).toContain(
       '["ACTIVE", "RETIRING"].includes',
     );
-    expect(page).toContain(
-      "canRenameProduct={",
+    expect(detailWorkflow).toContain(
+      "canRenameProduct:",
+    );
+    expect(detailWorkflow).toContain(
+      "canManageCatalog",
     );
     expect(page).toContain(
       "canManageCatalog",
