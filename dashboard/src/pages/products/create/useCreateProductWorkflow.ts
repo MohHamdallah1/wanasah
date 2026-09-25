@@ -8,12 +8,23 @@ import type {
 import type {
   TFunction,
 } from "i18next";
+import { toast } from "sonner";
 
+import {
+  apiErrorMessage,
+} from "@/lib/apiErrors";
+import {
+  readDurableCommand,
+} from "@/lib/durableOperations";
 import type {
   ProductTrackingDefaults,
 } from "@/pages/products/contracts";
 import { createProductDraftActions } from "@/pages/products/create/createProductDraftActions";
 import { deriveCreateProductViewState } from "@/pages/products/create/deriveCreateProductViewState";
+import {
+  isProductCreateCommandPayload,
+  productDraftFromCreateCommand,
+} from "@/pages/products/create/productCreateCommand";
 import { productDraftStorageKey } from "@/pages/products/create/productDraftStorageKey";
 import { useCreateFamilyOptionParams } from "@/pages/products/create/useCreateFamilyOptionParams";
 import { useCreateFamilyOptionsQuery } from "@/pages/products/create/useCreateFamilyOptionsQuery";
@@ -24,6 +35,9 @@ import { useCreateProductMutation } from "@/pages/products/create/useCreateProdu
 import { useCreateProductState } from "@/pages/products/create/useCreateProductState";
 import { useCreateTrackingDefaultsSync } from "@/pages/products/create/useCreateTrackingDefaultsSync";
 import { usePackageUomsQuery } from "@/pages/products/create/usePackageUomsQuery";
+import {
+  productDurableScope,
+} from "@/pages/products/productDurableScope";
 
 type AuthFetch = (
   path: string,
@@ -68,7 +82,8 @@ export function useCreateProductWorkflow({
   const {
     createOpen,
     setCreateOpen,
-    openCreateProduct,
+    openCreateProduct:
+      openCreateProductState,
     createTrackingExpanded,
     setCreateTrackingExpanded,
     createAdvancedExpanded,
@@ -90,6 +105,70 @@ export function useCreateProductWorkflow({
     setFamilyOptionSearch,
   ] =
     useCreateFamilyOptionSearchState();
+
+  const openCreateProduct =
+    async () => {
+      if (
+        companyId !== null &&
+        driverId !== null
+      ) {
+        try {
+          const pending =
+            await readDurableCommand<unknown>(
+              productDurableScope(
+                companyId,
+                driverId,
+                "product-create"
+              )
+            );
+          if (pending) {
+            if (
+              !isProductCreateCommandPayload(
+                pending.payload
+              )
+            ) {
+              throw Object.assign(
+                new Error(),
+                {
+                  code:
+                    "DURABLE_OPERATION_CORRUPT",
+                }
+              );
+            }
+            setDraft(
+              productDraftFromCreateCommand(
+                pending.payload
+              )
+            );
+            setCreateFieldError(
+              null
+            );
+            setCreateAdvancedExpanded(
+              true
+            );
+            setCreateTrackingExpanded(
+              true
+            );
+            toast.message(
+              t(
+                "products.pendingCreateRestored"
+              )
+            );
+          }
+        } catch (error) {
+          toast.error(
+            apiErrorMessage(
+              error,
+              t(
+                "products.errors.createFailed"
+              )
+            )
+          );
+          return;
+        }
+      }
+      openCreateProductState();
+    };
 
   const draftStorageKey =
     productDraftStorageKey(

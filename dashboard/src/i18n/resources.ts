@@ -404,6 +404,8 @@ export const resources = {
           "أدخل سعراً واحداً ليحسب النظام الآخر، أو أدخل السعرين ليتم اعتمادهما كما هما.",
         draftRestored:
           "استعدنا المنتج الذي كنت تعمل عليه.",
+        pendingCreateRestored:
+          "استعدنا طلب إنشاء لم تُحسم نتيجته بعد. النموذج يعرض نفس القيم الأصلية ويجب إعادة نفس الطلب قبل تغييرها.",
         offlineSaveHint:
           "مدخلات المنتج محفوظة على هذا الجهاز حتى ينجح الحفظ أو تلغي العملية.",
         familiesTitle: "إدارة العائلات",
@@ -1841,6 +1843,8 @@ export const resources = {
           "Enter one price to calculate the other, or enter both to keep them independent.",
         draftRestored:
           "Your unfinished product was restored.",
+        pendingCreateRestored:
+          "An unresolved create request was restored. The form shows its original values and the same request must be retried before changing them.",
         offlineSaveHint:
           "The product draft is kept on this device until saving succeeds or you cancel.",
         familiesTitle: "Manage families",

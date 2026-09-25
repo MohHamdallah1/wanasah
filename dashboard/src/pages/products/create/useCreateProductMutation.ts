@@ -13,12 +13,14 @@ import type {
 import { toast } from "sonner";
 
 import {
+  apiErrorCode,
   apiErrorMessage,
+  isAmbiguousRequestError,
 } from "@/lib/apiErrors";
 import {
   abandonDurableOperation,
   completeDurableOperation,
-  getOrCreateDurableRequestId,
+  getOrCreateDurableCommand,
 } from "@/lib/durableOperations";
 import {
   parseSimpleProductCreateResponse,
@@ -28,6 +30,10 @@ import {
 import {
   resolveCreateProductFamilyIntent,
 } from "@/pages/products/create/createProductFamilyIntent";
+import {
+  productCreateRequestBody,
+  type ProductCreateCommandPayload,
+} from "@/pages/products/create/productCreateCommand";
 import type {
   CreateFieldError,
   ProductDraft,
@@ -220,40 +226,65 @@ export function useCreateProductMutation({
             );
           }
 
-          const body = {
-            name:
-              draft.name.trim(),
-            family_id:
-              familyIntent.family_id,
-            family_name:
-              familyIntent.family_name,
-            package_uom_code:
-              draft.has_package
-                ? draft.package_uom_code
-                : null,
-            units_per_package:
-              units,
-            package_price:
-              draft.has_package &&
-              draft.package_price.trim()
-                ? draft.package_price.trim()
-                : null,
-            unit_price:
-              draft.unit_price.trim() ||
-              null,
-            unit_barcode:
-              draft.unit_barcode.trim() ||
-              null,
-            package_barcode:
-              draft.has_package &&
-              draft.package_barcode.trim()
-                ? draft.package_barcode.trim()
-                : null,
-            lot_control_mode:
-              draft.lot_control_mode,
-            expiry_control_mode:
-              draft.expiry_control_mode,
-          };
+          const selectedFamily =
+            familyIntent.family_id === null
+              ? null
+              : familyOptions.find(
+                  (item) =>
+                    item.id ===
+                    familyIntent.family_id,
+                );
+          const commandPayload:
+            ProductCreateCommandPayload = {
+              name:
+                draft.name.trim(),
+              family_mode:
+                draft.family_mode,
+              family_id:
+                familyIntent.family_id,
+              family_name:
+                familyIntent.family_name,
+              family_label:
+                draft.family_mode ===
+                  "existing"
+                  ? (
+                      selectedFamily?.name ??
+                      draft.family.trim()
+                    )
+                  : draft.family_mode ===
+                      "new"
+                    ? (
+                        familyIntent.family_name ??
+                        ""
+                      )
+                    : "",
+              package_uom_code:
+                draft.has_package
+                  ? draft.package_uom_code
+                  : null,
+              units_per_package:
+                units,
+              package_price:
+                draft.has_package &&
+                draft.package_price.trim()
+                  ? draft.package_price.trim()
+                  : null,
+              unit_price:
+                draft.unit_price.trim() ||
+                null,
+              unit_barcode:
+                draft.unit_barcode.trim() ||
+                null,
+              package_barcode:
+                draft.has_package &&
+                draft.package_barcode.trim()
+                  ? draft.package_barcode.trim()
+                  : null,
+              lot_control_mode:
+                draft.lot_control_mode,
+              expiry_control_mode:
+                draft.expiry_control_mode,
+            };
 
           const scope =
             productDurableScope(
@@ -261,10 +292,10 @@ export function useCreateProductMutation({
               driverId,
               "product-create"
             );
-          const requestId =
-            await getOrCreateDurableRequestId(
+          const command =
+            await getOrCreateDurableCommand(
               scope,
-              body
+              commandPayload
             );
           const result =
             parseSimpleProductCreateResponse(
@@ -275,8 +306,10 @@ export function useCreateProductMutation({
                   body: JSON.stringify(
                     {
                       request_id:
-                        requestId,
-                      ...body,
+                        command.requestId,
+                      ...productCreateRequestBody(
+                        command.payload
+                      ),
                     }
                   ),
                 }
@@ -285,7 +318,8 @@ export function useCreateProductMutation({
 
           return {
             result,
-            requestId,
+            requestId:
+              command.requestId,
             scope,
           };
         },
@@ -340,7 +374,31 @@ export function useCreateProductMutation({
             ),
           ]);
         },
-      onError: (error) =>
+      onError: (error) => {
+        const code =
+          apiErrorCode(error);
+        if (
+          companyId !== null &&
+          driverId !== null &&
+          code !== undefined &&
+          code !==
+            "DURABLE_OPERATION_PENDING" &&
+          code !==
+            "DURABLE_OPERATION_CORRUPT" &&
+          code !==
+            "SIMPLE_PRODUCT_CREATE_RESPONSE_INVALID" &&
+          !isAmbiguousRequestError(
+            error
+          )
+        ) {
+          abandonDurableOperation(
+            productDurableScope(
+              companyId,
+              driverId,
+              "product-create"
+            )
+          );
+        }
         toast.error(
           apiErrorMessage(
             error,
@@ -348,7 +406,8 @@ export function useCreateProductMutation({
               "products.errors.createFailed"
             )
           )
-        ),
+        );
+      },
     });
 
   const submitCreate = () => {
@@ -458,18 +517,6 @@ export function useCreateProductMutation({
       ) {
         sessionStorage.removeItem(
           draftStorageKey
-        );
-      }
-      if (
-        companyId &&
-        driverId
-      ) {
-        abandonDurableOperation(
-          productDurableScope(
-            companyId,
-            driverId,
-            "product-create"
-          )
         );
       }
     };

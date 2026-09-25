@@ -100,6 +100,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/create/useCreateProductMutation.ts",
       ),
     );
+    const createWorkflow = compact(
+      readSource(
+        "../pages/products/create/useCreateProductWorkflow.ts",
+      ),
+    );
     const priceMutation = compact(
       readSource(
         "../pages/products/pricing/usePriceEditMutation.ts",
@@ -147,10 +152,16 @@ describe("Products P8 production frontend gate", () => {
       "parseSimpleProductCreateResponse( await authFetch(",
     );
     expect(createMutation).toContain(
-      "getOrCreateDurableRequestId(",
+      "getOrCreateDurableCommand(",
     );
     expect(createMutation).toContain(
       "completeDurableOperation(",
+    );
+    expect(createMutation).toContain(
+      "isAmbiguousRequestError(",
+    );
+    expect(createWorkflow).toContain(
+      "readDurableCommand<unknown>(",
     );
     expect(createMutation).toContain(
       "abandonDurableOperation(",
