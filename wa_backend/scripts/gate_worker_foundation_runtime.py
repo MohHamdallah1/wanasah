@@ -143,6 +143,7 @@ async def company_summary(company_id: int) -> tuple[str, int]:
 async def seed_operational_recovery_jobs() -> dict[str, int]:
     async with fixture.SessionSU() as su:
         await su.begin()
+        await su.execute(text("SET LOCAL search_path TO worker_queue, public"))
         await su.execute(
             text(
                 """
