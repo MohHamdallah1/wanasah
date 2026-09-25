@@ -181,7 +181,7 @@ describe(
         "canManageAdvancedUom && !product.simple_compatible",
       );
       expect(advanced).toContain(
-        "/catalog/uom-conversions",
+        "/catalog/variants/${selectedVariant!.id}/conversions",
       );
       expect(lifecycle).toContain(
         "UOM_STRUCTURE_LOCKED",
