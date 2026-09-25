@@ -225,8 +225,21 @@ export function usePriceEditMutation({
   };
 
 
+  const closePriceEdit =
+    () => {
+      if (
+        !priceMutation.isPending
+      ) {
+        setPriceEdit(
+          null
+        );
+        setPriceFieldError(null);
+      }
+    };
+
   return {
     priceMutation,
     submitPriceEdit,
+    closePriceEdit,
   };
 }
