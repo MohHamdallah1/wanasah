@@ -146,17 +146,28 @@ describe("Products P3 detail foundation", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const listResults = compact(
+      readSource(
+        "../pages/products/list/ProductsListResults.tsx",
+      ),
+    );
 
     expect(page).toContain(
-      "{productsQuery.isError ? (",
+      "isError={ productsQuery.isError }",
+    );
+    expect(page).toContain(
+      "items={ page?.items ?? [] }",
     );
     expect(page).toContain(
       "void productsQuery.refetch()",
     );
-    expect(page).toContain(
-      "!productsQuery.isError && !page?.items.length",
+    expect(listResults).toContain(
+      "{isError ? (",
     );
-    expect(page).toContain(
+    expect(listResults).toContain(
+      "!isError && !items.length",
+    );
+    expect(listResults).toContain(
       '"products.errors.listLoadTitle"',
     );
   });
