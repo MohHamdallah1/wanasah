@@ -134,12 +134,17 @@ def static_checks() -> None:
         / "versions"
         / "e7a1c4d9b2f6_import_tracking_constraints_repair.py"
     ).read_text(encoding="utf-8")
-    page = (
-        ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
+    import_upload = (
+        ROOT
+        / "dashboard/src/pages/products/import/useImportProductUpload.ts"
+    ).read_text(encoding="utf-8")
+    import_modal = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductModal.tsx"
     ).read_text(encoding="utf-8")
     controls = (
         ROOT
-        / "dashboard/src/pages/products/ProductTrackingFields.tsx"
+        / "dashboard/src/pages/products/tracking/ProductTrackingFields.tsx"
     ).read_text(encoding="utf-8")
 
     check(
@@ -197,16 +202,16 @@ def static_checks() -> None:
         "Migration preserves historical REQUIRED/REQUIRED import behavior",
     )
     check(
-        '"default_lot_control_mode"' in page
-        and '"default_expiry_control_mode"' in page
-        and '"lot_control_mode"' in page
-        and '"expiry_control_mode"' in page
-        and "ProductTrackingFields" in page,
+        '"default_lot_control_mode"' in import_upload
+        and '"default_expiry_control_mode"' in import_upload
+        and '"lot_control_mode"' in import_modal
+        and '"expiry_control_mode"' in import_modal
+        and "ProductTrackingFields" in import_modal,
         "Products UI sends import defaults and supports row mapping",
     )
     check(
-        '"products.tracking.importValues.REQUIRED"' in page
-        and '"products.importTrackingValueHint"' in page,
+        '"products.tracking.importValues.REQUIRED"' in import_modal
+        and '"products.importTrackingValueHint"' in import_modal,
         "Import template and guidance use localized tracking values",
     )
     check(
