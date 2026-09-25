@@ -161,7 +161,7 @@ describe(
 
     it("keeps product money paths string/exact and backend-authoritative", () => {
       const products = readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       );
       const pricing = readSource(
         "../pages/PricingDashboard.tsx",
