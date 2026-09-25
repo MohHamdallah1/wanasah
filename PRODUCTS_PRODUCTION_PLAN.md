@@ -1461,12 +1461,26 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 
 ### Package and unit structure
 
-- [ ] Show clearly what the base stock/selling unit is in plain user language (piece, carton, box, bag, etc.).
-- [ ] Show package conversion clearly, for example: "1 carton = 50 pieces".
-- [ ] Complete safe editing of simple package structure where history/lifecycle rules allow it.
-- [ ] Clearly lock structural edits that would corrupt existing operational history.
-- [ ] Keep advanced unit/conversion management reachable without forcing ordinary users through technical catalog screens.
-- [ ] Ensure package/barcode relationships remain authoritative and never create duplicate conversion logic in React.
+- [x] Show clearly what the base stock/selling unit is in plain user language (piece, carton, box, bag, etc.).
+- [x] Show package conversion clearly, for example: "1 carton = 50 pieces".
+- [x] Complete safe editing of simple package structure where history/lifecycle rules allow it.
+- [x] Clearly lock structural edits that would corrupt existing operational history.
+- [x] Keep advanced unit/conversion management reachable without forcing ordinary users through technical catalog screens.
+- [x] Ensure package/barcode relationships remain authoritative and never create duplicate conversion logic in React.
+
+### P9.1 Package / unit structure closure evidence — 2026-09-25
+
+- Simple Products read contract now exposes authoritative `base_uom_code` from the existing resolved SaleShape for simple-compatible products; no extra query and no frontend guesswork were introduced.
+- Product Details shows the base stock/selling unit in user language and renders package conversion in plain language, for example `1 carton = 50 pieces`; unit-only products explicitly explain that no outer package exists.
+- Quick Create continues to reveal package-only fields only when `has_package=true`, preserving the simple unit-only path and exact price derivation/override behavior.
+- Structural UOM editing remains backend-authoritative and DRAFT-only. Published ACTIVE/RETIRING Products show the structure read-only with a clear lock reason; Advanced UOM remains the specialized route and enforces `UOM_STRUCTURE_LOCKED` outside DRAFT.
+- Advanced UOM remains reachable from Products without forcing ordinary Product users through technical catalog internals.
+- Simple Product creation continues to send one authoritative package/barcode spec through `/simple-products`; React does not write UOM conversions independently or duplicate backend conversion logic.
+- Backend P2 read-contract gate: 11 checks / 0 failures / `PRODUCTS_READ_CONTRACT_P2_GATE=PASS`.
+- Backend UOM safety gate: 7 checks / 0 failures / `PRODUCTS_P5_UOM_SAFETY_GATE=PASS`.
+- Focused package/unit frontend verification: 9 test files / 60 tests PASS, TypeScript PASS, ESLint PASS, production build PASS.
+- Full Dashboard verification after package/unit work: 35 test files / 211 tests PASS, ESLint 0 warnings/errors, production build PASS.
+- Aggregate Products production gate: 19 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
 
 ### Tracking, barcodes, lifecycle, hold, and pricing
 
