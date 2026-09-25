@@ -67,6 +67,13 @@ const read = (...parts: string[]) =>
     "utf8",
   );
 
+const normalizeWhitespace = (
+  value: string,
+) =>
+  value
+    .replace(/\s+/g, " ")
+    .trim();
+
 const clonePreferences =
   (): ProductDisplayPreferences => ({
     version:
@@ -398,8 +405,10 @@ describe(
       const stateOwner = read(
         "src/pages/products/display-preferences/useProductDisplayPreferencesState.ts",
       );
-      const actionsOwner = read(
-        "src/pages/products/display-preferences/createProductDisplayPreferenceActions.ts",
+      const actionsOwner = normalizeWhitespace(
+        read(
+          "src/pages/products/display-preferences/createProductDisplayPreferenceActions.ts",
+        ),
       );
 
       expect(storage).toContain(
