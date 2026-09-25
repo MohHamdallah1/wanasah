@@ -489,7 +489,42 @@ export default function ProductsDashboard() {
     setTrackingEditLot(null);
     setTrackingEditExpiry(null);
     setFamilyOptionSearch("");
-  }, [companyId, driverId]);
+  }, [
+    companyId,
+    driverId,
+    setBarcodeFilter,
+    setCompatibilityFilter,
+    setCreateAdvancedExpanded,
+    setCreateTrackingExpanded,
+    setCursor,
+    setDisplayPreferences,
+    setEditPackagePrice,
+    setEditUnitPrice,
+    setExpiryFilter,
+    setFamilyFilterId,
+    setFamilyFilterName,
+    setFamilyFilterSearch,
+    setFamilyFilterSearchInput,
+    setFamilyOptionSearch,
+    setFiltersOpen,
+    setHistory,
+    setImportExpiryControlMode,
+    setImportLotControlMode,
+    setImportTrackingExpanded,
+    setLifecycleFilter,
+    setLotFilter,
+    setPriceEdit,
+    setPriceFilter,
+    setSortBy,
+    setSortDir,
+    setTrackingDefaultsExpiry,
+    setTrackingDefaultsLot,
+    setTrackingDefaultsOpen,
+    setTrackingEdit,
+    setTrackingEditExpiry,
+    setTrackingEditLot,
+    setTrackingTypeFilter,
+  ]);
 
   useEffect(() => {
     const defaults =
@@ -515,6 +550,8 @@ export default function ProductsDashboard() {
     importOpen,
     importJobId,
     trackingDefaultsQuery.data,
+    setImportExpiryControlMode,
+    setImportLotControlMode,
   ]);
 
   useEffect(() => {
@@ -538,6 +575,7 @@ export default function ProductsDashboard() {
   }, [
     createOpen,
     trackingDefaultsQuery.data,
+    setDraft,
   ]);
 
   const page =
