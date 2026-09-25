@@ -11,7 +11,7 @@ import type {
   ProductImportState,
   ProductTrackingMode,
 } from "@/pages/products/contracts";
-import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
+import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
 
 const importMappingFields = [
   "name",
