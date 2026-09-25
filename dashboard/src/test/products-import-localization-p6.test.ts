@@ -79,14 +79,19 @@ describe(
           "../pages/products/import/ImportProductModal.tsx",
         ),
       );
+      const importPolling = compact(
+        readSource(
+          "../pages/products/import/useImportProductPolling.ts",
+        ),
+      );
 
-      expect(page).toContain(
+      expect(importPolling).toContain(
         'status.status === "NEEDS_MAPPING"',
       );
-      expect(page).toContain(
+      expect(importPolling).toContain(
         "status.column_mapping",
       );
-      expect(page).toContain(
+      expect(importPolling).toContain(
         "status.suggested_mapping",
       );
       expect(importModal).toContain(
