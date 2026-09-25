@@ -426,10 +426,13 @@ describe(
       const dashboard = read(
         "src/pages/ProductsDashboard.tsx",
       );
+      const importDownloads = read(
+        "src/pages/products/import/createImportDownloads.ts",
+      );
       expect(dashboard).not.toContain(
         '"Lolo Chips Cheese 20g"',
       );
-      expect(dashboard).toContain(
+      expect(importDownloads).toContain(
         't("products.importTemplateSampleName")',
       );
 
