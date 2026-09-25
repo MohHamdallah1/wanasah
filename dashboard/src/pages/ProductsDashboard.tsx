@@ -23,18 +23,7 @@ import { useProductLifecycleState } from "@/pages/products/lifecycle/useProductL
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
 import { useCreateProductWorkflow } from "@/pages/products/create/useCreateProductWorkflow";
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
-import { createImportDownloads } from "@/pages/products/import/createImportDownloads";
-import { createImportFileActions } from "@/pages/products/import/createImportFileActions";
-import {
-  deriveImportProductViewState,
-} from "@/pages/products/import/helpers";
-import { productImportSessionKey } from "@/pages/products/import/productImportSessionKey";
-import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
-import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
-import { useImportProductState } from "@/pages/products/import/useImportProductState";
-import { useImportProductUpload } from "@/pages/products/import/useImportProductUpload";
-import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
-import { useImportTrackingDefaultsSync } from "@/pages/products/import/useImportTrackingDefaultsSync";
+import { useImportProductWorkflow } from "@/pages/products/import/useImportProductWorkflow";
 import { ProductsListSection } from "@/pages/products/list/ProductsListSection";
 import { createProductsListActions } from "@/pages/products/list/createProductsListActions";
 import { deriveProductsListViewState } from "@/pages/products/list/deriveProductsListViewState";
@@ -213,38 +202,6 @@ export default function ProductsDashboard() {
     openFamilies,
     closeFamilies,
   } = useProductFamiliesState();
-  const {
-    importOpen,
-    setImportOpen,
-    importFile,
-    setImportFile,
-    importJobId,
-    setImportJobId,
-    importStatus,
-    setImportStatus,
-    importPollError,
-    setImportPollError,
-    mapping,
-    setMapping,
-    importPollKey,
-    setImportPollKey,
-    importLotControlMode,
-    setImportLotControlMode,
-    importExpiryControlMode,
-    setImportExpiryControlMode,
-    importTrackingExpanded,
-    setImportTrackingExpanded,
-    dragging,
-    setDragging,
-    fileRef,
-  } = useImportProductState();
-
-  const importSessionKey =
-    productImportSessionKey(
-      companyId,
-      driverId
-    );
-
   useProductsListDebounce({
     searchInput,
     setSearch,
@@ -320,6 +277,25 @@ export default function ProductsDashboard() {
       setHistory,
     });
 
+  const importWorkflow =
+    useImportProductWorkflow({
+      companyId,
+      driverId,
+      authFetch,
+      queryClient,
+      t,
+      i18n,
+      online: isOnline,
+      trackingDefaults:
+        trackingDefaultsQuery.data,
+      trackingDefaultsLoading:
+        trackingDefaultsQuery.isLoading,
+      trackingDefaultsError:
+        trackingDefaultsQuery.isError,
+      retryTrackingDefaults: () =>
+        void trackingDefaultsQuery.refetch(),
+    });
+
   useProductsIdentityScopeReset({
     companyId,
     driverId,
@@ -354,11 +330,8 @@ export default function ProductsDashboard() {
       setEditPackagePrice,
       setEditUnitPrice,
     },
-    importScope: {
-      setImportLotControlMode,
-      setImportExpiryControlMode,
-      setImportTrackingExpanded,
-    },
+    importScope:
+      importWorkflow.identityScope,
     create:
       createWorkflow.identityScope,
     tracking: {
@@ -369,15 +342,6 @@ export default function ProductsDashboard() {
       setTrackingEditLot,
       setTrackingEditExpiry,
     },
-  });
-
-  useImportTrackingDefaultsSync({
-    importOpen,
-    importJobId,
-    defaults:
-      trackingDefaultsQuery.data,
-    setImportLotControlMode,
-    setImportExpiryControlMode,
   });
 
   const page =
@@ -446,17 +410,6 @@ export default function ProductsDashboard() {
   });
 
   const {
-    progress: importProgress,
-    trackingUsesCompanyDefaults:
-      importTrackingUsesCompanyDefaults,
-  } = deriveImportProductViewState(
-    importStatus,
-    trackingDefaultsQuery.data,
-    importLotControlMode,
-    importExpiryControlMode
-  );
-
-  const {
     openTrackingDefaults,
     openTrackingEditor,
   } = createProductTrackingActions({
@@ -516,9 +469,7 @@ export default function ProductsDashboard() {
     setTrackingDefaultsOpen,
     setTrackingDefaultsLot,
     setTrackingDefaultsExpiry,
-    importJobId,
-    setImportLotControlMode,
-    setImportExpiryControlMode,
+    ...importWorkflow.trackingMutationScope,
     setTrackingEdit,
     setTrackingEditLot,
     setTrackingEditExpiry,
@@ -543,95 +494,6 @@ export default function ProductsDashboard() {
     t,
     editPackagePriceRef,
     editUnitPriceRef,
-  });
-
-  const {
-    importMutation,
-    startImport,
-  } = useImportProductUpload({
-    importFile,
-    importLotControlMode,
-    importExpiryControlMode,
-    companyId,
-    driverId,
-    authFetch,
-    setImportJobId,
-    setImportLotControlMode,
-    setImportExpiryControlMode,
-    setImportStatus,
-    setImportPollError,
-    importSessionKey,
-    t,
-  });
-
-  const {
-    mappingMutation,
-    retryImportMutation,
-    updateMapping,
-    submitMapping,
-    retryImport,
-  } = useImportProductCommands({
-    importJobId,
-    mapping,
-    setMapping,
-    authFetch,
-    setImportPollError,
-    setImportStatus,
-    setImportPollKey,
-    t,
-  });
-
-  const {
-    retryPoll,
-  } = useImportProductPolling({
-    importJobId,
-    importPollKey,
-    setImportPollKey,
-    authFetch,
-    queryClient,
-    t,
-    isOnline,
-    setImportPollError,
-    setImportStatus,
-    setImportLotControlMode,
-    setImportExpiryControlMode,
-    setMapping,
-  });
-
-  const {
-    chooseFile,
-    resetImport,
-    openImport,
-    closeImport,
-    expandImportTracking,
-    resetImportTracking,
-    completeImport,
-  } = createImportFileActions({
-    importSessionKey,
-    importing:
-      importMutation.isPending,
-    trackingDefaultsQuery,
-    fileRef,
-    setImportOpen,
-    setImportFile,
-    setImportJobId,
-    setImportStatus,
-    setImportPollError,
-    setMapping,
-    setImportLotControlMode,
-    setImportExpiryControlMode,
-    setImportTrackingExpanded,
-    t,
-  });
-
-  const {
-    downloadErrorReport,
-    downloadTemplate,
-  } = createImportDownloads({
-    importJobId,
-    authFetch,
-    t,
-    i18n,
   });
 
   return (
@@ -667,7 +529,9 @@ export default function ProductsDashboard() {
         onOpenTrackingDefaults={
           openTrackingDefaults
         }
-        onOpenImport={openImport}
+        onOpenImport={
+          importWorkflow.openImport
+        }
         onOpenAdvancedUom={() =>
           navigate(
             "/products/advanced-uom"
@@ -1013,88 +877,7 @@ export default function ProductsDashboard() {
       />
 
       <ImportProductModal
-        open={importOpen}
-        importing={
-          importMutation.isPending
-        }
-        online={isOnline}
-        jobId={importJobId}
-        status={importStatus}
-        pollError={
-          importPollError
-        }
-        mapping={mapping}
-        progress={importProgress}
-        file={importFile}
-        dragging={dragging}
-        lotControlMode={
-          importLotControlMode
-        }
-        expiryControlMode={
-          importExpiryControlMode
-        }
-        trackingDefaultsLoading={
-          trackingDefaultsQuery.isLoading
-        }
-        trackingDefaultsError={
-          trackingDefaultsQuery.isError
-        }
-        trackingUsesCompanyDefaults={
-          importTrackingUsesCompanyDefaults
-        }
-        trackingExpanded={
-          importTrackingExpanded
-        }
-        mappingPending={
-          mappingMutation.isPending
-        }
-        retryPending={
-          retryImportMutation.isPending
-        }
-        fileRef={fileRef}
-        onClose={closeImport}
-        onDownloadTemplate={
-          downloadTemplate
-        }
-        onRetryTrackingDefaults={() =>
-          void trackingDefaultsQuery.refetch()
-        }
-        onExpandTracking={
-          expandImportTracking
-        }
-        onLotControlModeChange={
-          setImportLotControlMode
-        }
-        onExpiryControlModeChange={
-          setImportExpiryControlMode
-        }
-        onResetTracking={
-          resetImportTracking
-        }
-        onChooseFile={chooseFile}
-        onDraggingChange={
-          setDragging
-        }
-        onStartImport={
-          startImport
-        }
-        onRetryPoll={retryPoll}
-        onMappingChange={
-          updateMapping
-        }
-        onSubmitMapping={
-          submitMapping
-        }
-        onDownloadErrorReport={
-          downloadErrorReport
-        }
-        onResetImport={resetImport}
-        onRetryImport={
-          retryImport
-        }
-        onCompletedClose={
-          completeImport
-        }
+        {...importWorkflow.modalProps}
       />
     </div>
   );
