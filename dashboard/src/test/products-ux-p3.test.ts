@@ -161,14 +161,19 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/list/ProductsListResults.tsx",
       ),
     );
+    const listWorkflow = compact(
+      readSource(
+        "../pages/products/list/useProductsListWorkflow.ts",
+      ),
+    );
 
-    expect(page).toContain(
+    expect(listWorkflow).toContain(
       "isError: productsQuery.isError",
     );
-    expect(page).toContain(
+    expect(listWorkflow).toContain(
       "items: page?.items ?? []",
     );
-    expect(page).toContain(
+    expect(listWorkflow).toContain(
       "void productsQuery.refetch()",
     );
     expect(listResults).toContain(
