@@ -74,7 +74,7 @@ describe(
       expect(header).toContain(
         '"products.advancedPricingHint"',
       );
-      expect(products).toContain(
+      expect(header).toContain(
         "LockKeyhole",
       );
       expect(header).toMatch(
