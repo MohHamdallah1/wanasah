@@ -214,21 +214,35 @@ describe("Products P8 production frontend gate", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const createModal = compact(
+      readSource(
+        "../pages/products/create/CreateProductModal.tsx",
+      ),
+    );
     const translations = readSource(
       "../i18n/resources.ts",
     );
 
     expect(page).toContain(
-      "packageUomsQuery.isLoading ? (",
+      "packageUomsLoading={ packageUomsQuery.isLoading }",
+    );
+    expect(createModal).toContain(
+      "packageUomsLoading ? (",
     );
     expect(page).toContain(
-      "packageUomsQuery.isError ? (",
+      "packageUomsError={ packageUomsQuery.isError }",
+    );
+    expect(createModal).toContain(
+      "packageUomsError ? (",
     );
     expect(page).toContain(
       "void packageUomsQuery.refetch()",
     );
     expect(page).toContain(
-      "familyOptionsQuery.isError ? (",
+      "familyOptionsError={ familyOptionsQuery.isError }",
+    );
+    expect(createModal).toContain(
+      "familyOptionsError ? (",
     );
     expect(page).toContain(
       "void familyOptionsQuery.refetch()",
