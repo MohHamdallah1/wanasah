@@ -97,6 +97,9 @@ describe("products tracking UI contracts", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const listQueries = normalizeWhitespace(
+      readSource("../pages/products/list/useProductsListQueries.ts"),
+    );
 
     expect(page).toContain(
       "wanasah:product-draft:v2:",
@@ -107,7 +110,7 @@ describe("products tracking UI contracts", () => {
     expect(page).toContain(
       "expiry_control_mode: draft.expiry_control_mode",
     );
-    expect(page).toContain(
+    expect(listQueries).toContain(
       "parseSimpleProductPage(",
     );
     expect(page).toContain(
@@ -131,21 +134,24 @@ describe("products tracking UI contracts", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const createModal = normalizeWhitespace(
+      readSource("../pages/products/create/CreateProductModal.tsx"),
+    );
     const translations = readSource("../i18n/resources.ts");
 
     expect(page).toContain(
       "createTrackingUsesCompanyDefaults",
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       "!createTrackingExpanded ?",
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       '"products.tracking.createChange"',
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       '"products.tracking.createReset"',
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       '"products.tracking.createOnlyThisProduct"',
     );
 
@@ -185,6 +191,7 @@ describe("products tracking UI contracts", () => {
   it("keeps the touched tracking UI locale-driven", () => {
     const files = [
       readSource("../pages/ProductsDashboard.tsx"),
+      readSource("../pages/products/create/CreateProductModal.tsx"),
       readSource("../pages/products/ProductTrackingFields.tsx"),
       readSource("../pages/products/ProductTrackingSettings.tsx"),
       readSource("../pages/products/ProductTrackingEditor.tsx"),
