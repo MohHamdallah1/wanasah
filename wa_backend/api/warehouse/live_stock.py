@@ -29,6 +29,7 @@ from models import (
 )
 from quantity import canonical_quantity
 from services import (
+    batch_expiry_policy_predicate,
     batch_sellability_predicate,
     inventory_business_error,
 )
@@ -1892,6 +1893,23 @@ async def get_warehouse_inventory_batches(
                 InventoryStockPolicy.minimum_remaining_shelf_life_days
             ),
         )
+        batch_expiry_policy_allows = batch_expiry_policy_predicate(
+            as_of_date,
+            expiry_control_mode=ProductVariant.expiry_control_mode,
+            minimum_remaining_shelf_life_days=(
+                InventoryStockPolicy.minimum_remaining_shelf_life_days
+            ),
+        )
+        expiry_unavailable_scope = and_(
+            InventoryBalance.stock_status == "AVAILABLE",
+            ProductBatch.is_active.is_(True),
+            ProductBatch.disposition == "RELEASED",
+            or_(
+                ProductBatch.production_date.is_(None),
+                ProductBatch.production_date <= as_of_date,
+            ),
+            ~batch_expiry_policy_allows,
+        )
 
         batch_cursor_scope = (
             f"company={company_id}|location={location_id}|"
@@ -2011,6 +2029,16 @@ async def get_warehouse_inventory_batches(
                             else_=0,
                         )
                     ).label("sellable_reserved"),
+                    func.sum(
+                        case(
+                            (
+                                expiry_unavailable_scope,
+                                InventoryBalance.on_hand_quantity
+                                - InventoryBalance.reserved_quantity,
+                            ),
+                            else_=0,
+                        )
+                    ).label("expiry_unavailable_quantity"),
                     func.sum(
                         case(
                             (
@@ -2253,6 +2281,15 @@ async def get_warehouse_inventory_batches(
                     f"exceeded the partition for batch_id={row.batch_id}."
                 )
 
+            expiry_unavailable = Decimal(
+                row.expiry_unavailable_quantity or 0
+            )
+            if expiry_unavailable < 0 or expiry_unavailable > restricted:
+                raise RuntimeError(
+                    "Inventory batch expiry breakdown exceeded the "
+                    f"restricted partition for batch_id={row.batch_id}."
+                )
+
             latest_purchase = latest_purchase_by_batch.get(
                 int(row.batch_id)
             )
@@ -2296,6 +2333,8 @@ async def get_warehouse_inventory_batches(
                         canonical_quantity(unavailable),
                     "restricted_quantity":
                         canonical_quantity(restricted),
+                    "expiry_unavailable_quantity":
+                        canonical_quantity(expiry_unavailable),
                     "quarantined_quantity":
                         canonical_quantity(quarantined),
                     "blocked_quantity":

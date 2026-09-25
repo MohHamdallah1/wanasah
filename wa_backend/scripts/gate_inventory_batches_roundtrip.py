@@ -375,6 +375,7 @@ def validate_payload(
         "available_for_sale_quantity",
         "unavailable_quantity",
         "restricted_quantity",
+        "expiry_unavailable_quantity",
         "quarantined_quantity",
         "blocked_quantity",
         "recalled_quantity",

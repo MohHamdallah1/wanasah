@@ -1487,6 +1487,7 @@ class WarehouseInventoryBatchItem(BaseModel):
     available_for_sale_quantity: NonNegativeQuantity
     unavailable_quantity: NonNegativeQuantity
     restricted_quantity: NonNegativeQuantity
+    expiry_unavailable_quantity: NonNegativeQuantity
     quarantined_quantity: NonNegativeQuantity
     blocked_quantity: NonNegativeQuantity
     recalled_quantity: NonNegativeQuantity

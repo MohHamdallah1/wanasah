@@ -24,6 +24,7 @@ import {
 import {
   compareQuantity,
   formatCommercialQuantity,
+  subtractQuantity,
 } from "./quantity";
 
 interface Props {
@@ -440,8 +441,13 @@ export function TabBatches({ locationId }: Props) {
                     </thead>
                     <tbody>
                       {details.batches.map((batch) => {
+                        const otherRestricted = subtractQuantity(
+                          batch.restricted_quantity,
+                          batch.expiry_unavailable_quantity,
+                        );
                         const restricted = [
-                          ["restricted", batch.restricted_quantity, t("inventoryLive.restricted")],
+                          ["expiry", batch.expiry_unavailable_quantity, t("inventoryLive.expiryUnavailable")],
+                          ["restricted", otherRestricted, t("inventoryLive.restricted")],
                           ["quarantine", batch.quarantined_quantity, t("inventoryLive.quarantined")],
                           ["blocked", batch.blocked_quantity, t("inventoryLive.blocked")],
                           ["recalled", batch.recalled_quantity, t("inventoryLive.recalled")],

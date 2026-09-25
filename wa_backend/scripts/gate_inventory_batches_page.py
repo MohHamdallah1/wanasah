@@ -73,12 +73,15 @@ check(
 
 check(
     "restricted_quantity" in batches
+    and "expiry_unavailable_quantity" in batches
+    and "inventoryLive.expiryUnavailable" in batches
+    and "subtractQuantity" in batches
     and "quarantined_quantity" in batches
     and "blocked_quantity" in batches
     and "recalled_quantity" in batches
     and "damaged_quantity" in batches
     and "disposal_pending_quantity" in batches,
-    "batch page preserves current restriction-state visibility",
+    "batch page keeps expiry unavailability separate from operational disposition and other restrictions",
 )
 
 check(

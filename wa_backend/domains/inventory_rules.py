@@ -7,13 +7,13 @@ from sqlalchemy import and_, func, or_
 from models import ProductBatch
 
 
-def batch_sellability_predicate(
+def batch_expiry_policy_predicate(
     as_of_date: date,
     *,
     expiry_control_mode,
     minimum_remaining_shelf_life_days=None,
 ):
-    """Single SQL authority for batch sellability across inventory reads/writes/projections."""
+    """SQL authority for the expiry-policy portion of batch sellability."""
     if type(as_of_date) is not date:
         raise ValueError("as_of_date must be an explicit date.")
 
@@ -31,6 +31,35 @@ def batch_sellability_predicate(
         min_days == 0,
     )
 
+    return or_(
+        and_(
+            expiry_control_mode == "NONE",
+            no_expiry_allowed,
+        ),
+        and_(
+            expiry_control_mode == "OPTIONAL",
+            or_(no_expiry_allowed, expiry_meets_policy),
+        ),
+        and_(
+            expiry_control_mode == "REQUIRED",
+            expiry_meets_policy,
+        ),
+    )
+
+
+def batch_sellability_predicate(
+    as_of_date: date,
+    *,
+    expiry_control_mode,
+    minimum_remaining_shelf_life_days=None,
+):
+    """Single SQL authority for batch sellability across inventory reads/writes/projections."""
+    expiry_policy_allows = batch_expiry_policy_predicate(
+        as_of_date,
+        expiry_control_mode=expiry_control_mode,
+        minimum_remaining_shelf_life_days=minimum_remaining_shelf_life_days,
+    )
+
     return and_(
         ProductBatch.is_active.is_(True),
         ProductBatch.disposition == "RELEASED",
@@ -38,20 +67,7 @@ def batch_sellability_predicate(
             ProductBatch.production_date.is_(None),
             ProductBatch.production_date <= as_of_date,
         ),
-        or_(
-            and_(
-                expiry_control_mode == "NONE",
-                no_expiry_allowed,
-            ),
-            and_(
-                expiry_control_mode == "OPTIONAL",
-                or_(no_expiry_allowed, expiry_meets_policy),
-            ),
-            and_(
-                expiry_control_mode == "REQUIRED",
-                expiry_meets_policy,
-            ),
-        ),
+        expiry_policy_allows,
     )
 
 

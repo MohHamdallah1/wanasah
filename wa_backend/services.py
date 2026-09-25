@@ -54,7 +54,10 @@ from domains.inventory_costing.service import (
 from domains.pricing.driver_authority import (
     resolve_work_session_pack_prices_bulk,
 )
-from domains.inventory_rules import batch_sellability_predicate
+from domains.inventory_rules import (
+    batch_expiry_policy_predicate,
+    batch_sellability_predicate,
+)
 from domains.live_stock_projection.service import (
     LiveStockProjectionError,
     apply_live_stock_balance_impacts,

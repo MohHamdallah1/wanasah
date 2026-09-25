@@ -14,6 +14,7 @@ const batch = (id: number) => ({
   available_for_sale_quantity: "1",
   unavailable_quantity: "0",
   restricted_quantity: "0",
+  expiry_unavailable_quantity: "0",
   quarantined_quantity: "0",
   blocked_quantity: "0",
   recalled_quantity: "0",
@@ -48,6 +49,48 @@ describe("inventory batch pagination contract", () => {
     expect(parsed.batches.map((item) => item.batch_id)).toEqual([1, 2]);
     expect(parsed.next_cursor).toBe("cursor-2");
     expect(parsed.has_more).toBe(true);
+  });
+
+  it("accepts expiry as a restriction breakdown without changing disposition", () => {
+    const parsed = parseBatchDetailResponse(
+      page({
+        batches: [
+          {
+            ...batch(1),
+            disposition: "RELEASED",
+            days_to_expiry: -1,
+            available_for_sale_quantity: "0",
+            unavailable_quantity: "8",
+            restricted_quantity: "8",
+            expiry_unavailable_quantity: "8",
+          },
+        ],
+      }),
+    );
+
+    expect(parsed.batches[0]).toMatchObject({
+      disposition: "RELEASED",
+      days_to_expiry: -1,
+      available_for_sale_quantity: "0",
+      restricted_quantity: "8",
+      expiry_unavailable_quantity: "8",
+    });
+  });
+
+  it("rejects expiry breakdown larger than the restricted partition", () => {
+    expect(() =>
+      parseBatchDetailResponse(
+        page({
+          batches: [
+            {
+              ...batch(1),
+              restricted_quantity: "2",
+              expiry_unavailable_quantity: "3",
+            },
+          ],
+        }),
+      ),
+    ).toThrow("LIVE_STOCK_BATCH_RESPONSE_INVALID");
   });
 
   it("rejects inconsistent has_more and next_cursor state", () => {

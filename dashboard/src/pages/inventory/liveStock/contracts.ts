@@ -1,4 +1,4 @@
-import { parseQuantity, type Quantity } from "../quantity";
+import { compareQuantity, parseQuantity, type Quantity } from "../quantity";
 
 type CodedContractError = Error & { code: string };
 
@@ -289,6 +289,7 @@ export interface WarehouseBatchInventoryItem {
   available_for_sale_quantity: Quantity;
   unavailable_quantity: Quantity;
   restricted_quantity: Quantity;
+  expiry_unavailable_quantity: Quantity;
 
   quarantined_quantity: Quantity;
   blocked_quantity: Quantity;
@@ -619,6 +620,25 @@ export function parseBatchDetailResponse(
           ? row.days_to_expiry
           : contractError(code);
 
+    const restrictedQuantity = parseQuantity(
+      row.restricted_quantity,
+      "restricted_quantity",
+      { allowZero: true },
+    );
+    const expiryUnavailableQuantity = parseQuantity(
+      row.expiry_unavailable_quantity,
+      "expiry_unavailable_quantity",
+      { allowZero: true },
+    );
+    if (
+      compareQuantity(
+        expiryUnavailableQuantity,
+        restrictedQuantity,
+      ) > 0
+    ) {
+      return contractError(code);
+    }
+
     return {
       batch_id: batchId,
       batch_number: str(row.batch_number, code, 100),
@@ -649,11 +669,8 @@ export function parseBatchDetailResponse(
         "unavailable_quantity",
         { allowZero: true },
       ),
-      restricted_quantity: parseQuantity(
-        row.restricted_quantity,
-        "restricted_quantity",
-        { allowZero: true },
-      ),
+      restricted_quantity: restrictedQuantity,
+      expiry_unavailable_quantity: expiryUnavailableQuantity,
       quarantined_quantity: parseQuantity(
         row.quarantined_quantity,
         "quarantined_quantity",
