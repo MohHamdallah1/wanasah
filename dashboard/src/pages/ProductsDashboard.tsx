@@ -25,14 +25,9 @@ import { useCreateProductWorkflow } from "@/pages/products/create/useCreateProdu
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
 import { useImportProductWorkflow } from "@/pages/products/import/useImportProductWorkflow";
 import { ProductsListSection } from "@/pages/products/list/ProductsListSection";
-import { createProductsListActions } from "@/pages/products/list/createProductsListActions";
-import { deriveProductsListViewState } from "@/pages/products/list/deriveProductsListViewState";
+import { useProductsListWorkflow } from "@/pages/products/list/useProductsListWorkflow";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
 import { usePriceEditWorkflow } from "@/pages/products/pricing/usePriceEditWorkflow";
-import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
-import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
-import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
-import { useProductsListState } from "@/pages/products/list/useProductsListState";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { deriveProductsCapabilities } from "@/pages/products/deriveProductsCapabilities";
 import { useProductsIdentityScopeReset } from "@/pages/products/useProductsIdentityScopeReset";
@@ -82,46 +77,6 @@ export default function ProductsDashboard() {
   });
 
   const {
-    searchInput,
-    setSearchInput,
-    search,
-    setSearch,
-    cursor,
-    setCursor,
-    history,
-    setHistory,
-    filtersOpen,
-    setFiltersOpen,
-    familyFilterSearchInput,
-    setFamilyFilterSearchInput,
-    familyFilterSearch,
-    setFamilyFilterSearch,
-    familyFilterId,
-    setFamilyFilterId,
-    familyFilterName,
-    setFamilyFilterName,
-    lifecycleFilter,
-    setLifecycleFilter,
-    trackingTypeFilter,
-    setTrackingTypeFilter,
-    compatibilityFilter,
-    setCompatibilityFilter,
-    barcodeFilter,
-    setBarcodeFilter,
-    priceFilter,
-    setPriceFilter,
-    lotFilter,
-    setLotFilter,
-    expiryFilter,
-    setExpiryFilter,
-    sortBy,
-    setSortBy,
-    sortDir,
-    setSortDir,
-    resetProductPagination,
-  } = useProductsListState();
-
-  const {
     displayPreferences,
     setDisplayPreferences,
     displayPreferencesOpen,
@@ -130,6 +85,14 @@ export default function ProductsDashboard() {
     closeDisplayPreferences,
   } =
     useProductDisplayPreferencesState();
+
+  const listWorkflow =
+    useProductsListWorkflow({
+      companyId,
+      authFetch,
+      canViewPricing,
+      displayPreferences,
+    });
 
   const {
     detailProduct,
@@ -159,50 +122,6 @@ export default function ProductsDashboard() {
     openFamilies,
     closeFamilies,
   } = useProductFamiliesState();
-  useProductsListDebounce({
-    searchInput,
-    setSearch,
-    familyFilterSearchInput,
-    setFamilyFilterSearch,
-    canViewPricing,
-    priceFilter,
-    setPriceFilter,
-    setCursor,
-    setHistory,
-  });
-
-  const {
-    params,
-    familyFilterParams,
-  } = useProductsListParams({
-    search,
-    cursor,
-    familyFilterId,
-    lifecycleFilter,
-    trackingTypeFilter,
-    compatibilityFilter,
-    barcodeFilter,
-    canViewPricing,
-    priceFilter,
-    lotFilter,
-    expiryFilter,
-    sortBy,
-    sortDir,
-    familyFilterSearch,
-  });
-
-  const {
-    productsQuery,
-    familyFilterOptionsQuery,
-  } = useProductsListQueries({
-    companyId,
-    params,
-    filtersOpen,
-    familyFilterSearch,
-    familyFilterParams,
-    authFetch,
-  });
-
   const trackingDefaultsQuery =
     useTrackingDefaultsQuery({
       companyId,
@@ -223,8 +142,7 @@ export default function ProductsDashboard() {
         trackingDefaultsQuery.isError,
       retryTrackingDefaults: () =>
         void trackingDefaultsQuery.refetch(),
-      setCursor,
-      setHistory,
+      ...listWorkflow.paginationScope,
     });
 
   const importWorkflow =
@@ -273,24 +191,8 @@ export default function ProductsDashboard() {
   useProductsIdentityScopeReset({
     companyId,
     driverId,
-    list: {
-      setCursor,
-      setHistory,
-      setFiltersOpen,
-      setFamilyFilterSearchInput,
-      setFamilyFilterSearch,
-      setFamilyFilterId,
-      setFamilyFilterName,
-      setLifecycleFilter,
-      setTrackingTypeFilter,
-      setCompatibilityFilter,
-      setBarcodeFilter,
-      setPriceFilter,
-      setLotFilter,
-      setExpiryFilter,
-      setSortBy,
-      setSortDir,
-    },
+    list:
+      listWorkflow.identityScope,
     display: {
       setDisplayPreferences,
     },
@@ -307,71 +209,6 @@ export default function ProductsDashboard() {
       createWorkflow.identityScope,
     tracking:
       trackingWorkflow.identityScope,
-  });
-
-  const page =
-    productsQuery.data;
-  const familyFilterOptions =
-    familyFilterOptionsQuery.data
-      ?.items ?? [];
-  const {
-    pricingVisible,
-    visibleColumns,
-    productTableColumnCount,
-    tableHeaderSpacing,
-    hasProductListControls,
-  } = deriveProductsListViewState({
-    page,
-    canViewPricing,
-    displayPreferences,
-    familyFilterId,
-    lifecycleFilter,
-    trackingTypeFilter,
-    compatibilityFilter,
-    barcodeFilter,
-    priceFilter,
-    lotFilter,
-    expiryFilter,
-    sortBy,
-    sortDir,
-  });
-
-  const {
-    toggleFilters,
-    clearControls,
-    selectFamily,
-    updateLifecycleFilter,
-    updateTrackingTypeFilter,
-    updateCompatibilityFilter,
-    updateBarcodeFilter,
-    updatePriceFilter,
-    updateLotFilter,
-    updateExpiryFilter,
-    updateSortBy,
-    updateSortDir,
-    goPrevious,
-    goNext,
-  } = createProductsListActions({
-    familyFilterOptions,
-    displayPreferences,
-    cursor,
-    history,
-    setFiltersOpen,
-    setFamilyFilterId,
-    setFamilyFilterName,
-    setFamilyFilterSearchInput,
-    setLifecycleFilter,
-    setTrackingTypeFilter,
-    setCompatibilityFilter,
-    setBarcodeFilter,
-    setPriceFilter,
-    setLotFilter,
-    setExpiryFilter,
-    setSortBy,
-    setSortDir,
-    setCursor,
-    setHistory,
-    resetProductPagination,
   });
 
   const {
@@ -399,9 +236,7 @@ export default function ProductsDashboard() {
     companyId,
     driverId,
     setDisplayPreferences,
-    setSortBy,
-    setSortDir,
-    resetProductPagination,
+    ...listWorkflow.displayPreferenceScope,
     setDisplayPreferencesOpen,
     t,
   });
@@ -413,7 +248,7 @@ export default function ProductsDashboard() {
     >
       <ProductsPageHeader
         isFetching={
-          productsQuery.isFetching
+          listWorkflow.isFetching
         }
         trackingDefaultsLoading={
           trackingDefaultsQuery.isLoading
@@ -430,8 +265,8 @@ export default function ProductsDashboard() {
         canCreateSimpleProduct={
           canCreateSimpleProduct
         }
-        onRefresh={() =>
-          void productsQuery.refetch()
+        onRefresh={
+          listWorkflow.refresh
         }
         onOpenDisplayPreferences={
           openDisplayPreferences
@@ -456,102 +291,29 @@ export default function ProductsDashboard() {
       />
 
       <ProductsListSection
-        filtersOpen={filtersOpen}
-        toolbar={{
-          searchInput,
-          filtersOpen,
-          hasActiveControls:
-            hasProductListControls,
-          onSearchInputChange:
-            setSearchInput,
-          onToggleFilters:
-            toggleFilters,
-          onClearControls:
-            clearControls,
-        }}
-        filters={{
-          familyFilterSearchInput,
-          familyFilterId,
-          familyFilterName,
-          familyFilterOptions,
-          familyOptionsError:
-            familyFilterOptionsQuery.isError,
-          lifecycleFilter,
-          trackingTypeFilter,
-          compatibilityFilter,
-          barcodeFilter,
-          canViewPricing,
-          priceFilter,
-          lotFilter,
-          expiryFilter,
-          sortBy,
-          sortDir,
-          onFamilySearchInputChange:
-            setFamilyFilterSearchInput,
-          onFamilyFilterChange:
-            selectFamily,
-          onRetryFamilyOptions: () =>
-            void familyFilterOptionsQuery.refetch(),
-          onLifecycleFilterChange:
-            updateLifecycleFilter,
-          onTrackingTypeFilterChange:
-            updateTrackingTypeFilter,
-          onCompatibilityFilterChange:
-            updateCompatibilityFilter,
-          onBarcodeFilterChange:
-            updateBarcodeFilter,
-          onPriceFilterChange:
-            updatePriceFilter,
-          onLotFilterChange:
-            updateLotFilter,
-          onExpiryFilterChange:
-            updateExpiryFilter,
-          onSortByChange:
-            updateSortBy,
-          onSortDirChange:
-            updateSortDir,
-        }}
+        filtersOpen={
+          listWorkflow.section
+            .filtersOpen
+        }
+        toolbar={
+          listWorkflow.section.toolbar
+        }
+        filters={
+          listWorkflow.section.filters
+        }
         results={{
-          items:
-            page?.items ?? [],
-          isLoading:
-            productsQuery.isLoading,
-          isError:
-            productsQuery.isError,
-          isFetching:
-            productsQuery.isFetching,
+          ...listWorkflow.section.results,
           isNarrowViewport,
-          pricingVisible,
           canEditPrice:
             canEditSimplePrice,
           canEditTracking:
             canManageCatalog,
-          columns: visibleColumns,
-          density:
-            displayPreferences.density,
-          tableHeaderSpacing,
-          tableColumnCount:
-            productTableColumnCount,
-          hasPrevious:
-            history.length > 0,
-          hasNext: Boolean(
-            page?.next_cursor
-          ),
-          onRetry: () =>
-            void productsQuery.refetch(),
           onOpenDetails:
             openProductDetails,
           onEditPrice:
             priceWorkflow.openPriceEditor,
           onEditTracking:
             trackingWorkflow.openTrackingEditor,
-          onPrevious:
-            goPrevious,
-          onNext: () =>
-            goNext(
-              page?.next_cursor ??
-                null
-            ),
         }}
       />
 
@@ -573,7 +335,7 @@ export default function ProductsDashboard() {
 
       <ProductDetailDrawer
         product={detailProduct}
-        pricingVisible={pricingVisible}
+        pricingVisible={listWorkflow.pricingVisible}
         canEditPrice={
           canEditSimplePrice
         }
