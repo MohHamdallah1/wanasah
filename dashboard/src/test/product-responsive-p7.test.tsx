@@ -251,6 +251,9 @@ describe(
         read(
           "src/pages/products/list/ProductsListResults.tsx",
         ),
+        read(
+          "src/pages/products/create/CreateProductModal.tsx",
+        ),
       ];
 
       for (const source of files) {
