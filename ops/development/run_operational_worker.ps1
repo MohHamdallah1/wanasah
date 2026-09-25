@@ -9,6 +9,12 @@ if (-not (Test-Path $Python)) {
     throw "Backend virtual environment not found: $Python"
 }
 
+Write-Host "Recovering stalled operational jobs..."
+& $Python -m workers.recover_cli operational
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 Write-Host "Starting Wanasah operational worker..."
 Write-Host "App: workers.app.app"
 Write-Host "Queues: maintenance,notifications"
