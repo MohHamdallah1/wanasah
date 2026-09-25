@@ -287,6 +287,14 @@ export interface ProductNameMutationResponse {
   changed: boolean;
 }
 
+export interface ProductFamilyReassignMutationResponse {
+  product_variant_id: number;
+  family_id: number;
+  family_name: string;
+  version: number;
+  changed: boolean;
+}
+
 export interface ProductImportCommandResponse {
   job_id: string;
   status: ProductImportStatus;
@@ -683,6 +691,40 @@ export function parseProductNameMutationResponse(
     name: str(row.name, code, 200),
     version: int(row.version, code, 1),
     changed: bool(row.changed, code),
+  };
+}
+
+export function parseProductFamilyReassignMutation(
+  raw: unknown,
+): ProductFamilyReassignMutationResponse {
+  const code =
+    "PRODUCT_FAMILY_REASSIGN_RESPONSE_INVALID";
+  const row = record(raw, code);
+  return {
+    product_variant_id: int(
+      row.product_variant_id,
+      code,
+      1,
+    ),
+    family_id: int(
+      row.family_id,
+      code,
+      1,
+    ),
+    family_name: str(
+      row.family_name,
+      code,
+      150,
+    ),
+    version: int(
+      row.version,
+      code,
+      1,
+    ),
+    changed: bool(
+      row.changed,
+      code,
+    ),
   };
 }
 
