@@ -236,7 +236,7 @@ describe("Products P8 production frontend gate", () => {
     );
     const drawer = compact(
       readSource(
-        "../pages/products/ProductDetailDrawer.tsx",
+        "../pages/products/detail/ProductDetailDrawer.tsx",
       ),
     );
     const detailWorkflow = compact(
@@ -246,7 +246,7 @@ describe("Products P8 production frontend gate", () => {
     );
     const manager = compact(
       readSource(
-        "../pages/products/ProductLifecycleManager.tsx",
+        "../pages/products/lifecycle/ProductLifecycleManager.tsx",
       ),
     );
     const actions = compact(
