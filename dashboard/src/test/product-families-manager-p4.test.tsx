@@ -91,7 +91,7 @@ import {
   durableScope,
   getOrCreateDurableCommand,
 } from "../lib/durableOperations";
-import { ProductFamiliesManager } from "../pages/products/ProductFamiliesManager";
+import { ProductFamiliesManager } from "../pages/products/family/ProductFamiliesManager";
 
 const family = (
   id: number,
