@@ -1219,10 +1219,17 @@ export default function ProductsDashboard() {
   const {
     chooseFile,
     resetImport,
+    openImport,
+    closeImport,
+    resetImportTracking,
+    completeImport,
   } = createImportFileActions({
     importSessionKey,
+    importing:
+      importMutation.isPending,
     trackingDefaultsQuery,
     fileRef,
+    setImportOpen,
     setImportFile,
     setImportJobId,
     setImportStatus,
@@ -1353,14 +1360,9 @@ export default function ProductsDashboard() {
             {canImportProducts ? (
               <button
                 type="button"
-                onClick={() => {
-                  setImportTrackingExpanded(
-                    false
-                  );
-                  setImportOpen(
-                    true
-                  );
-                }}
+                onClick={
+                  openImport
+                }
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
               >
                 <FileSpreadsheet className="h-4 w-4" />
@@ -2384,18 +2386,7 @@ export default function ProductsDashboard() {
           retryImportMutation.isPending
         }
         fileRef={fileRef}
-        onClose={() => {
-          if (
-            !importMutation.isPending
-          ) {
-            setImportTrackingExpanded(
-              false
-            );
-            setImportOpen(
-              false
-            );
-          }
-        }}
+        onClose={closeImport}
         onDownloadTemplate={
           downloadTemplate
         }
@@ -2413,22 +2404,9 @@ export default function ProductsDashboard() {
         onExpiryControlModeChange={
           setImportExpiryControlMode
         }
-        onResetTracking={() => {
-          const defaults =
-            trackingDefaultsQuery.data;
-          if (!defaults) {
-            return;
-          }
-          setImportLotControlMode(
-            defaults.lot_control_mode
-          );
-          setImportExpiryControlMode(
-            defaults.expiry_control_mode
-          );
-          setImportTrackingExpanded(
-            false
-          );
-        }}
+        onResetTracking={
+          resetImportTracking
+        }
         onChooseFile={chooseFile}
         onDraggingChange={
           setDragging
@@ -2464,21 +2442,9 @@ export default function ProductsDashboard() {
         onRetryImport={() =>
           retryImportMutation.mutate()
         }
-        onCompletedClose={() => {
-          setImportOpen(false);
-          setImportFile(null);
-          setImportJobId(null);
-          setImportStatus(null);
-          setMapping({});
-          setImportTrackingExpanded(
-            false
-          );
-          if (importSessionKey) {
-            sessionStorage.removeItem(
-              importSessionKey
-            );
-          }
-        }}
+        onCompletedClose={
+          completeImport
+        }
       />
     </div>
   );
