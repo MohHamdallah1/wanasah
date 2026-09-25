@@ -327,7 +327,7 @@ describe("products P2 read contract", () => {
     );
     const row = normalizeWhitespace(
       readSource(
-        "../pages/products/ProductTableRow.tsx",
+        "../pages/products/list/ProductTableRow.tsx",
       ),
     );
     const listParams = normalizeWhitespace(
