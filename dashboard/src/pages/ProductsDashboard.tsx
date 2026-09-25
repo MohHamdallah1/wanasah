@@ -47,7 +47,6 @@ import {
   parsePackageUoms,
   parseProductTrackingDefaults,
   parseProductTrackingMutation,
-  parseSimpleProductPriceMutationResponse,
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
@@ -91,12 +90,6 @@ import { useProductsListState } from "@/pages/products/list/useProductsListState
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
-
-type MutationResult<T> = {
-  result: T;
-  requestId: string;
-  scope: string;
-};
 
 export default function ProductsDashboard() {
   const { t, i18n } =
