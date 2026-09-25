@@ -18,9 +18,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
-
-import { Modal } from "@/components/ui/modal";
+ import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -45,6 +43,7 @@ import { useProductDisplayPreferencesState } from "@/pages/products/display-pref
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
+import { createProductDraftActions } from "@/pages/products/create/createProductDraftActions";
 import { useCreateFamilyOptionParams } from "@/pages/products/create/useCreateFamilyOptionParams";
 import { useCreateFamilyOptionsQuery } from "@/pages/products/create/useCreateFamilyOptionsQuery";
 import { useCreateFamilyOptionSearchDebounce } from "@/pages/products/create/useCreateFamilyOptionSearchDebounce";
@@ -621,6 +620,48 @@ export default function ProductsDashboard() {
           trackingDefaultsQuery.data
             .expiry_control_mode
     );
+
+  const {
+    updateName:
+      updateCreateName,
+    updateFamily:
+      updateCreateFamily,
+    updateHasPackage:
+      updateCreateHasPackage,
+    updatePackageUom:
+      updateCreatePackageUom,
+    updateUnitsPerPackage:
+      updateCreateUnitsPerPackage,
+    updatePackagePrice:
+      updateCreatePackagePrice,
+    updateUnitPrice:
+      updateCreateUnitPrice,
+    toggleAdvanced:
+      toggleCreateAdvanced,
+    expandTracking:
+      expandCreateTracking,
+    updateLotControlMode:
+      updateCreateLotControlMode,
+    updateExpiryControlMode:
+      updateCreateExpiryControlMode,
+    resetTracking:
+      resetCreateTracking,
+    updateUnitBarcode:
+      updateCreateUnitBarcode,
+    copyBarcode:
+      copyCreateBarcode,
+    updatePackageBarcode:
+      updateCreatePackageBarcode,
+  } = createProductDraftActions({
+    createFieldError,
+    trackingDefaults:
+      trackingDefaultsQuery.data,
+    setDraft,
+    setCreateFieldError,
+    setCreateAdvancedExpanded,
+    setCreateTrackingExpanded,
+    t,
+  });
 
   const operationScope = (
     operation: string,
@@ -1520,27 +1561,11 @@ export default function ProductsDashboard() {
         }
         onCancel={cancelCreate}
         onSubmit={submitCreate}
-        onNameChange={(value) => {
-          setDraft(
-            (current) => ({
-              ...current,
-              name: value,
-            })
-          );
-          if (
-            createFieldError?.field ===
-            "name"
-          ) {
-            setCreateFieldError(null);
-          }
-        }}
-        onFamilyChange={(value) =>
-          setDraft(
-            (current) => ({
-              ...current,
-              family: value,
-            })
-          )
+        onNameChange={
+          updateCreateName
+        }
+        onFamilyChange={
+          updateCreateFamily
         }
         onRetryFamilyOptions={() =>
           void familyOptionsQuery.refetch()
@@ -1548,182 +1573,47 @@ export default function ProductsDashboard() {
         onRetryTrackingDefaults={() =>
           void trackingDefaultsQuery.refetch()
         }
-        onHasPackageChange={(
-          checked
-        ) =>
-          setDraft(
-            (current) => ({
-              ...current,
-              has_package:
-                checked,
-              units_per_package:
-                checked
-                  ? current.units_per_package ===
-                    "1"
-                    ? "50"
-                    : current.units_per_package
-                  : "1",
-              package_price:
-                checked
-                  ? current.package_price
-                  : "",
-              package_barcode:
-                checked
-                  ? current.package_barcode
-                  : "",
-            })
-          )
+        onHasPackageChange={
+          updateCreateHasPackage
         }
         onRetryPackageUoms={() =>
           void packageUomsQuery.refetch()
         }
-        onPackageUomChange={(
-          value
-        ) =>
-          setDraft(
-            (current) => ({
-              ...current,
-              package_uom_code:
-                value,
-            })
-          )
+        onPackageUomChange={
+          updateCreatePackageUom
         }
-        onUnitsPerPackageChange={(
-          value
-        ) => {
-          setDraft(
-            (current) => ({
-              ...current,
-              units_per_package:
-                value,
-            })
-          );
-          if (
-            createFieldError?.field ===
-            "units"
-          ) {
-            setCreateFieldError(null);
-          }
-        }}
-        onPackagePriceChange={(
-          value
-        ) => {
-          setDraft(
-            (current) => ({
-              ...current,
-              package_price:
-                value,
-            })
-          );
-          if (
-            createFieldError?.field ===
-            "packagePrice"
-          ) {
-            setCreateFieldError(null);
-          }
-        }}
-        onUnitPriceChange={(
-          value
-        ) => {
-          setDraft(
-            (current) => ({
-              ...current,
-              unit_price: value,
-            })
-          );
-          if (
-            createFieldError?.field ===
-            "unitPrice"
-          ) {
-            setCreateFieldError(null);
-          }
-        }}
-        onToggleAdvanced={() =>
-          setCreateAdvancedExpanded(
-            (current) => !current
-          )
+        onUnitsPerPackageChange={
+          updateCreateUnitsPerPackage
         }
-        onExpandTracking={() =>
-          setCreateTrackingExpanded(
-            true
-          )
+        onPackagePriceChange={
+          updateCreatePackagePrice
         }
-        onLotControlModeChange={(
-          value
-        ) =>
-          setDraft(
-            (current) => ({
-              ...current,
-              lot_control_mode:
-                value,
-            })
-          )
+        onUnitPriceChange={
+          updateCreateUnitPrice
         }
-        onExpiryControlModeChange={(
-          value
-        ) =>
-          setDraft(
-            (current) => ({
-              ...current,
-              expiry_control_mode:
-                value,
-            })
-          )
+        onToggleAdvanced={
+          toggleCreateAdvanced
         }
-        onResetTracking={() => {
-          const defaults =
-            trackingDefaultsQuery.data;
-          if (!defaults) {
-            return;
-          }
-          setDraft(
-            (current) => ({
-              ...current,
-              lot_control_mode:
-                defaults.lot_control_mode,
-              expiry_control_mode:
-                defaults.expiry_control_mode,
-            })
-          );
-          setCreateTrackingExpanded(
-            false
-          );
-        }}
-        onUnitBarcodeChange={(
-          value
-        ) =>
-          setDraft(
-            (current) => ({
-              ...current,
-              unit_barcode:
-                value,
-            })
-          )
+        onExpandTracking={
+          expandCreateTracking
         }
-        onCopyBarcode={() => {
-          setDraft(
-            (current) => ({
-              ...current,
-              package_barcode:
-                current.unit_barcode,
-            })
-          );
-          toast.success(
-            t(
-              "products.copiedBarcode"
-            )
-          );
-        }}
-        onPackageBarcodeChange={(
-          value
-        ) =>
-          setDraft(
-            (current) => ({
-              ...current,
-              package_barcode:
-                value,
-            })
-          )
+        onLotControlModeChange={
+          updateCreateLotControlMode
+        }
+        onExpiryControlModeChange={
+          updateCreateExpiryControlMode
+        }
+        onResetTracking={
+          resetCreateTracking
+        }
+        onUnitBarcodeChange={
+          updateCreateUnitBarcode
+        }
+        onCopyBarcode={
+          copyCreateBarcode
+        }
+        onPackageBarcodeChange={
+          updateCreatePackageBarcode
         }
       />
 
