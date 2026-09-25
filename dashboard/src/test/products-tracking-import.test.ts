@@ -35,8 +35,8 @@ describe("product import tracking workflow", () => {
       readSource("../pages/products/import/ImportProductModal.tsx"),
     );
 
-    expect(page).toContain('"lot_control_mode"');
-    expect(page).toContain('"expiry_control_mode"');
+    expect(importModal).toContain('"lot_control_mode"');
+    expect(importModal).toContain('"expiry_control_mode"');
     expect(importModal).toContain(
       '"products.fields.lotControlMode"',
     );
