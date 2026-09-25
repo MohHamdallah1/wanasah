@@ -18,8 +18,7 @@ import {
 import {
   abandonDurableOperation,
   completeDurableOperation,
-  durableScope,
-  getOrCreateDurableRequestId,
+   getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
 import {
   parseSimpleProductCreateResponse,
@@ -33,6 +32,9 @@ import type {
 import {
   emptyDraft,
 } from "@/pages/products/create/useCreateProductState";
+import {
+  productDurableScope,
+} from "@/pages/products/productDurableScope";
 
 type MutationResult<T> = {
   result: T;
@@ -49,11 +51,7 @@ type Params = {
   draft: ProductDraft;
   familyOptions: ProductFamily[];
   packageUoms: PackageUom[];
-  operationScope: (
-    operation: string,
-    target?: string | number,
-  ) => string;
-  authFetch: AuthFetch;
+   authFetch: AuthFetch;
   draftStorageKey: string | null;
   companyId: number | null;
   driverId: number | null;
@@ -102,8 +100,7 @@ export function useCreateProductMutation({
   draft,
   familyOptions,
   packageUoms,
-  operationScope,
-  authFetch,
+   authFetch,
   draftStorageKey,
   companyId,
   driverId,
@@ -251,7 +248,9 @@ export function useCreateProductMutation({
           };
 
           const scope =
-            operationScope(
+            productDurableScope(
+              companyId,
+              driverId,
               "product-create"
             );
           const requestId =
@@ -437,7 +436,7 @@ export function useCreateProductMutation({
         driverId
       ) {
         abandonDurableOperation(
-          durableScope(
+          productDurableScope(
             companyId,
             driverId,
             "product-create"
