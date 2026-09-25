@@ -1174,6 +1174,7 @@ export default function ProductsDashboard() {
 
   const {
     importMutation,
+    startImport,
   } = useImportProductUpload({
     importFile,
     importLotControlMode,
@@ -1192,9 +1193,13 @@ export default function ProductsDashboard() {
   const {
     mappingMutation,
     retryImportMutation,
+    updateMapping,
+    submitMapping,
+    retryImport,
   } = useImportProductCommands({
     importJobId,
     mapping,
+    setMapping,
     authFetch,
     setImportPollError,
     setImportStatus,
@@ -1202,9 +1207,12 @@ export default function ProductsDashboard() {
     t,
   });
 
-  useImportProductPolling({
+  const {
+    retryPoll,
+  } = useImportProductPolling({
     importJobId,
     importPollKey,
+    setImportPollKey,
     authFetch,
     queryClient,
     t,
@@ -1221,6 +1229,7 @@ export default function ProductsDashboard() {
     resetImport,
     openImport,
     closeImport,
+    expandImportTracking,
     resetImportTracking,
     completeImport,
   } = createImportFileActions({
@@ -2393,10 +2402,8 @@ export default function ProductsDashboard() {
         onRetryTrackingDefaults={() =>
           void trackingDefaultsQuery.refetch()
         }
-        onExpandTracking={() =>
-          setImportTrackingExpanded(
-            true
-          )
+        onExpandTracking={
+          expandImportTracking
         }
         onLotControlModeChange={
           setImportLotControlMode
@@ -2411,36 +2418,22 @@ export default function ProductsDashboard() {
         onDraggingChange={
           setDragging
         }
-        onStartImport={() =>
-          importMutation.mutate()
+        onStartImport={
+          startImport
         }
-        onRetryPoll={() => {
-          setImportPollError(null);
-          setImportPollKey(
-            (current) =>
-              current + 1
-          );
-        }}
-        onMappingChange={(
-          field,
-          value
-        ) =>
-          setMapping(
-            (current) => ({
-              ...current,
-              [field]: value,
-            })
-          )
+        onRetryPoll={retryPoll}
+        onMappingChange={
+          updateMapping
         }
-        onSubmitMapping={() =>
-          mappingMutation.mutate()
+        onSubmitMapping={
+          submitMapping
         }
-        onDownloadErrorReport={() =>
-          void downloadErrorReport()
+        onDownloadErrorReport={
+          downloadErrorReport
         }
         onResetImport={resetImport}
-        onRetryImport={() =>
-          retryImportMutation.mutate()
+        onRetryImport={
+          retryImport
         }
         onCompletedClose={
           completeImport
