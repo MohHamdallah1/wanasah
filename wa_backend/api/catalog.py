@@ -43,6 +43,7 @@ from product_lifecycle import (
 from services import InventoryMutationError, begin_idempotent_operation, complete_idempotent_operation
 from domains.catalog_identity import (
     CatalogIdentityError,
+    reassign_published_product_family,
     rename_published_product,
 )
 from domains.live_stock_projection.service import (
@@ -365,6 +366,12 @@ class VariantNameUpdate(StrictRequest):
         clean = _text(value, "name", 200)
         assert clean is not None
         return clean
+
+
+class VariantFamilyUpdate(StrictRequest):
+    request_id: UUID
+    expected_version: int = Field(gt=0)
+    family_id: int = Field(gt=0)
 
 
 class ConversionCreate(StrictRequest):
@@ -811,6 +818,72 @@ async def rename_variant_name(
             500,
             "LIVE_STOCK_PROJECTION_FAILED",
             "تعذر تحديث عرض المخزون الحي بأمان.",
+        ) from exc
+
+
+@router.patch("/variants/{variant_id}/family")
+async def reassign_variant_family(
+    variant_id: int,
+    payload: VariantFamilyUpdate,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.manage")
+    try:
+        idem, replay = await begin_idempotent_operation(
+            db,
+            company_id=actor.company_id,
+            actor_id=actor.id,
+            operation="CATALOG_VARIANT_FAMILY_REASSIGN_V1",
+            request_id=str(payload.request_id),
+            request_hash=_request_hash(
+                payload,
+                variant_id=variant_id,
+            ),
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
+        result = await reassign_published_product_family(
+            db,
+            company_id=int(actor.company_id),
+            actor_id=int(actor.id),
+            request_id=payload.request_id,
+            product_variant_id=int(variant_id),
+            expected_version=int(payload.expected_version),
+            family_id=int(payload.family_id),
+        )
+
+        response = {
+            "product_variant_id": int(
+                result.product_variant_id
+            ),
+            "family_id": int(result.family_id),
+            "family_name": str(result.family_name),
+            "version": int(result.version),
+            "changed": bool(result.changed),
+        }
+        complete_idempotent_operation(
+            idem,
+            response,
+        )
+        await db.commit()
+        return response
+    except CatalogIdentityError as exc:
+        await db.rollback()
+        raise _error(
+            exc.status_code,
+            exc.code,
+            exc.message,
+            **exc.context,
+        ) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise _error(
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            str(exc),
         ) from exc
 
 
