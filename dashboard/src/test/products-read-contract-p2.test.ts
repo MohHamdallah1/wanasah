@@ -30,6 +30,7 @@ const baseItem = {
   units_per_package: 1,
   legacy_packs_per_carton: 1,
   base_uom_id: 1,
+  base_uom_code: "EACH",
   package_uom_id: null,
   package_uom_code: null,
   currency_code: "JOD",
@@ -91,6 +92,7 @@ describe("products P2 read contract", () => {
         {
           ...baseItem,
           units_per_package: null,
+          base_uom_code: null,
           legacy_packs_per_carton: 50,
           package_uom_id: null,
           package_uom_code: null,
@@ -115,6 +117,7 @@ describe("products P2 read contract", () => {
         {
           ...baseItem,
           units_per_package: null,
+          base_uom_code: null,
           legacy_packs_per_carton: 1,
           package_uom_id: null,
           package_uom_code: null,
