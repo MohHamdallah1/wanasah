@@ -5,14 +5,22 @@ import type {
 export type CreateFieldError = {
   field:
     | "name"
+    | "family"
     | "units"
     | "packagePrice"
     | "unitPrice";
   message: string;
 };
 
+export type ProductFamilyMode =
+  | "none"
+  | "existing"
+  | "new";
+
 export type ProductDraft = {
   name: string;
+  family_mode: ProductFamilyMode;
+  family_id: number | null;
   family: string;
   has_package: boolean;
   package_uom_code: string;
