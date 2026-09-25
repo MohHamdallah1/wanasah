@@ -142,6 +142,16 @@ describe(
           "../pages/products/list/useProductsListState.ts",
         ),
       );
+      const listParams = compact(
+        readSource(
+          "../pages/products/list/useProductsListParams.ts",
+        ),
+      );
+      const listQueries = compact(
+        readSource(
+          "../pages/products/list/useProductsListQueries.ts",
+        ),
+      );
       const translations =
         readSource(
           "../i18n/resources.ts",
@@ -157,27 +167,27 @@ describe(
         "lot_tracked",
         "expiry_tracked",
       ]) {
-        expect(page).toContain(
+        expect(listParams).toContain(
           `"${parameter}"`,
         );
       }
-      expect(page).toContain(
+      expect(listParams).toContain(
         "sort_by: sortBy",
       );
-      expect(page).toContain(
+      expect(listParams).toContain(
         "sort_dir: sortDir",
       );
 
-      expect(page).toContain(
+      expect(listQueries).toContain(
         'queryKey: [ "simple-products", companyId, params, ]',
       );
-      expect(page).toContain(
+      expect(listQueries).toContain(
         '"filter-options", familyFilterSearch',
       );
-      expect(page).toContain(
+      expect(listParams).toContain(
         'limit: "50"',
       );
-      expect(page).toContain(
+      expect(listParams).toContain(
         "canViewPricing && priceFilter",
       );
       expect(page).toContain(
@@ -194,7 +204,7 @@ describe(
           /resetProductPagination\(\)/g,
         )?.length ?? 0,
       ).toBeGreaterThanOrEqual(10);
-      expect(page).not.toContain(
+      expect(listQueries).not.toContain(
         "/simple-products/families?limit=200",
       );
       expect(translations).toContain(
