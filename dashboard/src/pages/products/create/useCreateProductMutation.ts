@@ -25,6 +25,9 @@ import {
   type PackageUom,
   type ProductFamily,
 } from "@/pages/products/contracts";
+import {
+  resolveCreateProductFamilyIntent,
+} from "@/pages/products/create/createProductFamilyIntent";
 import type {
   CreateFieldError,
   ProductDraft,
@@ -85,6 +88,9 @@ type Params = {
   createNameRef: RefObject<
     HTMLInputElement | null
   >;
+  createFamilyRef: RefObject<
+    HTMLInputElement | null
+  >;
   createUnitsRef: RefObject<
     HTMLInputElement | null
   >;
@@ -114,6 +120,7 @@ export function useCreateProductMutation({
   queryClient,
   t,
   createNameRef,
+  createFamilyRef,
   createUnitsRef,
   createPackagePriceRef,
   createUnitPriceRef,
@@ -134,6 +141,22 @@ export function useCreateProductMutation({
             throw new Error(
               t(
                 "products.errors.nameRequired"
+              )
+            );
+          }
+
+          const familyIntent =
+            resolveCreateProductFamilyIntent(
+              draft,
+              familyOptions,
+            );
+          if (!familyIntent.ok) {
+            throw new Error(
+              t(
+                familyIntent.error ===
+                "EXISTING_FAMILY_REQUIRED"
+                  ? "products.errors.existingFamilyRequired"
+                  : "products.errors.newFamilyRequired"
               )
             );
           }
@@ -197,28 +220,13 @@ export function useCreateProductMutation({
             );
           }
 
-          const selectedFamily =
-            familyOptions.find(
-              (item) =>
-                item.name
-                  .trim()
-                  .toLocaleLowerCase() ===
-                draft.family
-                  .trim()
-                  .toLocaleLowerCase()
-            );
-
           const body = {
             name:
               draft.name.trim(),
             family_id:
-              selectedFamily?.id ??
-              null,
+              familyIntent.family_id,
             family_name:
-              !selectedFamily &&
-              draft.family.trim()
-                ? draft.family.trim()
-                : null,
+              familyIntent.family_name,
             package_uom_code:
               draft.has_package
                 ? draft.package_uom_code
@@ -353,6 +361,27 @@ export function useCreateProductMutation({
       });
       window.requestAnimationFrame(
         () => createNameRef.current?.focus()
+      );
+      return;
+    }
+
+    const familyIntent =
+      resolveCreateProductFamilyIntent(
+        draft,
+        familyOptions,
+      );
+    if (!familyIntent.ok) {
+      setCreateFieldError({
+        field: "family",
+        message: t(
+          familyIntent.error ===
+          "EXISTING_FAMILY_REQUIRED"
+            ? "products.errors.existingFamilyRequired"
+            : "products.errors.newFamilyRequired"
+        ),
+      });
+      window.requestAnimationFrame(
+        () => createFamilyRef.current?.focus()
       );
       return;
     }
