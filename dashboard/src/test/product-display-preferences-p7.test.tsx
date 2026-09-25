@@ -101,6 +101,7 @@ const product: SimpleProduct = {
   units_per_package: 50,
   legacy_packs_per_carton: 50,
   base_uom_id: 1,
+  base_uom_code: "EACH",
   package_uom_id: 2,
   package_uom_code:
     "CARTON",
