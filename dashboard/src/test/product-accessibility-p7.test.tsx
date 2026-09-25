@@ -150,6 +150,9 @@ describe(
       const dashboard = read(
         "src/pages/ProductsDashboard.tsx",
       );
+      const listToolbar = read(
+        "src/pages/products/list/ProductsListToolbar.tsx",
+      );
       const families = read(
         "src/pages/products/ProductFamiliesManager.tsx",
       );
@@ -173,7 +176,7 @@ describe(
         "tabIndex={-1}",
       );
 
-      expect(dashboard).toMatch(
+      expect(listToolbar).toMatch(
         /aria-label=\{t\(\s*"products\.searchPlaceholder"/,
       );
       expect(dashboard).toMatch(
