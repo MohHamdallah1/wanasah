@@ -256,6 +256,53 @@ describe("Products P8 production frontend gate", () => {
     );
   });
 
+  it("keeps import lifecycle cleanup feature-owned and deterministic", () => {
+    const page = compact(
+      readSource(
+        "../pages/ProductsDashboard.tsx",
+      ),
+    );
+    const fileActions = compact(
+      readSource(
+        "../pages/products/import/createImportFileActions.ts",
+      ),
+    );
+
+    expect(fileActions).toContain(
+      'lower.endsWith( ".csv" )',
+    );
+    expect(fileActions).toContain(
+      'lower.endsWith( ".xlsx" )',
+    );
+    expect(fileActions).toContain(
+      "if (!importing)",
+    );
+    expect(fileActions).toContain(
+      "sessionStorage.removeItem( importSessionKey )",
+    );
+    expect(fileActions).toContain(
+      'fileRef.current.value = ""',
+    );
+    expect(fileActions).toContain(
+      "setImportJobId(null)",
+    );
+    expect(fileActions).toContain(
+      "setImportStatus(null)",
+    );
+    expect(fileActions).toContain(
+      "setMapping({})",
+    );
+    expect(page).toContain(
+      "onClick={ openImport }",
+    );
+    expect(page).toContain(
+      "onClose={closeImport}",
+    );
+    expect(page).toContain(
+      "onCompletedClose={ completeImport }",
+    );
+  });
+
   it("distinguishes package-UOM and import-poll failures from empty/loading states", () => {
     const page = compact(
       readSource(
