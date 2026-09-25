@@ -53,7 +53,7 @@ const productUiFiles = () => {
   return [
     resolve(
       process.cwd(),
-      "src/pages/ProductsDashboard.tsx",
+      "src/pages/products/ProductsPage.tsx",
     ),
     ...collectTsxFiles(
       productRoot,
@@ -82,7 +82,7 @@ describe(
 
     it("keeps Product shells and Product modal portals on i18n direction authority", () => {
       const dashboard = read(
-        "src/pages/ProductsDashboard.tsx",
+        "src/pages/products/ProductsPage.tsx",
       );
       const drawer = read(
         "src/pages/products/ProductDetailDrawer.tsx",
