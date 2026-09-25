@@ -201,20 +201,26 @@ describe(
       const page = read(
         "src/pages/ProductsDashboard.tsx",
       );
+      const listResults = read(
+        "src/pages/products/list/ProductsListResults.tsx",
+      );
 
       expect(page).toMatch(
         /useMediaQuery\(\s*["']\(max-width: 767px\)["']\s*\)/,
       );
       expect(page).toContain(
+        "isNarrowViewport={ isNarrowViewport }",
+      );
+      expect(listResults).toContain(
         "{isNarrowViewport ? (",
       );
-      expect(page).toContain(
+      expect(listResults).toContain(
         "<ProductMobileCard",
       );
-      expect(page).toContain(
+      expect(listResults).toContain(
         "<ProductTableRow",
       );
-      expect(page).not.toContain(
+      expect(listResults).not.toContain(
         'min-w-[260px]',
       );
       expect(page).toContain(
