@@ -420,6 +420,9 @@ async def global_exception_handler(request: Request, exc: Exception):
                 "context": {},
             },
         ),
+        # ServerErrorMiddleware sits outside user middleware, so unhandled
+        # 500 responses must carry the already-issued request id explicitly.
+        headers={"X-Request-Id": request_id},
     )
 
 # +++ تفعيل الروترز لتتطابق مع طلبات React و Flutter الحقيقية +++
