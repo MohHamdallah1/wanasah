@@ -90,6 +90,9 @@ import { useProductsListState } from "@/pages/products/list/useProductsListState
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
+import { useProductTrackingEditState } from "@/pages/products/tracking/useProductTrackingEditState";
+import { useTrackingDefaultsQuery } from "@/pages/products/tracking/useTrackingDefaultsQuery";
+import { useTrackingDefaultsState } from "@/pages/products/tracking/useTrackingDefaultsState";
 
 export default function ProductsDashboard() {
   const { t, i18n } =
@@ -245,22 +248,15 @@ export default function ProductsDashboard() {
     createUnitPriceRef,
   } = useCreateProductState();
 
-  const [
+  const {
     trackingDefaultsOpen,
     setTrackingDefaultsOpen,
-  ] = useState(false);
-  const [
     trackingDefaultsLot,
     setTrackingDefaultsLot,
-  ] = useState<ProductTrackingMode | null>(
-    null
-  );
-  const [
     trackingDefaultsExpiry,
     setTrackingDefaultsExpiry,
-  ] = useState<ProductTrackingMode | null>(
-    null
-  );
+  } = useTrackingDefaultsState();
+
   const [
     detailProduct,
     setDetailProduct,
@@ -285,24 +281,14 @@ export default function ProductsDashboard() {
   ] = useState<SimpleProduct | null>(
     null
   );
-  const [
+  const {
     trackingEdit,
     setTrackingEdit,
-  ] = useState<SimpleProduct | null>(
-    null
-  );
-  const [
     trackingEditLot,
     setTrackingEditLot,
-  ] = useState<ProductTrackingMode | null>(
-    null
-  );
-  const [
     trackingEditExpiry,
     setTrackingEditExpiry,
-  ] = useState<ProductTrackingMode | null>(
-    null
-  );
+  } = useProductTrackingEditState();
 
   const {
     priceEdit,
@@ -463,21 +449,9 @@ export default function ProductsDashboard() {
     });
 
   const trackingDefaultsQuery =
-    useQuery({
-      queryKey: [
-        "simple-product-tracking-defaults",
-        companyId,
-      ],
-      enabled: Boolean(companyId),
-      queryFn: async ({
-        signal,
-      }) =>
-        parseProductTrackingDefaults(
-          await authFetch(
-            "/simple-products/tracking/defaults",
-            { signal }
-          )
-        ),
+    useTrackingDefaultsQuery({
+      companyId,
+      authFetch,
     });
 
   useEffect(() => {
