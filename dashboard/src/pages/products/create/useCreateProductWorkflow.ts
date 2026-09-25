@@ -79,6 +79,7 @@ export function useCreateProductWorkflow({
     createFieldError,
     setCreateFieldError,
     createNameRef,
+    createFamilyRef,
     createUnitsRef,
     createPackagePriceRef,
     createUnitPriceRef,
@@ -154,6 +155,7 @@ export function useCreateProductWorkflow({
 
   const {
     updateName,
+    updateFamilyMode,
     updateFamily,
     updateHasPackage,
     updatePackageUom,
@@ -200,6 +202,7 @@ export function useCreateProductWorkflow({
     queryClient,
     t,
     createNameRef,
+    createFamilyRef,
     createUnitsRef,
     createPackagePriceRef,
     createUnitPriceRef,
@@ -233,6 +236,7 @@ export function useCreateProductWorkflow({
       createAdvancedExpanded,
       createTrackingExpanded,
       createNameRef,
+      createFamilyRef,
       createUnitsRef,
       createPackagePriceRef,
       createUnitPriceRef,
@@ -242,6 +246,8 @@ export function useCreateProductWorkflow({
         submitCreate,
       onNameChange:
         updateName,
+      onFamilyModeChange:
+        updateFamilyMode,
       onFamilyChange:
         updateFamily,
       onRetryFamilyOptions: () =>
