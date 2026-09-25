@@ -100,14 +100,17 @@ describe("products tracking UI contracts", () => {
     const listQueries = normalizeWhitespace(
       readSource("../pages/products/list/useProductsListQueries.ts"),
     );
+    const createMutation = normalizeWhitespace(
+      readSource("../pages/products/create/useCreateProductMutation.ts"),
+    );
 
     expect(page).toContain(
       "wanasah:product-draft:v2:",
     );
-    expect(page).toContain(
+    expect(createMutation).toContain(
       "lot_control_mode: draft.lot_control_mode",
     );
-    expect(page).toContain(
+    expect(createMutation).toContain(
       "expiry_control_mode: draft.expiry_control_mode",
     );
     expect(listQueries).toContain(
