@@ -322,6 +322,11 @@ export default function ProductsDashboard() {
     setPriceFieldError,
     editPackagePriceRef,
     editUnitPriceRef,
+    openPriceEditor,
+    cancelPriceEdit,
+    updatePackagePrice,
+    updateUnitPrice,
+    editDerived,
   } = usePriceEditState();
 
   const [
@@ -758,19 +763,6 @@ export default function ProductsDashboard() {
     );
   };
 
-  const openPriceEditor = (
-    product: SimpleProduct
-  ) => {
-    setPriceFieldError(null);
-    setPriceEdit(product);
-    setEditPackagePrice(
-      product.package_price ?? ""
-    );
-    setEditUnitPrice(
-      product.unit_price ?? ""
-    );
-  };
-
   const openTrackingEditor = (
     product: SimpleProduct
   ) => {
@@ -1003,6 +995,7 @@ export default function ProductsDashboard() {
   const {
     priceMutation,
     submitPriceEdit,
+    closePriceEdit,
   } = usePriceEditMutation({
     priceEdit,
     editPackagePrice,
@@ -1112,20 +1105,6 @@ export default function ProductsDashboard() {
       draft.package_price,
       draft.unit_price
     );
-
-  const editDerived =
-    priceEdit
-      ? deriveExactMoneyPair(
-          Boolean(
-            priceEdit.package_uom_code
-          ),
-          String(
-            priceEdit.units_per_package
-          ),
-          editPackagePrice,
-          editUnitPrice
-        )
-      : null;
 
   const importProgress =
     calculateImportProgress(
@@ -2044,48 +2023,19 @@ export default function ProductsDashboard() {
         unitPriceRef={
           editUnitPriceRef
         }
-        onClose={() => {
-          if (
-            !priceMutation.isPending
-          ) {
-            setPriceEdit(
-              null
-            );
-            setPriceFieldError(null);
-          }
-        }}
-        onCancel={() =>
-          setPriceEdit(
-            null
-          )
+        onClose={
+          closePriceEdit
+        }
+        onCancel={
+          cancelPriceEdit
         }
         onSubmit={submitPriceEdit}
-        onPackagePriceChange={(
-          value
-        ) => {
-          setEditPackagePrice(
-            value
-          );
-          if (
-            priceFieldError?.field ===
-            "packagePrice"
-          ) {
-            setPriceFieldError(null);
-          }
-        }}
-        onUnitPriceChange={(
-          value
-        ) => {
-          setEditUnitPrice(
-            value
-          );
-          if (
-            priceFieldError?.field ===
-            "unitPrice"
-          ) {
-            setPriceFieldError(null);
-          }
-        }}
+        onPackagePriceChange={
+          updatePackagePrice
+        }
+        onUnitPriceChange={
+          updateUnitPrice
+        }
       />
 
       <ProductFamiliesManager
