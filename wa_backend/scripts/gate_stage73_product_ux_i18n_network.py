@@ -67,6 +67,10 @@ def static_checks() -> None:
         ROOT
         / "dashboard/src/pages/products/create/useCreateProductMutation.ts"
     ).read_text(encoding="utf-8")
+    create_workflow = (
+        ROOT
+        / "dashboard/src/pages/products/create/useCreateProductWorkflow.ts"
+    ).read_text(encoding="utf-8")
     create_actions = (
         ROOT
         / "dashboard/src/pages/products/create/createProductDraftActions.ts"
@@ -135,7 +139,10 @@ def static_checks() -> None:
         "sessionStorage.setItem" in create_persistence
         and "draftStorageKey" in create_persistence
         and "completeDurableOperation" in create_mutation
-        and "getOrCreateDurableRequestId" in create_mutation,
+        and "getOrCreateDurableCommand" in create_mutation
+        and "isAmbiguousRequestError" in create_mutation
+        and "readDurableCommand" in create_workflow
+        and "productDraftFromCreateCommand" in create_workflow,
         "Product drafts and logical mutation ids survive refresh/network ambiguity",
     )
     check(
