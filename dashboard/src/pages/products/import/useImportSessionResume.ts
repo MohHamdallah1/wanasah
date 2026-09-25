@@ -47,6 +47,7 @@ export function useImportSessionResume({
   }, [
     importJobId,
     importSessionKey,
+    setImportJobId,
     t,
   ]);
 }
