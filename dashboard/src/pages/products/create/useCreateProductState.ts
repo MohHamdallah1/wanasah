@@ -26,7 +26,6 @@ export function useCreateProductState() {
   const [
     createOpen,
     setCreateOpen,
-    openCreateProduct,
   ] = useState(false);
   const [
     createTrackingExpanded,
@@ -83,6 +82,7 @@ export function useCreateProductState() {
   return {
     createOpen,
     setCreateOpen,
+    openCreateProduct,
     createTrackingExpanded,
     setCreateTrackingExpanded,
     createAdvancedExpanded,
