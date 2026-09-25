@@ -199,7 +199,7 @@ describe(
 
     it("uses mobile Product cards instead of the wide table on narrow screens", () => {
       const page = read(
-        "src/pages/ProductsDashboard.tsx",
+        "src/pages/products/ProductsPage.tsx",
       );
       const listResults = read(
         "src/pages/products/list/ProductsListResults.tsx",
@@ -234,7 +234,7 @@ describe(
     it("keeps narrow Product content and long translated labels wrap-safe", () => {
       const files = [
         read(
-          "src/pages/ProductsDashboard.tsx",
+          "src/pages/products/ProductsPage.tsx",
         ),
         read(
           "src/pages/products/ProductMobileCard.tsx",
