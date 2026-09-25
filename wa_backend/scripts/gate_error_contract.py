@@ -37,7 +37,7 @@ check("status >= 500" in api, "5xx detail redaction")
 status_pos = api.find("status >= 500")
 translation_pos = api.find("if (code) {")
 check(status_pos != -1 and translation_pos != -1 and status_pos < translation_pos, "5xx redaction precedes code translation")
-check("serverReasonWithCodeAndReference" in api, "unknown 4xx diagnostic fallback")
+check("fallbackWithCodeAndReference" in api, "unknown 4xx diagnostic fallback")
 check(resources.count("unexpectedWithReference") >= 2, "localized referenced 5xx message")
 check(resources.count("unexpected:") >= 2, "localized generic 5xx message")
 
