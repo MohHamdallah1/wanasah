@@ -104,6 +104,24 @@ describe("Products P8 production frontend gate", () => {
     expect(createMutation).toContain(
       "parseSimpleProductCreateResponse( await authFetch(",
     );
+    expect(createMutation).toContain(
+      "getOrCreateDurableRequestId(",
+    );
+    expect(createMutation).toContain(
+      "completeDurableOperation(",
+    );
+    expect(createMutation).toContain(
+      "abandonDurableOperation(",
+    );
+    expect(createMutation).toContain(
+      "durableScope(",
+    );
+    expect(createMutation).toContain(
+      '"product-create"',
+    );
+    expect(createMutation).not.toContain(
+      "crypto.randomUUID()",
+    );
     expect(page).toContain(
       "parseSimpleProductPriceMutationResponse( await authFetch(",
     );
