@@ -122,7 +122,7 @@ describe("Products P9 family reassignment", () => {
     );
   });
 
-  it("keeps SKU read-only for the published ACTIVE/RETIRING Products experience with a clear reason", () => {
+  it("keeps SKU read-only for the published ACTIVE/RETIRING/ARCHIVED Products experience with a clear reason", () => {
     const drawer = source(
       "../pages/products/detail/ProductDetailDrawer.tsx",
     );
@@ -131,7 +131,16 @@ describe("Products P9 family reassignment", () => {
     );
 
     expect(contracts).toContain(
-      'lifecycle_status: "ACTIVE" | "RETIRING"',
+      '| "ACTIVE"',
+    );
+    expect(contracts).toContain(
+      '| "RETIRING"',
+    );
+    expect(contracts).toContain(
+      '| "ARCHIVED"',
+    );
+    expect(contracts).not.toContain(
+      '| "DRAFT"',
     );
     expect(drawer).toContain(
       "{product.sku}",
