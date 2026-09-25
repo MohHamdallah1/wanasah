@@ -1,7 +1,4 @@
 import {
-  useEffect,
-} from "react";
-import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -20,9 +17,6 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import {
-  readProductDisplayPreferences,
-} from "@/lib/productDisplayPreferences";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { useProductBarcodeState } from "@/pages/products/barcode/useProductBarcodeState";
@@ -77,6 +71,7 @@ import { useProductsListQueries } from "@/pages/products/list/useProductsListQue
 import { useProductsListState } from "@/pages/products/list/useProductsListState";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { deriveProductsCapabilities } from "@/pages/products/deriveProductsCapabilities";
+import { useProductsIdentityScopeReset } from "@/pages/products/useProductsIdentityScopeReset";
 import { useProductRenameState } from "@/pages/products/rename/useProductRenameState";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
@@ -394,101 +389,59 @@ export default function ProductsDashboard() {
       authFetch,
     });
 
-  useEffect(() => {
-    const nextDisplayPreferences =
-      companyId !== null &&
-      driverId !== null
-        ? readProductDisplayPreferences(
-            companyId,
-            driverId
-          )
-        : readProductDisplayPreferences(
-            Number.NaN,
-            Number.NaN
-          );
-
-    setDisplayPreferences(
-      nextDisplayPreferences
-    );
-    setCursor(null);
-    setHistory([]);
-    setFiltersOpen(false);
-    setFamilyFilterSearchInput("");
-    setFamilyFilterSearch("");
-    setFamilyFilterId("");
-    setFamilyFilterName("");
-    setLifecycleFilter("");
-    setTrackingTypeFilter("");
-    setCompatibilityFilter("");
-    setBarcodeFilter("");
-    setPriceFilter("");
-    setLotFilter("");
-    setExpiryFilter("");
-    setSortBy(
-      nextDisplayPreferences.defaultSort
-        .field
-    );
-    setSortDir(
-      nextDisplayPreferences.defaultSort
-        .direction
-    );
-    setDetailProduct(null);
-    setRenameProduct(null);
-    setBarcodeProduct(null);
-    setPriceEdit(null);
-    setEditPackagePrice("");
-    setEditUnitPrice("");
-    setImportLotControlMode(null);
-    setImportExpiryControlMode(null);
-    setImportTrackingExpanded(false);
-    setCreateTrackingExpanded(false);
-    setCreateAdvancedExpanded(false);
-    setTrackingDefaultsOpen(false);
-    setTrackingDefaultsLot(null);
-    setTrackingDefaultsExpiry(null);
-    setTrackingEdit(null);
-    setTrackingEditLot(null);
-    setTrackingEditExpiry(null);
-    setFamilyOptionSearch("");
-  }, [
+  useProductsIdentityScopeReset({
     companyId,
     driverId,
-    setBarcodeFilter,
-    setCompatibilityFilter,
-    setBarcodeProduct,
-    setCreateAdvancedExpanded,
-    setCreateTrackingExpanded,
-    setCursor,
-    setDetailProduct,
-    setDisplayPreferences,
-    setEditPackagePrice,
-    setEditUnitPrice,
-    setExpiryFilter,
-    setFamilyFilterId,
-    setFamilyFilterName,
-    setFamilyFilterSearch,
-    setFamilyFilterSearchInput,
-    setFamilyOptionSearch,
-    setFiltersOpen,
-    setHistory,
-    setImportExpiryControlMode,
-    setImportLotControlMode,
-    setImportTrackingExpanded,
-    setLifecycleFilter,
-    setLotFilter,
-    setPriceEdit,
-    setPriceFilter,
-    setRenameProduct,
-    setSortBy,
-    setSortDir,
-    setTrackingDefaultsExpiry,
-    setTrackingDefaultsLot,
-    setTrackingDefaultsOpen,
-    setTrackingEdit,
-    setTrackingEditExpiry,
-    setTrackingEditLot,
-    setTrackingTypeFilter,
-  ]);
+    list: {
+      setCursor,
+      setHistory,
+      setFiltersOpen,
+      setFamilyFilterSearchInput,
+      setFamilyFilterSearch,
+      setFamilyFilterId,
+      setFamilyFilterName,
+      setLifecycleFilter,
+      setTrackingTypeFilter,
+      setCompatibilityFilter,
+      setBarcodeFilter,
+      setPriceFilter,
+      setLotFilter,
+      setExpiryFilter,
+      setSortBy,
+      setSortDir,
+    },
+    display: {
+      setDisplayPreferences,
+    },
+    targets: {
+      setDetailProduct,
+      setRenameProduct,
+      setBarcodeProduct,
+    },
+    pricing: {
+      setPriceEdit,
+      setEditPackagePrice,
+      setEditUnitPrice,
+    },
+    importScope: {
+      setImportLotControlMode,
+      setImportExpiryControlMode,
+      setImportTrackingExpanded,
+    },
+    create: {
+      setCreateTrackingExpanded,
+      setCreateAdvancedExpanded,
+      setFamilyOptionSearch,
+    },
+    tracking: {
+      setTrackingDefaultsOpen,
+      setTrackingDefaultsLot,
+      setTrackingDefaultsExpiry,
+      setTrackingEdit,
+      setTrackingEditLot,
+      setTrackingEditExpiry,
+    },
+  });
 
   useImportTrackingDefaultsSync({
     importOpen,
