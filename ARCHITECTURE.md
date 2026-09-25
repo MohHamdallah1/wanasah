@@ -354,7 +354,9 @@ When splitting an existing large page:
 5. Preserve request ordering, AbortController/request-sequence protection, optimistic-version checks, idempotency keys, retry semantics, and cache invalidation exactly.
 6. After every extraction checkpoint, run the relevant type checks/tests/build before continuing.
 7. If an extraction requires duplicating logic or weakening an authority boundary, stop and redesign the boundary instead of forcing the split.
-8. Delete stale/duplicate paths only after the replacement path is proven equivalent.
+8. **Deletion guard:** never remove an import, type, helper, state owner, query, mutation, callback, or durable-operation primitive merely because related markup moved. Before deletion, verify full-file/project usage and prove the symbol/path is genuinely stale.
+9. **Parity guard:** before closing each structural checkpoint, compare the pre-refactor and post-refactor ownership of sensitive invariants such as query/mutation counts, query keys, durable-operation scopes, cursor/history resets, retry/refetch paths, storage keys, permission gates, and request-order/cancellation guards. Any unexplained delta blocks further extraction.
+10. Delete stale/duplicate paths only after the replacement path is proven equivalent.
 
 ### Design-change rule
 
