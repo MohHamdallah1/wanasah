@@ -19,7 +19,7 @@ from models import (
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
 from workers.scheduling import (
-    defer_unique_company_job,
+    defer_unique_company_jobs,
     iter_active_company_id_pages,
 )
 from workers.settings import load_integrity_monitor_settings
@@ -261,16 +261,13 @@ async def scan_all_integrity(timestamp: int | None = None) -> dict[str, int]:
 
     async for company_ids in iter_active_company_id_pages():
         companies_seen += len(company_ids)
-        for company_id in company_ids:
-            accepted = await defer_unique_company_job(
-                scan_company_integrity,
-                lock_namespace="integrity-company",
-                company_id=company_id,
-            )
-            if accepted:
-                deferred += 1
-            else:
-                skipped_duplicate += 1
+        page_deferred, page_skipped = await defer_unique_company_jobs(
+            scan_company_integrity,
+            lock_namespace="integrity-company",
+            company_ids=company_ids,
+        )
+        deferred += page_deferred
+        skipped_duplicate += page_skipped
 
     return {
         "companies_seen": companies_seen,
