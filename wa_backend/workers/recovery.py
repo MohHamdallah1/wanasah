@@ -24,12 +24,17 @@ async def recover_safe_stalled_jobs(
 
     retried = 0
     superseded = 0
-    skipped = 0
-    skipped_lock_conflict = 0
+    failed_not_allowlisted = 0
+    failed_lock_conflict = 0
 
     for job in stalled_jobs:
         if job.task_name not in allowlist:
-            skipped += 1
+            await app.job_manager.finish_job_by_id_async(
+                job_id=int(job.id),
+                status=jobs.Status.FAILED,
+                delete_job=False,
+            )
+            failed_not_allowlisted += 1
             continue
 
         if job.queueing_lock:
@@ -41,7 +46,12 @@ async def recover_safe_stalled_jobs(
             )
             if waiting:
                 if any(item.task_name != job.task_name for item in waiting):
-                    skipped_lock_conflict += 1
+                    await app.job_manager.finish_job_by_id_async(
+                        job_id=int(job.id),
+                        status=jobs.Status.FAILED,
+                        delete_job=False,
+                    )
+                    failed_lock_conflict += 1
                     continue
                 await app.job_manager.finish_job_by_id_async(
                     job_id=int(job.id),
@@ -59,6 +69,6 @@ async def recover_safe_stalled_jobs(
         "stalled_seen": len(stalled_jobs),
         "retried": retried,
         "superseded_by_queued": superseded,
-        "skipped_not_allowlisted": skipped,
-        "skipped_lock_conflict": skipped_lock_conflict,
+        "failed_not_allowlisted": failed_not_allowlisted,
+        "failed_lock_conflict": failed_lock_conflict,
     }
