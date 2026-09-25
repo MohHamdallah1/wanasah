@@ -37,7 +37,7 @@ describe(
       );
 
       expect(app).toContain(
-        'lazy(() => import("./pages/products/AdvancedUomDashboard"))',
+        'lazy(() => import("./pages/products/advanced-uom/AdvancedUomDashboard"))',
       );
       expect(app).toContain(
         'path="/products/advanced-uom"',
@@ -85,7 +85,7 @@ describe(
     it("offers deep-linked advanced UOM only for complex products in the detail drawer", () => {
       const drawer = compact(
         source(
-          "../pages/products/ProductDetailDrawer.tsx",
+          "../pages/products/detail/ProductDetailDrawer.tsx",
         ),
       );
       const detailWorkflow = compact(
