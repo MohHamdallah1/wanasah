@@ -100,6 +100,16 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/create/useCreateProductMutation.ts",
       ),
     );
+    const importUpload = compact(
+      readSource(
+        "../pages/products/import/useImportProductUpload.ts",
+      ),
+    );
+    const importCommands = compact(
+      readSource(
+        "../pages/products/import/useImportProductCommands.ts",
+      ),
+    );
 
     expect(createMutation).toContain(
       "parseSimpleProductCreateResponse( await authFetch(",
@@ -125,13 +135,28 @@ describe("Products P8 production frontend gate", () => {
     expect(page).toContain(
       "parseSimpleProductPriceMutationResponse( await authFetch(",
     );
-    expect(page).toContain(
+    expect(importUpload).toContain(
+      "parseProductImportAccepted( await authFetch(",
+    );
+    expect(importUpload).toContain(
+      "fileFingerprint(",
+    );
+    expect(importUpload).toContain(
+      "getOrCreateDurableRequestId(",
+    );
+    expect(importUpload).toContain(
+      "completeDurableOperation(",
+    );
+    expect(importUpload).not.toContain(
+      "crypto.randomUUID()",
+    );
+    expect(importCommands).toContain(
       "parseProductImportCommandResponse( await authFetch(",
     );
     expect(page).toContain(
       "result.product_variant_id !== priceEdit.id",
     );
-    expect(page).toContain(
+    expect(importCommands).toContain(
       "result.job_id !== importJobId",
     );
   });
@@ -247,6 +272,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/import/ImportProductModal.tsx",
       ),
     );
+    const importPolling = compact(
+      readSource(
+        "../pages/products/import/useImportProductPolling.ts",
+      ),
+    );
     const translations = readSource(
       "../i18n/resources.ts",
     );
@@ -281,7 +311,7 @@ describe("Products P8 production frontend gate", () => {
     expect(importModal).toContain(
       "jobId && pollError ? (",
     );
-    expect(page).toContain(
+    expect(importPolling).toContain(
       "setImportPollError( apiErrorMessage(",
     );
     expect(page).toContain(
