@@ -10,6 +10,10 @@ SIMPLE_PRODUCTS = ROOT / "wa_backend" / "domains" / "simple_products" / "service
 I18N = ROOT / "dashboard" / "src" / "i18n" / "resources.ts"
 MODEL = ROOT / "wa_backend" / "models.py"
 STAGE3_GATE = ROOT / "wa_backend" / "scripts" / "gate_stage3_lifecycle.py"
+PRODUCT_LOCATIONS_API = ROOT / "wa_backend" / "api" / "product_locations.py"
+CATALOG_PANEL = ROOT / "dashboard" / "src" / "pages" / "inventory" / "catalog" / "CatalogLifecyclePanel.tsx"
+PRODUCTS_PAGE = ROOT / "dashboard" / "src" / "pages" / "products" / "ProductsPage.tsx"
+PRODUCT_DETAIL = ROOT / "dashboard" / "src" / "pages" / "products" / "detail" / "ProductDetailDrawer.tsx"
 
 checks: list[tuple[str, bool]] = []
 
@@ -24,6 +28,13 @@ simple_products = SIMPLE_PRODUCTS.read_text(encoding="utf-8")
 i18n = I18N.read_text(encoding="utf-8")
 model = MODEL.read_text(encoding="utf-8")
 stage3 = STAGE3_GATE.read_text(encoding="utf-8")
+product_locations_api = PRODUCT_LOCATIONS_API.read_text(encoding="utf-8")
+catalog_panel = CATALOG_PANEL.read_text(encoding="utf-8")
+normal_products = (
+    PRODUCTS_PAGE.read_text(encoding="utf-8")
+    + "\n"
+    + PRODUCT_DETAIL.read_text(encoding="utf-8")
+)
 
 check("company-wide product authority recorded", "Product catalog identity is company-wide" in rules)
 check("no mass product-to-warehouse provisioning", "Never mass-provision every product into every warehouse" in rules)
@@ -48,6 +59,35 @@ check("Arabic inbound unavailable translation exists", 'INBOUND_VARIANT_UNAVAILA
 check("English inbound unavailable translation exists", 'INBOUND_VARIANT_UNAVAILABLE: "A product is no longer active or does not belong to your company."' in i18n)
 check("tenant-safe unique product-location constraint exists", "uq_product_location_assignment" in model)
 check("stage3 RLS gate covers product_locations", "RLS isolation on product_locations" in stage3)
+check(
+    "product-location API keeps granular location permissions",
+    '"product_location.read"' in product_locations_api
+    and '"product_location.manage"' in product_locations_api
+    and 'access.location_filter("product_location.read"' in product_locations_api,
+)
+check(
+    "product-location delete remains history guarded",
+    "product_location_delete_blockers(" in product_locations_api
+    and '"PRODUCT_LOCATION_DELETE_BLOCKED"' in product_locations_api,
+)
+check(
+    "advanced Inventory catalog owns product-location operator UI",
+    '"/warehouse/product-locations"' in catalog_panel
+    and '"product_location.read"' in catalog_panel
+    and '"product_location.manage"' in catalog_panel
+    and "getOrCreateDurableCommand(" in catalog_panel,
+)
+check(
+    "normal Products keeps company identity separate from warehouse setup",
+    "/warehouse/product-locations" not in normal_products
+    and "product_location.read" not in normal_products
+    and "product_location.manage" not in normal_products,
+)
+check(
+    "warehouse assignment copy does not imply stock or policy creation",
+    '"الربط لا ينشئ رصيداً أو سياسة مخزون."' in i18n
+    and '"This assignment does not create stock or a stock policy."' in i18n,
+)
 
 failures = [name for name, passed in checks if not passed]
 print(f"CHECKS={len(checks)}")

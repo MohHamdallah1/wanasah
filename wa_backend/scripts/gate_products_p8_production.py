@@ -18,6 +18,7 @@ BACKEND_GATES = (
     "scripts/gate_products_p5_uom_safety.py",
     "scripts/gate_products_p6_import_localization.py",
     "scripts/gate_product_tracking_production.py",
+    "scripts/gate_stage75_product_location_inbound.py",
     "scripts/gate_stage3_lifecycle.py",
     "scripts/gate_products_p8_performance.py",
     "scripts/gate_products_p8_price_publication_scale.py",
