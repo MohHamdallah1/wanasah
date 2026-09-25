@@ -1512,10 +1512,27 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 
 ### Product-location / warehouse relationship
 
-- [ ] Audit existing warehouse-specific Product-location capabilities.
-- [ ] Expose only useful operator actions; do not imply every product must be manually assigned to every warehouse.
-- [ ] If warehouse availability/assignment is shown, distinguish company-wide product identity from warehouse-specific operational state.
-- [ ] Preserve lazy/sparse Product-location behavior unless a measured business requirement justifies changing it.
+- [x] Audit existing warehouse-specific Product-location capabilities.
+- [x] Expose only useful operator actions; do not imply every product must be manually assigned to every warehouse.
+- [x] If warehouse availability/assignment is shown, distinguish company-wide product identity from warehouse-specific operational state.
+- [x] Preserve lazy/sparse Product-location behavior unless a measured business requirement justifies changing it.
+
+### P9.1 Product-location / warehouse relationship closure evidence — 2026-09-25
+
+- Product catalog identity remains company-wide. Warehouse-specific operational state remains owned by the separate `ProductLocation` authority and its granular location-scoped `product_location.read` / `product_location.manage` permissions.
+- Normal `ProductsPage` and Product Details intentionally do not call `/warehouse/product-locations` and do not require Product-location permissions. This prevents the normal Products experience from implying that every Product must be manually assigned to every warehouse.
+- Useful explicit operator actions already exist in the advanced Inventory/Catalog lifecycle surface: list/create/update/delete Product-location assignments, including inbound/outbound operational flags, durable commands, optimistic versions, and safe retry recovery.
+- Assignment copy explicitly states that creating a warehouse assignment does not create stock or a stock policy, keeping company Product identity distinct from location-specific operational setup.
+- First successful Inbound to a selected warehouse lazily creates only missing Product-location rows with default operational flags. Existing explicit flags are never overwritten; the helper uses the tenant-safe unique assignment constraint and emits `ProductLocationAssigned` audit/outbox evidence with reason `AUTO_FIRST_INBOUND`.
+- The Inbound workflow checks exact warehouse permission before lazy assignment, excludes system-managed/inactive targets, keeps Product lookup company-scoped, and fails closed on missing/cross-tenant Products.
+- Product-location delete remains history-safe through `product_location_delete_blockers`, location-scoped authorization, idempotency, lifecycle guards, and `expected_version`.
+- The detailed Section 46 future checkbox about displaying warehouse availability remains intentionally open: normal Products does not currently display warehouse availability/assignment, so no misleading company-vs-location availability UI is introduced.
+- Permanent Product-location regression gate was strengthened to cover the frontend ownership boundary and granular permissions: `STAGE75_PRODUCT_LOCATION_INBOUND_GATE=PASS` — 26 checks / 0 failures.
+- The Product-location gate is now part of the aggregate Products release gate.
+- Final Dashboard verification: 36 test files / 216 tests PASS, TypeScript PASS, ESLint 0 warnings/errors, production build PASS.
+- Final aggregate Products production gate: 20 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+
+**Next P9.1 group:** Delete/archive policy.
 
 ### Delete/archive policy
 
