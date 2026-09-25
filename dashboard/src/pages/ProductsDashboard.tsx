@@ -1,16 +1,6 @@
 import {
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  Boxes,
-  FileSpreadsheet,
-  FolderTree,
-  LockKeyhole,
-  PackagePlus,
-  RefreshCw,
-  Settings2,
-  SlidersHorizontal,
-} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
@@ -18,6 +8,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
+import { ProductsPageHeader } from "@/pages/products/ProductsPageHeader";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { useProductBarcodeState } from "@/pages/products/barcode/useProductBarcodeState";
 import { createProductDetailActions } from "@/pages/products/detail/createProductDetailActions";
@@ -803,157 +794,47 @@ export default function ProductsDashboard() {
       className="products-a11y-scope flex min-h-0 flex-1 flex-col overflow-hidden"
       dir={i18n.dir()}
     >
-      <header className="shrink-0 rounded-[22px] border border-white/70 bg-white/85 px-4 py-4 shadow-sm backdrop-blur-xl sm:rounded-[26px] sm:px-5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="min-w-0 flex flex-1 items-center gap-3 sm:flex-none">
-            <span className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-slate-950 text-white">
-              <Boxes className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <h1 className="break-words text-xl font-black text-slate-950">
-                {t(
-                  "products.title"
-                )}
-              </h1>
-              <p className="mt-0.5 break-words text-xs font-semibold text-slate-500">
-                {t(
-                  "products.subtitle"
-                )}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center [&>button]:min-w-0 [&>button]:justify-center [&>button]:whitespace-normal [&>button]:text-center">
-            <button
-              type="button"
-              onClick={() =>
-                void productsQuery.refetch()
-              }
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${
-                  productsQuery.isFetching
-                    ? "animate-spin"
-                    : ""
-                }`}
-              />
-              {t(
-                "common.refresh"
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={
-                openDisplayPreferences
-              }
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              {t(
-                "products.displayPreferences.action"
-              )}
-            </button>
-
-            {canManageCatalog ? (
-              <button
-                type="button"
-                disabled={
-                  trackingDefaultsQuery.isLoading
-                }
-                onClick={
-                  openTrackingDefaults
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
-              >
-                <Settings2 className="h-4 w-4" />
-                {t(
-                  "products.trackingSettings.action"
-                )}
-              </button>
-            ) : null}
-
-            {canImportProducts ? (
-              <button
-                type="button"
-                onClick={
-                  openImport
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-              >
-                <FileSpreadsheet className="h-4 w-4" />
-                {t(
-                  "products.importFile"
-                )}
-              </button>
-            ) : null}
-
-            {canManageCatalog ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() =>
-                    navigate(
-                      "/products/advanced-uom"
-                    )
-                  }
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                >
-                  <Settings2 className="h-4 w-4" />
-                  {t(
-                    "products.advancedUom.action"
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  disabled
-                  title={t(
-                    "products.advancedPricingHint"
-                  )}
-                  className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-400"
-                >
-                  <LockKeyhole className="h-4 w-4" />
-                  {t(
-                    "products.advancedPricing"
-                  )}
-                </button>
-              </>
-            ) : null}
-
-            {canManageFamilies ? (
-              <button
-                type="button"
-                onClick={
-                  openFamilies
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-              >
-                <FolderTree className="h-4 w-4" />
-                {t(
-                  "products.families"
-                )}
-              </button>
-            ) : null}
-
-            {canCreateSimpleProduct ? (
-              <button
-                type="button"
-                onClick={
-                  openCreateProduct
-                }
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white"
-              >
-                <PackagePlus className="h-4 w-4" />
-                {t(
-                  "products.addProduct"
-                )}
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </header>
+      <ProductsPageHeader
+        isFetching={
+          productsQuery.isFetching
+        }
+        trackingDefaultsLoading={
+          trackingDefaultsQuery.isLoading
+        }
+        canManageCatalog={
+          canManageCatalog
+        }
+        canImportProducts={
+          canImportProducts
+        }
+        canManageFamilies={
+          canManageFamilies
+        }
+        canCreateSimpleProduct={
+          canCreateSimpleProduct
+        }
+        onRefresh={() =>
+          void productsQuery.refetch()
+        }
+        onOpenDisplayPreferences={
+          openDisplayPreferences
+        }
+        onOpenTrackingDefaults={
+          openTrackingDefaults
+        }
+        onOpenImport={openImport}
+        onOpenAdvancedUom={() =>
+          navigate(
+            "/products/advanced-uom"
+          )
+        }
+        onOpenFamilies={
+          openFamilies
+        }
+        onOpenCreateProduct={
+          openCreateProduct
+        }
+      />
 
       <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl sm:rounded-[26px]">
         <div className="shrink-0 border-b border-slate-100 p-4">
