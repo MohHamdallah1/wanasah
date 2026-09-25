@@ -147,9 +147,6 @@ describe(
       const drawer = read(
         "src/pages/products/ProductDetailDrawer.tsx",
       );
-      const dashboard = read(
-        "src/pages/ProductsDashboard.tsx",
-      );
       const listToolbar = read(
         "src/pages/products/list/ProductsListToolbar.tsx",
       );
