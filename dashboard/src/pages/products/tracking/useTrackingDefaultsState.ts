@@ -20,9 +20,13 @@ export function useTrackingDefaultsState() {
   const [
     trackingDefaultsExpiry,
     setTrackingDefaultsExpiry,
+    closeTrackingDefaults,
   ] = useState<ProductTrackingMode | null>(
     null
   );
+
+  const closeTrackingDefaults = () =>
+    setTrackingDefaultsOpen(false);
 
   return {
     trackingDefaultsOpen,
