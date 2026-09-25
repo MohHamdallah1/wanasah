@@ -53,7 +53,6 @@ import {
   parseProductTrackingDefaults,
   parseProductTrackingMutation,
   parseSimpleProductPriceMutationResponse,
-  type ProductImportState,
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
