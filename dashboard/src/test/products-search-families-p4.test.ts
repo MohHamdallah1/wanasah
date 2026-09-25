@@ -378,6 +378,16 @@ describe(
           "../pages/products/list/ProductsListToolbar.tsx",
         ),
       );
+      const createFamilyQuery = compact(
+        readSource(
+          "../pages/products/create/useCreateFamilyOptionsQuery.ts",
+        ),
+      );
+      const createModal = compact(
+        readSource(
+          "../pages/products/create/CreateProductModal.tsx",
+        ),
+      );
       const manager = compact(
         readSource(
           "../pages/products/ProductFamiliesManager.tsx",
@@ -402,7 +412,7 @@ describe(
       expect(manager).toContain(
         '"manager", search, cursor',
       );
-      expect(page).toContain(
+      expect(createFamilyQuery).toContain(
         '"options", familyOptionSearch',
       );
       expect(manager).toContain(
@@ -432,13 +442,13 @@ describe(
       expect(service).not.toContain(
         "normalized_after_name",
       );
-      expect(page).not.toContain(
+      expect(createFamilyQuery).not.toContain(
         "/simple-products/families?limit=200",
       );
       expect(manager).not.toContain(
         "/simple-products/families?limit=200",
       );
-      expect(page).toContain(
+      expect(createModal).toContain(
         "{familyOptions.map(",
       );
       expect(page).toContain(
