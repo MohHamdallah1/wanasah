@@ -89,9 +89,14 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/ProductTableRow.tsx",
       ),
     );
+    const detailWorkflow = compact(
+      readSource(
+        "../pages/products/detail/useProductDetailWorkflow.ts",
+      ),
+    );
 
     expect(page).toContain(
-      "onOpenDetails: openProductDetails",
+      "onOpenDetails: detailWorkflow.openProductDetails",
     );
     expect(page).toContain(
       "canEditTracking: canManageCatalog",
@@ -244,6 +249,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/ProductDetailDrawer.tsx",
       ),
     );
+    const detailWorkflow = compact(
+      readSource(
+        "../pages/products/detail/useProductDetailWorkflow.ts",
+      ),
+    );
     const manager = compact(
       readSource(
         "../pages/products/ProductBarcodeManager.tsx",
@@ -255,8 +265,8 @@ describe("Products P3 detail foundation", () => {
       ),
     );
 
-    expect(page).toContain(
-      "canManageBarcodes={ canManageCatalog }",
+    expect(detailWorkflow).toContain(
+      "canManageBarcodes: canManageCatalog",
     );
     expect(page).toContain(
       "<ProductBarcodeManager",
