@@ -237,7 +237,10 @@ export interface SimpleProduct {
   version: number;
   lot_control_mode: ProductTrackingMode;
   expiry_control_mode: ProductTrackingMode;
-  lifecycle_status: "ACTIVE" | "RETIRING";
+  lifecycle_status:
+    | "ACTIVE"
+    | "RETIRING"
+    | "ARCHIVED";
   operational_hold: ProductOperationalHold;
   simple_compatible: boolean;
 }
@@ -395,7 +398,8 @@ export function parseSimpleProductPage(
     );
     if (
       lifecycle !== "ACTIVE" &&
-      lifecycle !== "RETIRING"
+      lifecycle !== "RETIRING" &&
+      lifecycle !== "ARCHIVED"
     ) {
       return contractError(code);
     }
@@ -549,7 +553,8 @@ export function parseSimpleProductPage(
       ),
       lifecycle_status: lifecycle as
         | "ACTIVE"
-        | "RETIRING",
+        | "RETIRING"
+        | "ARCHIVED",
       operational_hold: operationalHold(
         row.operational_hold,
         code,

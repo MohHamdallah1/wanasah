@@ -540,7 +540,7 @@ def _next_cursor(
 
 
 
-_PRODUCT_LIFECYCLES = {"ACTIVE", "RETIRING"}
+_PRODUCT_LIFECYCLES = {"ACTIVE", "RETIRING", "ARCHIVED"}
 _PRODUCT_TRACKING_TYPES = {
     "NONE",
     "LOT",
@@ -1492,20 +1492,23 @@ async def list_simple_products(
         stmt = stmt.where(
             ProductVariant.company_id
             == company_id,
-            ProductVariant.lifecycle_status.in_(
-                ("ACTIVE", "RETIRING")
-            ),
         )
+        if lifecycle_value is None:
+            stmt = stmt.where(
+                ProductVariant.lifecycle_status.in_(
+                    ("ACTIVE", "RETIRING")
+                ),
+            )
+        else:
+            stmt = stmt.where(
+                ProductVariant.lifecycle_status
+                == lifecycle_value
+            )
 
         if family_id is not None:
             stmt = stmt.where(
                 ProductVariant.product_id
                 == int(family_id)
-            )
-        if lifecycle_value is not None:
-            stmt = stmt.where(
-                ProductVariant.lifecycle_status
-                == lifecycle_value
             )
         if tracking_value is not None:
             stmt = stmt.where(

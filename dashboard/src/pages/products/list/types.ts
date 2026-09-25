@@ -1,7 +1,8 @@
 export type ProductLifecycleFilter =
   | ""
   | "ACTIVE"
-  | "RETIRING";
+  | "RETIRING"
+  | "ARCHIVED";
 
 export type ProductTrackingTypeFilter =
   | ""

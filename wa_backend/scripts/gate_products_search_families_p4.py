@@ -379,9 +379,12 @@ async def main() -> None:
                                 ":name, :sku, 0, 1, :lot_mode, "
                                 ":expiry_mode, :lifecycle, 'NONE', "
                                 "1, 1, NOW() - INTERVAL '2 days', "
-                                "CASE WHEN :retiring_lifecycle = 'RETIRING' "
+                                "CASE WHEN :retiring_lifecycle IN ('RETIRING', 'ARCHIVED') "
                                 "THEN NOW() - INTERVAL '1 day' "
-                                "ELSE NULL END, NULL, :packs, false, 0, "
+                                "ELSE NULL END, "
+                                "CASE WHEN :retiring_lifecycle = 'ARCHIVED' "
+                                "THEN NOW() - INTERVAL '1 hour' "
+                                "ELSE NULL END, :packs, false, 0, "
                                 "NOW(), NOW()) "
                                 "RETURNING id"
                             ),
@@ -463,6 +466,20 @@ async def main() -> None:
                 expiry_mode="REQUIRED",
                 lifecycle="RETIRING",
                 packs_per_carton=2,
+            )
+            (
+                archived_family_id,
+                archived_variant_id,
+            ) = await seed_filter_variant(
+                code="P4-FILTER-Z",
+                family_name=
+                    "Archived P4 Filter Family",
+                name="Archived P4 Filter Item",
+                sku="P4-Z-FILTER",
+                lot_mode="NONE",
+                expiry_mode="NONE",
+                lifecycle="ARCHIVED",
+                packs_per_carton=1,
             )
 
             barcode_value = (
@@ -765,6 +782,26 @@ async def main() -> None:
                     )
                 )
                 == [gamma_variant_id],
+            )
+            default_lifecycle_ids = page_ids(
+                await product_page(
+                    search="Archived P4 Filter",
+                )
+            )
+            record(
+                "archived products stay hidden from the default normal list",
+                archived_variant_id
+                not in default_lifecycle_ids,
+            )
+            record(
+                "explicit ARCHIVED lifecycle filter makes restore targets reachable",
+                page_ids(
+                    await product_page(
+                        search="Archived P4 Filter",
+                        lifecycle="ARCHIVED",
+                    )
+                )
+                == [archived_variant_id],
             )
             record(
                 "tracking type derives LOT_EXPIRY from authoritative modes",

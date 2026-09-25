@@ -201,6 +201,16 @@ describe(
       expect(filters).toContain(
         "{canViewPricing ? (",
       );
+      expect(filters).toContain(
+        '<option value="ARCHIVED">',
+      );
+      expect(
+        readSource(
+          "../pages/products/list/types.ts",
+        ),
+      ).toContain(
+        '| "ARCHIVED"',
+      );
       expect(listState).toContain(
         "const resetProductPagination = () => { setCursor(null); setHistory([]); };",
       );

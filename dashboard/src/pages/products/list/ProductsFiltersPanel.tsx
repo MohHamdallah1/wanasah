@@ -208,6 +208,11 @@ export function ProductsFiltersPanel({
               "products.details.lifecycleModes.RETIRING"
             )}
           </option>
+          <option value="ARCHIVED">
+            {t(
+              "products.details.lifecycleModes.ARCHIVED"
+            )}
+          </option>
         </select>
       </label>
 
