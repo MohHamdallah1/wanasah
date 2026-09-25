@@ -149,10 +149,13 @@ describe("products tracking UI contracts", () => {
     const createModal = normalizeWhitespace(
       readSource("../pages/products/create/CreateProductModal.tsx"),
     );
+    const createWorkflow = normalizeWhitespace(
+      readSource("../pages/products/create/useCreateProductWorkflow.ts"),
+    );
     const translations = readSource("../i18n/resources.ts");
 
-    expect(page).toContain(
-      "createTrackingUsesCompanyDefaults",
+    expect(createWorkflow).toContain(
+      "trackingUsesCompanyDefaults",
     );
     expect(createModal).toContain(
       "!createTrackingExpanded ?",
