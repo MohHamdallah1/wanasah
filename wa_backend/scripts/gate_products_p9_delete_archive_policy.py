@@ -3,13 +3,23 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 _backend_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_backend_dir))
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
+import gate_products_p9_family_reassignment as family_gate
+import gate_products_read_contract_p2 as p2_gate
+from api.catalog import (
+    LifecycleCommand,
+    delete_draft_variant,
+    variant_delete_draft_preflight,
+)
 from database import engine
+from models import Driver
 from product_lifecycle import (
     DRAFT_DELETE_ALLOWED_VARIANT_REFERENCES,
     DRAFT_DELETE_BLOCKER_REFERENCE_GROUPS,
@@ -176,7 +186,343 @@ async def check_schema_coverage() -> None:
     )
 
 
+async def _runtime_actor_session(
+    conn,
+    company_id: int,
+    actor_id: int,
+):
+    db = await family_gate.scoped_session(
+        conn,
+        company_id,
+    )
+    actor = await db.get(
+        Driver,
+        actor_id,
+    )
+    if actor is None:
+        await db.close()
+        raise RuntimeError(
+            "P9 delete-policy actor is not visible."
+        )
+    return db, actor
+
+
+def _http_code(
+    exc: HTTPException,
+) -> str | None:
+    if isinstance(exc.detail, dict):
+        value = exc.detail.get("code")
+        if isinstance(value, str):
+            return value
+    return None
+
+
+async def check_runtime_policy() -> None:
+    async with p2_gate.engine_su.connect() as conn:
+        outer = await conn.begin()
+        try:
+            ids = await family_gate.seed(
+                conn
+            )
+            company_id = ids[
+                "company_id"
+            ]
+            actor_id = ids[
+                "actor_id"
+            ]
+            draft_variant_id = ids[
+                "draft_variant_id"
+            ]
+
+            db, actor = (
+                await _runtime_actor_session(
+                    conn,
+                    company_id,
+                    actor_id,
+                )
+            )
+            try:
+                clean_preflight = (
+                    await variant_delete_draft_preflight(
+                        variant_id=draft_variant_id,
+                        db=db,
+                        actor=actor,
+                    )
+                )
+            finally:
+                await db.close()
+
+            check(
+                "unused unpublished draft passes delete preflight",
+                clean_preflight[
+                    "can_delete"
+                ]
+                is True
+                and clean_preflight[
+                    "blockers"
+                ]
+                == [],
+                str(clean_preflight),
+            )
+
+            batch_id = int(
+                (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO product_batches "
+                            "(company_id, product_variant_id, "
+                            "batch_number, disposition, "
+                            "disposition_revision, is_active, "
+                            "created_at, updated_at) "
+                            "VALUES "
+                            "(:company_id, :variant_id, "
+                            ":batch_number, 'RELEASED', "
+                            "1, true, "
+                            "TIMEZONE('UTC', CURRENT_TIMESTAMP), "
+                            "TIMEZONE('UTC', CURRENT_TIMESTAMP)) "
+                            "RETURNING id"
+                        ),
+                        {
+                            "company_id":
+                                company_id,
+                            "variant_id":
+                                draft_variant_id,
+                            "batch_number":
+                                "P9-DELETE-"
+                                + uuid4().hex[:10],
+                        },
+                    )
+                ).scalar_one()
+            )
+
+            db, actor = (
+                await _runtime_actor_session(
+                    conn,
+                    company_id,
+                    actor_id,
+                )
+            )
+            try:
+                blocked_preflight = (
+                    await variant_delete_draft_preflight(
+                        variant_id=draft_variant_id,
+                        db=db,
+                        actor=actor,
+                    )
+                )
+            finally:
+                await db.close()
+
+            blocker_codes = {
+                str(item["code"])
+                for item in blocked_preflight[
+                    "blockers"
+                ]
+            }
+            check(
+                "draft business history blocks preflight with an operator category",
+                blocked_preflight[
+                    "can_delete"
+                ]
+                is False
+                and "WAREHOUSE_OR_STOCK_REFERENCE"
+                in blocker_codes,
+                str(blocked_preflight),
+            )
+
+            db, actor = (
+                await _runtime_actor_session(
+                    conn,
+                    company_id,
+                    actor_id,
+                )
+            )
+            blocked_code = None
+            try:
+                try:
+                    await delete_draft_variant(
+                        variant_id=draft_variant_id,
+                        payload=LifecycleCommand(
+                            request_id=uuid4(),
+                            expected_version=1,
+                            reason=(
+                                "P9 delete policy "
+                                "blocked-history test"
+                            ),
+                        ),
+                        db=db,
+                        actor=actor,
+                    )
+                except HTTPException as exc:
+                    blocked_code = (
+                        _http_code(exc)
+                    )
+            finally:
+                await db.close()
+            check(
+                "hard delete rechecks blockers instead of trusting UI preflight",
+                blocked_code
+                == "PRODUCT_DRAFT_DELETE_BLOCKED",
+                str(blocked_code),
+            )
+
+            await conn.execute(
+                text(
+                    "DELETE FROM product_batches "
+                    "WHERE company_id=:company_id "
+                    "AND id=:batch_id"
+                ),
+                {
+                    "company_id":
+                        company_id,
+                    "batch_id":
+                        batch_id,
+                },
+            )
+
+            db, actor = (
+                await _runtime_actor_session(
+                    conn,
+                    company_id,
+                    actor_id,
+                )
+            )
+            try:
+                deleted = (
+                    await delete_draft_variant(
+                        variant_id=draft_variant_id,
+                        payload=LifecycleCommand(
+                            request_id=uuid4(),
+                            expected_version=1,
+                            reason=(
+                                "P9 delete policy "
+                                "clean-draft test"
+                            ),
+                        ),
+                        db=db,
+                        actor=actor,
+                    )
+                )
+            finally:
+                await db.close()
+
+            remaining = int(
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT COUNT(*) "
+                            "FROM product_variants "
+                            "WHERE company_id=:company_id "
+                            "AND id=:variant_id"
+                        ),
+                        {
+                            "company_id":
+                                company_id,
+                            "variant_id":
+                                draft_variant_id,
+                        },
+                    )
+                ).scalar_one()
+            )
+            audit_count = int(
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT COUNT(*) "
+                            "FROM domain_audit_events "
+                            "WHERE company_id=:company_id "
+                            "AND entity_type='ProductVariant' "
+                            "AND entity_id=:entity_id "
+                            "AND event_type='ProductDraftDeleted'"
+                        ),
+                        {
+                            "company_id":
+                                company_id,
+                            "entity_id":
+                                str(
+                                    draft_variant_id
+                                ),
+                        },
+                    )
+                ).scalar_one()
+            )
+            check(
+                "clean never-used draft can be physically deleted with audit evidence",
+                deleted.get(
+                    "variant_id"
+                )
+                == draft_variant_id
+                and remaining == 0
+                and audit_count == 1,
+                (
+                    f"remaining={remaining} "
+                    f"audit={audit_count}"
+                ),
+            )
+
+            active_variant_id = ids[
+                "active_variant_id"
+            ]
+            active_version = int(
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT version "
+                            "FROM product_variants "
+                            "WHERE company_id=:company_id "
+                            "AND id=:variant_id"
+                        ),
+                        {
+                            "company_id":
+                                company_id,
+                            "variant_id":
+                                active_variant_id,
+                        },
+                    )
+                ).scalar_one()
+            )
+            db, actor = (
+                await _runtime_actor_session(
+                    conn,
+                    company_id,
+                    actor_id,
+                )
+            )
+            published_code = None
+            try:
+                try:
+                    await delete_draft_variant(
+                        variant_id=active_variant_id,
+                        payload=LifecycleCommand(
+                            request_id=uuid4(),
+                            expected_version=
+                                active_version,
+                            reason=(
+                                "P9 published hard-delete "
+                                "must fail"
+                            ),
+                        ),
+                        db=db,
+                        actor=actor,
+                    )
+                except HTTPException as exc:
+                    published_code = (
+                        _http_code(exc)
+                    )
+            finally:
+                await db.close()
+            check(
+                "published Product cannot be hard deleted and must use lifecycle",
+                published_code
+                == "PRODUCT_DELETE_DRAFT_TRANSITION_INVALID",
+                str(published_code),
+            )
+        finally:
+            await outer.rollback()
+
+
 asyncio.run(check_schema_coverage())
+asyncio.run(check_runtime_policy())
 
 failures = [
     name
