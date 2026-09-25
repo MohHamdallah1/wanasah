@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from procrastinate import builtin_tasks
 
-from workers.app import MAINTENANCE_QUEUE, app
+from workers.app import (
+    MAINTENANCE_QUEUE,
+    STALLED_WORKER_TIMEOUT_SECONDS,
+    app,
+)
 
 
 STALLED_RETRY_ALLOWLIST = {
@@ -30,7 +34,9 @@ STALLED_RETRY_ALLOWLIST = {
     lock="retry-safe-stalled-jobs",
 )
 async def retry_safe_stalled_jobs(timestamp: int) -> dict[str, int]:
-    stalled_jobs = await app.job_manager.get_stalled_jobs()
+    stalled_jobs = await app.job_manager.get_stalled_jobs(
+        seconds_since_heartbeat=STALLED_WORKER_TIMEOUT_SECONDS,
+    )
     retried = 0
     skipped = 0
 
