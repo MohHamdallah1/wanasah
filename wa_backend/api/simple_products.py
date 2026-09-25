@@ -1781,6 +1781,11 @@ async def list_simple_products(
                         if shape is not None
                         else int(variant.base_uom_id)
                     ),
+                    "base_uom_code": (
+                        str(shape.base_uom.code)
+                        if shape is not None
+                        else None
+                    ),
                     "package_uom_id": (
                         int(shape.package_uom.id)
                         if shape is not None
