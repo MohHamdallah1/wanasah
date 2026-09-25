@@ -11,6 +11,9 @@ MAINTENANCE_QUEUE = "maintenance"
 NOTIFICATIONS_QUEUE = "notifications"
 REPORTS_QUEUE = "reports"
 
+WORKER_HEARTBEAT_SECONDS = 10.0
+STALLED_WORKER_TIMEOUT_SECONDS = 30.0
+
 
 def _to_psycopg_conninfo(raw_url: str) -> str:
     """Normalize the application's PostgreSQL URL for psycopg 3."""
@@ -49,5 +52,7 @@ app = App(
         "concurrency": 4,
         "delete_jobs": "never",
         "shutdown_graceful_timeout": 60,
+        "update_heartbeat_interval": WORKER_HEARTBEAT_SECONDS,
+        "stalled_worker_timeout": STALLED_WORKER_TIMEOUT_SECONDS,
     },
 )
