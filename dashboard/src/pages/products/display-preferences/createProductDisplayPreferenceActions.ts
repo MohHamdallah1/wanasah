@@ -11,6 +11,10 @@ import {
   writeProductDisplayPreferences,
   type ProductDisplayPreferences,
 } from "@/lib/productDisplayPreferences";
+import type {
+  ProductSortDirection,
+  ProductSortField,
+} from "@/pages/products/list/types";
 
 type Params = {
   companyId: number | null;
@@ -19,10 +23,10 @@ type Params = {
     SetStateAction<ProductDisplayPreferences>
   >;
   setSortBy: Dispatch<
-    SetStateAction<string>
+    SetStateAction<ProductSortField>
   >;
   setSortDir: Dispatch<
-    SetStateAction<"asc" | "desc">
+    SetStateAction<ProductSortDirection>
   >;
   resetProductPagination: () => void;
   setDisplayPreferencesOpen: Dispatch<
