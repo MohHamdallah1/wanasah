@@ -16,10 +16,14 @@ import type {
 
 type Params = {
   importSessionKey: string | null;
+  importing: boolean;
   trackingDefaultsQuery: {
     data?: ProductTrackingDefaults;
   };
   fileRef: RefObject<HTMLInputElement | null>;
+  setImportOpen: Dispatch<
+    SetStateAction<boolean>
+  >;
   setImportFile: Dispatch<
     SetStateAction<File | null>
   >;
@@ -49,8 +53,10 @@ type Params = {
 
 export function createImportFileActions({
   importSessionKey,
+  importing,
   trackingDefaultsQuery,
   fileRef,
+  setImportOpen,
   setImportFile,
   setImportJobId,
   setImportStatus,
@@ -127,8 +133,69 @@ export function createImportFileActions({
     };
 
 
+  const openImport =
+    () => {
+      setImportTrackingExpanded(
+        false
+      );
+      setImportOpen(
+        true
+      );
+    };
+
+  const closeImport =
+    () => {
+      if (!importing) {
+        setImportTrackingExpanded(
+          false
+        );
+        setImportOpen(
+          false
+        );
+      }
+    };
+
+  const resetImportTracking =
+    () => {
+      const defaults =
+        trackingDefaultsQuery.data;
+      if (!defaults) {
+        return;
+      }
+      setImportLotControlMode(
+        defaults.lot_control_mode
+      );
+      setImportExpiryControlMode(
+        defaults.expiry_control_mode
+      );
+      setImportTrackingExpanded(
+        false
+      );
+    };
+
+  const completeImport =
+    () => {
+      setImportOpen(false);
+      setImportFile(null);
+      setImportJobId(null);
+      setImportStatus(null);
+      setMapping({});
+      setImportTrackingExpanded(
+        false
+      );
+      if (importSessionKey) {
+        sessionStorage.removeItem(
+          importSessionKey
+        );
+      }
+    };
+
   return {
     chooseFile,
     resetImport,
+    openImport,
+    closeImport,
+    resetImportTracking,
+    completeImport,
   };
 }
