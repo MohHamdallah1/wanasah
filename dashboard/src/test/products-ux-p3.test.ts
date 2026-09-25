@@ -305,16 +305,16 @@ describe("Products P3 detail foundation", () => {
   });
 
   it("keeps Products table presentation on exact decimal strings instead of Number conversion", () => {
-    const page = compact(
+    const listResults = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/list/ProductsListResults.tsx",
       ),
     );
     const row = readSource(
       "../pages/products/ProductTableRow.tsx",
     );
 
-    expect(page).toContain(
+    expect(listResults).toContain(
       "<ProductTableRow",
     );
     expect(row).toContain(
