@@ -70,6 +70,10 @@ import {
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
 import { createImportDownloads } from "@/pages/products/import/createImportDownloads";
 import { createImportFileActions } from "@/pages/products/import/createImportFileActions";
+import {
+  calculateImportProgress,
+  usesCompanyImportTrackingDefaults,
+} from "@/pages/products/import/helpers";
 import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
@@ -676,16 +680,10 @@ export default function ProductsDashboard() {
     );
 
   const importTrackingUsesCompanyDefaults =
-    Boolean(
-      trackingDefaultsQuery.data &&
-        importLotControlMode &&
-        importExpiryControlMode &&
-        importLotControlMode ===
-          trackingDefaultsQuery.data
-            .lot_control_mode &&
-        importExpiryControlMode ===
-          trackingDefaultsQuery.data
-            .expiry_control_mode
+    usesCompanyImportTrackingDefaults(
+      trackingDefaultsQuery.data,
+      importLotControlMode,
+      importExpiryControlMode
     );
 
   const createTrackingUsesCompanyDefaults =
@@ -1269,17 +1267,9 @@ export default function ProductsDashboard() {
       : null;
 
   const importProgress =
-    importStatus &&
-    importStatus.valid_rows > 0
-      ? Math.min(
-          100,
-          Math.round(
-            (importStatus.processed_rows /
-              importStatus.valid_rows) *
-              100
-          )
-        )
-      : 0;
+    calculateImportProgress(
+      importStatus
+    );
 
 
   return (
