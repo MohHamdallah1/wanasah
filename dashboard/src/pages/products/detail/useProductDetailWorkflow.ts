@@ -17,6 +17,9 @@ type Params = {
   openRenameProduct: (
     product: SimpleProduct
   ) => void;
+  openFamilyReassign: (
+    product: SimpleProduct
+  ) => void;
   openPriceEditor: (
     product: SimpleProduct
   ) => void;
@@ -39,6 +42,7 @@ export function useProductDetailWorkflow({
   canManageLifecycle,
   detailSections,
   openRenameProduct,
+  openFamilyReassign,
   openPriceEditor,
   openTrackingEditor,
   openLifecycleManager,
@@ -54,6 +58,7 @@ export function useProductDetailWorkflow({
 
   const {
     renameProductFromDetails,
+    reassignFamilyFromDetails,
     editPriceFromDetails,
     editTrackingFromDetails,
     manageLifecycleFromDetails,
@@ -62,6 +67,7 @@ export function useProductDetailWorkflow({
   } = createProductDetailActions({
     closeProductDetails,
     openRenameProduct,
+    openFamilyReassign,
     openPriceEditor,
     openTrackingEditor,
     openLifecycleManager,
@@ -81,6 +87,8 @@ export function useProductDetailWorkflow({
       canEditPrice,
       canRenameProduct:
         canManageCatalog,
+      canReassignFamily:
+        canManageCatalog,
       canEditTracking:
         canManageCatalog,
       canManageBarcodes:
@@ -93,6 +101,8 @@ export function useProductDetailWorkflow({
         closeProductDetails,
       onRenameProduct:
         renameProductFromDetails,
+      onReassignFamily:
+        reassignFamilyFromDetails,
       onEditPrice:
         editPriceFromDetails,
       onEditTracking:
