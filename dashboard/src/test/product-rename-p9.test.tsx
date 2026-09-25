@@ -99,6 +99,9 @@ describe("Products P9 published-name editing", () => {
     const page = source(
       "src/pages/ProductsDashboard.tsx",
     );
+    const detailActions = source(
+      "src/pages/products/detail/createProductDetailActions.ts",
+    );
 
     expect(drawer).toContain(
       "canRenameProduct: boolean",
@@ -118,8 +121,8 @@ describe("Products P9 published-name editing", () => {
     expect(page).toContain(
       "<ProductRenameDialog",
     );
-    expect(page).toContain(
-      "setRenameProduct(product)",
+    expect(detailActions).toContain(
+      "openRenameProduct(product)",
     );
   });
 
