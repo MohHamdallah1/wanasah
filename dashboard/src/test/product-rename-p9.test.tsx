@@ -97,7 +97,7 @@ describe("Products P9 published-name editing", () => {
       "src/pages/products/ProductDetailDrawer.tsx",
     );
     const page = source(
-      "src/pages/ProductsDashboard.tsx",
+      "src/pages/products/ProductsPage.tsx",
     );
     const detailActions = source(
       "src/pages/products/detail/createProductDetailActions.ts",
