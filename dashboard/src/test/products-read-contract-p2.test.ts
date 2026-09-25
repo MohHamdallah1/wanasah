@@ -345,6 +345,11 @@ describe("products P2 read contract", () => {
         "../pages/products/list/deriveProductsListViewState.ts",
       ),
     );
+    const capabilities = normalizeWhitespace(
+      readSource(
+        "../pages/products/deriveProductsCapabilities.ts",
+      ),
+    );
 
     expect(listQueries).toContain(
       '"simple-products", companyId, params',
@@ -358,8 +363,8 @@ describe("products P2 read contract", () => {
     expect(listQueries).toContain(
       '"simple-product-families", companyId',
     );
-    expect(page).toContain(
-      'access.canAny( "pricing.view" )',
+    expect(capabilities).toContain(
+      'canAny("pricing.view")',
     );
     expect(listView).toContain(
       "page?.pricing_visible && canViewPricing",
