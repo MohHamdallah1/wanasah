@@ -112,6 +112,9 @@ describe("products tracking UI contracts", () => {
     const trackingMutations = normalizeWhitespace(
       readSource("../pages/products/tracking/useProductTrackingMutations.ts"),
     );
+    const trackingOverlays = normalizeWhitespace(
+      readSource("../pages/products/tracking/ProductTrackingOverlays.tsx"),
+    );
 
     expect(draftKey).toContain(
       "wanasah:product-draft:v2:",
@@ -131,10 +134,10 @@ describe("products tracking UI contracts", () => {
     expect(trackingMutations).toContain(
       "parseProductTrackingMutation(",
     );
-    expect(page).toContain(
+    expect(trackingOverlays).toContain(
       "<ProductTrackingSettings",
     );
-    expect(page).toContain(
+    expect(trackingOverlays).toContain(
       "<ProductTrackingEditor",
     );
     expect(trackingMutations).toContain(
@@ -237,7 +240,7 @@ describe("products tracking UI contracts", () => {
       "canEditTracking: canManageCatalog",
     );
     expect(page).toContain(
-      "onEditTracking: openTrackingEditor",
+      "onEditTracking: trackingWorkflow.openTrackingEditor",
     );
     expect(row).toContain(
       "{canEditTracking ? (",
