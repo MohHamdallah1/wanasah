@@ -2,8 +2,8 @@ import type {
   ComponentProps,
 } from "react";
 
-import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
-import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
+import { ProductTrackingEditor } from "@/pages/products/tracking/ProductTrackingEditor";
+import { ProductTrackingSettings } from "@/pages/products/tracking/ProductTrackingSettings";
 
 type Props = {
   settings:
