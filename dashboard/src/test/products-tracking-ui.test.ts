@@ -195,6 +195,7 @@ describe("products tracking UI contracts", () => {
     const files = [
       readSource("../pages/ProductsDashboard.tsx"),
       readSource("../pages/products/create/CreateProductModal.tsx"),
+      readSource("../pages/products/import/ImportProductModal.tsx"),
       readSource("../pages/products/ProductTrackingFields.tsx"),
       readSource("../pages/products/ProductTrackingSettings.tsx"),
       readSource("../pages/products/ProductTrackingEditor.tsx"),
