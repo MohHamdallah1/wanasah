@@ -72,6 +72,7 @@ import type {
   ProductDraft,
 } from "@/pages/products/create/types";
 import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
+import { useCreateProductMutation } from "@/pages/products/create/useCreateProductMutation";
 import {
   emptyDraft,
   useCreateProductState,
@@ -1113,298 +1114,30 @@ export default function ProductsDashboard() {
         ),
     });
 
-  const createMutation =
-    useMutation({
-      mutationFn:
-        async (): Promise<
-          MutationResult<
-            ReturnType<
-              typeof parseSimpleProductCreateResponse
-            >
-          >
-        > => {
-          if (
-            !draft.name.trim()
-          ) {
-            throw new Error(
-              t(
-                "products.errors.nameRequired"
-              )
-            );
-          }
-
-          const units =
-            draft.has_package
-              ? Number(
-                  draft.units_per_package
-                )
-              : 1;
-
-          if (
-            draft.has_package &&
-            (!Number.isInteger(
-              units
-            ) ||
-              units < 2)
-          ) {
-            throw new Error(
-              t(
-                "products.errors.packageUnitsInvalid"
-              )
-            );
-          }
-
-          if (
-            !draft.package_price.trim() &&
-            !draft.unit_price.trim()
-          ) {
-            throw new Error(
-              draft.has_package
-                ? t(
-                    "products.errors.priceRequired"
-                  )
-                : t(
-                    "products.errors.unitPriceRequired"
-                  )
-            );
-          }
-          if (
-            !draft.lot_control_mode ||
-            !draft.expiry_control_mode
-          ) {
-            throw new Error(
-              t(
-                "products.errors.trackingDefaultsRequired"
-              )
-            );
-          }
-
-          if (
-            draft.has_package &&
-            !packageUoms.some(
-              (item) =>
-                item.code ===
-                draft.package_uom_code
-            )
-          ) {
-            throw new Error(
-              "PACKAGE_UOMS_RESPONSE_INVALID"
-            );
-          }
-
-          const selectedFamily =
-            familyOptions.find(
-              (item) =>
-                item.name
-                  .trim()
-                  .toLocaleLowerCase() ===
-                draft.family
-                  .trim()
-                  .toLocaleLowerCase()
-            );
-
-          const body = {
-            name:
-              draft.name.trim(),
-            family_id:
-              selectedFamily?.id ??
-              null,
-            family_name:
-              !selectedFamily &&
-              draft.family.trim()
-                ? draft.family.trim()
-                : null,
-            package_uom_code:
-              draft.has_package
-                ? draft.package_uom_code
-                : null,
-            units_per_package:
-              units,
-            package_price:
-              draft.has_package &&
-              draft.package_price.trim()
-                ? draft.package_price.trim()
-                : null,
-            unit_price:
-              draft.unit_price.trim() ||
-              null,
-            unit_barcode:
-              draft.unit_barcode.trim() ||
-              null,
-            package_barcode:
-              draft.has_package &&
-              draft.package_barcode.trim()
-                ? draft.package_barcode.trim()
-                : null,
-            lot_control_mode:
-              draft.lot_control_mode,
-            expiry_control_mode:
-              draft.expiry_control_mode,
-          };
-
-          const scope =
-            operationScope(
-              "product-create"
-            );
-          const requestId =
-            await getOrCreateDurableRequestId(
-              scope,
-              body
-            );
-          const result =
-            parseSimpleProductCreateResponse(
-              await authFetch(
-                "/simple-products",
-                {
-                  method: "POST",
-                  body: JSON.stringify(
-                    {
-                      request_id:
-                        requestId,
-                      ...body,
-                    }
-                  ),
-                }
-              )
-            );
-
-          return {
-            result,
-            requestId,
-            scope,
-          };
-        },
-      onSuccess:
-        async ({
-          requestId,
-          scope,
-        }) => {
-          completeDurableOperation(
-            scope,
-            requestId
-          );
-          if (
-            draftStorageKey
-          ) {
-            sessionStorage.removeItem(
-              draftStorageKey
-            );
-          }
-          setDraft(
-            emptyDraft
-          );
-          setCreateFieldError(null);
-          setCreateTrackingExpanded(
-            false
-          );
-          setCreateAdvancedExpanded(
-            false
-          );
-          setCreateOpen(false);
-          setCursor(null);
-          setHistory([]);
-          toast.success(
-            t(
-              "products.created"
-            )
-          );
-          await Promise.all([
-            queryClient.invalidateQueries(
-              {
-                queryKey: [
-                  "simple-products",
-                ],
-              }
-            ),
-            queryClient.invalidateQueries(
-              {
-                queryKey: [
-                  "simple-product-families",
-                ],
-              }
-            ),
-          ]);
-        },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.createFailed"
-            )
-          )
-        ),
-    });
-
-  const submitCreate = () => {
-    if (!draft.name.trim()) {
-      setCreateFieldError({
-        field: "name",
-        message: t(
-          "products.errors.nameRequired"
-        ),
-      });
-      window.requestAnimationFrame(
-        () => createNameRef.current?.focus()
-      );
-      return;
-    }
-
-    const units =
-      draft.has_package
-        ? Number(
-            draft.units_per_package
-          )
-        : 1;
-    if (
-      draft.has_package &&
-      (!Number.isInteger(units) ||
-        units < 2)
-    ) {
-      setCreateFieldError({
-        field: "units",
-        message: t(
-          "products.errors.packageUnitsInvalid"
-        ),
-      });
-      window.requestAnimationFrame(
-        () => createUnitsRef.current?.focus()
-      );
-      return;
-    }
-
-    if (
-      !draft.package_price.trim() &&
-      !draft.unit_price.trim()
-    ) {
-      const packageField =
-        draft.has_package;
-      setCreateFieldError({
-        field: packageField
-          ? "packagePrice"
-          : "unitPrice",
-        message: packageField
-          ? t(
-              "products.errors.priceRequired"
-            )
-          : t(
-              "products.errors.unitPriceRequired"
-            ),
-      });
-      window.requestAnimationFrame(
-        () =>
-          (
-            packageField
-              ? createPackagePriceRef
-              : createUnitPriceRef
-          ).current?.focus()
-      );
-      return;
-    }
-
-    setCreateFieldError(null);
-    createMutation.mutate();
-  };
+  const {
+    createMutation,
+    submitCreate,
+  } = useCreateProductMutation({
+    draft,
+    familyOptions,
+    packageUoms,
+    operationScope,
+    authFetch,
+    draftStorageKey,
+    setDraft,
+    setCreateFieldError,
+    setCreateTrackingExpanded,
+    setCreateAdvancedExpanded,
+    setCreateOpen,
+    setCursor,
+    setHistory,
+    queryClient,
+    t,
+    createNameRef,
+    createUnitsRef,
+    createPackagePriceRef,
+    createUnitPriceRef,
+  });
 
   const priceMutation =
     useMutation({
