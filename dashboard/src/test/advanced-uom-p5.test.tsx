@@ -83,7 +83,7 @@ import {
 import {
   parseConversionMutation,
 } from "../pages/inventory/catalog/contracts";
-import AdvancedUomDashboard from "../pages/products/AdvancedUomDashboard";
+import AdvancedUomDashboard from "../pages/products/advanced-uom/AdvancedUomDashboard";
 
 const uom = (
   id: number,
