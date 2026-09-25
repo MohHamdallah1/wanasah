@@ -38,6 +38,9 @@ type AuthFetch = (
 type Params = {
   importJobId: string | null;
   importPollKey: number;
+  setImportPollKey: Dispatch<
+    SetStateAction<number>
+  >;
   authFetch: AuthFetch;
   queryClient: QueryClient;
   t: TFunction;
@@ -62,6 +65,7 @@ type Params = {
 export function useImportProductPolling({
   importJobId,
   importPollKey,
+  setImportPollKey,
   authFetch,
   queryClient,
   t,
@@ -212,5 +216,16 @@ export function useImportProductPolling({
     isOnline,
   ]);
 
+  const retryPoll =
+    () => {
+      setImportPollError(null);
+      setImportPollKey(
+        (current) =>
+          current + 1
+      );
+    };
 
+  return {
+    retryPoll,
+  };
 }
