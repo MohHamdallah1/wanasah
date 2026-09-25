@@ -212,7 +212,7 @@ describe(
         /useMediaQuery\(\s*["']\(max-width: 767px\)["']\s*\)/,
       );
       expect(page).toMatch(
-        /results=\{\{[\s\S]*?\bisNarrowViewport,\s*pricingVisible,/,
+        /results=\{\{[\s\S]*?listWorkflow\.section\.results,[\s\S]*?\bisNarrowViewport,[\s\S]*?\bcanEditPrice:/,
       );
       expect(listResults).toContain(
         "{isNarrowViewport ? (",
