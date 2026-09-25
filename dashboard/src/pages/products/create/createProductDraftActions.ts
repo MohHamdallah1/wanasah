@@ -14,6 +14,7 @@ import type {
 import type {
   CreateFieldError,
   ProductDraft,
+  ProductFamilyMode,
 } from "@/pages/products/create/types";
 
 type Params = {
@@ -64,15 +65,47 @@ export function createProductDraftActions({
     }
   };
 
+  const updateFamilyMode = (
+    mode: ProductFamilyMode,
+  ) => {
+    setDraft(
+      (current) => ({
+        ...current,
+        family_mode: mode,
+        family_id: null,
+        family: "",
+      })
+    );
+    if (
+      createFieldError?.field ===
+      "family"
+    ) {
+      setCreateFieldError(null);
+    }
+  };
+
   const updateFamily = (
-    value: string
-  ) =>
+    value: string,
+    familyId: number | null = null,
+  ) => {
     setDraft(
       (current) => ({
         ...current,
         family: value,
+        family_id:
+          current.family_mode ===
+          "existing"
+            ? familyId
+            : null,
       })
     );
+    if (
+      createFieldError?.field ===
+      "family"
+    ) {
+      setCreateFieldError(null);
+    }
+  };
 
   const updateHasPackage = (
     checked: boolean
@@ -247,6 +280,7 @@ export function createProductDraftActions({
 
   return {
     updateName,
+    updateFamilyMode,
     updateFamily,
     updateHasPackage,
     updatePackageUom,
