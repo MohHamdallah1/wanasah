@@ -31,37 +31,43 @@ describe("product import tracking workflow", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const importModal = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductModal.tsx"),
+    );
 
     expect(page).toContain('"lot_control_mode"');
     expect(page).toContain('"expiry_control_mode"');
-    expect(page).toContain(
+    expect(importModal).toContain(
       '"products.fields.lotControlMode"',
     );
-    expect(page).toContain(
+    expect(importModal).toContain(
       '"products.fields.expiryControlMode"',
     );
-    expect(page).toContain("<ProductTrackingFields");
+    expect(importModal).toContain("<ProductTrackingFields");
   });
 
   it("keeps import tracking compact by default and makes per-import overrides explicit", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const importModal = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductModal.tsx"),
+    );
     const translations = readSource("../i18n/resources.ts");
 
     expect(page).toContain(
       "importTrackingUsesCompanyDefaults",
     );
-    expect(page).toContain(
-      "!importTrackingExpanded ?",
+    expect(importModal).toContain(
+      "!trackingExpanded ?",
     );
-    expect(page).toContain(
+    expect(importModal).toContain(
       '"products.importTrackingChange"',
     );
-    expect(page).toContain(
+    expect(importModal).toContain(
       '"products.importTrackingReset"',
     );
-    expect(page).toContain(
+    expect(importModal).toContain(
       '"products.importTrackingOnlyThisImport"',
     );
 
@@ -83,12 +89,15 @@ describe("product import tracking workflow", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const importModal = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductModal.tsx"),
+    );
     const translations = readSource("../i18n/resources.ts");
 
     expect(page).toContain(
       '"products.tracking.importValues.REQUIRED"',
     );
-    expect(page).toContain(
+    expect(importModal).toContain(
       '"products.importTrackingValueHint"',
     );
     expect(page).not.toContain(
