@@ -95,8 +95,13 @@ describe("Products P8 production frontend gate", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const createMutation = compact(
+      readSource(
+        "../pages/products/create/useCreateProductMutation.ts",
+      ),
+    );
 
-    expect(page).toContain(
+    expect(createMutation).toContain(
       "parseSimpleProductCreateResponse( await authFetch(",
     );
     expect(page).toContain(
