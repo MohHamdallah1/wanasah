@@ -26,6 +26,7 @@ export function useCreateProductState() {
   const [
     createOpen,
     setCreateOpen,
+    openCreateProduct,
   ] = useState(false);
   const [
     createTrackingExpanded,
@@ -68,6 +69,16 @@ export function useCreateProductState() {
     useRef<HTMLInputElement | null>(
       null
     );
+
+  const openCreateProduct = () => {
+    setCreateTrackingExpanded(
+      false
+    );
+    setCreateAdvancedExpanded(
+      false
+    );
+    setCreateOpen(true);
+  };
 
   return {
     createOpen,
