@@ -74,6 +74,11 @@ describe(
           "../pages/ProductsDashboard.tsx",
         ),
       );
+      const importModal = compact(
+        readSource(
+          "../pages/products/import/ImportProductModal.tsx",
+        ),
+      );
 
       expect(page).toContain(
         'status.status === "NEEDS_MAPPING"',
@@ -84,11 +89,14 @@ describe(
       expect(page).toContain(
         "status.suggested_mapping",
       );
-      expect(page).toContain(
-        "importStatus.detected_headers.map",
+      expect(importModal).toContain(
+        "status.detected_headers.map",
       );
       expect(page).toMatch(
-        /setMapping\(\s*\(\s*current\s*\)\s*=>\s*\(\{\s*\.\.\.current,\s*\[field\]:\s*event\s*\.target\s*\.value,/,
+        /onMappingChange=\{\s*\(\s*field,\s*value\s*\)\s*=>\s*setMapping\(\s*\(\s*current\s*\)\s*=>\s*\(\{\s*\.\.\.current,\s*\[field\]:\s*value,/,
+      );
+      expect(importModal).toContain(
+        "onMappingChange( field, event.target.value )",
       );
     });
 
@@ -100,7 +108,7 @@ describe(
         "const downloadTemplate",
       );
       const end = page.indexOf(
-        "const cancelCreate",
+        "const draftDerived",
         start,
       );
       expect(start).toBeGreaterThanOrEqual(
