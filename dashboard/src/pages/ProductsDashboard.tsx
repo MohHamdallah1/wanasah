@@ -49,7 +49,6 @@ import {
   parseProductImportAccepted,
   parseProductImportCommandResponse,
   parseProductImportErrorPage,
-  parseProductImportState,
   parseProductTrackingDefaults,
   parseProductTrackingMutation,
   parseSimpleProductPriceMutationResponse,
@@ -92,14 +91,6 @@ type MutationResult<T> = {
   requestId: string;
   scope: string;
 };
-
-const terminalImportStatuses =
-  new Set([
-    "COMPLETED",
-    "VALIDATION_FAILED",
-    "FAILED",
-    "NEEDS_MAPPING",
-  ]);
 
 type PriceFieldError = {
   field: "packagePrice" | "unitPrice";
