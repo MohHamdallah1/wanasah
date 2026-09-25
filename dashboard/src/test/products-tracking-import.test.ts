@@ -120,7 +120,7 @@ describe("product import tracking workflow", () => {
 
   it("keeps tracking mode values language-neutral and translates labels", () => {
     const controls = readSource(
-      "../pages/products/ProductTrackingFields.tsx",
+      "../pages/products/tracking/ProductTrackingFields.tsx",
     );
     const contracts = readSource(
       "../pages/products/contracts.ts",
