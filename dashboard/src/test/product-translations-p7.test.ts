@@ -90,7 +90,7 @@ const productUiFiles = () => {
   return [
     resolve(
       process.cwd(),
-      "src/pages/ProductsDashboard.tsx",
+      "src/pages/products/ProductsPage.tsx",
     ),
     ...collectTsxFiles(
       productRoot,
@@ -424,7 +424,7 @@ describe(
       expect(offenders).toEqual([]);
 
       const dashboard = read(
-        "src/pages/ProductsDashboard.tsx",
+        "src/pages/products/ProductsPage.tsx",
       );
       const importDownloads = read(
         "src/pages/products/import/createImportDownloads.ts",
