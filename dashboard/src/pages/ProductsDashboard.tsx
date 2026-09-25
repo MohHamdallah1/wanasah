@@ -56,7 +56,6 @@ import {
   parseProductImportState,
   parseProductTrackingDefaults,
   parseProductTrackingMutation,
-  parseSimpleProductCreateResponse,
   parseSimpleProductPriceMutationResponse,
   type ProductImportState,
   type ProductTrackingMode,
@@ -68,9 +67,6 @@ import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayP
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
-import type {
-  ProductDraft,
-} from "@/pages/products/create/types";
 import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
 import { useCreateProductMutation } from "@/pages/products/create/useCreateProductMutation";
 import {
