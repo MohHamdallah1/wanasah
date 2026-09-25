@@ -208,8 +208,8 @@ describe(
       expect(page).toMatch(
         /useMediaQuery\(\s*["']\(max-width: 767px\)["']\s*\)/,
       );
-      expect(page).toContain(
-        "isNarrowViewport={ isNarrowViewport }",
+      expect(page).toMatch(
+        /isNarrowViewport=\{\s*isNarrowViewport\s*\}/,
       );
       expect(listResults).toContain(
         "{isNarrowViewport ? (",
