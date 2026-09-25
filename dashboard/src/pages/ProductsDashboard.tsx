@@ -4,7 +4,6 @@ import {
   useState,
 } from "react";
 import {
-  useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import {
@@ -36,7 +35,6 @@ import {
   deriveExactMoneyPair,
 } from "@/lib/exactMoney";
 import {
-  parsePackageUoms,
   type SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
@@ -53,6 +51,8 @@ import { useCreateFamilyOptionSearchDebounce } from "@/pages/products/create/use
 import { useCreateFamilyOptionSearchState } from "@/pages/products/create/useCreateFamilyOptionSearchState";
 import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
 import { useCreateProductMutation } from "@/pages/products/create/useCreateProductMutation";
+import { useCreateTrackingDefaultsSync } from "@/pages/products/create/useCreateTrackingDefaultsSync";
+import { usePackageUomsQuery } from "@/pages/products/create/usePackageUomsQuery";
 import {
   useCreateProductState,
 } from "@/pages/products/create/useCreateProductState";
@@ -68,6 +68,7 @@ import { useImportProductPolling } from "@/pages/products/import/useImportProduc
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
 import { useImportProductUpload } from "@/pages/products/import/useImportProductUpload";
 import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
+import { useImportTrackingDefaultsSync } from "@/pages/products/import/useImportTrackingDefaultsSync";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
@@ -412,19 +413,8 @@ export default function ProductsDashboard() {
     });
 
   const packageUomsQuery =
-    useQuery({
-      queryKey: [
-        "simple-product-package-uoms",
-      ],
-      queryFn: async ({
-        signal,
-      }) =>
-        parsePackageUoms(
-          await authFetch(
-            "/simple-products/package-uoms",
-            { signal }
-          )
-        ),
+    usePackageUomsQuery({
+      authFetch,
     });
 
   const trackingDefaultsQuery =
@@ -526,57 +516,21 @@ export default function ProductsDashboard() {
     setTrackingTypeFilter,
   ]);
 
-  useEffect(() => {
-    const defaults =
-      trackingDefaultsQuery.data;
-    if (
-      !importOpen ||
-      importJobId ||
-      !defaults
-    ) {
-      return;
-    }
-    setImportLotControlMode(
-      (current) =>
-        current ??
-        defaults.lot_control_mode
-    );
-    setImportExpiryControlMode(
-      (current) =>
-        current ??
-        defaults.expiry_control_mode
-    );
-  }, [
+  useImportTrackingDefaultsSync({
     importOpen,
     importJobId,
-    trackingDefaultsQuery.data,
-    setImportExpiryControlMode,
+    defaults:
+      trackingDefaultsQuery.data,
     setImportLotControlMode,
-  ]);
+    setImportExpiryControlMode,
+  });
 
-  useEffect(() => {
-    const defaults =
-      trackingDefaultsQuery.data;
-    if (
-      !createOpen ||
-      !defaults
-    ) {
-      return;
-    }
-    setDraft((current) => ({
-      ...current,
-      lot_control_mode:
-        current.lot_control_mode ??
-        defaults.lot_control_mode,
-      expiry_control_mode:
-        current.expiry_control_mode ??
-        defaults.expiry_control_mode,
-    }));
-  }, [
+  useCreateTrackingDefaultsSync({
     createOpen,
-    trackingDefaultsQuery.data,
+    defaults:
+      trackingDefaultsQuery.data,
     setDraft,
-  ]);
+  });
 
   const page =
     productsQuery.data;
