@@ -107,7 +107,8 @@ check(
     and "get_stalled_jobs(" in recovery
     and "task_name not in allowlist" in recovery
     and "superseded_by_queued" in recovery
-    and "skipped_lock_conflict" in recovery
+    and "failed_not_allowlisted" in recovery
+    and "failed_lock_conflict" in recovery
     and "finish_job_by_id_async" in recovery
     and "retry_job(job)" in recovery,
     "stalled recovery is allowlisted and handles queued-successor collisions",
@@ -131,8 +132,11 @@ check(
 check(
     "SET TRANSACTION READ ONLY" in reports
     and "tenant_session(company_id)" in reports
-    and 'REPORTS_STALLED_ALLOWLIST = frozenset({"wanasah.report_foundation_probe"})' in reports,
-    "report worker is tenant-scoped, read-only, and startup-recoverable",
+    and '"wanasah.report_foundation_probe"' in reports
+    and '"wanasah.recover_stalled_reports"' in reports
+    and '@app.periodic(cron="*/10 * * * *")' in reports
+    and "recover_safe_stalled_jobs(" in reports,
+    "report worker is tenant-scoped, read-only, and independently recoverable",
 )
 
 check(
