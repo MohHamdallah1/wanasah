@@ -53,7 +53,7 @@ import {
 } from "@/lib/productDisplayPreferences";
 import {
   ProductTableRow,
-} from "@/pages/products/ProductTableRow";
+} from "@/pages/products/list/ProductTableRow";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
@@ -397,7 +397,7 @@ describe(
         "src/pages/products/ProductsPage.tsx",
       );
       const drawer = read(
-        "src/pages/products/ProductDetailDrawer.tsx",
+        "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
       const detailWorkflow = normalizeWhitespace(
         read(
