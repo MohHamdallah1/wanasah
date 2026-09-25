@@ -324,6 +324,16 @@ Dashboard pages must follow the same ownership discipline as backend modules. A 
 - Page-specific components, hooks/workflows, runtime contracts, helpers, and display logic belong inside that page folder unless they are genuinely reusable across multiple pages.
 - Shared folders are for truly cross-page technical primitives only. Do not move page-specific logic into a generic shared folder merely to make the page file smaller.
 
+### Vertical feature-slice rule
+
+- Within a page-owned folder, organize substantial functionality by **feature/workflow boundary**, not by global technical buckets such as one large `ui/` folder and one large `logic/` folder.
+- A feature slice should co-locate the UI component(s), workflow/hook owner, feature-specific contracts/types, validators/helpers, and focused tests that change together, while continuing to use genuinely shared page contracts or cross-page primitives where appropriate.
+- Example shape: `<page>/create/`, `<page>/import/`, `<page>/pricing/`, `<page>/family/`, with each slice owning its presentation and orchestration instead of scattering one workflow across unrelated folders.
+- Co-location does **not** authorize frontend business authority. Domain policy, tenant/location authorization, lifecycle rules, financial rules, and other business truth remain backend-owned.
+- A feature slice must not become a mini god-module. If one slice contains unrelated workflows, split it again by business responsibility.
+- Prefer dependencies that point from the route/page composition layer into feature slices and shared page contracts; avoid feature-to-feature reach-through. Shared behavior must be promoted deliberately to a page-level or cross-page primitive rather than imported from another feature's internals.
+- This rule is the default for future Dashboard pages and refactors unless a page has a documented architectural reason to use a different ownership shape.
+
 ### Single-responsibility rule
 
 - No component, hook, function, or file should perform multiple unrelated responsibilities merely for convenience.
