@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
+
+_backend_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_backend_dir))
 
 from sqlalchemy import text
 
