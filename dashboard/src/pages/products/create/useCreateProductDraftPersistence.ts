@@ -1,0 +1,109 @@
+import type {
+  Dispatch,
+  RefObject,
+  SetStateAction,
+} from "react";
+import {
+  useEffect,
+} from "react";
+import type {
+  TFunction,
+} from "i18next";
+import { toast } from "sonner";
+
+import type {
+  ProductDraft,
+} from "@/pages/products/create/types";
+import {
+  emptyDraft,
+} from "@/pages/products/create/useCreateProductState";
+
+type Params = {
+  draftStorageKey: string | null;
+  draft: ProductDraft;
+  setDraft: Dispatch<
+    SetStateAction<ProductDraft>
+  >;
+  restoredDraftKey: RefObject<
+    string | null
+  >;
+  t: TFunction;
+};
+
+export function useCreateProductDraftPersistence({
+  draftStorageKey,
+  draft,
+  setDraft,
+  restoredDraftKey,
+  t,
+}: Params) {
+  useEffect(() => {
+    if (!draftStorageKey) {
+      return;
+    }
+    if (
+      restoredDraftKey.current ===
+      draftStorageKey
+    ) {
+      return;
+    }
+
+    restoredDraftKey.current =
+      draftStorageKey;
+    try {
+      const raw =
+        sessionStorage.getItem(
+          draftStorageKey
+        );
+      if (raw) {
+        const parsed =
+          JSON.parse(
+            raw
+          ) as Partial<ProductDraft>;
+        const restored = {
+          ...emptyDraft,
+          ...parsed,
+        };
+        setDraft(restored);
+        if (
+          restored.name ||
+          restored.family ||
+          restored.package_price ||
+          restored.unit_price ||
+          restored.unit_barcode ||
+          restored.package_barcode
+        ) {
+          toast.message(
+            t(
+              "products.draftRestored"
+            )
+          );
+        }
+      }
+    } catch {
+      sessionStorage.removeItem(
+        draftStorageKey
+      );
+    }
+  }, [
+    draftStorageKey,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (
+      !draftStorageKey ||
+      restoredDraftKey.current !==
+        draftStorageKey
+    ) {
+      return;
+    }
+    sessionStorage.setItem(
+      draftStorageKey,
+      JSON.stringify(draft)
+    );
+  }, [
+    draft,
+    draftStorageKey,
+  ]);
+}
