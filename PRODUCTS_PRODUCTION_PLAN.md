@@ -1561,12 +1561,30 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 
 ### Create/import/detail completeness
 
-- [ ] Audit Create Product against the final capability matrix so no required backend property is accidentally omitted.
-- [ ] Keep Quick Create simple while exposing advanced fields only when useful.
-- [ ] Audit bulk import against the same final Product contract.
-- [ ] Complete Product Details so important identity, family, package structure, tracking, barcodes, lifecycle/hold, pricing, and available actions are visible without technical jargon.
-- [ ] Keep loading, error, retry, empty, stale-data, and offline states explicit and non-misleading.
-- [ ] Keep permissions granular: viewing identity must not accidentally grant pricing or mutation authority.
+- [x] Audit Create Product against the final capability matrix so no required backend property is accidentally omitted.
+- [x] Keep Quick Create simple while exposing advanced fields only when useful.
+- [x] Audit bulk import against the same final Product contract.
+- [x] Complete Product Details so important identity, family, package structure, tracking, barcodes, lifecycle/hold, pricing, and available actions are visible without technical jargon.
+- [x] Keep loading, error, retry, empty, stale-data, and offline states explicit and non-misleading.
+- [x] Keep permissions granular: viewing identity must not accidentally grant pricing or mutation authority.
+
+### P9.1 Create/import/detail completeness closure evidence — 2026-09-25
+
+- Quick Create was audited against the authoritative `SimpleProductCreate` request contract. It sends the complete normal Product contract: name, explicit family intent, optional package UOM, units per package, package/unit prices, unit/package barcodes, and explicit lot/expiry tracking modes. No required backend property is omitted.
+- Quick Create remains intentionally compact. Ordinary identity/family/package/price fields stay in the primary flow; per-Product tracking overrides and barcodes stay inside the deliberate Advanced section. Backend-managed SKU/base-unit/lifecycle internals are not duplicated as ordinary user inputs.
+- Quick Create retry identity was hardened from request-ID-only persistence to a full durable command. An ambiguous create now restores the exact original form intent and request identity across reopen/remount; changed payloads fail closed with `DURABLE_OPERATION_PENDING` instead of silently creating a second logical Product request. Deterministic coded failures may clear the stale command, while ambiguous/contract-uncertain results retain it.
+- Bulk import was audited against `CANONICAL_IMPORT_FIELDS`. Frontend mapping and backend canonical import authority contain the same 10 fields: `name`, `family`, `package_uom`, `units_per_package`, `package_price`, `unit_price`, `unit_barcode`, `package_barcode`, `lot_control_mode`, and `expiry_control_mode`. Import-wide tracking defaults and per-row overrides remain explicit.
+- Import upload keeps its file-content/name/type/size fingerprint plus tracking defaults in durable identity; status/mapping/retry/resume/error-report flows remain asynchronous and backend-authoritative.
+- Product Details now covers ordinary Product identity and family, SKU, base unit and package conversion in plain language, tracking, barcodes, lifecycle/operational hold, permission-aware pricing, simple/advanced compatibility, and the available rename/family/price/tracking/barcode/lifecycle/advanced-UOM actions without exposing raw catalog internals.
+- Loading/error/retry/empty/offline behavior remains explicit: Product list has distinct loading/error/retry/empty states; Create disables mutation offline and explains local draft retention; Import distinguishes tracking-default load errors, queued/poll errors, mapping, validation failure, retryable failure, progress, completion, and offline-disabled mutations. Product list does not use cross-query previous-data placeholders; same-query refetch is signaled by `isFetching` in the header and pagination is disabled while refreshing.
+- Permission authority remains granular. Catalog identity/read/manage/publish capabilities are separate from `pricing.view` and `pricing.manage`; catalog-only reads continue to hide real prices, while mutation buttons are derived from their action-specific capabilities.
+- Permanent focused regression added in `dashboard/src/test/products-create-import-detail-completeness-p9.test.ts` — 5 tests PASS. Existing P3/P8 regressions continue to cover list states and action-specific permission wiring.
+- Focused verification after Quick Create hardening: 4 test files / 26 tests PASS, TypeScript PASS, touched-file ESLint PASS.
+- Stage 7.3 gate was updated from its obsolete request-ID-only source assertion to require the stronger full-command/restore behavior: `STAGE73_PRODUCT_UX_I18N_NETWORK_GATE=PASS` — 18/18.
+- Final Dashboard verification: 38 test files / 225 tests PASS, TypeScript PASS, ESLint 0 warnings/errors, production build PASS.
+- Final aggregate Products production gate: 21 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+
+**P9.1 status:** complete. The next unfinished Products phase is **P9.3 — Functional Product-page acceptance before redesign**; P9.2 is already closed.
 
 ## P9.2 — Decide and execute the Products frontend split safely
 
