@@ -87,6 +87,8 @@ export function useCreateProductDraftPersistence({
     }
   }, [
     draftStorageKey,
+    restoredDraftKey,
+    setDraft,
     t,
   ]);
 
@@ -105,5 +107,6 @@ export function useCreateProductDraftPersistence({
   }, [
     draft,
     draftStorageKey,
+    restoredDraftKey,
   ]);
 }
