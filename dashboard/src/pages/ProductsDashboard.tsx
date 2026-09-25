@@ -28,8 +28,6 @@ import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   readProductDisplayPreferences,
-  writeProductDisplayPreferences,
-  type ProductDisplayPreferences,
 } from "@/lib/productDisplayPreferences";
 import {
   durableScope,
@@ -44,6 +42,8 @@ import {
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
 import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayPreferences";
+import { createProductDisplayPreferenceActions } from "@/pages/products/display-preferences/createProductDisplayPreferenceActions";
+import { useProductDisplayPreferencesState } from "@/pages/products/display-preferences/useProductDisplayPreferencesState";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
@@ -199,29 +199,15 @@ export default function ProductsDashboard() {
     resetProductPagination,
   } = useProductsListState();
 
-  const [
+  const {
     displayPreferences,
     setDisplayPreferences,
-  ] =
-    useState<ProductDisplayPreferences>(
-      () =>
-        readProductDisplayPreferences(
-          Number(
-            localStorage.getItem(
-              "company_id"
-            )
-          ),
-          Number(
-            localStorage.getItem(
-              "driver_id"
-            )
-          )
-        )
-    );
-  const [
     displayPreferencesOpen,
     setDisplayPreferencesOpen,
-  ] = useState(false);
+    openDisplayPreferences,
+    closeDisplayPreferences,
+  } =
+    useProductDisplayPreferencesState();
 
   const {
     createOpen,
@@ -681,41 +667,18 @@ export default function ProductsDashboard() {
     t,
   });
 
-  const saveDisplayPreferences = (
-    next: ProductDisplayPreferences
-  ) => {
-    if (
-      companyId === null ||
-      driverId === null ||
-      !writeProductDisplayPreferences(
-        companyId,
-        driverId,
-        next
-      )
-    ) {
-      toast.error(
-        t(
-          "products.displayPreferences.saveFailed"
-        )
-      );
-      return;
-    }
-
-    setDisplayPreferences(next);
-    setSortBy(
-      next.defaultSort.field
-    );
-    setSortDir(
-      next.defaultSort.direction
-    );
-    resetProductPagination();
-    setDisplayPreferencesOpen(false);
-    toast.success(
-      t(
-        "products.displayPreferences.saved"
-      )
-    );
-  };
+  const {
+    saveDisplayPreferences,
+  } = createProductDisplayPreferenceActions({
+    companyId,
+    driverId,
+    setDisplayPreferences,
+    setSortBy,
+    setSortDir,
+    resetProductPagination,
+    setDisplayPreferencesOpen,
+    t,
+  });
 
   const {
     trackingDefaultsMutation,
@@ -936,10 +899,8 @@ export default function ProductsDashboard() {
 
             <button
               type="button"
-              onClick={() =>
-                setDisplayPreferencesOpen(
-                  true
-                )
+              onClick={
+                openDisplayPreferences
               }
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
             >
@@ -1326,10 +1287,8 @@ export default function ProductsDashboard() {
         pricingAvailable={
           canViewPricing
         }
-        onClose={() =>
-          setDisplayPreferencesOpen(
-            false
-          )
+        onClose={
+          closeDisplayPreferences
         }
         onSave={
           saveDisplayPreferences
