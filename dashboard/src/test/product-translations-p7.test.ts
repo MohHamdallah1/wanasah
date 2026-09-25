@@ -437,7 +437,7 @@ describe(
       );
 
       const advancedUom = read(
-        "src/pages/products/AdvancedUomDashboard.tsx",
+        "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
       );
       expect(advancedUom).toContain(
         "products.details.lifecycleModes.${item.lifecycle_status}",
@@ -449,7 +449,7 @@ describe(
       ).toBe(false);
 
       const tableRow = read(
-        "src/pages/products/ProductTableRow.tsx",
+        "src/pages/products/list/ProductTableRow.tsx",
       );
       expect(tableRow).toContain(
         "products.details.holdModes.${item.operational_hold}",
@@ -461,7 +461,7 @@ describe(
       ).toBe(false);
 
       const barcodeManager = read(
-        "src/pages/products/ProductBarcodeManager.tsx",
+        "src/pages/products/barcode/ProductBarcodeManager.tsx",
       );
       expect(barcodeManager).toContain(
         "products.barcodeManager.types.${item.barcode_type}",
