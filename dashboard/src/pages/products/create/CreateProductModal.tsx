@@ -16,7 +16,7 @@ import type {
   CreateFieldError,
   ProductDraft,
 } from "@/pages/products/create/types";
-import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
+import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
 
 type Props = {
   open: boolean;
