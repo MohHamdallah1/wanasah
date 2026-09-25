@@ -442,6 +442,31 @@ def _cursor_signature(payload: bytes) -> bytes:
     ).digest()
 
 
+def _decode_cursor_part(value: str) -> bytes:
+    if not value or "=" in value:
+        raise ValueError(
+            "invalid cursor base64url encoding"
+        )
+    encoded = value.encode("ascii")
+    decoded = base64.b64decode(
+        encoded
+        + b"=" * (-len(encoded) % 4),
+        altchars=b"-_",
+        validate=True,
+    )
+    canonical = base64.urlsafe_b64encode(
+        decoded
+    ).decode("ascii").rstrip("=")
+    if not hmac.compare_digest(
+        canonical,
+        value,
+    ):
+        raise ValueError(
+            "non-canonical cursor base64url encoding"
+        )
+    return decoded
+
+
 def _cursor(
     value: str | None,
     *,
@@ -453,13 +478,11 @@ def _cursor(
         return 0
     try:
         payload_part, signature_part = value.split(".", 1)
-        payload = base64.urlsafe_b64decode(
+        payload = _decode_cursor_part(
             payload_part
-            + "=" * (-len(payload_part) % 4)
         )
-        signature = base64.urlsafe_b64decode(
+        signature = _decode_cursor_part(
             signature_part
-            + "=" * (-len(signature_part) % 4)
         )
         if not hmac.compare_digest(
             signature,
@@ -726,13 +749,11 @@ def _product_cursor(
             ".",
             1,
         )
-        payload = base64.urlsafe_b64decode(
+        payload = _decode_cursor_part(
             payload_part
-            + "=" * (-len(payload_part) % 4)
         )
-        signature = base64.urlsafe_b64decode(
+        signature = _decode_cursor_part(
             signature_part
-            + "=" * (-len(signature_part) % 4)
         )
         if not hmac.compare_digest(
             signature,
@@ -916,13 +937,11 @@ def _family_cursor(
         return None, None
     try:
         payload_part, signature_part = value.split(".", 1)
-        payload = base64.urlsafe_b64decode(
+        payload = _decode_cursor_part(
             payload_part
-            + "=" * (-len(payload_part) % 4)
         )
-        signature = base64.urlsafe_b64decode(
+        signature = _decode_cursor_part(
             signature_part
-            + "=" * (-len(signature_part) % 4)
         )
         if not hmac.compare_digest(
             signature,

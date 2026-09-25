@@ -79,6 +79,38 @@ async def set_tenant(
     )
 
 
+_BASE64URL_ALPHABET = (
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789-_"
+)
+
+
+def noncanonical_signature_alias(
+    token: str,
+) -> str:
+    payload_part, signature_part = token.split(
+        ".",
+        1,
+    )
+    index = _BASE64URL_ALPHABET.index(
+        signature_part[-1]
+    )
+    if index & 0b11:
+        raise RuntimeError(
+            "server emitted non-canonical cursor signature"
+        )
+    alias = _BASE64URL_ALPHABET[
+        index + 1
+    ]
+    return (
+        payload_part
+        + "."
+        + signature_part[:-1]
+        + alias
+    )
+
+
 def invalid_cursor(
     token: str,
     *,
@@ -669,6 +701,17 @@ async def main() -> None:
             "tampered cursor fails closed",
             invalid_cursor(
                 tampered,
+                company_id=company_id,
+                search="chips",
+                limit=50,
+            ),
+        )
+        record(
+            "non-canonical cursor encoding fails closed",
+            invalid_cursor(
+                noncanonical_signature_alias(
+                    token
+                ),
                 company_id=company_id,
                 search="chips",
                 limit=50,
