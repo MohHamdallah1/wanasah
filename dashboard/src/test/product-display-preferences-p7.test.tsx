@@ -394,7 +394,7 @@ describe(
         "src/lib/productDisplayPreferences.ts",
       );
       const page = read(
-        "src/pages/ProductsDashboard.tsx",
+        "src/pages/products/ProductsPage.tsx",
       );
       const drawer = read(
         "src/pages/products/ProductDetailDrawer.tsx",
