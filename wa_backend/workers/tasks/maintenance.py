@@ -8,6 +8,7 @@ from workers.app import (
     STALLED_WORKER_TIMEOUT_SECONDS,
     app,
 )
+from workers.recovery import recover_safe_stalled_jobs
 
 
 STALLED_RETRY_ALLOWLIST = {
@@ -34,24 +35,11 @@ STALLED_RETRY_ALLOWLIST = {
     lock="retry-safe-stalled-jobs",
 )
 async def retry_safe_stalled_jobs(timestamp: int) -> dict[str, int]:
-    stalled_jobs = await app.job_manager.get_stalled_jobs(
+    return await recover_safe_stalled_jobs(
+        app,
+        allowlist=STALLED_RETRY_ALLOWLIST,
         seconds_since_heartbeat=STALLED_WORKER_TIMEOUT_SECONDS,
     )
-    retried = 0
-    skipped = 0
-
-    for job in stalled_jobs:
-        if job.task_name not in STALLED_RETRY_ALLOWLIST:
-            skipped += 1
-            continue
-        await app.job_manager.retry_job(job)
-        retried += 1
-
-    return {
-        "stalled_seen": len(stalled_jobs),
-        "retried": retried,
-        "skipped_not_allowlisted": skipped,
-    }
 
 
 @app.periodic(cron="13 4 * * *")
