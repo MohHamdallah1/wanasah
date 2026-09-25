@@ -26,18 +26,38 @@ const productUiFiles = () => {
     process.cwd(),
     "src/pages/products",
   );
+
+  const collectTsxFiles = (
+    directory: string,
+  ): string[] =>
+    readdirSync(
+      directory,
+      {
+        withFileTypes: true,
+      },
+    ).flatMap((entry) => {
+      const path = join(
+        directory,
+        entry.name,
+      );
+      if (entry.isDirectory()) {
+        return collectTsxFiles(path);
+      }
+      return /\.tsx$/.test(
+        entry.name,
+      )
+        ? [path]
+        : [];
+    });
+
   return [
     resolve(
       process.cwd(),
       "src/pages/ProductsDashboard.tsx",
     ),
-    ...readdirSync(productRoot)
-      .filter((name) =>
-        /\.tsx$/.test(name),
-      )
-      .map((name) =>
-        join(productRoot, name),
-      ),
+    ...collectTsxFiles(
+      productRoot,
+    ),
   ];
 };
 
@@ -128,23 +148,23 @@ describe(
     });
 
     it("mirrors Product pagination and back navigation icons by direction", () => {
-      const dashboard = read(
-        "src/pages/ProductsDashboard.tsx",
+      const listResults = read(
+        "src/pages/products/list/ProductsListResults.tsx",
       );
       const advancedUom = read(
         "src/pages/products/AdvancedUomDashboard.tsx",
       );
 
-      expect(dashboard).toContain(
+      expect(listResults).toContain(
         '<ChevronLeft className="h-4 w-4 rtl:rotate-180" />',
       );
-      expect(dashboard).toContain(
+      expect(listResults).toContain(
         '<ChevronRight className="h-4 w-4 rtl:rotate-180" />',
       );
-      expect(dashboard).not.toContain(
+      expect(listResults).not.toContain(
         '<ChevronLeft className="h-4 w-4" />',
       );
-      expect(dashboard).not.toContain(
+      expect(listResults).not.toContain(
         '<ChevronRight className="h-4 w-4" />',
       );
 
