@@ -1510,22 +1510,31 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 9. Only after behavioral equivalence is proven, remove stale duplicate code and perform the final dependency/dead-code review.
 
 - [x] Approve the exact extraction sequence before touching runtime code.
-- [ ] Give Products its own clean page folder ownership under `dashboard/src/pages/products/`; the route entry becomes a thin composition/orchestration layer.
-- [ ] Separate by responsibility, not arbitrary line count.
+- [x] Give Products its own clean page folder ownership under `dashboard/src/pages/products/`; the route entry becomes a thin composition/orchestration layer.
+- [x] Separate by responsibility, not arbitrary line count.
 - [x] Extract pure visual/leaf components first without moving state or network logic.
 - [x] Extract Create/Edit Product workflow into its own component/workflow boundary.
 - [x] Extract search/filter/sort/pagination controls into their own page-owned boundary.
 - [x] Extract import workflow into its own page-owned boundary.
 - [x] Extract price-edit workflow into its own page-owned boundary.
 - [x] Extract display-preference modal/state/save ownership into `products/display-preferences/` with behavior parity preserved.
-- [ ] Keep family, barcode, tracking, lifecycle, display-preference, and advanced-unit flows page-owned and clearly separated.
-- [ ] Move queries/mutations/state into dedicated hooks/workflow owners only when doing so reduces coupling; never duplicate authority merely to reduce file size.
-- [ ] No single function or component may become a new "god function" that performs unrelated workflows.
-- [ ] Preserve exact query keys, cursor resets, cache invalidation, durable-operation scopes, storage keys, error codes, abort/request-sequence behavior, permissions, and retry semantics.
-- [ ] Structural refactor commits must not include behavior changes or visual redesign.
-- [ ] Run focused tests/type checks after every extraction checkpoint; stop immediately on any behavioral difference.
-- [ ] After the split, run the full Product tests/build gates before beginning visual redesign.
-- [ ] Review for dead/stale duplicate code after equivalence is proven.
+- [x] Keep family, barcode, tracking, lifecycle, display-preference, and advanced-unit flows page-owned and clearly separated.
+- [x] Move queries/mutations/state into dedicated hooks/workflow owners only when doing so reduces coupling; never duplicate authority merely to reduce file size.
+- [x] No single function or component may become a new "god function" that performs unrelated workflows.
+- [x] Preserve exact query keys, cursor resets, cache invalidation, durable-operation scopes, storage keys, error codes, abort/request-sequence behavior, permissions, and retry semantics.
+- [x] Structural refactor commits must not include behavior changes or visual redesign.
+- [x] Run focused tests/type checks after every extraction checkpoint; stop immediately on any behavioral difference.
+- [x] After the split, run the full Product tests/build gates before beginning visual redesign.
+- [x] Review for dead/stale duplicate code after equivalence is proven.
+
+### P9.2 closure evidence — 2026-09-25
+
+- Final route entry is `dashboard/src/pages/products/ProductsPage.tsx`; legacy `dashboard/src/pages/ProductsDashboard.tsx` was removed after route/source-test migration.
+- Product feature ownership is split into page-owned vertical folders including `advanced-uom/`, `barcode/`, `create/`, `detail/`, `display-preferences/`, `family/`, `import/`, `lifecycle/`, `list/`, `pricing/`, `rename/`, and `tracking/`.
+- Legacy duplicate Product component locations were removed only after path migration and regression proof; final old-path audit reported `OLD_PRODUCT_PATHS=0`.
+- Product aggregate regression after final folder cleanup: 20 test files / 117 tests PASS.
+- Final Dashboard closure gate: ESLint 0 warnings / 0 errors, 32 test files / 194 tests PASS, production build PASS.
+- No intentional Product behavior or visual redesign was included in P9.2.
 
 ## P9.3 — Functional Product-page acceptance before redesign
 
