@@ -61,7 +61,6 @@ import {
   parseSimpleProductPriceMutationResponse,
   type PackageUom,
   type ProductImportState,
-  type ProductFamily,
   type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
