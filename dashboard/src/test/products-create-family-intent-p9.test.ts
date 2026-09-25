@@ -138,7 +138,9 @@ describe("Products P9 create family intent", () => {
     );
     const mutation = readSource(
       "../pages/products/create/useCreateProductMutation.ts",
-    );
+    )
+      .replace(/\s+/g, " ")
+      .trim();
 
     expect(modal).toContain(
       'role="group"',
@@ -159,10 +161,10 @@ describe("Products P9 create family intent", () => {
       '"products.familyNewHint"',
     );
     expect(mutation).toContain(
-      "family_id:\n              familyIntent.family_id",
+      "family_id: familyIntent.family_id",
     );
     expect(mutation).toContain(
-      "family_name:\n              familyIntent.family_name",
+      "family_name: familyIntent.family_name",
     );
   });
 });
