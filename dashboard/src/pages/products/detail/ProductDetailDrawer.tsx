@@ -84,6 +84,47 @@ export function ProductDetailDrawer({
       locale,
     );
 
+  const baseUomLabel =
+    product.base_uom_code
+      ? t(
+          `uom.${product.base_uom_code}`
+        )
+      : t(
+          "products.details.advancedUomManaged"
+        );
+  const packageUomLabel =
+    product.package_uom_code
+      ? t(
+          `uom.${product.package_uom_code}`
+        )
+      : null;
+  const packageConversion =
+    packageUomLabel &&
+    product.units_per_package !== null
+      ? t(
+          "products.details.packageConversion",
+          {
+            package:
+              packageUomLabel,
+            units:
+              formatLocaleDecimal(
+                String(
+                  product.units_per_package
+                ),
+                locale,
+              ),
+            base:
+              baseUomLabel,
+          }
+        )
+      : t(
+          "products.details.unitOnlyStructure",
+          {
+            base:
+              baseUomLabel,
+          }
+        );
+
   return (
     <div className="fixed inset-0 z-[90]">
       <div
@@ -190,37 +231,35 @@ export function ProductDetailDrawer({
                 <div>
                   <dt className="text-[11px] font-black text-slate-400">
                     {t(
-                      "products.columns.package"
+                      "products.details.baseUnit"
                     )}
                   </dt>
                   <dd className="mt-1 text-sm font-black text-slate-800">
-                    {product.package_uom_code
-                      ? t(
-                          `uom.${product.package_uom_code}`
-                        )
-                      : t("uom.NONE")}
+                    {baseUomLabel}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] font-black text-slate-400">
                     {t(
-                      "products.columns.unitsPerPackage"
+                      "products.columns.package"
                     )}
                   </dt>
                   <dd className="mt-1 text-sm font-black text-slate-800">
-                    {product.package_uom_code &&
-                    product.units_per_package !==
-                      null
-                      ? formatLocaleDecimal(
-                          String(
-                            product.units_per_package
-                          ),
-                          locale,
-                        )
-                      : "—"}
+                    {packageUomLabel ??
+                      t("uom.NONE")}
                   </dd>
                 </div>
               </dl>
+              <div className="mt-3 rounded-xl bg-slate-50 p-3">
+                <p className="text-xs font-black leading-6 text-slate-800">
+                  {packageConversion}
+                </p>
+                <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                  {t(
+                    "products.details.packageStructureLockedPublished"
+                  )}
+                </p>
+              </div>
             </section>
           ) : null}
 
