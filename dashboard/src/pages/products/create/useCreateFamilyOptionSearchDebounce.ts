@@ -37,5 +37,6 @@ export function useCreateFamilyOptionSearchDebounce({
   }, [
     createOpen,
     family,
+    setFamilyOptionSearch,
   ]);
 }
