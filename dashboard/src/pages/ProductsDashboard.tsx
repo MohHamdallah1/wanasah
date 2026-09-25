@@ -82,7 +82,7 @@ import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
-import type { PriceFieldError } from "@/pages/products/pricing/types";
+import { usePriceEditState } from "@/pages/products/pricing/usePriceEditState";
 import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
 import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
 import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
@@ -310,35 +310,18 @@ export default function ProductsDashboard() {
     null
   );
 
-  const [
+  const {
     priceEdit,
     setPriceEdit,
-  ] =
-    useState<SimpleProduct | null>(
-      null
-    );
-  const [
     editPackagePrice,
     setEditPackagePrice,
-  ] = useState("");
-  const [
     editUnitPrice,
     setEditUnitPrice,
-  ] = useState("");
-  const [
     priceFieldError,
     setPriceFieldError,
-  ] = useState<PriceFieldError | null>(
-    null
-  );
-  const editPackagePriceRef =
-    useRef<HTMLInputElement | null>(
-      null
-    );
-  const editUnitPriceRef =
-    useRef<HTMLInputElement | null>(
-      null
-    );
+    editPackagePriceRef,
+    editUnitPriceRef,
+  } = usePriceEditState();
 
   const [
     familiesOpen,
