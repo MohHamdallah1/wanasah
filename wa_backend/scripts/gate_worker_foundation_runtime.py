@@ -525,9 +525,15 @@ async def run() -> None:
             f"status={states[recovery_jobs['safe']][0]} recovery={recovery}",
         )
         record(
-            "stalled non-allowlisted operational job is not retried",
-            states[recovery_jobs["unsafe"]][0] == "doing",
-            f"status={states[recovery_jobs['unsafe']][0]}",
+            "stalled non-allowlisted operational job fails closed",
+            (
+                states[recovery_jobs["unsafe"]][0] == "failed"
+                and recovery["failed_not_allowlisted"] >= 1
+            ),
+            (
+                f"status={states[recovery_jobs['unsafe']][0]} "
+                f"recovery={recovery}"
+            ),
         )
         record(
             "stalled periodic job with queued successor recovers without queueing-lock collision",
