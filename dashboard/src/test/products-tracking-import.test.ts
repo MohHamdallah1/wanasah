@@ -9,14 +9,14 @@ const normalizeWhitespace = (value: string): string =>
 
 describe("product import tracking workflow", () => {
   it("loads tenant defaults and sends an immutable import tracking snapshot", () => {
-    const page = normalizeWhitespace(
-      readSource("../pages/ProductsDashboard.tsx"),
+    const trackingQuery = normalizeWhitespace(
+      readSource("../pages/products/tracking/useTrackingDefaultsQuery.ts"),
     );
     const importUpload = normalizeWhitespace(
       readSource("../pages/products/import/useImportProductUpload.ts"),
     );
 
-    expect(page).toContain(
+    expect(trackingQuery).toContain(
       '"/simple-products/tracking/defaults"',
     );
     expect(importUpload).toContain(
