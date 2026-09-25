@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "extensions": [
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/inventory/families"
+      },
+      "method": "GET",
+      "path": "/warehouse/inventory/batch-products",
+      "function": "get_warehouse_inventory_batch_products",
+      "status_code": "200",
+      "response_model": "WarehouseInventoryBatchProductCursorPage",
+      "expected_module": "live_stock"
+    }
+  ]
+}

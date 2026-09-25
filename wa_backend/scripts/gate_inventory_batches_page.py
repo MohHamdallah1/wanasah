@@ -63,10 +63,12 @@ check(
 )
 
 check(
-    "/warehouse/inventory/cursor?" in batches
-    and "parseLiveStockPage" in batches
+    "/warehouse/inventory/batch-products?" in batches
+    and "/warehouse/inventory/cursor?" not in batches
+    and "parseBatchProductPage" in batches
+    and "parseLiveStockPage" not in batches
     and 'params.set("search", search)' in batches,
-    "batch page product selector uses the existing server-side cursor/search path",
+    "batch page product selector is independent from Live Stock projection readiness",
 )
 
 check(

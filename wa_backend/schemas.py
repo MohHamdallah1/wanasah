@@ -1455,6 +1455,26 @@ class WarehouseInventoryAlertSummaryResponse(BaseModel):
     alert_count: int = Field(..., ge=0)
 
 
+class WarehouseInventoryBatchProductOption(BaseModel):
+    id: PositiveDbInt
+    name: str = Field(..., min_length=1, max_length=200)
+    sku: Optional[str] = Field(None, max_length=100)
+    family_name: str = Field(..., min_length=1, max_length=150)
+    base_uom_code: str = Field(..., min_length=1, max_length=20)
+    display_uom_code: str = Field(..., min_length=1, max_length=20)
+    display_factor_to_base: PositiveQuantity
+    currency_code: str = Field(..., min_length=1, max_length=10)
+
+
+class WarehouseInventoryBatchProductCursorPage(BaseModel):
+    items: List[WarehouseInventoryBatchProductOption] = Field(
+        default_factory=list,
+        max_length=200,
+    )
+    next_cursor: Optional[str] = Field(None, max_length=1024)
+    has_more: bool
+
+
 class WarehouseInventoryBatchItem(BaseModel):
     batch_id: PositiveDbInt
     batch_number: str = Field(..., min_length=1, max_length=100)

@@ -16,6 +16,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = BACKEND_ROOT / "api" / "warehouse"
 MONOLITH_PATH = BACKEND_ROOT / "api" / "warehouse.py"
 MANIFEST_PATH = Path(__file__).with_name("warehouse_route_manifest_baseline.json")
+EXTENSIONS_PATH = Path(__file__).with_name("warehouse_route_manifest_extensions.json")
 EXPECTED_TAG = "Warehouse & Inventory"
 
 
@@ -112,6 +113,61 @@ def _load_manifest() -> dict[str, Any]:
             "manifest route_count mismatch: "
             f"route_count={expected_count}, routes={len(routes)}"
         )
+
+    if not EXTENSIONS_PATH.is_file():
+        _fail(f"missing route extensions manifest: {EXTENSIONS_PATH}")
+    extension_manifest = json.loads(
+        EXTENSIONS_PATH.read_text(encoding="utf-8")
+    )
+    if extension_manifest.get("schema_version") != 1:
+        _fail("route extensions schema_version must be 1")
+    extensions = extension_manifest.get("extensions")
+    if not isinstance(extensions, list):
+        _fail("route extensions must be a list")
+
+    for extension in extensions:
+        if not isinstance(extension, dict):
+            _fail("route extension must be an object")
+        anchor = extension.get("insert_after")
+        if not isinstance(anchor, dict):
+            _fail("route extension insert_after must be an object")
+        matches = [
+            index
+            for index, route in enumerate(routes)
+            if route.get("method") == anchor.get("method")
+            and route.get("path") == anchor.get("path")
+        ]
+        if len(matches) != 1:
+            _fail(
+                "route extension anchor must match exactly once: "
+                f"{anchor}"
+            )
+        route = {
+            key: extension.get(key)
+            for key in (
+                "method",
+                "path",
+                "function",
+                "status_code",
+                "response_model",
+                "expected_module",
+            )
+        }
+        if any(route[key] is None for key in ("method", "path", "function", "expected_module")):
+            _fail(f"route extension is incomplete: {extension}")
+        if any(
+            existing.get("method") == route["method"]
+            and existing.get("path") == route["path"]
+            for existing in routes
+        ):
+            _fail(
+                "route extension duplicates an existing method+path: "
+                f"{route['method']} {route['path']}"
+            )
+        routes.insert(matches[0] + 1, route)
+
+    manifest["routes"] = routes
+    manifest["route_count"] = len(routes)
     return manifest
 
 

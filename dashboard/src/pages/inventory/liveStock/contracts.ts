@@ -148,6 +148,23 @@ export interface WarehouseProduct {
   minimum_quantity: Quantity;
 }
 
+export interface WarehouseBatchProductOption {
+  id: number;
+  name: string;
+  sku: string | null;
+  family_name: string;
+  base_uom_code: string;
+  display_uom_code: string;
+  display_factor_to_base: Quantity;
+  currency_code: string;
+}
+
+export interface WarehouseBatchProductCursorPage {
+  items: WarehouseBatchProductOption[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
 export interface WarehouseInventoryCursorPage {
   items: WarehouseProduct[];
   next_cursor: string | null;
@@ -491,6 +508,57 @@ export function parseLiveStockAlertSummary(
     alert_count: int(payload.alert_count, code),
   };
 }
+
+export function parseBatchProductPage(
+  raw: unknown,
+): WarehouseBatchProductCursorPage {
+  const code = "INVENTORY_BATCH_PRODUCT_RESPONSE_INVALID";
+  const page = record(raw, code);
+  if (
+    !Array.isArray(page.items) ||
+    page.items.length > 200 ||
+    typeof page.has_more !== "boolean"
+  ) {
+    return contractError(code);
+  }
+
+  const ids = new Set<number>();
+  const items = page.items.map((rawItem) => {
+    const row = record(rawItem, code);
+    const id = int(row.id, code, 1);
+    if (ids.has(id)) return contractError(code);
+    ids.add(id);
+
+    return {
+      id,
+      name: str(row.name, code),
+      sku: nullableStr(row.sku, code, 100),
+      family_name: str(row.family_name, code, 150),
+      base_uom_code: str(row.base_uom_code, code, 20),
+      display_uom_code: str(row.display_uom_code, code, 20),
+      display_factor_to_base: parseQuantity(
+        row.display_factor_to_base,
+        "display_factor_to_base",
+      ),
+      currency_code: str(row.currency_code, code, 10),
+    };
+  });
+
+  const nextCursor =
+    page.next_cursor === null
+      ? null
+      : str(page.next_cursor, code, 1024);
+  if (page.has_more !== (nextCursor !== null)) {
+    return contractError(code);
+  }
+
+  return {
+    items,
+    next_cursor: nextCursor,
+    has_more: page.has_more,
+  };
+}
+
 
 export function parseBatchDetailResponse(
   raw: unknown,

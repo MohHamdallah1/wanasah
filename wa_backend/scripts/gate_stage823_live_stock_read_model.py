@@ -16,9 +16,11 @@ if str(BACKEND) not in sys.path:
 
 from api.auth import create_access_token
 from api.dependencies import get_current_driver
+from context import tenant_context
 from api.warehouse.live_stock import (
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
+    get_warehouse_inventory_batch_products,
     get_warehouse_inventory_summary,
 )
 from domains.live_stock_projection.service import rebuild_live_stock_company
@@ -97,6 +99,32 @@ async def seed_read_model_scenario(ids: dict[str, int]) -> dict[str, int]:
                 )
             ).scalar_one()
         )
+        isolated_warehouse_id = int(
+            (
+                await su.execute(
+                    text(
+                        """
+                        INSERT INTO inventory_locations
+                            (company_id, branch_id, name, code,
+                             location_type, vehicle_id, system_role,
+                             is_system_managed, version, is_active,
+                             created_at, updated_at)
+                        VALUES
+                            (:company_id, :branch_id, 'Stage823 Isolated Warehouse',
+                             :code, 'WAREHOUSE', NULL, NULL, false, 1, true,
+                             NOW(), NOW())
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        "company_id": company_id,
+                        "branch_id": int(base["branch_id"]),
+                        "code": f"S823-ISO-{uuid4().hex[:8]}",
+                    },
+                )
+            ).scalar_one()
+        )
+
         restricted_id = int(
             (
                 await su.execute(
@@ -425,6 +453,8 @@ async def seed_read_model_scenario(ids: dict[str, int]) -> dict[str, int]:
     return {
         "company_id": company_id,
         "warehouse_id": warehouse_id,
+        "isolated_warehouse_id": isolated_warehouse_id,
+        "foreign_warehouse_id": int(ids["b_wh"]),
         "active_variant_id": active_variant_id,
         "admin_id": admin_id,
         "restricted_id": restricted_id,
@@ -481,16 +511,20 @@ async def page(
 
 
 async def summary(actor: Driver, warehouse_id: int) -> dict:
-    async with fixture.SessionApp() as app:
-        await app.begin()
-        await fixture.set_tenant(app, int(actor.company_id))
-        result = await get_warehouse_inventory_summary(
-            location_id=warehouse_id,
-            db=app,
-            current_admin=actor,
-        )
-        await app.rollback()
-        return result
+    token = tenant_context.set(int(actor.company_id))
+    try:
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, int(actor.company_id))
+            result = await get_warehouse_inventory_summary(
+                location_id=warehouse_id,
+                db=app,
+                current_admin=actor,
+            )
+            await app.rollback()
+            return result
+    finally:
+        tenant_context.reset(token)
 
 
 async def alerts(actor: Driver, warehouse_id: int) -> dict:
@@ -499,6 +533,27 @@ async def alerts(actor: Driver, warehouse_id: int) -> dict:
         await fixture.set_tenant(app, int(actor.company_id))
         result = await get_warehouse_inventory_alert_summary(
             location_id=warehouse_id,
+            db=app,
+            current_admin=actor,
+        )
+        await app.rollback()
+        return result
+
+
+async def batch_products(
+    actor: Driver,
+    warehouse_id: int,
+    *,
+    search: str | None = None,
+) -> dict:
+    async with fixture.SessionApp() as app:
+        await app.begin()
+        await fixture.set_tenant(app, int(actor.company_id))
+        result = await get_warehouse_inventory_batch_products(
+            location_id=warehouse_id,
+            cursor=None,
+            limit=50,
+            search=search,
             db=app,
             current_admin=actor,
         )
@@ -792,6 +847,121 @@ async def run() -> None:
                 row["name"]
                 for row in hidden_search_admin["items"]
             ] == ["Hidden Retiring"],
+        )
+
+
+        as_of = date.today()
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, ids["company_id"])
+            as_of = (
+                await app.execute(
+                    text(
+                        """
+                        SELECT (CURRENT_TIMESTAMP AT TIME ZONE timezone)::date
+                        FROM companies
+                        WHERE id=:company_id
+                        """
+                    ),
+                    {"company_id": ids["company_id"]},
+                )
+            ).scalar_one()
+            await app.execute(
+                text(
+                    """
+                    UPDATE inventory_live_stock_projection
+                    SET computed_for_date=:yesterday,
+                        next_transition_date=:today
+                    WHERE company_id=:company_id
+                      AND warehouse_location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "yesterday": as_of - timedelta(days=1),
+                    "today": as_of,
+                    "company_id": ids["company_id"],
+                    "warehouse_id": ids["warehouse_id"],
+                    "variant_id": ids["active_variant_id"],
+                },
+            )
+            await app.commit()
+
+        stale_batch_page = await batch_products(
+            admin,
+            ids["warehouse_id"],
+        )
+        record(
+            "batch product selector remains available while Live Stock has a due transition",
+            any(
+                row["id"] == ids["active_variant_id"]
+                for row in stale_batch_page["items"]
+            ),
+            f"items={len(stale_batch_page['items'])}",
+        )
+
+        repaired_summary = await summary(
+            admin,
+            ids["warehouse_id"],
+        )
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, ids["company_id"])
+            due_after_read = int(
+                (
+                    await app.execute(
+                        text(
+                            """
+                            SELECT count(*)
+                            FROM inventory_live_stock_projection
+                            WHERE company_id=:company_id
+                              AND warehouse_location_id=:warehouse_id
+                              AND next_transition_date IS NOT NULL
+                              AND next_transition_date <= :today
+                            """
+                        ),
+                        {
+                            "company_id": ids["company_id"],
+                            "warehouse_id": ids["warehouse_id"],
+                            "today": as_of,
+                        },
+                    )
+                ).scalar_one()
+            )
+            await app.rollback()
+        record(
+            "Live Stock read repairs due transitions before returning data",
+            int(repaired_summary["stock_total"]) >= 1
+            and due_after_read == 0,
+            f"summary={repaired_summary} due_after_read={due_after_read}",
+        )
+
+        same_company_denied = None
+        try:
+            await batch_products(
+                restricted,
+                ids["isolated_warehouse_id"],
+            )
+        except HTTPException as exc:
+            same_company_denied = exc.status_code
+        record(
+            "batch product selector preserves same-company warehouse isolation",
+            same_company_denied == 403,
+            f"status={same_company_denied}",
+        )
+
+        cross_tenant_denied = None
+        try:
+            await batch_products(
+                admin,
+                ids["foreign_warehouse_id"],
+            )
+        except HTTPException as exc:
+            cross_tenant_denied = exc.status_code
+        record(
+            "batch product selector preserves cross-company isolation",
+            cross_tenant_denied in {403, 404},
+            f"status={cross_tenant_denied}",
         )
 
     finally:

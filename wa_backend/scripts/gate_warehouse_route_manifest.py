@@ -16,6 +16,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
 PACKAGE_DIR = BACKEND_ROOT / "api" / "warehouse"
 MANIFEST_PATH = Path(__file__).with_name("warehouse_route_manifest_baseline.json")
+EXTENSIONS_PATH = Path(__file__).with_name("warehouse_route_manifest_extensions.json")
 
 MODULE_ORDER = (
     "locations",
@@ -243,6 +244,80 @@ def main() -> None:
             + ", ".join(baseline_duplicates)
         )
 
+    if not EXTENSIONS_PATH.is_file():
+        _fail(f"missing route extensions manifest: {EXTENSIONS_PATH}")
+    extension_manifest = json.loads(
+        EXTENSIONS_PATH.read_text(encoding="utf-8")
+    )
+    if extension_manifest.get("schema_version") != 1:
+        _fail("route extensions schema_version must be 1")
+    extensions = extension_manifest.get("extensions")
+    if not isinstance(extensions, list):
+        _fail("route extensions must be a list")
+
+    expected_routes = [
+        {
+            "kind": "baseline",
+            "route": baseline_route,
+            "manifest": manifest_route,
+        }
+        for baseline_route, manifest_route in zip(
+            baseline_routes,
+            manifest_routes,
+        )
+    ]
+    for extension in extensions:
+        if not isinstance(extension, dict):
+            _fail("route extension must be an object")
+        anchor = extension.get("insert_after")
+        if not isinstance(anchor, dict):
+            _fail("route extension insert_after must be an object")
+        matches = [
+            index
+            for index, entry in enumerate(expected_routes)
+            if entry["route"]["method"] == anchor.get("method")
+            and entry["route"]["path"] == anchor.get("path")
+        ]
+        if len(matches) != 1:
+            _fail(
+                "route extension anchor must match exactly once: "
+                f"{anchor}"
+            )
+        extension_route = {
+            key: extension.get(key)
+            for key in (
+                "method",
+                "path",
+                "function",
+                "status_code",
+                "response_model",
+            )
+        }
+        if any(
+            extension_route[key] is None
+            for key in ("method", "path", "function")
+        ):
+            _fail(f"route extension is incomplete: {extension}")
+        if not isinstance(extension.get("expected_module"), str):
+            _fail(f"route extension module is invalid: {extension}")
+        if any(
+            entry["route"]["method"] == extension_route["method"]
+            and entry["route"]["path"] == extension_route["path"]
+            for entry in expected_routes
+        ):
+            _fail(
+                "route extension duplicates an existing method+path: "
+                f"{extension_route['method']} {extension_route['path']}"
+            )
+        expected_routes.insert(
+            matches[0] + 1,
+            {
+                "kind": "extension",
+                "route": extension_route,
+                "manifest": extension,
+            },
+        )
+
     package_routes: list[dict[str, Any]] = []
     for module_name in MODULE_ORDER:
         module_path = PACKAGE_DIR / f"{module_name}.py"
@@ -255,10 +330,11 @@ def main() -> None:
             )
         )
 
-    if len(package_routes) != len(baseline_routes):
+    if len(package_routes) != len(expected_routes):
         _fail(
             "route count mismatch: "
             f"baseline={len(baseline_routes)}, "
+            f"extensions={len(extensions)}, "
             f"package={len(package_routes)}"
         )
 
@@ -269,22 +345,41 @@ def main() -> None:
             + ", ".join(package_duplicates)
         )
 
-    for index, (baseline_route, package_route, manifest_route) in enumerate(
-        zip(baseline_routes, package_routes, manifest_routes),
+    for index, (package_route, expected_entry) in enumerate(
+        zip(package_routes, expected_routes),
         start=1,
     ):
-        if _core_signature(package_route) != _core_signature(baseline_route):
+        expected_route = expected_entry["route"]
+        if expected_entry["kind"] == "baseline":
+            matches = (
+                _core_signature(package_route)
+                == _core_signature(expected_route)
+            )
+        else:
+            matches = all(
+                package_route[key] == expected_route[key]
+                for key in (
+                    "method",
+                    "path",
+                    "function",
+                    "status_code",
+                    "response_model",
+                )
+            )
+        if not matches:
             _fail(
-                f"route #{index} differs from baseline: "
-                f"baseline={baseline_route['method']} "
-                f"{baseline_route['path']} "
-                f"({baseline_route['function']}), "
+                f"route #{index} differs from approved contract: "
+                f"expected={expected_route['method']} "
+                f"{expected_route['path']} "
+                f"({expected_route['function']}), "
                 f"package={package_route['method']} "
                 f"{package_route['path']} "
                 f"({package_route['function']})"
             )
 
-        expected_module = manifest_route.get("expected_module")
+        expected_module = expected_entry["manifest"].get(
+            "expected_module"
+        )
         if package_route["module"] != expected_module:
             _fail(
                 f"route #{index} moved to unexpected module: "
@@ -295,6 +390,7 @@ def main() -> None:
     print(
         "WAREHOUSE_ROUTE_MANIFEST=PASS "
         f"(baseline={len(baseline_routes)}; "
+        f"extensions={len(extensions)}; "
         f"package={len(package_routes)}; "
         "exact_runtime_order=True; duplicates=0)"
     )

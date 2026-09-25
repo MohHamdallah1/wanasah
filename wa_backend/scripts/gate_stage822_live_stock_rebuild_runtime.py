@@ -371,6 +371,23 @@ async def run() -> None:
             ),
         )
 
+        # Build a second same-company warehouse so the read-repair test proves
+        # that an expiry transition cannot spill across warehouse boundaries.
+        scoped_other_warehouse_id = await create_empty_warehouse(
+            company_id,
+            warehouse_id,
+        )
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await rebuild_live_stock_warehouse(
+                app,
+                company_id=company_id,
+                warehouse_location_id=scoped_other_warehouse_id,
+                batch_size=1000,
+            )
+            await app.commit()
+
         # Artificially age one projection row while preserving its DB constraint:
         # next_transition_date remains after computed_for_date but is due today.
         as_of = date.fromordinal(int(ids["as_of_ordinal"]))
@@ -396,6 +413,46 @@ async def run() -> None:
                     "variant_id": variant_id,
                 },
             )
+            await app.execute(
+                text(
+                    """
+                    INSERT INTO inventory_live_stock_projection
+                        (company_id, warehouse_location_id, product_variant_id,
+                         variant_name, lifecycle_status, operational_hold,
+                         warehouse_on_hand, warehouse_reserved,
+                         warehouse_sellable_on_hand,
+                         warehouse_sellable_reserved,
+                         blocked_status_packs, recalled_packs, damaged_packs,
+                         vehicle_packs, minimum_quantity, has_active_policy,
+                         is_low_stock, has_warehouse_presence,
+                         has_vehicle_presence, next_transition_date,
+                         computed_for_date, revision, updated_at)
+                    SELECT
+                        company_id, :other_warehouse_id, product_variant_id,
+                        variant_name, lifecycle_status, operational_hold,
+                        warehouse_on_hand, warehouse_reserved,
+                        warehouse_sellable_on_hand,
+                        warehouse_sellable_reserved,
+                        blocked_status_packs, recalled_packs, damaged_packs,
+                        vehicle_packs, minimum_quantity, has_active_policy,
+                        is_low_stock, has_warehouse_presence,
+                        has_vehicle_presence, :today, :yesterday,
+                        revision, NOW()
+                    FROM inventory_live_stock_projection
+                    WHERE company_id=:company_id
+                      AND warehouse_location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "other_warehouse_id": scoped_other_warehouse_id,
+                    "today": as_of,
+                    "yesterday": as_of.fromordinal(as_of.toordinal() - 1),
+                    "company_id": company_id,
+                    "warehouse_id": warehouse_id,
+                    "variant_id": variant_id,
+                },
+            )
             await app.commit()
 
         stale_rejected = False
@@ -415,6 +472,88 @@ async def run() -> None:
             "due temporal transition is rejected before refresh",
             stale_rejected,
         )
+
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            scoped_due_count = await refresh_due_live_stock_transitions(
+                app,
+                company_id=company_id,
+                warehouse_location_id=warehouse_id,
+                as_of_date=as_of,
+                limit=1000,
+            )
+            primary_due = int(
+                (
+                    await app.execute(
+                        text(
+                            """
+                            SELECT count(*)
+                            FROM inventory_live_stock_projection
+                            WHERE company_id=:company_id
+                              AND warehouse_location_id=:warehouse_id
+                              AND next_transition_date <= :today
+                            """
+                        ),
+                        {
+                            "company_id": company_id,
+                            "warehouse_id": warehouse_id,
+                            "today": as_of,
+                        },
+                    )
+                ).scalar_one()
+            )
+            other_due = int(
+                (
+                    await app.execute(
+                        text(
+                            """
+                            SELECT count(*)
+                            FROM inventory_live_stock_projection
+                            WHERE company_id=:company_id
+                              AND warehouse_location_id=:warehouse_id
+                              AND next_transition_date <= :today
+                            """
+                        ),
+                        {
+                            "company_id": company_id,
+                            "warehouse_id": scoped_other_warehouse_id,
+                            "today": as_of,
+                        },
+                    )
+                ).scalar_one()
+            )
+            await app.rollback()
+        record(
+            "due transition repair is exact-warehouse scoped",
+            scoped_due_count >= 1
+            and primary_due == 0
+            and other_due == 1,
+            (
+                f"refreshed={scoped_due_count} "
+                f"primary_due={primary_due} other_due={other_due}"
+            ),
+        )
+
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await app.execute(
+                text(
+                    """
+                    DELETE FROM inventory_live_stock_projection
+                    WHERE company_id=:company_id
+                      AND warehouse_location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "company_id": company_id,
+                    "warehouse_id": scoped_other_warehouse_id,
+                    "variant_id": variant_id,
+                },
+            )
+            await app.commit()
 
         async with fixture.SessionApp() as app:
             await app.begin()

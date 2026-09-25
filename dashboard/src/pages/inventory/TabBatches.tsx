@@ -16,10 +16,10 @@ import { resolveI18nLocale } from "@/lib/locale";
 import { formatMoneyExact } from "@/lib/money";
 import {
   parseBatchDetailResponse,
-  parseLiveStockPage,
+  parseBatchProductPage,
   type WarehouseBatchDetailResponse,
   type WarehouseBatchInventoryItem,
-  type WarehouseProduct,
+  type WarehouseBatchProductOption,
 } from "./liveStock/contracts";
 import {
   compareQuantity,
@@ -61,7 +61,7 @@ export function TabBatches({ locationId }: Props) {
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [products, setProducts] = useState<WarehouseProduct[]>([]);
+  const [products, setProducts] = useState<WarehouseBatchProductOption[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -133,12 +133,12 @@ export function TabBatches({ locationId }: Props) {
       if (search) params.set("search", search);
 
       const raw = await authFetch(
-        `/warehouse/inventory/cursor?${params.toString()}`,
+        `/warehouse/inventory/batch-products?${params.toString()}`,
         { signal: controller.signal },
       );
       if (requestSeq !== productRequestSeq.current) return;
 
-      const page = parseLiveStockPage(raw);
+      const page = parseBatchProductPage(raw);
       setProducts((current) => {
         if (!cursor) return page.items;
         const seen = new Set(current.map((item) => item.id));

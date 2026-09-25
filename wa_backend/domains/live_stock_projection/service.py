@@ -40,6 +40,10 @@ class LiveStockProjectionError(RuntimeError):
     pass
 
 
+class LiveStockProjectionDueTransitionError(LiveStockProjectionError):
+    """A normal time boundary reached before the derived row was refreshed."""
+
+
 def _positive_int(value: object, field: str) -> int:
     if isinstance(value, bool):
         raise LiveStockProjectionError(f"{field} must be a positive integer.")
@@ -2304,14 +2308,31 @@ async def refresh_due_live_stock_transitions(
     db: AsyncSession,
     *,
     company_id: int,
+    warehouse_location_id: int | None = None,
     as_of_date: date | None = None,
     limit: int = 5000,
 ) -> int:
     company_id = _positive_int(company_id, "company_id")
+    if warehouse_location_id is not None:
+        warehouse_location_id = _positive_int(
+            warehouse_location_id,
+            "warehouse_location_id",
+        )
     if limit <= 0 or limit > _MAX_PROJECTOR_KEYS:
         raise LiveStockProjectionError("transition refresh limit is invalid.")
     if as_of_date is None:
         as_of_date = await _company_local_date(db, company_id)
+
+    transition_filters = [
+        InventoryLiveStockProjection.company_id == company_id,
+        InventoryLiveStockProjection.next_transition_date.is_not(None),
+        InventoryLiveStockProjection.next_transition_date <= as_of_date,
+    ]
+    if warehouse_location_id is not None:
+        transition_filters.append(
+            InventoryLiveStockProjection.warehouse_location_id
+            == warehouse_location_id
+        )
 
     rows = (
         await db.execute(
@@ -2319,11 +2340,7 @@ async def refresh_due_live_stock_transitions(
                 InventoryLiveStockProjection.warehouse_location_id,
                 InventoryLiveStockProjection.product_variant_id,
             )
-            .where(
-                InventoryLiveStockProjection.company_id == company_id,
-                InventoryLiveStockProjection.next_transition_date.is_not(None),
-                InventoryLiveStockProjection.next_transition_date <= as_of_date,
-            )
+            .where(*transition_filters)
             .order_by(
                 InventoryLiveStockProjection.next_transition_date,
                 InventoryLiveStockProjection.warehouse_location_id,
@@ -3165,7 +3182,7 @@ async def assert_live_stock_projection_ready(
             "Could not resolve the company-local date for Live Stock readiness."
         )
     if bool(row.has_due_transition):
-        raise LiveStockProjectionError(
+        raise LiveStockProjectionDueTransitionError(
             "Live Stock projection has a due time transition and must be refreshed."
         )
 

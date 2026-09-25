@@ -377,6 +377,10 @@ def main() -> None:
         failures.append("ALERT_SUMMARY_NOT_O1_PROJECTION_READ")
 
     cursor = function_block(source, "get_warehouse_inventory")
+    display_uom_helper = function_block(
+        source,
+        "_display_uom_one_subquery",
+    )
     checks += 1
     required_cursor = (
         "_require_live_stock_read_model_ready",
@@ -405,17 +409,29 @@ def main() -> None:
         "InventoryCostEvent.id.desc()",
         ".limit(1)",
         "display_uom_one",
-        '.lateral("inventory_display_uom_one")',
-        "ProductUomConversion.product_variant_id == ProductVariant.id",
-        "ProductUomConversion.to_uom_id == ProductVariant.base_uom_id",
+        "_display_uom_one_subquery(",
         ").mappings().all()",
     )
+    required_display_uom_helper = (
+        'lateral(f"{alias_prefix}_one")',
+        "ProductUomConversion.product_variant_id == ProductVariant.id",
+        "ProductUomConversion.to_uom_id == ProductVariant.base_uom_id",
+        "ProductUomConversion.numerator > ProductUomConversion.denominator",
+    )
     normalized_cursor = _normalized_source(cursor)
+    normalized_display_uom_helper = _normalized_source(
+        display_uom_helper
+    )
     missing_detail_reads = [
         token
         for token in required_bounded_detail_reads
         if _normalized_source(token) not in normalized_cursor
     ]
+    missing_detail_reads.extend(
+        token
+        for token in required_display_uom_helper
+        if _normalized_source(token) not in normalized_display_uom_helper
+    )
     if missing_detail_reads:
         failures.append(
             "BOUNDED_SCALAR_PAGE_DETAIL_READS_MISSING:"
@@ -616,7 +632,8 @@ def main() -> None:
     checks += 1
     if (
         "display_uom_one" not in cursor
-        or '.lateral("inventory_display_uom_one")' not in cursor
+        or '_display_uom_one_subquery(' not in cursor
+        or 'lateral(f"{alias_prefix}_one")' not in display_uom_helper
         or "_load_inventory_display_uoms(" in cursor
     ):
         failures.append("DISPLAY_UOM_NOT_INDEXED_BOUNDED_LOOKUP")
@@ -712,7 +729,10 @@ def main() -> None:
         failures.append("COMPANY_WIDE_CANDIDATE_FAST_STREAM_MISSING")
 
     checks += 1
-    if cursor.count(".lateral(") != 2:
+    if (
+        cursor.count(".lateral(") != 1
+        or display_uom_helper.count(".lateral(") != 1
+    ):
         failures.append("DETAIL_INDEXED_LATERAL_LOOKUP_COUNT_INVALID")
     if "detail_key_scope.c.product_variant_id" not in cursor:
         failures.append("DETAIL_QUERY_NOT_DRIVEN_BY_BOUNDED_PAGE_KEYS")

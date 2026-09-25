@@ -33,12 +33,15 @@ from services import (
     inventory_business_error,
 )
 from domains.live_stock_projection.service import (
+    LiveStockProjectionDueTransitionError,
     LiveStockProjectionError,
     assert_live_stock_projection_ready,
+    refresh_due_live_stock_transitions,
 )
 from schemas import (
     WarehouseInventoryAlertSummaryResponse,
     WarehouseInventoryBatchDetailResponse,
+    WarehouseInventoryBatchProductCursorPage,
     WarehouseInventoryCursorPage,
     WarehouseInventorySummaryResponse,
 )
@@ -55,6 +58,8 @@ from ._shared import (
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
+
+_LIVE_STOCK_READ_REPAIR_LIMIT = 10_000
 
 
 # =================================================================================
@@ -74,34 +79,71 @@ async def _require_live_stock_read_model_ready(
     company_id: int,
     location_id: int,
 ):
+    failure: LiveStockProjectionError | None = None
     try:
         return await assert_live_stock_projection_ready(
             db,
             company_id=company_id,
             warehouse_location_id=location_id,
         )
-    except LiveStockProjectionError as exc:
-        if "active warehouse" in str(exc):
-            exists = await db.scalar(
-                select(InventoryLocation.id).where(
-                    InventoryLocation.company_id == company_id,
-                    InventoryLocation.id == location_id,
-                    InventoryLocation.location_type == "WAREHOUSE",
-                    InventoryLocation.is_active.is_(True),
-                )
+    except LiveStockProjectionDueTransitionError as stale_exc:
+        # Expiry/production boundaries are normal time transitions, not a
+        # warehouse-wide outage. Repair only this authorized warehouse from
+        # source-of-truth inventory/batch data, persist it, then re-check.
+        try:
+            refreshed = await refresh_due_live_stock_transitions(
+                db,
+                company_id=company_id,
+                warehouse_location_id=location_id,
+                limit=_LIVE_STOCK_READ_REPAIR_LIMIT,
             )
-            if exists is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="المستودع غير موجود أو لا يتبع شركتك.",
-                ) from exc
-        raise HTTPException(
-            status_code=503,
-            detail=inventory_business_error(
-                "LIVE_STOCK_PROJECTION_NOT_READY",
-                "الرصيد الحي قيد التحديث. أعد المحاولة بعد لحظات.",
-            ),
-        ) from exc
+            if refreshed <= 0:
+                failure = stale_exc
+            else:
+                repaired_readiness = await assert_live_stock_projection_ready(
+                    db,
+                    company_id=company_id,
+                    warehouse_location_id=location_id,
+                )
+                await db.commit()
+                return repaired_readiness
+        except LiveStockProjectionError as repair_exc:
+            await db.rollback()
+            failure = repair_exc
+        except Exception:
+            await db.rollback()
+            raise
+    except LiveStockProjectionError as projection_exc:
+        failure = projection_exc
+
+    if failure is None:
+        raise RuntimeError(
+            "Live Stock readiness failed without a projection error."
+        )
+
+    if "active warehouse" in str(failure):
+        if not db.in_transaction():
+            await db.begin()
+        exists = await db.scalar(
+            select(InventoryLocation.id).where(
+                InventoryLocation.company_id == company_id,
+                InventoryLocation.id == location_id,
+                InventoryLocation.location_type == "WAREHOUSE",
+                InventoryLocation.is_active.is_(True),
+            )
+        )
+        if exists is None:
+            raise HTTPException(
+                status_code=404,
+                detail="المستودع غير موجود أو لا يتبع شركتك.",
+            ) from failure
+    raise HTTPException(
+        status_code=503,
+        detail=inventory_business_error(
+            "LIVE_STOCK_PROJECTION_NOT_READY",
+            "الرصيد الحي قيد التحديث. أعد المحاولة بعد لحظات.",
+        ),
+    ) from failure
 
 
 # بناء استعلام فرعي لمواقع المركبات المقروءة ضمن صلاحيات المستخدم.
@@ -206,6 +248,54 @@ def _live_stock_ordering(*, sort: str):
     return (
         ProductVariant.name.asc(),
         ProductVariant.id.asc(),
+    )
+
+
+# اختيار وحدة العرض التجارية للمنتج بدون تكرار منطق التحويل بين المسارات.
+def _display_uom_one_subquery(
+    *,
+    company_id: int,
+    alias_prefix: str,
+):
+    display_uom = aliased(
+        UOM,
+        name=f"{alias_prefix}_uom",
+    )
+    display_factor_expression = (
+        ProductUomConversion.numerator
+        / ProductUomConversion.denominator
+    )
+    return (
+        select(
+            func.count(ProductUomConversion.id).label(
+                "candidate_count"
+            ),
+            func.min(display_uom.id).label("display_uom_id_raw"),
+            func.min(display_uom.code).label(
+                "display_uom_code_raw"
+            ),
+            func.min(display_uom.name).label(
+                "display_uom_name_raw"
+            ),
+            func.min(display_factor_expression).label(
+                "display_factor_to_base_raw"
+            ),
+        )
+        .select_from(ProductUomConversion)
+        .join(
+            display_uom,
+            display_uom.id == ProductUomConversion.from_uom_id,
+        )
+        .where(
+            ProductUomConversion.company_id == company_id,
+            ProductUomConversion.product_variant_id
+            == ProductVariant.id,
+            ProductUomConversion.to_uom_id
+            == ProductVariant.base_uom_id,
+            ProductUomConversion.numerator
+            > ProductUomConversion.denominator,
+        )
+        .lateral(f"{alias_prefix}_one")
     )
 
 
@@ -803,6 +893,228 @@ async def get_warehouse_inventory_families(
     }
 
 
+# جلب قائمة منتجات الدفعات من حقيقة المخزون مباشرة، مستقلة عن إسقاط الرصيد الحي.
+@router.get(
+    "/warehouse/inventory/batch-products",
+    response_model=WarehouseInventoryBatchProductCursorPage,
+    status_code=200,
+)
+async def get_warehouse_inventory_batch_products(
+    location_id: int,
+    cursor: Optional[str] = Query(default=None, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=200),
+    search: Optional[str] = Query(default=None, max_length=100),
+    db: AsyncSession = Depends(get_db),
+    current_admin: Driver = Depends(get_current_driver),
+):
+    access = InventoryAccess(db, current_admin)
+    company_id = current_admin.company_id
+
+    await _require_live_stock_warehouse_read(
+        db,
+        company_id=company_id,
+        location_id=location_id,
+        access=access,
+        actor=current_admin,
+    )
+
+    warehouse_exists = await db.scalar(
+        select(InventoryLocation.id).where(
+            InventoryLocation.company_id == company_id,
+            InventoryLocation.id == location_id,
+            InventoryLocation.location_type == "WAREHOUSE",
+            InventoryLocation.is_active.is_(True),
+        )
+    )
+    if warehouse_exists is None:
+        raise HTTPException(
+            status_code=404,
+            detail=inventory_business_error(
+                "LIVE_STOCK_LOCATION_NOT_FOUND",
+                "The selected warehouse is unavailable.",
+            ),
+        )
+
+    clean_search = " ".join((search or "").strip().lower().split())
+    if clean_search and len(clean_search) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVENTORY_BATCH_PRODUCT_SEARCH_TOO_SHORT",
+                "message": "Batch product search requires at least two characters.",
+                "context": {},
+            },
+        )
+
+    search_variant_ids = None
+    if clean_search:
+        search_patterns = [
+            f"%{_escape_like(token)}%"
+            for token in clean_search.split()
+        ]
+        search_variant_ids = select(
+            func.public.live_stock_search_variant_ids(
+                company_id,
+                bindparam(
+                    "inventory_batch_product_search_patterns",
+                    search_patterns,
+                    type_=ARRAY(String()),
+                ),
+            )
+        )
+
+    batch_presence = (
+        select(1)
+        .select_from(InventoryBalance)
+        .join(
+            ProductBatch,
+            and_(
+                ProductBatch.company_id == InventoryBalance.company_id,
+                ProductBatch.id == InventoryBalance.batch_id,
+                ProductBatch.product_variant_id
+                == InventoryBalance.product_variant_id,
+            ),
+        )
+        .where(
+            InventoryBalance.company_id == company_id,
+            InventoryBalance.location_id == location_id,
+            InventoryBalance.product_variant_id == ProductVariant.id,
+            InventoryBalance.batch_id.isnot(None),
+            InventoryBalance.on_hand_quantity > 0,
+        )
+        .exists()
+    )
+
+    scope = (
+        f"inventory-batch-products|{company_id}|{location_id}|"
+        f"{clean_search}"
+    )
+    candidate_filters = [
+        ProductVariant.company_id == company_id,
+        batch_presence,
+    ]
+    if search_variant_ids is not None:
+        candidate_filters.append(
+            ProductVariant.id.in_(search_variant_ids)
+        )
+
+    if cursor is not None:
+        cursor_name, cursor_id = _decode_variant_cursor(
+            cursor,
+            expected_kind="warehouse-inventory-batch-products",
+            expected_scope=scope,
+        )
+        candidate_filters.append(
+            tuple_(ProductVariant.name, ProductVariant.id)
+            > tuple_(cursor_name, cursor_id)
+        )
+
+    candidate_rows = (
+        await db.execute(
+            select(
+                ProductVariant.id,
+                ProductVariant.name,
+            )
+            .where(*candidate_filters)
+            .order_by(ProductVariant.name.asc(), ProductVariant.id.asc())
+            .limit(limit + 1)
+        )
+    ).all()
+
+    has_more = len(candidate_rows) > limit
+    page_candidates = candidate_rows[:limit]
+    page_variant_ids = [int(row.id) for row in page_candidates]
+    if not page_variant_ids:
+        return {
+            "items": [],
+            "next_cursor": None,
+            "has_more": False,
+        }
+
+    display_uom_one = _display_uom_one_subquery(
+        company_id=company_id,
+        alias_prefix="inventory_batch_product_display_uom",
+    )
+    detail_rows = (
+        await db.execute(
+            select(
+                ProductVariant.id.label("variant_id"),
+                ProductVariant.name.label("variant_name"),
+                ProductVariant.sku,
+                Product.name.label("family_name"),
+                UOM.code.label("base_uom_code"),
+                Company.currency_code,
+                display_uom_one.c.candidate_count,
+                display_uom_one.c.display_uom_code_raw,
+                display_uom_one.c.display_factor_to_base_raw,
+            )
+            .select_from(ProductVariant)
+            .join(
+                Product,
+                and_(
+                    Product.company_id == ProductVariant.company_id,
+                    Product.id == ProductVariant.product_id,
+                ),
+            )
+            .join(UOM, UOM.id == ProductVariant.base_uom_id)
+            .join(Company, Company.id == ProductVariant.company_id)
+            .outerjoin(display_uom_one, true())
+            .where(
+                ProductVariant.company_id == company_id,
+                _warehouse_array_membership(
+                    ProductVariant.id,
+                    page_variant_ids,
+                    "inventory_batch_product_page_variant_ids",
+                ),
+            )
+            .order_by(ProductVariant.name.asc(), ProductVariant.id.asc())
+        )
+    ).mappings().all()
+
+    items = []
+    for row in detail_rows:
+        if int(row["candidate_count"] or 0) == 1:
+            display_uom_code = str(row["display_uom_code_raw"])
+            display_factor = Decimal(
+                row["display_factor_to_base_raw"]
+            )
+        else:
+            display_uom_code = str(row["base_uom_code"])
+            display_factor = Decimal("1")
+
+        items.append(
+            {
+                "id": int(row["variant_id"]),
+                "name": str(row["variant_name"]),
+                "sku": row["sku"],
+                "family_name": str(row["family_name"]),
+                "base_uom_code": str(row["base_uom_code"]),
+                "display_uom_code": display_uom_code,
+                "display_factor_to_base": canonical_quantity(
+                    display_factor
+                ),
+                "currency_code": str(row["currency_code"]).upper(),
+            }
+        )
+
+    last_candidate = page_candidates[-1]
+    next_cursor = (
+        _encode_variant_cursor(
+            kind="warehouse-inventory-batch-products",
+            variant_name=str(last_candidate.name),
+            variant_id=int(last_candidate.id),
+            scope=scope,
+        )
+        if has_more
+        else None
+    )
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+    }
+
+
 # جلب صفحة Cursor من الرصيد الحي مع الفلاتر والتكاليف والكميات المجمعة.
 @router.get(
     "/warehouse/inventory/cursor",
@@ -1115,45 +1427,9 @@ async def get_warehouse_inventory(
             .lateral("inventory_latest_purchase_one")
         )
 
-        display_uom = aliased(
-            UOM,
-            name="inventory_display_uom",
-        )
-        display_factor_expression = (
-            ProductUomConversion.numerator
-            / ProductUomConversion.denominator
-        )
-        display_uom_one = (
-            select(
-                func.count(ProductUomConversion.id).label(
-                    "candidate_count"
-                ),
-                func.min(display_uom.id).label("display_uom_id_raw"),
-                func.min(display_uom.code).label(
-                    "display_uom_code_raw"
-                ),
-                func.min(display_uom.name).label(
-                    "display_uom_name_raw"
-                ),
-                func.min(display_factor_expression).label(
-                    "display_factor_to_base_raw"
-                ),
-            )
-            .select_from(ProductUomConversion)
-            .join(
-                display_uom,
-                display_uom.id == ProductUomConversion.from_uom_id,
-            )
-            .where(
-                ProductUomConversion.company_id == company_id,
-                ProductUomConversion.product_variant_id
-                == ProductVariant.id,
-                ProductUomConversion.to_uom_id
-                == ProductVariant.base_uom_id,
-                ProductUomConversion.numerator
-                > ProductUomConversion.denominator,
-            )
-            .lateral("inventory_display_uom_one")
+        display_uom_one = _display_uom_one_subquery(
+            company_id=company_id,
+            alias_prefix="inventory_display_uom",
         )
 
         detail_stmt = (
