@@ -340,6 +340,11 @@ describe("products P2 read contract", () => {
         "../pages/products/list/useProductsListQueries.ts",
       ),
     );
+    const listView = normalizeWhitespace(
+      readSource(
+        "../pages/products/list/deriveProductsListViewState.ts",
+      ),
+    );
 
     expect(listQueries).toContain(
       '"simple-products", companyId, params',
@@ -356,7 +361,7 @@ describe("products P2 read contract", () => {
     expect(page).toContain(
       'access.canAny( "pricing.view" )',
     );
-    expect(page).toContain(
+    expect(listView).toContain(
       "page?.pricing_visible && canViewPricing",
     );
     expect(row).toContain(
