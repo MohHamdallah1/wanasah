@@ -4,7 +4,6 @@ import {
   useState,
 } from "react";
 import {
-  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -28,26 +27,18 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
-  apiErrorMessage,
-} from "@/lib/apiErrors";
-import {
   readProductDisplayPreferences,
   writeProductDisplayPreferences,
   type ProductDisplayPreferences,
 } from "@/lib/productDisplayPreferences";
 import {
-  completeDurableOperation,
   durableScope,
-  getOrCreateDurableRequestId,
 } from "@/lib/durableOperations";
 import {
   deriveExactMoneyPair,
 } from "@/lib/exactMoney";
 import {
   parsePackageUoms,
-  parseProductTrackingDefaults,
-  parseProductTrackingMutation,
-  type ProductTrackingMode,
   type SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
