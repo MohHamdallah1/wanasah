@@ -63,6 +63,14 @@ export function useCreateProductDraftPersistence({
         const restored = {
           ...emptyDraft,
           ...parsed,
+          family_mode:
+            parsed.family_mode ??
+            (parsed.family
+              ? "existing"
+              : "none"),
+          family_id:
+            parsed.family_id ??
+            null,
         };
         setDraft(restored);
         if (
