@@ -214,13 +214,6 @@ export default function ProductsDashboard() {
     setHistory,
   });
 
-  useImportSessionResume({
-    importSessionKey,
-    importJobId,
-    setImportJobId,
-    t,
-  });
-
   const {
     params,
     familyFilterParams,
