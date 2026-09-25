@@ -110,23 +110,28 @@ describe("Products P3 detail foundation", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const createModal = compact(
+      readSource(
+        "../pages/products/create/CreateProductModal.tsx",
+      ),
+    );
     const translations = readSource(
       "../i18n/resources.ts",
     );
 
-    expect(page).toContain(
+    expect(createModal).toContain(
       "createAdvancedExpanded",
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       '"products.quickCreate.advancedTitle"',
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       '"products.quickCreate.trackingAdvancedHint"',
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       '"products.quickCreate.systemManagedHint"',
     );
-    expect(page).toContain(
+    expect(createModal).toContain(
       '"products.barcodeSection"',
     );
     expect(page).toContain(
