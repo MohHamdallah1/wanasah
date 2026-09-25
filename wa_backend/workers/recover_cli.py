@@ -17,6 +17,12 @@ async def _recover(mode: str) -> dict[str, int]:
 
         allowlist = STALLED_RETRY_ALLOWLIST
         timeout = STALLED_WORKER_TIMEOUT_SECONDS
+    elif mode == "reports":
+        from workers.app import STALLED_WORKER_TIMEOUT_SECONDS, app
+        from workers.tasks.reports import REPORTS_STALLED_ALLOWLIST
+
+        allowlist = REPORTS_STALLED_ALLOWLIST
+        timeout = STALLED_WORKER_TIMEOUT_SECONDS
     elif mode == "product-import":
         from product_import_queue import (
             PRODUCT_IMPORT_STALLED_ALLOWLIST,
@@ -41,7 +47,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "mode",
-        choices=("operational", "product-import"),
+        choices=("operational", "reports", "product-import"),
     )
     args = parser.parse_args()
 
