@@ -389,6 +389,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/create/CreateProductModal.tsx",
       ),
     );
+    const createWorkflow = compact(
+      readSource(
+        "../pages/products/create/useCreateProductWorkflow.ts",
+      ),
+    );
     const importModal = compact(
       readSource(
         "../pages/products/import/ImportProductModal.tsx",
@@ -403,28 +408,28 @@ describe("Products P8 production frontend gate", () => {
       "../i18n/resources.ts",
     );
 
-    expect(page).toContain(
-      "packageUomsLoading={ packageUomsQuery.isLoading }",
+    expect(createWorkflow).toContain(
+      "packageUomsLoading: packageUomsQuery.isLoading",
     );
     expect(createModal).toContain(
       "packageUomsLoading ? (",
     );
-    expect(page).toContain(
-      "packageUomsError={ packageUomsQuery.isError }",
+    expect(createWorkflow).toContain(
+      "packageUomsError: packageUomsQuery.isError",
     );
     expect(createModal).toContain(
       "packageUomsError ? (",
     );
-    expect(page).toContain(
+    expect(createWorkflow).toContain(
       "void packageUomsQuery.refetch()",
     );
-    expect(page).toContain(
-      "familyOptionsError={ familyOptionsQuery.isError }",
+    expect(createWorkflow).toContain(
+      "familyOptionsError: familyOptionsQuery.isError",
     );
     expect(createModal).toContain(
       "familyOptionsError ? (",
     );
-    expect(page).toContain(
+    expect(createWorkflow).toContain(
       "void familyOptionsQuery.refetch()",
     );
     expect(page).toContain(
