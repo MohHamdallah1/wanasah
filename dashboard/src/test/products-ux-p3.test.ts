@@ -91,7 +91,7 @@ describe("Products P3 detail foundation", () => {
     );
 
     expect(page).toContain(
-      "onOpenDetails={ setDetailProduct }",
+      "onOpenDetails={ openProductDetails }",
     );
     expect(page).toContain(
       "canEditTracking={ canManageCatalog }",
