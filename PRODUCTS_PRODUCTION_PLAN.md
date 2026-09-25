@@ -1513,7 +1513,7 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 - [ ] Give Products its own clean page folder ownership under `dashboard/src/pages/products/`; the route entry becomes a thin composition/orchestration layer.
 - [ ] Separate by responsibility, not arbitrary line count.
 - [x] Extract pure visual/leaf components first without moving state or network logic.
-- [ ] Extract Create/Edit Product workflow into its own component/workflow boundary.
+- [x] Extract Create/Edit Product workflow into its own component/workflow boundary.
 - [x] Extract search/filter/sort/pagination controls into their own page-owned boundary.
 - [ ] Extract import workflow into its own page-owned boundary.
 - [ ] Extract price-edit workflow into its own page-owned boundary.
