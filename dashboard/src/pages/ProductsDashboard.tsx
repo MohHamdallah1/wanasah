@@ -72,6 +72,7 @@ import {
   useCreateProductState,
 } from "@/pages/products/create/useCreateProductState";
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
+import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
 import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
@@ -1306,126 +1307,18 @@ export default function ProductsDashboard() {
         ),
     });
 
-  const mappingMutation =
-    useMutation({
-      mutationFn: async () => {
-        if (!importJobId) {
-          return;
-        }
-        const result =
-          parseProductImportCommandResponse(
-            await authFetch(
-              `/simple-products/imports/${importJobId}/mapping`,
-              {
-                method: "PUT",
-                body: JSON.stringify({
-                  mapping,
-                }),
-              }
-            )
-          );
-        if (
-          result.job_id !==
-          importJobId
-        ) {
-          throw new Error(
-            "PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH"
-          );
-        }
-        return result;
-      },
-      onSuccess: (result) => {
-        setImportPollError(null);
-        setImportStatus(
-          (current) =>
-            current
-              ? {
-                  ...current,
-                  status:
-                    result?.status ??
-                    current.status,
-                }
-              : current
-        );
-        setImportPollKey(
-          (current) =>
-            current + 1
-        );
-        toast.success(
-          t(
-            "products.mappingAccepted"
-          )
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.mappingFailed"
-            )
-          )
-        ),
-    });
-
-  const retryImportMutation =
-    useMutation({
-      mutationFn: async () => {
-        if (!importJobId) {
-          return;
-        }
-        const result =
-          parseProductImportCommandResponse(
-            await authFetch(
-              `/simple-products/imports/${importJobId}/retry`,
-              {
-                method: "POST",
-              }
-            )
-          );
-        if (
-          result.job_id !==
-          importJobId
-        ) {
-          throw new Error(
-            "PRODUCT_IMPORT_COMMAND_SCOPE_MISMATCH"
-          );
-        }
-        return result;
-      },
-      onSuccess: (result) => {
-        setImportPollError(null);
-        setImportStatus(
-          (current) =>
-            current
-              ? {
-                  ...current,
-                  status:
-                    result?.status ??
-                    current.status,
-                }
-              : current
-        );
-        setImportPollKey(
-          (current) =>
-            current + 1
-        );
-        toast.success(
-          t(
-            "products.retryQueued"
-          )
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.retryFailed"
-            )
-          )
-        ),
-    });
+  const {
+    mappingMutation,
+    retryImportMutation,
+  } = useImportProductCommands({
+    importJobId,
+    mapping,
+    authFetch,
+    setImportPollError,
+    setImportStatus,
+    setImportPollKey,
+    t,
+  });
 
   useEffect(() => {
     if (!importJobId) {
