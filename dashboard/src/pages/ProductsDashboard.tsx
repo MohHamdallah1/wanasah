@@ -10,16 +10,15 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductsPageHeader } from "@/pages/products/ProductsPageHeader";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
-import { useProductBarcodeState } from "@/pages/products/barcode/useProductBarcodeState";
-import { createProductDetailActions } from "@/pages/products/detail/createProductDetailActions";
-import { useProductDetailState } from "@/pages/products/detail/useProductDetailState";
+import { useProductBarcodeWorkflow } from "@/pages/products/barcode/useProductBarcodeWorkflow";
+import { useProductDetailWorkflow } from "@/pages/products/detail/useProductDetailWorkflow";
 import { ProductDisplayPreferencesModal } from "@/pages/products/display-preferences/ProductDisplayPreferencesModal";
 import { createProductDisplayPreferenceActions } from "@/pages/products/display-preferences/createProductDisplayPreferenceActions";
 import { useProductDisplayPreferencesState } from "@/pages/products/display-preferences/useProductDisplayPreferencesState";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
-import { useProductFamiliesState } from "@/pages/products/family/useProductFamiliesState";
+import { useProductFamiliesWorkflow } from "@/pages/products/family/useProductFamiliesWorkflow";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
-import { useProductLifecycleState } from "@/pages/products/lifecycle/useProductLifecycleState";
+import { useProductLifecycleWorkflow } from "@/pages/products/lifecycle/useProductLifecycleWorkflow";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
 import { useCreateProductWorkflow } from "@/pages/products/create/useCreateProductWorkflow";
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
@@ -31,7 +30,7 @@ import { usePriceEditWorkflow } from "@/pages/products/pricing/usePriceEditWorkf
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { deriveProductsCapabilities } from "@/pages/products/deriveProductsCapabilities";
 import { useProductsIdentityScopeReset } from "@/pages/products/useProductsIdentityScopeReset";
-import { useProductRenameState } from "@/pages/products/rename/useProductRenameState";
+import { useProductRenameWorkflow } from "@/pages/products/rename/useProductRenameWorkflow";
 import { ProductTrackingOverlays } from "@/pages/products/tracking/ProductTrackingOverlays";
 import { useProductTrackingWorkflow } from "@/pages/products/tracking/useProductTrackingWorkflow";
 import { useTrackingDefaultsQuery } from "@/pages/products/tracking/useTrackingDefaultsQuery";
@@ -94,34 +93,43 @@ export default function ProductsDashboard() {
       displayPreferences,
     });
 
-  const {
-    detailProduct,
-    setDetailProduct,
-    openProductDetails,
-    closeProductDetails,
-  } = useProductDetailState();
-  const {
-    renameProduct,
-    setRenameProduct,
-    openRenameProduct,
-    closeRenameProduct,
-  } = useProductRenameState();
-  const {
-    barcodeProduct,
-    setBarcodeProduct,
-    openBarcodeManager,
-    closeBarcodeManager,
-  } = useProductBarcodeState();
-  const {
-    lifecycleProduct,
-    openLifecycleManager,
-    closeLifecycleManager,
-  } = useProductLifecycleState();
-  const {
-    familiesOpen,
-    openFamilies,
-    closeFamilies,
-  } = useProductFamiliesState();
+  const onProductChanged =
+    async () => {
+      await queryClient.invalidateQueries(
+        {
+          queryKey: [
+            "simple-products",
+          ],
+        }
+      );
+    };
+
+  const renameWorkflow =
+    useProductRenameWorkflow({
+      companyId,
+      driverId,
+    });
+
+  const barcodeWorkflow =
+    useProductBarcodeWorkflow({
+      companyId,
+      driverId,
+      onChanged:
+        onProductChanged,
+    });
+
+  const lifecycleWorkflow =
+    useProductLifecycleWorkflow({
+      onChanged:
+        onProductChanged,
+    });
+
+  const familiesWorkflow =
+    useProductFamiliesWorkflow({
+      companyId,
+      driverId,
+    });
+
   const trackingDefaultsQuery =
     useTrackingDefaultsQuery({
       companyId,
@@ -188,6 +196,30 @@ export default function ProductsDashboard() {
         importWorkflow.trackingMutationScope,
     });
 
+  const detailWorkflow =
+    useProductDetailWorkflow({
+      pricingVisible:
+        listWorkflow.pricingVisible,
+      canEditPrice:
+        canEditSimplePrice,
+      canManageCatalog,
+      canManageLifecycle,
+      detailSections:
+        displayPreferences
+          .detailSections,
+      openRenameProduct:
+        renameWorkflow.openRenameProduct,
+      openPriceEditor:
+        priceWorkflow.openPriceEditor,
+      openTrackingEditor:
+        trackingWorkflow.openTrackingEditor,
+      openLifecycleManager:
+        lifecycleWorkflow.openLifecycleManager,
+      openBarcodeManager:
+        barcodeWorkflow.openBarcodeManager,
+      navigate,
+    });
+
   useProductsIdentityScopeReset({
     companyId,
     driverId,
@@ -197,9 +229,9 @@ export default function ProductsDashboard() {
       setDisplayPreferences,
     },
     targets: {
-      setDetailProduct,
-      setRenameProduct,
-      setBarcodeProduct,
+      ...detailWorkflow.identityScope,
+      ...renameWorkflow.identityScope,
+      ...barcodeWorkflow.identityScope,
     },
     pricing:
       priceWorkflow.identityScope,
@@ -209,25 +241,6 @@ export default function ProductsDashboard() {
       createWorkflow.identityScope,
     tracking:
       trackingWorkflow.identityScope,
-  });
-
-  const {
-    renameProductFromDetails,
-    editPriceFromDetails,
-    editTrackingFromDetails,
-    manageLifecycleFromDetails,
-    manageBarcodesFromDetails,
-    manageAdvancedUomFromDetails,
-  } = createProductDetailActions({
-    closeProductDetails,
-    openRenameProduct,
-    openPriceEditor:
-      priceWorkflow.openPriceEditor,
-    openTrackingEditor:
-      trackingWorkflow.openTrackingEditor,
-    openLifecycleManager,
-    openBarcodeManager,
-    navigate,
   });
 
   const {
@@ -283,7 +296,7 @@ export default function ProductsDashboard() {
           )
         }
         onOpenFamilies={
-          openFamilies
+          familiesWorkflow.openFamilies
         }
         onOpenCreateProduct={
           createWorkflow.openCreateProduct
@@ -309,7 +322,7 @@ export default function ProductsDashboard() {
           canEditTracking:
             canManageCatalog,
           onOpenDetails:
-            openProductDetails,
+            detailWorkflow.openProductDetails,
           onEditPrice:
             priceWorkflow.openPriceEditor,
           onEditTracking:
@@ -334,97 +347,19 @@ export default function ProductsDashboard() {
       />
 
       <ProductDetailDrawer
-        product={detailProduct}
-        pricingVisible={listWorkflow.pricingVisible}
-        canEditPrice={
-          canEditSimplePrice
-        }
-        canRenameProduct={
-          canManageCatalog
-        }
-        canEditTracking={
-          canManageCatalog
-        }
-        canManageBarcodes={
-          canManageCatalog
-        }
-        canManageLifecycle={
-          canManageLifecycle
-        }
-        canManageAdvancedUom={
-          canManageCatalog
-        }
-        detailSections={
-          displayPreferences
-            .detailSections
-        }
-        onClose={
-          closeProductDetails
-        }
-        onRenameProduct={
-          renameProductFromDetails
-        }
-        onEditPrice={
-          editPriceFromDetails
-        }
-        onEditTracking={
-          editTrackingFromDetails
-        }
-        onManageLifecycle={
-          manageLifecycleFromDetails
-        }
-        onManageBarcodes={
-          manageBarcodesFromDetails
-        }
-        onManageAdvancedUom={
-          manageAdvancedUomFromDetails
-        }
+        {...detailWorkflow.drawerProps}
       />
 
       <ProductRenameDialog
-        product={renameProduct}
-        companyId={companyId}
-        driverId={driverId}
-        onClose={
-          closeRenameProduct
-        }
-        onRenamed={
-          closeRenameProduct
-        }
+        {...renameWorkflow.dialogProps}
       />
 
       <ProductLifecycleManager
-        product={lifecycleProduct}
-        onClose={
-          closeLifecycleManager
-        }
-        onChanged={async () => {
-          await queryClient.invalidateQueries(
-            {
-              queryKey: [
-                "simple-products",
-              ],
-            }
-          );
-        }}
+        {...lifecycleWorkflow.managerProps}
       />
 
       <ProductBarcodeManager
-        product={barcodeProduct}
-        companyId={companyId}
-        driverId={driverId}
-        onClose={
-          closeBarcodeManager
-        }
-        onChanged={async () => {
-          await queryClient.invalidateQueries(
-            {
-              queryKey: [
-                "simple-products",
-              ],
-            }
-          );
-        }}
+        {...barcodeWorkflow.managerProps}
       />
 
       <ProductTrackingOverlays
@@ -440,12 +375,7 @@ export default function ProductsDashboard() {
       />
 
       <ProductFamiliesManager
-        isOpen={familiesOpen}
-        companyId={companyId}
-        driverId={driverId}
-        onClose={
-          closeFamilies
-        }
+        {...familiesWorkflow.managerProps}
       />
 
       <ImportProductModal
