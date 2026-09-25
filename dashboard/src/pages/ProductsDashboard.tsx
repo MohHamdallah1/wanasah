@@ -65,6 +65,8 @@ import { useImportTrackingDefaultsSync } from "@/pages/products/import/useImport
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
+import { createProductsListActions } from "@/pages/products/list/createProductsListActions";
+import { deriveProductsListViewState } from "@/pages/products/list/deriveProductsListViewState";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
 import { usePriceEditMutation } from "@/pages/products/pricing/usePriceEditMutation";
 import { usePriceEditState } from "@/pages/products/pricing/usePriceEditState";
@@ -536,64 +538,65 @@ export default function ProductsDashboard() {
   const packageUoms =
     packageUomsQuery.data
       ?.items ?? [];
-  const pricingVisible =
-    Boolean(
-      page?.pricing_visible &&
-        canViewPricing
-    );
-  const visibleColumns =
-    displayPreferences.columns;
-  const productTableColumnCount =
-    2 +
-    Number(
-      visibleColumns.package
-    ) +
-    Number(
-      visibleColumns.unitsPerPackage
-    ) +
-    Number(
-      visibleColumns.tracking
-    ) +
-    Number(
-      visibleColumns.lifecycle
-    ) +
-    Number(
-      visibleColumns.unitBarcode
-    ) +
-    Number(
-      visibleColumns.packageBarcode
-    ) +
-    Number(
-      pricingVisible &&
-        visibleColumns.packagePrice
-    ) +
-    Number(
-      pricingVisible &&
-        visibleColumns.unitPrice
-    );
-  const tableHeaderSpacing =
-    displayPreferences.density ===
-    "compact"
-      ? "px-4 py-2"
-      : "px-5 py-3";
-  const hasProductListControls =
-    Boolean(
-      familyFilterId ||
-        lifecycleFilter ||
-        trackingTypeFilter ||
-        compatibilityFilter ||
-        barcodeFilter ||
-        (canViewPricing &&
-          priceFilter) ||
-        lotFilter ||
-        expiryFilter ||
-        sortBy !==
-          displayPreferences.defaultSort
-            .field ||
-        sortDir !==
-          displayPreferences.defaultSort
-            .direction
-    );
+  const {
+    pricingVisible,
+    visibleColumns,
+    productTableColumnCount,
+    tableHeaderSpacing,
+    hasProductListControls,
+  } = deriveProductsListViewState({
+    page,
+    canViewPricing,
+    displayPreferences,
+    familyFilterId,
+    lifecycleFilter,
+    trackingTypeFilter,
+    compatibilityFilter,
+    barcodeFilter,
+    priceFilter,
+    lotFilter,
+    expiryFilter,
+    sortBy,
+    sortDir,
+  });
+
+  const {
+    toggleFilters,
+    clearControls,
+    selectFamily,
+    updateLifecycleFilter,
+    updateTrackingTypeFilter,
+    updateCompatibilityFilter,
+    updateBarcodeFilter,
+    updatePriceFilter,
+    updateLotFilter,
+    updateExpiryFilter,
+    updateSortBy,
+    updateSortDir,
+    goPrevious,
+    goNext,
+  } = createProductsListActions({
+    familyFilterOptions,
+    displayPreferences,
+    cursor,
+    history,
+    setFiltersOpen,
+    setFamilyFilterId,
+    setFamilyFilterName,
+    setFamilyFilterSearchInput,
+    setLifecycleFilter,
+    setTrackingTypeFilter,
+    setCompatibilityFilter,
+    setBarcodeFilter,
+    setPriceFilter,
+    setLotFilter,
+    setExpiryFilter,
+    setSortBy,
+    setSortDir,
+    setCursor,
+    setHistory,
+    resetProductPagination,
+  });
 
   const {
     draftDerived,
@@ -1024,33 +1027,12 @@ export default function ProductsDashboard() {
             onSearchInputChange={
               setSearchInput
             }
-            onToggleFilters={() =>
-              setFiltersOpen(
-                (current) =>
-                  !current
-              )
+            onToggleFilters={
+              toggleFilters
             }
-            onClearControls={() => {
-              setFamilyFilterId("");
-              setFamilyFilterName("");
-              setFamilyFilterSearchInput("");
-              setLifecycleFilter("");
-              setTrackingTypeFilter("");
-              setCompatibilityFilter("");
-              setBarcodeFilter("");
-              setPriceFilter("");
-              setLotFilter("");
-              setExpiryFilter("");
-              setSortBy(
-                displayPreferences
-                  .defaultSort.field
-              );
-              setSortDir(
-                displayPreferences
-                  .defaultSort.direction
-              );
-              resetProductPagination();
-            }}
+            onClearControls={
+              clearControls
+            }
           />
 
           {filtersOpen ? (
@@ -1097,88 +1079,39 @@ export default function ProductsDashboard() {
               onFamilySearchInputChange={
                 setFamilyFilterSearchInput
               }
-              onFamilyFilterChange={(
-                nextId
-              ) => {
-                const selected =
-                  familyFilterOptions.find(
-                    (item) =>
-                      String(item.id) ===
-                      nextId
-                  );
-                setFamilyFilterId(
-                  nextId
-                );
-                setFamilyFilterName(
-                  selected?.name ?? ""
-                );
-                resetProductPagination();
-              }}
+              onFamilyFilterChange={
+                selectFamily
+              }
               onRetryFamilyOptions={() =>
                 void familyFilterOptionsQuery.refetch()
               }
-              onLifecycleFilterChange={(
-                value
-              ) => {
-                setLifecycleFilter(
-                  value
-                );
-                resetProductPagination();
-              }}
-              onTrackingTypeFilterChange={(
-                value
-              ) => {
-                setTrackingTypeFilter(
-                  value
-                );
-                resetProductPagination();
-              }}
-              onCompatibilityFilterChange={(
-                value
-              ) => {
-                setCompatibilityFilter(
-                  value
-                );
-                resetProductPagination();
-              }}
-              onBarcodeFilterChange={(
-                value
-              ) => {
-                setBarcodeFilter(
-                  value
-                );
-                resetProductPagination();
-              }}
-              onPriceFilterChange={(
-                value
-              ) => {
-                setPriceFilter(value);
-                resetProductPagination();
-              }}
-              onLotFilterChange={(
-                value
-              ) => {
-                setLotFilter(value);
-                resetProductPagination();
-              }}
-              onExpiryFilterChange={(
-                value
-              ) => {
-                setExpiryFilter(value);
-                resetProductPagination();
-              }}
-              onSortByChange={(
-                value
-              ) => {
-                setSortBy(value);
-                resetProductPagination();
-              }}
-              onSortDirChange={(
-                value
-              ) => {
-                setSortDir(value);
-                resetProductPagination();
-              }}
+              onLifecycleFilterChange={
+                updateLifecycleFilter
+              }
+              onTrackingTypeFilterChange={
+                updateTrackingTypeFilter
+              }
+              onCompatibilityFilterChange={
+                updateCompatibilityFilter
+              }
+              onBarcodeFilterChange={
+                updateBarcodeFilter
+              }
+              onPriceFilterChange={
+                updatePriceFilter
+              }
+              onLotFilterChange={
+                updateLotFilter
+              }
+              onExpiryFilterChange={
+                updateExpiryFilter
+              }
+              onSortByChange={
+                updateSortBy
+              }
+              onSortDirChange={
+                updateSortDir
+              }
             />
           ) : null}
         </div>
@@ -1239,37 +1172,15 @@ export default function ProductsDashboard() {
           onEditTracking={
             openTrackingEditor
           }
-          onPrevious={() => {
-            const previous =
-              history.at(-1) ??
-              null;
-            setHistory(
-              (current) =>
-                current.slice(
-                  0,
-                  -1
-                )
-            );
-            setCursor(
-              previous
-            );
-          }}
-          onNext={() => {
-            if (
-              !page?.next_cursor
-            ) {
-              return;
-            }
-            setHistory(
-              (current) => [
-                ...current,
-                cursor,
-              ]
-            );
-            setCursor(
-              page.next_cursor
-            );
-          }}
+          onPrevious={
+            goPrevious
+          }
+          onNext={() =>
+            goNext(
+              page?.next_cursor ??
+                null
+            )
+          }
         />
       </section>
 
