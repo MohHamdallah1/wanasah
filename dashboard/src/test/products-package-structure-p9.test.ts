@@ -140,7 +140,7 @@ describe("Products P9 package and unit structure", () => {
     );
 
     expect(mutation).toContain(
-      'authFetch( "/simple-products/"',
+      'authFetch( "/simple-products"',
     );
     expect(mutation).toContain(
       "package_uom_code:",
