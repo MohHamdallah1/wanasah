@@ -393,7 +393,7 @@ describe(
         "src/pages/products/ProductDetailDrawer.tsx",
       );
       const editor = read(
-        "src/pages/products/ProductDisplayPreferences.tsx",
+        "src/pages/products/display-preferences/ProductDisplayPreferencesModal.tsx",
       );
 
       expect(storage).toContain(
