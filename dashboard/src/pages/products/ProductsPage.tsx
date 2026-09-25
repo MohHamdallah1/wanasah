@@ -16,7 +16,9 @@ import { ProductDisplayPreferencesModal } from "@/pages/products/display-prefere
 import { createProductDisplayPreferenceActions } from "@/pages/products/display-preferences/createProductDisplayPreferenceActions";
 import { useProductDisplayPreferencesState } from "@/pages/products/display-preferences/useProductDisplayPreferencesState";
 import { ProductFamiliesManager } from "@/pages/products/family/ProductFamiliesManager";
+import { ProductFamilyReassignDialog } from "@/pages/products/family/ProductFamilyReassignDialog";
 import { useProductFamiliesWorkflow } from "@/pages/products/family/useProductFamiliesWorkflow";
+import { useProductFamilyReassignWorkflow } from "@/pages/products/family/useProductFamilyReassignWorkflow";
 import { ProductLifecycleManager } from "@/pages/products/lifecycle/ProductLifecycleManager";
 import { useProductLifecycleWorkflow } from "@/pages/products/lifecycle/useProductLifecycleWorkflow";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
@@ -130,6 +132,12 @@ export default function ProductsPage() {
       driverId,
     });
 
+  const familyReassignWorkflow =
+    useProductFamilyReassignWorkflow({
+      companyId,
+      driverId,
+    });
+
   const trackingDefaultsQuery =
     useTrackingDefaultsQuery({
       companyId,
@@ -209,6 +217,8 @@ export default function ProductsPage() {
           .detailSections,
       openRenameProduct:
         renameWorkflow.openRenameProduct,
+      openFamilyReassign:
+        familyReassignWorkflow.openFamilyReassign,
       openPriceEditor:
         priceWorkflow.openPriceEditor,
       openTrackingEditor:
@@ -232,6 +242,7 @@ export default function ProductsPage() {
       ...detailWorkflow.identityScope,
       ...renameWorkflow.identityScope,
       ...barcodeWorkflow.identityScope,
+      ...familyReassignWorkflow.identityScope,
     },
     pricing:
       priceWorkflow.identityScope,
@@ -352,6 +363,10 @@ export default function ProductsPage() {
 
       <ProductRenameDialog
         {...renameWorkflow.dialogProps}
+      />
+
+      <ProductFamilyReassignDialog
+        {...familyReassignWorkflow.dialogProps}
       />
 
       <ProductLifecycleManager
