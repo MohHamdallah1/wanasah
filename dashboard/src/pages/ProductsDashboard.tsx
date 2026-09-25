@@ -81,6 +81,8 @@ import { useImportSessionResume } from "@/pages/products/import/useImportSession
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
+import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
+import type { PriceFieldError } from "@/pages/products/pricing/types";
 import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
 import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
 import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
@@ -93,11 +95,6 @@ type MutationResult<T> = {
   result: T;
   requestId: string;
   scope: string;
-};
-
-type PriceFieldError = {
-  field: "packagePrice" | "unitPrice";
-  message: string;
 };
 
 export default function ProductsDashboard() {
@@ -2174,9 +2171,29 @@ export default function ProductsDashboard() {
         }
       />
 
-      <Modal
-        isOpen={
-          priceEdit !== null
+      <PriceEditModal
+        product={priceEdit}
+        saving={
+          priceMutation.isPending
+        }
+        online={isOnline}
+        packagePrice={
+          editPackagePrice
+        }
+        unitPrice={
+          editUnitPrice
+        }
+        fieldError={
+          priceFieldError
+        }
+        independentPrices={Boolean(
+          editDerived?.independent
+        )}
+        packagePriceRef={
+          editPackagePriceRef
+        }
+        unitPriceRef={
+          editUnitPriceRef
         }
         onClose={() => {
           if (
@@ -2188,162 +2205,39 @@ export default function ProductsDashboard() {
             setPriceFieldError(null);
           }
         }}
-        title={`${t(
-          "products.editPrice"
-        )} — ${priceEdit?.name ?? ""}`}
-        maxWidth="max-w-xl"
-        footer={
-          <>
-            <button
-              type="button"
-              disabled={
-                priceMutation.isPending
-              }
-              onClick={() =>
-                setPriceEdit(
-                  null
-                )
-              }
-              className="px-4 py-2 text-sm font-bold text-slate-600"
-            >
-              {t(
-                "common.cancel"
-              )}
-            </button>
-            <button
-              type="button"
-              disabled={
-                priceMutation.isPending ||
-                !isOnline
-              }
-              onClick={submitPriceEdit}
-              className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-50"
-            >
-              {t(
-                "products.savePrice"
-              )}
-            </button>
-          </>
+        onCancel={() =>
+          setPriceEdit(
+            null
+          )
         }
-      >
-        <div className="space-y-4">
-          <p className="rounded-2xl bg-sky-50 p-3 text-xs font-bold leading-6 text-sky-900">
-            {t(
-              "products.priceHelp"
-            )}
-          </p>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {priceEdit?.package_uom_code ? (
-              <label className="text-xs font-black text-slate-600">
-                {t(
-                  "products.packagePrice"
-                )}
-                <input
-                  ref={editPackagePriceRef}
-                  inputMode="decimal"
-                  value={
-                    editPackagePrice
-                  }
-                  onChange={(
-                    event
-                  ) => {
-                    setEditPackagePrice(
-                      event.target.value
-                    );
-                    if (
-                      priceFieldError?.field ===
-                      "packagePrice"
-                    ) {
-                      setPriceFieldError(null);
-                    }
-                  }}
-                  aria-invalid={
-                    priceFieldError?.field ===
-                    "packagePrice"
-                      ? "true"
-                      : undefined
-                  }
-                  aria-describedby={
-                    priceFieldError?.field ===
-                    "packagePrice"
-                      ? "edit-package-price-error"
-                      : undefined
-                  }
-                  className="mt-1.5 w-full rounded-xl border p-2.5 font-black"
-                />
-                {priceFieldError?.field ===
-                "packagePrice" ? (
-                  <span
-                    id="edit-package-price-error"
-                    role="alert"
-                    className="mt-1 block text-[11px] font-bold text-rose-700"
-                  >
-                    {priceFieldError.message}
-                  </span>
-                ) : null}
-              </label>
-            ) : null}
-
-            <label className="text-xs font-black text-slate-600">
-              {t(
-                "products.unitPrice"
-              )}
-              <input
-                ref={editUnitPriceRef}
-                inputMode="decimal"
-                value={
-                  editUnitPrice
-                }
-                onChange={(
-                  event
-                ) => {
-                  setEditUnitPrice(
-                    event.target.value
-                  );
-                  if (
-                    priceFieldError?.field ===
-                    "unitPrice"
-                  ) {
-                    setPriceFieldError(null);
-                  }
-                }}
-                aria-invalid={
-                  priceFieldError?.field ===
-                  "unitPrice"
-                    ? "true"
-                    : undefined
-                }
-                aria-describedby={
-                  priceFieldError?.field ===
-                  "unitPrice"
-                    ? "edit-unit-price-error"
-                    : undefined
-                }
-                className="mt-1.5 w-full rounded-xl border p-2.5 font-black"
-              />
-              {priceFieldError?.field ===
-              "unitPrice" ? (
-                <span
-                  id="edit-unit-price-error"
-                  role="alert"
-                  className="mt-1 block text-[11px] font-bold text-rose-700"
-                >
-                  {priceFieldError.message}
-                </span>
-              ) : null}
-            </label>
-          </div>
-
-          {editDerived?.independent ? (
-            <p className="text-xs font-bold text-slate-500">
-              {t(
-                "products.independentPrices"
-              )}
-            </p>
-          ) : null}
-        </div>
-      </Modal>
+        onSubmit={submitPriceEdit}
+        onPackagePriceChange={(
+          value
+        ) => {
+          setEditPackagePrice(
+            value
+          );
+          if (
+            priceFieldError?.field ===
+            "packagePrice"
+          ) {
+            setPriceFieldError(null);
+          }
+        }}
+        onUnitPriceChange={(
+          value
+        ) => {
+          setEditUnitPrice(
+            value
+          );
+          if (
+            priceFieldError?.field ===
+            "unitPrice"
+          ) {
+            setPriceFieldError(null);
+          }
+        }}
+      />
 
       <ProductFamiliesManager
         isOpen={familiesOpen}
