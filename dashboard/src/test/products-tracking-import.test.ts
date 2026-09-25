@@ -12,25 +12,25 @@ describe("product import tracking workflow", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const importUpload = normalizeWhitespace(
+      readSource("../pages/products/import/useImportProductUpload.ts"),
+    );
 
     expect(page).toContain(
       '"/simple-products/tracking/defaults"',
     );
-    expect(page).toContain(
+    expect(importUpload).toContain(
       'form.append( "default_lot_control_mode", importLotControlMode );',
     );
-    expect(page).toContain(
+    expect(importUpload).toContain(
       'form.append( "default_expiry_control_mode", importExpiryControlMode );',
     );
-    expect(page).toContain(
+    expect(importUpload).toContain(
       '${fingerprint}:${importLotControlMode}:${importExpiryControlMode}',
     );
   });
 
   it("supports optional per-row tracking overrides in mapping and template", () => {
-    const page = normalizeWhitespace(
-      readSource("../pages/ProductsDashboard.tsx"),
-    );
     const importModal = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductModal.tsx"),
     );
