@@ -91,13 +91,13 @@ describe("Products P3 detail foundation", () => {
     );
 
     expect(page).toContain(
-      "onOpenDetails={ openProductDetails }",
+      "onOpenDetails: openProductDetails",
     );
     expect(page).toContain(
-      "canEditTracking={ canManageCatalog }",
+      "canEditTracking: canManageCatalog",
     );
     expect(page).toContain(
-      "canEditPrice={ canEditSimplePrice }",
+      "canEditPrice: canEditSimplePrice",
     );
     expect(row).toContain(
       '"products.details.open"',
@@ -163,10 +163,10 @@ describe("Products P3 detail foundation", () => {
     );
 
     expect(page).toContain(
-      "isError={ productsQuery.isError }",
+      "isError: productsQuery.isError",
     );
     expect(page).toContain(
-      "items={ page?.items ?? [] }",
+      "items: page?.items ?? []",
     );
     expect(page).toContain(
       "void productsQuery.refetch()",
