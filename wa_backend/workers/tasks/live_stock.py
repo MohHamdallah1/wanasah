@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from database import AsyncSessionLocal
 from domains.live_stock_projection.service import (
     mark_live_stock_projection_degraded,
     reconcile_live_stock_company,
     refresh_due_live_stock_transitions,
 )
-from models import Company, InventoryLiveStockCompanySummary
+from models import InventoryLiveStockCompanySummary
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
 from workers.scheduling import (
