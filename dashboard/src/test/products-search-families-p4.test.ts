@@ -152,6 +152,11 @@ describe(
           "../pages/products/list/useProductsListQueries.ts",
         ),
       );
+      const listActions = compact(
+        readSource(
+          "../pages/products/list/createProductsListActions.ts",
+        ),
+      );
       const translations =
         readSource(
           "../i18n/resources.ts",
@@ -200,7 +205,7 @@ describe(
         "const resetProductPagination = () => { setCursor(null); setHistory([]); };",
       );
       expect(
-        page.match(
+        listActions.match(
           /resetProductPagination\(\)/g,
         )?.length ?? 0,
       ).toBeGreaterThanOrEqual(10);
