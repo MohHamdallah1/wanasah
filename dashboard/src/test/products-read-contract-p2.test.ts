@@ -322,7 +322,7 @@ describe("products P2 read contract", () => {
   it("keeps dashboard caches tenant scoped and pricing UI permission aware", () => {
     const page = normalizeWhitespace(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const row = normalizeWhitespace(
