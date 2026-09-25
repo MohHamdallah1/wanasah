@@ -9,6 +9,7 @@ from database import AsyncSessionLocal
 from models import Company, Driver, SystemAuditLog, WorkSession
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_events
+from workers.scheduling import defer_unique_company_job
 from workers.settings import load_session_monitor_settings
 from workers.tenant import acquire_tenant_job_lock, tenant_session
 
@@ -42,15 +43,22 @@ async def scan_all_stale_sessions(
             await db.rollback()
 
     deferred = 0
+    skipped_duplicate = 0
     for company_id in company_ids:
-        await scan_company_stale_sessions.configure(
-            lock=f"stale-session-company:{int(company_id)}",
-        ).defer_async(company_id=int(company_id))
-        deferred += 1
+        accepted = await defer_unique_company_job(
+            scan_company_stale_sessions,
+            lock_namespace="stale-session-company",
+            company_id=int(company_id),
+        )
+        if accepted:
+            deferred += 1
+        else:
+            skipped_duplicate += 1
 
     return {
         "companies_seen": len(company_ids),
         "company_jobs_deferred": deferred,
+        "company_jobs_skipped_duplicate": skipped_duplicate,
     }
 
 
