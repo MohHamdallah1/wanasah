@@ -48,7 +48,7 @@ describe("product import tracking workflow", () => {
 
   it("keeps import tracking compact by default and makes per-import overrides explicit", () => {
     const page = normalizeWhitespace(
-      readSource("../pages/ProductsDashboard.tsx"),
+      readSource("../pages/products/ProductsPage.tsx"),
     );
     const importModal = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductModal.tsx"),
@@ -90,7 +90,7 @@ describe("product import tracking workflow", () => {
 
   it("uses localized tracking values in the downloadable template and guidance", () => {
     const page = normalizeWhitespace(
-      readSource("../pages/ProductsDashboard.tsx"),
+      readSource("../pages/products/ProductsPage.tsx"),
     );
     const importModal = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductModal.tsx"),
