@@ -193,6 +193,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/deriveProductsCapabilities.ts",
       ),
     );
+    const header = compact(
+      readSource(
+        "../pages/products/ProductsPageHeader.tsx",
+      ),
+    );
 
     expect(capabilities).toContain(
       "const canCreateSimpleProduct =",
@@ -207,9 +212,15 @@ describe("Products P3 detail foundation", () => {
       "canEditSimplePrice: canManagePricing",
     );
     expect(page).toContain(
-      "{canManageFamilies ? (",
+      "canManageFamilies={ canManageFamilies }",
     );
     expect(page).toContain(
+      "canImportProducts={ canImportProducts }",
+    );
+    expect(header).toContain(
+      "{canManageFamilies ? (",
+    );
+    expect(header).toContain(
       "{canImportProducts ? (",
     );
     expect(page).not.toContain(
