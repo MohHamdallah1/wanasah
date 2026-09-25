@@ -145,7 +145,7 @@ describe(
         "src/components/ui/modal.tsx",
       );
       const drawer = read(
-        "src/pages/products/ProductDetailDrawer.tsx",
+        "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
       const listToolbar = read(
         "src/pages/products/list/ProductsListToolbar.tsx",
@@ -154,10 +154,10 @@ describe(
         "src/pages/products/list/ProductsListResults.tsx",
       );
       const families = read(
-        "src/pages/products/ProductFamiliesManager.tsx",
+        "src/pages/products/family/ProductFamiliesManager.tsx",
       );
       const advancedUom = read(
-        "src/pages/products/AdvancedUomDashboard.tsx",
+        "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
       );
       const css = read(
         "src/index.css",
@@ -217,10 +217,10 @@ describe(
         "src/pages/products/pricing/usePriceEditMutation.ts",
       );
       const families = read(
-        "src/pages/products/ProductFamiliesManager.tsx",
+        "src/pages/products/family/ProductFamiliesManager.tsx",
       );
       const advancedUom = read(
-        "src/pages/products/AdvancedUomDashboard.tsx",
+        "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
       );
 
       for (const id of [
@@ -291,16 +291,16 @@ describe(
 
     it("keeps Product status meaning available as text rather than color alone", () => {
       const row = read(
-        "src/pages/products/ProductTableRow.tsx",
+        "src/pages/products/list/ProductTableRow.tsx",
       );
       const drawer = read(
-        "src/pages/products/ProductDetailDrawer.tsx",
+        "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
       const barcodes = read(
-        "src/pages/products/ProductBarcodeManager.tsx",
+        "src/pages/products/barcode/ProductBarcodeManager.tsx",
       );
       const advancedUom = read(
-        "src/pages/products/AdvancedUomDashboard.tsx",
+        "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
       );
 
       expect(row).toContain(
