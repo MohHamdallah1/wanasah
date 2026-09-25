@@ -100,6 +100,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/create/useCreateProductMutation.ts",
       ),
     );
+    const priceMutation = compact(
+      readSource(
+        "../pages/products/pricing/usePriceEditMutation.ts",
+      ),
+    );
     const importUpload = compact(
       readSource(
         "../pages/products/import/useImportProductUpload.ts",
@@ -132,8 +137,20 @@ describe("Products P8 production frontend gate", () => {
     expect(createMutation).not.toContain(
       "crypto.randomUUID()",
     );
-    expect(page).toContain(
+    expect(priceMutation).toContain(
       "parseSimpleProductPriceMutationResponse( await authFetch(",
+    );
+    expect(priceMutation).toContain(
+      "getOrCreateDurableRequestId(",
+    );
+    expect(priceMutation).toContain(
+      "completeDurableOperation(",
+    );
+    expect(priceMutation).toContain(
+      '"product-price"',
+    );
+    expect(priceMutation).not.toContain(
+      "crypto.randomUUID()",
     );
     expect(importUpload).toContain(
       "parseProductImportAccepted( await authFetch(",
@@ -153,7 +170,7 @@ describe("Products P8 production frontend gate", () => {
     expect(importCommands).toContain(
       "parseProductImportCommandResponse( await authFetch(",
     );
-    expect(page).toContain(
+    expect(priceMutation).toContain(
       "result.product_variant_id !== priceEdit.id",
     );
     expect(importCommands).toContain(
