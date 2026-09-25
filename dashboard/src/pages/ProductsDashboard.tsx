@@ -73,6 +73,7 @@ import {
 } from "@/pages/products/create/useCreateProductState";
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
 import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
+import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
 import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
@@ -1320,145 +1321,19 @@ export default function ProductsDashboard() {
     t,
   });
 
-  useEffect(() => {
-    if (!importJobId) {
-      return;
-    }
-
-    let disposed = false;
-    let timer:
-      | number
-      | undefined;
-
-    const poll = async () => {
-      if (!navigator.onLine) {
-        timer =
-          window.setTimeout(
-            poll,
-            3000
-          );
-        return;
-      }
-
-      try {
-        const status =
-          parseProductImportState(
-            await authFetch(
-              `/simple-products/imports/${importJobId}`
-            )
-          );
-
-        if (disposed) {
-          return;
-        }
-
-        setImportPollError(null);
-        setImportStatus(
-          status
-        );
-        setImportLotControlMode(
-          status.default_lot_control_mode
-        );
-        setImportExpiryControlMode(
-          status.default_expiry_control_mode
-        );
-
-        if (
-          status.status ===
-          "NEEDS_MAPPING"
-        ) {
-          setMapping(
-            Object.keys(
-              status.column_mapping ||
-                {}
-            ).length
-              ? status.column_mapping
-              : status.suggested_mapping
-          );
-        }
-
-        if (
-          status.status ===
-          "COMPLETED"
-        ) {
-          toast.success(
-            t(
-              "products.importCompleted",
-              {
-                count:
-                  status.processed_rows,
-              }
-            )
-          );
-          await Promise.all([
-            queryClient.invalidateQueries(
-              {
-                queryKey: [
-                  "simple-products",
-                ],
-              }
-            ),
-            queryClient.invalidateQueries(
-              {
-                queryKey: [
-                  "simple-product-families",
-                ],
-              }
-            ),
-          ]);
-          return;
-        }
-
-        if (
-          !terminalImportStatuses.has(
-            status.status
-          )
-        ) {
-          timer =
-            window.setTimeout(
-              poll,
-              1500
-            );
-        }
-      } catch (error) {
-        if (!disposed) {
-          setImportPollError(
-            apiErrorMessage(
-              error,
-              t(
-                "products.errors.importStatusLoad"
-              )
-            )
-          );
-          timer =
-            window.setTimeout(
-              poll,
-              3000
-            );
-        }
-      }
-    };
-
-    void poll();
-
-    return () => {
-      disposed = true;
-      if (
-        timer !== undefined
-      ) {
-        window.clearTimeout(
-          timer
-        );
-      }
-    };
-  }, [
-    authFetch,
+  useImportProductPolling({
     importJobId,
     importPollKey,
+    authFetch,
     queryClient,
     t,
     isOnline,
-  ]);
+    setImportPollError,
+    setImportStatus,
+    setImportLotControlMode,
+    setImportExpiryControlMode,
+    setMapping,
+  });
 
   const chooseFile = (
     file: File | null
