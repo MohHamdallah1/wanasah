@@ -85,8 +85,10 @@ check(
     "development runbook documents required and optional worker roles",
 )
 check(
-    "Tenant-specific jobs" in runbook
-    and "never bypasses tenant RLS" in runbook,
+    "tenant_session(company_id)" in runbook
+    and "app.current_tenant" in runbook
+    and "RLS and explicit company/location predicates remain authoritative"
+    in runbook,
     "development runbook preserves the tenant isolation contract",
 )
 
