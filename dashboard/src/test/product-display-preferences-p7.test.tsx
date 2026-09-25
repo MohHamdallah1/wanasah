@@ -399,6 +399,11 @@ describe(
       const drawer = read(
         "src/pages/products/ProductDetailDrawer.tsx",
       );
+      const detailWorkflow = normalizeWhitespace(
+        read(
+          "src/pages/products/detail/useProductDetailWorkflow.ts",
+        ),
+      );
       const editor = read(
         "src/pages/products/display-preferences/ProductDisplayPreferencesModal.tsx",
       );
@@ -471,7 +476,13 @@ describe(
         "displayPreferences.defaultSort",
       );
       expect(page).toContain(
-        "detailSections={",
+        "detailSections:",
+      );
+      expect(page).toContain(
+        ".detailSections",
+      );
+      expect(detailWorkflow).toContain(
+        "detailSections,",
       );
 
       expect(drawer).toContain(
