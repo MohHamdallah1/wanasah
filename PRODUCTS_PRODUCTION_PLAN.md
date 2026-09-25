@@ -1495,7 +1495,21 @@ Current `ProductsDashboard.tsx` is a high-risk change surface because it combine
 
 **No split is authorized merely because the file is large. The split starts only after P9.0 establishes the behavioral baseline and the owner approves the extraction sequence.**
 
-- [ ] Approve the exact extraction sequence before touching runtime code.
+### Approved P9.2 extraction sequence — 2026-09-25
+
+The Products page will use the repository-wide vertical feature-slice rule in `ARCHITECTURE.md`. Structural checkpoints must preserve behavior exactly and may not introduce P9.1 functionality or visual redesign.
+
+1. Extract pure leaf/presentational page pieces first, leaving state, queries, mutations, durable commands, query keys, storage keys, and callbacks owned by the current route entry.
+2. Establish feature-owned folders for the major workflows as they are extracted: `list/`, `create/`, `import/`, `pricing/`, and later `family/`; existing page-owned barcode/tracking/lifecycle/display-preference/advanced-UOM boundaries remain intact until their own safe move is justified.
+3. Extract search/filter/sort/pagination presentation and then its state/query orchestration as a separate checkpoint.
+4. Extract Create Product presentation first, then its validation/draft/durable workflow owner without changing the create contract.
+5. Extract Import presentation first, then upload/mapping/poll/retry/resume orchestration while preserving request sequencing, abort/cancellation, durable identity, and pagination.
+6. Extract price-edit presentation first, then its exact-money derivation and mutation workflow while preserving pricing permissions and cache invalidation.
+7. Move only genuinely page-level composition state back into the thin route entry; do not create a replacement god hook/component.
+8. After every checkpoint run focused tests and TypeScript; after each completed workflow boundary run the relevant Product regression set; before closing P9.2 run full Dashboard tests/lint/build and the Product aggregate gate.
+9. Only after behavioral equivalence is proven, remove stale duplicate code and perform the final dependency/dead-code review.
+
+- [x] Approve the exact extraction sequence before touching runtime code.
 - [ ] Give Products its own clean page folder ownership under `dashboard/src/pages/products/`; the route entry becomes a thin composition/orchestration layer.
 - [ ] Separate by responsibility, not arbitrary line count.
 - [ ] Extract pure visual/leaf components first without moving state or network logic.
