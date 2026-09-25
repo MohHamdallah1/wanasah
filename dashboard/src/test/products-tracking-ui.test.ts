@@ -95,7 +95,7 @@ describe("products tracking UI contracts", () => {
 
   it("uses explicit tracking in create, company defaults, and per-product editing", () => {
     const page = normalizeWhitespace(
-      readSource("../pages/ProductsDashboard.tsx"),
+      readSource("../pages/products/ProductsPage.tsx"),
     );
     const listQueries = normalizeWhitespace(
       readSource("../pages/products/list/useProductsListQueries.ts"),
@@ -147,7 +147,7 @@ describe("products tracking UI contracts", () => {
 
   it("keeps quick create simple while preserving explicit per-product tracking overrides", () => {
     const page = normalizeWhitespace(
-      readSource("../pages/ProductsDashboard.tsx"),
+      readSource("../pages/products/ProductsPage.tsx"),
     );
     const createModal = normalizeWhitespace(
       readSource("../pages/products/create/CreateProductModal.tsx"),
@@ -208,7 +208,7 @@ describe("products tracking UI contracts", () => {
 
   it("keeps the touched tracking UI locale-driven", () => {
     const files = [
-      readSource("../pages/ProductsDashboard.tsx"),
+      readSource("../pages/products/ProductsPage.tsx"),
       readSource("../pages/products/create/CreateProductModal.tsx"),
       readSource("../pages/products/import/ImportProductModal.tsx"),
       readSource("../pages/products/ProductTrackingFields.tsx"),
@@ -224,7 +224,7 @@ describe("products tracking UI contracts", () => {
 
   it("keeps tracking management on catalog.manage instead of pricing permissions", () => {
     const page = normalizeWhitespace(
-      readSource("../pages/ProductsDashboard.tsx"),
+      readSource("../pages/products/ProductsPage.tsx"),
     );
     const capabilities = normalizeWhitespace(
       readSource("../pages/products/deriveProductsCapabilities.ts"),
