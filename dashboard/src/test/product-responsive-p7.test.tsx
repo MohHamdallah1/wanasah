@@ -248,6 +248,9 @@ describe(
         read(
           "src/pages/products/AdvancedUomDashboard.tsx",
         ),
+        read(
+          "src/pages/products/list/ProductsListResults.tsx",
+        ),
       ];
 
       for (const source of files) {
