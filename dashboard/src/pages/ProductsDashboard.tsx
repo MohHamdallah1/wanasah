@@ -73,6 +73,7 @@ import { useCreateProductMutation } from "@/pages/products/create/useCreateProdu
 import {
   useCreateProductState,
 } from "@/pages/products/create/useCreateProductState";
+import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
@@ -3024,8 +3025,46 @@ export default function ProductsDashboard() {
         }
       />
 
-      <Modal
-        isOpen={importOpen}
+      <ImportProductModal
+        open={importOpen}
+        importing={
+          importMutation.isPending
+        }
+        online={isOnline}
+        jobId={importJobId}
+        status={importStatus}
+        pollError={
+          importPollError
+        }
+        mapping={mapping}
+        progress={importProgress}
+        file={importFile}
+        dragging={dragging}
+        lotControlMode={
+          importLotControlMode
+        }
+        expiryControlMode={
+          importExpiryControlMode
+        }
+        trackingDefaultsLoading={
+          trackingDefaultsQuery.isLoading
+        }
+        trackingDefaultsError={
+          trackingDefaultsQuery.isError
+        }
+        trackingUsesCompanyDefaults={
+          importTrackingUsesCompanyDefaults
+        }
+        trackingExpanded={
+          importTrackingExpanded
+        }
+        mappingPending={
+          mappingMutation.isPending
+        }
+        retryPending={
+          retryImportMutation.isPending
+        }
+        fileRef={fileRef}
         onClose={() => {
           if (
             !importMutation.isPending
@@ -3038,629 +3077,90 @@ export default function ProductsDashboard() {
             );
           }
         }}
-        title={t(
-          "products.importTitle"
-        )}
-        maxWidth="max-w-2xl"
-      >
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-sky-50 p-3">
-            <p className="text-xs font-bold leading-6 text-sky-900">
-              {t(
-                "products.importIntro"
-              )}
-            </p>
-            <button
-              type="button"
-              onClick={
-                downloadTemplate
-              }
-              className="rounded-xl bg-white px-3 py-2 text-xs font-black text-sky-900 shadow-sm"
-            >
-              {t(
-                "products.downloadTemplate"
-              )}
-            </button>
-          </div>
-
-          {!importJobId ? (
-            <>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="mb-3">
-                  <h3 className="text-sm font-black text-slate-900">
-                    {t(
-                      "products.importTrackingTitle"
-                    )}
-                  </h3>
-                  <p className="mt-1 text-xs leading-6 text-slate-500">
-                    {t(
-                      "products.importTrackingHint"
-                    )}
-                  </p>
-                </div>
-
-                {trackingDefaultsQuery.isLoading ? (
-                  <div className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
-                    {t(
-                      "products.trackingDefaultsLoading"
-                    )}
-                  </div>
-                ) : trackingDefaultsQuery.isError ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-rose-50 p-3">
-                    <span className="text-xs font-bold text-rose-800">
-                      {t(
-                        "products.errors.trackingDefaultsLoad"
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void trackingDefaultsQuery.refetch()
-                      }
-                      className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
-                    >
-                      {t(
-                        "common.retry"
-                      )}
-                    </button>
-                  </div>
-                ) : importLotControlMode &&
-                  importExpiryControlMode ? (
-                  <div className="space-y-3">
-                    <div className="rounded-xl bg-slate-50 p-3">
-                      <p className="text-xs font-black leading-6 text-slate-800">
-                        {t(
-                          "products.importTrackingSummary",
-                          {
-                            lot: t(
-                              `products.tracking.lotModes.${importLotControlMode}`
-                            ),
-                            expiry: t(
-                              `products.tracking.expiryModes.${importExpiryControlMode}`
-                            ),
-                          }
-                        )}
-                      </p>
-                      <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
-                        {t(
-                          importTrackingUsesCompanyDefaults
-                            ? "products.importTrackingCompanyScope"
-                            : "products.importTrackingCustomScope"
-                        )}
-                      </p>
-                    </div>
-
-                    {!importTrackingExpanded ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setImportTrackingExpanded(
-                            true
-                          )
-                        }
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                      >
-                        {t(
-                          "products.importTrackingChange"
-                        )}
-                      </button>
-                    ) : (
-                      <div className="space-y-3">
-                        <ProductTrackingFields
-                          lotControlMode={
-                            importLotControlMode
-                          }
-                          expiryControlMode={
-                            importExpiryControlMode
-                          }
-                          onLotControlModeChange={
-                            setImportLotControlMode
-                          }
-                          onExpiryControlModeChange={
-                            setImportExpiryControlMode
-                          }
-                        />
-
-                        <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
-                          {t(
-                            "products.importTrackingOnlyThisImport"
-                          )}
-                        </p>
-
-                        {!importTrackingUsesCompanyDefaults ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const defaults =
-                                trackingDefaultsQuery.data;
-                              if (!defaults) {
-                                return;
-                              }
-                              setImportLotControlMode(
-                                defaults.lot_control_mode
-                              );
-                              setImportExpiryControlMode(
-                                defaults.expiry_control_mode
-                              );
-                              setImportTrackingExpanded(
-                                false
-                              );
-                            }}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                          >
-                            {t(
-                              "products.importTrackingReset"
-                            )}
-                          </button>
-                        ) : null}
-
-                        <p className="text-[11px] leading-5 text-slate-500">
-                          {t(
-                            "products.importTrackingOverrideHint"
-                          )}
-                        </p>
-                        <p className="text-[11px] leading-5 text-slate-500">
-                          {t(
-                            "products.importTrackingValueHint",
-                            {
-                              none: t(
-                                "products.tracking.importValues.NONE"
-                              ),
-                              optional: t(
-                                "products.tracking.importValues.OPTIONAL"
-                              ),
-                              required: t(
-                                "products.tracking.importValues.REQUIRED"
-                              ),
-                            }
-                          )}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={(
-                  event
-                ) =>
-                  chooseFile(
-                    event.target.files?.[0] ??
-                      null
-                  )
-                }
-              />
-
-              <button
-                type="button"
-                onClick={() =>
-                  fileRef.current?.click()
-                }
-                onDragEnter={(
-                  event
-                ) => {
-                  event.preventDefault();
-                  setDragging(
-                    true
-                  );
-                }}
-                onDragOver={(
-                  event
-                ) => {
-                  event.preventDefault();
-                  setDragging(
-                    true
-                  );
-                }}
-                onDragLeave={() =>
-                  setDragging(
-                    false
-                  )
-                }
-                onDrop={(
-                  event
-                ) => {
-                  event.preventDefault();
-                  setDragging(
-                    false
-                  );
-                  chooseFile(
-                    event.dataTransfer
-                      .files?.[0] ??
-                      null
-                  );
-                }}
-                className={`flex min-h-48 w-full flex-col items-center justify-center rounded-[24px] border border-dashed text-center transition ${
-                  dragging
-                    ? "border-slate-950 bg-slate-100"
-                    : "border-slate-300 bg-slate-50 hover:bg-white"
-                }`}
-              >
-                <Upload className="mb-3 h-8 w-8 text-slate-400" />
-                <strong className="text-sm text-slate-700">
-                  {importFile?.name ??
-                    t(
-                      "products.dropFile"
-                    )}
-                </strong>
-                <span className="mt-1 text-xs text-slate-400">
-                  {t(
-                    "products.importLimit"
-                  )}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                disabled={
-                  !importFile ||
-                  !importLotControlMode ||
-                  !importExpiryControlMode ||
-                  trackingDefaultsQuery.isLoading ||
-                  trackingDefaultsQuery.isError ||
-                  importMutation.isPending ||
-                  !isOnline
-                }
-                onClick={() =>
-                  importMutation.mutate()
-                }
-                className="w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-40"
-              >
-                {t(
-                  "products.uploadAndStart"
-                )}
-              </button>
-            </>
-          ) : null}
-
-          {importJobId &&
-          importPollError ? (
-            <div
-              role="alert"
-              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-rose-50 p-4"
-            >
-              <span className="text-xs font-bold leading-6 text-rose-800">
-                {importPollError}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setImportPollError(null);
-                  setImportPollKey(
-                    (current) =>
-                      current + 1
-                  );
-                }}
-                className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
-              >
-                {t(
-                  "common.retry"
-                )}
-              </button>
-            </div>
-          ) : null}
-
-          {importJobId &&
-          !importStatus ? (
-            <div className="rounded-2xl bg-slate-50 p-5 text-center text-sm font-black text-slate-600">
-              {t(
-                "products.queued"
-              )}
-            </div>
-          ) : null}
-
-          {importStatus?.status ===
-          "NEEDS_MAPPING" ? (
-            <div className="space-y-3">
-              <div className="rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-900">
-                {t(
-                  "products.mappingIntro"
-                )}
-              </div>
-
-              {importMappingFields.map(
-                (field) => (
-                  <label
-                    key={field}
-                    className="grid gap-2 text-xs font-black text-slate-600 sm:grid-cols-[180px_1fr] sm:items-center"
-                  >
-                    <span>
-                      {t(
-                        mappingLabelKey(
-                          field
-                        )
-                      )}
-                    </span>
-                    <select
-                      value={
-                        mapping[
-                          field
-                        ] ?? ""
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setMapping(
-                          (
-                            current
-                          ) => ({
-                            ...current,
-                            [field]:
-                              event
-                                .target
-                                .value,
-                          })
-                        )
-                      }
-                      className="rounded-xl border border-slate-200 bg-white p-2.5"
-                    >
-                      <option value="">
-                        {t(
-                          "products.unmapped"
-                        )}
-                      </option>
-                      {importStatus.detected_headers.map(
-                        (
-                          header
-                        ) => (
-                          <option
-                            key={
-                              header
-                            }
-                            value={
-                              header
-                            }
-                          >
-                            {
-                              header
-                            }
-                          </option>
-                        )
-                      )}
-                    </select>
-                  </label>
-                )
-              )}
-
-              <button
-                type="button"
-                disabled={
-                  mappingMutation.isPending ||
-                  !isOnline
-                }
-                onClick={() =>
-                  mappingMutation.mutate()
-                }
-                className="w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-40"
-              >
-                {t(
-                  "products.continueImport"
-                )}
-              </button>
-            </div>
-          ) : null}
-
-          {importStatus &&
-          ![
-            "NEEDS_MAPPING",
-            "VALIDATION_FAILED",
-            "FAILED",
-            "COMPLETED",
-          ].includes(
-            importStatus.status
-          ) ? (
-            <div className="rounded-[22px] border border-slate-200 p-4">
-              <div className="flex items-center justify-between text-xs font-black">
-                <span>
-                  {importStatus.status ===
-                  "IMPORTING"
-                    ? t(
-                        "products.importingProducts"
-                      )
-                    : t(
-                        "products.preparingImport"
-                      )}
-                </span>
-                <span>
-                  {
-                    importStatus.processed_rows
-                  }{" "}
-                  /{" "}
-                  {importStatus.valid_rows ||
-                    importStatus.total_rows}
-                </span>
-              </div>
-
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className="h-full rounded-full bg-slate-950 transition-all"
-                  style={{
-                    width: `${importProgress}%`,
-                  }}
-                />
-              </div>
-              <p className="mt-3 text-[11px] text-slate-500">
-                {t(
-                  "products.backgroundHint"
-                )}
-              </p>
-            </div>
-          ) : null}
-
-          {importStatus?.status ===
-          "VALIDATION_FAILED" ? (
-            <div className="space-y-3">
-              <div className="rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-6 text-rose-900">
-                {t(
-                  "products.validationFailed",
-                  {
-                    count:
-                      importStatus.failed_rows,
-                  }
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={!isOnline}
-                  onClick={() =>
-                    void downloadErrorReport()
-                  }
-                  className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800 disabled:opacity-40"
-                >
-                  {t(
-                    "products.downloadErrors"
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetImport}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-                >
-                  {t(
-                    "products.newImport"
-                  )}
-                </button>
-              </div>
-
-              <div className="max-h-64 overflow-auto rounded-xl border">
-                {importStatus.errors.map(
-                  (error) => {
-                    const key =
-                      error.code
-                        ? `errors.codes.${error.code}`
-                        : "";
-                    const message =
-                      key &&
-                      i18n.exists(
-                        key
-                      )
-                        ? t(key)
-                        : t(
-                            "network.serverError"
-                          );
-                    return (
-                      <div
-                        key={`${error.row_number}-${error.code}`}
-                        className="border-b p-3 text-xs last:border-b-0"
-                      >
-                        <strong>
-                          {t(
-                            "products.rowNumber",
-                            {
-                              row:
-                                error.row_number,
-                            }
-                          )}
-                        </strong>
-                        <span className="ms-2 text-rose-700">
-                          {
-                            message
-                          }
-                        </span>
-                      </div>
-                    );
-                  }
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          {importStatus?.status ===
-          "FAILED" ? (
-            <div className="space-y-3">
-              <div className="rounded-2xl bg-rose-50 p-4 text-xs font-bold leading-6 text-rose-900">
-                {t(
-                  "products.importFailed"
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-              {importStatus.error_summary
-                ?.retryable ===
-              true ? (
-                <button
-                  type="button"
-                  disabled={
-                    retryImportMutation.isPending ||
-                    !isOnline
-                  }
-                  onClick={() =>
-                    retryImportMutation.mutate()
-                  }
-                  className="w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-40"
-                >
-                  {t(
-                    "common.retry"
-                  )}
-                </button>
-              ) : null}
-                <button
-                  type="button"
-                  onClick={resetImport}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700"
-                >
-                  {t(
-                    "products.newImport"
-                  )}
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {importStatus?.status ===
-          "COMPLETED" ? (
-            <div className="rounded-2xl bg-emerald-50 p-5 text-center">
-              <strong className="text-sm text-emerald-900">
-                {t(
-                  "products.importCompleted",
-                  {
-                    count:
-                      importStatus.processed_rows,
-                  }
-                )}
-              </strong>
-              <button
-                type="button"
-                onClick={() => {
-                  setImportOpen(
-                    false
-                  );
-                  setImportFile(
-                    null
-                  );
-                  setImportJobId(
-                    null
-                  );
-                  setImportStatus(
-                    null
-                  );
-                  setMapping({});
-                  setImportTrackingExpanded(
-                    false
-                  );
-                  if (
-                    importSessionKey
-                  ) {
-                    sessionStorage.removeItem(
-                      importSessionKey
-                    );
-                  }
-                }}
-                className="mt-4 block w-full rounded-xl bg-emerald-900 px-4 py-2.5 text-xs font-black text-white"
-              >
-                {t(
-                  "common.close"
-                )}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </Modal>
+        onDownloadTemplate={
+          downloadTemplate
+        }
+        onRetryTrackingDefaults={() =>
+          void trackingDefaultsQuery.refetch()
+        }
+        onExpandTracking={() =>
+          setImportTrackingExpanded(
+            true
+          )
+        }
+        onLotControlModeChange={
+          setImportLotControlMode
+        }
+        onExpiryControlModeChange={
+          setImportExpiryControlMode
+        }
+        onResetTracking={() => {
+          const defaults =
+            trackingDefaultsQuery.data;
+          if (!defaults) {
+            return;
+          }
+          setImportLotControlMode(
+            defaults.lot_control_mode
+          );
+          setImportExpiryControlMode(
+            defaults.expiry_control_mode
+          );
+          setImportTrackingExpanded(
+            false
+          );
+        }}
+        onChooseFile={chooseFile}
+        onDraggingChange={
+          setDragging
+        }
+        onStartImport={() =>
+          importMutation.mutate()
+        }
+        onRetryPoll={() => {
+          setImportPollError(null);
+          setImportPollKey(
+            (current) =>
+              current + 1
+          );
+        }}
+        onMappingChange={(
+          field,
+          value
+        ) =>
+          setMapping(
+            (current) => ({
+              ...current,
+              [field]: value,
+            })
+          )
+        }
+        onSubmitMapping={() =>
+          mappingMutation.mutate()
+        }
+        onDownloadErrorReport={() =>
+          void downloadErrorReport()
+        }
+        onResetImport={resetImport}
+        onRetryImport={() =>
+          retryImportMutation.mutate()
+        }
+        onCompletedClose={() => {
+          setImportOpen(false);
+          setImportFile(null);
+          setImportJobId(null);
+          setImportStatus(null);
+          setMapping({});
+          setImportTrackingExpanded(
+            false
+          );
+          if (importSessionKey) {
+            sessionStorage.removeItem(
+              importSessionKey
+            );
+          }
+        }}
+      />
     </div>
   );
 }
