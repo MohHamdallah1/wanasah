@@ -211,9 +211,14 @@ export function useImportProductPolling({
     authFetch,
     importJobId,
     importPollKey,
-    queryClient,
-    t,
     isOnline,
+    queryClient,
+    setImportExpiryControlMode,
+    setImportLotControlMode,
+    setImportPollError,
+    setImportStatus,
+    setMapping,
+    t,
   ]);
 
   const retryPoll =
