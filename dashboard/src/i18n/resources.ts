@@ -236,10 +236,43 @@ export const resources = {
             saveFailed: "تعذر تحديث اسم المنتج.",
           },
         },
+        familyReassign: {
+          action: "نقل إلى عائلة أخرى",
+          title: "تغيير عائلة المنتج",
+          description:
+            "اختر عائلة موجودة لهذا المنتج. الخادم يسمح بالنقل فقط عندما تكون حالة المنتج مناسبة ولا يوجد سجل دفعات يمنع تغيير الهوية.",
+          current: "العائلة الحالية",
+          search: "البحث عن عائلة",
+          searchPlaceholder:
+            "اكتب اسم العائلة للعثور عليها",
+          target: "العائلة الجديدة",
+          targetPlaceholder: "اختر عائلة",
+          pendingTarget: "العائلة رقم {{id}}",
+          save: "حفظ العائلة",
+          retry: "إعادة إرسال نفس النقل",
+          saved: "تم تحديث عائلة المنتج.",
+          historyHint:
+            "لن يتم تجاوز التاريخ التشغيلي: إذا كان للمنتج سجل دفعات أو كانت حالته لا تسمح بالتغيير فسيمنع الخادم العملية.",
+          pendingRetry:
+            "نتيجة المحاولة السابقة غير مؤكدة. تم قفل الاختيار لحماية العملية؛ أعد إرسال نفس النقل.",
+          pendingBlocked:
+            "تعذر التحقق من عملية نقل العائلة المحفوظة. أوقفت التعديل لحماية البيانات من التكرار.",
+          errors: {
+            targetRequired: "اختر عائلة جديدة.",
+            unchanged: "العائلة المختارة هي العائلة الحالية.",
+            historyLocked:
+              "لا يمكن تغيير العائلة بعد وجود سجل دفعات لهذا المنتج.",
+            lifecycleLocked:
+              "حالة المنتج الحالية لا تسمح بتغيير العائلة.",
+            saveFailed: "تعذر تحديث عائلة المنتج.",
+          },
+        },
         details: {
           open: "عرض التفاصيل",
           title: "تفاصيل المنتج",
           identity: "هوية المنتج",
+          skuLockedPublished:
+            "رمز SKU مقفل بعد النشر. يمكن تعديله فقط عندما يكون المتغير بحالة مسودة (DRAFT) من إدارة الكتالوج المتقدمة.",
           lifecycle: "حالة المنتج",
           operationalHold:
             "الإيقاف التشغيلي",
@@ -1600,10 +1633,43 @@ export const resources = {
             saveFailed: "Could not update the product name.",
           },
         },
+        familyReassign: {
+          action: "Move to another family",
+          title: "Change product family",
+          description:
+            "Choose an existing family for this product. The server allows the move only when the product lifecycle permits it and no batch history locks the identity.",
+          current: "Current family",
+          search: "Search families",
+          searchPlaceholder:
+            "Type a family name to find it",
+          target: "New family",
+          targetPlaceholder: "Choose a family",
+          pendingTarget: "Family #{{id}}",
+          save: "Save family",
+          retry: "Retry the same move",
+          saved: "Product family updated.",
+          historyHint:
+            "Operational history is never bypassed: the server blocks this change when batch history exists or the current lifecycle does not allow it.",
+          pendingRetry:
+            "The previous result is uncertain. The family selection is locked for safety; retry the exact same move.",
+          pendingBlocked:
+            "The saved family move could not be verified. Editing is blocked to prevent duplicate or conflicting changes.",
+          errors: {
+            targetRequired: "Choose a new family.",
+            unchanged: "The selected family is already assigned.",
+            historyLocked:
+              "The family cannot be changed after batch history exists for this product.",
+            lifecycleLocked:
+              "The current product status does not allow a family change.",
+            saveFailed: "Could not update the product family.",
+          },
+        },
         details: {
           open: "View details",
           title: "Product details",
           identity: "Product identity",
+          skuLockedPublished:
+            "SKU is locked after publication. It can only be edited while the variant is in DRAFT through advanced catalog management.",
           lifecycle: "Product status",
           operationalHold:
             "Operational hold",
