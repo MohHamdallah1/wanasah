@@ -88,7 +88,7 @@ import {
   durableScope,
   getOrCreateDurableCommand,
 } from "../lib/durableOperations";
-import { ProductBarcodeManager } from "../pages/products/ProductBarcodeManager";
+import { ProductBarcodeManager } from "../pages/products/barcode/ProductBarcodeManager";
 import type {
   ProductBarcodeRecord,
   SimpleProduct,
