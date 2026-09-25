@@ -163,6 +163,12 @@ describe(
       const products = readSource(
         "../pages/products/ProductsPage.tsx",
       );
+      const createDerived = readSource(
+        "../pages/products/create/deriveCreateProductViewState.ts",
+      );
+      const createMutation = readSource(
+        "../pages/products/create/useCreateProductMutation.ts",
+      );
       const pricing = readSource(
         "../pages/PricingDashboard.tsx",
       );
@@ -170,7 +176,7 @@ describe(
         "../lib/localeNumbers.ts",
       );
 
-      expect(products).toContain(
+      expect(createDerived).toContain(
         "deriveExactMoneyPair(",
       );
       expect(products).not.toContain(
@@ -182,10 +188,10 @@ describe(
       expect(products).not.toContain(
         "Number(packageRaw)",
       );
-      expect(products).toContain(
+      expect(createMutation).toContain(
         "package_price.trim()",
       );
-      expect(products).toContain(
+      expect(createMutation).toContain(
         "unit_price.trim()",
       );
 
