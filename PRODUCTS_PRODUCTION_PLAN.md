@@ -1517,6 +1517,7 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 - [x] Extract search/filter/sort/pagination controls into their own page-owned boundary.
 - [x] Extract import workflow into its own page-owned boundary.
 - [x] Extract price-edit workflow into its own page-owned boundary.
+- [x] Extract display-preference modal/state/save ownership into `products/display-preferences/` with behavior parity preserved.
 - [ ] Keep family, barcode, tracking, lifecycle, display-preference, and advanced-unit flows page-owned and clearly separated.
 - [ ] Move queries/mutations/state into dedicated hooks/workflow owners only when doing so reduces coupling; never duplicate authority merely to reduce file size.
 - [ ] No single function or component may become a new "god function" that performs unrelated workflows.
