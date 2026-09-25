@@ -1077,6 +1077,7 @@ export default function ProductsDashboard() {
   const {
     createMutation,
     submitCreate,
+    cancelCreate,
   } = useCreateProductMutation({
     draft,
     familyOptions,
@@ -1084,6 +1085,8 @@ export default function ProductsDashboard() {
     operationScope,
     authFetch,
     draftStorageKey,
+    companyId,
+    driverId,
     setDraft,
     setCreateFieldError,
     setCreateTrackingExpanded,
@@ -1887,38 +1890,6 @@ export default function ProductsDashboard() {
       URL.revokeObjectURL(
         href
       );
-    };
-
-  const cancelCreate =
-    () => {
-      setCreateOpen(false);
-      setCreateFieldError(null);
-      setCreateTrackingExpanded(
-        false
-      );
-      setCreateAdvancedExpanded(
-        false
-      );
-      setDraft(emptyDraft);
-      if (
-        draftStorageKey
-      ) {
-        sessionStorage.removeItem(
-          draftStorageKey
-        );
-      }
-      if (
-        companyId &&
-        driverId
-      ) {
-        abandonDurableOperation(
-          durableScope(
-            companyId,
-            driverId,
-            "product-create"
-          )
-        );
-      }
     };
 
   const draftDerived =
