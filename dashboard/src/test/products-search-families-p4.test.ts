@@ -137,6 +137,11 @@ describe(
           "../pages/products/list/ProductsFiltersPanel.tsx",
         ),
       );
+      const listState = compact(
+        readSource(
+          "../pages/products/list/useProductsListState.ts",
+        ),
+      );
       const translations =
         readSource(
           "../i18n/resources.ts",
@@ -181,7 +186,7 @@ describe(
       expect(filters).toContain(
         "{canViewPricing ? (",
       );
-      expect(page).toContain(
+      expect(listState).toContain(
         "const resetProductPagination = () => { setCursor(null); setHistory([]); };",
       );
       expect(
