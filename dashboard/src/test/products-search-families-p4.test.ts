@@ -358,6 +358,11 @@ describe(
           "../pages/ProductsDashboard.tsx",
         ),
       );
+      const toolbar = compact(
+        readSource(
+          "../pages/products/list/ProductsListToolbar.tsx",
+        ),
+      );
       const manager = compact(
         readSource(
           "../pages/products/ProductFamiliesManager.tsx",
@@ -424,7 +429,7 @@ describe(
       expect(page).toContain(
         "<ProductFamiliesManager",
       );
-      expect(page).toContain(
+      expect(toolbar).toContain(
         'maxLength={100}',
       );
       expect(api).toContain(
