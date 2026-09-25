@@ -73,6 +73,7 @@ import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManage
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
+import { useProductsListState } from "@/pages/products/list/useProductsListState";
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -226,109 +227,46 @@ export default function ProductsDashboard() {
       "catalog.hold"
     );
 
-  const [
+  const {
     searchInput,
     setSearchInput,
-  ] = useState("");
-  const [
     search,
     setSearch,
-  ] = useState("");
-  const [
     cursor,
     setCursor,
-  ] = useState<string | null>(
-    null
-  );
-  const [
     history,
     setHistory,
-  ] = useState<
-    Array<string | null>
-  >([]);
-  const [
     filtersOpen,
     setFiltersOpen,
-  ] = useState(false);
-  const [
     familyFilterSearchInput,
     setFamilyFilterSearchInput,
-  ] = useState("");
-  const [
     familyFilterSearch,
     setFamilyFilterSearch,
-  ] = useState("");
-  const [
     familyFilterId,
     setFamilyFilterId,
-  ] = useState("");
-  const [
     familyFilterName,
     setFamilyFilterName,
-  ] = useState("");
-  const [
     lifecycleFilter,
     setLifecycleFilter,
-  ] =
-    useState<ProductLifecycleFilter>(
-      ""
-    );
-  const [
     trackingTypeFilter,
     setTrackingTypeFilter,
-  ] =
-    useState<ProductTrackingTypeFilter>(
-      ""
-    );
-  const [
     compatibilityFilter,
     setCompatibilityFilter,
-  ] =
-    useState<ProductBooleanFilter>(
-      ""
-    );
-  const [
     barcodeFilter,
     setBarcodeFilter,
-  ] =
-    useState<ProductBooleanFilter>(
-      ""
-    );
-  const [
     priceFilter,
     setPriceFilter,
-  ] =
-    useState<ProductBooleanFilter>(
-      ""
-    );
-  const [
     lotFilter,
     setLotFilter,
-  ] =
-    useState<ProductBooleanFilter>(
-      ""
-    );
-  const [
     expiryFilter,
     setExpiryFilter,
-  ] =
-    useState<ProductBooleanFilter>(
-      ""
-    );
-  const [
     sortBy,
     setSortBy,
-  ] =
-    useState<ProductSortField>(
-      "id"
-    );
-  const [
     sortDir,
     setSortDir,
-  ] =
-    useState<ProductSortDirection>(
-      "asc"
-    );
+    resetProductPagination,
+  } = useProductsListState();
+
   const [
     displayPreferences,
     setDisplayPreferences,
@@ -352,11 +290,6 @@ export default function ProductsDashboard() {
     displayPreferencesOpen,
     setDisplayPreferencesOpen,
   ] = useState(false);
-
-  const resetProductPagination = () => {
-    setCursor(null);
-    setHistory([]);
-  };
 
   const [
     createOpen,
