@@ -27,9 +27,6 @@ import {
   readProductDisplayPreferences,
 } from "@/lib/productDisplayPreferences";
 import {
-  durableScope,
-} from "@/lib/durableOperations";
-import {
   type SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
@@ -661,28 +658,6 @@ export default function ProductsDashboard() {
     t,
   });
 
-  const operationScope = (
-    operation: string,
-    target:
-      | string
-      | number = "default"
-  ) => {
-    if (
-      !companyId ||
-      !driverId
-    ) {
-      throw new Error(
-        "IDENTITY_NOT_READY"
-      );
-    }
-    return durableScope(
-      companyId,
-      driverId,
-      operation,
-      target
-    );
-  };
-
   const {
     openTrackingDefaults,
     openTrackingEditor,
@@ -720,7 +695,8 @@ export default function ProductsDashboard() {
     trackingEdit,
     trackingEditLot,
     trackingEditExpiry,
-    operationScope,
+    companyId,
+    driverId,
     authFetch,
     setTrackingDefaultsOpen,
     setTrackingDefaultsLot,
@@ -743,7 +719,8 @@ export default function ProductsDashboard() {
     draft,
     familyOptions,
     packageUoms,
-    operationScope,
+    companyId,
+    driverId,
     authFetch,
     draftStorageKey,
     companyId,
@@ -771,7 +748,8 @@ export default function ProductsDashboard() {
     priceEdit,
     editPackagePrice,
     editUnitPrice,
-    operationScope,
+    companyId,
+    driverId,
     authFetch,
     setPriceEdit,
     setPriceFieldError,
@@ -788,7 +766,8 @@ export default function ProductsDashboard() {
     importFile,
     importLotControlMode,
     importExpiryControlMode,
-    operationScope,
+    companyId,
+    driverId,
     authFetch,
     setImportJobId,
     setImportLotControlMode,
