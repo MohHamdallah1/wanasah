@@ -330,17 +330,27 @@ describe("products P2 read contract", () => {
         "../pages/products/ProductTableRow.tsx",
       ),
     );
+    const listParams = normalizeWhitespace(
+      readSource(
+        "../pages/products/list/useProductsListParams.ts",
+      ),
+    );
+    const listQueries = normalizeWhitespace(
+      readSource(
+        "../pages/products/list/useProductsListQueries.ts",
+      ),
+    );
 
-    expect(page).toContain(
+    expect(listQueries).toContain(
       '"simple-products", companyId, params',
     );
-    expect(page).toContain(
+    expect(listParams).toContain(
       'value.set( "search", search )',
     );
-    expect(page).toContain(
+    expect(listParams).toContain(
       'value.set( "cursor", cursor )',
     );
-    expect(page).toContain(
+    expect(listQueries).toContain(
       '"simple-product-families", companyId',
     );
     expect(page).toContain(
