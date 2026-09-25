@@ -54,7 +54,7 @@ describe("Products P9 published-name editing", () => {
 
   it("keeps rename in a dedicated durable page-owned workflow", () => {
     const dialog = source(
-      "src/pages/products/ProductRenameDialog.tsx",
+      "src/pages/products/rename/ProductRenameDialog.tsx",
     );
 
     expect(dialog).toContain(
@@ -94,7 +94,7 @@ describe("Products P9 published-name editing", () => {
 
   it("exposes rename through Product details only with catalog-manage capability", () => {
     const drawer = source(
-      "src/pages/products/ProductDetailDrawer.tsx",
+      "src/pages/products/detail/ProductDetailDrawer.tsx",
     );
     const page = source(
       "src/pages/products/ProductsPage.tsx",
