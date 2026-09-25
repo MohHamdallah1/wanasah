@@ -92,7 +92,7 @@ describe("Products P8 production frontend gate", () => {
   it("wires all remaining Products mutation boundaries through runtime parsers", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const createMutation = compact(
@@ -231,7 +231,7 @@ describe("Products P8 production frontend gate", () => {
   it("routes Products lifecycle management through the authoritative durable catalog workflow", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const drawer = compact(
@@ -331,7 +331,7 @@ describe("Products P8 production frontend gate", () => {
   it("keeps import lifecycle cleanup feature-owned and deterministic", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const header = compact(
@@ -391,7 +391,7 @@ describe("Products P8 production frontend gate", () => {
   it("distinguishes package-UOM and import-poll failures from empty/loading states", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const createModal = compact(
