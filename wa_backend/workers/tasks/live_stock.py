@@ -12,11 +12,12 @@ from domains.live_stock_projection.service import (
 from models import Company, InventoryLiveStockCompanySummary
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_event
-from workers.scheduling import defer_unique_company_job
+from workers.scheduling import (
+    defer_unique_company_job,
+    iter_active_company_id_pages,
+)
 from workers.tenant import acquire_tenant_job_lock, tenant_session
 
-
-COMPANY_SCAN_PAGE = 1000
 TRANSITION_BATCH = 5000
 MAX_BATCHES_PER_RUN = 20
 
@@ -31,33 +32,12 @@ MAX_BATCHES_PER_RUN = 20
 async def scan_all_live_stock_transitions(
     timestamp: int | None = None,
 ) -> dict[str, int]:
-    after_company_id = 0
     companies_seen = 0
     deferred = 0
     skipped_duplicate = 0
 
-    while True:
-        async with AsyncSessionLocal() as db:
-            company_ids = [
-                int(value)
-                for value in (
-                    await db.execute(
-                        select(Company.id)
-                        .where(
-                            Company.id > after_company_id,
-                            Company.is_active.is_(True),
-                        )
-                        .order_by(Company.id.asc())
-                        .limit(COMPANY_SCAN_PAGE)
-                    )
-                ).scalars().all()
-            ]
-            if db.in_transaction():
-                await db.rollback()
-
-        if not company_ids:
-            break
-
+    async for company_ids in iter_active_company_id_pages():
+        companies_seen += len(company_ids)
         for company_id in company_ids:
             accepted = await defer_unique_company_job(
                 refresh_company_live_stock_transitions,
@@ -68,11 +48,6 @@ async def scan_all_live_stock_transitions(
                 deferred += 1
             else:
                 skipped_duplicate += 1
-
-        companies_seen += len(company_ids)
-        after_company_id = company_ids[-1]
-        if len(company_ids) < COMPANY_SCAN_PAGE:
-            break
 
     return {
         "companies_seen": companies_seen,
