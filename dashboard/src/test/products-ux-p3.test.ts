@@ -115,6 +115,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/create/CreateProductModal.tsx",
       ),
     );
+    const createMutation = compact(
+      readSource(
+        "../pages/products/create/useCreateProductMutation.ts",
+      ),
+    );
     const translations = readSource(
       "../i18n/resources.ts",
     );
@@ -134,7 +139,7 @@ describe("Products P3 detail foundation", () => {
     expect(createModal).toContain(
       '"products.barcodeSection"',
     );
-    expect(page).toContain(
+    expect(createMutation).toContain(
       "setCreateAdvancedExpanded( false )",
     );
     expect(translations).toContain(
