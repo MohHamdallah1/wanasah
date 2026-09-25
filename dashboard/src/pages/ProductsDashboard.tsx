@@ -90,6 +90,7 @@ import { useProductsListState } from "@/pages/products/list/useProductsListState
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
+import { createProductTrackingActions } from "@/pages/products/tracking/createProductTrackingActions";
 import { useProductTrackingEditState } from "@/pages/products/tracking/useProductTrackingEditState";
 import { useProductTrackingMutations } from "@/pages/products/tracking/useProductTrackingMutations";
 import { useTrackingDefaultsQuery } from "@/pages/products/tracking/useTrackingDefaultsQuery";
@@ -674,26 +675,20 @@ export default function ProductsDashboard() {
     );
   };
 
-  const openTrackingDefaults =
-    () => {
-      const defaults =
-        trackingDefaultsQuery.data;
-      if (!defaults) {
-        toast.error(
-          t(
-            "products.errors.trackingDefaultsLoad"
-          )
-        );
-        return;
-      }
-      setTrackingDefaultsLot(
-        defaults.lot_control_mode
-      );
-      setTrackingDefaultsExpiry(
-        defaults.expiry_control_mode
-      );
-      setTrackingDefaultsOpen(true);
-    };
+  const {
+    openTrackingDefaults,
+    openTrackingEditor,
+  } = createProductTrackingActions({
+    defaults:
+      trackingDefaultsQuery.data,
+    setTrackingDefaultsOpen,
+    setTrackingDefaultsLot,
+    setTrackingDefaultsExpiry,
+    setTrackingEdit,
+    setTrackingEditLot,
+    setTrackingEditExpiry,
+    t,
+  });
 
   const saveDisplayPreferences = (
     next: ProductDisplayPreferences
@@ -728,18 +723,6 @@ export default function ProductsDashboard() {
       t(
         "products.displayPreferences.saved"
       )
-    );
-  };
-
-  const openTrackingEditor = (
-    product: SimpleProduct
-  ) => {
-    setTrackingEdit(product);
-    setTrackingEditLot(
-      product.lot_control_mode
-    );
-    setTrackingEditExpiry(
-      product.expiry_control_mode
     );
   };
 
