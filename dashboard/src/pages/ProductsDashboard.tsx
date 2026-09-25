@@ -30,9 +30,6 @@ import {
   durableScope,
 } from "@/lib/durableOperations";
 import {
-  deriveExactMoneyPair,
-} from "@/lib/exactMoney";
-import {
   type SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
@@ -44,6 +41,7 @@ import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager"
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
 import { createProductDraftActions } from "@/pages/products/create/createProductDraftActions";
+import { deriveCreateProductViewState } from "@/pages/products/create/deriveCreateProductViewState";
 import { useCreateFamilyOptionParams } from "@/pages/products/create/useCreateFamilyOptionParams";
 import { useCreateFamilyOptionsQuery } from "@/pages/products/create/useCreateFamilyOptionsQuery";
 import { useCreateFamilyOptionSearchDebounce } from "@/pages/products/create/useCreateFamilyOptionSearchDebounce";
@@ -59,8 +57,7 @@ import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
 import { createImportDownloads } from "@/pages/products/import/createImportDownloads";
 import { createImportFileActions } from "@/pages/products/import/createImportFileActions";
 import {
-  calculateImportProgress,
-  usesCompanyImportTrackingDefaults,
+  deriveImportProductViewState,
 } from "@/pages/products/import/helpers";
 import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
@@ -601,25 +598,26 @@ export default function ProductsDashboard() {
             .direction
     );
 
-  const importTrackingUsesCompanyDefaults =
-    usesCompanyImportTrackingDefaults(
+  const {
+    draftDerived,
+    trackingUsesCompanyDefaults:
+      createTrackingUsesCompanyDefaults,
+  } = deriveCreateProductViewState({
+    draft,
+    defaults:
       trackingDefaultsQuery.data,
-      importLotControlMode,
-      importExpiryControlMode
-    );
+  });
 
-  const createTrackingUsesCompanyDefaults =
-    Boolean(
-      trackingDefaultsQuery.data &&
-        draft.lot_control_mode &&
-        draft.expiry_control_mode &&
-        draft.lot_control_mode ===
-          trackingDefaultsQuery.data
-            .lot_control_mode &&
-        draft.expiry_control_mode ===
-          trackingDefaultsQuery.data
-            .expiry_control_mode
-    );
+  const {
+    progress: importProgress,
+    trackingUsesCompanyDefaults:
+      importTrackingUsesCompanyDefaults,
+  } = deriveImportProductViewState(
+    importStatus,
+    trackingDefaultsQuery.data,
+    importLotControlMode,
+    importExpiryControlMode
+  );
 
   const {
     updateName:
@@ -870,20 +868,6 @@ export default function ProductsDashboard() {
     t,
     i18n,
   });
-
-  const draftDerived =
-    deriveExactMoneyPair(
-      draft.has_package,
-      draft.units_per_package,
-      draft.package_price,
-      draft.unit_price
-    );
-
-  const importProgress =
-    calculateImportProgress(
-      importStatus
-    );
-
 
   return (
     <div
