@@ -73,6 +73,9 @@ import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManage
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
+import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
+import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
+import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
 import { useProductsListState } from "@/pages/products/list/useProductsListState";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
@@ -501,52 +504,17 @@ export default function ProductsDashboard() {
       ? `wanasah:product-import:v1:${companyId}:${driverId}`
       : null;
 
-  useEffect(() => {
-    const timer =
-      window.setTimeout(() => {
-        const clean =
-          searchInput.trim();
-        setSearch(
-          clean.length >= 2
-            ? clean
-            : ""
-        );
-        setCursor(null);
-        setHistory([]);
-      }, 250);
-    return () =>
-      window.clearTimeout(
-        timer
-      );
-  }, [searchInput]);
-
-  useEffect(() => {
-    const timer =
-      window.setTimeout(() => {
-        setFamilyFilterSearch(
-          familyFilterSearchInput
-            .trim()
-            .slice(0, 100)
-        );
-      }, 250);
-    return () =>
-      window.clearTimeout(timer);
-  }, [familyFilterSearchInput]);
-
-  useEffect(() => {
-    if (
-      canViewPricing ||
-      !priceFilter
-    ) {
-      return;
-    }
-    setPriceFilter("");
-    setCursor(null);
-    setHistory([]);
-  }, [
+  useProductsListDebounce({
+    searchInput,
+    setSearch,
+    familyFilterSearchInput,
+    setFamilyFilterSearch,
     canViewPricing,
     priceFilter,
-  ]);
+    setPriceFilter,
+    setCursor,
+    setHistory,
+  });
 
   useEffect(() => {
     if (!createOpen) {
@@ -663,113 +631,25 @@ export default function ProductsDashboard() {
     t,
   ]);
 
-  const params = useMemo(
-    () => {
-      const value =
-        new URLSearchParams({
-          limit: "100",
-          sort_by: sortBy,
-          sort_dir: sortDir,
-        });
-      if (search) {
-        value.set(
-          "search",
-          search
-        );
-      }
-      if (cursor) {
-        value.set(
-          "cursor",
-          cursor
-        );
-      }
-      if (familyFilterId) {
-        value.set(
-          "family_id",
-          familyFilterId
-        );
-      }
-      if (lifecycleFilter) {
-        value.set(
-          "lifecycle",
-          lifecycleFilter
-        );
-      }
-      if (trackingTypeFilter) {
-        value.set(
-          "tracking_type",
-          trackingTypeFilter
-        );
-      }
-      if (compatibilityFilter) {
-        value.set(
-          "simple_compatible",
-          compatibilityFilter
-        );
-      }
-      if (barcodeFilter) {
-        value.set(
-          "has_barcode",
-          barcodeFilter
-        );
-      }
-      if (
-        canViewPricing &&
-        priceFilter
-      ) {
-        value.set(
-          "has_price",
-          priceFilter
-        );
-      }
-      if (lotFilter) {
-        value.set(
-          "lot_tracked",
-          lotFilter
-        );
-      }
-      if (expiryFilter) {
-        value.set(
-          "expiry_tracked",
-          expiryFilter
-        );
-      }
-      return value.toString();
-    },
-    [
-      search,
-      cursor,
-      familyFilterId,
-      lifecycleFilter,
-      trackingTypeFilter,
-      compatibilityFilter,
-      barcodeFilter,
-      canViewPricing,
-      priceFilter,
-      lotFilter,
-      expiryFilter,
-      sortBy,
-      sortDir,
-    ]
-  );
-
-  const familyFilterParams =
-    useMemo(
-      () => {
-        const value =
-          new URLSearchParams({
-            limit: "50",
-          });
-        if (familyFilterSearch) {
-          value.set(
-            "search",
-            familyFilterSearch
-          );
-        }
-        return value.toString();
-      },
-      [familyFilterSearch]
-    );
+  const {
+    params,
+    familyFilterParams,
+  } = useProductsListParams({
+    search,
+    cursor,
+    familyFilterId,
+    lifecycleFilter,
+    trackingTypeFilter,
+    compatibilityFilter,
+    barcodeFilter,
+    canViewPricing,
+    priceFilter,
+    lotFilter,
+    expiryFilter,
+    sortBy,
+    sortDir,
+    familyFilterSearch,
+  });
 
   const familyOptionParams =
     useMemo(
@@ -789,49 +669,17 @@ export default function ProductsDashboard() {
       [familyOptionSearch]
     );
 
-  const productsQuery =
-    useQuery({
-      queryKey: [
-        "simple-products",
-        companyId,
-        params,
-      ],
-      enabled: Boolean(
-        companyId
-      ),
-      queryFn: async ({
-        signal,
-      }) =>
-        parseSimpleProductPage(
-          await authFetch(
-            `/simple-products?${params}`,
-            { signal }
-          )
-        ),
-    });
-
-  const familyFilterOptionsQuery =
-    useQuery({
-      queryKey: [
-        "simple-product-families",
-        companyId,
-        "filter-options",
-        familyFilterSearch,
-      ],
-      enabled: Boolean(
-        companyId &&
-        filtersOpen
-      ),
-      queryFn: async ({
-        signal,
-      }) =>
-        parseProductFamilies(
-          await authFetch(
-            `/simple-products/families?${familyFilterParams}`,
-            { signal }
-          )
-        ),
-    });
+  const {
+    productsQuery,
+    familyFilterOptionsQuery,
+  } = useProductsListQueries({
+    companyId,
+    params,
+    filtersOpen,
+    familyFilterSearch,
+    familyFilterParams,
+    authFetch,
+  });
 
   const familyOptionsQuery =
     useQuery({
