@@ -32,7 +32,7 @@ vi.mock(
   }),
 );
 
-import { ProductTableRow } from "../pages/products/ProductTableRow";
+import { ProductTableRow } from "../pages/products/list/ProductTableRow";
 import type {
   SimpleProduct,
 } from "../pages/products/contracts";
