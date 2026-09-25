@@ -395,7 +395,7 @@ describe(
       );
       const manager = compact(
         readSource(
-          "../pages/products/ProductFamiliesManager.tsx",
+          "../pages/products/family/ProductFamiliesManager.tsx",
         ),
       );
 
@@ -473,7 +473,7 @@ describe(
     it("surfaces family load failure separately from empty search results", () => {
       const manager = compact(
         readSource(
-          "../pages/products/ProductFamiliesManager.tsx",
+          "../pages/products/family/ProductFamiliesManager.tsx",
         ),
       );
       const translations =
