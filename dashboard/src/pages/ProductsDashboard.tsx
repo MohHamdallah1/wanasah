@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -38,7 +37,6 @@ import {
   type ProductDisplayPreferences,
 } from "@/lib/productDisplayPreferences";
 import {
-  abandonDurableOperation,
   completeDurableOperation,
   durableScope,
   fileFingerprint,
@@ -49,7 +47,6 @@ import {
 } from "@/lib/exactMoney";
 import {
   parsePackageUoms,
-  parseProductFamilies,
   parseProductImportAccepted,
   parseProductImportCommandResponse,
   parseProductImportErrorPage,
@@ -74,7 +71,6 @@ import { useCreateFamilyOptionSearchState } from "@/pages/products/create/useCre
 import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
 import { useCreateProductMutation } from "@/pages/products/create/useCreateProductMutation";
 import {
-  emptyDraft,
   useCreateProductState,
 } from "@/pages/products/create/useCreateProductState";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
