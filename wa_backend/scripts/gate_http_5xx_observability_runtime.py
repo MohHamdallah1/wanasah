@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
@@ -55,6 +56,9 @@ async def controlled_503() -> None:
 
 
 async def unhandled_500() -> None:
+    logging.getLogger("wanasah_logger").error(
+        "LEGACY_ROUTE_LOG_MUST_NOT_ENTER_ERROR_FILE"
+    )
     raise RuntimeError(
         "UNHANDLED_ROOT_CAUSE SECRET_KEY=gate-super-secret"
     )
@@ -200,6 +204,14 @@ async def run() -> None:
             and "gate-super-secret" not in log_text
             and "***REDACTED***" in log_text
         ),
+    )
+    record(
+        "legacy route-local logger cannot create duplicate error.log incidents",
+        (
+            "LEGACY_ROUTE_LOG_MUST_NOT_ENTER_ERROR_FILE" not in log_text
+            and log_text.count('"event":"http_server_error"') == 2
+        ),
+        f"incident_count={log_text.count(chr(34) + 'event' + chr(34) + ':' + chr(34) + 'http_server_error' + chr(34))}",
     )
 
     failures = [name for name, ok, _ in RESULTS if not ok]
