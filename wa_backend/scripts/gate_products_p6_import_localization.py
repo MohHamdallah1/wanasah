@@ -55,10 +55,20 @@ def static_checks() -> None:
     localization = (
         BACKEND / "product_import_localization.py"
     ).read_text(encoding="utf-8")
-    page = (
-        ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
+    import_modal = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductModal.tsx"
     ).read_text(encoding="utf-8")
-    page_compact = " ".join(page.split())
+    import_polling = (
+        ROOT
+        / "dashboard/src/pages/products/import/useImportProductPolling.ts"
+    ).read_text(encoding="utf-8")
+    import_downloads = (
+        ROOT
+        / "dashboard/src/pages/products/import/createImportDownloads.ts"
+    ).read_text(encoding="utf-8")
+    modal_compact = " ".join(import_modal.split())
+    polling_compact = " ".join(import_polling.split())
     translations = (
         ROOT / "dashboard/src/i18n/resources.ts"
     ).read_text(encoding="utf-8")
@@ -88,32 +98,31 @@ def static_checks() -> None:
     )
 
     check(
-        'status.status === "NEEDS_MAPPING"'
-        in page_compact
-        and "status.suggested_mapping" in page
-        and "status.column_mapping" in page
-        and "importStatus.detected_headers.map" in page,
+        '"NEEDS_MAPPING"' in modal_compact
+        and "status.suggested_mapping" in import_polling
+        and "status.column_mapping" in import_polling
+        and "status.detected_headers.map" in import_modal,
         "explicit mapping UI remains the authoritative fallback",
     )
 
     check(
-        '"products.fields.name"' in page
-        and '"products.fields.family"' in page
-        and '"products.fields.packageUom"' in page
-        and '"products.fields.lotControlMode"' in page
-        and '"products.fields.expiryControlMode"' in page
-        and 'const downloadTemplate' in page,
+        '"products.fields.name"' in import_downloads
+        and '"products.fields.family"' in import_downloads
+        and '"products.fields.packageUom"' in import_downloads
+        and '"products.fields.lotControlMode"' in import_downloads
+        and '"products.fields.expiryControlMode"' in import_downloads
+        and 'const downloadTemplate' in import_downloads,
         "downloaded template derives headers from UI translations",
     )
 
-    report_start = page.index(
+    report_start = import_downloads.index(
         "const downloadErrorReport"
     )
-    report_end = page.index(
+    report_end = import_downloads.index(
         "const downloadTemplate",
         report_start,
     )
-    report_source = page[
+    report_source = import_downloads[
         report_start:report_end
     ]
     check(
