@@ -58,7 +58,6 @@ import {
   parseProductTrackingDefaults,
   parseProductTrackingMutation,
   parseSimpleProductCreateResponse,
-  parseSimpleProductPage,
   parseSimpleProductPriceMutationResponse,
   type PackageUom,
   type ProductImportState,
