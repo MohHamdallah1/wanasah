@@ -71,7 +71,7 @@ describe(
     it("keeps explicit mapping as the fallback for unknown headers", () => {
       const page = compact(
         readSource(
-          "../pages/ProductsDashboard.tsx",
+          "../pages/products/ProductsPage.tsx",
         ),
       );
       const importModal = compact(
