@@ -26,16 +26,17 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   readProductDisplayPreferences,
 } from "@/lib/productDisplayPreferences";
-import {
-  type SimpleProduct,
-} from "@/pages/products/contracts";
 import { ProductBarcodeManager } from "@/pages/products/ProductBarcodeManager";
 import { ProductDetailDrawer } from "@/pages/products/ProductDetailDrawer";
+import { useProductBarcodeState } from "@/pages/products/barcode/useProductBarcodeState";
+import { createProductDetailActions } from "@/pages/products/detail/createProductDetailActions";
+import { useProductDetailState } from "@/pages/products/detail/useProductDetailState";
 import { ProductDisplayPreferencesModal } from "@/pages/products/display-preferences/ProductDisplayPreferencesModal";
 import { createProductDisplayPreferenceActions } from "@/pages/products/display-preferences/createProductDisplayPreferenceActions";
 import { useProductDisplayPreferencesState } from "@/pages/products/display-preferences/useProductDisplayPreferencesState";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
+import { useProductLifecycleState } from "@/pages/products/lifecycle/useProductLifecycleState";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
 import { createProductDraftActions } from "@/pages/products/create/createProductDraftActions";
 import { deriveCreateProductViewState } from "@/pages/products/create/deriveCreateProductViewState";
@@ -75,6 +76,7 @@ import { useProductsListParams } from "@/pages/products/list/useProductsListPara
 import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
 import { useProductsListState } from "@/pages/products/list/useProductsListState";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
+import { useProductRenameState } from "@/pages/products/rename/useProductRenameState";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
 import { createProductTrackingActions } from "@/pages/products/tracking/createProductTrackingActions";
@@ -232,30 +234,29 @@ export default function ProductsDashboard() {
     setTrackingDefaultsExpiry,
   } = useTrackingDefaultsState();
 
-  const [
+  const {
     detailProduct,
     setDetailProduct,
-  ] = useState<SimpleProduct | null>(
-    null
-  );
-  const [
+    openProductDetails,
+    closeProductDetails,
+  } = useProductDetailState();
+  const {
     renameProduct,
     setRenameProduct,
-  ] = useState<SimpleProduct | null>(
-    null
-  );
-  const [
+    openRenameProduct,
+    closeRenameProduct,
+  } = useProductRenameState();
+  const {
     barcodeProduct,
     setBarcodeProduct,
-  ] = useState<SimpleProduct | null>(
-    null
-  );
-  const [
+    openBarcodeManager,
+    closeBarcodeManager,
+  } = useProductBarcodeState();
+  const {
     lifecycleProduct,
-    setLifecycleProduct,
-  ] = useState<SimpleProduct | null>(
-    null
-  );
+    openLifecycleManager,
+    closeLifecycleManager,
+  } = useProductLifecycleState();
   const {
     trackingEdit,
     setTrackingEdit,
@@ -674,6 +675,23 @@ export default function ProductsDashboard() {
     setTrackingEditLot,
     setTrackingEditExpiry,
     t,
+  });
+
+  const {
+    renameProductFromDetails,
+    editPriceFromDetails,
+    editTrackingFromDetails,
+    manageLifecycleFromDetails,
+    manageBarcodesFromDetails,
+    manageAdvancedUomFromDetails,
+  } = createProductDetailActions({
+    closeProductDetails,
+    openRenameProduct,
+    openPriceEditor,
+    openTrackingEditor,
+    openLifecycleManager,
+    openBarcodeManager,
+    navigate,
   });
 
   const {
@@ -1164,7 +1182,7 @@ export default function ProductsDashboard() {
             void productsQuery.refetch()
           }
           onOpenDetails={
-            setDetailProduct
+            openProductDetails
           }
           onEditPrice={
             openPriceEditor
@@ -1225,59 +1243,45 @@ export default function ProductsDashboard() {
           displayPreferences
             .detailSections
         }
-        onClose={() =>
-          setDetailProduct(null)
+        onClose={
+          closeProductDetails
         }
-        onRenameProduct={(product) => {
-          setDetailProduct(null);
-          setRenameProduct(product);
-        }}
-        onEditPrice={(product) => {
-          setDetailProduct(null);
-          openPriceEditor(product);
-        }}
-        onEditTracking={(product) => {
-          setDetailProduct(null);
-          openTrackingEditor(
-            product
-          );
-        }}
-        onManageLifecycle={(product) => {
-          setDetailProduct(null);
-          setLifecycleProduct(
-            product
-          );
-        }}
-        onManageBarcodes={(product) => {
-          setDetailProduct(null);
-          setBarcodeProduct(
-            product
-          );
-        }}
-        onManageAdvancedUom={(product) => {
-          setDetailProduct(null);
-          navigate(
-            `/products/advanced-uom?variant=${product.id}`
-          );
-        }}
+        onRenameProduct={
+          renameProductFromDetails
+        }
+        onEditPrice={
+          editPriceFromDetails
+        }
+        onEditTracking={
+          editTrackingFromDetails
+        }
+        onManageLifecycle={
+          manageLifecycleFromDetails
+        }
+        onManageBarcodes={
+          manageBarcodesFromDetails
+        }
+        onManageAdvancedUom={
+          manageAdvancedUomFromDetails
+        }
       />
 
       <ProductRenameDialog
         product={renameProduct}
         companyId={companyId}
         driverId={driverId}
-        onClose={() =>
-          setRenameProduct(null)
+        onClose={
+          closeRenameProduct
         }
-        onRenamed={() => {
-          setRenameProduct(null);
-        }}
+        onRenamed={
+          closeRenameProduct
+        }
       />
 
       <ProductLifecycleManager
         product={lifecycleProduct}
-        onClose={() =>
-          setLifecycleProduct(null)
+        onClose={
+          closeLifecycleManager
         }
         onChanged={async () => {
           await queryClient.invalidateQueries(
@@ -1294,8 +1298,8 @@ export default function ProductsDashboard() {
         product={barcodeProduct}
         companyId={companyId}
         driverId={driverId}
-        onClose={() =>
-          setBarcodeProduct(null)
+        onClose={
+          closeBarcodeManager
         }
         onChanged={async () => {
           await queryClient.invalidateQueries(
