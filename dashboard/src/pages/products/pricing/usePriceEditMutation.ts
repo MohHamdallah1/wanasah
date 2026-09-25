@@ -224,7 +224,6 @@ export function usePriceEditMutation({
     priceMutation.mutate();
   };
 
-
   const closePriceEdit =
     () => {
       if (
