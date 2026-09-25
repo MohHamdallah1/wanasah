@@ -155,6 +155,12 @@ export function createImportFileActions({
       }
     };
 
+  const expandImportTracking =
+    () =>
+      setImportTrackingExpanded(
+        true
+      );
+
   const resetImportTracking =
     () => {
       const defaults =
@@ -195,6 +201,7 @@ export function createImportFileActions({
     resetImport,
     openImport,
     closeImport,
+    expandImportTracking,
     resetImportTracking,
     completeImport,
   };
