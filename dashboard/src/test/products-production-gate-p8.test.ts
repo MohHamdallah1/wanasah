@@ -120,6 +120,18 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/import/useImportProductCommands.ts",
       ),
     );
+    const productScope = compact(
+      readSource(
+        "../pages/products/productDurableScope.ts",
+      ),
+    );
+
+    expect(productScope).toContain(
+      "durableScope(",
+    );
+    expect(productScope).toContain(
+      '"IDENTITY_NOT_READY"',
+    );
 
     expect(createMutation).toContain(
       "parseSimpleProductCreateResponse( await authFetch(",
@@ -134,7 +146,7 @@ describe("Products P8 production frontend gate", () => {
       "abandonDurableOperation(",
     );
     expect(createMutation).toContain(
-      "durableScope(",
+      "productDurableScope(",
     );
     expect(createMutation).toContain(
       '"product-create"',
@@ -153,6 +165,9 @@ describe("Products P8 production frontend gate", () => {
     );
     expect(priceMutation).toContain(
       '"product-price"',
+    );
+    expect(priceMutation).toContain(
+      "productDurableScope(",
     );
     expect(priceMutation).not.toContain(
       "crypto.randomUUID()",
@@ -176,6 +191,9 @@ describe("Products P8 production frontend gate", () => {
       "getOrCreateDurableRequestId(",
     );
     expect(trackingMutations).toContain(
+      "productDurableScope(",
+    );
+    expect(trackingMutations).toContain(
       "completeDurableOperation(",
     );
     expect(trackingMutations).not.toContain(
@@ -192,6 +210,9 @@ describe("Products P8 production frontend gate", () => {
     );
     expect(importUpload).toContain(
       "completeDurableOperation(",
+    );
+    expect(importUpload).toContain(
+      "productDurableScope(",
     );
     expect(importUpload).not.toContain(
       "crypto.randomUUID()",
