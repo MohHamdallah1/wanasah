@@ -204,6 +204,9 @@ describe(
       const dashboard = read(
         "src/pages/ProductsDashboard.tsx",
       );
+      const createModal = read(
+        "src/pages/products/create/CreateProductModal.tsx",
+      );
       const families = read(
         "src/pages/products/ProductFamiliesManager.tsx",
       );
@@ -216,6 +219,12 @@ describe(
         "product-units-error",
         "product-package-price-error",
         "product-unit-price-error",
+      ]) {
+        expect(createModal).toContain(
+          id,
+        );
+      }
+      for (const id of [
         "edit-package-price-error",
         "edit-unit-price-error",
       ]) {
