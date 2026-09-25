@@ -723,8 +723,6 @@ export default function ProductsDashboard() {
     driverId,
     authFetch,
     draftStorageKey,
-    companyId,
-    driverId,
     setDraft,
     setCreateFieldError,
     setCreateTrackingExpanded,
