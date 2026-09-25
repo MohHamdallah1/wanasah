@@ -74,13 +74,6 @@ import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
 import { useProductsListState } from "@/pages/products/list/useProductsListState";
-import type {
-  ProductBooleanFilter,
-  ProductLifecycleFilter,
-  ProductSortDirection,
-  ProductSortField,
-  ProductTrackingTypeFilter,
-} from "@/pages/products/list/types";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
