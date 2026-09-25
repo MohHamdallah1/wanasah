@@ -228,15 +228,30 @@ def static_checks() -> None:
         ROOT / "dashboard/src/pages/inventory/MainInventory.tsx"
     ).read_text(encoding="utf-8")
     page = (
-        ROOT / "dashboard/src/pages/ProductsDashboard.tsx"
+        ROOT / "dashboard/src/pages/products/ProductsPage.tsx"
+    ).read_text(encoding="utf-8")
+    header = (
+        ROOT / "dashboard/src/pages/products/ProductsPageHeader.tsx"
     ).read_text(encoding="utf-8")
     details = (
         ROOT
-        / "dashboard/src/pages/products/ProductDetailDrawer.tsx"
+        / "dashboard/src/pages/products/detail/ProductDetailDrawer.tsx"
     ).read_text(encoding="utf-8")
     families_ui = (
         ROOT
-        / "dashboard/src/pages/products/ProductFamiliesManager.tsx"
+        / "dashboard/src/pages/products/family/ProductFamiliesManager.tsx"
+    ).read_text(encoding="utf-8")
+    create_mutation = (
+        ROOT
+        / "dashboard/src/pages/products/create/useCreateProductMutation.ts"
+    ).read_text(encoding="utf-8")
+    import_upload = (
+        ROOT
+        / "dashboard/src/pages/products/import/useImportProductUpload.ts"
+    ).read_text(encoding="utf-8")
+    import_modal = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductModal.tsx"
     ).read_text(encoding="utf-8")
     backend = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
     simple_service = (
@@ -257,12 +272,12 @@ def static_checks() -> None:
     check(
         'path: "/products"' in sidebar
         and "التسعير المتقدم" not in sidebar
-        and "products.advancedPricing" in page
-        and "LockKeyhole" in page,
+        and "products.advancedPricing" in header
+        and "LockKeyhole" in header,
         "Advanced Pricing is disabled inside Products and absent from Sidebar",
     )
     check(
-        '<Route path="/products" element={<ProductsDashboard />} />' in app
+        '<Route path="/products" element={<ProductsPage />} />' in app
         and '<Route path="/pricing" element={<Navigate to="/products" replace />} />'
         in app,
         "Direct legacy pricing navigation remains frozen behind Products",
@@ -273,8 +288,8 @@ def static_checks() -> None:
         "Technical catalog remains hidden from Inventory",
     )
     check(
-        "package_uom_code" in page
-        and "unit_price" in page
+        "package_uom_code" in create_mutation
+        and "unit_price" in create_mutation
         and "product.package_uom_code" in details
         and "product.unit_price" in details
         and "product.package_barcode" in details
@@ -303,12 +318,12 @@ def static_checks() -> None:
         "Tracking changes fail closed once tenant-scoped batch history exists",
     )
     check(
-        'form.append(' in page
-        and '"request_id"' in page
-        and "fileFingerprint" in page
-        and "onDrop=" in page
-        and ".xlsx" in page
-        and "products.importLimit" in page
+        'form.append(' in import_upload
+        and '"request_id"' in import_upload
+        and "fileFingerprint" in import_upload
+        and "onDrop=" in import_modal
+        and ".xlsx" in import_modal
+        and "products.importLimit" in import_modal
         and "MAX_IMPORT_ROWS = 50_000" in worker,
         "Bulk upload has durable request identity, drag/drop and large async import UX",
     )
