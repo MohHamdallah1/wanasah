@@ -23,9 +23,16 @@ export function useProductTrackingEditState() {
   const [
     trackingEditExpiry,
     setTrackingEditExpiry,
+    closeTrackingEditor,
   ] = useState<ProductTrackingMode | null>(
     null
   );
+
+  const closeTrackingEditor = () => {
+    setTrackingEdit(null);
+    setTrackingEditLot(null);
+    setTrackingEditExpiry(null);
+  };
 
   return {
     trackingEdit,
