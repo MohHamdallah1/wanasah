@@ -15,6 +15,9 @@ from workers.app import REPORTS_QUEUE, app
 from workers.tenant import tenant_session
 
 
+REPORTS_STALLED_ALLOWLIST = frozenset({"wanasah.report_foundation_probe"})
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
