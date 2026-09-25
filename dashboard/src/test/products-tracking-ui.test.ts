@@ -189,7 +189,7 @@ describe("products tracking UI contracts", () => {
 
   it("does not submit an unchanged tracking edit", () => {
     const editor = normalizeWhitespace(
-      readSource("../pages/products/ProductTrackingEditor.tsx"),
+      readSource("../pages/products/tracking/ProductTrackingEditor.tsx"),
     );
 
     expect(editor).toContain(
@@ -211,9 +211,9 @@ describe("products tracking UI contracts", () => {
       readSource("../pages/products/ProductsPage.tsx"),
       readSource("../pages/products/create/CreateProductModal.tsx"),
       readSource("../pages/products/import/ImportProductModal.tsx"),
-      readSource("../pages/products/ProductTrackingFields.tsx"),
-      readSource("../pages/products/ProductTrackingSettings.tsx"),
-      readSource("../pages/products/ProductTrackingEditor.tsx"),
+      readSource("../pages/products/tracking/ProductTrackingFields.tsx"),
+      readSource("../pages/products/tracking/ProductTrackingSettings.tsx"),
+      readSource("../pages/products/tracking/ProductTrackingEditor.tsx"),
     ];
 
     for (const source of files) {
@@ -230,7 +230,7 @@ describe("products tracking UI contracts", () => {
       readSource("../pages/products/deriveProductsCapabilities.ts"),
     );
     const row = normalizeWhitespace(
-      readSource("../pages/products/ProductTableRow.tsx"),
+      readSource("../pages/products/list/ProductTableRow.tsx"),
     );
 
     expect(capabilities).toContain(
