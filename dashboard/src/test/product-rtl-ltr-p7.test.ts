@@ -85,7 +85,7 @@ describe(
         "src/pages/products/ProductsPage.tsx",
       );
       const drawer = read(
-        "src/pages/products/ProductDetailDrawer.tsx",
+        "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
       const modal = read(
         "src/components/ui/modal.tsx",
@@ -152,7 +152,7 @@ describe(
         "src/pages/products/list/ProductsListResults.tsx",
       );
       const advancedUom = read(
-        "src/pages/products/AdvancedUomDashboard.tsx",
+        "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
       );
 
       expect(listResults).toContain(
