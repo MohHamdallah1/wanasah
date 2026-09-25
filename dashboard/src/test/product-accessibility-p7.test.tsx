@@ -210,6 +210,12 @@ describe(
       const createMutation = read(
         "src/pages/products/create/useCreateProductMutation.ts",
       );
+      const priceModal = read(
+        "src/pages/products/pricing/PriceEditModal.tsx",
+      );
+      const priceMutation = read(
+        "src/pages/products/pricing/usePriceEditMutation.ts",
+      );
       const families = read(
         "src/pages/products/ProductFamiliesManager.tsx",
       );
@@ -231,7 +237,7 @@ describe(
         "edit-package-price-error",
         "edit-unit-price-error",
       ]) {
-        expect(dashboard).toContain(
+        expect(priceModal).toContain(
           id,
         );
       }
@@ -241,8 +247,17 @@ describe(
       expect(createMutation).toContain(
         "createUnitsRef.current?.focus()",
       );
-      expect(dashboard).toContain(
+      expect(priceMutation).toContain(
         "setPriceFieldError",
+      );
+      expect(priceMutation).toContain(
+        "editPackagePriceRef",
+      );
+      expect(priceMutation).toContain(
+        "editUnitPriceRef",
+      );
+      expect(priceMutation).toContain(
+        ".current?.focus()",
       );
 
       expect(families).toContain(
