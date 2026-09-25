@@ -1,12 +1,8 @@
 import os
-import re
 import uuid
-import logging
 import asyncio
-import traceback
 import ipaddress
 from contextlib import asynccontextmanager
-from logging.handlers import RotatingFileHandler
 import jwt
 from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import HTTPException, RequestValidationError
@@ -35,6 +31,7 @@ from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
 from product_import_queue import app as product_import_app
+from observability.http_errors import log_http_server_error
 
 # ═══ S-01: Hardened IP extraction (trusted proxy CIDRs) ═══
 TRUSTED_PROXY_CIDRS = [
@@ -64,35 +61,6 @@ def get_real_ip(request: Request) -> str:
             except ValueError:
                 continue
     return client_host or "Unknown"
-
-# ═══ S-10 / Issue #13: Log sanitization ═══
-def sanitize_log_input(text: str) -> str:
-    """Strip newlines and carriage returns to prevent Log Forging/CRLF Injection."""
-    if not text:
-        return ""
-    return text.replace('\n', '\\n').replace('\r', '\\r')
-
-def sanitize_error_message(msg: str) -> str:
-    """Remove database credentials and other secrets from error messages before logging."""
-    msg = re.sub(
-        r'(postgresql\+asyncpg://)[^@]+:[^@]+(@)',
-        r'\1***REDACTED***:***REDACTED***\2',
-        msg
-    )
-    msg = re.sub(r'SECRET_KEY[\s=:]+[^\s]+', 'SECRET_KEY=***REDACTED***', msg)
-    return msg
-
-# إعداد ملف الأخطاء (نفس نظامك الاحترافي السابق)
-logger = logging.getLogger("wanasah_logger")
-logger.setLevel(logging.ERROR)
-handler = RotatingFileHandler('error.log', maxBytes=1024 * 1024, backupCount=5, encoding='utf-8')
-# +++ ISSUE-24: إزالة %(pathname)s:%(lineno)d المضللة لأن الـ Traceback يفي بالغرض ويكون أدق +++
-handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(handler)
-
-async def async_log_error(exc_str: str):
-    """تنفيذ الكتابة على القرص في مسار منفصل (Thread) لكي لا يتجمد الـ FastAPI"""
-    await asyncio.to_thread(logger.error, exc_str)
 
 from contextlib import asynccontextmanager
 import os
@@ -351,8 +319,11 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
     try:
         await db.execute(text("SELECT 1"))
         return {"status": "ready"}
-    except Exception:
-        raise HTTPException(status_code=503, detail="Database connection failed")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Database connection failed",
+        ) from exc
 
 # عقد HTTP موحد مع إبقاء message القديم للتوافق مع العملاء الحاليين.
 # نسجل المعالج على StarletteHTTPException حتى تشمل التغطية أيضاً 404/405 التلقائية.
@@ -362,6 +333,24 @@ async def custom_http_exception_handler(
     exc: StarletteHTTPException,
 ):
     request_id = _request_id(request)
+    canonical = _error_contract(
+        status_code=exc.status_code,
+        detail=exc.detail,
+        request_id=request_id,
+    )
+
+    if int(exc.status_code) >= 500:
+        await log_http_server_error(
+            request_id=request_id,
+            status_code=exc.status_code,
+            error_code=canonical["code"],
+            method=request.method,
+            path=request.url.path,
+            client_ip=get_real_ip(request),
+            exc=exc,
+            handled_http_exception=True,
+        )
+
     return JSONResponse(
         status_code=exc.status_code,
         content=_error_response_payload(
@@ -404,26 +393,20 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 # +++ المعالج الشامل للأخطاء (Global Exception Handler) +++
-# S-01/S-10/Issue#13/S-12: Hardened IP extraction, log sanitization, request ID
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    # S-01: Use hardened IP extraction
-    client_ip = sanitize_log_input(get_real_ip(request))
-    # Issue #13: Sanitize method and path against CRLF injection
-    safe_method = sanitize_log_input(request.method)
-    safe_path = sanitize_log_input(request.url.path)
-    # S-12: Correlation ID for incident response
-    request_id = getattr(request.state, 'request_id', 'N/A')
-    
-    # +++  للقائد: تنظيف رسالة الخطأ نفسها لمنع Log Forging +++
-    safe_exc = sanitize_log_input(str(exc))
-    raw_error = f"[req_id={request_id}] [{client_ip}] {safe_method} {safe_path} | حدث خطأ غير متوقع: {safe_exc}\n{traceback.format_exc()}"
-    # S-10: Sanitize DB credentials from error messages
-    error_msg = sanitize_error_message(raw_error)
-    
-    # +++ إرسال اللوج لـ Thread خارجي لمنع الاختناق (Blocking IO) وشلل الـ Event Loop +++
-    await async_log_error(error_msg)
-    
+    request_id = _request_id(request)
+    await log_http_server_error(
+        request_id=request_id,
+        status_code=500,
+        error_code="INTERNAL_SERVER_ERROR",
+        method=request.method,
+        path=request.url.path,
+        client_ip=get_real_ip(request),
+        exc=exc,
+        handled_http_exception=False,
+    )
+
     legacy_message = "خطأ داخلي في الخادم. يرجى مراجعة سجلات النظام."
     return JSONResponse(
         status_code=500,
