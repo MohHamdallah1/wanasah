@@ -26,6 +26,9 @@ type AuthFetch = (
 type Params = {
   importJobId: string | null;
   mapping: Record<string, string>;
+  setMapping: Dispatch<
+    SetStateAction<Record<string, string>>
+  >;
   authFetch: AuthFetch;
   setImportPollError: Dispatch<
     SetStateAction<string | null>
@@ -42,6 +45,7 @@ type Params = {
 export function useImportProductCommands({
   importJobId,
   mapping,
+  setMapping,
   authFetch,
   setImportPollError,
   setImportStatus,
@@ -170,8 +174,30 @@ export function useImportProductCommands({
     });
 
 
+  const updateMapping = (
+    field: string,
+    value: string,
+  ) =>
+    setMapping(
+      (current) => ({
+        ...current,
+        [field]: value,
+      })
+    );
+
+  const submitMapping =
+    () =>
+      mappingMutation.mutate();
+
+  const retryImport =
+    () =>
+      retryImportMutation.mutate();
+
   return {
     mappingMutation,
     retryImportMutation,
+    updateMapping,
+    submitMapping,
+    retryImport,
   };
 }
