@@ -5,8 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, exists, func, or_, select
 
-from database import AsyncSessionLocal
-from models import Company, Driver, InventoryTransferHeader, SystemAuditLog
+from models import Driver, InventoryTransferHeader, SystemAuditLog
 from workers.app import MAINTENANCE_QUEUE, app
 from workers.events import emit_worker_events
 from workers.scheduling import (
