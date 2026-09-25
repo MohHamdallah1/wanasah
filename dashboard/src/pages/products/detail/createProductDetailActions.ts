@@ -7,6 +7,9 @@ type Params = {
   openRenameProduct: (
     product: SimpleProduct
   ) => void;
+  openFamilyReassign: (
+    product: SimpleProduct
+  ) => void;
   openPriceEditor: (
     product: SimpleProduct
   ) => void;
@@ -25,6 +28,7 @@ type Params = {
 export function createProductDetailActions({
   closeProductDetails,
   openRenameProduct,
+  openFamilyReassign,
   openPriceEditor,
   openTrackingEditor,
   openLifecycleManager,
@@ -36,6 +40,13 @@ export function createProductDetailActions({
   ) => {
     closeProductDetails();
     openRenameProduct(product);
+  };
+
+  const reassignFamilyFromDetails = (
+    product: SimpleProduct
+  ) => {
+    closeProductDetails();
+    openFamilyReassign(product);
   };
 
   const editPriceFromDetails = (
@@ -77,6 +88,7 @@ export function createProductDetailActions({
 
   return {
     renameProductFromDetails,
+    reassignFamilyFromDetails,
     editPriceFromDetails,
     editTrackingFromDetails,
     manageLifecycleFromDetails,
