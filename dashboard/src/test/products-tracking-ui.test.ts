@@ -220,12 +220,15 @@ describe("products tracking UI contracts", () => {
     const page = normalizeWhitespace(
       readSource("../pages/ProductsDashboard.tsx"),
     );
+    const capabilities = normalizeWhitespace(
+      readSource("../pages/products/deriveProductsCapabilities.ts"),
+    );
     const row = normalizeWhitespace(
       readSource("../pages/products/ProductTableRow.tsx"),
     );
 
-    expect(page).toContain(
-      'const canManageCatalog = access.isCompanyAdmin || access.canAny( "catalog.manage" );',
+    expect(capabilities).toContain(
+      'const canManageCatalog = isCompanyAdmin || canAny("catalog.manage");',
     );
     expect(page).toContain(
       "canEditTracking={ canManageCatalog }",
