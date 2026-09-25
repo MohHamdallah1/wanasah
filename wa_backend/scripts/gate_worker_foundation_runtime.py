@@ -148,6 +148,7 @@ async def seed_operational_recovery_jobs() -> dict[str, int]:
                 """
                 INSERT INTO worker_queue.procrastinate_workers
                     (id, last_heartbeat)
+                OVERRIDING SYSTEM VALUE
                 VALUES (:worker_id, NOW() - INTERVAL '5 minutes')
                 """
             ),
@@ -227,6 +228,7 @@ async def seed_product_recovery_job() -> int:
                 """
                 INSERT INTO public.procrastinate_workers
                     (id, last_heartbeat)
+                OVERRIDING SYSTEM VALUE
                 VALUES (:worker_id, NOW() - INTERVAL '5 minutes')
                 """
             ),
