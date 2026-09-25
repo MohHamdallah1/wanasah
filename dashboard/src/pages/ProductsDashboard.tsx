@@ -82,6 +82,7 @@ import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
+import { usePriceEditMutation } from "@/pages/products/pricing/usePriceEditMutation";
 import { usePriceEditState } from "@/pages/products/pricing/usePriceEditState";
 import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
 import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
@@ -999,157 +1000,22 @@ export default function ProductsDashboard() {
     createUnitPriceRef,
   });
 
-  const priceMutation =
-    useMutation({
-      mutationFn:
-        async (): Promise<
-          | MutationResult<
-              ReturnType<
-                typeof parseSimpleProductPriceMutationResponse
-              >
-            >
-          | undefined
-        > => {
-          if (!priceEdit) {
-            return undefined;
-          }
-          if (
-            !editPackagePrice.trim() &&
-            !editUnitPrice.trim()
-          ) {
-            throw new Error(
-              priceEdit.package_uom_code
-                ? t(
-                    "products.errors.priceRequired"
-                  )
-                : t(
-                    "products.errors.unitPriceRequired"
-                  )
-            );
-          }
-
-          const body = {
-            package_price:
-              priceEdit.package_uom_code &&
-              editPackagePrice.trim()
-                ? editPackagePrice.trim()
-                : null,
-            unit_price:
-              editUnitPrice.trim() ||
-              null,
-          };
-          const scope =
-            operationScope(
-              "product-price",
-              priceEdit.id
-            );
-          const requestId =
-            await getOrCreateDurableRequestId(
-              scope,
-              body
-            );
-          const result =
-            parseSimpleProductPriceMutationResponse(
-              await authFetch(
-                `/simple-products/${priceEdit.id}/price`,
-                {
-                  method: "PATCH",
-                  body: JSON.stringify(
-                    {
-                      request_id:
-                        requestId,
-                      ...body,
-                    }
-                  ),
-                }
-              )
-            );
-          if (
-            result.product_variant_id !==
-            priceEdit.id
-          ) {
-            throw new Error(
-              "SIMPLE_PRODUCT_PRICE_SCOPE_MISMATCH"
-            );
-          }
-          return {
-            result,
-            requestId,
-            scope,
-          };
-        },
-      onSuccess: async (
-        completed
-      ) => {
-        if (completed) {
-          completeDurableOperation(
-            completed.scope,
-            completed.requestId
-          );
-        }
-        setPriceEdit(null);
-        setPriceFieldError(null);
-        toast.success(
-          t(
-            "products.priceUpdated"
-          )
-        );
-        await queryClient.invalidateQueries(
-          {
-            queryKey: [
-              "simple-products",
-            ],
-          }
-        );
-      },
-      onError: (error) =>
-        toast.error(
-          apiErrorMessage(
-            error,
-            t(
-              "products.errors.priceFailed"
-            )
-          )
-        ),
-    });
-
-  const submitPriceEdit = () => {
-    if (!priceEdit) {
-      return;
-    }
-    if (
-      !editPackagePrice.trim() &&
-      !editUnitPrice.trim()
-    ) {
-      const packageField =
-        Boolean(
-          priceEdit.package_uom_code
-        );
-      setPriceFieldError({
-        field: packageField
-          ? "packagePrice"
-          : "unitPrice",
-        message: packageField
-          ? t(
-              "products.errors.priceRequired"
-            )
-          : t(
-              "products.errors.unitPriceRequired"
-            ),
-      });
-      window.requestAnimationFrame(
-        () =>
-          (
-            packageField
-              ? editPackagePriceRef
-              : editUnitPriceRef
-          ).current?.focus()
-      );
-      return;
-    }
-    setPriceFieldError(null);
-    priceMutation.mutate();
-  };
+  const {
+    priceMutation,
+    submitPriceEdit,
+  } = usePriceEditMutation({
+    priceEdit,
+    editPackagePrice,
+    editUnitPrice,
+    operationScope,
+    authFetch,
+    setPriceEdit,
+    setPriceFieldError,
+    queryClient,
+    t,
+    editPackagePriceRef,
+    editUnitPriceRef,
+  });
 
   const {
     importMutation,
