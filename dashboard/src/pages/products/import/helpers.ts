@@ -35,3 +35,23 @@ export function calculateImportProgress(
       )
     : 0;
 }
+
+export function deriveImportProductViewState(
+  status: ProductImportState | null,
+  defaults: ProductTrackingDefaults | undefined,
+  lotControlMode: ProductTrackingMode | null,
+  expiryControlMode: ProductTrackingMode | null,
+) {
+  return {
+    progress:
+      calculateImportProgress(
+        status
+      ),
+    trackingUsesCompanyDefaults:
+      usesCompanyImportTrackingDefaults(
+        defaults,
+        lotControlMode,
+        expiryControlMode
+      ),
+  };
+}
