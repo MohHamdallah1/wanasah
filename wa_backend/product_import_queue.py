@@ -39,7 +39,10 @@ PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
 
 app = App(
     connector=PsycopgConnector(
-        conninfo=DSN
+        conninfo=DSN,
+        # Product-import queue rows intentionally share the public-schema
+        # transaction that creates/updates product_import_jobs.
+        kwargs={"options": "-c search_path=public"},
     ),
     worker_defaults={
         "delete_jobs": "never",
