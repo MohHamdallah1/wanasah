@@ -106,14 +106,14 @@ describe(
     });
 
     it("builds import templates from translated labels and values", () => {
-      const page = readSource(
-        "../pages/ProductsDashboard.tsx",
+      const downloads = readSource(
+        "../pages/products/import/createImportDownloads.ts",
       );
-      const start = page.indexOf(
+      const start = downloads.indexOf(
         "const downloadTemplate",
       );
-      const end = page.indexOf(
-        "const draftDerived",
+      const end = downloads.indexOf(
+        "return {",
         start,
       );
       expect(start).toBeGreaterThanOrEqual(
@@ -121,7 +121,7 @@ describe(
       );
       expect(end).toBeGreaterThan(start);
 
-      const template = page.slice(
+      const template = downloads.slice(
         start,
         end,
       );
@@ -149,13 +149,13 @@ describe(
     });
 
     it("localizes downloaded validation errors from stable codes instead of backend messages", () => {
-      const page = readSource(
-        "../pages/ProductsDashboard.tsx",
+      const downloads = readSource(
+        "../pages/products/import/createImportDownloads.ts",
       );
-      const start = page.indexOf(
+      const start = downloads.indexOf(
         "const downloadErrorReport",
       );
-      const end = page.indexOf(
+      const end = downloads.indexOf(
         "const downloadTemplate",
         start,
       );
@@ -164,7 +164,7 @@ describe(
       );
       expect(end).toBeGreaterThan(start);
 
-      const report = page.slice(
+      const report = downloads.slice(
         start,
         end,
       );
