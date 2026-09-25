@@ -60,7 +60,12 @@ export function useProductsListDebounce({
       window.clearTimeout(
         timer
       );
-  }, [searchInput]);
+  }, [
+    searchInput,
+    setCursor,
+    setHistory,
+    setSearch,
+  ]);
 
   useEffect(() => {
     const timer =
@@ -73,7 +78,10 @@ export function useProductsListDebounce({
       }, 250);
     return () =>
       window.clearTimeout(timer);
-  }, [familyFilterSearchInput]);
+  }, [
+    familyFilterSearchInput,
+    setFamilyFilterSearch,
+  ]);
 
   useEffect(() => {
     if (
@@ -88,5 +96,8 @@ export function useProductsListDebounce({
   }, [
     canViewPricing,
     priceFilter,
+    setCursor,
+    setHistory,
+    setPriceFilter,
   ]);
 }
