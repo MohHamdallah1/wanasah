@@ -45,6 +45,8 @@ interface Props {
   products: WarehouseProduct[];
   loading: boolean;
   pageReady: boolean;
+  pageError: string | null;
+  summaryError: string | null;
   alertCount: number | null;
   matchingTotal: number | null;
   hasMore: boolean;
@@ -94,6 +96,8 @@ export function Tab1LiveStock({
   products,
   loading,
   pageReady,
+  pageError,
+  summaryError,
   alertCount,
   hasMore,
   stockState,
@@ -525,6 +529,66 @@ export function Tab1LiveStock({
           </div>
         </div>
 
+        {pageError && pageReady && (
+          <div
+            role="alert"
+            className="mx-3 mt-3 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950"
+          >
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <AlertTriangle
+                className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"
+                aria-hidden="true"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-black">
+                  {t("inventoryLive.errors.updateTitle")}
+                </p>
+                <p className="mt-1 text-xs font-bold text-amber-800">
+                  {t("inventoryLive.errors.staleData")}
+                </p>
+                <p className="mt-1 break-words text-xs text-amber-700">
+                  {pageError}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCcw
+                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                aria-hidden="true"
+              />
+              {t("common.retry")}
+            </button>
+          </div>
+        )}
+
+        {!pageError && summaryError && (
+          <div
+            role="status"
+            className="mx-3 mt-3 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700"
+          >
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-slate-500"
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <p className="text-xs font-black">
+                {t("inventoryLive.errors.summaryTitle")}
+              </p>
+              <p className="mt-1 text-xs font-bold text-slate-600">
+                {t("inventoryLive.errors.summaryUnavailable")}
+              </p>
+              <p className="mt-1 break-words text-xs text-slate-500">
+                {summaryError}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div
           ref={tableScrollRef}
           className={`custom-scrollbar min-h-0 flex-1 overflow-x-auto overflow-y-auto ${
@@ -610,7 +674,40 @@ export function Tab1LiveStock({
                     colSpan={10}
                     className="py-14 text-center text-sm font-bold text-slate-400"
                   >
-                    {loading && !pageReady
+                    {pageError && !pageReady ? (
+                      <div
+                        role="alert"
+                        className="mx-auto flex max-w-xl flex-col items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-6 py-5 text-red-950"
+                      >
+                        <AlertTriangle
+                          className="h-7 w-7 text-red-600"
+                          aria-hidden="true"
+                        />
+                        <div>
+                          <p className="text-sm font-black">
+                            {t("inventoryLive.errors.updateTitle")}
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-red-800">
+                            {t("inventoryLive.errors.noData")}
+                          </p>
+                          <p className="mt-2 break-words text-xs text-red-700">
+                            {pageError}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onRefresh}
+                          disabled={loading}
+                          className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-900 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <RefreshCcw
+                            className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                            aria-hidden="true"
+                          />
+                          {t("common.retry")}
+                        </button>
+                      </div>
+                    ) : loading && !pageReady
                       ? t("common.loading")
                       : t("inventoryLive.noMatches")}
                   </td>

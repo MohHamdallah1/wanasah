@@ -1073,6 +1073,14 @@ export const resources = {
         },
         errors: {
           loadFailed: "تعذر تحميل الرصيد الحي.",
+          updateTitle: "تعذر تحديث الرصيد الحي",
+          noData:
+            "تعذر تحميل بيانات الرصيد الحي لهذا المستودع. لم نعرض أرقامًا قديمة أو غير مؤكدة.",
+          staleData:
+            "تعذر جلب أحدث نسخة. البيانات الظاهرة هي آخر قراءة ناجحة وقد لا تتضمن أحدث الحركات.",
+          summaryTitle: "تعذر تحديث ملخص الرصيد",
+          summaryUnavailable:
+            "جدول المنتجات ما زال متاحًا؛ تعذر فقط تحديث أرقام الملخص.",
           batchLoadFailed: "تعذر تحميل تفاصيل الدفعات.",
         },
       },
@@ -2511,6 +2519,14 @@ export const resources = {
         },
         errors: {
           loadFailed: "Could not load live inventory.",
+          updateTitle: "Live stock could not be updated",
+          noData:
+            "Live-stock data for this warehouse could not be loaded. No stale or unverified quantities are being shown.",
+          staleData:
+            "The latest data could not be fetched. The table is showing the last successful read and may not include the newest movements.",
+          summaryTitle: "Live-stock summary could not be updated",
+          summaryUnavailable:
+            "The product table is still available; only the summary figures could not be refreshed.",
           batchLoadFailed: "Could not load batch details.",
         },
       },

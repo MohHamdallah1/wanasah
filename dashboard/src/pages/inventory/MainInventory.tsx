@@ -373,6 +373,8 @@ export default function MainInventory() {
   const [stockFamilyId, setStockFamilyId] =
     useState<number | null>(null);
   const [stockRefreshKey, setStockRefreshKey] = useState(0);
+  const [stockPageError, setStockPageError] = useState<string | null>(null);
+  const [stockSummaryError, setStockSummaryError] = useState<string | null>(null);
   const stockRequestSeq = useRef(0);
   const stockAbortRef = useRef<AbortController | null>(null);
   const stockSummaryRequestSeq = useRef(0);
@@ -473,6 +475,8 @@ export default function MainInventory() {
       setStockIndicators([]);
       setStockFamilyId(null);
       setStockCursor(null);
+      setStockPageError(null);
+      setStockSummaryError(null);
       hydrateDefaultLiveStock(locationId);
     },
     [hydrateDefaultLiveStock],
@@ -636,6 +640,7 @@ export default function MainInventory() {
     stockAbortRef.current?.abort();
     const requestController = new AbortController();
     stockAbortRef.current = requestController;
+    setStockPageError(null);
     setLoadingStock(true);
 
     try {
@@ -719,19 +724,20 @@ export default function MainInventory() {
     } catch (error: unknown) {
       if (requestSeq !== stockRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      toast.error(
+      setStockPageError(
         apiErrorMessage(
           error,
           t("inventoryLive.errors.loadFailed"),
         ),
       );
+      const hasVisibleRows = stockItemsRef.current.length > 0;
       const warmSnapshot = defaultView
         ? readLiveStockWarmSnapshot(
             warmScopeKey,
             requestLocationId,
           )
         : null;
-      if (warmSnapshot?.hasPage !== true) {
+      if (!hasVisibleRows && warmSnapshot?.hasPage !== true) {
         stockItemsRef.current = [];
         setStockItems([]);
         setStockPageReady(false);
@@ -771,6 +777,7 @@ export default function MainInventory() {
     stockSummaryAbortRef.current?.abort();
     const requestController = new AbortController();
     stockSummaryAbortRef.current = requestController;
+    setStockSummaryError(null);
 
     try {
       const raw = await authFetch(
@@ -804,7 +811,7 @@ export default function MainInventory() {
         setStockTotal(null);
         setStockAlertCount(null);
       }
-      toast.error(
+      setStockSummaryError(
         apiErrorMessage(
           error,
           t("inventoryLive.errors.loadFailed"),
@@ -840,6 +847,8 @@ export default function MainInventory() {
     stockSummaryAbortRef.current?.abort();
     stockSummaryAbortRef.current = null;
     setStockCursor(null);
+    setStockPageError(null);
+    setStockSummaryError(null);
     setLoadingStock(selectedLocationId !== null);
     setStockRefreshKey((value) => value + 1);
   }, [selectedLocationId]);
@@ -1204,6 +1213,8 @@ export default function MainInventory() {
             products={stockItems}
             loading={loadingStock}
             pageReady={stockPageReady}
+            pageError={stockPageError}
+            summaryError={stockSummaryError}
             onLocationChange={handleLocationChange}
             onRefresh={() => {
               refreshStock();
