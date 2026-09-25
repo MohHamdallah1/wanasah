@@ -207,6 +207,9 @@ describe(
       const createModal = read(
         "src/pages/products/create/CreateProductModal.tsx",
       );
+      const createMutation = read(
+        "src/pages/products/create/useCreateProductMutation.ts",
+      );
       const families = read(
         "src/pages/products/ProductFamiliesManager.tsx",
       );
@@ -232,10 +235,10 @@ describe(
           id,
         );
       }
-      expect(dashboard).toContain(
+      expect(createMutation).toContain(
         "createNameRef.current?.focus()",
       );
-      expect(dashboard).toContain(
+      expect(createMutation).toContain(
         "createUnitsRef.current?.focus()",
       );
       expect(dashboard).toContain(
