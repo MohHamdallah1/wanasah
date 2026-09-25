@@ -225,6 +225,7 @@ export interface SimpleProduct {
   units_per_package: number | null;
   legacy_packs_per_carton: number;
   base_uom_id: number;
+  base_uom_code: string | null;
   package_uom_id: number | null;
   package_uom_code: string | null;
   currency_code: string;
@@ -421,6 +422,19 @@ export function parseSimpleProductPage(
       code,
       1,
     );
+    const baseUomCode =
+      nullableStr(
+        row.base_uom_code,
+        code,
+        30,
+      );
+    if (
+      simpleCompatible &&
+      baseUomCode === null
+    ) {
+      return contractError(code);
+    }
+
     const packageUomId =
       row.package_uom_id === null
         ? null
@@ -482,6 +496,7 @@ export function parseSimpleProductPage(
       legacy_packs_per_carton:
         legacyPacksPerCarton,
       base_uom_id: baseUomId,
+      base_uom_code: baseUomCode,
       package_uom_id: packageUomId,
       package_uom_code: packageUomCode,
       currency_code: str(
