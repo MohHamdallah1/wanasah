@@ -63,18 +63,38 @@ const productUiFiles = () => {
     process.cwd(),
     "src/pages/products",
   );
+
+  const collectTsxFiles = (
+    directory: string,
+  ): string[] =>
+    readdirSync(
+      directory,
+      {
+        withFileTypes: true,
+      },
+    ).flatMap((entry) => {
+      const path = join(
+        directory,
+        entry.name,
+      );
+      if (entry.isDirectory()) {
+        return collectTsxFiles(path);
+      }
+      return /\.tsx$/.test(
+        entry.name,
+      )
+        ? [path]
+        : [];
+    });
+
   return [
     resolve(
       process.cwd(),
       "src/pages/ProductsDashboard.tsx",
     ),
-    ...readdirSync(productRoot)
-      .filter((name) =>
-        /\.tsx$/.test(name),
-      )
-      .map((name) =>
-        join(productRoot, name),
-      ),
+    ...collectTsxFiles(
+      productRoot,
+    ),
   ];
 };
 
