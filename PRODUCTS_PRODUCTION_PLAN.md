@@ -1635,19 +1635,42 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 
 ## P9.3 — Functional Product-page acceptance before redesign
 
-- [ ] Walk through creating a product with and without packaging.
-- [ ] Walk through editing product name/identity where allowed.
-- [ ] Walk through creating, renaming, selecting, and safely changing family.
-- [ ] Walk through package/unit structure and locked-history behavior.
-- [ ] Walk through barcodes.
-- [ ] Walk through tracking settings.
-- [ ] Walk through lifecycle, archive/retire, operational hold, and recall where authorized.
-- [ ] Walk through prices with and without pricing permission.
-- [ ] Walk through import success, validation failure, retry, resume, and error pagination.
-- [ ] Walk through search by name/family/SKU/barcode, all filters, sorting, next/previous pagination, and cursor resets.
-- [ ] Walk through catalog-only, pricing-only where applicable, manager, and read-only permission combinations.
-- [ ] Confirm every backend capability in the P9.0 matrix is either reachable, visible read-only, or intentionally hidden with a documented reason.
-- [ ] No unresolved functional gap remains before visual redesign.
+- [x] Walk through creating a product with and without packaging.
+- [x] Walk through editing product name/identity where allowed.
+- [x] Walk through creating, renaming, selecting, and safely changing family.
+- [x] Walk through package/unit structure and locked-history behavior.
+- [x] Walk through barcodes.
+- [x] Walk through tracking settings.
+- [x] Walk through lifecycle, archive/retire, operational hold, and recall where authorized.
+- [x] Walk through prices with and without pricing permission.
+- [x] Walk through import success, validation failure, retry, resume, and error pagination.
+- [x] Walk through search by name/family/SKU/barcode, all filters, sorting, next/previous pagination, and cursor resets.
+- [x] Walk through catalog-only, pricing-only where applicable, manager, and read-only permission combinations.
+- [x] Confirm every backend capability in the P9.0 matrix is either reachable, visible read-only, or intentionally hidden with a documented reason.
+- [x] No unresolved functional gap remains before visual redesign.
+
+### P9.3 functional acceptance closure evidence — 2026-09-25
+
+- The remaining P9.0 lifecycle reachability gap was resolved without redesign: normal Products still defaults to `ACTIVE` / `RETIRING`, but the lifecycle filter now explicitly supports `ARCHIVED`, so authorized operators can locate an archived Product and use the existing backend-authoritative Restore flow. `DRAFT` remains intentionally absent from the normal Products list.
+- Runtime regression proves both sides of that boundary: archived Products stay hidden from the default normal list and `lifecycle=ARCHIVED` returns the archived restore target. `PRODUCTS_SEARCH_FAMILIES_P4_GATE=PASS` now contains 49 checks.
+- Create acceptance covers packaged and unit-only Products. The Simple Products backend still proves package-only price derivation, unit-only price derivation, independent explicit prices, and unit-only creation without an outer package.
+- Published Product identity editing remains split correctly: Product rename is distinct from family rename/reassignment, preserves optimistic versioning and audit/outbox evidence, and cannot mutate structural identity indirectly. `PRODUCTS_P9_RENAME_GATE=PASS` — 17/17.
+- Family acceptance covers create, rename, select/search, and published family reassignment. History-bearing moves fail closed while safe history-free moves remain available. `PRODUCTS_P9_FAMILY_REASSIGNMENT_GATE=PASS` — 18/18.
+- Package/unit structure remains readable in normal Product Details. Structural UOM/conversion mutation remains DRAFT-only and separated in Advanced UOM; published structure continues to fail closed with `UOM_STRUCTURE_LOCKED`. `PRODUCTS_P5_UOM_SAFETY_GATE=PASS` — 7/7.
+- Barcode acceptance retains list/create/deactivate/history behavior, pagination, strict Product scope, race protection, durable retry recovery, optimistic versions, and uniqueness authority. Barcode GS1 parsing remains intentionally unexposed as an optional advanced/convenience helper; no scanner/parse workflow is required for normal Products.
+- Tracking acceptance covers company defaults, per-Product edits, import snapshots/overrides, history locking, tenant isolation, optimistic versions, audit/outbox, and durable retry identity. `PRODUCT_TRACKING_PRODUCTION_GATE=PASS` — 4/4.
+- Lifecycle acceptance covers retire, restore, archive preflight/archive, sales hold/release, recall/close-recall, and the newly reachable ARCHIVED restore path. Hard delete remains intentionally excluded from normal Products and is available only through the protected advanced DRAFT preflight policy. `PRODUCT_LIFECYCLE_GATE=PASS` — 14/14 and `PRODUCTS_P9_DELETE_ARCHIVE_POLICY_GATE=PASS` — 16/16.
+- Pricing acceptance keeps Product identity independent from pricing authority: `catalog.read` can read identity without real prices, `pricing.view` controls visibility/filtering, and `pricing.manage` controls simple-price mutation. Full price-book/publication/assignment administration remains intentionally outside normal Products.
+- Import acceptance covers upload, tracking defaults and per-row overrides, mapping, validation failure, retryable failure, durable retry, session resume, completion, and bounded error pagination/export. Existing import gates remain green, including Stage 7 Simple Products, P6 localization, and Product Import Tracking.
+- Search acceptance covers Product name, family, SKU, effective barcode, all server filters, stable sorting, signed cursor scope, next/previous pagination, cursor resets, and tenant isolation. P4 remains 49/49 PASS after the ARCHIVED extension.
+- Permission acceptance was exercised across read-only/catalog-only, pricing-view, pricing-manage, catalog-manage/publish, lifecycle-authorized, and full-manager combinations. Creation/import still requires its combined catalog/publish/pricing authority; pricing-only authority does not grant catalog mutation.
+- Final P9.0 matrix decisions are explicit: raw Catalog Product/Variant creation, DRAFT publish/delete, family metadata fields (code/description/brand/category), published SKU/GTIN/base-UOM structural edits, Product-location administration, GS1 parse helper, and full Pricing administration remain intentionally advanced/internal rather than duplicated into normal Products.
+- Product-location administration remains location-scoped in Inventory/Catalog, while normal Product identity remains company-wide. Advanced UOM remains a separate Product-owned advanced surface. Display preferences remain user presentation state only.
+- Permanent frontend acceptance regression added in `dashboard/src/test/products-functional-acceptance-p9.test.ts` — 9/9 PASS. The focused P9.3 acceptance set finished 4 files / 26 tests PASS, and the updated family regression plus acceptance set finished 15/15 PASS.
+- Final Dashboard verification: 39 test files / 234 tests PASS, TypeScript PASS, ESLint 0 warnings/errors, production build PASS.
+- Final aggregate Products production gate: 21 checks / 0 failures / `PRODUCTS_P8_PRODUCTION_GATE=PASS`.
+
+**P9.3 status:** complete. **STOP before P9.4.** No P9.4 visual/usability implementation is authorized or included in this closure.
 
 ## P9.4 — Full Products visual and usability rebuild
 
