@@ -153,6 +153,9 @@ describe(
       const listToolbar = read(
         "src/pages/products/list/ProductsListToolbar.tsx",
       );
+      const listResults = read(
+        "src/pages/products/list/ProductsListResults.tsx",
+      );
       const families = read(
         "src/pages/products/ProductFamiliesManager.tsx",
       );
@@ -179,10 +182,10 @@ describe(
       expect(listToolbar).toMatch(
         /aria-label=\{t\(\s*"products\.searchPlaceholder"/,
       );
-      expect(dashboard).toMatch(
+      expect(listResults).toMatch(
         /aria-label=\{t\(\s*"products\.familyPrevious"/,
       );
-      expect(dashboard).toMatch(
+      expect(listResults).toMatch(
         /aria-label=\{t\(\s*"products\.familyNext"/,
       );
       expect(families).toMatch(
