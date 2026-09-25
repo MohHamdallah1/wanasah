@@ -415,7 +415,8 @@ export default function ProductsDashboard() {
   } = createProductDetailActions({
     closeProductDetails,
     openRenameProduct,
-    priceWorkflow.openPriceEditor,
+    openPriceEditor:
+      priceWorkflow.openPriceEditor,
     openTrackingEditor,
     openLifecycleManager,
     openBarcodeManager,
