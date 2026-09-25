@@ -132,6 +132,11 @@ describe(
           "../pages/ProductsDashboard.tsx",
         ),
       );
+      const filters = compact(
+        readSource(
+          "../pages/products/list/ProductsFiltersPanel.tsx",
+        ),
+      );
       const translations =
         readSource(
           "../i18n/resources.ts",
@@ -171,6 +176,9 @@ describe(
         "canViewPricing && priceFilter",
       );
       expect(page).toContain(
+        "canViewPricing={ canViewPricing }",
+      );
+      expect(filters).toContain(
         "{canViewPricing ? (",
       );
       expect(page).toContain(
