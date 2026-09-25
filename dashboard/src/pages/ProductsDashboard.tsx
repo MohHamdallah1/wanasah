@@ -21,20 +21,7 @@ import { useProductFamiliesState } from "@/pages/products/family/useProductFamil
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { useProductLifecycleState } from "@/pages/products/lifecycle/useProductLifecycleState";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
-import { createProductDraftActions } from "@/pages/products/create/createProductDraftActions";
-import { deriveCreateProductViewState } from "@/pages/products/create/deriveCreateProductViewState";
-import { productDraftStorageKey } from "@/pages/products/create/productDraftStorageKey";
-import { useCreateFamilyOptionParams } from "@/pages/products/create/useCreateFamilyOptionParams";
-import { useCreateFamilyOptionsQuery } from "@/pages/products/create/useCreateFamilyOptionsQuery";
-import { useCreateFamilyOptionSearchDebounce } from "@/pages/products/create/useCreateFamilyOptionSearchDebounce";
-import { useCreateFamilyOptionSearchState } from "@/pages/products/create/useCreateFamilyOptionSearchState";
-import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
-import { useCreateProductMutation } from "@/pages/products/create/useCreateProductMutation";
-import { useCreateTrackingDefaultsSync } from "@/pages/products/create/useCreateTrackingDefaultsSync";
-import { usePackageUomsQuery } from "@/pages/products/create/usePackageUomsQuery";
-import {
-  useCreateProductState,
-} from "@/pages/products/create/useCreateProductState";
+import { useCreateProductWorkflow } from "@/pages/products/create/useCreateProductWorkflow";
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
 import { createImportDownloads } from "@/pages/products/import/createImportDownloads";
 import { createImportFileActions } from "@/pages/products/import/createImportFileActions";
@@ -161,25 +148,6 @@ export default function ProductsDashboard() {
     useProductDisplayPreferencesState();
 
   const {
-    createOpen,
-    setCreateOpen,
-    openCreateProduct,
-    createTrackingExpanded,
-    setCreateTrackingExpanded,
-    createAdvancedExpanded,
-    setCreateAdvancedExpanded,
-    draft,
-    setDraft,
-    restoredDraftKey,
-    createFieldError,
-    setCreateFieldError,
-    createNameRef,
-    createUnitsRef,
-    createPackagePriceRef,
-    createUnitPriceRef,
-  } = useCreateProductState();
-
-  const {
     trackingDefaultsOpen,
     setTrackingDefaultsOpen,
     trackingDefaultsLot,
@@ -245,12 +213,6 @@ export default function ProductsDashboard() {
     openFamilies,
     closeFamilies,
   } = useProductFamiliesState();
-  const [
-    familyOptionSearch,
-    setFamilyOptionSearch,
-  ] =
-    useCreateFamilyOptionSearchState();
-
   const {
     importOpen,
     setImportOpen,
@@ -277,11 +239,6 @@ export default function ProductsDashboard() {
     fileRef,
   } = useImportProductState();
 
-  const draftStorageKey =
-    productDraftStorageKey(
-      companyId,
-      driverId
-    );
   const importSessionKey =
     productImportSessionKey(
       companyId,
@@ -298,20 +255,6 @@ export default function ProductsDashboard() {
     setPriceFilter,
     setCursor,
     setHistory,
-  });
-
-  useCreateFamilyOptionSearchDebounce({
-    createOpen,
-    family: draft.family,
-    setFamilyOptionSearch,
-  });
-
-  useCreateProductDraftPersistence({
-    draftStorageKey,
-    draft,
-    setDraft,
-    restoredDraftKey,
-    t,
   });
 
   useImportSessionResume({
@@ -341,11 +284,6 @@ export default function ProductsDashboard() {
     familyFilterSearch,
   });
 
-  const familyOptionParams =
-    useCreateFamilyOptionParams(
-      familyOptionSearch
-    );
-
   const {
     productsQuery,
     familyFilterOptionsQuery,
@@ -358,24 +296,28 @@ export default function ProductsDashboard() {
     authFetch,
   });
 
-  const familyOptionsQuery =
-    useCreateFamilyOptionsQuery({
-      companyId,
-      createOpen,
-      familyOptionSearch,
-      familyOptionParams,
-      authFetch,
-    });
-
-  const packageUomsQuery =
-    usePackageUomsQuery({
-      authFetch,
-    });
-
   const trackingDefaultsQuery =
     useTrackingDefaultsQuery({
       companyId,
       authFetch,
+    });
+
+  const createWorkflow =
+    useCreateProductWorkflow({
+      companyId,
+      driverId,
+      authFetch,
+      queryClient,
+      t,
+      online: isOnline,
+      trackingDefaults:
+        trackingDefaultsQuery.data,
+      trackingDefaultsError:
+        trackingDefaultsQuery.isError,
+      retryTrackingDefaults: () =>
+        void trackingDefaultsQuery.refetch(),
+      setCursor,
+      setHistory,
     });
 
   useProductsIdentityScopeReset({
@@ -417,11 +359,8 @@ export default function ProductsDashboard() {
       setImportExpiryControlMode,
       setImportTrackingExpanded,
     },
-    create: {
-      setCreateTrackingExpanded,
-      setCreateAdvancedExpanded,
-      setFamilyOptionSearch,
-    },
+    create:
+      createWorkflow.identityScope,
     tracking: {
       setTrackingDefaultsOpen,
       setTrackingDefaultsLot,
@@ -441,23 +380,10 @@ export default function ProductsDashboard() {
     setImportExpiryControlMode,
   });
 
-  useCreateTrackingDefaultsSync({
-    createOpen,
-    defaults:
-      trackingDefaultsQuery.data,
-    setDraft,
-  });
-
   const page =
     productsQuery.data;
   const familyFilterOptions =
     familyFilterOptionsQuery.data
-      ?.items ?? [];
-  const familyOptions =
-    familyOptionsQuery.data
-      ?.items ?? [];
-  const packageUoms =
-    packageUomsQuery.data
       ?.items ?? [];
   const {
     pricingVisible,
@@ -520,16 +446,6 @@ export default function ProductsDashboard() {
   });
 
   const {
-    draftDerived,
-    trackingUsesCompanyDefaults:
-      createTrackingUsesCompanyDefaults,
-  } = deriveCreateProductViewState({
-    draft,
-    defaults:
-      trackingDefaultsQuery.data,
-  });
-
-  const {
     progress: importProgress,
     trackingUsesCompanyDefaults:
       importTrackingUsesCompanyDefaults,
@@ -539,48 +455,6 @@ export default function ProductsDashboard() {
     importLotControlMode,
     importExpiryControlMode
   );
-
-  const {
-    updateName:
-      updateCreateName,
-    updateFamily:
-      updateCreateFamily,
-    updateHasPackage:
-      updateCreateHasPackage,
-    updatePackageUom:
-      updateCreatePackageUom,
-    updateUnitsPerPackage:
-      updateCreateUnitsPerPackage,
-    updatePackagePrice:
-      updateCreatePackagePrice,
-    updateUnitPrice:
-      updateCreateUnitPrice,
-    toggleAdvanced:
-      toggleCreateAdvanced,
-    expandTracking:
-      expandCreateTracking,
-    updateLotControlMode:
-      updateCreateLotControlMode,
-    updateExpiryControlMode:
-      updateCreateExpiryControlMode,
-    resetTracking:
-      resetCreateTracking,
-    updateUnitBarcode:
-      updateCreateUnitBarcode,
-    copyBarcode:
-      copyCreateBarcode,
-    updatePackageBarcode:
-      updateCreatePackageBarcode,
-  } = createProductDraftActions({
-    createFieldError,
-    trackingDefaults:
-      trackingDefaultsQuery.data,
-    setDraft,
-    setCreateFieldError,
-    setCreateAdvancedExpanded,
-    setCreateTrackingExpanded,
-    t,
-  });
 
   const {
     openTrackingDefaults,
@@ -650,33 +524,6 @@ export default function ProductsDashboard() {
     setTrackingEditExpiry,
     queryClient,
     t,
-  });
-
-  const {
-    createMutation,
-    submitCreate,
-    cancelCreate,
-  } = useCreateProductMutation({
-    draft,
-    familyOptions,
-    packageUoms,
-    companyId,
-    driverId,
-    authFetch,
-    draftStorageKey,
-    setDraft,
-    setCreateFieldError,
-    setCreateTrackingExpanded,
-    setCreateAdvancedExpanded,
-    setCreateOpen,
-    setCursor,
-    setHistory,
-    queryClient,
-    t,
-    createNameRef,
-    createUnitsRef,
-    createPackagePriceRef,
-    createUnitPriceRef,
   });
 
   const {
@@ -830,7 +677,7 @@ export default function ProductsDashboard() {
           openFamilies
         }
         onOpenCreateProduct={
-          openCreateProduct
+          createWorkflow.openCreateProduct
         }
       />
 
@@ -1114,111 +961,7 @@ export default function ProductsDashboard() {
       ) : null}
 
       <CreateProductModal
-        open={createOpen}
-        saving={
-          createMutation.isPending
-        }
-        online={isOnline}
-        draft={draft}
-        createFieldError={
-          createFieldError
-        }
-        familyOptions={
-          familyOptions
-        }
-        familyOptionsError={
-          familyOptionsQuery.isError
-        }
-        packageUoms={packageUoms}
-        packageUomsLoading={
-          packageUomsQuery.isLoading
-        }
-        packageUomsError={
-          packageUomsQuery.isError
-        }
-        trackingDefaultsError={
-          trackingDefaultsQuery.isError
-        }
-        trackingUsesCompanyDefaults={
-          createTrackingUsesCompanyDefaults
-        }
-        draftDerived={
-          draftDerived
-        }
-        createAdvancedExpanded={
-          createAdvancedExpanded
-        }
-        createTrackingExpanded={
-          createTrackingExpanded
-        }
-        createNameRef={
-          createNameRef
-        }
-        createUnitsRef={
-          createUnitsRef
-        }
-        createPackagePriceRef={
-          createPackagePriceRef
-        }
-        createUnitPriceRef={
-          createUnitPriceRef
-        }
-        onCancel={cancelCreate}
-        onSubmit={submitCreate}
-        onNameChange={
-          updateCreateName
-        }
-        onFamilyChange={
-          updateCreateFamily
-        }
-        onRetryFamilyOptions={() =>
-          void familyOptionsQuery.refetch()
-        }
-        onRetryTrackingDefaults={() =>
-          void trackingDefaultsQuery.refetch()
-        }
-        onHasPackageChange={
-          updateCreateHasPackage
-        }
-        onRetryPackageUoms={() =>
-          void packageUomsQuery.refetch()
-        }
-        onPackageUomChange={
-          updateCreatePackageUom
-        }
-        onUnitsPerPackageChange={
-          updateCreateUnitsPerPackage
-        }
-        onPackagePriceChange={
-          updateCreatePackagePrice
-        }
-        onUnitPriceChange={
-          updateCreateUnitPrice
-        }
-        onToggleAdvanced={
-          toggleCreateAdvanced
-        }
-        onExpandTracking={
-          expandCreateTracking
-        }
-        onLotControlModeChange={
-          updateCreateLotControlMode
-        }
-        onExpiryControlModeChange={
-          updateCreateExpiryControlMode
-        }
-        onResetTracking={
-          resetCreateTracking
-        }
-        onUnitBarcodeChange={
-          updateCreateUnitBarcode
-        }
-        onCopyBarcode={
-          copyCreateBarcode
-        }
-        onPackageBarcodeChange={
-          updateCreatePackageBarcode
-        }
+        {...createWorkflow.modalProps}
       />
 
       <PriceEditModal
