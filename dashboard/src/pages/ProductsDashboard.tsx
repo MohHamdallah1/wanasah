@@ -48,9 +48,7 @@ import { useImportProductState } from "@/pages/products/import/useImportProductS
 import { useImportProductUpload } from "@/pages/products/import/useImportProductUpload";
 import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
 import { useImportTrackingDefaultsSync } from "@/pages/products/import/useImportTrackingDefaultsSync";
-import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
-import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
-import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
+import { ProductsListSection } from "@/pages/products/list/ProductsListSection";
 import { createProductsListActions } from "@/pages/products/list/createProductsListActions";
 import { deriveProductsListViewState } from "@/pages/products/list/deriveProductsListViewState";
 import { PriceEditModal } from "@/pages/products/pricing/PriceEditModal";
@@ -836,173 +834,105 @@ export default function ProductsDashboard() {
         }
       />
 
-      <section className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-white/70 bg-white/85 shadow-sm backdrop-blur-xl sm:rounded-[26px]">
-        <div className="shrink-0 border-b border-slate-100 p-4">
-          <ProductsListToolbar
-            searchInput={searchInput}
-            filtersOpen={filtersOpen}
-            hasActiveControls={
-              hasProductListControls
-            }
-            onSearchInputChange={
-              setSearchInput
-            }
-            onToggleFilters={
-              toggleFilters
-            }
-            onClearControls={
-              clearControls
-            }
-          />
-
-          {filtersOpen ? (
-            <ProductsFiltersPanel
-              familyFilterSearchInput={
-                familyFilterSearchInput
-              }
-              familyFilterId={
-                familyFilterId
-              }
-              familyFilterName={
-                familyFilterName
-              }
-              familyFilterOptions={
-                familyFilterOptions
-              }
-              familyOptionsError={
-                familyFilterOptionsQuery.isError
-              }
-              lifecycleFilter={
-                lifecycleFilter
-              }
-              trackingTypeFilter={
-                trackingTypeFilter
-              }
-              compatibilityFilter={
-                compatibilityFilter
-              }
-              barcodeFilter={
-                barcodeFilter
-              }
-              canViewPricing={
-                canViewPricing
-              }
-              priceFilter={
-                priceFilter
-              }
-              lotFilter={lotFilter}
-              expiryFilter={
-                expiryFilter
-              }
-              sortBy={sortBy}
-              sortDir={sortDir}
-              onFamilySearchInputChange={
-                setFamilyFilterSearchInput
-              }
-              onFamilyFilterChange={
-                selectFamily
-              }
-              onRetryFamilyOptions={() =>
-                void familyFilterOptionsQuery.refetch()
-              }
-              onLifecycleFilterChange={
-                updateLifecycleFilter
-              }
-              onTrackingTypeFilterChange={
-                updateTrackingTypeFilter
-              }
-              onCompatibilityFilterChange={
-                updateCompatibilityFilter
-              }
-              onBarcodeFilterChange={
-                updateBarcodeFilter
-              }
-              onPriceFilterChange={
-                updatePriceFilter
-              }
-              onLotFilterChange={
-                updateLotFilter
-              }
-              onExpiryFilterChange={
-                updateExpiryFilter
-              }
-              onSortByChange={
-                updateSortBy
-              }
-              onSortDirChange={
-                updateSortDir
-              }
-            />
-          ) : null}
-        </div>
-
-        <ProductsListResults
-          items={
-            page?.items ?? []
-          }
-          isLoading={
-            productsQuery.isLoading
-          }
-          isError={
-            productsQuery.isError
-          }
-          isFetching={
-            productsQuery.isFetching
-          }
-          isNarrowViewport={
-            isNarrowViewport
-          }
-          pricingVisible={
-            pricingVisible
-          }
-          canEditPrice={
-            canEditSimplePrice
-          }
-          canEditTracking={
-            canManageCatalog
-          }
-          columns={
-            visibleColumns
-          }
-          density={
-            displayPreferences
-              .density
-          }
-          tableHeaderSpacing={
-            tableHeaderSpacing
-          }
-          tableColumnCount={
-            productTableColumnCount
-          }
-          hasPrevious={
-            history.length > 0
-          }
-          hasNext={Boolean(
+      <ProductsListSection
+        filtersOpen={filtersOpen}
+        toolbar={{
+          searchInput,
+          filtersOpen,
+          hasActiveControls:
+            hasProductListControls,
+          onSearchInputChange:
+            setSearchInput,
+          onToggleFilters:
+            toggleFilters,
+          onClearControls:
+            clearControls,
+        }}
+        filters={{
+          familyFilterSearchInput,
+          familyFilterId,
+          familyFilterName,
+          familyFilterOptions,
+          familyOptionsError:
+            familyFilterOptionsQuery.isError,
+          lifecycleFilter,
+          trackingTypeFilter,
+          compatibilityFilter,
+          barcodeFilter,
+          canViewPricing,
+          priceFilter,
+          lotFilter,
+          expiryFilter,
+          sortBy,
+          sortDir,
+          onFamilySearchInputChange:
+            setFamilyFilterSearchInput,
+          onFamilyFilterChange:
+            selectFamily,
+          onRetryFamilyOptions: () =>
+            void familyFilterOptionsQuery.refetch(),
+          onLifecycleFilterChange:
+            updateLifecycleFilter,
+          onTrackingTypeFilterChange:
+            updateTrackingTypeFilter,
+          onCompatibilityFilterChange:
+            updateCompatibilityFilter,
+          onBarcodeFilterChange:
+            updateBarcodeFilter,
+          onPriceFilterChange:
+            updatePriceFilter,
+          onLotFilterChange:
+            updateLotFilter,
+          onExpiryFilterChange:
+            updateExpiryFilter,
+          onSortByChange:
+            updateSortBy,
+          onSortDirChange:
+            updateSortDir,
+        }}
+        results={{
+          items:
+            page?.items ?? [],
+          isLoading:
+            productsQuery.isLoading,
+          isError:
+            productsQuery.isError,
+          isFetching:
+            productsQuery.isFetching,
+          isNarrowViewport,
+          pricingVisible,
+          canEditPrice:
+            canEditSimplePrice,
+          canEditTracking:
+            canManageCatalog,
+          columns: visibleColumns,
+          density:
+            displayPreferences.density,
+          tableHeaderSpacing,
+          tableColumnCount:
+            productTableColumnCount,
+          hasPrevious:
+            history.length > 0,
+          hasNext: Boolean(
             page?.next_cursor
-          )}
-          onRetry={() =>
-            void productsQuery.refetch()
-          }
-          onOpenDetails={
-            openProductDetails
-          }
-          onEditPrice={
-            openPriceEditor
-          }
-          onEditTracking={
-            openTrackingEditor
-          }
-          onPrevious={
-            goPrevious
-          }
-          onNext={() =>
+          ),
+          onRetry: () =>
+            void productsQuery.refetch(),
+          onOpenDetails:
+            openProductDetails,
+          onEditPrice:
+            openPriceEditor,
+          onEditTracking:
+            openTrackingEditor,
+          onPrevious:
+            goPrevious,
+          onNext: () =>
             goNext(
               page?.next_cursor ??
                 null
-            )
-          }
-        />
-      </section>
+            ),
+        }}
+      />
 
       <ProductDisplayPreferencesModal
         open={displayPreferencesOpen}
