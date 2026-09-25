@@ -217,6 +217,25 @@ export const resources = {
           },
         },
         editPrice: "تعديل السعر",
+        rename: {
+          action: "تعديل اسم المنتج",
+          title: "تعديل اسم المنتج",
+          description:
+            "سيتم تغيير الاسم الظاهر للمنتج فقط. لن تتغير العائلة أو الكود أو السعر أو التغليف أو إعدادات التتبع.",
+          label: "اسم المنتج الجديد",
+          save: "حفظ الاسم",
+          retry: "إعادة إرسال نفس التعديل",
+          saved: "تم تحديث اسم المنتج.",
+          pendingRetry:
+            "نتيجة المحاولة السابقة غير مؤكدة. تم قفل الاسم لحماية العملية؛ أعد إرسال نفس التعديل.",
+          pendingBlocked:
+            "تعذر التحقق من عملية تغيير الاسم المحفوظة. أوقفت التعديل لحماية البيانات من التكرار.",
+          errors: {
+            required: "أدخل اسم المنتج.",
+            unchanged: "الاسم الجديد مطابق للاسم الحالي.",
+            saveFailed: "تعذر تحديث اسم المنتج.",
+          },
+        },
         details: {
           open: "عرض التفاصيل",
           title: "تفاصيل المنتج",
@@ -1142,6 +1161,10 @@ export const resources = {
           IDEMPOTENCY_CONFLICT: "رقم العملية مستخدم لطلب مختلف.",
           VARIANT_NOT_FOUND: "الصنف المحدد غير موجود أو غير متاح.",
           VARIANT_VERSION_CONFLICT: "تغير الصنف منذ فتحه. حدّث البيانات وأعد المحاولة.",
+          PRODUCT_NAME_INVALID: "اسم المنتج غير صالح.",
+          PRODUCT_NAME_EDIT_LIFECYCLE_BLOCKED: "يمكن تعديل اسم المنتج المنشور فقط عندما يكون فعالاً أو قيد الإيقاف.",
+          PRODUCT_NAME_MUTATION_RESPONSE_INVALID: "استجابة تعديل اسم المنتج غير صالحة أو غير مكتملة.",
+          PRODUCT_NAME_MUTATION_SCOPE_MISMATCH: "استجابة تعديل الاسم لا تطابق المنتج المحدد.",
           VARIANT_STRUCTURE_LOCKED: "لا يمكن تعديل بنية الصنف بعد خروجه من حالة المسودة.",
           VARIANT_IDENTITY_CONFLICT: "هوية الصنف أو SKU/GTIN مستخدمة مسبقاً.",
           VARIANT_CONFLICT: "تعذر تعديل الصنف بسبب تعارض في البيانات.",
@@ -1537,6 +1560,25 @@ export const resources = {
           },
         },
         editPrice: "Edit price",
+        rename: {
+          action: "Edit product name",
+          title: "Edit product name",
+          description:
+            "Only the product's displayed name will change. Family, code, price, packaging, and tracking settings stay unchanged.",
+          label: "New product name",
+          save: "Save name",
+          retry: "Retry the same change",
+          saved: "Product name updated.",
+          pendingRetry:
+            "The previous result is uncertain. The name is locked for safety; retry the exact same change.",
+          pendingBlocked:
+            "The saved rename operation could not be verified. Editing is blocked to prevent duplicate or conflicting changes.",
+          errors: {
+            required: "Enter a product name.",
+            unchanged: "The new name matches the current name.",
+            saveFailed: "Could not update the product name.",
+          },
+        },
         details: {
           open: "View details",
           title: "Product details",
@@ -2461,6 +2503,10 @@ export const resources = {
           IDEMPOTENCY_CONFLICT: "This operation id was already used for a different request.",
           VARIANT_NOT_FOUND: "The selected SKU was not found or is unavailable.",
           VARIANT_VERSION_CONFLICT: "The SKU changed after you opened it. Refresh and try again.",
+          PRODUCT_NAME_INVALID: "The product name is invalid.",
+          PRODUCT_NAME_EDIT_LIFECYCLE_BLOCKED: "A published product name can only be edited while the product is Active or Retiring.",
+          PRODUCT_NAME_MUTATION_RESPONSE_INVALID: "The product-name response is invalid or incomplete.",
+          PRODUCT_NAME_MUTATION_SCOPE_MISMATCH: "The rename response does not match the selected product.",
           VARIANT_STRUCTURE_LOCKED: "The SKU structure cannot be edited after it leaves Draft status.",
           VARIANT_IDENTITY_CONFLICT: "The SKU or GTIN identity is already in use.",
           VARIANT_CONFLICT: "The SKU could not be changed because of a data conflict.",

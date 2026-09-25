@@ -75,6 +75,7 @@ import { ProductDisplayPreferencesModal } from "@/pages/products/ProductDisplayP
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { ProductMobileCard } from "@/pages/products/ProductMobileCard";
+import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
 import { ProductTableRow } from "@/pages/products/ProductTableRow";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingFields } from "@/pages/products/ProductTrackingFields";
@@ -442,6 +443,12 @@ export default function ProductsDashboard() {
   const [
     detailProduct,
     setDetailProduct,
+  ] = useState<SimpleProduct | null>(
+    null
+  );
+  const [
+    renameProduct,
+    setRenameProduct,
   ] = useState<SimpleProduct | null>(
     null
   );
@@ -1016,6 +1023,7 @@ export default function ProductsDashboard() {
         .direction
     );
     setDetailProduct(null);
+    setRenameProduct(null);
     setBarcodeProduct(null);
     setPriceEdit(null);
     setEditPackagePrice("");
@@ -3695,6 +3703,9 @@ export default function ProductsDashboard() {
         canEditPrice={
           canEditSimplePrice
         }
+        canRenameProduct={
+          canManageCatalog
+        }
         canEditTracking={
           canManageCatalog
         }
@@ -3714,6 +3725,10 @@ export default function ProductsDashboard() {
         onClose={() =>
           setDetailProduct(null)
         }
+        onRenameProduct={(product) => {
+          setDetailProduct(null);
+          setRenameProduct(product);
+        }}
         onEditPrice={(product) => {
           setDetailProduct(null);
           openPriceEditor(product);
@@ -3741,6 +3756,18 @@ export default function ProductsDashboard() {
           navigate(
             `/products/advanced-uom?variant=${product.id}`
           );
+        }}
+      />
+
+      <ProductRenameDialog
+        product={renameProduct}
+        companyId={companyId}
+        driverId={driverId}
+        onClose={() =>
+          setRenameProduct(null)
+        }
+        onRenamed={() => {
+          setRenameProduct(null);
         }}
       />
 

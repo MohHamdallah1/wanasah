@@ -280,6 +280,13 @@ export interface SimpleProductPriceMutationResponse {
   unit_price: string;
 }
 
+export interface ProductNameMutationResponse {
+  product_variant_id: number;
+  name: string;
+  version: number;
+  changed: boolean;
+}
+
 export interface ProductImportCommandResponse {
   job_id: string;
   status: ProductImportStatus;
@@ -658,6 +665,24 @@ export function parseSimpleProductPriceMutationResponse(
       code,
     ),
     unit_price: unitPrice,
+  };
+}
+
+export function parseProductNameMutationResponse(
+  raw: unknown,
+): ProductNameMutationResponse {
+  const code =
+    "PRODUCT_NAME_MUTATION_RESPONSE_INVALID";
+  const row = record(raw, code);
+  return {
+    product_variant_id: int(
+      row.product_variant_id,
+      code,
+      1,
+    ),
+    name: str(row.name, code, 200),
+    version: int(row.version, code, 1),
+    changed: bool(row.changed, code),
   };
 }
 

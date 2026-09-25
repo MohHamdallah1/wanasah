@@ -41,6 +41,10 @@ from product_lifecycle import (
     variant_snapshot,
 )
 from services import InventoryMutationError, begin_idempotent_operation, complete_idempotent_operation
+from domains.catalog_identity import (
+    CatalogIdentityError,
+    rename_published_product,
+)
 from domains.live_stock_projection.service import (
     LiveStockProjectionError,
     apply_live_stock_active_variant_delta,
@@ -348,6 +352,19 @@ class VariantCreate(StrictRequest):
 
 class VariantUpdate(VariantCreate):
     expected_version: int = Field(gt=0)
+
+
+class VariantNameUpdate(StrictRequest):
+    request_id: UUID
+    expected_version: int = Field(gt=0)
+    name: str = Field(max_length=200)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def name_value(cls, value: Any) -> str:
+        clean = _text(value, "name", 200)
+        assert clean is not None
+        return clean
 
 
 class ConversionCreate(StrictRequest):
@@ -716,6 +733,85 @@ async def update_variant(
     except IntegrityError as exc:
         await db.rollback()
         raise _error(409, "VARIANT_IDENTITY_CONFLICT", "SKU أو GTIN مستخدم داخل الشركة.") from exc
+
+
+@router.patch("/variants/{variant_id}/name")
+async def rename_variant_name(
+    variant_id: int,
+    payload: VariantNameUpdate,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(db, actor, "catalog.manage")
+    try:
+        idem, replay = await begin_idempotent_operation(
+            db,
+            company_id=actor.company_id,
+            actor_id=actor.id,
+            operation="CATALOG_VARIANT_NAME_UPDATE_V1",
+            request_id=str(payload.request_id),
+            request_hash=_request_hash(
+                payload,
+                variant_id=variant_id,
+            ),
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
+        result = await rename_published_product(
+            db,
+            company_id=int(actor.company_id),
+            actor_id=int(actor.id),
+            request_id=payload.request_id,
+            product_variant_id=int(variant_id),
+            expected_version=int(payload.expected_version),
+            name=payload.name,
+        )
+
+        if result.changed:
+            await refresh_live_stock_variants(
+                db,
+                company_id=int(actor.company_id),
+                variant_ids=[int(variant_id)],
+            )
+
+        response = {
+            "product_variant_id": int(
+                result.product_variant_id
+            ),
+            "name": str(result.name),
+            "version": int(result.version),
+            "changed": bool(result.changed),
+        }
+        complete_idempotent_operation(
+            idem,
+            response,
+        )
+        await db.commit()
+        return response
+    except CatalogIdentityError as exc:
+        await db.rollback()
+        raise _error(
+            exc.status_code,
+            exc.code,
+            exc.message,
+            **exc.context,
+        ) from exc
+    except InventoryMutationError as exc:
+        await db.rollback()
+        raise _error(
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            str(exc),
+        ) from exc
+    except LiveStockProjectionError as exc:
+        await db.rollback()
+        raise _error(
+            500,
+            "LIVE_STOCK_PROJECTION_FAILED",
+            "تعذر تحديث عرض المخزون الحي بأمان.",
+        ) from exc
 
 
 async def _draft_variant(db: AsyncSession, company_id: int, variant_id: int) -> ProductVariant:

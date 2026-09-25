@@ -345,7 +345,7 @@ The current normal Products page mainly exposes price editing.
 
 Production-ready Products must provide safe identity management.
 
-- [ ] Edit display name where allowed.
+- [x] Edit display name where allowed.
 - [ ] Move/change family where allowed.
 - [x] View SKU.
 - [x] Edit/manage barcodes through authoritative barcode workflow.
@@ -1437,8 +1437,8 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 
 ### Product identity and family
 
-- [ ] Add safe editing of the user-visible product name from the normal Products experience.
-- [ ] Confirm exactly which underlying identity is being renamed (product family identity vs SKU/variant display identity) so the UI never edits the wrong record.
+- [x] Add safe editing of the user-visible product name from the normal Products experience.
+- [x] Confirm exactly which underlying identity is being renamed (product family identity vs SKU/variant display identity) so the UI never edits the wrong record.
 - [ ] Keep family creation and family rename available.
 - [ ] Make choosing an existing family versus creating a new family unmistakable during product creation.
 - [ ] Add safe movement of an existing product/SKU to another family only where backend lifecycle/history rules allow it.
