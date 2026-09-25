@@ -5,7 +5,7 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "wa_backend" / "scripts" / "run_dev_operational_worker.ps1"
+SCRIPT = ROOT / "ops" / "development" / "run_operational_worker.ps1"
 RUNBOOK = ROOT / "docs" / "operations" / "DEVELOPMENT_WORKERS.md"
 WORKER_APP = ROOT / "wa_backend" / "workers" / "app.py"
 LIVE_STOCK_TASKS = ROOT / "wa_backend" / "workers" / "tasks" / "live_stock.py"
@@ -57,7 +57,7 @@ check(
     "Live Stock transition maintenance remains periodic on maintenance queue",
 )
 check(
-    ".\\wa_backend\\scripts\\run_dev_operational_worker.ps1" in runbook
+    ".\\ops\\development\\run_operational_worker.ps1" in runbook
     and "maintenance,notifications" in runbook
     and "product_import_queue.app" in runbook,
     "development runbook documents required and optional worker roles",
