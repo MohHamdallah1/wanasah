@@ -239,6 +239,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/ProductDetailDrawer.tsx",
       ),
     );
+    const detailWorkflow = compact(
+      readSource(
+        "../pages/products/detail/useProductDetailWorkflow.ts",
+      ),
+    );
     const manager = compact(
       readSource(
         "../pages/products/ProductLifecycleManager.tsx",
@@ -263,8 +268,8 @@ describe("Products P8 production frontend gate", () => {
     expect(page).toContain(
       "<ProductLifecycleManager",
     );
-    expect(page).toContain(
-      "canManageLifecycle={ canManageLifecycle }",
+    expect(detailWorkflow).toContain(
+      "canManageLifecycle",
     );
     expect(drawer).toContain(
       '"products.lifecycleManager.action"',
