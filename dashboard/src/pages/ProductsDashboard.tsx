@@ -1,7 +1,5 @@
 import {
   useEffect,
-  useRef,
-  useState,
 } from "react";
 import {
   useQueryClient,
@@ -18,7 +16,6 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
- import { Modal } from "@/components/ui/modal";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -35,11 +32,13 @@ import { ProductDisplayPreferencesModal } from "@/pages/products/display-prefere
 import { createProductDisplayPreferenceActions } from "@/pages/products/display-preferences/createProductDisplayPreferenceActions";
 import { useProductDisplayPreferencesState } from "@/pages/products/display-preferences/useProductDisplayPreferencesState";
 import { ProductFamiliesManager } from "@/pages/products/ProductFamiliesManager";
+import { useProductFamiliesState } from "@/pages/products/family/useProductFamiliesState";
 import { ProductLifecycleManager } from "@/pages/products/ProductLifecycleManager";
 import { useProductLifecycleState } from "@/pages/products/lifecycle/useProductLifecycleState";
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
 import { createProductDraftActions } from "@/pages/products/create/createProductDraftActions";
 import { deriveCreateProductViewState } from "@/pages/products/create/deriveCreateProductViewState";
+import { productDraftStorageKey } from "@/pages/products/create/productDraftStorageKey";
 import { useCreateFamilyOptionParams } from "@/pages/products/create/useCreateFamilyOptionParams";
 import { useCreateFamilyOptionsQuery } from "@/pages/products/create/useCreateFamilyOptionsQuery";
 import { useCreateFamilyOptionSearchDebounce } from "@/pages/products/create/useCreateFamilyOptionSearchDebounce";
@@ -57,6 +56,7 @@ import { createImportFileActions } from "@/pages/products/import/createImportFil
 import {
   deriveImportProductViewState,
 } from "@/pages/products/import/helpers";
+import { productImportSessionKey } from "@/pages/products/import/productImportSessionKey";
 import { useImportProductCommands } from "@/pages/products/import/useImportProductCommands";
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
 import { useImportProductState } from "@/pages/products/import/useImportProductState";
@@ -76,6 +76,7 @@ import { useProductsListParams } from "@/pages/products/list/useProductsListPara
 import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
 import { useProductsListState } from "@/pages/products/list/useProductsListState";
 import { ProductRenameDialog } from "@/pages/products/ProductRenameDialog";
+import { deriveProductsCapabilities } from "@/pages/products/deriveProductsCapabilities";
 import { useProductRenameState } from "@/pages/products/rename/useProductRenameState";
 import { ProductTrackingEditor } from "@/pages/products/ProductTrackingEditor";
 import { ProductTrackingSettings } from "@/pages/products/ProductTrackingSettings";
@@ -110,52 +111,20 @@ export default function ProductsDashboard() {
     access.data?.driver_id ??
     null;
 
-  const canManageCatalog =
-    access.isCompanyAdmin ||
-    access.canAny(
-      "catalog.manage"
-    );
-  const canViewPricing =
-    access.isCompanyAdmin ||
-    access.canAny(
-      "pricing.view"
-    );
-
-  const canPublishCatalog =
-    access.isCompanyAdmin ||
-    access.canAny(
-      "catalog.publish"
-    );
-  const canManagePricing =
-    access.isCompanyAdmin ||
-    access.canAny(
-      "pricing.manage"
-    );
-  const canCreateSimpleProduct =
-    access.isCompanyAdmin ||
-    (canManageCatalog &&
-      canPublishCatalog &&
-      canManagePricing);
-  const canImportProducts =
-    canCreateSimpleProduct;
-  const canManageFamilies =
-    canManageCatalog;
-  const canEditSimplePrice =
-    canManagePricing;
-  const canManageLifecycle =
-    access.isCompanyAdmin ||
-    access.can(
-      "catalog.retire"
-    ) ||
-    access.can(
-      "catalog.restore"
-    ) ||
-    access.can(
-      "catalog.archive"
-    ) ||
-    access.can(
-      "catalog.hold"
-    );
+  const {
+    canManageCatalog,
+    canViewPricing,
+    canCreateSimpleProduct,
+    canImportProducts,
+    canManageFamilies,
+    canEditSimplePrice,
+    canManageLifecycle,
+  } = deriveProductsCapabilities({
+    isCompanyAdmin:
+      access.isCompanyAdmin,
+    can: access.can,
+    canAny: access.canAny,
+  });
 
   const {
     searchInput,
@@ -210,6 +179,7 @@ export default function ProductsDashboard() {
   const {
     createOpen,
     setCreateOpen,
+    openCreateProduct,
     createTrackingExpanded,
     setCreateTrackingExpanded,
     createAdvancedExpanded,
@@ -232,6 +202,7 @@ export default function ProductsDashboard() {
     setTrackingDefaultsLot,
     trackingDefaultsExpiry,
     setTrackingDefaultsExpiry,
+    closeTrackingDefaults,
   } = useTrackingDefaultsState();
 
   const {
@@ -264,6 +235,7 @@ export default function ProductsDashboard() {
     setTrackingEditLot,
     trackingEditExpiry,
     setTrackingEditExpiry,
+    closeTrackingEditor,
   } = useProductTrackingEditState();
 
   const {
@@ -284,10 +256,11 @@ export default function ProductsDashboard() {
     editDerived,
   } = usePriceEditState();
 
-  const [
+  const {
     familiesOpen,
-    setFamiliesOpen,
-  ] = useState(false);
+    openFamilies,
+    closeFamilies,
+  } = useProductFamiliesState();
   const [
     familyOptionSearch,
     setFamilyOptionSearch,
@@ -321,13 +294,15 @@ export default function ProductsDashboard() {
   } = useImportProductState();
 
   const draftStorageKey =
-    companyId && driverId
-      ? `wanasah:product-draft:v2:${companyId}:${driverId}`
-      : null;
+    productDraftStorageKey(
+      companyId,
+      driverId
+    );
   const importSessionKey =
-    companyId && driverId
-      ? `wanasah:product-import:v1:${companyId}:${driverId}`
-      : null;
+    productImportSessionKey(
+      companyId,
+      driverId
+    );
 
   useProductsListDebounce({
     searchInput,
@@ -997,10 +972,8 @@ export default function ProductsDashboard() {
             {canManageFamilies ? (
               <button
                 type="button"
-                onClick={() =>
-                  setFamiliesOpen(
-                    true
-                  )
+                onClick={
+                  openFamilies
                 }
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
               >
@@ -1014,17 +987,9 @@ export default function ProductsDashboard() {
             {canCreateSimpleProduct ? (
               <button
                 type="button"
-                onClick={() => {
-                  setCreateTrackingExpanded(
-                    false
-                  );
-                  setCreateAdvancedExpanded(
-                    false
-                  );
-                  setCreateOpen(
-                    true
-                  );
-                }}
+                onClick={
+                  openCreateProduct
+                }
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white"
               >
                 <PackagePlus className="h-4 w-4" />
@@ -1345,10 +1310,8 @@ export default function ProductsDashboard() {
           onExpiryControlModeChange={
             setTrackingDefaultsExpiry
           }
-          onClose={() =>
-            setTrackingDefaultsOpen(
-              false
-            )
+          onClose={
+            closeTrackingDefaults
           }
           onSave={() =>
             trackingDefaultsMutation.mutate()
@@ -1377,11 +1340,9 @@ export default function ProductsDashboard() {
           onExpiryControlModeChange={
             setTrackingEditExpiry
           }
-          onClose={() => {
-            setTrackingEdit(null);
-            setTrackingEditLot(null);
-            setTrackingEditExpiry(null);
-          }}
+          onClose={
+            closeTrackingEditor
+          }
           onSave={() =>
             trackingMutation.mutate()
           }
@@ -1539,8 +1500,8 @@ export default function ProductsDashboard() {
         isOpen={familiesOpen}
         companyId={companyId}
         driverId={driverId}
-        onClose={() =>
-          setFamiliesOpen(false)
+        onClose={
+          closeFamilies
         }
       />
 
