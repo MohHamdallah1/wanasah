@@ -91,6 +91,9 @@ type TargetScope = {
   setBarcodeProduct: Dispatch<
     SetStateAction<SimpleProduct | null>
   >;
+  setFamilyReassignProduct: Dispatch<
+    SetStateAction<SimpleProduct | null>
+  >;
 };
 
 type PricingScope = {
@@ -210,6 +213,7 @@ export function useProductsIdentityScopeReset({
     setDetailProduct,
     setRenameProduct,
     setBarcodeProduct,
+    setFamilyReassignProduct,
   } = targets;
   const {
     setPriceEdit,
@@ -276,6 +280,7 @@ export function useProductsIdentityScopeReset({
     setDetailProduct(null);
     setRenameProduct(null);
     setBarcodeProduct(null);
+    setFamilyReassignProduct(null);
     setPriceEdit(null);
     setEditPackagePrice("");
     setEditUnitPrice("");
@@ -310,6 +315,7 @@ export function useProductsIdentityScopeReset({
     setFamilyFilterSearch,
     setFamilyFilterSearchInput,
     setFamilyOptionSearch,
+    setFamilyReassignProduct,
     setFiltersOpen,
     setHistory,
     setImportExpiryControlMode,
