@@ -80,7 +80,7 @@ describe("Products P3 detail foundation", () => {
   it("makes details available to catalog readers without requiring manage permissions", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
 
@@ -112,7 +112,7 @@ describe("Products P3 detail foundation", () => {
   it("keeps ordinary creation compact and moves supported exceptions to Advanced settings", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const createModal = compact(
@@ -158,7 +158,7 @@ describe("Products P3 detail foundation", () => {
   it("shows a distinct product-list failure with an in-page retry", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const listResults = compact(
@@ -195,7 +195,7 @@ describe("Products P3 detail foundation", () => {
   it("uses action-specific frontend capabilities instead of one coarse canManage flag", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const capabilities = compact(
@@ -241,7 +241,7 @@ describe("Products P3 detail foundation", () => {
   it("manages barcodes through the authoritative catalog endpoints", () => {
     const page = compact(
       readSource(
-        "../pages/ProductsDashboard.tsx",
+        "../pages/products/ProductsPage.tsx",
       ),
     );
     const drawer = compact(
