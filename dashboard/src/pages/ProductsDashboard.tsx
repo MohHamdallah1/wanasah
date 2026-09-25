@@ -73,6 +73,8 @@ import {
   useCreateProductState,
 } from "@/pages/products/create/useCreateProductState";
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
+import { useImportProductState } from "@/pages/products/import/useImportProductState";
+import { useImportSessionResume } from "@/pages/products/import/useImportSessionResume";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
@@ -356,69 +358,31 @@ export default function ProductsDashboard() {
   ] =
     useCreateFamilyOptionSearchState();
 
-  const [
+  const {
     importOpen,
     setImportOpen,
-  ] = useState(false);
-  const [
     importFile,
     setImportFile,
-  ] = useState<File | null>(
-    null
-  );
-  const [
     importJobId,
     setImportJobId,
-  ] = useState<string | null>(
-    null
-  );
-  const [
     importStatus,
     setImportStatus,
-  ] =
-    useState<ProductImportState | null>(
-      null
-    );
-  const [
     importPollError,
     setImportPollError,
-  ] = useState<string | null>(
-    null
-  );
-  const [
     mapping,
     setMapping,
-  ] = useState<
-    Record<string, string>
-  >({});
-  const [
     importPollKey,
     setImportPollKey,
-  ] = useState(0);
-  const [
     importLotControlMode,
     setImportLotControlMode,
-  ] = useState<ProductTrackingMode | null>(
-    null
-  );
-  const [
     importExpiryControlMode,
     setImportExpiryControlMode,
-  ] = useState<ProductTrackingMode | null>(
-    null
-  );
-  const [
     importTrackingExpanded,
     setImportTrackingExpanded,
-  ] = useState(false);
-  const [
     dragging,
     setDragging,
-  ] = useState(false);
-  const fileRef =
-    useRef<HTMLInputElement | null>(
-      null
-    );
+    fileRef,
+  } = useImportProductState();
 
   const draftStorageKey =
     companyId && driverId
@@ -455,30 +419,12 @@ export default function ProductsDashboard() {
     t,
   });
 
-  useEffect(() => {
-    if (!importSessionKey) {
-      return;
-    }
-    const stored =
-      sessionStorage.getItem(
-        importSessionKey
-      );
-    if (
-      stored &&
-      !importJobId
-    ) {
-      setImportJobId(stored);
-      toast.message(
-        t(
-          "products.importResumed"
-        )
-      );
-    }
-  }, [
-    importJobId,
+  useImportSessionResume({
     importSessionKey,
+    importJobId,
+    setImportJobId,
     t,
-  ]);
+  });
 
   const {
     params,
