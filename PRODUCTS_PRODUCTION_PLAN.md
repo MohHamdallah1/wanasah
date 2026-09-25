@@ -1441,10 +1441,23 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 - [x] Confirm exactly which underlying identity is being renamed (product family identity vs SKU/variant display identity) so the UI never edits the wrong record.
 - [x] Keep family creation and family rename available.
 - [x] Make choosing an existing family versus creating a new family unmistakable during product creation.
-- [ ] Add safe movement of an existing product/SKU to another family only where backend lifecycle/history rules allow it.
-- [ ] Expose product code/SKU editing only in states where backend authority permits it; otherwise show it as locked with a clear reason.
-- [ ] Audit backend Product fields such as description/brand/category and decide which belong in the normal or advanced Product experience.
-- [ ] Preserve optimistic-version/concurrency protection for every identity edit.
+- [x] Add safe movement of an existing product/SKU to another family only where backend lifecycle/history rules allow it.
+- [x] Expose product code/SKU editing only in states where backend authority permits it; otherwise show it as locked with a clear reason.
+- [x] Audit backend Product fields such as description/brand/category and decide which belong in the normal or advanced Product experience.
+- [x] Preserve optimistic-version/concurrency protection for every identity edit.
+
+### P9.1 Product identity / family closure evidence — 2026-09-25
+
+- Normal Product rename remains variant-display-name editing through the published identity authority; family identity rename remains owned by the family manager.
+- Family create/rename remains available with durable request identity; family rename uses `expected_version`.
+- Quick Create now makes family intent explicit: no family, select an existing family, or deliberately create a new family. Existing-family typos never silently create a new family.
+- Existing published Product/SKU family reassignment is exposed through `PATCH /catalog/variants/{variant_id}/family` and remains backend-authoritative: only ACTIVE/RETIRING may move, real moves are blocked once batch history exists, same-family is a no-op, target family is tenant-scoped, and `expected_version` is required.
+- Product Details shows published SKU as intentionally locked. Generic SKU/variant structural editing remains available only to DRAFT variants in advanced Catalog authority; the normal Products read contract contains ACTIVE/RETIRING only, so it does not expose a misleading published-SKU editor.
+- Backend `ProductCreate/ProductUpdate` owns `description`, `brand`, and `category` at the catalog Product/family identity level. The Simple Products create/read contracts do not expose them. Decision: keep these fields out of normal Quick Create/details for now and treat them as advanced catalog-level identity fields until a deliberate Simple Products contract is added.
+- Optimistic-version protection is retained on every exposed identity mutation: Product rename, family rename, and Product-family reassignment.
+- Backend family-reassignment gate: 18 checks / 0 failures / `PRODUCTS_P9_FAMILY_REASSIGNMENT_GATE=PASS`.
+- Focused frontend identity/family verification: 8 test files / 53 tests PASS, TypeScript PASS, ESLint PASS, production build PASS.
+- Full Dashboard verification after the identity/family batch: ESLint 0 warnings/errors, 34 test files / 205 tests PASS, production build PASS.
 
 ### Package and unit structure
 
