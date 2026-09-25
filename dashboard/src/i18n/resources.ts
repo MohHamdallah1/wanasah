@@ -318,6 +318,23 @@ export const resources = {
         family: "العائلة",
         familyPlaceholder:
           "اختر عائلة أو اكتب اسماً جديداً",
+        familyModeLabel:
+          "طريقة ربط العائلة",
+        familyMode: {
+          none: "بدون عائلة",
+          existing: "عائلة موجودة",
+          new: "عائلة جديدة",
+        },
+        familyExistingPlaceholder:
+          "ابدأ بكتابة اسم العائلة ثم اخترها من القائمة",
+        familyNewPlaceholder:
+          "اكتب اسم العائلة الجديدة",
+        familyExistingHint:
+          "لن يتم إنشاء عائلة جديدة من هذا الخيار؛ يجب اختيار عائلة موجودة مطابقة.",
+        familyNewHint:
+          "سيتم إنشاء عائلة جديدة بهذا الاسم وربط المنتج بها.",
+        familyNoneHint:
+          "سيتم إنشاء المنتج بدون ربطه بعائلة.",
         noOuterPackage: "يباع بالحبة فقط",
         hasOuterPackage: "له عبوة أكبر",
         packageType: "نوع العبوة",
@@ -534,6 +551,10 @@ export const resources = {
           importStatusLoad:
             "تعذر تحديث حالة الاستيراد. سنواصل المحاولة ويمكنك إعادة المحاولة الآن.",
           nameRequired: "اسم المنتج مطلوب.",
+          existingFamilyRequired:
+            "اختر عائلة موجودة من القائمة. لن ننشئ عائلة جديدة تلقائياً.",
+          newFamilyRequired:
+            "اكتب اسم العائلة الجديدة.",
           packageUnitsInvalid:
             "عدد الحبات داخل العبوة يجب أن يكون رقماً صحيحاً أكبر من 1.",
           priceRequired:
@@ -1661,6 +1682,23 @@ export const resources = {
         family: "Family",
         familyPlaceholder:
           "Select a family or type a new name",
+        familyModeLabel:
+          "Family assignment",
+        familyMode: {
+          none: "No family",
+          existing: "Existing family",
+          new: "New family",
+        },
+        familyExistingPlaceholder:
+          "Start typing a family name, then select it from the list",
+        familyNewPlaceholder:
+          "Enter the new family name",
+        familyExistingHint:
+          "This option never creates a new family; select a matching existing family.",
+        familyNewHint:
+          "A new family with this name will be created and linked to the product.",
+        familyNoneHint:
+          "The product will be created without a family.",
         noOuterPackage: "Sold as a unit only",
         hasOuterPackage:
           "Has an outer package",
@@ -1876,6 +1914,10 @@ export const resources = {
             "Could not refresh the import status. Automatic retries will continue, or retry now.",
           nameRequired:
             "Product name is required.",
+          existingFamilyRequired:
+            "Select an existing family from the list. A new family will not be created automatically.",
+          newFamilyRequired:
+            "Enter the new family name.",
           packageUnitsInvalid:
             "Units per package must be an integer greater than 1.",
           priceRequired:
