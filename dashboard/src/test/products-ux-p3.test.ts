@@ -188,18 +188,23 @@ describe("Products P3 detail foundation", () => {
         "../pages/ProductsDashboard.tsx",
       ),
     );
+    const capabilities = compact(
+      readSource(
+        "../pages/products/deriveProductsCapabilities.ts",
+      ),
+    );
 
-    expect(page).toContain(
+    expect(capabilities).toContain(
       "const canCreateSimpleProduct =",
     );
-    expect(page).toContain(
-      "const canImportProducts = canCreateSimpleProduct;",
+    expect(capabilities).toContain(
+      "canImportProducts: canCreateSimpleProduct",
     );
-    expect(page).toContain(
-      "const canManageFamilies = canManageCatalog;",
+    expect(capabilities).toContain(
+      "canManageFamilies: canManageCatalog",
     );
-    expect(page).toContain(
-      "const canEditSimplePrice = canManagePricing;",
+    expect(capabilities).toContain(
+      "canEditSimplePrice: canManagePricing",
     );
     expect(page).toContain(
       "{canManageFamilies ? (",
