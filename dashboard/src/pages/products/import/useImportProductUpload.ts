@@ -23,6 +23,9 @@ import {
   type ProductImportState,
   type ProductTrackingMode,
 } from "@/pages/products/contracts";
+import {
+  productDurableScope,
+} from "@/pages/products/productDurableScope";
 
 type AuthFetch = (
   path: string,
@@ -33,10 +36,8 @@ type Params = {
   importFile: File | null;
   importLotControlMode: ProductTrackingMode | null;
   importExpiryControlMode: ProductTrackingMode | null;
-  operationScope: (
-    operation: string,
-    target?: string | number,
-  ) => string;
+  companyId: number | null;
+  driverId: number | null;
   authFetch: AuthFetch;
   setImportJobId: Dispatch<
     SetStateAction<string | null>
@@ -61,7 +62,8 @@ export function useImportProductUpload({
   importFile,
   importLotControlMode,
   importExpiryControlMode,
-  operationScope,
+  companyId,
+  driverId,
   authFetch,
   setImportJobId,
   setImportLotControlMode,
@@ -97,7 +99,9 @@ export function useImportProductUpload({
             importFile
           );
         const scope =
-          operationScope(
+          productDurableScope(
+            companyId,
+            driverId,
             "product-import",
             `${fingerprint}:${importLotControlMode}:${importExpiryControlMode}`
           );
