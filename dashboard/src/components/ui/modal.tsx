@@ -14,6 +14,9 @@ interface ModalProps {
   footer?: React.ReactNode;
   maxWidth?: string;
   bodyClassName?: string;
+  initialFocusRef?: {
+    readonly current: HTMLElement | null;
+  };
 }
 
 export function Modal({
@@ -25,6 +28,7 @@ export function Modal({
   footer,
   maxWidth = "max-w-2xl",
   bodyClassName = "p-4 sm:p-6",
+  initialFocusRef,
 }: ModalProps) {
   const { t, i18n } = useTranslation();
   const titleId = useId();
@@ -32,6 +36,7 @@ export function Modal({
     useDialogFocusTrap<HTMLDivElement>(
       isOpen,
       onClose,
+      initialFocusRef,
     );
   return (
     <AnimatePresence>
