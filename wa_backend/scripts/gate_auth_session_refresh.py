@@ -54,8 +54,10 @@ check(
 )
 check(
     "readAccessTokenIfRefreshAdvanced" in storage
-    and "currentRefresh === attemptedRefreshToken" in storage,
-    "dashboard can detect a newer cross-tab session",
+    and "currentRefresh === attemptedRefreshToken" in storage
+    and "attemptedIdentity.sub" in storage
+    and "attemptedIdentity.companyId" in storage,
+    "dashboard accepts cross-tab refresh advancement only for the same tenant identity",
 )
 check(
     "readAccessTokenIfRefreshAdvanced(" in hook
