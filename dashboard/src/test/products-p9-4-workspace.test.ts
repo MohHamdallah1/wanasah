@@ -47,23 +47,37 @@ describe("Products P9.4 workspace foundation", () => {
       "onClick={onOpenFamilies}",
     );
 
-    expect(tools).toMatch(
-      /onSelect=\{\s*onOpenDisplayPreferences\s*\}/,
+    expect(tools).toContain(
+      "const queueAfterMenuClose",
     );
-    expect(tools).toMatch(
-      /onSelect=\{\s*onOpenFamilies\s*\}/,
+    expect(tools).toContain(
+      "onCloseAutoFocus={",
     );
+    expect(tools).toContain(
+      "open={menuOpen}",
+    );
+    expect(tools).toContain(
+      "onOpenChange={(open)",
+    );
+    expect(tools).toContain(
+      "queueMicrotask(action)",
+    );
+    expect(
+      tools.match(
+        /queueAfterMenuClose\(/g,
+      )?.length ?? 0,
+    ).toBe(4);
     expect(tools).not.toContain(
       "onOpenImport",
     );
     expect(addMenu).toMatch(
       /onSelect=\{\s*onOpenImport\s*\}/,
     );
-    expect(tools).toMatch(
-      /onSelect=\{\s*onOpenTrackingDefaults\s*\}/,
+    expect(tools).toContain(
+      "onOpenTrackingDefaults",
     );
-    expect(tools).toMatch(
-      /onSelect=\{\s*onOpenAdvancedUom\s*\}/,
+    expect(tools).toContain(
+      "onOpenAdvancedUom",
     );
     expect(tools).toContain(
       "<DropdownMenuItem",
