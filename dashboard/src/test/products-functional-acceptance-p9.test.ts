@@ -328,6 +328,13 @@ describe(
           "../pages/products/import/ImportProductModal.tsx",
         ),
       );
+      const statusPanel = compact(
+        readSource(
+          "../pages/products/import/ImportProductStatusPanel.tsx",
+        ),
+      );
+      const importUi =
+        modal + " " + statusPanel;
       const resume = compact(
         readSource(
           "../pages/products/import/useImportSessionResume.ts",
@@ -350,11 +357,11 @@ describe(
         "FAILED",
         "COMPLETED",
       ]) {
-        expect(modal).toContain(
+        expect(importUi).toContain(
           `"${status}"`,
         );
       }
-      expect(modal).toContain(
+      expect(statusPanel).toContain(
         "pollError",
       );
       expect(resume).toContain(
