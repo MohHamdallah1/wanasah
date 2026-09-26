@@ -1,6 +1,7 @@
 import {
   CircleDollarSign,
   Eye,
+  FolderTree,
   MoreHorizontal,
   Waypoints,
 } from "lucide-react";
@@ -19,11 +20,15 @@ import type {
 type Props = {
   item: SimpleProduct;
   canEditPrice: boolean;
+  canReassignFamily: boolean;
   canEditTracking: boolean;
   onOpenDetails: (
     item: SimpleProduct,
   ) => void;
   onEditPrice: (
+    item: SimpleProduct,
+  ) => void;
+  onReassignFamily: (
     item: SimpleProduct,
   ) => void;
   onEditTracking: (
@@ -34,15 +39,25 @@ type Props = {
 export function ProductRowActions({
   item,
   canEditPrice,
+  canReassignFamily,
   canEditTracking,
   onOpenDetails,
   onEditPrice,
+  onReassignFamily,
   onEditTracking,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } =
+    useTranslation();
+  const direction =
+    i18n.dir();
+  const familyReassignAllowed =
+    canReassignFamily &&
+    ["ACTIVE", "RETIRING"].includes(
+      item.lifecycle_status,
+    );
 
   return (
-    <DropdownMenu>
+    <DropdownMenu dir={direction}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -59,14 +74,15 @@ export function ProductRowActions({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
+        dir={direction}
         align="end"
-        className="w-52 rounded-xl border-slate-200 p-1.5 shadow-xl"
+        className="w-52 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
       >
         <DropdownMenuItem
           onSelect={() =>
             onOpenDetails(item)
           }
-          className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+          className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
         >
           <Eye className="h-4 w-4 text-slate-400" />
           {t(
@@ -80,11 +96,25 @@ export function ProductRowActions({
             onSelect={() =>
               onEditPrice(item)
             }
-            className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <CircleDollarSign className="h-4 w-4 text-slate-400" />
             {t(
               "products.editPrice",
+            )}
+          </DropdownMenuItem>
+        ) : null}
+
+        {familyReassignAllowed ? (
+          <DropdownMenuItem
+            onSelect={() =>
+              onReassignFamily(item)
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+          >
+            <FolderTree className="h-4 w-4 shrink-0 text-slate-400" />
+            {t(
+              "products.familyReassign.action",
             )}
           </DropdownMenuItem>
         ) : null}
@@ -94,7 +124,7 @@ export function ProductRowActions({
             onSelect={() =>
               onEditTracking(item)
             }
-            className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <Waypoints className="h-4 w-4 text-slate-400" />
             {t(
