@@ -3,6 +3,7 @@ import type {
 } from "@/lib/productDisplayPreferences";
 import { createProductsListActions } from "@/pages/products/list/createProductsListActions";
 import { deriveProductsListViewState } from "@/pages/products/list/deriveProductsListViewState";
+import { useProductsInfiniteRows } from "@/pages/products/list/useProductsInfiniteRows";
 import { useProductsListDebounce } from "@/pages/products/list/useProductsListDebounce";
 import { useProductsListParams } from "@/pages/products/list/useProductsListParams";
 import { useProductsListQueries } from "@/pages/products/list/useProductsListQueries";
@@ -83,6 +84,7 @@ export function useProductsListWorkflow({
 
   const {
     params,
+    resultScopeKey,
     familyFilterParams,
   } = useProductsListParams({
     search,
@@ -107,6 +109,7 @@ export function useProductsListWorkflow({
   } = useProductsListQueries({
     companyId,
     params,
+    cursor,
     filtersOpen,
     familyFilterSearch,
     familyFilterParams,
@@ -115,6 +118,15 @@ export function useProductsListWorkflow({
 
   const page =
     productsQuery.data;
+  const accumulatedItems =
+    useProductsInfiniteRows({
+      page,
+      cursor,
+      scopeKey:
+        resultScopeKey,
+      pageReady:
+        !productsQuery.isPlaceholderData,
+    });
   const familyFilterOptions =
     familyFilterOptionsQuery.data
       ?.items ?? [];
@@ -144,7 +156,6 @@ export function useProductsListWorkflow({
   });
 
   const {
-    toggleFilters,
     clearControls,
     clearAllCriteria,
     selectFamily,
@@ -157,7 +168,6 @@ export function useProductsListWorkflow({
     updateExpiryFilter,
     updateSortBy,
     updateSortDir,
-    goPrevious,
     goNext,
   } = createProductsListActions({
     familyFilterOptions,
@@ -218,7 +228,6 @@ export function useProductsListWorkflow({
       resetProductPagination,
     },
     section: {
-      filtersOpen,
       toolbar: {
         searchInput,
         filtersOpen,
@@ -226,8 +235,8 @@ export function useProductsListWorkflow({
           hasProductListControls,
         onSearchInputChange:
           setSearchInput,
-        onToggleFilters:
-          toggleFilters,
+        onFiltersOpenChange:
+          setFiltersOpen,
       },
       activeFilters: {
         familyFilterId,
@@ -315,7 +324,7 @@ export function useProductsListWorkflow({
       },
       results: {
         items:
-          page?.items ?? [],
+          accumulatedItems,
         isLoading:
           productsQuery.isLoading,
         isError:
@@ -334,23 +343,24 @@ export function useProductsListWorkflow({
         tableHeaderSpacing,
         tableColumnCount:
           productTableColumnCount,
-        hasPrevious:
-          history.length > 0,
         hasNext:
+          !productsQuery
+            .isPlaceholderData &&
           Boolean(
             page?.next_cursor
+          ),
+        onLoadMore: () =>
+          goNext(
+            productsQuery
+              .isPlaceholderData
+              ? null
+              : page?.next_cursor ??
+                  null
           ),
         onRetry: () =>
           void productsQuery.refetch(),
         onClearCriteria:
           clearAllCriteria,
-        onPrevious:
-          goPrevious,
-        onNext: () =>
-          goNext(
-            page?.next_cursor ??
-              null
-          ),
       },
     },
   };
