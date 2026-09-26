@@ -16,6 +16,7 @@ type Params = {
   page: SimpleProductPage | undefined;
   canViewPricing: boolean;
   displayPreferences: ProductDisplayPreferences;
+  search: string;
   familyFilterId: string;
   lifecycleFilter: ProductLifecycleFilter;
   trackingTypeFilter: ProductTrackingTypeFilter;
@@ -32,6 +33,7 @@ export function deriveProductsListViewState({
   page,
   canViewPricing,
   displayPreferences,
+  search,
   familyFilterId,
   lifecycleFilter,
   trackingTypeFilter,
@@ -83,6 +85,22 @@ export function deriveProductsListViewState({
     "compact"
       ? "px-4 py-2"
       : "px-5 py-3";
+  const hasResultCriteria =
+    Boolean(
+      search ||
+        familyFilterId ||
+        lifecycleFilter ||
+        trackingTypeFilter ||
+        compatibilityFilter ||
+        barcodeFilter ||
+        (
+          canViewPricing &&
+          priceFilter
+        ) ||
+        lotFilter ||
+        expiryFilter
+    );
+
   const hasProductListControls =
     Boolean(
       familyFilterId ||
@@ -108,5 +126,6 @@ export function deriveProductsListViewState({
     productTableColumnCount,
     tableHeaderSpacing,
     hasProductListControls,
+    hasResultCriteria,
   };
 }
