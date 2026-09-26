@@ -1459,6 +1459,8 @@ export const resources = {
             "تعذر التحقق من الطلب المعلّق المحفوظ على هذا الجهاز. أُوقفت العملية لحمايتها من التكرار حتى تتم تسويتها.",
           PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID:
             "تم استلام رد غير متوقع بعد حفظ العائلة. أُبقي الطلب معلّقاً لمنع تكرار العملية حتى تتم تسويته.",
+          PRODUCT_FAMILY_DELETE_RESPONSE_INVALID:
+            "تم استلام رد غير متوقع بعد حذف العائلة. أُبقي طلب الحذف معلّقاً حتى تتم تسويته بأمان.",
           INVALID_SERVER_RESPONSE:
             "وصلت استجابة غير صالحة من السيرفر.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:
