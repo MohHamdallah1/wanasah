@@ -1,4 +1,5 @@
 import {
+  useRef,
   useState,
 } from "react";
 import {
@@ -63,6 +64,50 @@ function FocusTrapHarness() {
           </button>
           <button type="button">
             Last
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function PreferredFocusTrapHarness() {
+  const [open, setOpen] =
+    useState(false);
+  const inputRef =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+  const dialogRef =
+    useDialogFocusTrap<HTMLDivElement>(
+      open,
+      () => setOpen(false),
+      inputRef,
+    );
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+      >
+        Open preferred
+      </button>
+      {open ? (
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          role="dialog"
+        >
+          <button type="button">
+            Header close
+          </button>
+          <input
+            ref={inputRef}
+            aria-label="Family search"
+          />
+          <button type="button">
+            Save
           </button>
         </div>
       ) : null}
@@ -137,6 +182,30 @@ describe(
       expect(
         screen.queryByRole("dialog"),
       ).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+    });
+
+    it("focuses a dialog workflow control explicitly when requested", () => {
+      render(
+        <PreferredFocusTrapHarness />,
+      );
+
+      const opener =
+        screen.getByRole("button", {
+          name: "Open preferred",
+        });
+      opener.focus();
+      fireEvent.click(opener);
+
+      expect(
+        screen.getByRole("textbox", {
+          name: "Family search",
+        }),
+      ).toHaveFocus();
+
+      fireEvent.keyDown(document, {
+        key: "Escape",
+      });
       expect(opener).toHaveFocus();
     });
 
