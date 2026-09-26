@@ -288,16 +288,27 @@ describe(
         );
       });
 
+      const option =
+        await screen.findByRole(
+          "option",
+          {
+            name: /Snacks/,
+          },
+        );
       expect(
-        await screen.findByText(
-          "Snacks",
+        option,
+      ).toBeInTheDocument();
+
+      fireEvent.click(option);
+
+      expect(
+        screen.getByRole(
+          "button",
+          {
+            name: /Snacks/,
+          },
         ),
       ).toBeInTheDocument();
-      expect(
-        screen.queryByRole(
-          "option",
-        ),
-      ).not.toBeInTheDocument();
     });
   },
 );
