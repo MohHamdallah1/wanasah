@@ -74,7 +74,7 @@ const product: SimpleProduct = {
 describe(
   "Products table exact presentation",
   () => {
-    it("renders high-precision prices exactly and localizes package units in Arabic", () => {
+    it("renders exact high-precision prices with Latin digits in Arabic UI", () => {
       render(
         <table>
           <tbody>
@@ -111,17 +111,22 @@ describe(
 
       expect(
         cells.getByText(
-          "١٬٠٠٠٬٠٠٠٬٠٠٠٬٠٠٠٫١٢٣٤٥٦ JOD",
+          "1,000,000,000,000.123456 JOD",
         ),
       ).toBeInTheDocument();
       expect(
         cells.getByText(
-          "٢٠٬٠٠٠٬٠٠٠٬٠٠٠٫٠٠٢٤٦٩ JOD",
+          "20,000,000,000.002469 JOD",
         ),
       ).toBeInTheDocument();
       expect(
-        cells.getByText("٥٠"),
+        cells.getByText("50"),
       ).toBeInTheDocument();
+      expect(
+        cells.queryByText(
+          "Precision Family",
+        ),
+      ).not.toBeInTheDocument();
     });
   },
 );
