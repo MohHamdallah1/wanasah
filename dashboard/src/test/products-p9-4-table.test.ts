@@ -66,14 +66,23 @@ describe("Products P9.4 desktop table", () => {
       "loop",
     );
     expect(actions).toContain(
-      "const openAfterMenuClose",
+      "const queueAfterMenuClose",
     );
     expect(actions).toContain(
+      "onCloseAutoFocus={",
+    );
+    expect(actions).toContain(
+      "open={menuOpen}",
+    );
+    expect(actions).toContain(
+      "onOpenChange={(open)",
+    );
+    expect(actions).not.toContain(
       "window.setTimeout(",
     );
     expect(
       actions.match(
-        /openAfterMenuClose\(/g,
+        /queueAfterMenuClose\(/g,
       )?.length ?? 0,
     ).toBe(4);
     expect(actions).toContain(
