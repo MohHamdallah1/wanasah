@@ -31,7 +31,7 @@ describe("Products P9.4 workspace foundation", () => {
     expect(header).toContain(
       "<ProductsCatalogToolsMenu",
     );
-    expect(header).toContain(
+    expect(addAction).toContain(
       "bg-amber-400",
     );
     expect(header).toContain(
