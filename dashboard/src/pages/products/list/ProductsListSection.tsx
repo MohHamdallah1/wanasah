@@ -8,9 +8,11 @@ import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
 
 type Props = {
-  filtersOpen: boolean;
-  toolbar: ComponentProps<
-    typeof ProductsListToolbar
+  toolbar: Omit<
+    ComponentProps<
+      typeof ProductsListToolbar
+    >,
+    "filtersContent"
   >;
   activeFilters: ComponentProps<
     typeof ProductsActiveFilters
@@ -24,7 +26,6 @@ type Props = {
 };
 
 export function ProductsListSection({
-  filtersOpen,
   toolbar,
   activeFilters,
   filters,
@@ -35,17 +36,16 @@ export function ProductsListSection({
       <div className="shrink-0 border-b border-slate-100 px-3 py-3 sm:px-4">
         <ProductsListToolbar
           {...toolbar}
+          filtersContent={
+            <ProductsFiltersPanel
+              {...filters}
+            />
+          }
         />
 
         <ProductsActiveFilters
           {...activeFilters}
         />
-
-        {filtersOpen ? (
-          <ProductsFiltersPanel
-            {...filters}
-          />
-        ) : null}
       </div>
 
       <ProductsListResults
