@@ -179,11 +179,11 @@ describe(
       expect(listToolbar).toMatch(
         /aria-label=\{t\(\s*"products\.searchPlaceholder"/,
       );
-      expect(listResults).toMatch(
-        /aria-label=\{t\(\s*"products\.familyPrevious"/,
+      expect(listResults).toContain(
+        'aria-live="polite"',
       );
-      expect(listResults).toMatch(
-        /aria-label=\{t\(\s*"products\.familyNext"/,
+      expect(listResults).toContain(
+        "IntersectionObserver",
       );
       expect(familiesToolbar).toMatch(
         /aria-label=\{t\(\s*"products\.familySearchPlaceholder"/,
