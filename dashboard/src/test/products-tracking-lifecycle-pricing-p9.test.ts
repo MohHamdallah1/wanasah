@@ -91,7 +91,7 @@ describe("Products P9 tracking, barcode, lifecycle and pricing closure", () => {
       readSource("../pages/products/pricing/PriceEditModal.tsx"),
     );
     const create = compact(
-      readSource("../pages/products/create/CreateProductModal.tsx"),
+      readSource("../pages/products/create/CreateProductCommerceSection.tsx"),
     );
 
     expect(capabilities).toContain('canAny("pricing.view")');
