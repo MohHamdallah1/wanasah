@@ -1,16 +1,13 @@
 import {
   Boxes,
-  FileSpreadsheet,
-  FolderTree,
-  LockKeyhole,
   PackagePlus,
   RefreshCw,
-  Settings2,
-  SlidersHorizontal,
 } from "lucide-react";
 import {
   useTranslation,
 } from "react-i18next";
+
+import { ProductsCatalogToolsMenu } from "@/pages/products/header/ProductsCatalogToolsMenu";
 
 type Props = {
   isFetching: boolean;
@@ -46,31 +43,30 @@ export function ProductsPageHeader({
   const { t } = useTranslation();
 
   return (
-    <header className="shrink-0 rounded-[22px] border border-white/70 bg-white/85 px-4 py-4 shadow-sm backdrop-blur-xl sm:rounded-[26px] sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0 flex flex-1 items-center gap-3 sm:flex-none">
-          <span className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-slate-950 text-white">
-            <Boxes className="h-5 w-5" />
+    <header className="shrink-0 border-b border-slate-200/80 px-1 pb-3 pt-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white shadow-sm">
+            <Boxes className="h-4 w-4" />
           </span>
+
           <div className="min-w-0">
-            <h1 className="break-words text-xl font-black text-slate-950">
-              {t(
-                "products.title"
-              )}
+            <h1 className="break-words text-lg font-black leading-6 text-slate-950 sm:text-xl">
+              {t("products.title")}
             </h1>
-            <p className="mt-0.5 break-words text-xs font-semibold text-slate-500">
-              {t(
-                "products.subtitle"
-              )}
+            <p className="mt-0.5 hidden break-words text-[11px] font-semibold leading-5 text-slate-500 sm:block">
+              {t("products.subtitle")}
             </p>
           </div>
         </div>
 
-        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center [&>button]:min-w-0 [&>button]:justify-center [&>button]:whitespace-normal [&>button]:text-center">
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:justify-end">
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600"
+            aria-label={t("common.refresh")}
+            title={t("common.refresh")}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
           >
             <RefreshCw
               className={`h-4 w-4 ${
@@ -79,98 +75,37 @@ export function ProductsPageHeader({
                   : ""
               }`}
             />
-            {t(
-              "common.refresh"
-            )}
           </button>
 
-          <button
-            type="button"
-            onClick={
+          <ProductsCatalogToolsMenu
+            trackingDefaultsLoading={
+              trackingDefaultsLoading
+            }
+            canManageCatalog={
+              canManageCatalog
+            }
+            canImportProducts={
+              canImportProducts
+            }
+            canManageFamilies={
+              canManageFamilies
+            }
+            onOpenDisplayPreferences={
               onOpenDisplayPreferences
             }
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            {t(
-              "products.displayPreferences.action"
-            )}
-          </button>
-
-          {canManageCatalog ? (
-            <button
-              type="button"
-              disabled={
-                trackingDefaultsLoading
-              }
-              onClick={
-                onOpenTrackingDefaults
-              }
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
-            >
-              <Settings2 className="h-4 w-4" />
-              {t(
-                "products.trackingSettings.action"
-              )}
-            </button>
-          ) : null}
-
-          {canImportProducts ? (
-            <button
-              type="button"
-              onClick={onOpenImport}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              {t(
-                "products.importFile"
-              )}
-            </button>
-          ) : null}
-
-          {canManageCatalog ? (
-            <>
-              <button
-                type="button"
-                onClick={
-                  onOpenAdvancedUom
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-              >
-                <Settings2 className="h-4 w-4" />
-                {t(
-                  "products.advancedUom.action"
-                )}
-              </button>
-
-              <button
-                type="button"
-                disabled
-                title={t(
-                  "products.advancedPricingHint"
-                )}
-                className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-400"
-              >
-                <LockKeyhole className="h-4 w-4" />
-                {t(
-                  "products.advancedPricing"
-                )}
-              </button>
-            </>
-          ) : null}
-
-          {canManageFamilies ? (
-            <button
-              type="button"
-              onClick={onOpenFamilies}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700"
-            >
-              <FolderTree className="h-4 w-4" />
-              {t(
-                "products.families"
-              )}
-            </button>
-          ) : null}
+            onOpenTrackingDefaults={
+              onOpenTrackingDefaults
+            }
+            onOpenImport={
+              onOpenImport
+            }
+            onOpenAdvancedUom={
+              onOpenAdvancedUom
+            }
+            onOpenFamilies={
+              onOpenFamilies
+            }
+          />
 
           {canCreateSimpleProduct ? (
             <button
@@ -178,12 +113,12 @@ export function ProductsPageHeader({
               onClick={
                 onOpenCreateProduct
               }
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white"
+              className="inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 sm:flex-none"
             >
-              <PackagePlus className="h-4 w-4" />
-              {t(
-                "products.addProduct"
-              )}
+              <PackagePlus className="h-4 w-4 shrink-0" />
+              <span className="break-words">
+                {t("products.addProduct")}
+              </span>
             </button>
           ) : null}
         </div>
