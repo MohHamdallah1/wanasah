@@ -171,6 +171,29 @@ export const resources = {
         emptyTitle: "لا توجد منتجات بعد",
         emptyDescription:
           "أضف منتجاً أو استورد ملفاً.",
+        states: {
+          loadingTitle: "جاري تحميل المنتجات",
+          loadingDescription:
+            "نجهّز قائمة المنتجات الحالية.",
+          filteredEmptyTitle:
+            "لا توجد منتجات تطابق هذا العرض",
+          filteredEmptyDescription:
+            "عدّل البحث أو أزل بعض الفلاتر لعرض نتائج أخرى.",
+          clearCriteria:
+            "مسح البحث والفلاتر",
+          offlineTitle:
+            "لا يوجد اتصال بالإنترنت",
+          offlineDescription:
+            "تعذر تحميل المنتجات الآن. أعد المحاولة بعد عودة الاتصال.",
+          offlineCachedDescription:
+            "أنت غير متصل الآن. نعرض آخر بيانات متاحة ولن يتم تحميل صفحات جديدة حتى يعود الاتصال.",
+          permissionTitle:
+            "لم تعد لديك صلاحية لعرض المنتجات",
+          permissionDescription:
+            "تم تحديث صلاحيات حسابك. سيتم تطبيق صلاحية الوصول المعتمدة من النظام.",
+          refreshFailedDescription:
+            "تعذر تحديث قائمة المنتجات. نعرض آخر بيانات ناجحة ويمكنك إعادة المحاولة.",
+        },
         columns: {
           product: "المنتج",
           package: "العبوة",
@@ -1630,6 +1653,29 @@ export const resources = {
         emptyTitle: "No products yet",
         emptyDescription:
           "Add a product or import a file.",
+        states: {
+          loadingTitle: "Loading products",
+          loadingDescription:
+            "Preparing the current Product list.",
+          filteredEmptyTitle:
+            "No products match this view",
+          filteredEmptyDescription:
+            "Adjust the search or remove some filters to see other results.",
+          clearCriteria:
+            "Clear search and filters",
+          offlineTitle:
+            "You are offline",
+          offlineDescription:
+            "Products cannot be loaded right now. Try again when the connection returns.",
+          offlineCachedDescription:
+            "You are offline. The last available data remains visible, and new pages will not load until the connection returns.",
+          permissionTitle:
+            "You no longer have permission to view Products",
+          permissionDescription:
+            "Your account permissions changed. The system will apply the authoritative access state.",
+          refreshFailedDescription:
+            "The Product list could not be refreshed. The last successful data remains visible and you can retry.",
+        },
         columns: {
           product: "Product",
           package: "Package",
