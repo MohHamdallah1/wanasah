@@ -486,6 +486,11 @@ describe(
           "../pages/products/family/ProductFamiliesManager.tsx",
         ),
       );
+      const list = compact(
+        readSource(
+          "../pages/products/family/ProductFamiliesList.tsx",
+        ),
+      );
       const translations =
         readSource(
           "../i18n/resources.ts",
@@ -494,10 +499,10 @@ describe(
       expect(manager).toContain(
         "familiesQuery.isError",
       );
-      expect(manager).toContain(
+      expect(list).toContain(
         '"products.errors.familiesLoad"',
       );
-      expect(manager).toContain(
+      expect(list).toContain(
         '"products.noMatchingFamilies"',
       );
       expect(manager).toContain(
