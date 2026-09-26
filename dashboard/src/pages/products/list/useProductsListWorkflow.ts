@@ -19,6 +19,7 @@ type Params = {
   canViewPricing: boolean;
   displayPreferences:
     ProductDisplayPreferences;
+  online: boolean;
 };
 
 export function useProductsListWorkflow({
@@ -26,6 +27,7 @@ export function useProductsListWorkflow({
   authFetch,
   canViewPricing,
   displayPreferences,
+  online,
 }: Params) {
   const {
     searchInput,
@@ -123,8 +125,10 @@ export function useProductsListWorkflow({
     productTableColumnCount,
     tableHeaderSpacing,
     hasProductListControls,
+    hasResultCriteria,
   } = deriveProductsListViewState({
     page,
+    search,
     canViewPricing,
     displayPreferences,
     familyFilterId,
@@ -142,6 +146,7 @@ export function useProductsListWorkflow({
   const {
     toggleFilters,
     clearControls,
+    clearAllCriteria,
     selectFamily,
     updateLifecycleFilter,
     updateTrackingTypeFilter,
@@ -160,6 +165,8 @@ export function useProductsListWorkflow({
     cursor,
     history,
     setFiltersOpen,
+    setSearchInput,
+    setSearch,
     setFamilyFilterId,
     setFamilyFilterName,
     setFamilyFilterSearchInput,
@@ -315,6 +322,10 @@ export function useProductsListWorkflow({
           productsQuery.isError,
         isFetching:
           productsQuery.isFetching,
+        error:
+          productsQuery.error,
+        online,
+        hasResultCriteria,
         pricingVisible,
         columns:
           visibleColumns,
@@ -331,6 +342,8 @@ export function useProductsListWorkflow({
           ),
         onRetry: () =>
           void productsQuery.refetch(),
+        onClearCriteria:
+          clearAllCriteria,
         onPrevious:
           goPrevious,
         onNext: () =>
