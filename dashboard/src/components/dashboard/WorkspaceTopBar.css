@@ -1,7 +1,16 @@
+.workspace-top-bar-frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
 .workspace-top-bar {
   position: relative;
   z-index: 1;
   display: flex;
+  width: 100%;
   min-width: 0;
   align-items: center;
   padding: 0.3rem 0.4rem;
@@ -26,35 +35,23 @@
 }
 
 .workspace-top-bar--dock {
-  width: min(1240px, calc(100% - 1.25rem));
-  max-width: none;
   justify-content: center;
 }
 
 .workspace-top-bar--page {
-  width: 100%;
   justify-content: stretch;
 }
 
 @media (max-width: 760px) {
   .workspace-top-bar--dock {
     width: max-content;
-    max-width: none;
+    min-width: 100%;
     border-radius: 0.9rem;
   }
 }
 
 @media (min-width: 1024px) {
-  .workspace-top-bar--dock {
-    width: 100%;
-    min-height: 3.25rem;
-    border-top: 0;
-    border-inline: 0;
-    border-radius: 0;
-    padding: 0.35rem 0.65rem;
-  }
-
-  .workspace-top-bar--page {
+  .workspace-top-bar-frame {
     position: sticky;
     top: 0;
     z-index: 40;
@@ -63,6 +60,10 @@
     margin-block-start: -1.5rem;
     margin-inline-start: -0.75rem;
     margin-inline-end: -1rem;
+  }
+
+  .workspace-top-bar {
+    min-height: 3.25rem;
     border-top: 0;
     border-inline: 0;
     border-radius: 0;
