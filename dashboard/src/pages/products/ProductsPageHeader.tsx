@@ -6,7 +6,6 @@ import {
 } from "react-i18next";
 
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
-import { ProductsAddAction } from "@/pages/products/header/ProductsAddAction";
 import { ProductsCatalogToolsMenu } from "@/pages/products/header/ProductsCatalogToolsMenu";
 
 type Props = {
