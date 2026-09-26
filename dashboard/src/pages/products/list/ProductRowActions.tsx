@@ -1,0 +1,108 @@
+import {
+  CircleDollarSign,
+  Eye,
+  MoreHorizontal,
+  Waypoints,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type {
+  SimpleProduct,
+} from "@/pages/products/contracts";
+
+type Props = {
+  item: SimpleProduct;
+  canEditPrice: boolean;
+  canEditTracking: boolean;
+  onOpenDetails: (
+    item: SimpleProduct,
+  ) => void;
+  onEditPrice: (
+    item: SimpleProduct,
+  ) => void;
+  onEditTracking: (
+    item: SimpleProduct,
+  ) => void;
+};
+
+export function ProductRowActions({
+  item,
+  canEditPrice,
+  canEditTracking,
+  onOpenDetails,
+  onEditPrice,
+  onEditTracking,
+}: Props) {
+  const { t } = useTranslation();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={t(
+            "products.columns.action",
+          )}
+          title={t(
+            "products.columns.action",
+          )}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-slate-400 transition hover:border-slate-200 hover:bg-white hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent
+        align="end"
+        className="w-52 rounded-xl border-slate-200 p-1.5 shadow-xl"
+      >
+        <DropdownMenuItem
+          onSelect={() =>
+            onOpenDetails(item)
+          }
+          className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+        >
+          <Eye className="h-4 w-4 text-slate-400" />
+          {t(
+            "products.details.open",
+          )}
+        </DropdownMenuItem>
+
+        {canEditPrice &&
+        item.simple_compatible ? (
+          <DropdownMenuItem
+            onSelect={() =>
+              onEditPrice(item)
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+          >
+            <CircleDollarSign className="h-4 w-4 text-slate-400" />
+            {t(
+              "products.editPrice",
+            )}
+          </DropdownMenuItem>
+        ) : null}
+
+        {canEditTracking ? (
+          <DropdownMenuItem
+            onSelect={() =>
+              onEditTracking(item)
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+          >
+            <Waypoints className="h-4 w-4 text-slate-400" />
+            {t(
+              "products.trackingEditor.action",
+            )}
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
