@@ -237,9 +237,9 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/header/ProductsCatalogToolsMenu.tsx",
       ),
     );
-    const addAction = compact(
+    const addMenu = compact(
       readSource(
-        "../pages/products/header/ProductsAddAction.tsx",
+        "../pages/products/header/ProductsAddMenu.tsx",
       ),
     );
 
@@ -264,7 +264,7 @@ describe("Products P3 detail foundation", () => {
     expect(catalogTools).toContain(
       "{canManageFamilies ? (",
     );
-    expect(addAction).toContain(
+    expect(addMenu).toContain(
       "canImportProducts",
     );
     expect(catalogTools).not.toContain(
