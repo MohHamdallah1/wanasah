@@ -9,6 +9,9 @@ import {
   join,
 } from "node:path";
 import {
+  fileURLToPath,
+} from "node:url";
+import {
   describe,
   expect,
   it,
@@ -139,10 +142,13 @@ describe(
     });
 
     it("keeps icon choice in presentation files instead of Product workflow authority", () => {
-      const productRoot = new URL(
-        "../pages/products",
-        import.meta.url,
-      ).pathname;
+      const productRoot =
+        fileURLToPath(
+          new URL(
+            "../pages/products",
+            import.meta.url,
+          ),
+        );
       const logicFiles =
         walkTsLogicFiles(productRoot);
 
