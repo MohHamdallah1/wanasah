@@ -6,6 +6,7 @@ import {
 } from "react-i18next";
 
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
+import { ProductsAddMenu } from "@/pages/products/header/ProductsAddMenu";
 import { ProductsCatalogToolsMenu } from "@/pages/products/header/ProductsCatalogToolsMenu";
 
 type Props = {
@@ -100,7 +101,7 @@ export function ProductsPageHeader({
             }
           />
 
-          <ProductsAddAction
+          <ProductsAddMenu
             canCreateSimpleProduct={
               canCreateSimpleProduct
             }
