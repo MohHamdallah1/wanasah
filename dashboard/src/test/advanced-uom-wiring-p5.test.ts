@@ -77,8 +77,8 @@ describe(
       expect(tools).toContain(
         "LockKeyhole",
       );
-      expect(tools).toMatch(
-        /<DropdownMenuItem disabled title=\{t\( "products\.advancedPricingHint" \)\}/,
+      expect(tools).toContain(
+        'disabled title={t("products.advancedPricingHint")}',
       );
     });
 
