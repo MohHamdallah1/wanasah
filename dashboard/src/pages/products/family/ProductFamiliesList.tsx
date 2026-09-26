@@ -17,6 +17,7 @@ type Props = {
   error: boolean;
   fetching: boolean;
   search: string;
+  startIndex: number;
   hasPrevious: boolean;
   hasNext: boolean;
   editingFamilyId: number | null;
@@ -24,6 +25,10 @@ type Props = {
   renameCommandPending: boolean;
   renameCommandBlocked: boolean;
   updatePending: boolean;
+  deletingFamilyId: number | null;
+  deletePending: boolean;
+  deleteCommandPending: boolean;
+  deleteCommandBlocked: boolean;
   online: boolean;
   onRetry: () => void;
   onEdit: (
@@ -34,6 +39,11 @@ type Props = {
   ) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
+  onDeleteRequest: (
+    family: ProductFamily,
+  ) => void;
+  onDeleteConfirm: () => void;
+  onDeleteCancel: () => void;
   onPrevious: () => void;
   onNext: () => void;
 };
@@ -44,6 +54,7 @@ export function ProductFamiliesList({
   error,
   fetching,
   search,
+  startIndex,
   hasPrevious,
   hasNext,
   editingFamilyId,
@@ -51,12 +62,19 @@ export function ProductFamiliesList({
   renameCommandPending,
   renameCommandBlocked,
   updatePending,
+  deletingFamilyId,
+  deletePending,
+  deleteCommandPending,
+  deleteCommandBlocked,
   online,
   onRetry,
   onEdit,
   onEditingNameChange,
   onSaveEdit,
   onCancelEdit,
+  onDeleteRequest,
+  onDeleteConfirm,
+  onDeleteCancel,
   onPrevious,
   onNext,
 }: Props) {
@@ -89,7 +107,7 @@ export function ProductFamiliesList({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-3 inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-black text-rose-700"
+              className="mt-3 inline-flex h-9 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-xs font-black text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               {t("common.retry")}
@@ -110,10 +128,15 @@ export function ProductFamiliesList({
           </div>
         ) : (
           families.map(
-            (family) => (
+            (family, index) => (
               <ProductFamilyRow
                 key={family.id}
                 family={family}
+                ordinal={
+                  startIndex +
+                  index +
+                  1
+                }
                 editing={
                   editingFamilyId ===
                   family.id
@@ -130,6 +153,19 @@ export function ProductFamiliesList({
                 updatePending={
                   updatePending
                 }
+                deleteConfirming={
+                  deletingFamilyId ===
+                  family.id
+                }
+                deletePending={
+                  deletePending
+                }
+                deleteCommandPending={
+                  deleteCommandPending
+                }
+                deleteCommandBlocked={
+                  deleteCommandBlocked
+                }
                 online={online}
                 onEdit={onEdit}
                 onEditingNameChange={
@@ -140,6 +176,15 @@ export function ProductFamiliesList({
                 }
                 onCancelEdit={
                   onCancelEdit
+                }
+                onDeleteRequest={
+                  onDeleteRequest
+                }
+                onDeleteConfirm={
+                  onDeleteConfirm
+                }
+                onDeleteCancel={
+                  onDeleteCancel
                 }
               />
             )
@@ -163,7 +208,7 @@ export function ProductFamiliesList({
               fetching
             }
             onClick={onPrevious}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:text-slate-900 disabled:opacity-30"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:opacity-30"
           >
             <PreviousIcon className="h-4 w-4" />
           </button>
@@ -180,7 +225,7 @@ export function ProductFamiliesList({
               fetching
             }
             onClick={onNext}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:text-slate-900 disabled:opacity-30"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:opacity-30"
           >
             <NextIcon className="h-4 w-4" />
           </button>
