@@ -788,17 +788,13 @@ export function ProductFamiliesManager({
       title={t(
         "products.familiesTitle"
       )}
-      maxWidth="max-w-3xl"
+      subtitle={t(
+        "products.familiesDescription"
+      )}
+      maxWidth="max-w-4xl"
+      bodyClassName="p-0"
     >
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <p className="text-[11px] font-semibold leading-5 text-slate-500">
-            {t(
-              "products.familiesDescription"
-            )}
-          </p>
-        </div>
-
+      <div className="min-h-0 bg-white">
         <ProductFamiliesToolbar
           searchInput={searchInput}
           newFamilyName={
