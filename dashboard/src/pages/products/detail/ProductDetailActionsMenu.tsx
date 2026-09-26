@@ -104,7 +104,7 @@ export function ProductDetailActionsMenu({
           title={t(
             "products.details.actions",
           )}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.07] text-slate-300 transition hover:bg-white/[0.13] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
