@@ -458,6 +458,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/import/ImportProductModal.tsx",
       ),
     );
+    const importStatusPanel = compact(
+      readSource(
+        "../pages/products/import/ImportProductStatusPanel.tsx",
+      ),
+    );
     const importWorkflow = compact(
       readSource(
         "../pages/products/import/useImportProductWorkflow.ts",
@@ -500,7 +505,13 @@ describe("Products P8 production frontend gate", () => {
       "pollError: importPollError",
     );
     expect(importModal).toContain(
-      "jobId && pollError ? (",
+      "<ImportProductStatusPanel",
+    );
+    expect(importStatusPanel).toContain(
+      "if (pollError) {",
+    );
+    expect(importStatusPanel).toContain(
+      "onClick={onRetryPoll}",
     );
     expect(importPolling).toContain(
       "setImportPollError( apiErrorMessage(",
