@@ -27,6 +27,7 @@ import {
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
 import { resolveI18nLocale } from "@/lib/locale";
+import { preloadProductsPage } from "@/routes/routePreloaders";
 
 interface OperationsSidebarProps {
   open: boolean;
@@ -365,6 +366,18 @@ export function OperationsSidebar({
                 <button
                   key={item.path}
                   type="button"
+                  onPointerEnter={
+                    item.path ===
+                    "/products"
+                      ? preloadProductsPage
+                      : undefined
+                  }
+                  onFocus={
+                    item.path ===
+                    "/products"
+                      ? preloadProductsPage
+                      : undefined
+                  }
                   onClick={() =>
                     handleNav(item)
                   }
