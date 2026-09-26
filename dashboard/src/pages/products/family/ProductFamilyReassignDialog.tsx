@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -126,6 +127,10 @@ export function ProductFamilyReassignDialog({
     useQueryClient();
   const isOnline =
     useNetworkStatus();
+  const searchInputRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
 
   const [
     searchInput,
@@ -366,7 +371,9 @@ export function ProductFamilyReassignDialog({
   const searchPending =
     searchInput.trim() !== search;
 
-  const save = async () => {
+  const save = async (
+    familyIdOverride?: number,
+  ) => {
     if (
       busy ||
       !scope ||
@@ -376,9 +383,14 @@ export function ProductFamilyReassignDialog({
       return;
     }
 
+    const requestedFamilyId =
+      pending?.payload.family_id ??
+      familyIdOverride ??
+      targetFamilyId;
+
     if (
       !pending &&
-      targetFamilyId === null
+      requestedFamilyId === null
     ) {
       setFieldError(
         t(
@@ -394,9 +406,7 @@ export function ProductFamilyReassignDialog({
           expectedVersion ??
           product.version,
         family_id:
-          pending?.payload
-            .family_id ??
-          targetFamilyId ??
+          requestedFamilyId ??
           product.product_id,
       };
 
@@ -548,6 +558,12 @@ export function ProductFamilyReassignDialog({
       title={t(
         "products.familyReassign.title"
       )}
+      subtitle={t(
+        "products.familyReassign.historyHint"
+      )}
+      initialFocusRef={
+        searchInputRef
+      }
       maxWidth="max-w-xl"
       bodyClassName="h-[60dvh] min-h-0 overflow-hidden p-0 sm:h-[62vh] sm:max-h-[40rem]"
       footer={
@@ -604,10 +620,53 @@ export function ProductFamilyReassignDialog({
 
         <Command
           shouldFilter={false}
+          onKeyDownCapture={(event) => {
+            if (
+              event.key !== "Enter" ||
+              event.nativeEvent
+                .isComposing ||
+              fieldsLocked ||
+              !isOnline
+            ) {
+              return;
+            }
+
+            const activeItem =
+              event.currentTarget.querySelector<HTMLElement>(
+                '[cmdk-item][data-selected="true"][data-family-id]',
+              );
+            const activeFamilyId =
+              Number(
+                activeItem?.dataset
+                  .familyId,
+              );
+            const familyId =
+              Number.isSafeInteger(
+                activeFamilyId,
+              ) &&
+              activeFamilyId > 0
+                ? activeFamilyId
+                : targetFamilyId;
+
+            if (
+              familyId === null
+            ) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            setTargetFamilyId(
+              familyId
+            );
+            setFieldError(null);
+            void save(familyId);
+          }}
           className="flex min-h-0 flex-1 flex-col rounded-none bg-white"
         >
           <div className="shrink-0 border-b border-slate-100 px-3 py-2.5 sm:px-4">
             <CommandInput
+              ref={searchInputRef}
               autoFocus
               value={searchInput}
               onValueChange={
@@ -664,6 +723,9 @@ export function ProductFamilyReassignDialog({
                         value={
                           family.name
                         }
+                        data-family-id={
+                          family.id
+                        }
                         disabled={
                           fieldsLocked
                         }
@@ -677,14 +739,14 @@ export function ProductFamilyReassignDialog({
                         }}
                         className={`mb-1 gap-3 rounded-xl px-3 py-3 text-start last:mb-0 ${
                           selected
-                            ? "bg-slate-950 text-white aria-selected:bg-slate-950 aria-selected:text-white"
-                            : "text-slate-700"
+                            ? "bg-amber-100 text-slate-950 ring-1 ring-inset ring-amber-300 data-[selected=true]:bg-amber-100 data-[selected=true]:text-slate-950"
+                            : "text-slate-700 data-[selected=true]:bg-slate-100 data-[selected=true]:text-slate-950"
                         }`}
                       >
                         <span
                           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
                             selected
-                              ? "border-white/30 bg-white text-slate-950"
+                              ? "border-amber-400 bg-amber-300 text-slate-950"
                               : "border-slate-200 bg-white text-transparent"
                           }`}
                         >
@@ -698,7 +760,7 @@ export function ProductFamilyReassignDialog({
                         <span
                           className={`shrink-0 text-[10px] font-semibold ${
                             selected
-                              ? "text-slate-300"
+                              ? "text-amber-900"
                               : "text-slate-400"
                           }`}
                         >
@@ -734,12 +796,6 @@ export function ProductFamilyReassignDialog({
             {fieldError}
           </p>
         ) : null}
-
-        <p className="shrink-0 border-t border-slate-100 px-4 py-2.5 text-[11px] font-semibold leading-5 text-slate-400 sm:px-5">
-          {t(
-            "products.familyReassign.historyHint"
-          )}
-        </p>
 
         {pending ? (
           <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
