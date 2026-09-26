@@ -227,7 +227,10 @@ describe(
         'min-w-[260px]',
       );
       expect(header).toContain(
-        "grid w-full grid-cols-2",
+        "flex w-full min-w-0 items-center gap-2",
+      );
+      expect(header).toContain(
+        "sm:w-auto sm:justify-end",
       );
     });
 
