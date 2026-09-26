@@ -2487,18 +2487,9 @@
 
 @media (min-width: 1024px) {
   .inventory-top-dock-component {
-    position: sticky;
-    top: 0;
-    z-index: 40;
-    width: auto;
-    min-height: 3.25rem;
-    margin-block-start: -1.5rem;
-    margin-inline-start: -0.75rem;
-    margin-inline-end: -1rem;
     align-items: stretch;
     justify-content: stretch;
   }
-
 
   .inventory-top-dock__dock {
     align-items: center;
