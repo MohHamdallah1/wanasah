@@ -80,6 +80,12 @@ describe("Products P9.4 desktop table", () => {
     expect(actions).not.toContain(
       "window.setTimeout(",
     );
+    expect(actions).not.toContain(
+      "window.requestAnimationFrame(",
+    );
+    expect(actions).toContain(
+      "queueMicrotask(action)",
+    );
     expect(
       actions.match(
         /queueAfterMenuClose\(/g,
