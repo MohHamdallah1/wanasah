@@ -3,9 +3,13 @@ import {
   useState,
 } from "react";
 import {
-  Maximize2,
-  Minimize2,
-  X,
+  BadgeDollarSign,
+  Boxes,
+  Fingerprint,
+  PackageCheck,
+  ScanBarcode,
+  ShieldCheck,
+  Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -24,7 +28,7 @@ import {
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
-import { ProductDetailActionsMenu } from "@/pages/products/detail/ProductDetailActionsMenu";
+import { ProductDetailHero } from "@/pages/products/detail/ProductDetailHero";
 import {
   ProductDetailField,
   ProductDetailSection,
@@ -164,20 +168,12 @@ export function ProductDetailDrawer({
           },
         );
 
-  const lifecycleTone =
-    product.lifecycle_status === "ACTIVE"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-      : product.lifecycle_status ===
-          "RETIRING"
-        ? "bg-amber-50 text-amber-800 ring-amber-200"
-        : "bg-slate-100 text-slate-600 ring-slate-200";
-
   return (
     <div className="fixed inset-0 z-[90]">
       <div
         aria-hidden="true"
         onClick={handleClose}
-        className="absolute inset-0 bg-slate-950/30"
+        className="absolute inset-0 bg-slate-950/40"
       />
 
       <aside
@@ -187,158 +183,74 @@ export function ProductDetailDrawer({
         aria-modal="true"
         aria-labelledby="product-detail-title"
         dir={i18n.dir()}
-        className={`absolute inset-y-0 end-0 flex w-full flex-col border-s border-slate-200 bg-white shadow-2xl transition-[width] duration-200 sm:max-w-none ${
+        className={`absolute inset-y-0 end-0 flex w-full flex-col border-s border-slate-800/10 bg-white shadow-2xl transition-[width] duration-200 sm:max-w-none ${
           expanded
             ? "sm:w-[min(72vw,920px)]"
             : "sm:w-[min(44vw,620px)]"
         }`}
       >
-        <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">
-                {t(
-                  "products.details.title",
-                )}
-              </p>
-              <h2
-                id="product-detail-title"
-                className="mt-1 break-words text-lg font-black leading-6 text-slate-950"
-              >
-                {product.name}
-              </h2>
-              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-slate-500">
-                <span className="break-words">
-                  {product.family_name}
-                </span>
-                <span
-                  aria-hidden="true"
-                  className="text-slate-300"
-                >
-                  ·
-                </span>
-                <span className="break-all font-mono text-slate-400">
-                  {product.sku}
-                </span>
-              </div>
+        <ProductDetailHero
+          product={product}
+          expanded={expanded}
+          canEditPrice={
+            canEditPrice
+          }
+          canRenameProduct={
+            canRenameProduct
+          }
+          canReassignFamily={
+            canReassignFamily
+          }
+          canEditTracking={
+            canEditTracking
+          }
+          canManageBarcodes={
+            canManageBarcodes
+          }
+          canManageLifecycle={
+            canManageLifecycle
+          }
+          canManageAdvancedUom={
+            canManageAdvancedUom
+          }
+          onToggleExpanded={() =>
+            setExpanded(
+              (current) =>
+                !current,
+            )
+          }
+          onClose={handleClose}
+          onRenameProduct={
+            onRenameProduct
+          }
+          onReassignFamily={
+            onReassignFamily
+          }
+          onEditPrice={
+            onEditPrice
+          }
+          onEditTracking={
+            onEditTracking
+          }
+          onManageBarcodes={
+            onManageBarcodes
+          }
+          onManageLifecycle={
+            onManageLifecycle
+          }
+          onManageAdvancedUom={
+            onManageAdvancedUom
+          }
+        />
 
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <span
-                  className={`inline-flex rounded-full px-2 py-1 text-[10px] font-black ring-1 ring-inset ${lifecycleTone}`}
-                >
-                  {t(
-                    `products.details.lifecycleModes.${product.lifecycle_status}`,
-                  )}
-                </span>
-                {product.operational_hold !==
-                "NONE" ? (
-                  <span className="inline-flex rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700 ring-1 ring-inset ring-rose-200">
-                    {t(
-                      `products.details.holdModes.${product.operational_hold}`,
-                    )}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-1.5">
-              <ProductDetailActionsMenu
-                product={product}
-                canEditPrice={
-                  canEditPrice
-                }
-                canRenameProduct={
-                  canRenameProduct
-                }
-                canReassignFamily={
-                  canReassignFamily
-                }
-                canEditTracking={
-                  canEditTracking
-                }
-                canManageBarcodes={
-                  canManageBarcodes
-                }
-                canManageLifecycle={
-                  canManageLifecycle
-                }
-                canManageAdvancedUom={
-                  canManageAdvancedUom
-                }
-                onRenameProduct={
-                  onRenameProduct
-                }
-                onReassignFamily={
-                  onReassignFamily
-                }
-                onEditPrice={
-                  onEditPrice
-                }
-                onEditTracking={
-                  onEditTracking
-                }
-                onManageBarcodes={
-                  onManageBarcodes
-                }
-                onManageLifecycle={
-                  onManageLifecycle
-                }
-                onManageAdvancedUom={
-                  onManageAdvancedUom
-                }
-              />
-
-              <button
-                type="button"
-                onClick={() =>
-                  setExpanded(
-                    (current) =>
-                      !current,
-                  )
-                }
-                aria-pressed={
-                  expanded
-                }
-                aria-label={t(
-                  expanded
-                    ? "products.details.compact"
-                    : "products.details.expand",
-                )}
-                title={t(
-                  expanded
-                    ? "products.details.compact"
-                    : "products.details.expand",
-                )}
-                className="hidden h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 sm:inline-flex"
-              >
-                {expanded ? (
-                  <Minimize2 className="h-4 w-4" />
-                ) : (
-                  <Maximize2 className="h-4 w-4" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleClose}
-                aria-label={t(
-                  "common.close",
-                )}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-white">
           <ProductDetailSection
+            icon={Fingerprint}
             title={t(
               "products.details.identity",
             )}
           >
-            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
+            <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-3">
               <ProductDetailField
                 label={t(
                   "products.fields.sku",
@@ -373,11 +285,12 @@ export function ProductDetailDrawer({
 
           {detailSections.package ? (
             <ProductDetailSection
+              icon={PackageCheck}
               title={t(
                 "products.details.package",
               )}
             >
-              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 <ProductDetailField
                   label={t(
                     "products.details.baseUnit",
@@ -394,26 +307,34 @@ export function ProductDetailDrawer({
                     t("uom.NONE")}
                 </ProductDetailField>
               </dl>
-              <div className="mt-3 border-s-2 border-amber-300 ps-3">
-                <p className="text-xs font-black leading-5 text-slate-800">
-                  {packageConversion}
-                </p>
-                <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">
-                  {t(
-                    "products.details.packageStructureLockedPublished",
-                  )}
-                </p>
+
+              <div className="mt-4 flex items-start gap-3 border-t border-slate-100 pt-3">
+                <Boxes
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"
+                />
+                <div>
+                  <p className="text-xs font-black leading-5 text-slate-800">
+                    {packageConversion}
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">
+                    {t(
+                      "products.details.packageStructureLockedPublished",
+                    )}
+                  </p>
+                </div>
               </div>
             </ProductDetailSection>
           ) : null}
 
           {detailSections.tracking ? (
             <ProductDetailSection
+              icon={Waypoints}
               title={t(
                 "products.details.tracking",
               )}
             >
-              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 <ProductDetailField
                   label={t(
                     "products.tracking.shortLot",
@@ -438,11 +359,12 @@ export function ProductDetailDrawer({
 
           {detailSections.barcodes ? (
             <ProductDetailSection
+              icon={ScanBarcode}
               title={t(
                 "products.details.barcodes",
               )}
             >
-              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 <ProductDetailField
                   label={t(
                     "products.unitBarcode",
@@ -472,11 +394,12 @@ export function ProductDetailDrawer({
           {pricingVisible &&
           detailSections.pricing ? (
             <ProductDetailSection
+              icon={BadgeDollarSign}
               title={t(
                 "products.details.pricing",
               )}
             >
-              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 <ProductDetailField
                   label={t(
                     "products.columns.packagePrice",
@@ -501,6 +424,7 @@ export function ProductDetailDrawer({
 
           {detailSections.compatibility ? (
             <ProductDetailSection
+              icon={ShieldCheck}
               title={t(
                 "products.details.compatibility",
               )}
