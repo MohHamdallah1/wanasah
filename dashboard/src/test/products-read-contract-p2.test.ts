@@ -338,6 +338,11 @@ describe("products P2 read contract", () => {
         "../pages/products/list/ProductRowActions.tsx",
       ),
     );
+    const detailHero = normalizeWhitespace(
+      readSource(
+        "../pages/products/detail/ProductDetailHero.tsx",
+      ),
+    );
     const listParams = normalizeWhitespace(
       readSource(
         "../pages/products/list/useProductsListParams.ts",
@@ -388,8 +393,11 @@ describe("products P2 read contract", () => {
     expect(row).toContain(
       "{pricingVisible && visibleColumns.unitPrice ? (",
     );
-    expect(row).toContain(
+    expect(row).not.toContain(
       '"products.fields.sku"',
+    );
+    expect(detailHero).toContain(
+      "product.sku",
     );
     expect(row).toContain(
       "<ProductRowActions",
