@@ -331,12 +331,16 @@ export default function ProductsPage() {
           isNarrowViewport,
           canEditPrice:
             canEditSimplePrice,
+          canReassignFamily:
+            canManageCatalog,
           canEditTracking:
             canManageCatalog,
           onOpenDetails:
             detailWorkflow.openProductDetails,
           onEditPrice:
             priceWorkflow.openPriceEditor,
+          onReassignFamily:
+            familyReassignWorkflow.openFamilyReassign,
           onEditTracking:
             trackingWorkflow.openTrackingEditor,
         }}
