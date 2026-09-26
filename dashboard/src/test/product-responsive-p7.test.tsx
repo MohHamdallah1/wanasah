@@ -375,10 +375,16 @@ describe(
       );
 
       expect(drawer).toContain(
-        "grid shrink-0 grid-cols-1",
+        "flex w-full flex-col",
       );
       expect(drawer).toContain(
-        "sm:w-auto",
+        "sm:w-[min(44vw,620px)]",
+      );
+      expect(drawer).toContain(
+        "sm:w-[min(72vw,920px)]",
+      );
+      expect(drawer).toContain(
+        "sm:inline-flex",
       );
 
       expect(families).toContain(
