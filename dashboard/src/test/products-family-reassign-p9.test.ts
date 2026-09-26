@@ -56,7 +56,7 @@ describe("Products P9 family reassignment", () => {
       "expected_version: expectedVersion ?? product.version",
     );
     expect(dialog).toContain(
-      "family_id: pending?.payload .family_id ?? targetFamilyId ?? product.product_id",
+      "family_id: requestedFamilyId ?? product.product_id",
     );
     expect(dialog).toContain(
       "/catalog/variants/",
@@ -91,6 +91,21 @@ describe("Products P9 family reassignment", () => {
     );
     expect(dialog).toContain(
       '"products.familyReassign.historyHint"',
+    );
+    expect(dialog).toContain(
+      "subtitle={t(",
+    );
+    expect(dialog).toContain(
+      "initialFocusRef={ searchInputRef }",
+    );
+    expect(dialog).toContain(
+      "onKeyDownCapture={(event)",
+    );
+    expect(dialog).toContain(
+      "bg-amber-100",
+    );
+    expect(dialog).not.toContain(
+      "bg-slate-950 text-white aria-selected:bg-slate-950",
     );
     expect(dialog).toContain(
       "<CommandInput",
