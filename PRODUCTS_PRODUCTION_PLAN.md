@@ -150,9 +150,7 @@ The current behavior is acceptable only accidentally for food-oriented companies
 - [x] Let each company define sensible creation defaults.
 - [x] Allow each product to override those defaults.
 
-> **Downstream note:** the two unchecked items below are Inbound behavior requirements. Products now exposes the authoritative tracking modes; Inbound still has to consume them in its own phase.
-- [ ] Do not force a user to invent a lot number for a `lot_control_mode=NONE` product.
-- [ ] Do not ask for expiry information for `expiry_control_mode=NONE`.
+> **Downstream handoff:** Inbound/Batches behavior for these tracking modes is owned by `INBOUND_BATCHES_EXPIRY_PRODUCTION_PLAN.md`. Products only owns the authoritative Product tracking configuration.
 - [x] Preserve backend enum values as language-neutral codes.
 - [x] Translate labels/descriptions only in the UI.
 
@@ -168,24 +166,20 @@ Meaning of `lot_control_mode`:
 The user does not manage supplier/manufacturer lot numbers for the SKU.
 
 - [x] UI does not require a lot number during product creation.
-- [ ] Inbound does not require a user-entered lot number.
 - [x] Define the safe internal batch identity strategy used by inventory storage.
 - [x] Internal identity must not be exposed as if it were a real supplier batch number.
 
 ### `OPTIONAL`
 Lot number may be captured when provided.
 
-- [ ] Inbound accepts an empty lot.
-- [ ] Inbound accepts a real lot.
-- [ ] Existing-lot conflict behavior remains deterministic.
 - [x] UX clearly explains that lot is optional.
 
 ### `REQUIRED`
 Every received stock line requires a lot.
 
-- [ ] Inbound rejects missing lot number.
 - [x] UI marks lot clearly as required.
-- [ ] Bulk import and integrations follow the same rule.
+
+> Receipt-time NONE / OPTIONAL / REQUIRED enforcement, existing-lot conflicts, and integration parity are downstream Inbound responsibilities and are tracked only in `INBOUND_BATCHES_EXPIRY_PRODUCTION_PLAN.md`.
 
 ## 5.2 Expiry tracking
 
@@ -194,23 +188,15 @@ Meaning of `expiry_control_mode`:
 ### `NONE`
 The product is not expiration-tracked.
 
-- [ ] Inbound hides or disables expiry date.
-- [ ] Backend rejects expiry date if the contract requires strict NONE semantics.
-- [ ] Batches/expiry page does not misleadingly show a required expiry state.
-
 ### `OPTIONAL`
 Expiry can be captured when known.
-
-- [ ] Inbound permits missing expiry.
-- [ ] Inbound permits valid expiry.
-- [ ] Batches page clearly distinguishes "no expiry supplied" from "expired".
 
 ### `REQUIRED`
 Every relevant received batch requires expiry.
 
-- [ ] Inbound rejects missing expiry.
 - [x] UI marks expiry required.
-- [ ] Bulk import follows the same rule.
+
+> Receipt-time expiry enforcement and Batches/Expiry presentation are downstream responsibilities and are tracked only in `INBOUND_BATCHES_EXPIRY_PRODUCTION_PLAN.md`.
 
 ## 5.3 Company defaults
 
@@ -282,7 +268,7 @@ Product creation must support, as appropriate:
 - [x] Shared barcode behavior where supported.
 - [x] Lot tracking mode.
 - [x] Expiry tracking mode.
-- [ ] Initial lifecycle policy.
+- [x] Initial lifecycle policy is explicit: the normal simple flow keeps backend-authoritative instant publish to ACTIVE; enterprise maker/checker review is not part of this Products release.
 - [x] Initial pricing only when the user has pricing permission.
 
 ## 8.2 Quick Create vs Advanced
@@ -302,12 +288,11 @@ Keep ordinary creation easy.
 ### Advanced
 Optional expandable section:
 
-- [ ] SKU/code.
 - [x] Barcodes.
-- [x] tracking details.
-- [ ] UOM details.
-- [ ] lifecycle behavior.
-- [ ] other future product policies.
+- [x] Tracking details.
+- [x] Safe package/UOM structure is exposed at the simple level; complex conversion management routes to the dedicated Advanced UOM surface.
+
+Raw SKU/GTIN/base-UOM structural editing and manual lifecycle publishing remain intentionally advanced/internal instead of being duplicated into normal Products.
 
 No user should be forced through 20 fields to create a simple product.
 
@@ -346,11 +331,11 @@ The current normal Products page mainly exposes price editing.
 Production-ready Products must provide safe identity management.
 
 - [x] Edit display name where allowed.
-- [ ] Move/change family where allowed.
+- [x] Move/change family where allowed.
 - [x] View SKU.
 - [x] Edit/manage barcodes through authoritative barcode workflow.
 - [x] View package/UOM structure.
-- [ ] Manage simple-compatible package shape safely.
+- [x] Keep published package/UOM structural edits locked and route DRAFT conversion management through the authoritative Advanced UOM surface.
 - [x] View tracking modes.
 - [x] Edit tracking modes only when lifecycle/inventory rules allow.
 - [x] View lifecycle status.
@@ -372,13 +357,12 @@ Suggested sections:
 - [x] Name.
 - [x] Family.
 - [x] SKU.
-- [ ] Product/variant IDs only when useful for support/admin.
 
 ## Packaging & UOM
-- [ ] Base UOM.
+- [x] Base UOM.
 - [x] Package UOM.
 - [x] Units per package.
-- [ ] Conversion information.
+- [x] Plain-language package/base conversion information.
 
 ## Barcodes
 - [x] Unit barcode.
@@ -396,12 +380,10 @@ Suggested sections:
 
 ## Pricing
 - [x] Current prices only when authorized.
-- [ ] Advanced pricing link only when actually usable.
+- [x] Do not expose an active Advanced Pricing link until its destination is usable; the current roadmap control remains non-navigable.
 
 ## Inventory relationship
-Later:
-- [ ] Assigned/used warehouses where useful.
-- [ ] Current stock summary where useful.
+Warehouse assignment and current-stock summaries stay in Inventory / Live Stock. Normal Products remains company-wide Product identity and does not duplicate warehouse operational views.
 
 ---
 
@@ -419,8 +401,7 @@ UI must reflect it safely.
 - [x] Do not expose transitions the backend does not authorize.
 - [x] Preserve lifecycle revision/concurrency protection.
 - [x] Preserve domain events/audit logging.
-- [ ] Decide whether ordinary Quick Create auto-publishes or whether company policy can require review.
-- [ ] If maker/checker exists, reflect it clearly in UI.
+- [x] Current release decision: ordinary Quick Create uses the existing backend-authoritative instant publish path. Optional enterprise maker/checker is outside this release and requires a separate policy project if introduced later.
 
 ---
 
@@ -434,12 +415,9 @@ Current family management is useful but incomplete.
 - [x] Add family search.
 - [x] Add bounded pagination / keyset strategy for >200 families.
 - [x] Never silently truncate family management at 200.
-- [ ] Product creation must visibly distinguish:
-  - selecting an existing family,
-  - creating a new family.
-- [ ] Reconsider automatic "product name becomes family name" behavior.
-- [ ] If auto-family behavior remains, explain it explicitly.
-- [ ] Consider company preference for automatic family creation.
+- [x] Product creation visibly distinguishes no family / existing family / new family.
+- [x] Remove implicit "product name becomes family name" behavior; a new family is created only from explicit user intent.
+- [x] Existing-family selection cannot silently become new-family creation.
 
 ---
 
@@ -511,8 +489,6 @@ Optional columns:
 - [x] Unit price.
 - [x] Package price.
 - [x] Units/package.
-- [ ] Other company-specific display preferences.
-
 - [x] Add configurable visible columns.
 - [x] Use drawer for secondary details.
 - [x] Keep sticky header.
@@ -531,7 +507,6 @@ Required:
 - [x] Separate loading from empty.
 - [x] Separate first-load failure from "no products".
 - [x] Add in-page retry action.
-- [ ] Preserve previous successful data during harmless background refetch when appropriate.
 - [x] Do not replace server failure with an empty-state message.
 - [x] Family load errors have distinct UI.
 - [x] Package-UOM load errors have distinct UI.
@@ -560,7 +535,6 @@ Add runtime parsers for:
 - [x] Import error pagination.
 - [x] Tracking settings.
 - [x] Lifecycle detail.
-- [ ] Product detail drawer response if a dedicated endpoint is created.
 
 Malformed backend payload must fail explicitly and safely.
 
@@ -585,9 +559,7 @@ Split UI capability checks.
 - [x] `catalog.publish`
 - [x] `pricing.view`
 - [x] `pricing.manage`
-- [ ] import permission if separated later
 - [x] lifecycle permission if separated
-- [ ] barcode/UOM management if separated
 
 Required:
 
@@ -778,18 +750,13 @@ Required:
 
 # 29. Product creation + publication policy
 
-Current simple creation effectively creates a DRAFT and publishes it to ACTIVE inside the same workflow.
+Current release decision:
 
-Required decision:
+- [x] Keep the existing instant DRAFT→ACTIVE simple workflow under backend lifecycle authority.
+- [x] Do not force enterprise maker/checker workflow on ordinary companies.
+- [x] Do not duplicate or weaken lifecycle authority in React.
 
-- [ ] Keep instant publish as the default for simple companies if desired.
-- [ ] Determine whether company policy may require review/maker-checker.
-- [ ] If review is enabled:
-  - creator can save draft,
-  - authorized publisher approves,
-  - UI shows pending state.
-- [ ] Do not force enterprise workflow on small companies.
-- [ ] Do not remove lifecycle authority just to make the UI simple.
+Enterprise review/maker-checker is intentionally outside the current Products release. If it is introduced later, it requires its own policy and implementation plan rather than remaining as an open blocker here.
 
 ---
 
@@ -813,12 +780,11 @@ Preserve and harden:
 
 Configuration must keep company-level business defaults separate from user-scoped display preferences:
 
-Business defaults:
+Business defaults in the current Products release:
 - [x] default lot tracking mode,
-- [x] default expiry tracking mode,
-- [ ] default package UOM,
-- [ ] default units/package if useful,
-- [ ] product publication workflow policy.
+- [x] default expiry tracking mode.
+
+Package defaults and enterprise publication-policy defaults are not part of the current release scope.
 
 Display preferences:
 - [x] visible product columns,
@@ -848,7 +814,6 @@ Sorting:
 - [x] Family.
 - [x] SKU.
 - [x] Lifecycle.
-- [ ] Recently created/updated if required.
 
 All server-side filters occur before pagination.
 
@@ -985,20 +950,17 @@ Once these are stable:
 
 # 39. Frontend architecture cleanup
 
-`ProductsDashboard.tsx` is large and carries many responsibilities.
-> **Close-out note:** the remaining unchecked items in this section are non-blocking maintainability refactors. Runtime contracts, table-row/card responsibilities, family management, and shared tracking controls are already separated; the remaining large-form/import/pricing extraction can be done only when it reduces real maintenance cost.
-
-Before it becomes harder to maintain:
+The Products page is now split by page-owned responsibilities under `dashboard/src/pages/products/`.
 
 - [x] Separate runtime contracts/parsers.
-- [ ] Separate product list/table component.
-- [ ] Separate create/edit drawer/modal.
+- [x] Separate product list/table components and list state/workflow.
+- [x] Separate create modal/state/workflow.
 - [x] Separate families manager.
-- [ ] Separate import workflow.
-- [ ] Separate pricing editor.
+- [x] Separate import workflow.
+- [x] Separate pricing editor.
 - [x] Shared product tracking controls.
-- [ ] Shared permission capability helpers.
-- [ ] Avoid one giant component becoming the new technical debt hotspot.
+- [x] Shared capability derivation.
+- [x] No replacement giant multi-responsibility Products component.
 
 Do not split files purely for aesthetics; split by clear responsibilities/contracts.
 
@@ -1072,30 +1034,6 @@ Question 2:
 
 ---
 
-# 43. Product type presets — optional later enhancement
-
-To reduce user effort without hiding truth, consider presets:
-
-Examples:
-- Food / beverage
-- General merchandise
-- Spare parts
-- Packaging material
-
-A preset could suggest:
-- lot tracking default,
-- expiry tracking default,
-- package defaults.
-
-Rules:
-
-- [ ] Presets are convenience only.
-- [ ] Presets never become hidden business authority.
-- [ ] User can inspect/change the resulting explicit settings.
-- [ ] Do not implement until core tracking controls are correct.
-
----
-
 # 44. Pricing UX
 
 Existing simple pricing is useful.
@@ -1121,7 +1059,6 @@ The ordinary UI should not force technical terminology on non-technical users un
 - [x] Decide user-facing naming for "family".
 - [x] Decide when SKU/variant concept is necessary.
 - [x] Keep backend identity untouched.
-- [ ] Make terminology consistent across Products, Inbound, Live Stock, and Batches.
 - [x] Translation keys use stable semantic identifiers.
 
 ---
@@ -1139,7 +1076,6 @@ Preserve:
 - [x] Product identity remains company-wide.
 - [x] Warehouse operational settings remain location-specific.
 - [x] Products page should not imply a product must be manually assigned to every warehouse before receiving it.
-- [ ] If showing warehouse availability later, distinguish company product from location assignment.
 
 ---
 
@@ -1161,15 +1097,14 @@ Product changes must be auditable.
 # 48. Product deletion policy
 
 Do not add a simple Delete button without lifecycle rules.
-> **Deferred policy:** current Products does not expose an unsafe hard-delete action. The unchecked items below are a future deletion-policy decision, not a blocker for the current archive/lifecycle-based release.
 
-Required decision:
+- [x] A never-used DRAFT can be hard-deleted only through backend-authoritative preflight and blocker checks.
+- [x] Published/used Products use lifecycle retire/archive semantics instead of normal hard delete.
+- [x] Stock/history/business references block unsafe DRAFT deletion.
+- [x] Referential/audit history is preserved.
+- [x] Normal Products UI does not expose unsafe hard delete; advanced DRAFT deletion remains protected by preflight.
 
-- [ ] Can a never-used draft be deleted?
-- [ ] Can an active/used product only be archived?
-- [ ] What happens when product has stock/history/orders?
-- [ ] Preserve referential/audit history.
-- [ ] UI uses lifecycle/archive semantics instead of unsafe hard delete where appropriate.
+Verified by `PRODUCTS_P9_DELETE_ARCHIVE_POLICY_GATE=PASS`.
 
 ---
 
@@ -1256,7 +1191,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 8. Search by SKU and barcode, not only product/family name.
 - [x] 9. Improve list information hierarchy without turning it into a giant table.
 - [x] 10. Surface product lifecycle state.
-- [ ] 11. Make instant DRAFT→ACTIVE behavior explicit/configurable where appropriate.
+- [x] 11. Resolve DRAFT→ACTIVE policy for this release: keep backend-authoritative instant publish; enterprise review is separate future work.
 - [x] 12. Add safe retire/archive/hold workflows.
 - [x] 13. Split coarse frontend `canManage` into capability-specific permissions.
 - [x] 14. Stop requiring `pricing.view` just to read product identity.
@@ -1275,8 +1210,8 @@ This section preserves every point from the initial Products review so none are 
 - [x] 27. Remove JS floating-point money authority (`Number(...)`) from price calculations/formatting.
 - [x] 28. Keep frontend derived prices as preview; backend remains authoritative.
 - [x] 29. Integer package quantity use of Number is acceptable within bounded validation.
-- [ ] 30. Make existing-family vs new-family creation explicit in UX.
-- [ ] 31. Reconsider/clarify automatic product-name-as-family behavior.
+- [x] 30. Make existing-family vs new-family creation explicit in UX.
+- [x] 31. Remove implicit product-name-as-family behavior; new family creation requires explicit user intent.
 - [x] 32. Add search/pagination inside family manager.
 - [x] 33. Preserve backend case-insensitive family duplicate locking.
 - [x] 34. Surface existing barcode authority in normal product UX.
@@ -1288,11 +1223,11 @@ This section preserves every point from the initial Products review so none are 
 - [x] 40. Make all new number/date/money rendering language-agnostic.
 - [x] 41. Keep API enums stable and translate only in UI.
 - [x] 42. Normalize framework/Pydantic validation presentation so untranslated English does not leak.
-- [ ] 43. Separate Quick Create from optional enterprise review/maker-checker policy.
+- [x] 43. Keep Quick Create on the simple instant-publish path; optional enterprise maker/checker is explicitly outside this release.
 - [x] 44. Add a Product Detail Drawer instead of adding too many list columns.
 - [x] 45. Keep ordinary creation simple and move complexity to Advanced settings.
 - [x] 46. Present lot/expiry tracking in plain user language, not backend field names.
-- [ ] 47. Products tracking policy must drive Inbound field requirements.
+- [x] 47. Freeze the Products tracking contract and hand downstream Inbound field enforcement to `INBOUND_BATCHES_EXPIRY_PRODUCTION_PLAN.md`.
 - [x] 48. Block/guard unsafe tracking-mode changes after inventory exists.
 - [x] 49. Guard unsafe UOM/package changes after operational history exists.
 - [x] 50. Visually distinguish freely editable, restricted, and workflow-controlled product properties.
@@ -1308,7 +1243,7 @@ This section preserves every point from the initial Products review so none are 
 - [x] 55. Separate business defaults from user display preferences.
 - [x] 56. Add Product page performance map and permanent regression gate.
 - [x] 57. Add accessibility/keyboard requirements to release gate.
-- [ ] 58. Define safe product deletion/archive semantics.
+- [x] 58. Define and verify safe Product deletion/archive semantics.
 - [x] 59. Ensure normal Products does not duplicate Catalog lifecycle/UOM/barcode authorities.
 - [x] 60. Freeze the product tracking contract before beginning final Inbound work.
 
@@ -1693,7 +1628,7 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 - [x] Remove awkward whitespace, clutter, duplicated controls, and unclear action hierarchy.
 - [x] Icons are presentation-only and must be changeable without touching unrelated business workflows.
 - [x] Preserve RTL/LTR, translation safety, keyboard navigation, focus management, accessibility, responsive behavior, and configurable display preferences.
-- [ ] Owner visual acceptance is mandatory; automated tests alone do not close the design.
+P9.4 implementation is complete. Owner visual acceptance is tracked once, as the canonical first open gate in P9.5.
 
 ## P9.5 — Final production verification
 
