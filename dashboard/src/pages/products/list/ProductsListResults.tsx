@@ -210,6 +210,12 @@ export function ProductsListResults({
           <table className="w-full min-w-[920px] text-start text-sm">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur-sm">
               <tr>
+                <th
+                  scope="col"
+                  className={`${tableHeaderSpacing} w-12 text-center`}
+                >
+                  #
+                </th>
                 <th className={`${tableHeaderSpacing} text-start`}>
                   {t(
                     "products.columns.product"
@@ -287,10 +293,13 @@ export function ProductsListResults({
 
             <tbody className="divide-y divide-slate-100">
               {items.map(
-                (item) => (
+                (item, index) => (
                   <ProductTableRow
                     key={item.id}
                     item={item}
+                    rowNumber={
+                      index + 1
+                    }
                     pricingVisible={
                       pricingVisible
                     }
