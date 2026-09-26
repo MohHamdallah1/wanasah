@@ -233,6 +233,9 @@ describe("products tracking UI contracts", () => {
     const row = normalizeWhitespace(
       readSource("../pages/products/list/ProductTableRow.tsx"),
     );
+    const rowActions = normalizeWhitespace(
+      readSource("../pages/products/list/ProductRowActions.tsx"),
+    );
 
     expect(capabilities).toContain(
       'const canManageCatalog = isCompanyAdmin || canAny("catalog.manage");',
@@ -244,9 +247,12 @@ describe("products tracking UI contracts", () => {
       "onEditTracking: trackingWorkflow.openTrackingEditor",
     );
     expect(row).toContain(
+      "<ProductRowActions",
+    );
+    expect(rowActions).toContain(
       "{canEditTracking ? (",
     );
-    expect(row).toContain(
+    expect(rowActions).toContain(
       "onEditTracking(item)",
     );
   });
