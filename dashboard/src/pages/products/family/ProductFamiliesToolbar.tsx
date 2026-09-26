@@ -4,6 +4,7 @@ import type {
 import {
   FolderPlus,
   Search,
+  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -35,31 +36,19 @@ export function ProductFamiliesToolbar({
   onCreate,
 }: Props) {
   const { t } = useTranslation();
+  const inputLocked =
+    createCommandPending ||
+    createCommandBlocked;
 
   return (
     <div className="sticky top-0 z-10 shrink-0 border-b border-slate-100 bg-white px-4 py-3 sm:px-5">
-      <div className="relative">
-        <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          type="search"
-          value={searchInput}
-          maxLength={100}
-          onChange={(event) =>
-            onSearchChange(
-              event.target.value
-            )
-          }
-          placeholder={t(
-            "products.familySearchPlaceholder"
-          )}
-          aria-label={t(
-            "products.familySearchPlaceholder"
-          )}
-          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pe-3 ps-10 text-sm font-normal text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/20"
-        />
-      </div>
-
-      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onCreate();
+        }}
+        className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5"
+      >
         <label className="block min-w-0">
           <span className="mb-1.5 block text-[11px] font-black text-slate-600">
             {t(
@@ -68,47 +57,70 @@ export function ProductFamiliesToolbar({
           </span>
 
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-            <input
-              ref={newFamilyRef}
-              value={newFamilyName}
-              maxLength={150}
-              disabled={
-                createCommandPending ||
-                createCommandBlocked
-              }
-              onChange={(event) =>
-                onNewFamilyNameChange(
-                  event.target.value
-                )
-              }
-              placeholder={t(
-                "products.newFamilyPlaceholder"
-              )}
-              aria-label={t(
-                "products.newFamilyPlaceholder"
-              )}
-              aria-invalid={
-                newFamilyError
-                  ? "true"
-                  : undefined
-              }
-              aria-describedby={
-                newFamilyError
-                  ? "product-family-name-error"
-                  : undefined
-              }
-              className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:ring-2 focus:ring-amber-300 disabled:bg-slate-100 disabled:text-slate-400"
-            />
+            <div className="relative min-w-0 flex-1">
+              <input
+                ref={newFamilyRef}
+                value={newFamilyName}
+                maxLength={150}
+                disabled={inputLocked}
+                onChange={(event) =>
+                  onNewFamilyNameChange(
+                    event.target.value
+                  )
+                }
+                placeholder={t(
+                  "products.newFamilyPlaceholder"
+                )}
+                aria-label={t(
+                  "products.newFamilyPlaceholder"
+                )}
+                aria-invalid={
+                  newFamilyError
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  newFamilyError
+                    ? "product-family-name-error"
+                    : undefined
+                }
+                className="h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 pe-10 text-sm font-bold text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:ring-2 focus:ring-amber-300 disabled:bg-slate-100 disabled:text-slate-400"
+              />
+
+              {newFamilyName &&
+              !inputLocked ? (
+                <button
+                  type="button"
+                  aria-label={t(
+                    "products.clearFamilyName"
+                  )}
+                  title={t(
+                    "products.clearFamilyName"
+                  )}
+                  onClick={() => {
+                    onNewFamilyNameChange(
+                      ""
+                    );
+                    window.requestAnimationFrame(
+                      () =>
+                        newFamilyRef.current?.focus()
+                    );
+                  }}
+                  className="absolute end-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
 
             <button
-              type="button"
+              type="submit"
               disabled={
                 createPending ||
                 createCommandBlocked ||
                 !online
               }
-              onClick={onCreate}
-              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <FolderPlus className="h-4 w-4" />
               {t("products.addFamily")}
@@ -139,6 +151,27 @@ export function ProductFamiliesToolbar({
             )}
           </p>
         ) : null}
+      </form>
+
+      <div className="relative mt-3">
+        <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          type="search"
+          value={searchInput}
+          maxLength={100}
+          onChange={(event) =>
+            onSearchChange(
+              event.target.value
+            )
+          }
+          placeholder={t(
+            "products.familySearchPlaceholder"
+          )}
+          aria-label={t(
+            "products.familySearchPlaceholder"
+          )}
+          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pe-3 ps-10 text-sm font-normal text-slate-900 outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/20"
+        />
       </div>
     </div>
   );
