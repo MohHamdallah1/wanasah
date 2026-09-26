@@ -154,9 +154,12 @@ export function ProductFamilyRow({
             onClick={() =>
               onEdit(family)
             }
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-slate-400 opacity-100 transition hover:border-slate-200 hover:bg-white hover:text-slate-800 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
           >
             <Pencil className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">
+              {t("common.edit")}
+            </span>
           </button>
         )}
       </div>
