@@ -46,7 +46,7 @@ export function ProductsPageHeader({
   return (
     <WorkspaceTopBar
       variant="page"
-      className="mb-2 shrink-0"
+      className="shrink-0"
     >
       <header className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
