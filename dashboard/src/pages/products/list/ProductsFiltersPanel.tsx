@@ -95,7 +95,7 @@ export function ProductsFiltersPanel({
   const { t } = useTranslation();
 
   return (
-    <div className="mt-3 grid gap-x-3 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <label className="space-y-1">
         <span className="text-[11px] font-black text-slate-500">
           {t(
