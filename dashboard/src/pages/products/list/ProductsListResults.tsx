@@ -1,7 +1,7 @@
 import {
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+  useEffect,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -41,9 +41,8 @@ type Props = {
   >;
   density: ProductDisplayDensity;
   tableHeaderSpacing: string;
-  tableColumnCount: number;
-  hasPrevious: boolean;
   hasNext: boolean;
+  onLoadMore: () => void;
   onRetry: () => void;
   onClearCriteria: () => void;
   onOpenDetails: (
@@ -55,8 +54,6 @@ type Props = {
   onEditTracking: (
     item: SimpleProduct,
   ) => void;
-  onPrevious: () => void;
-  onNext: () => void;
 };
 
 export function ProductsListResults({
@@ -74,18 +71,75 @@ export function ProductsListResults({
   columns,
   density,
   tableHeaderSpacing,
-  tableColumnCount,
-  hasPrevious,
   hasNext,
+  onLoadMore,
   onRetry,
   onClearCriteria,
   onOpenDetails,
   onEditPrice,
   onEditTracking,
-  onPrevious,
-  onNext,
 }: Props) {
-  const { t } = useTranslation();
+  const { t } =
+    useTranslation();
+  const scrollContainerRef =
+    useRef<HTMLDivElement | null>(
+      null,
+    );
+  const loadMoreRef =
+    useRef<HTMLDivElement | null>(
+      null,
+    );
+
+  useEffect(() => {
+    if (
+      !hasNext ||
+      isFetching ||
+      !online ||
+      typeof IntersectionObserver ===
+        "undefined"
+    ) {
+      return;
+    }
+
+    const root =
+      scrollContainerRef.current;
+    const target =
+      loadMoreRef.current;
+
+    if (
+      !root ||
+      !target
+    ) {
+      return;
+    }
+
+    const observer =
+      new IntersectionObserver(
+        ([entry]) => {
+          if (
+            entry?.isIntersecting
+          ) {
+            onLoadMore();
+          }
+        },
+        {
+          root,
+          rootMargin:
+            "480px 0px",
+          threshold: 0,
+        },
+      );
+
+    observer.observe(target);
+    return () =>
+      observer.disconnect();
+  }, [
+    hasNext,
+    isFetching,
+    online,
+    onLoadMore,
+  ]);
+
   const hasItems =
     items.length > 0;
   const errorStatus =
@@ -158,6 +212,30 @@ export function ProductsListResults({
       isError
     );
 
+  const loadMoreMarker =
+    hasNext ||
+    isFetching ? (
+      <div
+        ref={loadMoreRef}
+        className="flex h-10 items-center justify-center"
+        aria-live="polite"
+      >
+        {isFetching ? (
+          <>
+            <span
+              aria-hidden="true"
+              className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500"
+            />
+            <span className="sr-only">
+              {t(
+                "products.states.loadingTitle",
+              )}
+            </span>
+          </>
+        ) : null}
+      </div>
+    ) : null;
+
   return (
     <>
       {showLocalNotice ? (
@@ -169,7 +247,10 @@ export function ProductsListResults({
       ) : null}
 
       {isNarrowViewport ? (
-        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2">
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2"
+        >
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             {items.map(
               (item) => (
@@ -201,12 +282,16 @@ export function ProductsListResults({
                     onEditTracking
                   }
                 />
-              )
+              ),
             )}
           </div>
+          {loadMoreMarker}
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto bg-white">
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 overflow-auto bg-white"
+        >
           <table className="w-full min-w-[920px] text-start text-sm">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur-sm">
               <tr>
@@ -218,48 +303,48 @@ export function ProductsListResults({
                 </th>
                 <th className={`${tableHeaderSpacing} text-start`}>
                   {t(
-                    "products.columns.product"
+                    "products.columns.product",
                   )}
                 </th>
                 {columns.package ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.package"
+                      "products.columns.package",
                     )}
                   </th>
                 ) : null}
                 {columns.unitsPerPackage ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.unitsPerPackage"
+                      "products.columns.unitsPerPackage",
                     )}
                   </th>
                 ) : null}
                 {columns.tracking ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.tracking"
+                      "products.columns.tracking",
                     )}
                   </th>
                 ) : null}
                 {columns.lifecycle ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.lifecycle"
+                      "products.columns.lifecycle",
                     )}
                   </th>
                 ) : null}
                 {columns.unitBarcode ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.unitBarcode"
+                      "products.columns.unitBarcode",
                     )}
                   </th>
                 ) : null}
                 {columns.packageBarcode ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.packageBarcode"
+                      "products.columns.packageBarcode",
                     )}
                   </th>
                 ) : null}
@@ -267,7 +352,7 @@ export function ProductsListResults({
                 columns.packagePrice ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.packagePrice"
+                      "products.columns.packagePrice",
                     )}
                   </th>
                 ) : null}
@@ -275,7 +360,7 @@ export function ProductsListResults({
                 columns.unitPrice ? (
                   <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
-                      "products.columns.unitPrice"
+                      "products.columns.unitPrice",
                     )}
                   </th>
                 ) : null}
@@ -284,7 +369,7 @@ export function ProductsListResults({
                 >
                   <span className="sr-only">
                     {t(
-                      "products.columns.action"
+                      "products.columns.action",
                     )}
                   </span>
                 </th>
@@ -293,7 +378,10 @@ export function ProductsListResults({
 
             <tbody className="divide-y divide-slate-100">
               {items.map(
-                (item, index) => (
+                (
+                  item,
+                  index,
+                ) => (
                   <ProductTableRow
                     key={item.id}
                     item={item}
@@ -325,48 +413,13 @@ export function ProductsListResults({
                       onEditTracking
                     }
                   />
-                )
+                ),
               )}
             </tbody>
           </table>
+          {loadMoreMarker}
         </div>
       )}
-
-      {hasPrevious ||
-      hasNext ? (
-        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-white px-4 py-2.5">
-          <button
-            type="button"
-            disabled={
-              !hasPrevious ||
-              isFetching ||
-              !online
-            }
-            onClick={onPrevious}
-            aria-label={t(
-              "products.familyPrevious"
-            )}
-            className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
-          >
-            <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
-          </button>
-          <button
-            type="button"
-            disabled={
-              !hasNext ||
-              isFetching ||
-              !online
-            }
-            onClick={onNext}
-            aria-label={t(
-              "products.familyNext"
-            )}
-            className="rounded-lg border border-slate-200 bg-white p-2 disabled:opacity-30"
-          >
-            <ChevronRight className="h-4 w-4 rtl:rotate-180" />
-          </button>
-        </div>
-      ) : null}
     </>
   );
 }
