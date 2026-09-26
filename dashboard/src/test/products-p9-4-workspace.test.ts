@@ -67,6 +67,31 @@ describe("Products P9.4 workspace foundation", () => {
     );
   });
 
+  it("shares one reusable top-bar surface between Inventory and Products", () => {
+    const sharedBar = read(
+      "../components/dashboard/WorkspaceTopBar.tsx",
+    );
+    const inventoryDock = read(
+      "../pages/inventory/InventoryTopDock.tsx",
+    );
+    const header = read(
+      "../pages/products/ProductsPageHeader.tsx",
+    );
+
+    expect(sharedBar).toContain(
+      "workspace-top-bar",
+    );
+    expect(inventoryDock).toContain(
+      "<WorkspaceTopBar",
+    );
+    expect(header).toContain(
+      "<WorkspaceTopBar",
+    );
+    expect(header).toContain(
+      'variant="page"',
+    );
+  });
+
   it("uses a dense workspace surface instead of stacked glass cards", () => {
     const header = read(
       "../pages/products/ProductsPageHeader.tsx",
