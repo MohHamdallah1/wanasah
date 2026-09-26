@@ -81,8 +81,11 @@ describe("Products P9.4 desktop table", () => {
     expect(row).toContain(
       "max-w-[220px]",
     );
-    expect(row).not.toContain(
+    expect(row).toContain(
       "item.family_name",
+    );
+    expect(row).not.toContain(
+      "item.sku",
     );
     expect(row).toContain(
       "justify-center",
@@ -92,6 +95,12 @@ describe("Products P9.4 desktop table", () => {
     );
     expect(results).toContain(
       "text-center",
+    );
+    expect(results).toContain(
+      "index + 1",
+    );
+    expect(results).toContain(
+      "rowNumber={",
     );
     expect(results).toContain(
       'min-w-[920px]',
