@@ -297,10 +297,14 @@ describe(
         "min-[360px]:grid-cols-2",
       );
 
-      const families =
-        files[3];
-      expect(families).toContain(
-        "break-words text-sm text-slate-900 sm:truncate",
+      const familyRow = read(
+        "src/pages/products/family/ProductFamilyRow.tsx",
+      );
+      expect(familyRow).toContain(
+        "break-words text-sm font-black text-slate-900",
+      );
+      expect(familyRow).not.toContain(
+        "whitespace-nowrap",
       );
 
       const advanced =
@@ -360,8 +364,14 @@ describe(
       const drawer = read(
         "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
-      const families = read(
-        "src/pages/products/family/ProductFamiliesManager.tsx",
+      const familiesToolbar = read(
+        "src/pages/products/family/ProductFamiliesToolbar.tsx",
+      );
+      const familyRow = read(
+        "src/pages/products/family/ProductFamilyRow.tsx",
+      );
+      const familiesList = read(
+        "src/pages/products/family/ProductFamiliesList.tsx",
       );
       const barcodes = read(
         "src/pages/products/barcode/ProductBarcodeManager.tsx",
@@ -393,8 +403,14 @@ describe(
         "sm:inline-flex",
       );
 
-      expect(families).toContain(
-        "flex flex-col items-stretch",
+      expect(familiesToolbar).toContain(
+        "grid gap-2 lg:grid-cols-",
+      );
+      expect(familyRow).toContain(
+        "grid-cols-[minmax(0,1fr)_auto]",
+      );
+      expect(familiesList).toContain(
+        "max-h-[480px]",
       );
       expect(barcodes).toContain(
         "flex flex-col items-stretch",
