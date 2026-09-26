@@ -56,6 +56,15 @@ export function ProductRowActions({
       item.lifecycle_status,
     );
 
+  const openAfterMenuClose = (
+    action: () => void,
+  ) => {
+    window.setTimeout(
+      action,
+      0,
+    );
+  };
+
   return (
     <DropdownMenu dir={direction}>
       <DropdownMenuTrigger asChild>
@@ -81,7 +90,10 @@ export function ProductRowActions({
       >
         <DropdownMenuItem
           onSelect={() =>
-            onOpenDetails(item)
+            openAfterMenuClose(
+              () =>
+                onOpenDetails(item),
+            )
           }
           className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
         >
@@ -95,7 +107,10 @@ export function ProductRowActions({
         item.simple_compatible ? (
           <DropdownMenuItem
             onSelect={() =>
-              onEditPrice(item)
+              openAfterMenuClose(
+                () =>
+                  onEditPrice(item),
+              )
             }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
@@ -108,15 +123,14 @@ export function ProductRowActions({
 
         {familyReassignAllowed ? (
           <DropdownMenuItem
-            onSelect={() => {
-              window.setTimeout(
+            onSelect={() =>
+              openAfterMenuClose(
                 () =>
                   onReassignFamily(
                     item
                   ),
-                0,
-              );
-            }}
+              )
+            }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <FolderTree className="h-4 w-4 shrink-0 text-slate-400" />
@@ -129,7 +143,10 @@ export function ProductRowActions({
         {canEditTracking ? (
           <DropdownMenuItem
             onSelect={() =>
-              onEditTracking(item)
+              openAfterMenuClose(
+                () =>
+                  onEditTracking(item),
+              )
             }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
