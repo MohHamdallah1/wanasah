@@ -66,7 +66,7 @@ describe("Products P9.4 Families workspace", () => {
     );
 
     expect(toolbar).toContain(
-      "sticky top-0",
+      "shrink-0 border-b",
     );
     expect(toolbar).toContain(
       "absolute start-3",
@@ -76,6 +76,9 @@ describe("Products P9.4 Families workspace", () => {
     );
     expect(toolbar).toContain(
       '"products.familySearchPlaceholder"',
+    );
+    expect(toolbar).toContain(
+      '"products.newFamilyTitle"',
     );
     expect(toolbar).toContain(
       '"products.newFamilyPlaceholder"',
