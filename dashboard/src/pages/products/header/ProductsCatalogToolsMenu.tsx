@@ -112,22 +112,25 @@ export function ProductsCatalogToolsMenu({
           </DropdownMenuItem>
         ) : null}
 
+        {canManageCatalog ||
+        canManageFamilies ? (
+          <DropdownMenuSeparator />
+        ) : null}
+
+        <DropdownMenuItem
+          onSelect={
+            onOpenDisplayPreferences
+          }
+          className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+        >
+          <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
+          {t(
+            "products.displayPreferences.action",
+          )}
+        </DropdownMenuItem>
+
         {canManageCatalog ? (
           <>
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem
-              onSelect={
-                onOpenDisplayPreferences
-              }
-              className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
-            >
-              <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
-              {t(
-                "products.displayPreferences.action",
-              )}
-            </DropdownMenuItem>
-
             <DropdownMenuItem
               onSelect={
                 onOpenAdvancedUom
