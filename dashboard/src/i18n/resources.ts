@@ -430,6 +430,13 @@ export const resources = {
         familyPendingBlocked:
           "تعذر التحقق من طلب العائلة المعلّق. تم إيقاف إرسال طلب جديد حتى تتم تسويته بدون مخاطرة التكرار.",
         importTitle: "استيراد المنتجات",
+        importStages: {
+          label: "مراحل الاستيراد",
+          upload: "الملف",
+          mapping: "المطابقة",
+          processing: "التنفيذ",
+          result: "النتيجة",
+        },
         importIntro:
           "يدعم CSV وExcel. ترتيب الأعمدة لا يهم، وإذا لم نتعرف على عمود لن نخمن؛ سنطلب منك ربطه قبل الاستيراد.",
         importTrackingTitle:
@@ -1884,6 +1891,13 @@ export const resources = {
         familyPendingBlocked:
           "The pending family request could not be verified. New submission is blocked until it can be reconciled without duplication risk.",
         importTitle: "Import products",
+        importStages: {
+          label: "Import stages",
+          upload: "File",
+          mapping: "Mapping",
+          processing: "Processing",
+          result: "Result",
+        },
         importIntro:
           "CSV and Excel are supported. Column order does not matter; unclear columns are never guessed and will be mapped before import.",
         importTrackingTitle:
