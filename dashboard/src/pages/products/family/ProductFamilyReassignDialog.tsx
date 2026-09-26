@@ -7,10 +7,27 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import {
+  Check,
+  ChevronsUpDown,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Modal } from "@/components/ui/modal";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import {
@@ -108,7 +125,8 @@ export function ProductFamilyReassignDialog({
   onClose,
   onReassigned,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } =
+    useTranslation();
   const authFetch = useAuthFetch();
   const queryClient =
     useQueryClient();
@@ -124,9 +142,19 @@ export function ProductFamilyReassignDialog({
     setSearch,
   ] = useState("");
   const [
+    familyPickerOpen,
+    setFamilyPickerOpen,
+  ] = useState(false);
+  const [
     targetFamilyId,
     setTargetFamilyId,
   ] = useState<number | null>(
+    null
+  );
+  const [
+    targetFamilyName,
+    setTargetFamilyName,
+  ] = useState<string | null>(
     null
   );
   const [
@@ -180,7 +208,9 @@ export function ProductFamilyReassignDialog({
     if (!product) {
       setSearchInput("");
       setSearch("");
+      setFamilyPickerOpen(false);
       setTargetFamilyId(null);
+      setTargetFamilyName(null);
       setExpectedVersion(null);
       setPending(null);
       setPendingBlocked(false);
@@ -191,7 +221,9 @@ export function ProductFamilyReassignDialog({
 
     setSearchInput("");
     setSearch("");
+    setFamilyPickerOpen(false);
     setTargetFamilyId(null);
+    setTargetFamilyName(null);
     setExpectedVersion(
       product.version
     );
@@ -217,9 +249,6 @@ export function ProductFamilyReassignDialog({
     const timer =
       window.setTimeout(() => {
         setSearch(next);
-        if (!pending) {
-          setTargetFamilyId(null);
-        }
       }, 250);
     return () =>
       window.clearTimeout(timer);
@@ -275,6 +304,7 @@ export function ProductFamilyReassignDialog({
         setTargetFamilyId(
           stored.payload.family_id,
         );
+        setTargetFamilyName(null);
       } catch (error) {
         if (cancelled) {
           return;
@@ -354,13 +384,23 @@ export function ProductFamilyReassignDialog({
         family.id !==
         product.product_id
     );
-  const pendingTargetVisible =
-    targetFamilyId !== null &&
-    !selectableFamilies.some(
+  const selectedFamilyName =
+    targetFamilyName ??
+    selectableFamilies.find(
       (family) =>
         family.id ===
         targetFamilyId
-    );
+    )?.name ??
+    (targetFamilyId !== null
+      ? t(
+          "products.familyReassign.pendingTarget",
+          {
+            id: targetFamilyId,
+          }
+        )
+      : null);
+  const searchPending =
+    searchInput.trim() !== search;
 
   const save = async () => {
     if (
@@ -601,125 +641,181 @@ export function ProductFamilyReassignDialog({
           </strong>
         </div>
 
-        <label className="block text-xs font-black text-slate-600">
-          {t(
-            "products.familyReassign.search"
-          )}
-          <input
-            type="search"
-            value={searchInput}
-            maxLength={100}
-            disabled={fieldsLocked}
-            onChange={(event) =>
-              setSearchInput(
-                event.target.value
-              )
-            }
-            placeholder={t(
-              "products.familyReassign.searchPlaceholder"
+        <div className="block text-xs font-black text-slate-600">
+          <span>
+            {t(
+              "products.familyReassign.target"
             )}
-            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none disabled:opacity-50"
-          />
-        </label>
+          </span>
 
-        <label className="block text-xs font-black text-slate-600">
-          {t(
-            "products.familyReassign.target"
-          )}
-          <select
-            value={
-              targetFamilyId ??
-              ""
-            }
-            disabled={
-              fieldsLocked ||
-              familiesQuery.isLoading
-            }
-            onChange={(event) => {
-              const value =
-                Number(
-                  event.target.value
-                );
-              setTargetFamilyId(
-                Number.isSafeInteger(
-                  value
-                ) &&
-                value > 0
-                  ? value
-                  : null
-              );
-              if (fieldError) {
-                setFieldError(null);
+          <Popover
+            open={familyPickerOpen}
+            onOpenChange={(open) => {
+              if (fieldsLocked) {
+                return;
+              }
+              setFamilyPickerOpen(open);
+              if (open) {
+                setSearchInput("");
+                setSearch("");
               }
             }}
-            aria-invalid={
-              fieldError
-                ? "true"
-                : undefined
-            }
-            aria-describedby={
-              fieldError
-                ? "product-family-reassign-error"
-                : undefined
-            }
-            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold outline-none disabled:opacity-50"
           >
-            <option value="">
-              {t(
-                familiesQuery.isLoading
-                  ? "common.loading"
-                  : "products.familyReassign.targetPlaceholder"
-              )}
-            </option>
-            {pendingTargetVisible ? (
-              <option
-                value={
-                  targetFamilyId ??
-                  ""
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={fieldsLocked}
+                aria-expanded={
+                  familyPickerOpen
                 }
+                aria-invalid={
+                  fieldError
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  fieldError
+                    ? "product-family-reassign-error"
+                    : undefined
+                }
+                className="mt-1.5 flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-start text-sm font-bold text-slate-900 outline-none transition hover:border-slate-300 focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-50"
               >
-                {t(
-                  "products.familyReassign.pendingTarget",
-                  {
-                    id:
-                      targetFamilyId,
-                  }
-                )}
-              </option>
-            ) : null}
-            {selectableFamilies.map(
-              (family) => (
-                <option
-                  key={
-                    family.id
-                  }
-                  value={
-                    family.id
+                <span
+                  className={
+                    selectedFamilyName
+                      ? "min-w-0 truncate"
+                      : "min-w-0 truncate text-slate-400"
                   }
                 >
-                  {family.name}
-                </option>
-              )
-            )}
-          </select>
-        </label>
+                  {selectedFamilyName ??
+                    t(
+                      "products.familyReassign.targetPlaceholder"
+                    )}
+                </span>
+                <ChevronsUpDown className="h-4 w-4 shrink-0 text-slate-400" />
+              </button>
+            </PopoverTrigger>
 
-        {familiesQuery.isError ? (
-          <button
-            type="button"
-            onClick={() =>
-              void familiesQuery.refetch()
-            }
-            className="text-xs font-black text-rose-700"
-          >
-            {t(
-              "products.errors.familiesLoad"
-            )}{" "}
-            {t(
-              "common.retry"
-            )}
-          </button>
-        ) : null}
+            <PopoverContent
+              dir={i18n.dir()}
+              side="bottom"
+              align="start"
+              sideOffset={6}
+              avoidCollisions={false}
+              className="w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-xl"
+            >
+              <Command
+                dir={i18n.dir()}
+                shouldFilter={false}
+              >
+                <CommandInput
+                  autoFocus
+                  value={searchInput}
+                  onValueChange={
+                    setSearchInput
+                  }
+                  placeholder={t(
+                    "products.familyReassign.searchPlaceholder"
+                  )}
+                  className="font-normal"
+                />
+
+                <CommandList className="max-h-64">
+                  {searchPending ||
+                  familiesQuery.isFetching ? (
+                    <div className="px-3 py-6 text-center text-xs font-bold text-slate-400">
+                      {t(
+                        "common.loading"
+                      )}
+                    </div>
+                  ) : familiesQuery.isError ? (
+                    <div className="px-3 py-5 text-center">
+                      <p className="text-xs font-bold text-rose-700">
+                        {t(
+                          "products.errors.familiesLoad"
+                        )}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void familiesQuery.refetch()
+                        }
+                        className="mt-2 text-xs font-black text-slate-900 underline underline-offset-4"
+                      >
+                        {t(
+                          "common.retry"
+                        )}
+                      </button>
+                    </div>
+                  ) : selectableFamilies.length ? (
+                    <CommandGroup>
+                      {selectableFamilies.map(
+                        (family) => (
+                          <CommandItem
+                            key={
+                              family.id
+                            }
+                            value={
+                              family.name
+                            }
+                            onSelect={() => {
+                              setTargetFamilyId(
+                                family.id
+                              );
+                              setTargetFamilyName(
+                                family.name
+                              );
+                              setFieldError(
+                                null
+                              );
+                              setFamilyPickerOpen(
+                                false
+                              );
+                              setSearchInput(
+                                ""
+                              );
+                              setSearch(
+                                ""
+                              );
+                            }}
+                            className="gap-2 rounded-lg px-3 py-2.5 text-start"
+                          >
+                            <Check
+                              className={
+                                targetFamilyId ===
+                                family.id
+                                  ? "h-4 w-4 shrink-0 opacity-100"
+                                  : "h-4 w-4 shrink-0 opacity-0"
+                              }
+                            />
+                            <span className="min-w-0 flex-1 truncate font-bold">
+                              {family.name}
+                            </span>
+                            <span className="shrink-0 text-[10px] font-semibold text-slate-400">
+                              {t(
+                                "products.variantCount",
+                                {
+                                  count:
+                                    family.variant_count,
+                                }
+                              )}
+                            </span>
+                          </CommandItem>
+                        )
+                      )}
+                    </CommandGroup>
+                  ) : (
+                    <CommandEmpty>
+                      {t(
+                        "products.noMatchingFamilies"
+                      )}
+                    </CommandEmpty>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </div>
 
         {fieldError ? (
           <p
