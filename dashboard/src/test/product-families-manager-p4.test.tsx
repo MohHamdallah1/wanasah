@@ -96,11 +96,12 @@ import { ProductFamiliesManager } from "../pages/products/family/ProductFamilies
 const family = (
   id: number,
   name: string,
+  variantCount = 0,
 ) => ({
   id,
   name,
   version: 1,
-  variant_count: 0,
+  variant_count: variantCount,
 });
 
 describe(
@@ -866,6 +867,276 @@ describe(
         expected_version: 1,
         name: "Renamed Family",
       });
+    });
+
+    it("submits a new family through native form semantics and clears the field from the keyboard-friendly control", async () => {
+      const postBodies: Array<{
+        request_id: string;
+        name: string;
+      }> = [];
+
+      mocks.authFetch.mockImplementation(
+        async (
+          _url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            options?.method ===
+            "POST"
+          ) {
+            postBodies.push(
+              JSON.parse(
+                String(
+                  options.body,
+                ),
+              ),
+            );
+            return {
+              id: 44,
+              name:
+                "Keyboard Family",
+              version: 1,
+              variant_count: 0,
+            };
+          }
+
+          return {
+            items: [],
+            next_cursor: null,
+            has_more: false,
+          };
+        },
+      );
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      await screen.findByText(
+        "products.noFamilies",
+      );
+      const input =
+        screen.getByPlaceholderText(
+          "products.newFamilyPlaceholder",
+        );
+
+      fireEvent.change(
+        input,
+        {
+          target: {
+            value:
+              "Temporary",
+          },
+        },
+      );
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.clearFamilyName",
+          },
+        ),
+      );
+      expect(input).toHaveValue("");
+
+      fireEvent.change(
+        input,
+        {
+          target: {
+            value:
+              "Keyboard Family",
+          },
+        },
+      );
+      const form =
+        input.closest("form");
+      expect(form).not.toBeNull();
+      fireEvent.submit(
+        form as HTMLFormElement,
+      );
+
+      await waitFor(() => {
+        expect(postBodies).toHaveLength(
+          1,
+        );
+      });
+      expect(
+        postBodies[0].name,
+      ).toBe("Keyboard Family");
+    });
+
+    it("blocks deleting a family that still contains products before any request is sent", async () => {
+      mocks.authFetch.mockResolvedValue({
+        items: [
+          family(
+            7,
+            "Used Family",
+            2,
+          ),
+        ],
+        next_cursor: null,
+        has_more: false,
+      });
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      expect(
+        await screen.findByText(
+          "Used Family",
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.deleteFamily",
+          },
+        ),
+      );
+
+      expect(
+        mocks.toastError,
+      ).toHaveBeenCalledWith(
+        "products.familyDeleteBlocked",
+      );
+      expect(
+        mocks.authFetch.mock.calls.filter(
+          ([, options]) =>
+            options?.method ===
+            "DELETE",
+        ),
+      ).toHaveLength(0);
+    });
+
+    it("hard-deletes an empty family only after explicit confirmation", async () => {
+      const deleteBodies: Array<{
+        request_id: string;
+        expected_version: number;
+      }> = [];
+      let deleted = false;
+
+      mocks.authFetch.mockImplementation(
+        async (
+          _url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            options?.method ===
+            "DELETE"
+          ) {
+            deleteBodies.push(
+              JSON.parse(
+                String(
+                  options.body,
+                ),
+              ),
+            );
+            deleted = true;
+            return {
+              id: 8,
+              name:
+                "Empty Family",
+              version: 1,
+              deleted: true,
+            };
+          }
+
+          return {
+            items: deleted
+              ? []
+              : [
+                  family(
+                    8,
+                    "Empty Family",
+                  ),
+                ],
+            next_cursor: null,
+            has_more: false,
+          };
+        },
+      );
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamiliesManager
+            isOpen
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      expect(
+        await screen.findByText(
+          "Empty Family",
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.deleteFamily",
+          },
+        ),
+      );
+      fireEvent.click(
+        screen.getByRole(
+          "button",
+          {
+            name:
+              "products.familyDeleteConfirm",
+          },
+        ),
+      );
+
+      await waitFor(() => {
+        expect(
+          mocks.toastSuccess,
+        ).toHaveBeenCalledWith(
+          "products.familyDeleted",
+        );
+      });
+      expect(deleteBodies).toHaveLength(
+        1,
+      );
+      expect(
+        deleteBodies[0]
+          .expected_version,
+      ).toBe(1);
+      expect(
+        deleteBodies[0]
+          .request_id,
+      ).toEqual(
+        expect.any(String),
+      );
     });
 
     it("keeps a request failure distinct from an empty family result", async () => {
