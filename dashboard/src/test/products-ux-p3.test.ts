@@ -237,6 +237,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/header/ProductsCatalogToolsMenu.tsx",
       ),
     );
+    const addAction = compact(
+      readSource(
+        "../pages/products/header/ProductsAddAction.tsx",
+      ),
+    );
 
     expect(capabilities).toContain(
       "const canCreateSimpleProduct =",
@@ -259,8 +264,11 @@ describe("Products P3 detail foundation", () => {
     expect(catalogTools).toContain(
       "{canManageFamilies ? (",
     );
-    expect(catalogTools).toContain(
-      "{canImportProducts ? (",
+    expect(addAction).toContain(
+      "canImportProducts",
+    );
+    expect(catalogTools).not.toContain(
+      "canImportProducts",
     );
     expect(page).not.toContain(
       "const canManage =",
