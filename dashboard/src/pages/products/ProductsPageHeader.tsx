@@ -1,5 +1,4 @@
 import {
-  Boxes,
   PackagePlus,
   RefreshCw,
 } from "lucide-react";
@@ -49,11 +48,7 @@ export function ProductsPageHeader({
       className="shrink-0"
     >
       <header className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-amber-300">
-            <Boxes className="h-4 w-4" />
-          </span>
-
+        <div className="min-w-0">
           <div className="min-w-0">
             <h1 className="break-words text-lg font-black leading-6 text-white sm:text-xl">
               {t("products.title")}
