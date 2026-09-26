@@ -421,8 +421,8 @@ describe("Products P8 production frontend gate", () => {
     expect(page).toContain(
       "onOpenImport={ importWorkflow.openImport }",
     );
-    expect(catalogTools).toContain(
-      "onSelect={onOpenImport}",
+    expect(catalogTools).toMatch(
+      /onSelect=\{\s*onOpenImport\s*\}/,
     );
     expect(importWorkflow).toContain(
       "onClose: closeImport",
