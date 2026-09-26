@@ -192,16 +192,17 @@ async def run() -> None:
                     text(
                         """
                         UPDATE refresh_tokens
-                        SET created_at =
-                            NOW() - make_interval(
-                                secs => :age_seconds
-                            )
+                        SET created_at=:stale_created_at
                         WHERE id=:id
                         """
                     ),
                     {
-                        "age_seconds":
-                            REFRESH_ROTATION_GRACE_SECONDS + 2,
+                        "stale_created_at":
+                            utc_now()
+                            - timedelta(
+                                seconds=
+                                    REFRESH_ROTATION_GRACE_SECONDS + 2
+                            ),
                         "id": successor_id,
                     },
                 )
