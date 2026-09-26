@@ -56,28 +56,28 @@ describe(
           "../pages/products/ProductsPage.tsx",
         ),
       );
-      const header = compact(
+      const tools = compact(
         source(
-          "../pages/products/ProductsPageHeader.tsx",
+          "../pages/products/header/ProductsCatalogToolsMenu.tsx",
         ),
       );
 
       expect(products).toContain(
         'navigate( "/products/advanced-uom" )',
       );
-      expect(header).toContain(
+      expect(tools).toContain(
         '"products.advancedUom.action"',
       );
-      expect(header).toContain(
+      expect(tools).toContain(
         '"products.advancedPricing"',
       );
-      expect(header).toContain(
+      expect(tools).toContain(
         '"products.advancedPricingHint"',
       );
-      expect(header).toContain(
+      expect(tools).toContain(
         "LockKeyhole",
       );
-      expect(header).toMatch(
+      expect(tools).toMatch(
         /type="button" disabled title=\{t\( "products\.advancedPricingHint" \)\}/,
       );
     });
