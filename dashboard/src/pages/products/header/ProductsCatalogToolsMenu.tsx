@@ -1,4 +1,8 @@
 import {
+  useRef,
+  useState,
+} from "react";
+import {
   ChevronDown,
   FolderTree,
   LockKeyhole,
@@ -42,9 +46,46 @@ export function ProductsCatalogToolsMenu({
     useTranslation();
   const direction =
     i18n.dir();
+  const [
+    menuOpen,
+    setMenuOpen,
+  ] = useState(false);
+  const pendingActionRef =
+    useRef<(() => void) | null>(
+      null
+    );
+
+  const queueAfterMenuClose = (
+    action: () => void,
+  ) => {
+    pendingActionRef.current =
+      action;
+  };
+
+  const handleCloseAutoFocus = () => {
+    const action =
+      pendingActionRef.current;
+    if (!action) {
+      return;
+    }
+
+    pendingActionRef.current =
+      null;
+    queueMicrotask(action);
+  };
 
   return (
-    <DropdownMenu dir={direction}>
+    <DropdownMenu
+      dir={direction}
+      open={menuOpen}
+      onOpenChange={(open) => {
+        setMenuOpen(open);
+        if (open) {
+          pendingActionRef.current =
+            null;
+        }
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -73,6 +114,10 @@ export function ProductsCatalogToolsMenu({
       <DropdownMenuContent
         dir={direction}
         align="end"
+        loop
+        onCloseAutoFocus={
+          handleCloseAutoFocus
+        }
         className="w-72 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
       >
         <DropdownMenuLabel className="px-2.5 py-2 text-start text-[11px] font-black text-slate-400">
@@ -86,8 +131,10 @@ export function ProductsCatalogToolsMenu({
             disabled={
               trackingDefaultsLoading
             }
-            onSelect={
-              onOpenTrackingDefaults
+            onSelect={() =>
+              queueAfterMenuClose(
+                onOpenTrackingDefaults
+              )
             }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
@@ -100,8 +147,10 @@ export function ProductsCatalogToolsMenu({
 
         {canManageFamilies ? (
           <DropdownMenuItem
-            onSelect={
-              onOpenFamilies
+            onSelect={() =>
+              queueAfterMenuClose(
+                onOpenFamilies
+              )
             }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
@@ -118,8 +167,10 @@ export function ProductsCatalogToolsMenu({
         ) : null}
 
         <DropdownMenuItem
-          onSelect={
-            onOpenDisplayPreferences
+          onSelect={() =>
+            queueAfterMenuClose(
+              onOpenDisplayPreferences
+            )
           }
           className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
         >
@@ -132,8 +183,10 @@ export function ProductsCatalogToolsMenu({
         {canManageCatalog ? (
           <>
             <DropdownMenuItem
-              onSelect={
-                onOpenAdvancedUom
+              onSelect={() =>
+                queueAfterMenuClose(
+                  onOpenAdvancedUom
+                )
               }
               className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
             >
