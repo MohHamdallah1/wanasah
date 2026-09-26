@@ -203,9 +203,9 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/deriveProductsCapabilities.ts",
       ),
     );
-    const header = compact(
+    const catalogTools = compact(
       readSource(
-        "../pages/products/ProductsPageHeader.tsx",
+        "../pages/products/header/ProductsCatalogToolsMenu.tsx",
       ),
     );
 
@@ -227,10 +227,10 @@ describe("Products P3 detail foundation", () => {
     expect(page).toContain(
       "canImportProducts={ canImportProducts }",
     );
-    expect(header).toContain(
+    expect(catalogTools).toContain(
       "{canManageFamilies ? (",
     );
-    expect(header).toContain(
+    expect(catalogTools).toContain(
       "{canImportProducts ? (",
     );
     expect(page).not.toContain(
