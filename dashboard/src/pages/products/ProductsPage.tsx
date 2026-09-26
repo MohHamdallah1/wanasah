@@ -93,6 +93,7 @@ export default function ProductsPage() {
       authFetch,
       canViewPricing,
       displayPreferences,
+      online: isOnline,
     });
 
   const onProductChanged =
