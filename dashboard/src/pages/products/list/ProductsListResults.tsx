@@ -406,6 +406,9 @@ export function ProductsListResults({
                     canEditPrice={
                       canEditPrice
                     }
+                    canReassignFamily={
+                      canReassignFamily
+                    }
                     canEditTracking={
                       canEditTracking
                     }
@@ -420,6 +423,9 @@ export function ProductsListResults({
                     }
                     onEditPrice={
                       onEditPrice
+                    }
+                    onReassignFamily={
+                      onReassignFamily
                     }
                     onEditTracking={
                       onEditTracking
