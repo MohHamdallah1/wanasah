@@ -1,0 +1,71 @@
+.workspace-top-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 1rem;
+  color: #fff;
+  background:
+    linear-gradient(
+      to left,
+      #274b68 0%,
+      #184062 8%,
+      #142945 24%,
+      #112640 48%,
+      #0f2138 72%,
+      #0c192c 100%
+    );
+  box-shadow:
+    0 14px 32px -25px rgb(13 27 48 / 0.48),
+    inset 0 1px rgb(255 255 255 / 0.96);
+  backdrop-filter: blur(16px) saturate(135%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+}
+
+.workspace-top-bar--dock {
+  width: min(1240px, calc(100% - 1.25rem));
+  max-width: none;
+  justify-content: center;
+}
+
+.workspace-top-bar--page {
+  width: 100%;
+  justify-content: stretch;
+}
+
+@media (max-width: 760px) {
+  .workspace-top-bar--dock {
+    width: max-content;
+    max-width: none;
+    border-radius: 0.9rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .workspace-top-bar--dock {
+    width: 100%;
+    min-height: 3.25rem;
+    border-top: 0;
+    border-inline: 0;
+    border-radius: 0;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .workspace-top-bar--page {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    width: auto;
+    min-height: 3.25rem;
+    margin-block-start: -1.5rem;
+    margin-inline-start: -0.75rem;
+    margin-inline-end: -1rem;
+    border-top: 0;
+    border-inline: 0;
+    border-radius: 0;
+    padding: 0.35rem 0.65rem;
+  }
+}
