@@ -27,6 +27,7 @@ const presentationSources = [
   "../pages/products/ProductsPage.tsx",
   "../pages/products/ProductsPageHeader.tsx",
   "../pages/products/header/ProductsCatalogToolsMenu.tsx",
+  "../pages/products/header/ProductsAddAction.tsx",
   "../pages/products/list/ProductsListSection.tsx",
   "../pages/products/list/ProductsListToolbar.tsx",
   "../pages/products/list/ProductsActiveFilters.tsx",
@@ -92,6 +93,9 @@ describe(
 
       expect(header).toContain(
         "<ProductsCatalogToolsMenu",
+      );
+      expect(header).toContain(
+        "<ProductsAddAction",
       );
       expect(header).toContain(
         "onOpenCreateProduct",
