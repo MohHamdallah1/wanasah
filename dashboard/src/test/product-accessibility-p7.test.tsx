@@ -204,8 +204,11 @@ describe(
       const dashboard = read(
         "src/pages/products/ProductsPage.tsx",
       );
-      const createModal = read(
-        "src/pages/products/create/CreateProductModal.tsx",
+      const createIdentity = read(
+        "src/pages/products/create/CreateProductIdentitySection.tsx",
+      );
+      const createCommerce = read(
+        "src/pages/products/create/CreateProductCommerceSection.tsx",
       );
       const createMutation = read(
         "src/pages/products/create/useCreateProductMutation.ts",
@@ -223,13 +226,15 @@ describe(
         "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
       );
 
-      for (const id of [
+      expect(createIdentity).toContain(
         "product-name-error",
+      );
+      for (const id of [
         "product-units-error",
         "product-package-price-error",
         "product-unit-price-error",
       ]) {
-        expect(createModal).toContain(
+        expect(createCommerce).toContain(
           id,
         );
       }
