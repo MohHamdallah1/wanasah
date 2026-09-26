@@ -251,7 +251,13 @@ describe(
             },
           );
         trigger.focus();
-        fireEvent.click(trigger);
+        fireEvent.keyDown(
+          trigger,
+          {
+            key: "Enter",
+            code: "Enter",
+          },
+        );
 
         const item =
           await screen.findByRole(
@@ -261,7 +267,14 @@ describe(
                 actionLabel,
             },
           );
-        fireEvent.click(item);
+        item.focus();
+        fireEvent.keyDown(
+          item,
+          {
+            key: "Enter",
+            code: "Enter",
+          },
+        );
 
         const dialog =
           await screen.findByRole(
