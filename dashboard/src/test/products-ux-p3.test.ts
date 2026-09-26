@@ -427,8 +427,9 @@ describe("Products P3 detail foundation", () => {
         3,
         6,
       );
-    expect(arabic).toContain("١");
-    expect(arabic).toContain("٫");
+    expect(arabic).toBe(
+      "1,234.500",
+    );
     expect(
       formatLocaleMoney(
         "12.345000",
