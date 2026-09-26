@@ -168,6 +168,20 @@ describe(
   () => {
     const originalResizeObserver =
       globalThis.ResizeObserver;
+    const originalPointerEvent =
+      window.PointerEvent;
+    const originalScrollIntoView =
+      HTMLElement.prototype
+        .scrollIntoView;
+    const originalHasPointerCapture =
+      HTMLElement.prototype
+        .hasPointerCapture;
+    const originalSetPointerCapture =
+      HTMLElement.prototype
+        .setPointerCapture;
+    const originalReleasePointerCapture =
+      HTMLElement.prototype
+        .releasePointerCapture;
 
     beforeAll(() => {
       class ResizeObserverMock {
@@ -178,11 +192,31 @@ describe(
 
       globalThis.ResizeObserver =
         ResizeObserverMock as typeof ResizeObserver;
+      window.PointerEvent =
+        MouseEvent as unknown as typeof PointerEvent;
+      HTMLElement.prototype.scrollIntoView =
+        () => undefined;
+      HTMLElement.prototype.hasPointerCapture =
+        () => false;
+      HTMLElement.prototype.setPointerCapture =
+        () => undefined;
+      HTMLElement.prototype.releasePointerCapture =
+        () => undefined;
     });
 
     afterAll(() => {
       globalThis.ResizeObserver =
         originalResizeObserver;
+      window.PointerEvent =
+        originalPointerEvent;
+      HTMLElement.prototype.scrollIntoView =
+        originalScrollIntoView;
+      HTMLElement.prototype.hasPointerCapture =
+        originalHasPointerCapture;
+      HTMLElement.prototype.setPointerCapture =
+        originalSetPointerCapture;
+      HTMLElement.prototype.releasePointerCapture =
+        originalReleasePointerCapture;
     });
 
     afterEach(() => {
@@ -230,6 +264,7 @@ describe(
           {
             button: 0,
             ctrlKey: false,
+            pointerType: "mouse",
           },
         );
 
