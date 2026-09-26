@@ -26,6 +26,31 @@ import {
 
 const fetchMock = vi.fn();
 
+const refreshToken = (
+  sub: string,
+  companyId: string,
+  marker: string,
+) => {
+  const encode = (
+    value: Record<string, unknown>,
+  ) =>
+    btoa(JSON.stringify(value))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+
+  return [
+    encode({ alg: "none" }),
+    encode({
+      type: "refresh",
+      sub,
+      company_id: companyId,
+      marker,
+    }),
+    "sig",
+  ].join(".");
+};
+
 vi.stubGlobal("fetch", fetchMock);
 
 function Harness() {
@@ -62,20 +87,44 @@ describe("dashboard session refresh concurrency", () => {
       "admin_token",
       "new-access",
     );
+    const oldRefresh = refreshToken(
+      "11",
+      "38",
+      "old",
+    );
+    const newRefresh = refreshToken(
+      "11",
+      "38",
+      "new",
+    );
     localStorage.setItem(
       "refresh_token",
-      "new-refresh",
+      newRefresh,
     );
 
     expect(
       readAccessTokenIfRefreshAdvanced(
-        "old-refresh",
+        oldRefresh,
       ),
     ).toBe("new-access");
 
     expect(
       readAccessTokenIfRefreshAdvanced(
-        "new-refresh",
+        newRefresh,
+      ),
+    ).toBeNull();
+
+    localStorage.setItem(
+      "refresh_token",
+      refreshToken(
+        "11",
+        "99",
+        "other-company",
+      ),
+    );
+    expect(
+      readAccessTokenIfRefreshAdvanced(
+        oldRefresh,
       ),
     ).toBeNull();
   });
@@ -85,9 +134,19 @@ describe("dashboard session refresh concurrency", () => {
       "admin_token",
       "expired-access",
     );
+    const oldRefresh = refreshToken(
+      "11",
+      "38",
+      "old",
+    );
+    const newRefresh = refreshToken(
+      "11",
+      "38",
+      "new",
+    );
     localStorage.setItem(
       "refresh_token",
-      "old-refresh",
+      oldRefresh,
     );
 
     fetchMock.mockImplementation(
@@ -104,7 +163,7 @@ describe("dashboard session refresh concurrency", () => {
           );
           localStorage.setItem(
             "refresh_token",
-            "new-refresh",
+            newRefresh,
           );
           return new Response(
             JSON.stringify({
@@ -178,7 +237,7 @@ describe("dashboard session refresh concurrency", () => {
     ).toBe("new-access");
     expect(
       localStorage.getItem("refresh_token"),
-    ).toBe("new-refresh");
+    ).toBe(newRefresh);
 
     expect(
       fetchMock.mock.calls.some(
