@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 type Props = {
+  triggerVariant?: "default" | "topbar";
   trackingDefaultsLoading: boolean;
   canManageCatalog: boolean;
   canImportProducts: boolean;
@@ -31,6 +32,7 @@ type Props = {
 };
 
 export function ProductsCatalogToolsMenu({
+  triggerVariant = "default",
   trackingDefaultsLoading,
   canManageCatalog,
   canImportProducts,
@@ -48,11 +50,21 @@ export function ProductsCatalogToolsMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+            triggerVariant === "topbar"
+              ? "border-white/10 bg-white/[0.06] text-slate-100 hover:border-white/15 hover:bg-white/[0.1] hover:text-white"
+              : "border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
+          }`}
         >
           <Settings2 className="h-4 w-4" />
           <span>{t("products.catalogTools")}</span>
-          <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+          <ChevronDown
+            className={`h-3.5 w-3.5 ${
+              triggerVariant === "topbar"
+                ? "text-slate-300"
+                : "text-slate-400"
+            }`}
+          />
         </button>
       </DropdownMenuTrigger>
 
