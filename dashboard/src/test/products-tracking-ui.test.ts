@@ -150,8 +150,8 @@ describe("products tracking UI contracts", () => {
     const page = normalizeWhitespace(
       readSource("../pages/products/ProductsPage.tsx"),
     );
-    const createModal = normalizeWhitespace(
-      readSource("../pages/products/create/CreateProductModal.tsx"),
+    const createAdvanced = normalizeWhitespace(
+      readSource("../pages/products/create/CreateProductAdvancedSection.tsx"),
     );
     const createWorkflow = normalizeWhitespace(
       readSource("../pages/products/create/useCreateProductWorkflow.ts"),
@@ -161,16 +161,16 @@ describe("products tracking UI contracts", () => {
     expect(createWorkflow).toContain(
       "trackingUsesCompanyDefaults",
     );
-    expect(createModal).toContain(
+    expect(createAdvanced).toContain(
       "!createTrackingExpanded ?",
     );
-    expect(createModal).toContain(
+    expect(createAdvanced).toContain(
       '"products.tracking.createChange"',
     );
-    expect(createModal).toContain(
+    expect(createAdvanced).toContain(
       '"products.tracking.createReset"',
     );
-    expect(createModal).toContain(
+    expect(createAdvanced).toContain(
       '"products.tracking.createOnlyThisProduct"',
     );
 
