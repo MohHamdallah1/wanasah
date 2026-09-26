@@ -21,9 +21,6 @@ describe("Products P9.4 workspace foundation", () => {
     const header = read(
       "../pages/products/ProductsPageHeader.tsx",
     );
-    const topBarStyles = read(
-      "../components/dashboard/WorkspaceTopBar.css",
-    );
     const tools = read(
       "../pages/products/header/ProductsCatalogToolsMenu.tsx",
     );
@@ -79,6 +76,9 @@ describe("Products P9.4 workspace foundation", () => {
     );
     const header = read(
       "../pages/products/ProductsPageHeader.tsx",
+    );
+    const topBarStyles = read(
+      "../components/dashboard/WorkspaceTopBar.css",
     );
 
     expect(sharedBar).toContain(
