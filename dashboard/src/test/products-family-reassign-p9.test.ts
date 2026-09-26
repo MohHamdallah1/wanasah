@@ -108,7 +108,7 @@ describe("Products P9 family reassignment", () => {
       "bg-accent text-accent-foreground",
     );
     expect(dialog).toContain(
-      "data-[selected=true]:bg-slate-100",
+      "data-[selected=true]:!bg-slate-100",
     );
     expect(dialog).toContain(
       "linear-gradient(135deg,#142945_0%,#112640_48%,#0c192c_100%)",
