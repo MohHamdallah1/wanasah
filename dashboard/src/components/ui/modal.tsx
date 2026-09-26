@@ -9,18 +9,22 @@ interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
+  subtitle?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
   maxWidth?: string;
+  bodyClassName?: string;
 }
 
 export function Modal({
   isOpen,
   onClose,
   title,
+  subtitle,
   children,
   footer,
   maxWidth = "max-w-2xl",
+  bodyClassName = "p-4 sm:p-6",
 }: ModalProps) {
   const { t, i18n } = useTranslation();
   const titleId = useId();
@@ -55,7 +59,14 @@ export function Modal({
             aria-labelledby={titleId}
           >
             <div className="app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:px-6 sm:py-4">
-              <h3 id={titleId} className="min-w-0 break-words text-base font-bold text-slate-800 sm:text-lg">{title}</h3>
+              <div className="min-w-0">
+                <h3 id={titleId} className="break-words text-base font-bold text-slate-800 sm:text-lg">{title}</h3>
+                {subtitle ? (
+                  <div className="mt-1 max-w-3xl text-[11px] font-semibold leading-5 text-slate-500 sm:text-xs">
+                    {subtitle}
+                  </div>
+                ) : null}
+              </div>
               <button
                 onClick={onClose}
                 className="shrink-0 rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
@@ -64,7 +75,7 @@ export function Modal({
                 <X className="w-5 h-5" strokeWidth={2} />
               </button>
             </div>
-            <div className="app-modal-body min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className={`app-modal-body min-h-0 flex-1 overflow-y-auto ${bodyClassName}`}>
               {children}
             </div>
             {footer && (
