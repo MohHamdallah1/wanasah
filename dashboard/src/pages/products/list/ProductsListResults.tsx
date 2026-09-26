@@ -1,25 +1,36 @@
 import {
-  Boxes,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import {
+  apiErrorCode,
+  apiErrorStatus,
+} from "@/lib/apiErrors";
 import type {
   ProductDisplayColumn,
   ProductDisplayDensity,
 } from "@/lib/productDisplayPreferences";
-import { ProductMobileCard } from "@/pages/products/list/ProductMobileCard";
-import { ProductTableRow } from "@/pages/products/list/ProductTableRow";
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
+import { ProductMobileCard } from "@/pages/products/list/ProductMobileCard";
+import {
+  ProductsListBlockingState,
+  ProductsListNotice,
+  type ProductListBlockingState,
+} from "@/pages/products/list/ProductsListState";
+import { ProductTableRow } from "@/pages/products/list/ProductTableRow";
 
 type Props = {
   items: SimpleProduct[];
   isLoading: boolean;
   isError: boolean;
   isFetching: boolean;
+  error: unknown;
+  online: boolean;
+  hasResultCriteria: boolean;
   isNarrowViewport: boolean;
   pricingVisible: boolean;
   canEditPrice: boolean;
@@ -34,6 +45,7 @@ type Props = {
   hasPrevious: boolean;
   hasNext: boolean;
   onRetry: () => void;
+  onClearCriteria: () => void;
   onOpenDetails: (
     item: SimpleProduct,
   ) => void;
@@ -52,6 +64,9 @@ export function ProductsListResults({
   isLoading,
   isError,
   isFetching,
+  error,
+  online,
+  hasResultCriteria,
   isNarrowViewport,
   pricingVisible,
   canEditPrice,
@@ -63,6 +78,7 @@ export function ProductsListResults({
   hasPrevious,
   hasNext,
   onRetry,
+  onClearCriteria,
   onOpenDetails,
   onEditPrice,
   onEditTracking,
@@ -70,95 +86,124 @@ export function ProductsListResults({
   onNext,
 }: Props) {
   const { t } = useTranslation();
+  const hasItems =
+    items.length > 0;
+  const errorStatus =
+    apiErrorStatus(error);
+  const errorCode =
+    apiErrorCode(error);
+  const permissionDenied =
+    isError &&
+    errorStatus === 403;
+  const offlineFailure =
+    !online ||
+    (
+      isError &&
+      (
+        errorStatus === 0 ||
+        errorCode ===
+          "NETWORK_UNAVAILABLE"
+      )
+    );
+
+  let blockingState:
+    | ProductListBlockingState
+    | null = null;
+
+  if (permissionDenied) {
+    blockingState =
+      "permission";
+  } else if (
+    isLoading &&
+    !hasItems
+  ) {
+    blockingState =
+      "loading";
+  } else if (
+    !hasItems &&
+    offlineFailure
+  ) {
+    blockingState =
+      "offline";
+  } else if (
+    !hasItems &&
+    isError
+  ) {
+    blockingState =
+      "error";
+  } else if (!hasItems) {
+    blockingState =
+      hasResultCriteria
+        ? "filtered-empty"
+        : "empty";
+  }
+
+  if (blockingState) {
+    return (
+      <ProductsListBlockingState
+        state={blockingState}
+        error={error}
+        onRetry={onRetry}
+        onClearCriteria={
+          onClearCriteria
+        }
+      />
+    );
+  }
+
+  const showLocalNotice =
+    hasItems &&
+    (
+      offlineFailure ||
+      isError
+    );
 
   return (
     <>
+      {showLocalNotice ? (
+        <ProductsListNotice
+          offline={offlineFailure}
+          error={error}
+          onRetry={onRetry}
+        />
+      ) : null}
+
       {isNarrowViewport ? (
         <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2">
-          {isLoading ? (
-            <div className="py-12 text-center text-sm font-bold text-slate-400">
-              {t("common.loading")}
-            </div>
-          ) : null}
-
-          {isError ? (
-            <div className="rounded-2xl bg-rose-50 p-5 text-center">
-              <p className="font-black text-rose-900">
-                {t(
-                  "products.errors.listLoadTitle"
-                )}
-              </p>
-              <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
-                {t(
-                  "products.errors.listLoadDescription"
-                )}
-              </p>
-              <button
-                type="button"
-                onClick={onRetry}
-                className="mt-3 w-full rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-xs font-black text-rose-800"
-              >
-                {t("common.retry")}
-              </button>
-            </div>
-          ) : null}
-
-          {!isLoading &&
-          !isError &&
-          !items.length ? (
-            <div className="py-12 text-center">
-              <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-              <p className="font-black text-slate-700">
-                {t(
-                  "products.emptyTitle"
-                )}
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                {t(
-                  "products.emptyDescription"
-                )}
-              </p>
-            </div>
-          ) : null}
-
-          {!isLoading &&
-          !isError &&
-          items.length ? (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-              {items.map(
-                (item) => (
-                  <ProductMobileCard
-                    key={item.id}
-                    item={item}
-                    pricingVisible={
-                      pricingVisible
-                    }
-                    canEditPrice={
-                      canEditPrice
-                    }
-                    canEditTracking={
-                      canEditTracking
-                    }
-                    columns={
-                      columns
-                    }
-                    density={
-                      density
-                    }
-                    onOpenDetails={
-                      onOpenDetails
-                    }
-                    onEditPrice={
-                      onEditPrice
-                    }
-                    onEditTracking={
-                      onEditTracking
-                    }
-                  />
-                )
-              )}
-            </div>
-          ) : null}
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            {items.map(
+              (item) => (
+                <ProductMobileCard
+                  key={item.id}
+                  item={item}
+                  pricingVisible={
+                    pricingVisible
+                  }
+                  canEditPrice={
+                    canEditPrice
+                  }
+                  canEditTracking={
+                    canEditTracking
+                  }
+                  columns={
+                    columns
+                  }
+                  density={
+                    density
+                  }
+                  onOpenDetails={
+                    onOpenDetails
+                  }
+                  onEditPrice={
+                    onEditPrice
+                  }
+                  onEditTracking={
+                    onEditTracking
+                  }
+                />
+              )
+            )}
+          </div>
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto bg-white">
@@ -241,79 +286,6 @@ export function ProductsListResults({
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {isLoading ? (
-                <tr>
-                  <td
-                    colSpan={
-                      tableColumnCount
-                    }
-                    className="py-16 text-center font-bold text-slate-400"
-                  >
-                    {t(
-                      "common.loading"
-                    )}
-                  </td>
-                </tr>
-              ) : null}
-
-              {isError ? (
-                <tr>
-                  <td
-                    colSpan={
-                      tableColumnCount
-                    }
-                    className="py-14 text-center"
-                  >
-                    <div className="mx-auto max-w-md rounded-2xl bg-rose-50 p-5">
-                      <p className="font-black text-rose-900">
-                        {t(
-                          "products.errors.listLoadTitle"
-                        )}
-                      </p>
-                      <p className="mt-1 text-xs font-semibold leading-6 text-rose-700">
-                        {t(
-                          "products.errors.listLoadDescription"
-                        )}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={onRetry}
-                        className="mt-3 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-800"
-                      >
-                        {t(
-                          "common.retry"
-                        )}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
-
-              {!isLoading &&
-              !isError &&
-              !items.length ? (
-                <tr>
-                  <td
-                    colSpan={
-                      tableColumnCount
-                    }
-                    className="py-16 text-center"
-                  >
-                    <Boxes className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                    <p className="font-black text-slate-700">
-                      {t(
-                        "products.emptyTitle"
-                      )}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {t(
-                        "products.emptyDescription"
-                      )}
-                    </p>
-                  </td>
-                </tr>
-              ) : null}
-
               {items.map(
                 (item) => (
                   <ProductTableRow
@@ -358,7 +330,8 @@ export function ProductsListResults({
             type="button"
             disabled={
               !hasPrevious ||
-              isFetching
+              isFetching ||
+              !online
             }
             onClick={onPrevious}
             aria-label={t(
@@ -372,7 +345,8 @@ export function ProductsListResults({
             type="button"
             disabled={
               !hasNext ||
-              isFetching
+              isFetching ||
+              !online
             }
             onClick={onNext}
             aria-label={t(
