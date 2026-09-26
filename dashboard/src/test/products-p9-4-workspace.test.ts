@@ -41,20 +41,20 @@ describe("Products P9.4 workspace foundation", () => {
       "onClick={onOpenFamilies}",
     );
 
-    expect(tools).toContain(
-      "onSelect={onOpenDisplayPreferences}",
+    expect(tools).toMatch(
+      /onSelect=\{\s*onOpenDisplayPreferences\s*\}/,
     );
-    expect(tools).toContain(
-      "onSelect={onOpenFamilies}",
+    expect(tools).toMatch(
+      /onSelect=\{\s*onOpenFamilies\s*\}/,
     );
-    expect(tools).toContain(
-      "onSelect={onOpenImport}",
+    expect(tools).toMatch(
+      /onSelect=\{\s*onOpenImport\s*\}/,
     );
-    expect(tools).toContain(
-      "onSelect={onOpenTrackingDefaults}",
+    expect(tools).toMatch(
+      /onSelect=\{\s*onOpenTrackingDefaults\s*\}/,
     );
-    expect(tools).toContain(
-      "onSelect={onOpenAdvancedUom}",
+    expect(tools).toMatch(
+      /onSelect=\{\s*onOpenAdvancedUom\s*\}/,
     );
     expect(tools).toContain(
       "<DropdownMenuItem",
