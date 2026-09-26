@@ -268,7 +268,7 @@ export default function ProductsPage() {
 
   return (
     <div
-      className="products-a11y-scope flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="products-a11y-scope flex min-h-0 flex-1 flex-col gap-2 overflow-visible"
       dir={i18n.dir()}
     >
       <ProductsPageHeader
