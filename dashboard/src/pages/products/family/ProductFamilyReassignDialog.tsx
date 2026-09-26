@@ -558,9 +558,6 @@ export function ProductFamilyReassignDialog({
       title={t(
         "products.familyReassign.title"
       )}
-      subtitle={t(
-        "products.familyReassign.historyHint"
-      )}
       initialFocusRef={
         searchInputRef
       }
@@ -591,7 +588,7 @@ export function ProductFamilyReassignDialog({
             onClick={() =>
               void save()
             }
-            className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-black text-white disabled:opacity-40"
+            className="rounded-xl bg-[linear-gradient(135deg,#142945_0%,#112640_48%,#0c192c_100%)] px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:opacity-40"
           >
             {pending
               ? t(
@@ -605,6 +602,12 @@ export function ProductFamilyReassignDialog({
       }
     >
       <div className="flex h-full min-h-0 flex-col">
+        <p className="shrink-0 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold leading-4 text-slate-500 sm:px-5">
+          {t(
+            "products.familyReassign.historyHint"
+          )}
+        </p>
+
         <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-2 text-xs">
             <span className="shrink-0 font-bold text-slate-400">
@@ -739,14 +742,14 @@ export function ProductFamilyReassignDialog({
                         }}
                         className={`mb-1 gap-3 rounded-xl px-3 py-3 text-start last:mb-0 ${
                           selected
-                            ? "bg-amber-100 text-slate-950 ring-1 ring-inset ring-amber-300 data-[selected=true]:bg-amber-100 data-[selected=true]:text-slate-950"
-                            : "text-slate-700 data-[selected=true]:bg-slate-100 data-[selected=true]:text-slate-950"
+                            ? "bg-accent text-accent-foreground ring-1 ring-inset ring-amber-400 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+                            : "text-slate-700"
                         }`}
                       >
                         <span
                           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
                             selected
-                              ? "border-amber-400 bg-amber-300 text-slate-950"
+                              ? "border-amber-500 bg-white text-slate-950"
                               : "border-slate-200 bg-white text-transparent"
                           }`}
                         >
@@ -760,7 +763,7 @@ export function ProductFamilyReassignDialog({
                         <span
                           className={`shrink-0 text-[10px] font-semibold ${
                             selected
-                              ? "text-amber-900"
+                              ? "text-slate-800"
                               : "text-slate-400"
                           }`}
                         >
