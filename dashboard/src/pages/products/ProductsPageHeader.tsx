@@ -7,7 +7,6 @@ import {
 
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import { ProductsAddAction } from "@/pages/products/header/ProductsAddAction";
-import { ProductsAddMenu } from "@/pages/products/header/ProductsAddMenu";
 import { ProductsCatalogToolsMenu } from "@/pages/products/header/ProductsCatalogToolsMenu";
 
 type Props = {
@@ -106,8 +105,14 @@ export function ProductsPageHeader({
             canCreateSimpleProduct={
               canCreateSimpleProduct
             }
+            canImportProducts={
+              canImportProducts
+            }
             onOpenCreateProduct={
               onOpenCreateProduct
+            }
+            onOpenImport={
+              onOpenImport
             }
           />
         </div>
