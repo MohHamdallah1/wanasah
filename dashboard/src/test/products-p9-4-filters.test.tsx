@@ -190,8 +190,11 @@ describe("Products P9.4 active filters", () => {
     const section = read(
       "../pages/products/list/ProductsListSection.tsx",
     );
+    const toolbar = read(
+      "../pages/products/list/ProductsListToolbar.tsx",
+    );
 
-    expect(panel).toContain(
+    expect(panel).not.toContain(
       "border-t border-slate-100 pt-3",
     );
     expect(panel).toContain(
@@ -202,6 +205,12 @@ describe("Products P9.4 active filters", () => {
     );
     expect(section).toContain(
       "<ProductsActiveFilters",
+    );
+    expect(toolbar).toContain(
+      "<PopoverContent",
+    );
+    expect(toolbar).toContain(
+      "max-h-[70vh]",
     );
   });
 });
