@@ -373,9 +373,9 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/ProductsPage.tsx",
       ),
     );
-    const header = compact(
+    const catalogTools = compact(
       readSource(
-        "../pages/products/ProductsPageHeader.tsx",
+        "../pages/products/header/ProductsCatalogToolsMenu.tsx",
       ),
     );
     const fileActions = compact(
@@ -416,8 +416,8 @@ describe("Products P8 production frontend gate", () => {
     expect(page).toContain(
       "onOpenImport={ importWorkflow.openImport }",
     );
-    expect(header).toContain(
-      "onClick={onOpenImport}",
+    expect(catalogTools).toContain(
+      "onSelect={onOpenImport}",
     );
     expect(importWorkflow).toContain(
       "onClose: closeImport",
