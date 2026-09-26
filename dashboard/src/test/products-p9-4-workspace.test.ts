@@ -79,6 +79,9 @@ describe("Products P9.4 workspace foundation", () => {
     );
 
     expect(sharedBar).toContain(
+      "workspace-top-bar-frame",
+    );
+    expect(sharedBar).toContain(
       "workspace-top-bar",
     );
     expect(inventoryDock).toContain(
@@ -89,6 +92,9 @@ describe("Products P9.4 workspace foundation", () => {
     );
     expect(header).toContain(
       'variant="page"',
+    );
+    expect(header).toContain(
+      'className="mb-2 shrink-0"',
     );
   });
 
