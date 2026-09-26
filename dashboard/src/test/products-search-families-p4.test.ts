@@ -398,9 +398,9 @@ describe(
           "../pages/products/create/useCreateFamilyOptionsQuery.ts",
         ),
       );
-      const createModal = compact(
+      const createIdentity = compact(
         readSource(
-          "../pages/products/create/CreateProductModal.tsx",
+          "../pages/products/create/CreateProductIdentitySection.tsx",
         ),
       );
       const manager = compact(
@@ -463,7 +463,7 @@ describe(
       expect(manager).not.toContain(
         "/simple-products/families?limit=200",
       );
-      expect(createModal).toContain(
+      expect(createIdentity).toContain(
         "{familyOptions.map(",
       );
       expect(page).toContain(
