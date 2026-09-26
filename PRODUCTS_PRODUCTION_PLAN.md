@@ -1686,7 +1686,7 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 - [x] Redesign Families management.
 - [x] Redesign Barcode management.
 - [x] Redesign Tracking settings.
-- [ ] Redesign Lifecycle/Hold actions.
+- [x] Redesign Lifecycle/Hold actions.
 - [ ] Redesign Pricing interaction.
 - [ ] Redesign Import workflow.
 - [ ] Redesign loading, empty, failure, retry, offline, and permission-denied states.
