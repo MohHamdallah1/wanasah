@@ -373,10 +373,10 @@ describe("products P2 read contract", () => {
       '"simple-products", companyId, params',
     );
     expect(listParams).toContain(
-      'value.set( "search", search )',
+      'value.set( "search", search, )',
     );
     expect(listParams).toContain(
-      'value.set( "cursor", cursor )',
+      'value.set( "cursor", cursor, )',
     );
     expect(listQueries).toContain(
       '"simple-product-families", companyId',
