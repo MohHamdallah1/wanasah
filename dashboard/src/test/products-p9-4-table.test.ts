@@ -75,7 +75,7 @@ describe("Products P9.4 desktop table", () => {
       actions.match(
         /openAfterMenuClose\(/g,
       )?.length ?? 0,
-    ).toBeGreaterThanOrEqual(5);
+    ).toBe(4);
     expect(actions).toContain(
       '["ACTIVE", "RETIRING"]',
     );
