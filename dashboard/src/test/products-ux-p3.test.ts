@@ -69,10 +69,15 @@ describe("Products P3 detail foundation", () => {
     expect(drawer).toContain(
       "{pricingVisible && detailSections.pricing ? (",
     );
-    expect(drawer).toContain(
+    const actionMenu = compact(
+      readSource(
+        "../pages/products/detail/ProductDetailActionsMenu.tsx",
+      ),
+    );
+    expect(actionMenu).toContain(
       "canEditPrice && product.simple_compatible",
     );
-    expect(drawer).toContain(
+    expect(actionMenu).toContain(
       "{canEditTracking ? (",
     );
   });
@@ -92,6 +97,11 @@ describe("Products P3 detail foundation", () => {
     const detailWorkflow = compact(
       readSource(
         "../pages/products/detail/useProductDetailWorkflow.ts",
+      ),
+    );
+    const detailActionMenu = compact(
+      readSource(
+        "../pages/products/detail/ProductDetailActionsMenu.tsx",
       ),
     );
 
@@ -271,7 +281,7 @@ describe("Products P3 detail foundation", () => {
     expect(page).toContain(
       "<ProductBarcodeManager",
     );
-    expect(drawer).toContain(
+    expect(detailActionMenu).toContain(
       '"products.barcodeManager.action"',
     );
     expect(manager).toContain(
