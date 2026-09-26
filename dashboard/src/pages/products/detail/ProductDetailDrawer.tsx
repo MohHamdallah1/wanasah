@@ -1,4 +1,12 @@
-import { X } from "lucide-react";
+import {
+  useCallback,
+  useState,
+} from "react";
+import {
+  Maximize2,
+  Minimize2,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useDialogFocusTrap } from "@/hooks/useDialogFocusTrap";
@@ -11,10 +19,16 @@ import {
 } from "@/lib/localeNumbers";
 import {
   DEFAULT_PRODUCT_DISPLAY_PREFERENCES,
-  type ProductDetailSection,
+  type ProductDetailSection as ProductDetailSectionKey,
 } from "@/lib/productDisplayPreferences";
-import type { SimpleProduct } from "@/pages/products/contracts";
-
+import type {
+  SimpleProduct,
+} from "@/pages/products/contracts";
+import { ProductDetailActionsMenu } from "@/pages/products/detail/ProductDetailActionsMenu";
+import {
+  ProductDetailField,
+  ProductDetailSection,
+} from "@/pages/products/detail/ProductDetailPrimitives";
 
 type Props = {
   product: SimpleProduct | null;
@@ -27,17 +41,31 @@ type Props = {
   canManageLifecycle: boolean;
   canManageAdvancedUom: boolean;
   detailSections?: Record<
-    ProductDetailSection,
+    ProductDetailSectionKey,
     boolean
   >;
   onClose: () => void;
-  onRenameProduct: (product: SimpleProduct) => void;
-  onReassignFamily: (product: SimpleProduct) => void;
-  onEditPrice: (product: SimpleProduct) => void;
-  onEditTracking: (product: SimpleProduct) => void;
-  onManageBarcodes: (product: SimpleProduct) => void;
-  onManageLifecycle: (product: SimpleProduct) => void;
-  onManageAdvancedUom: (product: SimpleProduct) => void;
+  onRenameProduct: (
+    product: SimpleProduct,
+  ) => void;
+  onReassignFamily: (
+    product: SimpleProduct,
+  ) => void;
+  onEditPrice: (
+    product: SimpleProduct,
+  ) => void;
+  onEditTracking: (
+    product: SimpleProduct,
+  ) => void;
+  onManageBarcodes: (
+    product: SimpleProduct,
+  ) => void;
+  onManageLifecycle: (
+    product: SimpleProduct,
+  ) => void;
+  onManageAdvancedUom: (
+    product: SimpleProduct,
+  ) => void;
 };
 
 export function ProductDetailDrawer({
@@ -61,14 +89,25 @@ export function ProductDetailDrawer({
   onManageLifecycle,
   onManageAdvancedUom,
 }: Props) {
-  const { t, i18n } = useTranslation();
+  const { t, i18n } =
+    useTranslation();
   const locale =
     resolveI18nLocale(i18n);
+  const [
+    expanded,
+    setExpanded,
+  ] = useState(false);
+
+  const handleClose =
+    useCallback(() => {
+      setExpanded(false);
+      onClose();
+    }, [onClose]);
 
   const dialogRef =
     useDialogFocusTrap<HTMLElement>(
       product !== null,
-      onClose,
+      handleClose,
     );
 
   if (!product) {
@@ -76,7 +115,7 @@ export function ProductDetailDrawer({
   }
 
   const price = (
-    value: string | null
+    value: string | null,
   ) =>
     formatLocaleMoney(
       value,
@@ -87,15 +126,15 @@ export function ProductDetailDrawer({
   const baseUomLabel =
     product.base_uom_code
       ? t(
-          `uom.${product.base_uom_code}`
+          `uom.${product.base_uom_code}`,
         )
       : t(
-          "products.details.advancedUomManaged"
+          "products.details.advancedUomManaged",
         );
   const packageUomLabel =
     product.package_uom_code
       ? t(
-          `uom.${product.package_uom_code}`
+          `uom.${product.package_uom_code}`,
         )
       : null;
   const packageConversion =
@@ -109,28 +148,36 @@ export function ProductDetailDrawer({
             units:
               formatLocaleDecimal(
                 String(
-                  product.units_per_package
+                  product.units_per_package,
                 ),
                 locale,
               ),
             base:
               baseUomLabel,
-          }
+          },
         )
       : t(
           "products.details.unitOnlyStructure",
           {
             base:
               baseUomLabel,
-          }
+          },
         );
+
+  const lifecycleTone =
+    product.lifecycle_status === "ACTIVE"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      : product.lifecycle_status ===
+          "RETIRING"
+        ? "bg-amber-50 text-amber-800 ring-amber-200"
+        : "bg-slate-100 text-slate-600 ring-slate-200";
 
   return (
     <div className="fixed inset-0 z-[90]">
       <div
         aria-hidden="true"
-        onClick={onClose}
-        className="absolute inset-0 bg-slate-950/35 backdrop-blur-[1px]"
+        onClick={handleClose}
+        className="absolute inset-0 bg-slate-950/30"
       />
 
       <aside
@@ -140,374 +187,334 @@ export function ProductDetailDrawer({
         aria-modal="true"
         aria-labelledby="product-detail-title"
         dir={i18n.dir()}
-        className="absolute inset-y-0 end-0 flex w-full max-w-xl flex-col border-s border-slate-200 bg-white shadow-2xl"
+        className={`absolute inset-y-0 end-0 flex w-full flex-col border-s border-slate-200 bg-white shadow-2xl transition-[width] duration-200 sm:max-w-none ${
+          expanded
+            ? "sm:w-[min(72vw,920px)]"
+            : "sm:w-[min(44vw,620px)]"
+        }`}
       >
-        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
-          <div className="min-w-0">
-            <p className="text-xs font-black text-slate-400">
-              {t(
-                "products.details.title"
-              )}
-            </p>
-            <h2
-              id="product-detail-title"
-              className="mt-1 break-words text-lg font-black text-slate-950 sm:truncate sm:text-xl"
-            >
-              {product.name}
-            </h2>
-            <p className="mt-1 text-xs font-bold text-slate-500">
-              {product.family_name}
-            </p>
-          </div>
+        <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">
+                {t(
+                  "products.details.title",
+                )}
+              </p>
+              <h2
+                id="product-detail-title"
+                className="mt-1 break-words text-lg font-black leading-6 text-slate-950"
+              >
+                {product.name}
+              </h2>
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold text-slate-500">
+                <span className="break-words">
+                  {product.family_name}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="text-slate-300"
+                >
+                  ·
+                </span>
+                <span className="break-all font-mono text-slate-400">
+                  {product.sku}
+                </span>
+              </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("common.close")}
-            className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
-          >
-            <X className="h-4 w-4" />
-          </button>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span
+                  className={`inline-flex rounded-full px-2 py-1 text-[10px] font-black ring-1 ring-inset ${lifecycleTone}`}
+                >
+                  {t(
+                    `products.details.lifecycleModes.${product.lifecycle_status}`,
+                  )}
+                </span>
+                {product.operational_hold !==
+                "NONE" ? (
+                  <span className="inline-flex rounded-full bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700 ring-1 ring-inset ring-rose-200">
+                    {t(
+                      `products.details.holdModes.${product.operational_hold}`,
+                    )}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1.5">
+              <ProductDetailActionsMenu
+                product={product}
+                canEditPrice={
+                  canEditPrice
+                }
+                canRenameProduct={
+                  canRenameProduct
+                }
+                canReassignFamily={
+                  canReassignFamily
+                }
+                canEditTracking={
+                  canEditTracking
+                }
+                canManageBarcodes={
+                  canManageBarcodes
+                }
+                canManageLifecycle={
+                  canManageLifecycle
+                }
+                canManageAdvancedUom={
+                  canManageAdvancedUom
+                }
+                onRenameProduct={
+                  onRenameProduct
+                }
+                onReassignFamily={
+                  onReassignFamily
+                }
+                onEditPrice={
+                  onEditPrice
+                }
+                onEditTracking={
+                  onEditTracking
+                }
+                onManageBarcodes={
+                  onManageBarcodes
+                }
+                onManageLifecycle={
+                  onManageLifecycle
+                }
+                onManageAdvancedUom={
+                  onManageAdvancedUom
+                }
+              />
+
+              <button
+                type="button"
+                onClick={() =>
+                  setExpanded(
+                    (current) =>
+                      !current,
+                  )
+                }
+                aria-pressed={
+                  expanded
+                }
+                aria-label={t(
+                  expanded
+                    ? "products.details.compact"
+                    : "products.details.expand",
+                )}
+                title={t(
+                  expanded
+                    ? "products.details.compact"
+                    : "products.details.expand",
+                )}
+                className="hidden h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 sm:inline-flex"
+              >
+                {expanded ? (
+                  <Minimize2 className="h-4 w-4" />
+                ) : (
+                  <Maximize2 className="h-4 w-4" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleClose}
+                aria-label={t(
+                  "common.close",
+                )}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:space-y-4 sm:p-5">
-          <section className="rounded-2xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black text-slate-900">
-              {t(
-                "products.details.identity"
-              )}
-            </h3>
-            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.fields.sku"
-                  )}
-                </dt>
-                <dd className="mt-1 font-mono text-sm font-black text-slate-800">
-                  {product.sku}
-                </dd>
-                <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">
-                  {t(
-                    "products.details.skuLockedPublished"
-                  )}
-                </p>
-              </div>
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.details.lifecycle"
-                  )}
-                </dt>
-                <dd className="mt-1 text-sm font-black text-slate-800">
-                  {t(
-                    `products.details.lifecycleModes.${product.lifecycle_status}`
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-black text-slate-400">
-                  {t(
-                    "products.details.operationalHold"
-                  )}
-                </dt>
-                <dd className="mt-1 text-sm font-black text-slate-800">
-                  {t(
-                    `products.details.holdModes.${product.operational_hold}`
-                  )}
-                </dd>
-              </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ProductDetailSection
+            title={t(
+              "products.details.identity",
+            )}
+          >
+            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-3">
+              <ProductDetailField
+                label={t(
+                  "products.fields.sku",
+                )}
+                mono
+                hint={t(
+                  "products.details.skuLockedPublished",
+                )}
+              >
+                {product.sku}
+              </ProductDetailField>
+              <ProductDetailField
+                label={t(
+                  "products.details.lifecycle",
+                )}
+              >
+                {t(
+                  `products.details.lifecycleModes.${product.lifecycle_status}`,
+                )}
+              </ProductDetailField>
+              <ProductDetailField
+                label={t(
+                  "products.details.operationalHold",
+                )}
+              >
+                {t(
+                  `products.details.holdModes.${product.operational_hold}`,
+                )}
+              </ProductDetailField>
             </dl>
-          </section>
+          </ProductDetailSection>
 
           {detailSections.package ? (
-            <section className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-sm font-black text-slate-900">
-                {t(
-                  "products.details.package"
-                )}
-              </h3>
-              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.details.baseUnit"
-                    )}
-                  </dt>
-                  <dd className="mt-1 text-sm font-black text-slate-800">
-                    {baseUomLabel}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.columns.package"
-                    )}
-                  </dt>
-                  <dd className="mt-1 text-sm font-black text-slate-800">
-                    {packageUomLabel ??
-                      t("uom.NONE")}
-                  </dd>
-                </div>
+            <ProductDetailSection
+              title={t(
+                "products.details.package",
+              )}
+            >
+              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <ProductDetailField
+                  label={t(
+                    "products.details.baseUnit",
+                  )}
+                >
+                  {baseUomLabel}
+                </ProductDetailField>
+                <ProductDetailField
+                  label={t(
+                    "products.columns.package",
+                  )}
+                >
+                  {packageUomLabel ??
+                    t("uom.NONE")}
+                </ProductDetailField>
               </dl>
-              <div className="mt-3 rounded-xl bg-slate-50 p-3">
-                <p className="text-xs font-black leading-6 text-slate-800">
+              <div className="mt-3 border-s-2 border-amber-300 ps-3">
+                <p className="text-xs font-black leading-5 text-slate-800">
                   {packageConversion}
                 </p>
-                <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">
                   {t(
-                    "products.details.packageStructureLockedPublished"
+                    "products.details.packageStructureLockedPublished",
                   )}
                 </p>
               </div>
-            </section>
+            </ProductDetailSection>
           ) : null}
 
           {detailSections.tracking ? (
-            <section className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-sm font-black text-slate-900">
-                {t(
-                  "products.details.tracking"
-                )}
-              </h3>
-              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.tracking.shortLot"
-                    )}
-                  </dt>
-                  <dd className="mt-1 text-sm font-black text-slate-800">
-                    {t(
-                      `products.tracking.lotModes.${product.lot_control_mode}`
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.tracking.shortExpiry"
-                    )}
-                  </dt>
-                  <dd className="mt-1 text-sm font-black text-slate-800">
-                    {t(
-                      `products.tracking.expiryModes.${product.expiry_control_mode}`
-                    )}
-                  </dd>
-                </div>
+            <ProductDetailSection
+              title={t(
+                "products.details.tracking",
+              )}
+            >
+              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <ProductDetailField
+                  label={t(
+                    "products.tracking.shortLot",
+                  )}
+                >
+                  {t(
+                    `products.tracking.lotModes.${product.lot_control_mode}`,
+                  )}
+                </ProductDetailField>
+                <ProductDetailField
+                  label={t(
+                    "products.tracking.shortExpiry",
+                  )}
+                >
+                  {t(
+                    `products.tracking.expiryModes.${product.expiry_control_mode}`,
+                  )}
+                </ProductDetailField>
               </dl>
-            </section>
+            </ProductDetailSection>
           ) : null}
 
           {detailSections.barcodes ? (
-            <section className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-sm font-black text-slate-900">
-                {t(
-                  "products.details.barcodes"
-                )}
-              </h3>
-              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.unitBarcode"
+            <ProductDetailSection
+              title={t(
+                "products.details.barcodes",
+              )}
+            >
+              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <ProductDetailField
+                  label={t(
+                    "products.unitBarcode",
+                  )}
+                  mono
+                >
+                  {product.unit_barcode ??
+                    t(
+                      "products.details.notSet",
                     )}
-                  </dt>
-                  <dd className="mt-1 break-all font-mono text-sm font-black text-slate-800">
-                    {product.unit_barcode ??
-                      t(
-                        "products.details.notSet"
-                      )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.packageBarcode"
+                </ProductDetailField>
+                <ProductDetailField
+                  label={t(
+                    "products.packageBarcode",
+                  )}
+                  mono
+                >
+                  {product.package_barcode ??
+                    t(
+                      "products.details.notSet",
                     )}
-                  </dt>
-                  <dd className="mt-1 break-all font-mono text-sm font-black text-slate-800">
-                    {product.package_barcode ??
-                      t(
-                        "products.details.notSet"
-                      )}
-                  </dd>
-                </div>
+                </ProductDetailField>
               </dl>
-            </section>
+            </ProductDetailSection>
           ) : null}
 
           {pricingVisible &&
           detailSections.pricing ? (
-            <section className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-sm font-black text-slate-900">
-                {t(
-                  "products.details.pricing"
-                )}
-              </h3>
-              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.columns.packagePrice"
-                    )}
-                  </dt>
-                  <dd className="mt-1 text-sm font-black text-slate-800">
-                    {price(
-                      product.package_price
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-black text-slate-400">
-                    {t(
-                      "products.columns.unitPrice"
-                    )}
-                  </dt>
-                  <dd className="mt-1 text-sm font-black text-slate-800">
-                    {price(
-                      product.unit_price
-                    )}
-                  </dd>
-                </div>
+            <ProductDetailSection
+              title={t(
+                "products.details.pricing",
+              )}
+            >
+              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <ProductDetailField
+                  label={t(
+                    "products.columns.packagePrice",
+                  )}
+                >
+                  {price(
+                    product.package_price,
+                  )}
+                </ProductDetailField>
+                <ProductDetailField
+                  label={t(
+                    "products.columns.unitPrice",
+                  )}
+                >
+                  {price(
+                    product.unit_price,
+                  )}
+                </ProductDetailField>
               </dl>
-            </section>
+            </ProductDetailSection>
           ) : null}
 
           {detailSections.compatibility ? (
-            <section className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-sm font-black text-slate-900">
-                {t(
-                  "products.details.compatibility"
-                )}
-              </h3>
-              <p className="mt-2 text-xs font-bold leading-6 text-slate-600">
+            <ProductDetailSection
+              title={t(
+                "products.details.compatibility",
+              )}
+            >
+              <p className="max-w-3xl text-xs font-bold leading-5 text-slate-600">
                 {t(
                   product.simple_compatible
                     ? "products.details.simpleCompatible"
-                    : "products.details.advancedOnly"
+                    : "products.details.advancedOnly",
                 )}
               </p>
-            </section>
+            </ProductDetailSection>
           ) : null}
         </div>
-
-        {canEditPrice ||
-        canRenameProduct ||
-        canReassignFamily ||
-        canEditTracking ||
-        canManageBarcodes ||
-        canManageLifecycle ||
-        (canManageAdvancedUom &&
-          !product.simple_compatible) ? (
-          <footer className="grid shrink-0 grid-cols-1 gap-2 border-t border-slate-100 bg-slate-50 px-3 py-3 sm:flex sm:flex-wrap sm:justify-end sm:px-5 sm:py-4">
-            {canRenameProduct &&
-            ["ACTIVE", "RETIRING"].includes(
-              product.lifecycle_status,
-            ) ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onRenameProduct(product)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
-              >
-                {t("products.rename.action")}
-              </button>
-            ) : null}
-
-            {canReassignFamily &&
-            ["ACTIVE", "RETIRING"].includes(
-              product.lifecycle_status,
-            ) ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onReassignFamily(product)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
-              >
-                {t(
-                  "products.familyReassign.action"
-                )}
-              </button>
-            ) : null}
-
-            {canEditPrice &&
-            product.simple_compatible ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onEditPrice(product)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
-              >
-                {t(
-                  "products.editPrice"
-                )}
-              </button>
-            ) : null}
-
-            {canManageLifecycle ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onManageLifecycle(product)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
-              >
-                {t(
-                  "products.lifecycleManager.action"
-                )}
-              </button>
-            ) : null}
-
-            {canManageBarcodes ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onManageBarcodes(product)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 sm:w-auto"
-              >
-                {t(
-                  "products.barcodeManager.action"
-                )}
-              </button>
-            ) : null}
-
-            {canManageAdvancedUom &&
-            !product.simple_compatible ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onManageAdvancedUom(
-                    product
-                  )
-                }
-                className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-900 hover:bg-amber-100 sm:w-auto"
-              >
-                {t(
-                  "products.advancedUom.productAction"
-                )}
-              </button>
-            ) : null}
-
-            {canEditTracking ? (
-              <button
-                type="button"
-                onClick={() =>
-                  onEditTracking(product)
-                }
-                className="w-full rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white sm:w-auto"
-              >
-                {t(
-                  "products.trackingEditor.action"
-                )}
-              </button>
-            ) : null}
-          </footer>
-        ) : null}
       </aside>
     </div>
   );
