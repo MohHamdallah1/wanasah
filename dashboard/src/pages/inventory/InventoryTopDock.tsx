@@ -4,6 +4,8 @@ import {
   type ReactNode,
 } from "react";
 import type { LucideIcon } from "lucide-react";
+
+import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import {
   createInventoryTopDockController,
   type InventoryTopDockOptions,
@@ -85,7 +87,7 @@ export function InventoryTopDock({
         aria-hidden="true"
       />
 
-      <div className="inventory-top-dock__bar">
+      <WorkspaceTopBar variant="dock">
         <nav
           ref={rootRef}
           className="inventory-top-dock__dock"
@@ -109,7 +111,7 @@ export function InventoryTopDock({
             </button>
           ))}
         </nav>
-      </div>
+      </WorkspaceTopBar>
     </div>
   );
 }
