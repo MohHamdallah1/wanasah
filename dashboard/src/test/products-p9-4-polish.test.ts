@@ -235,7 +235,7 @@ describe(
       }
 
       expect(toolbar).toContain(
-        "aria-pressed={filtersOpen}",
+        "aria-expanded={",
       );
       expect(filters).toContain(
         "aria-label={t(",
