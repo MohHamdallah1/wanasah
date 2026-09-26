@@ -1,5 +1,4 @@
 import {
-  PackagePlus,
   RefreshCw,
 } from "lucide-react";
 import {
@@ -7,6 +6,7 @@ import {
 } from "react-i18next";
 
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
+import { ProductsAddAction } from "@/pages/products/header/ProductsAddAction";
 import { ProductsCatalogToolsMenu } from "@/pages/products/header/ProductsCatalogToolsMenu";
 
 type Props = {
@@ -84,9 +84,6 @@ export function ProductsPageHeader({
             canManageCatalog={
               canManageCatalog
             }
-            canImportProducts={
-              canImportProducts
-            }
             canManageFamilies={
               canManageFamilies
             }
@@ -96,9 +93,6 @@ export function ProductsPageHeader({
             onOpenTrackingDefaults={
               onOpenTrackingDefaults
             }
-            onOpenImport={
-              onOpenImport
-            }
             onOpenAdvancedUom={
               onOpenAdvancedUom
             }
@@ -107,20 +101,20 @@ export function ProductsPageHeader({
             }
           />
 
-          {canCreateSimpleProduct ? (
-            <button
-              type="button"
-              onClick={
-                onOpenCreateProduct
-              }
-              className="inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 text-xs font-black text-slate-950 shadow-sm transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 sm:flex-none"
-            >
-              <PackagePlus className="h-4 w-4 shrink-0" />
-              <span className="break-words">
-                {t("products.addProduct")}
-              </span>
-            </button>
-          ) : null}
+          <ProductsAddAction
+            canCreateSimpleProduct={
+              canCreateSimpleProduct
+            }
+            canImportProducts={
+              canImportProducts
+            }
+            onOpenCreateProduct={
+              onOpenCreateProduct
+            }
+            onOpenImport={
+              onOpenImport
+            }
+          />
         </div>
       </header>
     </WorkspaceTopBar>
