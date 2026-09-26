@@ -10,7 +10,9 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import {
+  afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -171,6 +173,24 @@ describe(
   "Product family reassign picker",
   () => {
     let queryClient: QueryClient;
+    const originalResizeObserver =
+      globalThis.ResizeObserver;
+
+    beforeAll(() => {
+      class ResizeObserverMock {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+
+      globalThis.ResizeObserver =
+        ResizeObserverMock as typeof ResizeObserver;
+    });
+
+    afterAll(() => {
+      globalThis.ResizeObserver =
+        originalResizeObserver;
+    });
 
     beforeEach(() => {
       mocks.authFetch.mockReset();
