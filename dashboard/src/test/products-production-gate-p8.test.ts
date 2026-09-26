@@ -438,9 +438,14 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/ProductsPage.tsx",
       ),
     );
-    const createModal = compact(
+    const createIdentity = compact(
       readSource(
-        "../pages/products/create/CreateProductModal.tsx",
+        "../pages/products/create/CreateProductIdentitySection.tsx",
+      ),
+    );
+    const createCommerce = compact(
+      readSource(
+        "../pages/products/create/CreateProductCommerceSection.tsx",
       ),
     );
     const createWorkflow = compact(
@@ -470,13 +475,13 @@ describe("Products P8 production frontend gate", () => {
     expect(createWorkflow).toContain(
       "packageUomsLoading: packageUomsQuery.isLoading",
     );
-    expect(createModal).toContain(
+    expect(createCommerce).toContain(
       "packageUomsLoading ? (",
     );
     expect(createWorkflow).toContain(
       "packageUomsError: packageUomsQuery.isError",
     );
-    expect(createModal).toContain(
+    expect(createCommerce).toContain(
       "packageUomsError ? (",
     );
     expect(createWorkflow).toContain(
@@ -485,7 +490,7 @@ describe("Products P8 production frontend gate", () => {
     expect(createWorkflow).toContain(
       "familyOptionsError: familyOptionsQuery.isError",
     );
-    expect(createModal).toContain(
+    expect(createIdentity).toContain(
       "familyOptionsError ? (",
     );
     expect(createWorkflow).toContain(
