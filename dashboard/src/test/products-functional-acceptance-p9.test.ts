@@ -160,6 +160,11 @@ describe(
           "../pages/products/detail/ProductDetailDrawer.tsx",
         ),
       );
+      const detailActionMenu = compact(
+        readSource(
+          "../pages/products/detail/ProductDetailActionsMenu.tsx",
+        ),
+      );
       const advanced = compact(
         readSource(
           "../pages/products/advanced-uom/AdvancedUomDashboard.tsx",
@@ -177,8 +182,11 @@ describe(
       expect(drawer).toContain(
         "product.units_per_package",
       );
-      expect(drawer).toContain(
-        "canManageAdvancedUom && !product.simple_compatible",
+      expect(detailActionMenu).toContain(
+        "canManageAdvancedUom &&",
+      );
+      expect(detailActionMenu).toContain(
+        "!product.simple_compatible",
       );
       expect(advanced).toContain(
         "/catalog/variants/${selectedVariant!.id}/conversions",
