@@ -114,6 +114,16 @@ describe("Products P9.4 desktop table", () => {
     expect(results).toContain(
       "rowNumber={",
     );
+    expect(
+      results.match(
+        /canReassignFamily=\{/g,
+      )?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      results.match(
+        /onReassignFamily=\{/g,
+      )?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
     expect(results).toContain(
       'min-w-[920px]',
     );
