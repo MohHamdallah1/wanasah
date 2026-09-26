@@ -24,12 +24,18 @@ describe("Products P9.4 workspace foundation", () => {
     const tools = read(
       "../pages/products/header/ProductsCatalogToolsMenu.tsx",
     );
+    const addAction = read(
+      "../pages/products/header/ProductsAddAction.tsx",
+    );
 
     expect(header).toContain(
       "<ProductsCatalogToolsMenu",
     );
     expect(header).toContain(
       "bg-amber-400",
+    );
+    expect(header).toContain(
+      "<ProductsAddAction",
     );
     expect(header).toContain(
       "onOpenCreateProduct",
@@ -47,7 +53,10 @@ describe("Products P9.4 workspace foundation", () => {
     expect(tools).toMatch(
       /onSelect=\{\s*onOpenFamilies\s*\}/,
     );
-    expect(tools).toMatch(
+    expect(tools).not.toContain(
+      "onOpenImport",
+    );
+    expect(addAction).toMatch(
       /onSelect=\{\s*onOpenImport\s*\}/,
     );
     expect(tools).toMatch(
@@ -64,6 +73,24 @@ describe("Products P9.4 workspace foundation", () => {
     );
     expect(tools).toContain(
       '"products.advancedPricing"',
+    );
+    expect(
+      tools.indexOf(
+        '"products.trackingSettings.action"',
+      ),
+    ).toBeLessThan(
+      tools.indexOf(
+        '"products.displayPreferences.action"',
+      ),
+    );
+    expect(
+      tools.indexOf(
+        '"products.displayPreferences.action"',
+      ),
+    ).toBeLessThan(
+      tools.indexOf(
+        '"products.advancedUom.action"',
+      ),
     );
   });
 
