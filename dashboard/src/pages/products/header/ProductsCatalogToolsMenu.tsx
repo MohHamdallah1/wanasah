@@ -43,10 +43,10 @@ export function ProductsCatalogToolsMenu({
   onOpenAdvancedUom,
   onOpenFamilies,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();\n  const direction = i18n.dir();
 
   return (
-    <DropdownMenu>
+    <DropdownMenu dir={direction}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -56,7 +56,7 @@ export function ProductsCatalogToolsMenu({
               : "border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
           }`}
         >
-          <Settings2 className="h-4 w-4" />
+          <Settings2 className="h-4 w-4 shrink-0" />
           <span>{t("products.catalogTools")}</span>
           <ChevronDown
             className={`h-3.5 w-3.5 ${
@@ -78,18 +78,18 @@ export function ProductsCatalogToolsMenu({
 
         <DropdownMenuItem
           onSelect={onOpenDisplayPreferences}
-          className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+          className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
         >
-          <SlidersHorizontal className="h-4 w-4 text-slate-400" />
+          <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
           {t("products.displayPreferences.action")}
         </DropdownMenuItem>
 
         {canManageFamilies ? (
           <DropdownMenuItem
             onSelect={onOpenFamilies}
-            className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
-            <FolderTree className="h-4 w-4 text-slate-400" />
+            <FolderTree className="h-4 w-4 shrink-0 text-slate-400" />
             {t("products.families")}
           </DropdownMenuItem>
         ) : null}
@@ -97,9 +97,9 @@ export function ProductsCatalogToolsMenu({
         {canImportProducts ? (
           <DropdownMenuItem
             onSelect={onOpenImport}
-            className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
-            <FileSpreadsheet className="h-4 w-4 text-slate-400" />
+            <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-400" />
             {t("products.importFile")}
           </DropdownMenuItem>
         ) : null}
@@ -111,27 +111,27 @@ export function ProductsCatalogToolsMenu({
             <DropdownMenuItem
               disabled={trackingDefaultsLoading}
               onSelect={onOpenTrackingDefaults}
-              className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+              className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
             >
-              <Waypoints className="h-4 w-4 text-slate-400" />
+              <Waypoints className="h-4 w-4 shrink-0 text-slate-400" />
               {t("products.trackingSettings.action")}
             </DropdownMenuItem>
 
             <DropdownMenuItem
               onSelect={onOpenAdvancedUom}
-              className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-700"
+              className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
             >
-              <Settings2 className="h-4 w-4 text-slate-400" />
+              <Settings2 className="h-4 w-4 shrink-0 text-slate-400" />
               {t("products.advancedUom.action")}
             </DropdownMenuItem>
 
             <DropdownMenuItem
               disabled
               title={t("products.advancedPricingHint")}
-              className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold text-slate-400"
+              className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-400"
             >
               <LockKeyhole className="h-4 w-4" />
-              <span className="min-w-0">
+              <span className="min-w-0 text-start">
                 <span className="block">
                   {t("products.advancedPricing")}
                 </span>
