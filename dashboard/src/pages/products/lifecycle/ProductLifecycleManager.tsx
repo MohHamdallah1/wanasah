@@ -1,4 +1,7 @@
 import {
+  RefreshCw,
+} from "lucide-react";
+import {
   useEffect,
   useRef,
   useState,
@@ -18,6 +21,7 @@ import {
 import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
+import { ProductLifecycleStatusRail } from "@/pages/products/lifecycle/ProductLifecycleStatusRail";
 
 type Props = {
   product: SimpleProduct | null;
@@ -169,23 +173,34 @@ export function ProductLifecycleManager({
             product.name,
         },
       )}
-      maxWidth="max-w-4xl"
+      maxWidth="max-w-3xl"
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         {loading ? (
-          <div className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-500">
-            {t(
-              "common.loading",
-            )}
+          <div
+            aria-live="polite"
+            className="grid gap-2 sm:grid-cols-3"
+          >
+            {[0, 1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-14 animate-pulse rounded-xl border border-slate-200 bg-slate-50"
+              />
+            ))}
+            <span className="sr-only">
+              {t(
+                "common.loading",
+              )}
+            </span>
           </div>
         ) : null}
 
         {loadError ? (
           <div
             role="alert"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-rose-50 p-4"
+            className="flex flex-col gap-2 rounded-xl border border-rose-200 bg-rose-50/70 p-3 sm:flex-row sm:items-center sm:justify-between"
           >
-            <span className="text-xs font-bold leading-6 text-rose-800">
+            <span className="text-[11px] font-bold leading-5 text-rose-800">
               {loadError}
             </span>
             <button
@@ -196,8 +211,9 @@ export function ProductLifecycleManager({
                     current + 1,
                 )
               }
-              className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
+              className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-3 text-xs font-black text-rose-800 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
             >
+              <RefreshCw className="h-3.5 w-3.5" />
               {t(
                 "common.retry",
               )}
@@ -206,15 +222,23 @@ export function ProductLifecycleManager({
         ) : null}
 
         {variant ? (
-          <CatalogLifecycleActions
-            variant={variant}
-            onVariantChanged={async (
-              updated,
-            ) => {
-              setVariant(updated);
-              await onChanged();
-            }}
-          />
+          <>
+            <ProductLifecycleStatusRail
+              variant={variant}
+            />
+
+            <div className="products-lifecycle-actions-scope rounded-xl border border-slate-200 bg-white p-3 [&>section]:border-0 [&>section]:p-0 [&>section>div:first-child]:justify-start [&>section>div:first-child>div:first-child]:hidden [&_button]:min-h-9 [&_input]:bg-slate-50 [&_input]:transition [&_input:focus]:bg-white">
+              <CatalogLifecycleActions
+                variant={variant}
+                onVariantChanged={async (
+                  updated,
+                ) => {
+                  setVariant(updated);
+                  await onChanged();
+                }}
+              />
+            </div>
+          </>
         ) : null}
       </div>
     </Modal>
