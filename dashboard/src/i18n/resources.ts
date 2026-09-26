@@ -69,6 +69,8 @@ export const resources = {
           show: "الفلاتر والفرز",
           hide: "إخفاء الفلاتر",
           clear: "مسح الفلاتر",
+          active: "الفلاتر النشطة",
+          remove: "إزالة {{filter}}",
           all: "الكل",
           family: "العائلة",
           familySearch:
@@ -1516,6 +1518,8 @@ export const resources = {
           show: "Filters & sorting",
           hide: "Hide filters",
           clear: "Clear filters",
+          active: "Active filters",
+          remove: "Remove {{filter}}",
           all: "All",
           family: "Family",
           familySearch:
