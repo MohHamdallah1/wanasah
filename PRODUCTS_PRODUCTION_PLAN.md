@@ -1685,7 +1685,7 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
   - There is intentionally no generic Edit Product modal: existing edits remain action-specific and are redesigned in their dedicated Pricing / Tracking / Lifecycle / Barcode / UOM slices.
 - [x] Redesign Families management.
 - [x] Redesign Barcode management.
-- [ ] Redesign Tracking settings.
+- [x] Redesign Tracking settings.
 - [ ] Redesign Lifecycle/Hold actions.
 - [ ] Redesign Pricing interaction.
 - [ ] Redesign Import workflow.
