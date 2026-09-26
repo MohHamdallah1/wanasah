@@ -226,6 +226,66 @@ async def run() -> None:
                 f"status={next_status}",
             )
 
+            logout_response = await client.post(
+                "/logout",
+                headers={
+                    "Authorization":
+                        f"Bearer {next_body['token']}",
+                    "X-Refresh-Token":
+                        next_body["refresh_token"],
+                },
+            )
+            record(
+                "logout remains valid after chained refresh rotation",
+                logout_response.status_code == 200,
+                f"status={logout_response.status_code}",
+            )
+
+            async with SessionSU() as su:
+                await su.begin()
+                predecessor = (
+                    await su.execute(
+                        text(
+                            """
+                            SELECT replaced_by_id
+                            FROM refresh_tokens
+                            WHERE token=:token
+                            """
+                        ),
+                        {"token": successor_a},
+                    )
+                ).mappings().one()
+                current_count = int(
+                    (
+                        await su.execute(
+                            text(
+                                """
+                                SELECT count(*)
+                                FROM refresh_tokens
+                                WHERE token=:token
+                                """
+                            ),
+                            {
+                                "token":
+                                    next_body["refresh_token"]
+                            },
+                        )
+                    ).scalar_one()
+                )
+                await su.rollback()
+
+            record(
+                "logout deletes current refresh and clears predecessor link",
+                (
+                    current_count == 0
+                    and predecessor["replaced_by_id"] is None
+                ),
+                (
+                    f"current_count={current_count} "
+                    f"predecessor_link={predecessor['replaced_by_id']}"
+                ),
+            )
+
     finally:
         if company_id is not None:
             async with SessionSU() as su:
