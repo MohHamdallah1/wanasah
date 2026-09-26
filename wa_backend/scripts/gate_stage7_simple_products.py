@@ -233,6 +233,10 @@ def static_checks() -> None:
     header = (
         ROOT / "dashboard/src/pages/products/ProductsPageHeader.tsx"
     ).read_text(encoding="utf-8")
+    catalog_tools = (
+        ROOT
+        / "dashboard/src/pages/products/header/ProductsCatalogToolsMenu.tsx"
+    ).read_text(encoding="utf-8")
     details = (
         ROOT
         / "dashboard/src/pages/products/detail/ProductDetailDrawer.tsx"
@@ -253,6 +257,10 @@ def static_checks() -> None:
         ROOT
         / "dashboard/src/pages/products/import/ImportProductModal.tsx"
     ).read_text(encoding="utf-8")
+    import_start = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductStartPanel.tsx"
+    ).read_text(encoding="utf-8")
     backend = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
     simple_service = (
         BACKEND / "domains/simple_products/service.py"
@@ -272,8 +280,9 @@ def static_checks() -> None:
     check(
         'path: "/products"' in sidebar
         and "التسعير المتقدم" not in sidebar
-        and "products.advancedPricing" in header
-        and "LockKeyhole" in header,
+        and "products.advancedPricing" in catalog_tools
+        and "LockKeyhole" in catalog_tools
+        and "disabled" in catalog_tools,
         "Advanced Pricing is disabled inside Products and absent from Sidebar",
     )
     check(
@@ -321,9 +330,9 @@ def static_checks() -> None:
         'form.append(' in import_upload
         and '"request_id"' in import_upload
         and "fileFingerprint" in import_upload
-        and "onDrop=" in import_modal
-        and ".xlsx" in import_modal
-        and "products.importLimit" in import_modal
+        and "onDrop=" in import_start
+        and ".xlsx" in import_start
+        and "products.importLimit" in import_start
         and "MAX_IMPORT_ROWS = 50_000" in worker,
         "Bulk upload has durable request identity, drag/drop and large async import UX",
     )
