@@ -153,8 +153,8 @@ describe(
       const listResults = read(
         "src/pages/products/list/ProductsListResults.tsx",
       );
-      const families = read(
-        "src/pages/products/family/ProductFamiliesManager.tsx",
+      const familiesToolbar = read(
+        "src/pages/products/family/ProductFamiliesToolbar.tsx",
       );
       const advancedUom = read(
         "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
@@ -185,7 +185,7 @@ describe(
       expect(listResults).toMatch(
         /aria-label=\{t\(\s*"products\.familyNext"/,
       );
-      expect(families).toMatch(
+      expect(familiesToolbar).toMatch(
         /aria-label=\{t\(\s*"products\.familySearchPlaceholder"/,
       );
       expect(advancedUom).toMatch(
@@ -221,6 +221,9 @@ describe(
       );
       const families = read(
         "src/pages/products/family/ProductFamiliesManager.tsx",
+      );
+      const familiesToolbar = read(
+        "src/pages/products/family/ProductFamiliesToolbar.tsx",
       );
       const advancedUom = read(
         "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
@@ -265,7 +268,7 @@ describe(
         ".current?.focus()",
       );
 
-      expect(families).toContain(
+      expect(familiesToolbar).toContain(
         "product-family-name-error",
       );
       expect(families).toContain(
