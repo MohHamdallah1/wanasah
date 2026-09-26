@@ -23,6 +23,8 @@ logger = logging.getLogger("wanasah_logger")
 router = APIRouter(tags=["Authentication"])
 router.include_router(inventory_permissions_router)
 
+REFRESH_ROTATION_GRACE_SECONDS = 15
+
 # +++  (A-02): هاش ثابت مسبق الحساب لمنع إرهاق الـ CPU وبطء السيرفر عند كل إعادة تشغيل +++
 DUMMY_PASSWORD_HASH = "$2b$12$C.O1Tz2R8o7Vq78UoA61ueh3b7Qz7t0V1H1t.zU0TzO1Q0xO7Qz.O"
 
@@ -122,7 +124,7 @@ async def driver_login(request: Request, payload: LoginRequest, db: AsyncSession
 
     queue_login_attempt(ip, payload, True, db)
     access_token = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username}, company_id=comp_id, role_name="Driver")
-    refresh_token = create_refresh_token({"sub": str(driver.id)}, company_id=comp_id)
+    refresh_token = create_refresh_token({"sub": str(driver.id), "role": "Driver"}, company_id=comp_id)
     
     db.add(RefreshToken(token=refresh_token, driver_id=driver.id, expires_at=utc_now() + timedelta(days=30)))
     await db.commit()
@@ -180,7 +182,7 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
 
     queue_login_attempt(ip, payload, True, db)
     access_token = create_access_token({"sub": str(admin.id), "is_admin": admin.is_admin, "username": admin.username}, company_id=comp_id, role_name="Admin" if admin.is_admin else "Inventory")
-    refresh_token = create_refresh_token({"sub": str(admin.id)}, company_id=comp_id)
+    refresh_token = create_refresh_token({"sub": str(admin.id), "role": "Admin" if admin.is_admin else "Inventory"}, company_id=comp_id)
     
     db.add(RefreshToken(token=refresh_token, driver_id=admin.id, expires_at=utc_now() + timedelta(days=30)))
     await db.commit()
@@ -197,55 +199,168 @@ async def admin_login(request: Request, payload: LoginRequest, db: AsyncSession 
         "company_code": payload.company_code
     }
 
+def _refresh_role(decoded: dict, driver: Driver) -> str:
+    role = decoded.get("role")
+    if role in {"Admin", "Inventory", "Driver"}:
+        return str(role)
+    return "Admin" if driver.is_admin else "Driver"
+
+
+async def _recent_rotation_successor(
+    db: AsyncSession,
+    *,
+    token_row: RefreshToken,
+) -> RefreshToken | None:
+    if not token_row.replaced_by_id:
+        return None
+
+    successor = (
+        await db.execute(
+            select(RefreshToken)
+            .where(RefreshToken.id == token_row.replaced_by_id)
+            .with_for_update()
+        )
+    ).scalars().first()
+    if not successor or successor.is_revoked:
+        return None
+
+    now = utc_now()
+    if successor.expires_at <= now:
+        return None
+    if successor.created_at < now - timedelta(
+        seconds=REFRESH_ROTATION_GRACE_SECONDS
+    ):
+        return None
+    return successor
+
+
 @router.post("/refresh", status_code=200)
 async def refresh_access_token(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
     try:
-        decoded = jwt.decode(payload.refresh_token, Config.SECRET_KEY, algorithms=["HS256"], options={"require": ["exp"]})
+        decoded = jwt.decode(
+            payload.refresh_token,
+            Config.SECRET_KEY,
+            algorithms=["HS256"],
+            options={"require": ["exp"]},
+        )
         if decoded.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="نوع التوكن غير صالح.")
-            
+
         driver_id = int(decoded.get("sub", 0))
         company_id = decoded.get("company_id")
-        
+
         if not driver_id or not company_id:
-            raise HTTPException(status_code=401, detail="توكن غير صالح أو مفقود الهوية.")
-            
+            raise HTTPException(
+                status_code=401,
+                detail="توكن غير صالح أو مفقود الهوية.",
+            )
+
         tenant_context.set(company_id)
-        
-        # +++ الحقن غير المتزامن (Native Async RLS): تأمين مسار التجديد قبل لمس الداتابيز +++
-        await db.execute(text("SELECT set_config('app.current_tenant', :c, false)"), {"c": str(company_id)})
-        
-        stmt = select(RefreshToken).filter_by(token=payload.refresh_token).with_for_update()
-        db_token = (await db.execute(stmt)).scalars().first()
-        
-        if not db_token or db_token.is_revoked:
-            await db.rollback() # +++ الإغلاق الآمن للـ Row Lock لمنع تسريب الاتصالات +++
-            raise HTTPException(status_code=401, detail="التوكن ملغي أو تم تسجيل الخروج.")
-            
+        await db.execute(
+            text("SELECT set_config('app.current_tenant', :c, false)"),
+            {"c": str(company_id)},
+        )
+
+        db_token = (
+            await db.execute(
+                select(RefreshToken)
+                .filter_by(token=payload.refresh_token)
+                .with_for_update()
+            )
+        ).scalars().first()
+
+        if not db_token:
+            await db.rollback()
+            raise HTTPException(
+                status_code=401,
+                detail="التوكن ملغي أو تم تسجيل الخروج.",
+            )
+
         driver = await db.get(Driver, driver_id)
-        company = await db.get(Company, company_id) # +++ جلب الشركة للتحقق من حالتها +++
-        
-        if not driver or not getattr(driver, 'is_active', False) or driver.company_id != company_id or not company or not getattr(company, 'is_active', False):
-            await db.rollback() # +++ الإغلاق الآمن للـ Row Lock لمنع تسريب الاتصالات +++
-            raise HTTPException(status_code=403, detail="الحساب أو الشركة موقوفة. لا يمكن تجديد الجلسة.")
-            
+        company = await db.get(Company, company_id)
+
+        if (
+            not driver
+            or not getattr(driver, "is_active", False)
+            or driver.company_id != company_id
+            or not company
+            or not getattr(company, "is_active", False)
+        ):
+            await db.rollback()
+            raise HTTPException(
+                status_code=403,
+                detail="الحساب أو الشركة موقوفة. لا يمكن تجديد الجلسة.",
+            )
+
+        role_name = _refresh_role(decoded, driver)
+
+        if db_token.is_revoked:
+            successor = await _recent_rotation_successor(
+                db,
+                token_row=db_token,
+            )
+            if successor is None:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=401,
+                    detail="التوكن ملغي أو تم تسجيل الخروج.",
+                )
+
+            replacement_refresh = successor.token
+            replacement_access = create_access_token(
+                {
+                    "sub": str(driver.id),
+                    "is_admin": driver.is_admin,
+                    "username": driver.username,
+                },
+                company_id=company_id,
+                role_name=role_name,
+            )
+            await db.rollback()
+            return {
+                "token": replacement_access,
+                "refresh_token": replacement_refresh,
+            }
+
+        new_access = create_access_token(
+            {
+                "sub": str(driver.id),
+                "is_admin": driver.is_admin,
+                "username": driver.username,
+            },
+            company_id=company_id,
+            role_name=role_name,
+        )
+        new_refresh = create_refresh_token(
+            {"sub": str(driver.id), "role": role_name},
+            company_id=company_id,
+        )
+        new_refresh_row = RefreshToken(
+            token=new_refresh,
+            driver_id=driver.id,
+            expires_at=utc_now() + timedelta(days=30),
+        )
+        db.add(new_refresh_row)
+        await db.flush()
+
         db_token.is_revoked = True
-        
-        new_access = create_access_token({"sub": str(driver.id), "is_admin": driver.is_admin, "username": driver.username}, company_id=company_id, role_name="Driver" if not driver.is_admin else "Admin")
-        new_refresh = create_refresh_token({"sub": str(driver.id)}, company_id=company_id)
-        
-        db.add(RefreshToken(token=new_refresh, driver_id=driver.id, expires_at=utc_now() + timedelta(days=30)))
+        db_token.replaced_by_id = new_refresh_row.id
         await db.commit()
-        
+
         return {"token": new_access, "refresh_token": new_refresh}
-        
+
     except jwt.ExpiredSignatureError:
-        await db.execute(delete(RefreshToken).where(RefreshToken.token == payload.refresh_token))
+        await db.execute(
+            delete(RefreshToken).where(
+                RefreshToken.token == payload.refresh_token
+            )
+        )
         await db.commit()
         raise HTTPException(status_code=401, detail="انتهت صلاحية الجلسة.")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="توكن غير صالح.")
-    
+
+
 # =========================================
 # +++ مسار الـ Logout (حرق المفاتيح) +++
 # =========================================
