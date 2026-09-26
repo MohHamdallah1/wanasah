@@ -31,13 +31,17 @@ describe("Products P9.4 detail drawer", () => {
     expect(drawer).toContain(
       "sm:w-[min(72vw,920px)]",
     );
-    expect(drawer).toContain(
+    const hero = read(
+      "../pages/products/detail/ProductDetailHero.tsx",
+    );
+
+    expect(hero).toContain(
       "aria-pressed={",
     );
-    expect(drawer).toContain(
+    expect(hero).toContain(
       '"products.details.expand"',
     );
-    expect(drawer).toContain(
+    expect(hero).toContain(
       '"products.details.compact"',
     );
   });
@@ -56,7 +60,11 @@ describe("Products P9.4 detail drawer", () => {
     expect(drawer).toContain(
       "flex w-full flex-col",
     );
-    expect(drawer).toContain(
+    const hero = read(
+      "../pages/products/detail/ProductDetailHero.tsx",
+    );
+
+    expect(hero).toContain(
       "sm:inline-flex",
     );
   });
