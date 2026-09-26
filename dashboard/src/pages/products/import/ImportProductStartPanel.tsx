@@ -239,8 +239,7 @@ export function ImportProductStartPanel({
                   )}
                   :{" "}
                   {t(
-                    "products.tracking.shortModes." +
-                      lotControlMode,
+                    `products.tracking.shortModes.${lotControlMode}`,
                   )}
                 </span>
                 <span className="rounded-md bg-slate-100 px-2 py-1">
@@ -249,8 +248,7 @@ export function ImportProductStartPanel({
                   )}
                   :{" "}
                   {t(
-                    "products.tracking.shortModes." +
-                      expiryControlMode,
+                    `products.tracking.shortModes.${expiryControlMode}`,
                   )}
                 </span>
                 <span className="text-slate-400">
