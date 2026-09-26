@@ -240,6 +240,15 @@ describe(
       expect(toolbar).toContain(
         "aria-expanded={",
       );
+      expect(toolbar).toContain(
+        "absolute start-3",
+      );
+      expect(toolbar).toContain(
+        "bg-white py-2.5 pe-3 ps-10 text-sm font-normal",
+      );
+      expect(toolbar).not.toContain(
+        "bg-slate-50/70",
+      );
       expect(filters).toContain(
         "aria-label={t(",
       );
