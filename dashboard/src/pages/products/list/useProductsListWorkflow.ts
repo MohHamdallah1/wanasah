@@ -134,7 +134,6 @@ export function useProductsListWorkflow({
   const {
     pricingVisible,
     visibleColumns,
-    productTableColumnCount,
     tableHeaderSpacing,
     hasProductListControls,
     hasResultCriteria,
@@ -341,8 +340,6 @@ export function useProductsListWorkflow({
         density:
           displayPreferences.density,
         tableHeaderSpacing,
-        tableColumnCount:
-          productTableColumnCount,
         hasNext:
           !productsQuery
             .isPlaceholderData &&
