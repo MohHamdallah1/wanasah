@@ -122,7 +122,10 @@ Source of truth:
 - [ ] Add `lot_control_mode` to backend inbound variant rules.
 - [ ] Ensure frontend has the same tracking metadata available without guessing.
 - [ ] Make batch-number requirement dynamic based on product tracking mode.
+- [ ] For `lot_control_mode=OPTIONAL`, accept either an empty supplier lot or a real supplier lot.
 - [ ] Make expiry fields required/optional/hidden based on `expiry_control_mode`.
+- [ ] For `expiry_control_mode=OPTIONAL`, accept either a missing expiry or a valid expiry date.
+- [ ] Bulk-import and integration receipt paths must enforce the same lot/expiry mode semantics as interactive Inbound.
 - [ ] Ensure production date behavior is explicit and consistent.
 - [ ] Preserve exact UOM conversion and quantity validation.
 - [ ] Preserve costing/idempotency/concurrency behavior.
@@ -151,6 +154,7 @@ Source of truth:
 - [ ] Number and currency formatting use locale-aware formatters.
 - [ ] Layout must work in RTL and LTR.
 - [ ] Avoid fixed widths that only work for Arabic/English text length.
+- [ ] Keep operator terminology for lot/batch/expiry consistent across Products, Inbound, Live Stock, and Batches & Expiry.
 
 ## B4. Inbound production gates
 
