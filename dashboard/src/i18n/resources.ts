@@ -273,6 +273,9 @@ export const resources = {
         details: {
           open: "عرض التفاصيل",
           title: "تفاصيل المنتج",
+          actions: "إجراءات المنتج",
+          expand: "توسيع التفاصيل",
+          compact: "تصغير التفاصيل",
           identity: "هوية المنتج",
           skuLockedPublished:
             "رمز SKU مقفل بعد النشر. يمكن تعديله فقط عندما يكون المتغير بحالة مسودة (DRAFT) من إدارة الكتالوج المتقدمة.",
@@ -1723,6 +1726,9 @@ export const resources = {
         details: {
           open: "View details",
           title: "Product details",
+          actions: "Product actions",
+          expand: "Expand details",
+          compact: "Compact details",
           identity: "Product identity",
           skuLockedPublished:
             "SKU is locked after publication. It can only be edited while the variant is in DRAFT through advanced catalog management.",
