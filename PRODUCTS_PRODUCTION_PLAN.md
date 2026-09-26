@@ -1683,7 +1683,7 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 - [x] Redesign Create/Edit Product for a fast ordinary flow plus a clear advanced section.
   - Create is now a compact ordinary flow (identity/family + package/price) with Tracking overrides and barcodes behind one Advanced disclosure.
   - There is intentionally no generic Edit Product modal: existing edits remain action-specific and are redesigned in their dedicated Pricing / Tracking / Lifecycle / Barcode / UOM slices.
-- [ ] Redesign Families management.
+- [x] Redesign Families management.
 - [ ] Redesign Barcode management.
 - [ ] Redesign Tracking settings.
 - [ ] Redesign Lifecycle/Hold actions.
