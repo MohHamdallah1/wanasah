@@ -73,8 +73,8 @@ export function ProductFamiliesList({
     : ChevronRight;
 
   return (
-    <div className="min-h-0 flex-1">
-      <div className="max-h-[480px] min-h-[220px] overflow-auto">
+    <div className="min-h-[220px]">
+      <div className="min-h-[220px]">
         {loading ? (
           <div className="flex min-h-[220px] items-center justify-center text-xs font-bold text-slate-400">
             {t("common.loading")}
@@ -149,7 +149,7 @@ export function ProductFamiliesList({
 
       {hasPrevious ||
       hasNext ? (
-        <div className="flex items-center justify-end gap-1 border-t border-slate-100 bg-slate-50/60 px-4 py-2.5">
+        <div className="flex items-center justify-end gap-1 border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 sm:px-5">
           <button
             type="button"
             aria-label={t(
