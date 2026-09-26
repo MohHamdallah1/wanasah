@@ -1,6 +1,5 @@
 import {
   ChevronDown,
-  FileSpreadsheet,
   FolderTree,
   LockKeyhole,
   Settings2,
@@ -22,11 +21,9 @@ type Props = {
   triggerVariant?: "default" | "topbar";
   trackingDefaultsLoading: boolean;
   canManageCatalog: boolean;
-  canImportProducts: boolean;
   canManageFamilies: boolean;
   onOpenDisplayPreferences: () => void;
   onOpenTrackingDefaults: () => void;
-  onOpenImport: () => void;
   onOpenAdvancedUom: () => void;
   onOpenFamilies: () => void;
 };
@@ -35,11 +32,9 @@ export function ProductsCatalogToolsMenu({
   triggerVariant = "default",
   trackingDefaultsLoading,
   canManageCatalog,
-  canImportProducts,
   canManageFamilies,
   onOpenDisplayPreferences,
   onOpenTrackingDefaults,
-  onOpenImport,
   onOpenAdvancedUom,
   onOpenFamilies,
 }: Props) {
@@ -86,17 +81,22 @@ export function ProductsCatalogToolsMenu({
           )}
         </DropdownMenuLabel>
 
-        <DropdownMenuItem
-          onSelect={
-            onOpenDisplayPreferences
-          }
-          className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
-        >
-          <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
-          {t(
-            "products.displayPreferences.action",
-          )}
-        </DropdownMenuItem>
+        {canManageCatalog ? (
+          <DropdownMenuItem
+            disabled={
+              trackingDefaultsLoading
+            }
+            onSelect={
+              onOpenTrackingDefaults
+            }
+            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+          >
+            <Waypoints className="h-4 w-4 shrink-0 text-slate-400" />
+            {t(
+              "products.trackingSettings.action",
+            )}
+          </DropdownMenuItem>
+        ) : null}
 
         {canManageFamilies ? (
           <DropdownMenuItem
@@ -112,39 +112,25 @@ export function ProductsCatalogToolsMenu({
           </DropdownMenuItem>
         ) : null}
 
-        {canImportProducts ? (
-          <DropdownMenuItem
-            onSelect={
-              onOpenImport
-            }
-            className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
-          >
-            <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-400" />
-            {t(
-              "products.importFile",
-            )}
-          </DropdownMenuItem>
+        {canManageCatalog ||
+        canManageFamilies ? (
+          <DropdownMenuSeparator />
         ) : null}
+
+        <DropdownMenuItem
+          onSelect={
+            onOpenDisplayPreferences
+          }
+          className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
+        >
+          <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
+          {t(
+            "products.displayPreferences.action",
+          )}
+        </DropdownMenuItem>
 
         {canManageCatalog ? (
           <>
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem
-              disabled={
-                trackingDefaultsLoading
-              }
-              onSelect={
-                onOpenTrackingDefaults
-              }
-              className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
-            >
-              <Waypoints className="h-4 w-4 shrink-0 text-slate-400" />
-              {t(
-                "products.trackingSettings.action",
-              )}
-            </DropdownMenuItem>
-
             <DropdownMenuItem
               onSelect={
                 onOpenAdvancedUom
