@@ -80,6 +80,7 @@ describe(
           <tbody>
             <ProductTableRow
               item={product}
+              rowNumber={1}
               pricingVisible
               canEditPrice
               canEditTracking
@@ -111,22 +112,30 @@ describe(
 
       expect(
         cells.getByText(
-          "1,000,000,000,000.123456 JOD",
+          "1,000,000,000,000.123456 د.أ.",
         ),
       ).toBeInTheDocument();
       expect(
         cells.getByText(
-          "20,000,000,000.002469 JOD",
+          "20,000,000,000.002469 د.أ.",
         ),
       ).toBeInTheDocument();
       expect(
         cells.getByText("50"),
       ).toBeInTheDocument();
       expect(
-        cells.queryByText(
+        cells.getByText(
           "Precision Family",
         ),
+      ).toBeInTheDocument();
+      expect(
+        cells.queryByText(
+          /SKU-PRECISION/,
+        ),
       ).not.toBeInTheDocument();
+      expect(
+        cells.getByText("1"),
+      ).toBeInTheDocument();
     });
   },
 );
