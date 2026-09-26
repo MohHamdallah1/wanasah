@@ -96,6 +96,9 @@ describe("Products P9 published-name editing", () => {
     const drawer = source(
       "src/pages/products/detail/ProductDetailDrawer.tsx",
     );
+    const actionMenu = source(
+      "src/pages/products/detail/ProductDetailActionsMenu.tsx",
+    );
     const page = source(
       "src/pages/products/ProductsPage.tsx",
     );
@@ -109,10 +112,10 @@ describe("Products P9 published-name editing", () => {
     expect(drawer).toContain(
       "canRenameProduct: boolean",
     );
-    expect(drawer).toContain(
-      't("products.rename.action")',
+    expect(actionMenu).toContain(
+      '"products.rename.action"',
     );
-    expect(drawer).toContain(
+    expect(actionMenu).toContain(
       '["ACTIVE", "RETIRING"].includes',
     );
     expect(detailWorkflow).toContain(
