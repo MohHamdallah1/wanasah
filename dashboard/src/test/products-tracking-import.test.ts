@@ -31,27 +31,30 @@ describe("product import tracking workflow", () => {
   });
 
   it("supports optional per-row tracking overrides in mapping and template", () => {
-    const importModal = normalizeWhitespace(
-      readSource("../pages/products/import/ImportProductModal.tsx"),
+    const importFields = normalizeWhitespace(
+      readSource("../pages/products/import/importFields.ts"),
+    );
+    const startPanel = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductStartPanel.tsx"),
     );
 
-    expect(importModal).toContain('"lot_control_mode"');
-    expect(importModal).toContain('"expiry_control_mode"');
-    expect(importModal).toContain(
+    expect(importFields).toContain('"lot_control_mode"');
+    expect(importFields).toContain('"expiry_control_mode"');
+    expect(importFields).toContain(
       '"products.fields.lotControlMode"',
     );
-    expect(importModal).toContain(
+    expect(importFields).toContain(
       '"products.fields.expiryControlMode"',
     );
-    expect(importModal).toContain("<ProductTrackingFields");
+    expect(startPanel).toContain("<ProductTrackingFields");
   });
 
   it("keeps import tracking compact by default and makes per-import overrides explicit", () => {
     const page = normalizeWhitespace(
       readSource("../pages/products/ProductsPage.tsx"),
     );
-    const importModal = normalizeWhitespace(
-      readSource("../pages/products/import/ImportProductModal.tsx"),
+    const importStart = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductStartPanel.tsx"),
     );
     const importHelpers = normalizeWhitespace(
       readSource("../pages/products/import/helpers.ts"),
@@ -61,16 +64,16 @@ describe("product import tracking workflow", () => {
     expect(importHelpers).toContain(
       "usesCompanyImportTrackingDefaults",
     );
-    expect(importModal).toContain(
+    expect(importStart).toContain(
       "!trackingExpanded ?",
     );
-    expect(importModal).toContain(
+    expect(importStart).toContain(
       '"products.importTrackingChange"',
     );
-    expect(importModal).toContain(
+    expect(importStart).toContain(
       '"products.importTrackingReset"',
     );
-    expect(importModal).toContain(
+    expect(importStart).toContain(
       '"products.importTrackingOnlyThisImport"',
     );
 
@@ -103,7 +106,7 @@ describe("product import tracking workflow", () => {
     expect(importDownloads).toContain(
       '"products.tracking.importValues.REQUIRED"',
     );
-    expect(importModal).toContain(
+    expect(importStart).toContain(
       '"products.importTrackingValueHint"',
     );
     expect(page).not.toContain(
