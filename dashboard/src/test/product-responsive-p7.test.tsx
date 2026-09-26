@@ -374,7 +374,7 @@ describe(
         "src/pages/products/family/ProductFamiliesList.tsx",
       );
       const barcodes = read(
-        "src/pages/products/barcode/ProductBarcodeManager.tsx",
+        "src/pages/products/barcode/ProductBarcodeList.tsx",
       );
       const advanced = read(
         "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
@@ -413,7 +413,10 @@ describe(
         "max-h-[480px]",
       );
       expect(barcodes).toContain(
-        "flex flex-col items-stretch",
+        "grid-cols-[minmax(0,1fr)_auto]",
+      );
+      expect(barcodes).toContain(
+        "break-all font-mono",
       );
 
       expect(advanced).toContain(
