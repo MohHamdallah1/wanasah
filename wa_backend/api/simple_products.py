@@ -55,6 +55,7 @@ from domains.simple_products.service import (
     clean_text,
     create_family,
     create_products_and_prices,
+    delete_family,
     current_default_book,
     current_prices,
     current_primary_barcodes,
@@ -304,6 +305,11 @@ class FamilyUpdate(StrictRequest):
         )
         assert result is not None
         return result
+
+
+class FamilyDelete(StrictRequest):
+    request_id: UUID
+    expected_version: int = Field(gt=0)
 
 
 class ImportMappingRequest(StrictRequest):
@@ -1309,6 +1315,84 @@ async def update_product_family(
                 "code": "SIMPLE_PRODUCT_FAMILY_IDEMPOTENCY_CONFLICT",
                 "message": str(exc),
                 "context": {},
+            },
+        ) from exc
+
+
+@router.delete("/families/{family_id}")
+async def delete_product_family(
+    family_id: int,
+    payload: FamilyDelete,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require(
+        db,
+        actor,
+        "catalog.manage",
+    )
+    try:
+        idem, replay = await begin_idempotent_operation(
+            db,
+            company_id=int(actor.company_id),
+            actor_id=int(actor.id),
+            operation="SIMPLE_PRODUCT_FAMILY_DELETE_V1",
+            request_id=str(payload.request_id),
+            request_hash=_request_hash(
+                payload,
+                family_id=int(family_id),
+            ),
+        )
+        if replay is not None:
+            await db.rollback()
+            return replay
+
+        row = await delete_family(
+            db,
+            company_id=int(actor.company_id),
+            family_id=int(family_id),
+            expected_version=int(
+                payload.expected_version
+            ),
+        )
+        response = {
+            "id": int(row.id),
+            "name": str(row.name),
+            "version": int(row.version),
+            "deleted": True,
+        }
+        _audit(
+            db,
+            actor,
+            f"Product_{row.id}",
+            "SIMPLE_PRODUCT_FAMILY_DELETED",
+            response,
+        )
+        complete_idempotent_operation(
+            idem,
+            response,
+        )
+        await db.commit()
+        return response
+    except SimpleProductError as exc:
+        await db.rollback()
+        raise _http_error(exc) from exc
+    except (
+        InventoryMutationError,
+        IntegrityError,
+    ) as exc:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            detail={
+                "code": "SIMPLE_PRODUCT_FAMILY_NOT_EMPTY",
+                "message": (
+                    "A product family containing products "
+                    "cannot be deleted."
+                ),
+                "context": {
+                    "family_id": int(family_id),
+                },
             },
         ) from exc
 
