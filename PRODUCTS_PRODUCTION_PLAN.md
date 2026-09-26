@@ -1690,9 +1690,9 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 - [x] Redesign Pricing interaction.
 - [x] Redesign Import workflow.
 - [x] Redesign loading, empty, failure, retry, offline, and permission-denied states.
-- [ ] Remove awkward whitespace, clutter, duplicated controls, and unclear action hierarchy.
-- [ ] Icons are presentation-only and must be changeable without touching unrelated business workflows.
-- [ ] Preserve RTL/LTR, translation safety, keyboard navigation, focus management, accessibility, responsive behavior, and configurable display preferences.
+- [x] Remove awkward whitespace, clutter, duplicated controls, and unclear action hierarchy.
+- [x] Icons are presentation-only and must be changeable without touching unrelated business workflows.
+- [x] Preserve RTL/LTR, translation safety, keyboard navigation, focus management, accessibility, responsive behavior, and configurable display preferences.
 - [ ] Owner visual acceptance is mandatory; automated tests alone do not close the design.
 
 ## P9.5 — Final production verification
