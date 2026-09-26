@@ -2,6 +2,7 @@ import type {
   ComponentProps,
 } from "react";
 
+import { ProductsActiveFilters } from "@/pages/products/list/ProductsActiveFilters";
 import { ProductsFiltersPanel } from "@/pages/products/list/ProductsFiltersPanel";
 import { ProductsListResults } from "@/pages/products/list/ProductsListResults";
 import { ProductsListToolbar } from "@/pages/products/list/ProductsListToolbar";
@@ -10,6 +11,9 @@ type Props = {
   filtersOpen: boolean;
   toolbar: ComponentProps<
     typeof ProductsListToolbar
+  >;
+  activeFilters: ComponentProps<
+    typeof ProductsActiveFilters
   >;
   filters: ComponentProps<
     typeof ProductsFiltersPanel
@@ -22,6 +26,7 @@ type Props = {
 export function ProductsListSection({
   filtersOpen,
   toolbar,
+  activeFilters,
   filters,
   results,
 }: Props) {
@@ -30,6 +35,10 @@ export function ProductsListSection({
       <div className="shrink-0 border-b border-slate-100 px-3 py-3 sm:px-4">
         <ProductsListToolbar
           {...toolbar}
+        />
+
+        <ProductsActiveFilters
+          {...activeFilters}
         />
 
         {filtersOpen ? (
