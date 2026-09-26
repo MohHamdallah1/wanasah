@@ -674,12 +674,6 @@ export function ProductFamilyReassignDialog({
                           setFieldError(
                             null
                           );
-                          setSearchInput(
-                            family.name
-                          );
-                          setSearch(
-                            family.name
-                          );
                         }}
                         className={`mb-1 gap-3 rounded-xl px-3 py-3 text-start last:mb-0 ${
                           selected
