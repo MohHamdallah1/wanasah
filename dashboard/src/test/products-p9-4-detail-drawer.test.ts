@@ -65,6 +65,9 @@ describe("Products P9.4 detail drawer", () => {
     const drawer = read(
       "../pages/products/detail/ProductDetailDrawer.tsx",
     );
+    const hero = read(
+      "../pages/products/detail/ProductDetailHero.tsx",
+    );
     const actions = read(
       "../pages/products/detail/ProductDetailActionsMenu.tsx",
     );
@@ -73,6 +76,9 @@ describe("Products P9.4 detail drawer", () => {
     );
 
     expect(drawer).toContain(
+      "<ProductDetailHero",
+    );
+    expect(hero).toContain(
       "<ProductDetailActionsMenu",
     );
     expect(drawer).not.toContain(
