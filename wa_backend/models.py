@@ -2219,12 +2219,25 @@ class TokenBlacklist(Base):
 # =================================================================================
 class RefreshToken(Base):
     __tablename__ = 'refresh_tokens'
+    __table_args__ = (
+        Index(
+            'uq_refresh_tokens_replaced_by_id',
+            'replaced_by_id',
+            unique=True,
+        ),
+    )
+
     id = Column(Integer, primary_key=True)
     token = Column(String(500), unique=True, nullable=False)
     driver_id = Column(Integer, ForeignKey('drivers.id', ondelete='CASCADE'), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False, index=True) # +++ فهرس لتسريع تنظيف الداتابيز +++
     created_at = Column(DateTime, nullable=False, default=utc_now)
     is_revoked = Column(Boolean, nullable=False, default=False)
+    replaced_by_id = Column(
+        Integer,
+        ForeignKey('refresh_tokens.id', ondelete='SET NULL'),
+        nullable=True,
+    )
     
     driver = relationship('Driver', lazy='raise')
 
