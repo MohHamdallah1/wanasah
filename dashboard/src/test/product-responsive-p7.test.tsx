@@ -407,13 +407,16 @@ describe(
       );
 
       expect(familiesToolbar).toContain(
-        "grid gap-2 lg:grid-cols-",
+        "sm:flex-row",
       );
       expect(familyRow).toContain(
-        "grid-cols-[minmax(0,1fr)_auto]",
+        "flex min-h-16",
       );
-      expect(familiesList).toContain(
+      expect(familiesList).not.toContain(
         "max-h-[480px]",
+      );
+      expect(familiesList).not.toContain(
+        "overflow-auto",
       );
       expect(barcodes).toContain(
         "grid-cols-[minmax(0,1fr)_auto]",
