@@ -624,12 +624,6 @@ export function ProductFamilyReassignDialog({
       }
     >
       <div className="space-y-4">
-        <p className="rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-6 text-slate-600">
-          {t(
-            "products.familyReassign.description"
-          )}
-        </p>
-
         <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
           <span className="font-bold text-slate-500">
             {t(
@@ -827,7 +821,7 @@ export function ProductFamilyReassignDialog({
           </p>
         ) : null}
 
-        <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
+        <p className="border-s-2 border-slate-200 ps-3 text-[11px] font-semibold leading-5 text-slate-500">
           {t(
             "products.familyReassign.historyHint"
           )}
