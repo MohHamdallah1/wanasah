@@ -34,6 +34,7 @@ type Props = {
   isNarrowViewport: boolean;
   pricingVisible: boolean;
   canEditPrice: boolean;
+  canReassignFamily: boolean;
   canEditTracking: boolean;
   columns: Record<
     ProductDisplayColumn,
@@ -49,6 +50,9 @@ type Props = {
     item: SimpleProduct,
   ) => void;
   onEditPrice: (
+    item: SimpleProduct,
+  ) => void;
+  onReassignFamily: (
     item: SimpleProduct,
   ) => void;
   onEditTracking: (
@@ -67,6 +71,7 @@ export function ProductsListResults({
   isNarrowViewport,
   pricingVisible,
   canEditPrice,
+  canReassignFamily,
   canEditTracking,
   columns,
   density,
@@ -77,6 +82,7 @@ export function ProductsListResults({
   onClearCriteria,
   onOpenDetails,
   onEditPrice,
+  onReassignFamily,
   onEditTracking,
 }: Props) {
   const { t } =
@@ -263,6 +269,9 @@ export function ProductsListResults({
                   canEditPrice={
                     canEditPrice
                   }
+                  canReassignFamily={
+                    canReassignFamily
+                  }
                   canEditTracking={
                     canEditTracking
                   }
@@ -277,6 +286,9 @@ export function ProductsListResults({
                   }
                   onEditPrice={
                     onEditPrice
+                  }
+                  onReassignFamily={
+                    onReassignFamily
                   }
                   onEditTracking={
                     onEditTracking
