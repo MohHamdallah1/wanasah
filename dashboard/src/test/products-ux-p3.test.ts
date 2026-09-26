@@ -436,7 +436,23 @@ describe("Products P3 detail foundation", () => {
         "JOD",
         "en-US",
       ),
-    ).toBe("12.345 JOD");
+    ).toBe("JOD 12.345");
+    expect(
+      formatLocaleMoney(
+        "12.345000",
+        "JOD",
+        "ar-JO",
+      ),
+    ).toBe(
+      "12.345 د.أ.",
+    );
+    expect(
+      formatLocaleMoney(
+        null,
+        "JOD",
+        "ar-JO",
+      ),
+    ).toBe("—");
   });
 
   it("keeps the new P3 surface locale-driven and direction-aware", () => {
