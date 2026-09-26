@@ -25,7 +25,11 @@ from api.simple_products import (
     families as list_families_endpoint,
     list_simple_products,
 )
-from models import Driver
+from domains.simple_products.service import (
+    SimpleProductError,
+    delete_family,
+)
+from models import Driver, Product
 
 
 RESULTS: list[tuple[str, bool, str]] = []
@@ -1306,6 +1310,77 @@ async def main() -> None:
                     "items"
                 )
                 == [],
+            )
+
+            empty_family = Product(
+                company_id=company_id,
+                code="P4-EMPTY-FAMILY",
+                name="Empty P4 Family",
+            )
+            app.add(empty_family)
+            await app.flush()
+            empty_family_id = int(
+                empty_family.id
+            )
+
+            version_conflict = False
+            try:
+                await delete_family(
+                    app,
+                    company_id=company_id,
+                    family_id=empty_family_id,
+                    expected_version=2,
+                )
+            except SimpleProductError as exc:
+                version_conflict = (
+                    exc.code
+                    == "SIMPLE_PRODUCT_FAMILY_VERSION_CONFLICT"
+                )
+            record(
+                "empty family delete enforces expected version",
+                version_conflict,
+            )
+
+            non_empty_blocked = False
+            try:
+                await delete_family(
+                    app,
+                    company_id=company_id,
+                    family_id=alpha_family_id,
+                    expected_version=1,
+                )
+            except SimpleProductError as exc:
+                non_empty_blocked = (
+                    exc.code
+                    == "SIMPLE_PRODUCT_FAMILY_NOT_EMPTY"
+                )
+            record(
+                "family delete rejects a family containing products",
+                non_empty_blocked,
+            )
+
+            deleted_family = await delete_family(
+                app,
+                company_id=company_id,
+                family_id=empty_family_id,
+                expected_version=1,
+            )
+            deleted_family_visible = (
+                await app.scalar(
+                    select(Product.id).where(
+                        Product.company_id
+                        == company_id,
+                        Product.id
+                        == empty_family_id,
+                    )
+                )
+            )
+            record(
+                "empty family is hard-deleted",
+                int(deleted_family.id)
+                == empty_family_id
+                and deleted_family_visible
+                is None,
             )
 
             await app.rollback()
