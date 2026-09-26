@@ -147,7 +147,7 @@ describe(
       expect(offenders).toEqual([]);
     });
 
-    it("mirrors Product pagination and back navigation icons by direction", () => {
+    it("keeps Product continuous scroll direction-neutral and mirrors back navigation icons", () => {
       const listResults = read(
         "src/pages/products/list/ProductsListResults.tsx",
       );
@@ -156,16 +156,13 @@ describe(
       );
 
       expect(listResults).toContain(
-        '<ChevronLeft className="h-4 w-4 rtl:rotate-180" />',
-      );
-      expect(listResults).toContain(
-        '<ChevronRight className="h-4 w-4 rtl:rotate-180" />',
+        "IntersectionObserver",
       );
       expect(listResults).not.toContain(
-        '<ChevronLeft className="h-4 w-4" />',
+        "ChevronLeft",
       );
       expect(listResults).not.toContain(
-        '<ChevronRight className="h-4 w-4" />',
+        "ChevronRight",
       );
 
       expect(advancedUom).toContain(
