@@ -421,6 +421,28 @@ describe(
       }
     });
 
+    it("uses the established commercial Arabic wording for retiring Products", () => {
+      const ar =
+        resources.ar.translation;
+
+      expect(
+        ar.products.details
+          .lifecycleModes.RETIRING,
+      ).toBe("قيد الإيقاف");
+      expect(
+        ar.products.familyReassign
+          .historyHint,
+      ).toContain(
+        "قيد الإيقاف",
+      );
+      expect(
+        ar.products.familyReassign
+          .historyHint,
+      ).not.toContain(
+        "قيد التقاعد",
+      );
+    });
+
     it("keeps Product UI copy behind translations instead of raw language or enums", () => {
       const offenders =
         productUiFiles().filter(
