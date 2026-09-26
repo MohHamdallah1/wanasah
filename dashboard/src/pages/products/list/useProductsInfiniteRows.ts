@@ -15,6 +15,11 @@ type Params = {
   pageReady: boolean;
 };
 
+type RowsState = {
+  scopeKey: string;
+  items: SimpleProduct[];
+};
+
 const mergeProductRows = (
   current: SimpleProduct[],
   incoming: SimpleProduct[],
@@ -46,6 +51,17 @@ const mergeProductRows = (
   ];
 };
 
+const firstPageItems = (
+  page: SimpleProductPage | undefined,
+  cursor: string | null,
+  pageReady: boolean,
+): SimpleProduct[] =>
+  cursor === null &&
+  pageReady &&
+  page
+    ? page.items
+    : [];
+
 export function useProductsInfiniteRows({
   page,
   cursor,
@@ -53,42 +69,69 @@ export function useProductsInfiniteRows({
   pageReady,
 }: Params): SimpleProduct[] {
   const [
-    items,
-    setItems,
+    rows,
+    setRows,
   ] =
-    useState<SimpleProduct[]>(
-      [],
-    );
+    useState<RowsState>(() => ({
+      scopeKey,
+      items: firstPageItems(
+        page,
+        cursor,
+        pageReady,
+      ),
+    }));
 
-  useEffect(() => {
-    setItems([]);
-  }, [scopeKey]);
+  const visibleItems =
+    rows.scopeKey === scopeKey
+      ? rows.items
+      : firstPageItems(
+          page,
+          cursor,
+          pageReady,
+        );
 
   useEffect(() => {
     if (
       !page ||
       !pageReady
     ) {
+      if (
+        rows.scopeKey !==
+        scopeKey
+      ) {
+        setRows({
+          scopeKey,
+          items: [],
+        });
+      }
       return;
     }
 
-    if (cursor === null) {
-      setItems(page.items);
-      return;
-    }
+    setRows((current) => {
+      const currentItems =
+        current.scopeKey ===
+        scopeKey
+          ? current.items
+          : [];
 
-    setItems((current) =>
-      mergeProductRows(
-        current,
-        page.items,
-      ),
-    );
+      return {
+        scopeKey,
+        items:
+          cursor === null
+            ? page.items
+            : mergeProductRows(
+                currentItems,
+                page.items,
+              ),
+      };
+    });
   }, [
     cursor,
     page,
     pageReady,
+    rows.scopeKey,
     scopeKey,
   ]);
 
-  return items;
+  return visibleItems;
 }
