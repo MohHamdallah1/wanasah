@@ -305,7 +305,7 @@ describe(
         "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
       const barcodes = read(
-        "src/pages/products/barcode/ProductBarcodeManager.tsx",
+        "src/pages/products/barcode/ProductBarcodeList.tsx",
       );
       const advancedUom = read(
         "src/pages/products/advanced-uom/AdvancedUomDashboard.tsx",
