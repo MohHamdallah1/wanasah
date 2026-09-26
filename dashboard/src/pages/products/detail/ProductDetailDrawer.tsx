@@ -168,12 +168,16 @@ export function ProductDetailDrawer({
           },
         );
 
+  const contentLayout = expanded
+    ? "grid content-start gap-2.5 sm:grid-cols-2"
+    : "space-y-2.5";
+
   return (
     <div className="fixed inset-0 z-[90]">
       <div
         aria-hidden="true"
         onClick={handleClose}
-        className="absolute inset-0 bg-slate-950/40"
+        className="absolute inset-0 bg-slate-950/30"
       />
 
       <aside
@@ -183,10 +187,10 @@ export function ProductDetailDrawer({
         aria-modal="true"
         aria-labelledby="product-detail-title"
         dir={i18n.dir()}
-        className={`absolute inset-y-0 end-0 flex w-full flex-col border-s border-slate-800/10 bg-white shadow-2xl transition-[width] duration-200 sm:max-w-none ${
+        className={`absolute inset-y-0 end-0 flex w-full flex-col border-s border-slate-200 bg-white shadow-2xl transition-[width] duration-200 sm:max-w-none ${
           expanded
-            ? "sm:w-[min(72vw,920px)]"
-            : "sm:w-[min(44vw,620px)]"
+            ? "sm:w-[min(60vw,860px)]"
+            : "sm:w-[min(36vw,520px)]"
         }`}
       >
         <ProductDetailHero
@@ -243,201 +247,209 @@ export function ProductDetailDrawer({
           }
         />
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-white">
-          <ProductDetailSection
-            icon={Fingerprint}
-            title={t(
-              "products.details.identity",
-            )}
-          >
-            <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-3">
-              <ProductDetailField
-                label={t(
-                  "products.fields.sku",
-                )}
-                mono
-                hint={t(
-                  "products.details.skuLockedPublished",
-                )}
-              >
-                {product.sku}
-              </ProductDetailField>
-              <ProductDetailField
-                label={t(
-                  "products.details.lifecycle",
-                )}
-              >
-                {t(
-                  `products.details.lifecycleModes.${product.lifecycle_status}`,
-                )}
-              </ProductDetailField>
-              <ProductDetailField
-                label={t(
-                  "products.details.operationalHold",
-                )}
-              >
-                {t(
-                  `products.details.holdModes.${product.operational_hold}`,
-                )}
-              </ProductDetailField>
-            </dl>
-          </ProductDetailSection>
-
-          {detailSections.package ? (
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-2.5 sm:p-3">
+          <div className={contentLayout}>
             <ProductDetailSection
-              icon={PackageCheck}
+              icon={Fingerprint}
               title={t(
-                "products.details.package",
+                "products.details.identity",
               )}
             >
-              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
+              <dl
+                className={`grid gap-x-4 gap-y-2.5 ${
+                  expanded
+                    ? "sm:grid-cols-3"
+                    : "sm:grid-cols-2"
+                }`}
+              >
                 <ProductDetailField
                   label={t(
-                    "products.details.baseUnit",
+                    "products.fields.sku",
+                  )}
+                  mono
+                  hint={t(
+                    "products.details.skuLockedPublished",
                   )}
                 >
-                  {baseUomLabel}
+                  {product.sku}
                 </ProductDetailField>
                 <ProductDetailField
                   label={t(
-                    "products.columns.package",
+                    "products.details.lifecycle",
                   )}
                 >
-                  {packageUomLabel ??
-                    t("uom.NONE")}
+                  {t(
+                    `products.details.lifecycleModes.${product.lifecycle_status}`,
+                  )}
+                </ProductDetailField>
+                <ProductDetailField
+                  label={t(
+                    "products.details.operationalHold",
+                  )}
+                >
+                  {t(
+                    `products.details.holdModes.${product.operational_hold}`,
+                  )}
                 </ProductDetailField>
               </dl>
+            </ProductDetailSection>
 
-              <div className="mt-4 flex items-start gap-3 border-t border-slate-100 pt-3">
-                <Boxes
-                  aria-hidden="true"
-                  className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"
-                />
-                <div>
-                  <p className="text-xs font-black leading-5 text-slate-800">
-                    {packageConversion}
-                  </p>
-                  <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">
-                    {t(
-                      "products.details.packageStructureLockedPublished",
+            {detailSections.package ? (
+              <ProductDetailSection
+                icon={PackageCheck}
+                title={t(
+                  "products.details.package",
+                )}
+              >
+                <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
+                  <ProductDetailField
+                    label={t(
+                      "products.details.baseUnit",
                     )}
-                  </p>
+                  >
+                    {baseUomLabel}
+                  </ProductDetailField>
+                  <ProductDetailField
+                    label={t(
+                      "products.columns.package",
+                    )}
+                  >
+                    {packageUomLabel ??
+                      t("uom.NONE")}
+                  </ProductDetailField>
+                </dl>
+
+                <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-2.5 py-2 ring-1 ring-inset ring-amber-100">
+                  <Boxes
+                    aria-hidden="true"
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-black leading-5 text-slate-800">
+                      {packageConversion}
+                    </p>
+                    <p className="mt-0.5 text-[9px] font-semibold leading-4 text-slate-500">
+                      {t(
+                        "products.details.packageStructureLockedPublished",
+                      )}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </ProductDetailSection>
-          ) : null}
+              </ProductDetailSection>
+            ) : null}
 
-          {detailSections.tracking ? (
-            <ProductDetailSection
-              icon={Waypoints}
-              title={t(
-                "products.details.tracking",
-              )}
-            >
-              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <ProductDetailField
-                  label={t(
-                    "products.tracking.shortLot",
-                  )}
-                >
-                  {t(
-                    `products.tracking.lotModes.${product.lot_control_mode}`,
-                  )}
-                </ProductDetailField>
-                <ProductDetailField
-                  label={t(
-                    "products.tracking.shortExpiry",
-                  )}
-                >
-                  {t(
-                    `products.tracking.expiryModes.${product.expiry_control_mode}`,
-                  )}
-                </ProductDetailField>
-              </dl>
-            </ProductDetailSection>
-          ) : null}
-
-          {detailSections.barcodes ? (
-            <ProductDetailSection
-              icon={ScanBarcode}
-              title={t(
-                "products.details.barcodes",
-              )}
-            >
-              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <ProductDetailField
-                  label={t(
-                    "products.unitBarcode",
-                  )}
-                  mono
-                >
-                  {product.unit_barcode ??
-                    t(
-                      "products.details.notSet",
-                    )}
-                </ProductDetailField>
-                <ProductDetailField
-                  label={t(
-                    "products.packageBarcode",
-                  )}
-                  mono
-                >
-                  {product.package_barcode ??
-                    t(
-                      "products.details.notSet",
-                    )}
-                </ProductDetailField>
-              </dl>
-            </ProductDetailSection>
-          ) : null}
-
-          {pricingVisible &&
-          detailSections.pricing ? (
-            <ProductDetailSection
-              icon={BadgeDollarSign}
-              title={t(
-                "products.details.pricing",
-              )}
-            >
-              <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <ProductDetailField
-                  label={t(
-                    "products.columns.packagePrice",
-                  )}
-                >
-                  {price(
-                    product.package_price,
-                  )}
-                </ProductDetailField>
-                <ProductDetailField
-                  label={t(
-                    "products.columns.unitPrice",
-                  )}
-                >
-                  {price(
-                    product.unit_price,
-                  )}
-                </ProductDetailField>
-              </dl>
-            </ProductDetailSection>
-          ) : null}
-
-          {detailSections.compatibility ? (
-            <ProductDetailSection
-              icon={ShieldCheck}
-              title={t(
-                "products.details.compatibility",
-              )}
-            >
-              <p className="max-w-3xl text-xs font-bold leading-5 text-slate-600">
-                {t(
-                  product.simple_compatible
-                    ? "products.details.simpleCompatible"
-                    : "products.details.advancedOnly",
+            {detailSections.tracking ? (
+              <ProductDetailSection
+                icon={Waypoints}
+                title={t(
+                  "products.details.tracking",
                 )}
-              </p>
-            </ProductDetailSection>
-          ) : null}
+              >
+                <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
+                  <ProductDetailField
+                    label={t(
+                      "products.tracking.shortLot",
+                    )}
+                  >
+                    {t(
+                      `products.tracking.lotModes.${product.lot_control_mode}`,
+                    )}
+                  </ProductDetailField>
+                  <ProductDetailField
+                    label={t(
+                      "products.tracking.shortExpiry",
+                    )}
+                  >
+                    {t(
+                      `products.tracking.expiryModes.${product.expiry_control_mode}`,
+                    )}
+                  </ProductDetailField>
+                </dl>
+              </ProductDetailSection>
+            ) : null}
+
+            {detailSections.barcodes ? (
+              <ProductDetailSection
+                icon={ScanBarcode}
+                title={t(
+                  "products.details.barcodes",
+                )}
+              >
+                <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
+                  <ProductDetailField
+                    label={t(
+                      "products.unitBarcode",
+                    )}
+                    mono
+                  >
+                    {product.unit_barcode ??
+                      t(
+                        "products.details.notSet",
+                      )}
+                  </ProductDetailField>
+                  <ProductDetailField
+                    label={t(
+                      "products.packageBarcode",
+                    )}
+                    mono
+                  >
+                    {product.package_barcode ??
+                      t(
+                        "products.details.notSet",
+                      )}
+                  </ProductDetailField>
+                </dl>
+              </ProductDetailSection>
+            ) : null}
+
+            {pricingVisible &&
+            detailSections.pricing ? (
+              <ProductDetailSection
+                icon={BadgeDollarSign}
+                title={t(
+                  "products.details.pricing",
+                )}
+              >
+                <dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2">
+                  <ProductDetailField
+                    label={t(
+                      "products.columns.packagePrice",
+                    )}
+                  >
+                    {price(
+                      product.package_price,
+                    )}
+                  </ProductDetailField>
+                  <ProductDetailField
+                    label={t(
+                      "products.columns.unitPrice",
+                    )}
+                  >
+                    {price(
+                      product.unit_price,
+                    )}
+                  </ProductDetailField>
+                </dl>
+              </ProductDetailSection>
+            ) : null}
+
+            {detailSections.compatibility ? (
+              <ProductDetailSection
+                icon={ShieldCheck}
+                title={t(
+                  "products.details.compatibility",
+                )}
+              >
+                <p className="text-[11px] font-bold leading-5 text-slate-600">
+                  {t(
+                    product.simple_compatible
+                      ? "products.details.simpleCompatible"
+                      : "products.details.advancedOnly",
+                  )}
+                </p>
+              </ProductDetailSection>
+            ) : null}
+          </div>
         </div>
       </aside>
     </div>
