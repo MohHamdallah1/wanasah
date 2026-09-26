@@ -742,8 +742,8 @@ export function ProductFamilyReassignDialog({
                         }}
                         className={`mb-1 gap-3 rounded-xl px-3 py-3 text-start last:mb-0 ${
                           selected
-                            ? "bg-accent text-accent-foreground ring-1 ring-inset ring-amber-400 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
-                            : "text-slate-700 data-[selected=true]:bg-slate-100 data-[selected=true]:text-slate-950"
+                            ? "bg-accent text-accent-foreground ring-1 ring-inset ring-amber-400 data-[selected=true]:!bg-accent data-[selected=true]:!text-accent-foreground"
+                            : "text-slate-700 data-[selected=true]:!bg-slate-100 data-[selected=true]:!text-slate-950"
                         }`}
                       >
                         <span
