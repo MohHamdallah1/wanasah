@@ -150,7 +150,13 @@ describe("Products P9.4 workspace foundation", () => {
       "sm:max-w-md",
     );
     expect(toolbar).toContain(
-      'aria-pressed={filtersOpen}',
+      "PopoverContent",
+    );
+    expect(toolbar).toContain(
+      "aria-expanded={",
+    );
+    expect(toolbar).toContain(
+      "onOpenChange={",
     );
   });
 
