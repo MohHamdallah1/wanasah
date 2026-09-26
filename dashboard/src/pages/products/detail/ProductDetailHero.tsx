@@ -183,7 +183,7 @@ export function ProductDetailHero({
         </div>
 
         <div className="mt-4 grid grid-cols-[44px_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[52px_minmax(0,1fr)] sm:gap-4">
-          <div className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-amber-300/20 bg-amber-300/10 text-amber-300 sm:h-13 sm:w-13">
+          <div className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-amber-300/20 bg-amber-300/10 text-amber-300 sm:h-12 sm:w-12">
             <Box className="h-5 w-5 sm:h-6 sm:w-6" />
             <span
               aria-hidden="true"
