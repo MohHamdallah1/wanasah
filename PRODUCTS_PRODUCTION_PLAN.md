@@ -1679,7 +1679,7 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 - [x] Redesign search, filters, sorting, and active-filter visibility.
 - [x] Redesign desktop product list/table for fast scanning without excessive columns.
 - [ ] Redesign mobile Product cards independently where needed instead of shrinking the desktop table.
-- [ ] Redesign Product Details so ordinary users understand the product without backend terminology.
+- [x] Redesign Product Details so ordinary users understand the product without backend terminology.
 - [ ] Redesign Create/Edit Product for a fast ordinary flow plus a clear advanced section.
 - [ ] Redesign Families management.
 - [ ] Redesign Barcode management.
