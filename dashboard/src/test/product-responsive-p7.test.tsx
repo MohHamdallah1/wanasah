@@ -364,6 +364,9 @@ describe(
       const drawer = read(
         "src/pages/products/detail/ProductDetailDrawer.tsx",
       );
+      const detailHero = read(
+        "src/pages/products/detail/ProductDetailHero.tsx",
+      );
       const familiesToolbar = read(
         "src/pages/products/family/ProductFamiliesToolbar.tsx",
       );
@@ -399,7 +402,7 @@ describe(
       expect(drawer).toContain(
         "sm:w-[min(72vw,920px)]",
       );
-      expect(drawer).toContain(
+      expect(detailHero).toContain(
         "sm:inline-flex",
       );
 
