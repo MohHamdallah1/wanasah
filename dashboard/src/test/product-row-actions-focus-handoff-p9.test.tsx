@@ -1,6 +1,9 @@
 import {
+  forwardRef,
   useRef,
   useState,
+  type HTMLAttributes,
+  type ReactNode,
 } from "react";
 import {
   cleanup,
@@ -25,6 +28,42 @@ import type {
   SimpleProduct,
 } from "@/pages/products/contracts";
 import { ProductRowActions } from "@/pages/products/list/ProductRowActions";
+
+vi.mock(
+  "framer-motion",
+  () => ({
+    AnimatePresence: ({
+      children,
+    }: {
+      children: ReactNode;
+    }) => <>{children}</>,
+    motion: {
+      div: forwardRef<
+        HTMLDivElement,
+        HTMLAttributes<HTMLDivElement> & {
+          initial?: unknown;
+          animate?: unknown;
+          exit?: unknown;
+        }
+      >(
+        (
+          {
+            initial: _initial,
+            animate: _animate,
+            exit: _exit,
+            ...props
+          },
+          ref,
+        ) => (
+          <div
+            ref={ref}
+            {...props}
+          />
+        ),
+      ),
+    },
+  }),
+);
 
 vi.mock(
   "react-i18next",
