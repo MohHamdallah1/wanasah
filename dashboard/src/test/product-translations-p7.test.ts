@@ -157,7 +157,9 @@ describe(
               regex,
             )
           ) {
-            keys.add(match[1]);
+            if (!match[1].endsWith(".")) {
+              keys.add(match[1]);
+            }
           }
         }
       }
@@ -255,6 +257,15 @@ describe(
         ].map(
           (value) =>
             `products.displayPreferences.detailSectionsOptions.${value}`,
+        ),
+        ...[
+          "upload",
+          "mapping",
+          "processing",
+          "result",
+        ].map(
+          (value) =>
+            `products.importStages.${value}`,
         ),
       ];
 
