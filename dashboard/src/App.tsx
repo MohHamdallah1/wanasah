@@ -6,13 +6,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { toast } from "sonner"; // +++  (E-11): استدعاء الـ Toast لعرض الأخطاء +++
 import { readPlatformSession } from "@/features/platform/session";
+import { loadProductsPage } from "@/routes/routePreloaders";
 
 // +++ الكي الجراحي: تحميل ديناميكي للصفحات لتفكيك الكتلة الضخمة في ملف index +++
 const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayout"));
 const OperationsDashboard = lazy(() => import("./pages/OperationsDashboard"));
 const DispatchBoard = lazy(() => import("./pages/DispatchBoard"));
 const MainInventory = lazy(() => import("./pages/inventory/MainInventory"));
-const ProductsPage = lazy(() => import("./pages/products/ProductsPage"));
+const ProductsPage = lazy(loadProductsPage);
 const AdvancedUomDashboard = lazy(() => import("./pages/products/advanced-uom/AdvancedUomDashboard"));
 const CommercialRulesDashboard = lazy(() => import("./pages/CommercialRulesDashboard"));
 const SalesReturnsDashboard = lazy(() => import("./pages/SalesReturnsDashboard"));
