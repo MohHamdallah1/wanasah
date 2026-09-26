@@ -161,9 +161,9 @@ export function ProductsListResults({
           ) : null}
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full min-w-[1050px] text-start text-sm">
-            <thead className="sticky top-0 z-10 bg-slate-50 text-xs font-black text-slate-500">
+        <div className="min-h-0 flex-1 overflow-auto bg-white">
+          <table className="w-full min-w-[920px] text-start text-sm">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur-sm">
               <tr>
                 <th className={tableHeaderSpacing}>
                   {t(
@@ -228,10 +228,14 @@ export function ProductsListResults({
                     )}
                   </th>
                 ) : null}
-                <th className={tableHeaderSpacing}>
-                  {t(
-                    "products.columns.action"
-                  )}
+                <th
+                  className={`${tableHeaderSpacing} w-12 text-center`}
+                >
+                  <span className="sr-only">
+                    {t(
+                      "products.columns.action"
+                    )}
+                  </span>
                 </th>
               </tr>
             </thead>
@@ -349,7 +353,7 @@ export function ProductsListResults({
 
       {hasPrevious ||
       hasNext ? (
-        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-white px-4 py-2.5">
           <button
             type="button"
             disabled={
