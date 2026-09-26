@@ -95,8 +95,8 @@ describe("product import tracking workflow", () => {
     const page = normalizeWhitespace(
       readSource("../pages/products/ProductsPage.tsx"),
     );
-    const importModal = normalizeWhitespace(
-      readSource("../pages/products/import/ImportProductModal.tsx"),
+    const importStart = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductStartPanel.tsx"),
     );
     const importDownloads = normalizeWhitespace(
       readSource("../pages/products/import/createImportDownloads.ts"),
