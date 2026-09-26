@@ -88,6 +88,11 @@ describe(
           "../pages/products/detail/ProductDetailDrawer.tsx",
         ),
       );
+      const actionMenu = compact(
+        source(
+          "../pages/products/detail/ProductDetailActionsMenu.tsx",
+        ),
+      );
       const detailWorkflow = compact(
         source(
           "../pages/products/detail/useProductDetailWorkflow.ts",
@@ -102,10 +107,10 @@ describe(
       expect(drawer).toContain(
         "canManageAdvancedUom",
       );
-      expect(drawer).toContain(
+      expect(actionMenu).toContain(
         "!product.simple_compatible",
       );
-      expect(drawer).toContain(
+      expect(actionMenu).toContain(
         '"products.advancedUom.productAction"',
       );
       expect(detailWorkflow).toContain(
