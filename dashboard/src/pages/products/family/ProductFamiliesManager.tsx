@@ -29,6 +29,7 @@ import {
 } from "@/lib/durableOperations";
 import {
   parseProductFamilies,
+  parseProductFamilyDelete,
   parseProductFamilyMutation,
   type ProductFamily,
 } from "@/pages/products/contracts";
@@ -52,6 +53,12 @@ type FamilyCreateCommandPayload = {
 };
 
 type FamilyRenameCommandPayload = {
+  expected_version: number;
+  name: string;
+};
+
+type FamilyDeleteCommandPayload = {
+  family_id: number;
   expected_version: number;
   name: string;
 };
@@ -116,6 +123,40 @@ const validFamilyRenamePayload = (
   );
 };
 
+const validFamilyDeletePayload = (
+  value: unknown,
+): value is FamilyDeleteCommandPayload => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const row = value as Record<
+    string,
+    unknown
+  >;
+  return (
+    Object.keys(row).length === 3 &&
+    typeof row.family_id ===
+      "number" &&
+    Number.isSafeInteger(
+      row.family_id
+    ) &&
+    row.family_id > 0 &&
+    typeof row.expected_version ===
+      "number" &&
+    Number.isSafeInteger(
+      row.expected_version
+    ) &&
+    row.expected_version > 0 &&
+    typeof row.name === "string" &&
+    row.name.trim().length > 0 &&
+    row.name.trim().length <= 150
+  );
+};
+
 const shouldRetainDurableFamilyCommand = (
   error: unknown,
 ): boolean => {
@@ -128,7 +169,9 @@ const shouldRetainDurableFamilyCommand = (
     code ===
       "DURABLE_OPERATION_CORRUPT" ||
     code ===
-      "PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID"
+      "PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID" ||
+    code ===
+      "PRODUCT_FAMILY_DELETE_RESPONSE_INVALID"
   );
 };
 
@@ -210,6 +253,20 @@ export function ProductFamiliesManager({
     renameCommandBlocked,
     setRenameCommandBlocked,
   ] = useState(false);
+  const [
+    deletingFamily,
+    setDeletingFamily,
+  ] = useState<ProductFamily | null>(
+    null
+  );
+  const [
+    deleteCommandPending,
+    setDeleteCommandPending,
+  ] = useState(false);
+  const [
+    deleteCommandBlocked,
+    setDeleteCommandBlocked,
+  ] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -251,6 +308,9 @@ export function ProductFamiliesManager({
     setEditingExpectedVersion(null);
     setRenameCommandPending(false);
     setRenameCommandBlocked(false);
+    setDeletingFamily(null);
+    setDeleteCommandPending(false);
+    setDeleteCommandBlocked(false);
   }, [companyId]);
 
   useEffect(() => {
@@ -307,6 +367,80 @@ export function ProductFamiliesManager({
             error,
             t(
               "products.errors.familyFailed",
+            ),
+          ),
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOpen,
+    companyId,
+    driverId,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !companyId ||
+      !driverId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const scope = durableScope(
+      companyId,
+      driverId,
+      "family-delete",
+    );
+
+    void (async () => {
+      try {
+        const command =
+          await readDurableCommand<unknown>(
+            scope,
+          );
+        if (cancelled || !command) {
+          return;
+        }
+        if (
+          !validFamilyDeletePayload(
+            command.payload,
+          )
+        ) {
+          throw localCodedError(
+            "DURABLE_OPERATION_CORRUPT",
+          );
+        }
+
+        setDeletingFamily({
+          id:
+            command.payload.family_id,
+          name:
+            command.payload.name,
+          version:
+            command.payload
+              .expected_version,
+          variant_count: 0,
+        });
+        setDeleteCommandPending(true);
+        setDeleteCommandBlocked(false);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setDeleteCommandPending(false);
+        setDeleteCommandBlocked(true);
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.errors.familyDeleteFailed",
             ),
           ),
         );
@@ -672,6 +806,151 @@ export function ProductFamiliesManager({
         ),
     });
 
+  const deleteFamilyMutation =
+    useMutation({
+      mutationFn:
+        async (): Promise<
+          MutationResult | undefined
+        > => {
+          if (!deletingFamily) {
+            return undefined;
+          }
+
+          const body:
+            FamilyDeleteCommandPayload = {
+              family_id:
+                deletingFamily.id,
+              expected_version:
+                deletingFamily.version,
+              name:
+                deletingFamily.name,
+            };
+          const scope =
+            operationScope(
+              "family-delete"
+            );
+
+          try {
+            const command =
+              await getOrCreateDurableCommand(
+                scope,
+                body
+              );
+            parseProductFamilyDelete(
+              await authFetch(
+                `/simple-products/families/${command.payload.family_id}`,
+                {
+                  method: "DELETE",
+                  body: JSON.stringify(
+                    {
+                      request_id:
+                        command.requestId,
+                      expected_version:
+                        command.payload
+                          .expected_version,
+                    }
+                  ),
+                }
+              )
+            );
+            return {
+              requestId:
+                command.requestId,
+              scope,
+            };
+          } catch (error) {
+            const code =
+              apiErrorCode(error);
+            if (
+              code ===
+              "DURABLE_OPERATION_CORRUPT"
+            ) {
+              setDeleteCommandPending(
+                false
+              );
+              setDeleteCommandBlocked(
+                true
+              );
+            } else if (
+              shouldRetainDurableFamilyCommand(
+                error
+              )
+            ) {
+              setDeleteCommandPending(
+                true
+              );
+            } else {
+              abandonDurableOperation(
+                scope
+              );
+              setDeleteCommandPending(
+                false
+              );
+              setDeleteCommandBlocked(
+                false
+              );
+            }
+            throw error;
+          }
+        },
+      onSuccess: async (
+        completed
+      ) => {
+        if (completed) {
+          completeDurableOperation(
+            completed.scope,
+            completed.requestId
+          );
+        }
+        setDeletingFamily(null);
+        setDeleteCommandPending(false);
+        setDeleteCommandBlocked(false);
+        setCursor(null);
+        setHistory([]);
+        toast.success(
+          t(
+            "products.familyDeleted"
+          )
+        );
+        await queryClient.invalidateQueries(
+          {
+            queryKey: [
+              "simple-product-families",
+            ],
+          }
+        );
+      },
+      onError: async (error) => {
+        if (
+          apiErrorCode(error) ===
+          "SIMPLE_PRODUCT_FAMILY_NOT_EMPTY"
+        ) {
+          setDeletingFamily(null);
+          toast.error(
+            t(
+              "products.familyDeleteBlocked"
+            )
+          );
+          await queryClient.invalidateQueries(
+            {
+              queryKey: [
+                "simple-product-families",
+              ],
+            }
+          );
+          return;
+        }
+        toast.error(
+          apiErrorMessage(
+            error,
+            t(
+              "products.errors.familyDeleteFailed"
+            )
+          )
+        );
+      },
+    });
+
   const families =
     familiesQuery.data
       ?.items ?? [];
@@ -751,6 +1030,43 @@ export function ProductFamiliesManager({
     setRenameCommandBlocked(false);
   };
 
+  const requestFamilyDelete = (
+    family: ProductFamily,
+  ) => {
+    if (family.variant_count > 0) {
+      toast.error(
+        t(
+          "products.familyDeleteBlocked"
+        )
+      );
+      return;
+    }
+    if (
+      deleteCommandPending &&
+      deletingFamily?.id !== family.id
+    ) {
+      toast.error(
+        t(
+          "products.familyDeletePending"
+        )
+      );
+      return;
+    }
+    setDeletingFamily(family);
+    setDeleteCommandBlocked(false);
+  };
+
+  const cancelFamilyDelete = () => {
+    if (
+      deleteFamilyMutation.isPending ||
+      deleteCommandPending ||
+      deleteCommandBlocked
+    ) {
+      return;
+    }
+    setDeletingFamily(null);
+  };
+
   const goToPreviousFamilyPage = () => {
     const previous =
       history.at(-1) ?? null;
@@ -780,7 +1096,8 @@ export function ProductFamiliesManager({
       onClose={() => {
         if (
           !createFamilyMutation.isPending &&
-          !updateFamilyMutation.isPending
+          !updateFamilyMutation.isPending &&
+          !deleteFamilyMutation.isPending
         ) {
           onClose();
         }
@@ -832,6 +1149,61 @@ export function ProductFamiliesManager({
           }
         />
 
+        {deletingFamily &&
+        !families.some(
+          (family) =>
+            family.id ===
+            deletingFamily.id
+        ) ? (
+          <div className="mx-4 mt-3 flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-950 sm:mx-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 font-bold">
+              {t(
+                deleteCommandPending
+                  ? "products.familyDeletePendingNamed"
+                  : "products.familyDeleteQuestionNamed",
+                {
+                  name:
+                    deletingFamily.name,
+                }
+              )}
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                disabled={
+                  deleteFamilyMutation.isPending ||
+                  deleteCommandBlocked ||
+                  !isOnline
+                }
+                onClick={() =>
+                  deleteFamilyMutation.mutate()
+                }
+                className="inline-flex h-8 items-center justify-center rounded-lg bg-rose-600 px-3 text-[11px] font-black text-white transition hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-40"
+              >
+                {t(
+                  deleteCommandPending
+                    ? "products.retryFamilyDelete"
+                    : "products.familyDeleteConfirm"
+                )}
+              </button>
+              <button
+                type="button"
+                disabled={
+                  deleteFamilyMutation.isPending ||
+                  deleteCommandPending ||
+                  deleteCommandBlocked
+                }
+                onClick={
+                  cancelFamilyDelete
+                }
+                className="inline-flex h-8 items-center justify-center rounded-lg border border-amber-300 bg-white px-3 text-[11px] font-black text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-40"
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <ProductFamiliesList
           families={families}
           loading={
@@ -844,6 +1216,9 @@ export function ProductFamiliesManager({
             familiesQuery.isFetching
           }
           search={search}
+          startIndex={
+            history.length * 50
+          }
           hasPrevious={
             history.length > 0
           }
@@ -867,6 +1242,19 @@ export function ProductFamiliesManager({
           updatePending={
             updateFamilyMutation.isPending
           }
+          deletingFamilyId={
+            deletingFamily?.id ??
+            null
+          }
+          deletePending={
+            deleteFamilyMutation.isPending
+          }
+          deleteCommandPending={
+            deleteCommandPending
+          }
+          deleteCommandBlocked={
+            deleteCommandBlocked
+          }
           online={isOnline}
           onRetry={() =>
             void familiesQuery.refetch()
@@ -884,6 +1272,15 @@ export function ProductFamiliesManager({
           }
           onCancelEdit={
             cancelFamilyEditor
+          }
+          onDeleteRequest={
+            requestFamilyDelete
+          }
+          onDeleteConfirm={() =>
+            deleteFamilyMutation.mutate()
+          }
+          onDeleteCancel={
+            cancelFamilyDelete
           }
           onPrevious={
             goToPreviousFamilyPage
