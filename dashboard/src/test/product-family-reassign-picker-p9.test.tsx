@@ -101,30 +101,6 @@ vi.mock(
 );
 
 vi.mock(
-  "@/components/ui/popover",
-  () => ({
-    Popover: ({
-      children,
-    }: {
-      children:
-        React.ReactNode;
-    }) => <div>{children}</div>,
-    PopoverTrigger: ({
-      children,
-    }: {
-      children:
-        React.ReactNode;
-    }) => <>{children}</>,
-    PopoverContent: ({
-      children,
-    }: {
-      children:
-        React.ReactNode;
-    }) => <div>{children}</div>,
-  }),
-);
-
-vi.mock(
   "@/lib/durableOperations",
   async (importOriginal) => {
     const actual =
@@ -301,14 +277,19 @@ describe(
 
       fireEvent.click(option);
 
-      expect(
-        screen.getByRole(
-          "button",
-          {
-            name: /Snacks/,
-          },
-        ),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(
+          screen.getByRole(
+            "option",
+            {
+              name: /Snacks/,
+            },
+          ),
+        ).toHaveAttribute(
+          "aria-selected",
+          "true",
+        );
+      });
     });
   },
 );
