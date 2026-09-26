@@ -58,6 +58,15 @@ describe("Products P9.4 Families workspace", () => {
     expect(manager).toContain(
       '"family-rename"',
     );
+    expect(manager).toContain(
+      '"family-delete"',
+    );
+    expect(manager).toContain(
+      "parseProductFamilyDelete(",
+    );
+    expect(manager).toContain(
+      "SIMPLE_PRODUCT_FAMILY_NOT_EMPTY",
+    );
   });
 
   it("separates family search from creation in one compact accessible toolbar", () => {
@@ -82,6 +91,27 @@ describe("Products P9.4 Families workspace", () => {
     );
     expect(toolbar).toContain(
       '"products.newFamilyPlaceholder"',
+    );
+    expect(toolbar).toContain(
+      "<form",
+    );
+    expect(toolbar).toContain(
+      "onSubmit={(event)",
+    );
+    expect(toolbar).toContain(
+      'type="submit"',
+    );
+    expect(toolbar).toContain(
+      '"products.clearFamilyName"',
+    );
+    expect(
+      toolbar.indexOf(
+        '"products.newFamilyTitle"',
+      ),
+    ).toBeLessThan(
+      toolbar.indexOf(
+        '"products.familySearchPlaceholder"',
+      ),
     );
     expect(toolbar).toContain(
       "product-family-name-error",
@@ -119,6 +149,21 @@ describe("Products P9.4 Families workspace", () => {
     );
     expect(row).toContain(
       "family.variant_count",
+    );
+    expect(row).toContain(
+      "ordinal",
+    );
+    expect(row).not.toContain(
+      "<FolderTree",
+    );
+    expect(row).toContain(
+      "<Trash2",
+    );
+    expect(row).toContain(
+      'event.key === "Enter"',
+    );
+    expect(row).toContain(
+      'event.key === "Escape"',
     );
   });
 
