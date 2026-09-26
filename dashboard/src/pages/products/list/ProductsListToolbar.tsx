@@ -1,7 +1,6 @@
 import {
   ListFilter,
   Search,
-  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -11,7 +10,6 @@ type Props = {
   hasActiveControls: boolean;
   onSearchInputChange: (value: string) => void;
   onToggleFilters: () => void;
-  onClearControls: () => void;
 };
 
 export function ProductsListToolbar({
@@ -20,7 +18,6 @@ export function ProductsListToolbar({
   hasActiveControls,
   onSearchInputChange,
   onToggleFilters,
-  onClearControls,
 }: Props) {
   const { t } = useTranslation();
 
@@ -48,19 +45,6 @@ export function ProductsListToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        {hasActiveControls ? (
-          <button
-            type="button"
-            onClick={onClearControls}
-            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-black text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-          >
-            <X className="h-3.5 w-3.5" />
-            {t(
-              "products.filters.clear"
-            )}
-          </button>
-        ) : null}
-
         <button
           type="button"
           onClick={onToggleFilters}
