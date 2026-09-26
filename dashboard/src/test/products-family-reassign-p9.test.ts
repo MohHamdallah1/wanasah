@@ -98,6 +98,9 @@ describe("Products P9 family reassignment", () => {
     const drawer = source(
       "../pages/products/detail/ProductDetailDrawer.tsx",
     );
+    const actionMenu = source(
+      "../pages/products/detail/ProductDetailActionsMenu.tsx",
+    );
     const workflow = source(
       "../pages/products/detail/useProductDetailWorkflow.ts",
     );
@@ -109,6 +112,9 @@ describe("Products P9 family reassignment", () => {
       "canReassignFamily",
     );
     expect(drawer).toContain(
+      "canReassignFamily",
+    );
+    expect(actionMenu).toContain(
       '"products.familyReassign.action"',
     );
     expect(workflow).toContain(
