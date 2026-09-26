@@ -70,6 +70,10 @@ def static_checks() -> None:
         ROOT
         / "dashboard/src/pages/products/import/ImportProductModal.tsx"
     ).read_text(encoding="utf-8")
+    import_mapping = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductMappingPanel.tsx"
+    ).read_text(encoding="utf-8")
     import_polling = (
         ROOT
         / "dashboard/src/pages/products/import/useImportProductPolling.ts"
@@ -79,6 +83,7 @@ def static_checks() -> None:
         / "dashboard/src/pages/products/import/createImportDownloads.ts"
     ).read_text(encoding="utf-8")
     modal_compact = " ".join(import_modal.split())
+    mapping_compact = " ".join(import_mapping.split())
     polling_compact = " ".join(import_polling.split())
     translations = (
         ROOT / "dashboard/src/i18n/resources.ts"
@@ -112,7 +117,9 @@ def static_checks() -> None:
         '"NEEDS_MAPPING"' in modal_compact
         and "status.suggested_mapping" in import_polling
         and "status.column_mapping" in import_polling
-        and "status.detected_headers.map" in import_modal,
+        and "IMPORT_MAPPING_FIELDS.map" in import_mapping
+        and "detectedHeaders.map" in import_mapping
+        and "onMappingChange" in import_mapping,
         "explicit mapping UI remains the authoritative fallback",
     )
 
