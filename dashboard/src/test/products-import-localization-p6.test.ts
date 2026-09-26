@@ -74,9 +74,9 @@ describe(
           "../pages/products/ProductsPage.tsx",
         ),
       );
-      const importModal = compact(
+      const mappingPanel = compact(
         readSource(
-          "../pages/products/import/ImportProductModal.tsx",
+          "../pages/products/import/ImportProductMappingPanel.tsx",
         ),
       );
       const importPolling = compact(
@@ -99,13 +99,13 @@ describe(
       expect(importPolling).toContain(
         "status.suggested_mapping",
       );
-      expect(importModal).toContain(
-        "status.detected_headers.map",
+      expect(mappingPanel).toContain(
+        "detectedHeaders.map",
       );
       expect(importCommands).toMatch(
         /const updateMapping = \( field: string, value: string, \) => setMapping\( \(current\) => \(\{ \.\.\.current, \[field\]: value,/,
       );
-      expect(importModal).toContain(
+      expect(mappingPanel).toContain(
         "onMappingChange( field, event.target.value )",
       );
     });
