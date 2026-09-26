@@ -279,12 +279,6 @@ export function useProductTrackingWorkflow({
                 trackingDefaultsLot,
               expiryControlMode:
                 trackingDefaultsExpiry,
-              lotControlSource:
-                defaults
-                  .lot_control_source,
-              expiryControlSource:
-                defaults
-                  .expiry_control_source,
               saving:
                 trackingDefaultsMutation
                   .isPending,
