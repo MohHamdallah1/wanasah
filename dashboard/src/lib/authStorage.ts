@@ -28,6 +28,25 @@ export const rememberLastCompanyCode = (
   );
 };
 
+export const readAccessTokenIfRefreshAdvanced = (
+  attemptedRefreshToken: string,
+): string | null => {
+  const currentRefresh =
+    localStorage.getItem("refresh_token");
+  const currentAccess =
+    localStorage.getItem("admin_token");
+
+  if (
+    !currentRefresh ||
+    !currentAccess ||
+    currentRefresh === attemptedRefreshToken
+  ) {
+    return null;
+  }
+
+  return currentAccess;
+};
+
 export const clearLocalStoragePreservingLoginHintsAndPreferences =
   (): void => {
     const lastCompanyCode =
