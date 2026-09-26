@@ -21,11 +21,16 @@ const focusableWithin = (
     ),
   );
 
+type DialogInitialFocusRef = {
+  readonly current: HTMLElement | null;
+};
+
 export function useDialogFocusTrap<
   T extends HTMLElement,
 >(
   open: boolean,
   onClose: () => void,
+  initialFocusRef?: DialogInitialFocusRef,
 ) {
   const containerRef =
     useRef<T | null>(null);
@@ -53,6 +58,21 @@ export function useDialogFocusTrap<
         : null;
 
     const focusInitial = () => {
+      const preferred =
+        initialFocusRef?.current;
+      if (
+        preferred &&
+        container.contains(
+          preferred
+        ) &&
+        !preferred.hasAttribute(
+          "disabled"
+        )
+      ) {
+        preferred.focus();
+        return;
+      }
+
       const first =
         focusableWithin(container)[0] ??
         container;
@@ -133,7 +153,10 @@ export function useDialogFocusTrap<
         );
       }
     };
-  }, [open]);
+  }, [
+    initialFocusRef,
+    open,
+  ]);
 
   return containerRef;
 }
