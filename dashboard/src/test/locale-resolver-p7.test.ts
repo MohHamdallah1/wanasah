@@ -24,16 +24,16 @@ describe(
     it("uses app regional defaults for bare Arabic and English", () => {
       expect(
         resolveAppLocale("ar"),
-      ).toBe("ar-JO");
+      ).toBe("ar-JO-u-nu-latn");
       expect(
         resolveAppLocale("en"),
       ).toBe("en-US");
     });
 
-    it("preserves explicit regional locales", () => {
+    it("preserves explicit regional locales while using Latin digits for Arabic", () => {
       expect(
         resolveAppLocale("ar-EG"),
-      ).toBe("ar-EG");
+      ).toBe("ar-EG-u-nu-latn");
       expect(
         resolveAppLocale("en-GB"),
       ).toBe("en-GB");
