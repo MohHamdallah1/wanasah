@@ -126,15 +126,18 @@ describe(
       const page = read(
         "../pages/products/ProductsPage.tsx",
       );
-      const results = read(
-        "../pages/products/list/ProductsListResults.tsx",
+      const catalogTools = read(
+        "../pages/products/header/ProductsCatalogToolsMenu.tsx",
       );
 
       expect(page).toContain(
         "dir={i18n.dir()}",
       );
-      expect(results).toContain(
-        "rtl:rotate-180",
+      expect(catalogTools).toContain(
+        "dir={direction}",
+      );
+      expect(catalogTools).toContain(
+        "text-start",
       );
     });
 
