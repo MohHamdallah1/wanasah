@@ -261,19 +261,25 @@ describe("products tracking UI contracts", () => {
     const translations = readSource("../i18n/resources.ts");
 
     expect(translations).toContain(
-      'lotLabel: "رقم الدفعة / التشغيلة من المصنع"',
+      'lotLabel: "رقم الدفعة"',
     );
     expect(translations).toContain(
-      'expiryLabel: "تاريخ انتهاء الصلاحية"',
+      'expiryLabel: "تاريخ الصلاحية"',
     );
     expect(translations).toContain(
-      'action: "افتراضيات التتبع"',
+      'action: "إعدادات الدفعة والصلاحية"',
     );
     expect(translations).toContain(
-      'title: "افتراضيات تتبع المنتجات الجديدة"',
+      'title: "الإعدادات الافتراضية للمنتجات الجديدة"',
     );
     expect(translations).toContain(
-      "لا تغيّر أي منتج موجود",
+      "إعداد افتراضي على مستوى الشركة",
+    );
+    expect(translations).toContain(
+      "لا تغيّر المنتجات الموجودة",
+    );
+    expect(translations).toContain(
+      "يمكن تخصيصها لمنتج واحد أثناء إضافته",
     );
     expect(translations).toContain(
       "PRODUCT_TRACKING_LOCKED:",
