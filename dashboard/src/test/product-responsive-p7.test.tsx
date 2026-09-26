@@ -288,6 +288,12 @@ describe(
         "break-all",
       );
       expect(card).toContain(
+        "<ProductRowActions",
+      );
+      expect(card).toContain(
+        "grid grid-cols-2",
+      );
+      expect(card).not.toContain(
         "min-[360px]:grid-cols-2",
       );
 
@@ -341,7 +347,7 @@ describe(
           "button",
           {
             name:
-              "LONG_TRANSLATED_LABEL_products.trackingEditor.action_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+              "LONG_TRANSLATED_LABEL_products.columns.action_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
           },
         ),
       ).toBeInTheDocument();
