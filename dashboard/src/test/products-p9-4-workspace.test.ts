@@ -21,6 +21,9 @@ describe("Products P9.4 workspace foundation", () => {
     const header = read(
       "../pages/products/ProductsPageHeader.tsx",
     );
+    const topBarStyles = read(
+      "../components/dashboard/WorkspaceTopBar.css",
+    );
     const tools = read(
       "../pages/products/header/ProductsCatalogToolsMenu.tsx",
     );
@@ -95,6 +98,15 @@ describe("Products P9.4 workspace foundation", () => {
     );
     expect(header).toContain(
       'className="shrink-0"',
+    );
+    expect(header).not.toContain(
+      "<Boxes",
+    );
+    expect(topBarStyles).toContain(
+      ".workspace-top-bar:dir(rtl)",
+    );
+    expect(topBarStyles).not.toContain(
+      "inset 0 1px",
     );
 
     const page = read(
