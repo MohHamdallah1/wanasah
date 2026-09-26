@@ -221,6 +221,46 @@ export function useProductsListWorkflow({
           setSearchInput,
         onToggleFilters:
           toggleFilters,
+      },
+      activeFilters: {
+        familyFilterId,
+        familyFilterName,
+        lifecycleFilter,
+        trackingTypeFilter,
+        compatibilityFilter,
+        barcodeFilter,
+        canViewPricing,
+        priceFilter,
+        lotFilter,
+        expiryFilter,
+        sortBy,
+        sortDir,
+        defaultSortBy:
+          displayPreferences.defaultSort
+            .field,
+        defaultSortDir:
+          displayPreferences.defaultSort
+            .direction,
+        onFamilyFilterChange:
+          selectFamily,
+        onLifecycleFilterChange:
+          updateLifecycleFilter,
+        onTrackingTypeFilterChange:
+          updateTrackingTypeFilter,
+        onCompatibilityFilterChange:
+          updateCompatibilityFilter,
+        onBarcodeFilterChange:
+          updateBarcodeFilter,
+        onPriceFilterChange:
+          updatePriceFilter,
+        onLotFilterChange:
+          updateLotFilter,
+        onExpiryFilterChange:
+          updateExpiryFilter,
+        onSortByChange:
+          updateSortBy,
+        onSortDirChange:
+          updateSortDir,
         onClearControls:
           clearControls,
       },
