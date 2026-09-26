@@ -96,16 +96,13 @@ const baseProps = {
   density:
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.density,
   tableHeaderSpacing: "px-4 py-2",
-  tableColumnCount: 10,
-  hasPrevious: false,
   hasNext: false,
   onRetry: vi.fn(),
   onClearCriteria: vi.fn(),
   onOpenDetails: vi.fn(),
   onEditPrice: vi.fn(),
   onEditTracking: vi.fn(),
-  onPrevious: vi.fn(),
-  onNext: vi.fn(),
+  onLoadMore: vi.fn(),
 };
 
 describe(
@@ -222,7 +219,7 @@ describe(
       ).toBeInTheDocument();
     });
 
-    it("keeps cached rows visible offline but blocks new pagination", () => {
+    it("keeps cached rows visible offline without exposing pager controls", () => {
       render(
         <ProductsListResults
           {...baseProps}
@@ -243,13 +240,16 @@ describe(
         ),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole(
+        screen.queryByRole(
           "button",
           {
             name: "products.familyNext",
           },
         ),
-      ).toBeDisabled();
+      ).not.toBeInTheDocument();
+      expect(
+        baseProps.onLoadMore,
+      ).not.toHaveBeenCalled();
     });
 
     it("fails closed on a permission denial instead of showing stale Product rows", () => {
