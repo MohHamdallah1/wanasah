@@ -74,7 +74,7 @@ export function ProductsListResults({
   return (
     <>
       {isNarrowViewport ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 p-2">
           {isLoading ? (
             <div className="py-12 text-center text-sm font-bold text-slate-400">
               {t("common.loading")}
@@ -124,7 +124,7 @@ export function ProductsListResults({
           {!isLoading &&
           !isError &&
           items.length ? (
-            <div className="space-y-3">
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
               {items.map(
                 (item) => (
                   <ProductMobileCard
