@@ -92,8 +92,11 @@ describe("Products P9 family reassignment", () => {
     expect(dialog).toContain(
       '"products.familyReassign.historyHint"',
     );
-    expect(dialog).toContain(
+    expect(dialog).not.toContain(
       "subtitle={t(",
+    );
+    expect(dialog).toContain(
+      'className="shrink-0 border-b border-slate-100 px-4 py-2 text-[11px]',
     );
     expect(dialog).toContain(
       "initialFocusRef={ searchInputRef }",
@@ -102,7 +105,10 @@ describe("Products P9 family reassignment", () => {
       "onKeyDownCapture={(event)",
     );
     expect(dialog).toContain(
-      "bg-amber-100",
+      "bg-accent text-accent-foreground",
+    );
+    expect(dialog).toContain(
+      "linear-gradient(135deg,#142945_0%,#112640_48%,#0c192c_100%)",
     );
     expect(dialog).not.toContain(
       "bg-slate-950 text-white aria-selected:bg-slate-950",
