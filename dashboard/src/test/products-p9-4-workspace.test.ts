@@ -1,0 +1,121 @@
+import {
+  readFileSync,
+} from "node:fs";
+import {
+  describe,
+  expect,
+  it,
+} from "vitest";
+
+const read = (relativePath: string) =>
+  readFileSync(
+    new URL(
+      relativePath,
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+describe("Products P9.4 workspace foundation", () => {
+  it("keeps one primary Product action and moves secondary catalog actions behind one tools surface", () => {
+    const header = read(
+      "../pages/products/ProductsPageHeader.tsx",
+    );
+    const tools = read(
+      "../pages/products/header/ProductsCatalogToolsMenu.tsx",
+    );
+
+    expect(header).toContain(
+      "<ProductsCatalogToolsMenu",
+    );
+    expect(header).toContain(
+      "bg-amber-400",
+    );
+    expect(header).toContain(
+      "onOpenCreateProduct",
+    );
+    expect(header).not.toContain(
+      "onClick={onOpenImport}",
+    );
+    expect(header).not.toContain(
+      "onClick={onOpenFamilies}",
+    );
+
+    expect(tools).toContain(
+      "onSelect={onOpenDisplayPreferences}",
+    );
+    expect(tools).toContain(
+      "onSelect={onOpenFamilies}",
+    );
+    expect(tools).toContain(
+      "onSelect={onOpenImport}",
+    );
+    expect(tools).toContain(
+      "onSelect={onOpenTrackingDefaults}",
+    );
+    expect(tools).toContain(
+      "onSelect={onOpenAdvancedUom}",
+    );
+    expect(tools).toContain(
+      "<DropdownMenuItem",
+    );
+    expect(tools).toContain(
+      "disabled",
+    );
+    expect(tools).toContain(
+      '"products.advancedPricing"',
+    );
+  });
+
+  it("uses a dense workspace surface instead of stacked glass cards", () => {
+    const header = read(
+      "../pages/products/ProductsPageHeader.tsx",
+    );
+    const section = read(
+      "../pages/products/list/ProductsListSection.tsx",
+    );
+    const toolbar = read(
+      "../pages/products/list/ProductsListToolbar.tsx",
+    );
+
+    expect(header).not.toContain(
+      "backdrop-blur-xl",
+    );
+    expect(header).not.toContain(
+      "rounded-[26px]",
+    );
+    expect(section).not.toContain(
+      "backdrop-blur-xl",
+    );
+    expect(section).toContain(
+      "rounded-2xl",
+    );
+    expect(toolbar).toContain(
+      "relative min-w-0 flex-1",
+    );
+    expect(toolbar).not.toContain(
+      "sm:max-w-md",
+    );
+    expect(toolbar).toContain(
+      'aria-pressed={filtersOpen}',
+    );
+  });
+
+  it("keeps the new command hierarchy translated in Arabic and English", () => {
+    const translations = read(
+      "../i18n/resources.ts",
+    );
+
+    expect(
+      translations.match(
+        /catalogTools:/g,
+      ),
+    ).toHaveLength(2);
+    expect(translations).toContain(
+      'catalogTools: "أدوات الكتالوج"',
+    );
+    expect(translations).toContain(
+      'catalogTools: "Catalog tools"',
+    );
+  });
+});
