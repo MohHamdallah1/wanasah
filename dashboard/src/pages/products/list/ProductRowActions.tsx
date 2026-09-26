@@ -76,6 +76,7 @@ export function ProductRowActions({
       <DropdownMenuContent
         dir={direction}
         align="end"
+        loop
         className="w-52 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
       >
         <DropdownMenuItem
@@ -107,9 +108,15 @@ export function ProductRowActions({
 
         {familyReassignAllowed ? (
           <DropdownMenuItem
-            onSelect={() =>
-              onReassignFamily(item)
-            }
+            onSelect={() => {
+              window.setTimeout(
+                () =>
+                  onReassignFamily(
+                    item
+                  ),
+                0,
+              );
+            }}
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <FolderTree className="h-4 w-4 shrink-0 text-slate-400" />
