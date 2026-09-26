@@ -196,7 +196,10 @@ describe("Products P3 detail foundation", () => {
       "isError: productsQuery.isError",
     );
     expect(listWorkflow).toContain(
-      "items: page?.items ?? []",
+      "items: accumulatedItems",
+    );
+    expect(listWorkflow).toContain(
+      "useProductsInfiniteRows",
     );
     expect(listWorkflow).toContain(
       "void productsQuery.refetch()",
