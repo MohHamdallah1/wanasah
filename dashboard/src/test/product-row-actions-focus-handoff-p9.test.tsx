@@ -16,7 +16,6 @@ import {
   afterAll,
   afterEach,
   beforeAll,
-  beforeEach,
   describe,
   expect,
   it,
@@ -169,10 +168,6 @@ describe(
   () => {
     const originalResizeObserver =
       globalThis.ResizeObserver;
-    const originalRaf =
-      window.requestAnimationFrame;
-    const originalCancelRaf =
-      window.cancelAnimationFrame;
 
     beforeAll(() => {
       class ResizeObserverMock {
@@ -188,27 +183,6 @@ describe(
     afterAll(() => {
       globalThis.ResizeObserver =
         originalResizeObserver;
-      window.requestAnimationFrame =
-        originalRaf;
-      window.cancelAnimationFrame =
-        originalCancelRaf;
-    });
-
-    beforeEach(() => {
-      window.requestAnimationFrame = (
-        callback: FrameRequestCallback,
-      ) =>
-        window.setTimeout(
-          () =>
-            callback(
-              performance.now(),
-            ),
-          0,
-        ) as unknown as number;
-      window.cancelAnimationFrame = (
-        id: number,
-      ) =>
-        window.clearTimeout(id);
     });
 
     afterEach(() => {
@@ -251,11 +225,11 @@ describe(
             },
           );
         trigger.focus();
-        fireEvent.keyDown(
+        fireEvent.pointerDown(
           trigger,
           {
-            key: "Enter",
-            code: "Enter",
+            button: 0,
+            ctrlKey: false,
           },
         );
 
