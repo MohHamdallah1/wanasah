@@ -1,4 +1,5 @@
 import type {
+  HTMLAttributes,
   ReactNode,
 } from "react";
 
@@ -8,24 +9,32 @@ type WorkspaceTopBarVariant =
   | "dock"
   | "page";
 
-type Props = {
+type Props = Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "children"
+> & {
   children: ReactNode;
   variant?: WorkspaceTopBarVariant;
-  className?: string;
 };
 
 export function WorkspaceTopBar({
   children,
   variant = "page",
   className = "",
+  ...frameProps
 }: Props) {
   return (
     <div
-      className={`workspace-top-bar workspace-top-bar--${variant}${
+      {...frameProps}
+      className={`workspace-top-bar-frame${
         className ? ` ${className}` : ""
       }`}
     >
-      {children}
+      <div
+        className={`workspace-top-bar workspace-top-bar--${variant}`}
+      >
+        {children}
+      </div>
     </div>
   );
 }
