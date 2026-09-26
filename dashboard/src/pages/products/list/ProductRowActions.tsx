@@ -84,9 +84,7 @@ export function ProductRowActions({
 
     pendingActionRef.current =
       null;
-    window.requestAnimationFrame(
-      action,
-    );
+    queueMicrotask(action);
   };
 
   return (
