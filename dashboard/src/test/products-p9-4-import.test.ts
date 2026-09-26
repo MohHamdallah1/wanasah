@@ -176,7 +176,7 @@ describe("Products P9.4 import workflow", () => {
       "sessionStorage.getItem",
     );
     expect(commands).toContain(
-      '"/retry"',
+      "/simple-products/imports/${importJobId}/retry",
     );
     expect(downloads).toContain(
       "limit=1000",
