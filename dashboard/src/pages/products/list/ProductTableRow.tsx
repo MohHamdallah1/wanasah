@@ -5,6 +5,7 @@ import {
 } from "@/lib/locale";
 import {
   formatLocaleDecimal,
+  formatLocaleMoney,
 } from "@/lib/localeNumbers";
 import {
   DEFAULT_PRODUCT_DISPLAY_PREFERENCES,
@@ -18,6 +19,7 @@ import { ProductRowActions } from "@/pages/products/list/ProductRowActions";
 
 type Props = {
   item: SimpleProduct;
+  rowNumber: number;
   pricingVisible: boolean;
   canEditPrice: boolean;
   canEditTracking: boolean;
@@ -39,6 +41,7 @@ type Props = {
 
 export function ProductTableRow({
   item,
+  rowNumber,
   pricingVisible,
   canEditPrice,
   canEditTracking,
@@ -60,18 +63,6 @@ export function ProductTableRow({
     density === "compact"
       ? "px-4 py-2.5"
       : "px-4 py-3";
-
-  const formatMoney = (
-    value: string | null,
-  ) =>
-    value === null
-      ? "—"
-      : formatLocaleDecimal(
-          value,
-          locale,
-          3,
-          6,
-        );
 
   const formatPackageUnits = (
     value: number | null,
@@ -95,6 +86,17 @@ export function ProductTableRow({
 
   return (
     <tr className="group bg-white transition-colors hover:bg-slate-50/80">
+      <td className={`${cellSpacing} w-12 text-center`}>
+        <span className="inline-flex min-w-7 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-1.5 py-1 text-[10px] font-black tabular-nums text-slate-500">
+          {formatLocaleDecimal(
+            String(rowNumber),
+            locale,
+            0,
+            0,
+          )}
+        </span>
+      </td>
+
       <td className={cellSpacing}>
         <button
           type="button"
@@ -109,12 +111,12 @@ export function ProductTableRow({
           <span className="block break-words text-[13px] font-black leading-5 text-slate-950 transition group-hover:text-slate-700">
             {item.name}
           </span>
-          <span className="mt-0.5 block break-all font-mono text-[10px] font-semibold leading-4 text-slate-400">
-            {t(
-              "products.fields.sku",
-            )}
-            : {item.sku}
-          </span>
+          {item.family_name !==
+          item.name ? (
+            <span className="mt-0.5 block break-words text-[10px] font-bold leading-4 text-slate-500">
+              {item.family_name}
+            </span>
+          ) : null}
         </button>
       </td>
 
@@ -207,9 +209,11 @@ export function ProductTableRow({
       visibleColumns.packagePrice ? (
         <td className={`${cellSpacing} text-center text-xs font-black tabular-nums text-slate-900`}>
           {item.package_uom_code
-            ? `${formatMoney(
+            ? formatLocaleMoney(
                 item.package_price,
-              )} ${item.currency_code}`
+                item.currency_code,
+                locale,
+              )
             : "—"}
         </td>
       ) : null}
@@ -217,10 +221,11 @@ export function ProductTableRow({
       {pricingVisible &&
       visibleColumns.unitPrice ? (
         <td className={`${cellSpacing} text-center text-xs font-black tabular-nums text-slate-900`}>
-          {formatMoney(
+          {formatLocaleMoney(
             item.unit_price,
-          )}{" "}
-          {item.currency_code}
+            item.currency_code,
+            locale,
+          )}
         </td>
       ) : null}
 
