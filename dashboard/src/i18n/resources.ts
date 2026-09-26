@@ -266,7 +266,7 @@ export const resources = {
           action: "نقل إلى عائلة أخرى",
           title: "تغيير عائلة المنتج",
           description:
-            "اختر عائلة موجودة لهذا المنتج. الخادم يسمح بالنقل فقط عندما تكون حالة المنتج مناسبة ولا يوجد سجل دفعات يمنع تغيير الهوية.",
+            "اختر العائلة الجديدة من القائمة، أو ابحث باسمها داخل نفس القائمة.",
           current: "العائلة الحالية",
           search: "البحث عن عائلة",
           searchPlaceholder:
@@ -278,7 +278,7 @@ export const resources = {
           retry: "إعادة إرسال نفس النقل",
           saved: "تم تحديث عائلة المنتج.",
           historyHint:
-            "لن يتم تجاوز التاريخ التشغيلي: إذا كان للمنتج سجل دفعات أو كانت حالته لا تسمح بالتغيير فسيمنع الخادم العملية.",
+            "يمكن تغيير العائلة فقط إذا كانت حالة المنتج نشط أو قيد التقاعد، ولم تُسجَّل له أي دفعة مخزون من قبل.",
           pendingRetry:
             "نتيجة المحاولة السابقة غير مؤكدة. تم قفل الاختيار لحماية العملية؛ أعد إرسال نفس النقل.",
           pendingBlocked:
@@ -1771,7 +1771,7 @@ export const resources = {
           action: "Move to another family",
           title: "Change product family",
           description:
-            "Choose an existing family for this product. The server allows the move only when the product lifecycle permits it and no batch history locks the identity.",
+            "Choose the new family from the list, or search for it by name inside the same list.",
           current: "Current family",
           search: "Search families",
           searchPlaceholder:
@@ -1783,7 +1783,7 @@ export const resources = {
           retry: "Retry the same move",
           saved: "Product family updated.",
           historyHint:
-            "Operational history is never bypassed: the server blocks this change when batch history exists or the current lifecycle does not allow it.",
+            "The family can be changed only while the product is Active or Retiring and before any inventory batch has ever been recorded for it.",
           pendingRetry:
             "The previous result is uncertain. The family selection is locked for safety; retry the exact same move.",
           pendingBlocked:
