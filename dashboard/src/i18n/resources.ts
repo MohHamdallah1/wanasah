@@ -453,6 +453,22 @@ export const resources = {
           "يوجد طلب عائلة سابق لم تُحسم نتيجته. أعد إرسال نفس الطلب لتسويته بأمان.",
         familyPendingBlocked:
           "تعذر التحقق من طلب العائلة المعلّق. تم إيقاف إرسال طلب جديد حتى تتم تسويته بدون مخاطرة التكرار.",
+        clearFamilyName: "مسح اسم العائلة",
+        deleteFamily: "حذف العائلة",
+        familyDeleteConfirm: "حذف نهائي",
+        retryFamilyDelete: "إعادة محاولة الحذف",
+        familyDeleteQuestion: "حذف هذه العائلة نهائياً؟",
+        familyDeleteQuestionNamed:
+          "حذف العائلة «{{name}}» نهائياً؟",
+        familyDeleteBlocked:
+          "لا يمكن حذف العائلة ما دام فيها منتجات. انقل المنتجات إلى عائلة أخرى أولاً.",
+        familyDeletePending:
+          "نتيجة حذف العائلة غير محسومة. أعد محاولة نفس الحذف بأمان.",
+        familyDeletePendingNamed:
+          "نتيجة حذف العائلة «{{name}}» غير محسومة. أعد محاولة نفس الحذف بأمان.",
+        familyDeletePendingBlocked:
+          "تعذر التحقق من طلب حذف العائلة المعلّق. تم إيقاف الحذف حتى تتم تسويته بدون مخاطرة.",
+        familyDeleted: "تم حذف العائلة نهائياً.",
         importTitle: "استيراد المنتجات",
         importStages: {
           label: "مراحل الاستيراد",
@@ -652,6 +668,8 @@ export const resources = {
             "تعذر تحديث الأسعار.",
           familyFailed:
             "تعذر حفظ العائلة.",
+          familyDeleteFailed:
+            "تعذر حذف العائلة.",
           importFailed:
             "تعذر رفع ملف الاستيراد.",
           trackingDefaultsLoad:
@@ -1277,6 +1295,7 @@ export const resources = {
           SIMPLE_PRODUCT_UOM_SHAPE_UNSUPPORTED: "تركيب وحدات هذا المنتج متقدم ولا يمكن تعديله بأمان من المسار المبسط.",
           SIMPLE_PRODUCT_EMPTY: "لم يتم تقديم أي منتج للعملية.",
           SIMPLE_PRODUCT_FAMILY_NOT_FOUND: "عائلة المنتج غير موجودة.",
+          SIMPLE_PRODUCT_FAMILY_NOT_EMPTY: "لا يمكن حذف عائلة تحتوي على منتجات.",
           SIMPLE_PRODUCT_FAMILY_AMBIGUOUS: "اختر عائلة موجودة أو أدخل عائلة جديدة، وليس الاثنين معاً.",
           SIMPLE_PRODUCT_FAMILY_NAME_AMBIGUOUS: "يوجد أكثر من عائلة بالاسم نفسه. اختر العائلة من القائمة.",
           SIMPLE_PRODUCT_FAMILY_CONFLICT: "تعذر حفظ عائلة المنتج بسبب تعارض في البيانات.",
@@ -1938,6 +1957,22 @@ export const resources = {
           "A previous family request has an unknown outcome. Retry the exact same request to reconcile it safely.",
         familyPendingBlocked:
           "The pending family request could not be verified. New submission is blocked until it can be reconciled without duplication risk.",
+        clearFamilyName: "Clear family name",
+        deleteFamily: "Delete family",
+        familyDeleteConfirm: "Delete permanently",
+        retryFamilyDelete: "Retry deletion",
+        familyDeleteQuestion: "Delete this family permanently?",
+        familyDeleteQuestionNamed:
+          "Delete family “{{name}}” permanently?",
+        familyDeleteBlocked:
+          "This family cannot be deleted while it contains products. Move the products to another family first.",
+        familyDeletePending:
+          "The family deletion has an unknown outcome. Retry the exact same deletion safely.",
+        familyDeletePendingNamed:
+          "Deleting family “{{name}}” has an unknown outcome. Retry the exact same deletion safely.",
+        familyDeletePendingBlocked:
+          "The pending family deletion could not be verified. Deletion is blocked until it can be reconciled safely.",
+        familyDeleted: "Family deleted permanently.",
         importTitle: "Import products",
         importStages: {
           label: "Import stages",
@@ -2135,6 +2170,8 @@ export const resources = {
             "Could not update prices.",
           familyFailed:
             "Could not save the family.",
+          familyDeleteFailed:
+            "Could not delete the family.",
           importFailed:
             "Could not upload the import file.",
           trackingDefaultsLoad:
@@ -2761,6 +2798,7 @@ export const resources = {
           SIMPLE_PRODUCT_UOM_SHAPE_UNSUPPORTED: "This product uses an advanced UOM structure that cannot be edited safely in the simple workflow.",
           SIMPLE_PRODUCT_EMPTY: "No product was provided for this operation.",
           SIMPLE_PRODUCT_FAMILY_NOT_FOUND: "The product family was not found.",
+          SIMPLE_PRODUCT_FAMILY_NOT_EMPTY: "A family containing products cannot be deleted.",
           SIMPLE_PRODUCT_FAMILY_AMBIGUOUS: "Choose an existing family or enter a new family, not both.",
           SIMPLE_PRODUCT_FAMILY_NAME_AMBIGUOUS: "More than one family has this name. Select the family from the list.",
           SIMPLE_PRODUCT_FAMILY_CONFLICT: "The product family could not be saved because of a data conflict.",
@@ -2924,6 +2962,8 @@ export const resources = {
             "The saved pending command on this device could not be verified. The operation was blocked to prevent a duplicate until it is reconciled.",
           PRODUCT_FAMILY_MUTATION_RESPONSE_INVALID:
             "An unexpected response was received after saving the family. The command remains pending to prevent a duplicate until it is reconciled.",
+          PRODUCT_FAMILY_DELETE_RESPONSE_INVALID:
+            "An unexpected response was received after deleting the family. The deletion remains pending until it is reconciled safely.",
           INVALID_SERVER_RESPONSE:
             "The server returned an invalid response.",
           SIMPLE_PRODUCT_PRICE_REQUIRED:
