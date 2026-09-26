@@ -24,11 +24,9 @@ Use these markers only:
 3. regression review is complete,
 4. Git diff is clean and intentional.
 
-**Execution-status source of truth:** Section **53 — Recommended execution order** is the canonical phase tracker (P0–P8).
+**Execution-status source of truth:** Section **53 — Recommended execution order** records the closed P0–P8 phases. Section **54 — Products page completion — P9** is the canonical tracker for the active final Products close-out.
 
-Sections **4–52** are the detailed requirements, design constraints, audit observations, and release criteria. Their checkboxes are not separate execution phases and may intentionally repeat the same requirement in more than one context. During each phase close-out, synchronize only the detailed items that were actually verified; never infer completion from duplication alone.
-
-Section **54 — Immediate next task** must always point to the next open phase in Section 53.
+Sections **4–52** are detailed requirements, design constraints, audit observations, and release criteria. During close-out, duplicated historical requirements are reconciled so the active checklist does not carry stale or repeated blockers.
 
 ---
 
@@ -1461,7 +1459,7 @@ Reference: `docs/products/PRODUCTS_P9_BEHAVIOR_BASELINE.md`
 - First successful Inbound to a selected warehouse lazily creates only missing Product-location rows with default operational flags. Existing explicit flags are never overwritten; the helper uses the tenant-safe unique assignment constraint and emits `ProductLocationAssigned` audit/outbox evidence with reason `AUTO_FIRST_INBOUND`.
 - The Inbound workflow checks exact warehouse permission before lazy assignment, excludes system-managed/inactive targets, keeps Product lookup company-scoped, and fails closed on missing/cross-tenant Products.
 - Product-location delete remains history-safe through `product_location_delete_blockers`, location-scoped authorization, idempotency, lifecycle guards, and `expected_version`.
-- The detailed Section 46 future checkbox about displaying warehouse availability remains intentionally open: normal Products does not currently display warehouse availability/assignment, so no misleading company-vs-location availability UI is introduced.
+- Normal Products intentionally does not display warehouse availability/assignment; that warehouse-specific operational view remains owned by Inventory/Catalog and Live Stock, so the Products requirement is closed without duplicating location authority.
 - Permanent Product-location regression gate was strengthened to cover the frontend ownership boundary and granular permissions: `STAGE75_PRODUCT_LOCATION_INBOUND_GATE=PASS` — 26 checks / 0 failures.
 - The Product-location gate is now part of the aggregate Products release gate.
 - Final Dashboard verification: 36 test files / 216 tests PASS, TypeScript PASS, ESLint 0 warnings/errors, production build PASS.
