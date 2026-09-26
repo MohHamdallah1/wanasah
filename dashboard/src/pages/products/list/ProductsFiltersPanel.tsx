@@ -95,7 +95,7 @@ export function ProductsFiltersPanel({
   const { t } = useTranslation();
 
   return (
-    <div className="mt-3 grid gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-3 grid gap-x-3 gap-y-2 border-t border-slate-100 pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <label className="space-y-1">
         <span className="text-[11px] font-black text-slate-500">
           {t(
@@ -116,7 +116,7 @@ export function ProductsFiltersPanel({
           placeholder={t(
             "products.filters.familySearch"
           )}
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-slate-400"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         />
         <select
           value={familyFilterId}
@@ -125,7 +125,7 @@ export function ProductsFiltersPanel({
               event.target.value
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-slate-400"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="">
             {t(
@@ -191,7 +191,7 @@ export function ProductsFiltersPanel({
                 .value as ProductLifecycleFilter
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="">
             {t(
@@ -230,7 +230,7 @@ export function ProductsFiltersPanel({
                 .value as ProductTrackingTypeFilter
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="">
             {t(
@@ -273,7 +273,7 @@ export function ProductsFiltersPanel({
                 .value as ProductBooleanFilter
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="">
             {t(
@@ -307,7 +307,7 @@ export function ProductsFiltersPanel({
                 .value as ProductBooleanFilter
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="">
             {t(
@@ -342,7 +342,7 @@ export function ProductsFiltersPanel({
                   .value as ProductBooleanFilter
               )
             }
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
           >
             <option value="">
               {t(
@@ -377,7 +377,7 @@ export function ProductsFiltersPanel({
                 .value as ProductBooleanFilter
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="">
             {t(
@@ -411,7 +411,7 @@ export function ProductsFiltersPanel({
                 .value as ProductBooleanFilter
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="">
             {t(
@@ -445,7 +445,7 @@ export function ProductsFiltersPanel({
                 .value as ProductSortField
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           {(
             [
@@ -482,7 +482,7 @@ export function ProductsFiltersPanel({
                 .value as ProductSortDirection
             )
           }
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
           <option value="asc">
             {t(
