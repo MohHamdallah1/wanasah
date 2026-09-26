@@ -9,7 +9,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -33,6 +32,8 @@ import {
   parseProductFamilyMutation,
   type ProductFamily,
 } from "@/pages/products/contracts";
+import { ProductFamiliesList } from "@/pages/products/family/ProductFamiliesList";
+import { ProductFamiliesToolbar } from "@/pages/products/family/ProductFamiliesToolbar";
 
 type Props = {
   isOpen: boolean;
@@ -742,6 +743,37 @@ export function ProductFamiliesManager({
       }
     };
 
+  const cancelFamilyEditor = () => {
+    setEditingFamily(null);
+    setEditingFamilyName("");
+    setEditingExpectedVersion(null);
+    setRenameCommandPending(false);
+    setRenameCommandBlocked(false);
+  };
+
+  const goToPreviousFamilyPage = () => {
+    const previous =
+      history.at(-1) ?? null;
+    setHistory((current) =>
+      current.slice(0, -1)
+    );
+    setCursor(previous);
+  };
+
+  const goToNextFamilyPage = () => {
+    const next =
+      familiesQuery.data
+        ?.next_cursor;
+    if (!next) {
+      return;
+    }
+    setHistory((current) => [
+      ...current,
+      cursor,
+    ]);
+    setCursor(next);
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -756,335 +788,114 @@ export function ProductFamiliesManager({
       title={t(
         "products.familiesTitle"
       )}
-      maxWidth="max-w-2xl"
+      maxWidth="max-w-3xl"
     >
-      <div className="space-y-4">
-        <p className="rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-6 text-slate-600">
-          {t(
-            "products.familiesDescription"
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <p className="text-[11px] font-semibold leading-5 text-slate-500">
+            {t(
+              "products.familiesDescription"
+            )}
+          </p>
+        </div>
+
+        <ProductFamiliesToolbar
+          searchInput={searchInput}
+          newFamilyName={
+            newFamilyName
+          }
+          newFamilyError={
+            newFamilyError
+          }
+          createCommandPending={
+            createCommandPending
+          }
+          createCommandBlocked={
+            createCommandBlocked
+          }
+          createPending={
+            createFamilyMutation.isPending
+          }
+          online={isOnline}
+          newFamilyRef={
+            newFamilyRef
+          }
+          onSearchChange={
+            setSearchInput
+          }
+          onNewFamilyNameChange={(
+            value
+          ) => {
+            setNewFamilyName(value);
+            if (newFamilyError) {
+              setNewFamilyError(null);
+            }
+          }}
+          onCreate={
+            submitNewFamily
+          }
+        />
+
+        <ProductFamiliesList
+          families={families}
+          loading={
+            familiesQuery.isLoading
+          }
+          error={
+            familiesQuery.isError
+          }
+          fetching={
+            familiesQuery.isFetching
+          }
+          search={search}
+          hasPrevious={
+            history.length > 0
+          }
+          hasNext={Boolean(
+            familiesQuery.data
+              ?.next_cursor
           )}
-        </p>
-
-        <div className="relative">
-          <Search className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="search"
-            value={searchInput}
-            maxLength={100}
-            onChange={(
-              event
-            ) =>
-              setSearchInput(
-                event.target.value
-              )
-            }
-            placeholder={t(
-              "products.familySearchPlaceholder"
-            )}
-            aria-label={t(
-              "products.familySearchPlaceholder"
-            )}
-            className="w-full rounded-xl border border-slate-200 py-2.5 pe-10 ps-3 text-sm font-bold outline-none"
-          />
-        </div>
-
-        <div className="flex gap-2">
-          <input
-            ref={newFamilyRef}
-            value={
-              newFamilyName
-            }
-            maxLength={150}
-            disabled={
-              createCommandPending ||
-              createCommandBlocked
-            }
-            onChange={(
-              event
-            ) => {
-              setNewFamilyName(
-                event.target.value
-              );
-              if (newFamilyError) {
-                setNewFamilyError(null);
-              }
-            }}
-            placeholder={t(
-              "products.newFamilyPlaceholder"
-            )}
-            aria-label={t(
-              "products.newFamilyPlaceholder"
-            )}
-            aria-invalid={
-              newFamilyError
-                ? "true"
-                : undefined
-            }
-            aria-describedby={
-              newFamilyError
-                ? "product-family-name-error"
-                : undefined
-            }
-            className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold"
-          />
-          <button
-            type="button"
-            disabled={
-              createFamilyMutation.isPending ||
-              createCommandBlocked ||
-              !isOnline
-            }
-            onClick={submitNewFamily}
-            className="rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40"
-          >
-            {t(
-              "products.addFamily"
-            )}
-          </button>
-        </div>
-
-        {newFamilyError ? (
-          <p
-            id="product-family-name-error"
-            role="alert"
-            className="text-xs font-bold text-rose-700"
-          >
-            {newFamilyError}
-          </p>
-        ) : null}
-
-        {createCommandPending ? (
-          <p className="rounded-xl bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-900">
-            {t(
-              "products.familyPendingRetry"
-            )}
-          </p>
-        ) : createCommandBlocked ? (
-          <p className="rounded-xl bg-rose-50 p-3 text-[11px] font-semibold leading-5 text-rose-900">
-            {t(
-              "products.familyPendingBlocked"
-            )}
-          </p>
-        ) : null}
-
-        <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200">
-          {familiesQuery.isLoading ? (
-            <p className="p-8 text-center text-xs font-bold text-slate-400">
-              {t(
-                "common.loading"
-              )}
-            </p>
-          ) : familiesQuery.isError ? (
-            <div className="p-6 text-center">
-              <p className="text-xs font-black text-rose-800">
-                {t(
-                  "products.errors.familiesLoad"
-                )}
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  void familiesQuery.refetch()
-                }
-                className="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-700"
-              >
-                {t(
-                  "common.retry"
-                )}
-              </button>
-            </div>
-          ) : !families.length ? (
-            <p className="p-8 text-center text-xs font-bold text-slate-400">
-              {t(
-                search
-                  ? "products.noMatchingFamilies"
-                  : "products.noFamilies"
-              )}
-            </p>
-          ) : (
-            families.map(
-              (family) => (
-                <div
-                  key={
-                    family.id
-                  }
-                  className="flex flex-col items-stretch gap-2 border-b border-slate-100 p-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-3"
-                >
-                  {editingFamily?.id ===
-                  family.id ? (
-                    <input
-                      autoFocus
-                      aria-label={t(
-                        "products.family"
-                      )}
-                      value={
-                        editingFamilyName
-                      }
-                      maxLength={150}
-                      disabled={
-                        renameCommandPending ||
-                        renameCommandBlocked
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setEditingFamilyName(
-                          event
-                            .target
-                            .value
-                        )
-                      }
-                      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold"
-                    />
-                  ) : (
-                    <div className="min-w-0 flex-1">
-                      <strong className="block break-words text-sm text-slate-900 sm:truncate">
-                        {
-                          family.name
-                        }
-                      </strong>
-                      <span className="text-[10px] font-bold text-slate-400">
-                        {t(
-                          "products.variantCount",
-                          {
-                            count:
-                              family.variant_count,
-                          }
-                        )}
-                      </span>
-                    </div>
-                  )}
-
-                  {editingFamily?.id ===
-                  family.id ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={
-                          updateFamilyMutation.isPending ||
-                          renameCommandBlocked ||
-                          !isOnline
-                        }
-                        onClick={() =>
-                          updateFamilyMutation.mutate()
-                        }
-                        className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40 sm:w-auto"
-                      >
-                        {t(
-                          "common.save"
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingFamily(
-                            null
-                          );
-                          setEditingFamilyName(
-                            ""
-                          );
-                          setEditingExpectedVersion(
-                            null
-                          );
-                          setRenameCommandPending(
-                            false
-                          );
-                          setRenameCommandBlocked(
-                            false
-                          );
-                        }}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 sm:w-auto"
-                      >
-                        {t(
-                          "common.cancel"
-                        )}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void openFamilyEditor(
-                          family
-                        )
-                      }
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 sm:w-auto"
-                    >
-                      {t(
-                        "common.edit"
-                      )}
-                    </button>
-                  )}
-                </div>
-              )
+          editingFamilyId={
+            editingFamily?.id ??
+            null
+          }
+          editingFamilyName={
+            editingFamilyName
+          }
+          renameCommandPending={
+            renameCommandPending
+          }
+          renameCommandBlocked={
+            renameCommandBlocked
+          }
+          updatePending={
+            updateFamilyMutation.isPending
+          }
+          online={isOnline}
+          onRetry={() =>
+            void familiesQuery.refetch()
+          }
+          onEdit={(family) =>
+            void openFamilyEditor(
+              family
             )
-          )}
-        </div>
-
-        {history.length > 0 ||
-        familiesQuery.data
-          ?.next_cursor ? (
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
-            <button
-              type="button"
-              disabled={
-                !history.length ||
-                familiesQuery.isFetching
-              }
-              onClick={() => {
-                const previous =
-                  history.at(
-                    -1
-                  ) ?? null;
-                setHistory(
-                  (current) =>
-                    current.slice(
-                      0,
-                      -1
-                    )
-                );
-                setCursor(
-                  previous
-                );
-              }}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30 sm:w-auto"
-            >
-              {t(
-                "products.familyPrevious"
-              )}
-            </button>
-            <button
-              type="button"
-              disabled={
-                !familiesQuery.data
-                  ?.next_cursor ||
-                familiesQuery.isFetching
-              }
-              onClick={() => {
-                const next =
-                  familiesQuery.data
-                    ?.next_cursor;
-                if (!next) {
-                  return;
-                }
-                setHistory(
-                  (current) => [
-                    ...current,
-                    cursor,
-                  ]
-                );
-                setCursor(
-                  next
-                );
-              }}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black disabled:opacity-30 sm:w-auto"
-            >
-              {t(
-                "products.familyNext"
-              )}
-            </button>
-          </div>
-        ) : null}
+          }
+          onEditingNameChange={
+            setEditingFamilyName
+          }
+          onSaveEdit={() =>
+            updateFamilyMutation.mutate()
+          }
+          onCancelEdit={
+            cancelFamilyEditor
+          }
+          onPrevious={
+            goToPreviousFamilyPage
+          }
+          onNext={
+            goToNextFamilyPage
+          }
+        />
       </div>
     </Modal>
   );
