@@ -440,6 +440,7 @@ export const resources = {
         familiesTitle: "إدارة العائلات",
         familiesDescription:
           "العائلة تجمع أحجام أو نكهات أو نسخ المنتج تحت اسم واحد، بينما يبقى كل صنف مستقلاً بالسعر والمخزون والباركود.",
+        newFamilyTitle: "عائلة جديدة",
         newFamilyPlaceholder: "اسم العائلة",
         addFamily: "إضافة العائلة",
         familySearchPlaceholder: "ابحث عن عائلة...",
@@ -1924,6 +1925,7 @@ export const resources = {
         familiesTitle: "Manage families",
         familiesDescription:
           "A family groups sizes, flavors, or variants under one name while each item keeps its own price, stock, and barcode.",
+        newFamilyTitle: "New family",
         newFamilyPlaceholder: "Family name",
         addFamily: "Add family",
         familySearchPlaceholder: "Search families...",
