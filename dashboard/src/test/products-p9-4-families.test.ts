@@ -29,6 +29,15 @@ describe("Products P9.4 Families workspace", () => {
       "<ProductFamiliesList",
     );
     expect(manager).toContain(
+      'subtitle={t(',
+    );
+    expect(manager).toContain(
+      '"products.familiesDescription"',
+    );
+    expect(manager).toContain(
+      'bodyClassName="p-0"',
+    );
+    expect(manager).toContain(
       'limit: "50"',
     );
     expect(manager).toContain(
@@ -51,12 +60,18 @@ describe("Products P9.4 Families workspace", () => {
     );
   });
 
-  it("presents search and family creation as one compact accessible toolbar", () => {
+  it("separates family search from creation in one compact accessible toolbar", () => {
     const toolbar = read(
       "../pages/products/family/ProductFamiliesToolbar.tsx",
     );
 
     expect(toolbar).toContain(
+      "sticky top-0",
+    );
+    expect(toolbar).toContain(
+      "absolute start-3",
+    );
+    expect(toolbar).not.toContain(
       "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]",
     );
     expect(toolbar).toContain(
@@ -104,7 +119,7 @@ describe("Products P9.4 Families workspace", () => {
     );
   });
 
-  it("keeps loading error empty and cursor navigation local to the list surface", () => {
+  it("keeps loading error empty and cursor navigation local without nested scrolling", () => {
     const list = read(
       "../pages/products/family/ProductFamiliesList.tsx",
     );
@@ -129,6 +144,12 @@ describe("Products P9.4 Families workspace", () => {
     );
     expect(list).toContain(
       "i18n.dir()",
+    );
+    expect(list).not.toContain(
+      "max-h-[480px]",
+    );
+    expect(list).not.toContain(
+      "overflow-auto",
     );
   });
 });
