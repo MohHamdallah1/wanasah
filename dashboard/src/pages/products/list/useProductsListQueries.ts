@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   useQuery,
 } from "@tanstack/react-query";
 
@@ -15,6 +16,7 @@ type AuthFetch = (
 type Params = {
   companyId: number | null;
   params: string;
+  cursor: string | null;
   filtersOpen: boolean;
   familyFilterSearch: string;
   familyFilterParams: string;
@@ -24,6 +26,7 @@ type Params = {
 export function useProductsListQueries({
   companyId,
   params,
+  cursor,
   filtersOpen,
   familyFilterSearch,
   familyFilterParams,
@@ -37,16 +40,20 @@ export function useProductsListQueries({
         params,
       ],
       enabled: Boolean(
-        companyId
+        companyId,
       ),
+      placeholderData:
+        cursor
+          ? keepPreviousData
+          : undefined,
       queryFn: async ({
         signal,
       }) =>
         parseSimpleProductPage(
           await authFetch(
             `/simple-products?${params}`,
-            { signal }
-          )
+            { signal },
+          ),
         ),
     });
 
@@ -60,7 +67,7 @@ export function useProductsListQueries({
       ],
       enabled: Boolean(
         companyId &&
-        filtersOpen
+        filtersOpen,
       ),
       queryFn: async ({
         signal,
@@ -68,8 +75,8 @@ export function useProductsListQueries({
         parseProductFamilies(
           await authFetch(
             `/simple-products/families?${familyFilterParams}`,
-            { signal }
-          )
+            { signal },
+          ),
         ),
     });
 
