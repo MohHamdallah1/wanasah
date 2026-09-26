@@ -37,7 +37,7 @@ export function ProductFamiliesToolbar({
   const { t } = useTranslation();
 
   return (
-    <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 sm:px-5">
+    <div className="sticky top-0 z-10 shrink-0 border-b border-slate-100 bg-white px-4 py-3 sm:px-5">
       <div className="relative">
         <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
