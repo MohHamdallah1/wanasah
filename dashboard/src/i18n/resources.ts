@@ -500,31 +500,31 @@ export const resources = {
         importTrackingValueHint:
           "داخل الملف استخدم القيم: {{none}} / {{optional}} / {{required}}. القيم الفارغة تستخدم اختيار هذا الاستيراد.",
         trackingDefaultsLoading:
-          "جاري تحميل إعدادات التتبع الافتراضية للشركة...",
+          "جاري تحميل الإعدادات الافتراضية للدفعة والصلاحية...",
         tracking: {
-          createTitle: "تتبع الدفعات والصلاحية",
+          createTitle: "رقم الدفعة وتاريخ الصلاحية",
           createHint:
-            "يستخدم المنتج افتراضيات شركتك تلقائياً. غيّرها فقط إذا كان هذا المنتج يحتاج طريقة تتبع مختلفة.",
+            "يستخدم هذا المنتج إعدادات الشركة الافتراضية تلقائياً. غيّرها فقط إذا كان يحتاج إعداداً مختلفاً.",
           createSummary:
-            "الدفعة / التشغيلة: {{lot}} — الصلاحية: {{expiry}}",
+            "رقم الدفعة: {{lot}} — تاريخ الصلاحية: {{expiry}}",
           createCompanyScope:
-            "يستخدم افتراضيات الشركة الحالية.",
+            "يستخدم إعدادات الشركة الافتراضية.",
           createCustomScope:
-            "تم تخصيص التتبع لهذا المنتج فقط.",
+            "تم تخصيص الإعداد لهذا المنتج فقط.",
           createChange:
             "تغيير لهذا المنتج",
           createReset:
             "استخدام افتراضيات الشركة",
           createOnlyThisProduct:
-            "أي تغيير هنا يخص هذا المنتج فقط ولا يغيّر افتراضيات الشركة أو المنتجات الأخرى.",
+            "أي تغيير هنا يخص هذا المنتج فقط ولا يغيّر الإعداد الافتراضي للشركة أو المنتجات الأخرى.",
           createDefaultHint:
             "هذا الاختيار يخص المنتج الجديد فقط ولا يغيّر الإعداد الافتراضي لباقي منتجات الشركة.",
-          lotLabel: "رقم الدفعة / التشغيلة من المصنع",
+          lotLabel: "رقم الدفعة",
           lotHelp:
-            "عند استلام هذا المنتج، هل يوجد على العبوة رقم دفعة أو تشغيلة من المصنع وتريد تسجيله؟ هذا الرقم يميز كمية إنتاج عن أخرى عند التتبع أو الاستدعاء.",
+            "هو الرقم المطبوع من المصنع لتمييز مجموعة إنتاج واحدة. عند استلام المنتج، هل تريد أن يطلب النظام تسجيل هذا الرقم؟",
           lotModes: {
-            NONE: "لا — هذا المنتج لا يعتمد رقم دفعة أو تشغيلة",
-            OPTIONAL: "اختياري — سجّله إذا كان موجوداً على المنتج",
+            NONE: "بدون — لا يُطلب رقم دفعة",
+            OPTIONAL: "اختياري — يُسجّل إذا كان موجوداً",
             REQUIRED: "إلزامي — يجب تسجيله عند كل توريد",
           },
           importValues: {
@@ -532,46 +532,46 @@ export const resources = {
             OPTIONAL: "اختياري",
             REQUIRED: "إلزامي",
           },
-          shortLot: "دفعة",
-          shortExpiry: "صلاحية",
+          shortLot: "رقم الدفعة",
+          shortExpiry: "تاريخ الصلاحية",
           shortModes: {
             NONE: "بدون",
             OPTIONAL: "اختياري",
             REQUIRED: "إلزامي",
           },
           lotExample:
-            "مثال: قد يصل نفس الشيبس بتشغيلة A123 ثم B456؛ تسجيل الرقم يسمح بتحديد أي كمية جاءت من كل تشغيلة.",
-          expiryLabel: "تاريخ انتهاء الصلاحية",
+            "مثال: A123 وB456 رقما دفعتين مختلفتين من نفس المنتج.",
+          expiryLabel: "تاريخ الصلاحية",
           expiryHelp:
-            "عند استلام هذا المنتج، هل يجب تسجيل تاريخ انتهاء الصلاحية حتى يتابع النظام الانتهاء والتنبيهات وقواعد السماح بالبيع؟",
+            "عند استلام المنتج، هل تريد أن يطلب النظام تسجيل تاريخ الصلاحية حتى يتابع التنبيهات والانتهاء؟",
           expiryModes: {
-            NONE: "لا — هذا المنتج لا يتطلب تاريخ صلاحية",
-            OPTIONAL: "اختياري — سجّله إذا كان موجوداً",
+            NONE: "بدون — لا يُطلب تاريخ صلاحية",
+            OPTIONAL: "اختياري — يُسجّل إذا كان موجوداً",
             REQUIRED: "إلزامي — يجب تسجيله عند كل توريد",
           },
           expiryExample:
-            "مثال: الأغذية غالباً تحتاج تاريخ صلاحية، بينما قطع الغيار والأدوات قد لا يكون لها تاريخ انتهاء أصلاً.",
+            "مثال: الأغذية غالباً لها تاريخ صلاحية، بينما الأدوات وقطع الغيار قد لا يكون لها تاريخ صلاحية.",
         },
         trackingSettings: {
-          action: "افتراضيات التتبع",
-          title: "افتراضيات تتبع المنتجات الجديدة",
-          descriptionTitle: "متى تُستخدم هذه الافتراضيات؟",
+          action: "إعدادات الدفعة والصلاحية",
+          title: "الإعدادات الافتراضية للمنتجات الجديدة",
+          descriptionTitle: "إعداد افتراضي على مستوى الشركة",
           description:
-            "تُستخدم كنقطة بداية عند إضافة منتج جديد أو بدء استيراد جديد. لا تغيّر أي منتج موجود، ويمكن تغييرها للمنتج أو الاستيراد نفسه.",
-          save: "حفظ افتراضيات الشركة",
-          saved: "تم حفظ افتراضيات التتبع للشركة.",
-          companySource: "محفوظة للشركة",
-          platformSource: "قيمة النظام المبدئية",
+            "تُستخدم هذه الإعدادات تلقائياً عند إضافة منتج جديد أو بدء استيراد جديد. لا تغيّر المنتجات الموجودة، ويمكن تخصيصها لمنتج واحد أثناء إضافته أو لاستيراد واحد.",
+          save: "حفظ الإعدادات الافتراضية",
+          saved: "تم حفظ الإعدادات الافتراضية للشركة.",
+          companySource: "إعداد الشركة",
+          platformSource: "إعداد النظام",
           sourceSummary:
-            "حالة الإعداد الحالي — الدفعات: {{lot}}، الصلاحية: {{expiry}}.",
+            "مصدر الإعداد الحالي — رقم الدفعة: {{lot}}، تاريخ الصلاحية: {{expiry}}.",
         },
         trackingEditor: {
-          action: "تعديل التتبع",
-          title: "إعدادات تتبع المنتج",
+          action: "تعديل الدفعة والصلاحية",
+          title: "إعدادات الدفعة والصلاحية للمنتج",
           save: "حفظ إعدادات المنتج",
-          saved: "تم تحديث إعدادات تتبع المنتج.",
+          saved: "تم تحديث إعدادات الدفعة والصلاحية للمنتج.",
           warning:
-            "هذه الإعدادات تحدد ما سيطلبه النظام عند توريد هذا المنتج مستقبلاً. لا تغيّرها لمجرد تعديل العرض.",
+            "هذه الإعدادات تخص هذا المنتج فقط وتحدد ما سيطلبه النظام عند توريده مستقبلاً.",
           lockHint:
             "إذا كان للمنتج سجل دفعات سابق، يمنع النظام التغيير العادي حفاظاً على تاريخ المخزون وسلامة التتبع.",
         },
@@ -2059,20 +2059,20 @@ export const resources = {
             "Example: food often needs expiry tracking, while spare parts and tools may have no expiry date at all.",
         },
         trackingSettings: {
-          action: "Tracking defaults",
-          title: "Defaults for new products",
-          descriptionTitle: "When are these defaults used?",
+          action: "Batch and expiry settings",
+          title: "Default settings for new products",
+          descriptionTitle: "Company-wide default",
           description:
-            "They are the starting point when adding a new product or starting a new import. They do not change existing products, and each product or import can override them.",
-          save: "Save company defaults",
-          saved: "Company tracking defaults saved.",
-          companySource: "Saved for company",
-          platformSource: "Initial system value",
+            "These settings are applied automatically when adding a new product or starting a new import. They do not change existing products, and a single product or import can override them.",
+          save: "Save default settings",
+          saved: "Company default settings saved.",
+          companySource: "Company setting",
+          platformSource: "System setting",
           sourceSummary:
-            "Current setting status — batches: {{lot}}, expiry: {{expiry}}.",
+            "Current setting source — batch number: {{lot}}, expiry date: {{expiry}}.",
         },
         trackingEditor: {
-          action: "Edit tracking",
+          action: "Edit batch and expiry",
           title: "Product tracking settings",
           save: "Save product settings",
           saved: "Product tracking settings updated.",
