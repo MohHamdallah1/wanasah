@@ -264,6 +264,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/detail/useProductDetailWorkflow.ts",
       ),
     );
+    const detailActionMenu = compact(
+      readSource(
+        "../pages/products/detail/ProductDetailActionsMenu.tsx",
+      ),
+    );
     const manager = compact(
       readSource(
         "../pages/products/barcode/ProductBarcodeManager.tsx",
