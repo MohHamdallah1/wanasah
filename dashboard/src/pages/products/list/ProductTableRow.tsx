@@ -22,6 +22,7 @@ type Props = {
   rowNumber: number;
   pricingVisible: boolean;
   canEditPrice: boolean;
+  canReassignFamily: boolean;
   canEditTracking: boolean;
   columns?: Record<
     ProductDisplayColumn,
@@ -34,6 +35,9 @@ type Props = {
   onEditPrice: (
     item: SimpleProduct,
   ) => void;
+  onReassignFamily: (
+    item: SimpleProduct,
+  ) => void;
   onEditTracking: (
     item: SimpleProduct,
   ) => void;
@@ -44,12 +48,14 @@ export function ProductTableRow({
   rowNumber,
   pricingVisible,
   canEditPrice,
+  canReassignFamily,
   canEditTracking,
   columns,
   density =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.density,
   onOpenDetails,
   onEditPrice,
+  onReassignFamily,
   onEditTracking,
 }: Props) {
   const { t, i18n } =
@@ -235,6 +241,9 @@ export function ProductTableRow({
           canEditPrice={
             canEditPrice
           }
+          canReassignFamily={
+            canReassignFamily
+          }
           canEditTracking={
             canEditTracking
           }
@@ -243,6 +252,9 @@ export function ProductTableRow({
           }
           onEditPrice={
             onEditPrice
+          }
+          onReassignFamily={
+            onReassignFamily
           }
           onEditTracking={
             onEditTracking
