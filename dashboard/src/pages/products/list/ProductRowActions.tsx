@@ -1,4 +1,8 @@
 import {
+  useRef,
+  useState,
+} from "react";
+import {
   CircleDollarSign,
   Eye,
   FolderTree,
@@ -55,18 +59,51 @@ export function ProductRowActions({
     ["ACTIVE", "RETIRING"].includes(
       item.lifecycle_status,
     );
+  const [
+    menuOpen,
+    setMenuOpen,
+  ] = useState(false);
+  const pendingActionRef =
+    useRef<(() => void) | null>(
+      null
+    );
 
-  const openAfterMenuClose = (
+  const queueAfterMenuClose = (
     action: () => void,
   ) => {
-    window.setTimeout(
+    pendingActionRef.current =
+      action;
+  };
+
+  const handleCloseAutoFocus = (
+    event: Event,
+  ) => {
+    const action =
+      pendingActionRef.current;
+    if (!action) {
+      return;
+    }
+
+    event.preventDefault();
+    pendingActionRef.current =
+      null;
+    window.requestAnimationFrame(
       action,
-      0,
     );
   };
 
   return (
-    <DropdownMenu dir={direction}>
+    <DropdownMenu
+      dir={direction}
+      open={menuOpen}
+      onOpenChange={(open) => {
+        setMenuOpen(open);
+        if (open) {
+          pendingActionRef.current =
+            null;
+        }
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -86,11 +123,14 @@ export function ProductRowActions({
         dir={direction}
         align="end"
         loop
+        onCloseAutoFocus={
+          handleCloseAutoFocus
+        }
         className="w-52 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
       >
         <DropdownMenuItem
           onSelect={() =>
-            openAfterMenuClose(
+            queueAfterMenuClose(
               () =>
                 onOpenDetails(item),
             )
@@ -107,7 +147,7 @@ export function ProductRowActions({
         item.simple_compatible ? (
           <DropdownMenuItem
             onSelect={() =>
-              openAfterMenuClose(
+              queueAfterMenuClose(
                 () =>
                   onEditPrice(item),
               )
@@ -124,7 +164,7 @@ export function ProductRowActions({
         {familyReassignAllowed ? (
           <DropdownMenuItem
             onSelect={() =>
-              openAfterMenuClose(
+              queueAfterMenuClose(
                 () =>
                   onReassignFamily(
                     item
@@ -143,7 +183,7 @@ export function ProductRowActions({
         {canEditTracking ? (
           <DropdownMenuItem
             onSelect={() =>
-              openAfterMenuClose(
+              queueAfterMenuClose(
                 () =>
                   onEditTracking(item),
               )
