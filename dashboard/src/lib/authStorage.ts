@@ -28,6 +28,66 @@ export const rememberLastCompanyCode = (
   );
 };
 
+type RefreshIdentity = {
+  sub: string;
+  companyId: string;
+};
+
+const readRefreshIdentity = (
+  token: string,
+): RefreshIdentity | null => {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    const base64Url = parts[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+    const padded = base64Url.padEnd(
+      base64Url.length +
+        ((4 - (base64Url.length % 4)) % 4),
+      "=",
+    );
+    const payload: unknown = JSON.parse(
+      atob(padded),
+    );
+
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      !("type" in payload) ||
+      !("sub" in payload) ||
+      !("company_id" in payload)
+    ) {
+      return null;
+    }
+
+    const claims = payload as {
+      type: unknown;
+      sub: unknown;
+      company_id: unknown;
+    };
+    if (
+      claims.type !== "refresh" ||
+      (typeof claims.sub !== "string" &&
+        typeof claims.sub !== "number") ||
+      (typeof claims.company_id !== "string" &&
+        typeof claims.company_id !== "number")
+    ) {
+      return null;
+    }
+
+    return {
+      sub: String(claims.sub),
+      companyId: String(claims.company_id),
+    };
+  } catch {
+    return null;
+  }
+};
+
 export const readAccessTokenIfRefreshAdvanced = (
   attemptedRefreshToken: string,
 ): string | null => {
@@ -40,6 +100,22 @@ export const readAccessTokenIfRefreshAdvanced = (
     !currentRefresh ||
     !currentAccess ||
     currentRefresh === attemptedRefreshToken
+  ) {
+    return null;
+  }
+
+  const attemptedIdentity =
+    readRefreshIdentity(attemptedRefreshToken);
+  const currentIdentity =
+    readRefreshIdentity(currentRefresh);
+
+  if (
+    !attemptedIdentity ||
+    !currentIdentity ||
+    attemptedIdentity.sub !==
+      currentIdentity.sub ||
+    attemptedIdentity.companyId !==
+      currentIdentity.companyId
   ) {
     return null;
   }
