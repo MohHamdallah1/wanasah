@@ -164,6 +164,12 @@ export function usePriceEditWorkflow({
         Boolean(
           editDerived?.independent
         ),
+      derivedPackagePrice:
+        editDerived?.packagePrice ??
+        null,
+      derivedUnitPrice:
+        editDerived?.unitPrice ??
+        null,
       packagePriceRef:
         editPackagePriceRef,
       unitPriceRef:
