@@ -185,6 +185,83 @@ describe(
       queryClient.clear();
     });
 
+    it("selects a family without turning its name into a new search", async () => {
+      mocks.authFetch.mockResolvedValue({
+        items: [
+          {
+            id: 2,
+            name: "12",
+            version: 1,
+            variant_count: 0,
+          },
+          {
+            id: 3,
+            name: "123",
+            version: 1,
+            variant_count: 0,
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+      });
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamilyReassignDialog
+            product={product}
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+            onReassigned={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      const search =
+        await screen.findByPlaceholderText(
+          "products.familyReassign.searchPlaceholder",
+        );
+      expect(search).toHaveValue("");
+
+      const family12 =
+        await screen.findByRole(
+          "option",
+          {
+            name: /^12\s/,
+          },
+        );
+      expect(
+        screen.getByRole(
+          "option",
+          {
+            name: /^123\s/,
+          },
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(family12);
+
+      expect(search).toHaveValue("");
+      expect(
+        screen.getByRole(
+          "option",
+          {
+            name: /^12\s/,
+          },
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole(
+          "option",
+          {
+            name: /^123\s/,
+          },
+        ),
+      ).toBeInTheDocument();
+    });
+
     it("searches the family endpoint and renders matching options in the same picker", async () => {
       mocks.authFetch.mockImplementation(
         async (url: string) => {
