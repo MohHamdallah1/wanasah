@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import i18n from "@/i18n";
 import { normalizeApiErrorResponse } from "@/lib/apiErrors";
+import { readAccessTokenIfRefreshAdvanced } from "@/lib/authStorage";
 
 const API = (
   import.meta.env.VITE_API_URL || ""
@@ -304,45 +305,48 @@ export function useAuthFetch() {
               }
 
               if (!refreshRes.ok) {
-                const authError =
-                  makeHttpError(
+                const advancedAccessToken =
+                  [400, 401, 403].includes(
+                    refreshRes.status
+                  )
+                    ? readAccessTokenIfRefreshAdvanced(
+                        refreshToken
+                      )
+                    : null;
+
+                if (advancedAccessToken) {
+                  processQueue(
+                    null,
+                    advancedAccessToken
+                  );
+                } else {
+                  throw makeHttpError(
                     i18n.t(
                       "network.refreshFailed"
                     ),
                     refreshRes.status
                   );
-                processQueue(
-                  authError,
-                  null
+                }
+              } else {
+                const data =
+                  await refreshRes.json();
+                localStorage.setItem(
+                  "admin_token",
+                  data.token
                 );
                 if (
-                  [400, 401, 403].includes(
-                    refreshRes.status
-                  )
-                ) {
-                  forceLogout();
-                }
-                throw authError;
-              }
-
-              const data =
-                await refreshRes.json();
-              localStorage.setItem(
-                "admin_token",
-                data.token
-              );
-              if (
-                data.refresh_token
-              ) {
-                localStorage.setItem(
-                  "refresh_token",
                   data.refresh_token
+                ) {
+                  localStorage.setItem(
+                    "refresh_token",
+                    data.refresh_token
+                  );
+                }
+                processQueue(
+                  null,
+                  data.token
                 );
               }
-              processQueue(
-                null,
-                data.token
-              );
             } catch (error) {
               const normalized =
                 error instanceof Error
