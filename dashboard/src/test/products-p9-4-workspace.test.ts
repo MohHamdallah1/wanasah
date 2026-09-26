@@ -24,18 +24,18 @@ describe("Products P9.4 workspace foundation", () => {
     const tools = read(
       "../pages/products/header/ProductsCatalogToolsMenu.tsx",
     );
-    const addAction = read(
-      "../pages/products/header/ProductsAddAction.tsx",
+    const addMenu = read(
+      "../pages/products/header/ProductsAddMenu.tsx",
     );
 
     expect(header).toContain(
       "<ProductsCatalogToolsMenu",
     );
-    expect(addAction).toContain(
+    expect(addMenu).toContain(
       "bg-amber-400",
     );
     expect(header).toContain(
-      "<ProductsAddAction",
+      "<ProductsAddMenu",
     );
     expect(header).toContain(
       "onOpenCreateProduct",
@@ -56,7 +56,7 @@ describe("Products P9.4 workspace foundation", () => {
     expect(tools).not.toContain(
       "onOpenImport",
     );
-    expect(addAction).toMatch(
+    expect(addMenu).toMatch(
       /onSelect=\{\s*onOpenImport\s*\}/,
     );
     expect(tools).toMatch(
