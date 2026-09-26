@@ -77,8 +77,8 @@ describe(
       expect(tools).toContain(
         "LockKeyhole",
       );
-      expect(tools).toContain(
-        'disabled title={t("products.advancedPricingHint")}',
+      expect(tools).toMatch(
+        /disabled\s+title=\{t\(\s*"products\.advancedPricingHint"/,
       );
     });
 
