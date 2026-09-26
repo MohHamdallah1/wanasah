@@ -114,6 +114,23 @@ vi.mock(
         vi.fn().mockResolvedValue(
           null,
         ),
+      getOrCreateDurableCommand:
+        vi.fn(
+          async (
+            _scope: string,
+            payload: unknown,
+          ) => ({
+            requestId:
+              "family-move-request",
+            payload,
+            createdAt:
+              Date.now(),
+          }),
+        ),
+      completeDurableOperation:
+        vi.fn(),
+      abandonDurableOperation:
+        vi.fn(),
     };
   },
 );
@@ -260,6 +277,114 @@ describe(
           },
         ),
       ).toBeInTheDocument();
+    });
+
+    it("saves the selected family with Enter from the picker", async () => {
+      const onReassigned =
+        vi.fn();
+      const patchBodies:
+        Array<
+          Record<string, unknown>
+        > = [];
+
+      mocks.authFetch.mockImplementation(
+        async (
+          url: string,
+          options?: RequestInit,
+        ) => {
+          if (
+            options?.method ===
+              "PATCH" &&
+            url.includes(
+              "/catalog/variants/10/family",
+            )
+          ) {
+            patchBodies.push(
+              JSON.parse(
+                String(
+                  options.body,
+                ),
+              ),
+            );
+            return {
+              product_variant_id: 10,
+              family_id: 2,
+              family_name: "12",
+              version: 4,
+              changed: true,
+            };
+          }
+
+          return {
+            items: [
+              {
+                id: 2,
+                name: "12",
+                version: 1,
+                variant_count: 0,
+              },
+              {
+                id: 3,
+                name: "123",
+                version: 1,
+                variant_count: 0,
+              },
+            ],
+            next_cursor: null,
+            has_more: false,
+          };
+        },
+      );
+
+      render(
+        <QueryClientProvider
+          client={queryClient}
+        >
+          <ProductFamilyReassignDialog
+            product={product}
+            companyId={1}
+            driverId={2}
+            onClose={vi.fn()}
+            onReassigned={
+              onReassigned
+            }
+          />
+        </QueryClientProvider>,
+      );
+
+      const search =
+        await screen.findByPlaceholderText(
+          "products.familyReassign.searchPlaceholder",
+        );
+      const family12 =
+        await screen.findByRole(
+          "option",
+          {
+            name: /^12\s/,
+          },
+        );
+
+      fireEvent.click(family12);
+      fireEvent.keyDown(search, {
+        key: "Enter",
+      });
+
+      await waitFor(() => {
+        expect(
+          patchBodies,
+        ).toHaveLength(1);
+      });
+      expect(
+        patchBodies[0].family_id,
+      ).toBe(2);
+      expect(
+        onReassigned,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          family_id: 2,
+          family_name: "12",
+        }),
+      );
     });
 
     it("searches the family endpoint and renders matching options in the same picker", async () => {
