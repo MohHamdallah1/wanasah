@@ -332,6 +332,7 @@ describe(
           <tbody>
             <ProductTableRow
               item={product}
+              rowNumber={1}
               pricingVisible
               canEditPrice={false}
               canEditTracking={false}
@@ -369,7 +370,7 @@ describe(
       ).toBeInTheDocument();
       expect(
         scope.getByText(
-          "0.270 JOD",
+          "JOD 0.270",
         ),
       ).toBeInTheDocument();
 
