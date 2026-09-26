@@ -26,10 +26,10 @@ describe("Products P9.4 detail drawer", () => {
       "if (!product)",
     );
     expect(drawer).toContain(
-      "sm:w-[min(44vw,620px)]",
+      "sm:w-[min(36vw,520px)]",
     );
     expect(drawer).toContain(
-      "sm:w-[min(72vw,920px)]",
+      "sm:w-[min(60vw,860px)]",
     );
     const hero = read(
       "../pages/products/detail/ProductDetailHero.tsx",
