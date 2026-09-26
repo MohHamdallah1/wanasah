@@ -76,7 +76,8 @@ export function InventoryTopDock({
   const rootRef = useInventoryDockController();
 
   return (
-    <div
+    <WorkspaceTopBar
+      variant="dock"
       className={`inventory-top-dock-component${
         className ? ` ${className}` : ""
       }`}
@@ -86,8 +87,6 @@ export function InventoryTopDock({
         className="inventory-top-dock__aurora"
         aria-hidden="true"
       />
-
-      <WorkspaceTopBar variant="dock">
         <nav
           ref={rootRef}
           className="inventory-top-dock__dock"
@@ -111,7 +110,6 @@ export function InventoryTopDock({
             </button>
           ))}
         </nav>
-      </WorkspaceTopBar>
-    </div>
+    </WorkspaceTopBar>
   );
 }
