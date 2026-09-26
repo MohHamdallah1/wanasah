@@ -235,6 +235,10 @@ export default function AdvancedUomDashboard() {
     field: ConversionField;
     message: string;
   } | null>(null);
+  const pageHeadingRef =
+    useRef<HTMLHeadingElement | null>(
+      null,
+    );
   const fromUomRef =
     useRef<HTMLSelectElement | null>(
       null,
@@ -280,6 +284,13 @@ export default function AdvancedUomDashboard() {
     pendingCheckReady,
     setPendingCheckReady,
   ] = useState(false);
+
+  useEffect(() => {
+    window.requestAnimationFrame(
+      () =>
+        pageHeadingRef.current?.focus(),
+    );
+  }, []);
 
   useEffect(() => {
     const timer =
@@ -1044,7 +1055,11 @@ export default function AdvancedUomDashboard() {
               "products.advancedUom.back",
             )}
           </button>
-          <h1 className="break-words text-xl font-black text-slate-900 sm:text-2xl">
+          <h1
+            ref={pageHeadingRef}
+            tabIndex={-1}
+            className="break-words text-xl font-black text-slate-900 outline-none sm:text-2xl"
+          >
             {t(
               "products.advancedUom.title",
             )}
