@@ -1697,18 +1697,18 @@ The Products page will use the repository-wide vertical feature-slice rule in `A
 
 ## P9.5 — Final production verification
 
-- [ ] Re-run targeted Product frontend tests.
-- [ ] Re-run the full Dashboard test suite.
-- [ ] TypeScript PASS.
-- [ ] ESLint PASS with zero warnings.
-- [ ] Production build PASS.
-- [ ] Re-run relevant backend Product gates.
-- [ ] Re-run the aggregate Products production gate.
-- [ ] Re-run performance/security/isolation/concurrency gates affected by any new Product mutation/read path.
-- [ ] Review final diff for duplicated business authority.
-- [ ] Review final diff for stale/legacy Product UI paths and dead code.
-- [ ] Review final folder/file ownership against `ARCHITECTURE.md`.
-- [ ] Verify no new large multi-responsibility file/function replaced `ProductsDashboard.tsx`.
+- [x] Re-run targeted Product frontend tests.
+- [x] Re-run the full Dashboard test suite.
+- [x] TypeScript PASS.
+- [x] ESLint PASS with zero warnings.
+- [x] Production build PASS.
+- [x] Re-run relevant backend Product gates.
+- [x] Re-run the aggregate Products production gate.
+- [x] Re-run performance/security/isolation/concurrency gates affected by any new Product mutation/read path.
+- [x] Review final diff for duplicated business authority.
+- [x] Review final diff for stale/legacy Product UI paths and dead code.
+- [x] Review final folder/file ownership against `ARCHITECTURE.md`.
+- [x] Verify no new large multi-responsibility file/function replaced `ProductsDashboard.tsx`.
 - [ ] Final manual owner walkthrough and visual approval.
 - [ ] PR review complete.
 - [ ] PR merged to `main`.
