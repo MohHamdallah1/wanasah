@@ -120,6 +120,73 @@ export const formatLocaleDecimal = (
   );
 };
 
+const resolveCurrencyPresentation = (
+  currencyCode: string,
+  locale: string,
+): {
+  symbol: string;
+  beforeAmount: boolean;
+} => {
+  const currency =
+    currencyCode
+      .trim()
+      .toUpperCase();
+
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return {
+      symbol: currency,
+      beforeAmount: false,
+    };
+  }
+
+  const resolvedLocale =
+    resolveAppLocale(locale);
+
+  try {
+    const parts =
+      new Intl.NumberFormat(
+        resolvedLocale,
+        {
+          style: "currency",
+          currency,
+          currencyDisplay:
+            "narrowSymbol",
+          numberingSystem: "latn",
+          useGrouping: false,
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        },
+      ).formatToParts(0);
+
+    const currencyIndex =
+      parts.findIndex(
+        (part) =>
+          part.type === "currency",
+      );
+    const integerIndex =
+      parts.findIndex(
+        (part) =>
+          part.type === "integer",
+      );
+
+    return {
+      symbol:
+        parts[currencyIndex]
+          ?.value ?? currency,
+      beforeAmount:
+        currencyIndex >= 0 &&
+        integerIndex >= 0 &&
+        currencyIndex <
+          integerIndex,
+    };
+  } catch {
+    return {
+      symbol: currency,
+      beforeAmount: false,
+    };
+  }
+};
+
 export const formatLocaleMoney = (
   value: string | null,
   currencyCode: string,
@@ -128,14 +195,25 @@ export const formatLocaleMoney = (
   if (value === null) {
     return "—";
   }
-  return (
+
+  const amount =
     formatLocaleDecimal(
       value,
       locale,
       3,
       6,
-    ) +
-    " " +
-    currencyCode
-  );
+    );
+  const currency =
+    resolveCurrencyPresentation(
+      currencyCode,
+      locale,
+    );
+
+  if (!currency.symbol) {
+    return amount;
+  }
+
+  return currency.beforeAmount
+    ? `${currency.symbol} ${amount}`
+    : `${amount} ${currency.symbol}`;
 };
