@@ -75,26 +75,29 @@ describe("Products P9 package and unit structure", () => {
   });
 
   it("shows package controls only when the user explicitly enables an outer package", () => {
-    const modal = source(
-      "../pages/products/create/CreateProductModal.tsx",
+    const commerce = source(
+      "../pages/products/create/CreateProductCommerceSection.tsx",
+    );
+    const advanced = source(
+      "../pages/products/create/CreateProductAdvancedSection.tsx",
     );
 
-    expect(modal).toContain(
+    expect(commerce).toContain(
       "{draft.has_package ? (",
     );
-    expect(modal).toContain(
+    expect(commerce).toContain(
       '"products.packageType"',
     );
-    expect(modal).toContain(
+    expect(commerce).toContain(
       '"products.unitsPerPackage"',
     );
-    expect(modal).toContain(
+    expect(commerce).toContain(
       '"products.packagePrice"',
     );
-    expect(modal).toContain(
+    expect(advanced).toContain(
       '"products.packageBarcode"',
     );
-    expect(modal).toContain(
+    expect(commerce).toContain(
       '"products.noOuterPackage"',
     );
   });
