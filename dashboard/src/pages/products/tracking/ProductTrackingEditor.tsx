@@ -1,4 +1,7 @@
-import { AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  ShieldCheck,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Modal } from "@/components/ui/modal";
@@ -92,10 +95,10 @@ export function ProductTrackingEditor({
         </>
       }
     >
-      <div className="space-y-4">
-        <div className="flex gap-3 rounded-2xl bg-amber-50 p-4 text-amber-950">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-          <p className="text-xs font-bold leading-6">
+      <div className="space-y-3">
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-amber-950">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p className="text-[10px] font-bold leading-4">
             {t(
               "products.trackingEditor.warning"
             )}
@@ -116,11 +119,14 @@ export function ProductTrackingEditor({
           disabled={saving}
         />
 
-        <p className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-[11px] font-semibold leading-5 text-slate-500">
-          {t(
-            "products.trackingEditor.lockHint"
-          )}
-        </p>
+        <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <p className="text-[10px] font-semibold leading-4 text-slate-500">
+            {t(
+              "products.trackingEditor.lockHint"
+            )}
+          </p>
+        </div>
       </div>
     </Modal>
   );
