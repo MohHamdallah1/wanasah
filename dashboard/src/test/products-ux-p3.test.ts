@@ -181,6 +181,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/list/ProductsListResults.tsx",
       ),
     );
+    const listState = compact(
+      readSource(
+        "../pages/products/list/ProductsListState.tsx",
+      ),
+    );
     const listWorkflow = compact(
       readSource(
         "../pages/products/list/useProductsListWorkflow.ts",
@@ -197,13 +202,19 @@ describe("Products P3 detail foundation", () => {
       "void productsQuery.refetch()",
     );
     expect(listResults).toContain(
-      "{isError ? (",
+      'blockingState = "error"',
     );
     expect(listResults).toContain(
-      "!isError && !items.length",
+      "<ProductsListBlockingState",
     );
-    expect(listResults).toContain(
+    expect(listState).toContain(
+      'state === "error"',
+    );
+    expect(listState).toContain(
       '"products.errors.listLoadTitle"',
+    );
+    expect(listState).toContain(
+      "onClick={onRetry}",
     );
   });
 
