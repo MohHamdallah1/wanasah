@@ -741,6 +741,60 @@ async def rename_family(
     return row
 
 
+async def delete_family(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    family_id: int,
+    expected_version: int,
+) -> Product:
+    row = await db.scalar(
+        select(Product)
+        .where(
+            Product.company_id == int(company_id),
+            Product.id == int(family_id),
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_NOT_FOUND",
+            "Product family was not found.",
+            status_code=404,
+        )
+    if int(row.version) != int(expected_version):
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_VERSION_CONFLICT",
+            "The product family changed. Refresh and retry.",
+            context={
+                "family_id": int(family_id),
+                "current_version": int(row.version),
+            },
+        )
+
+    linked_variant_id = await db.scalar(
+        select(ProductVariant.id)
+        .where(
+            ProductVariant.company_id == int(company_id),
+            ProductVariant.product_id == int(family_id),
+        )
+        .limit(1)
+    )
+    if linked_variant_id is not None:
+        raise SimpleProductError(
+            "SIMPLE_PRODUCT_FAMILY_NOT_EMPTY",
+            "A product family containing products cannot be deleted.",
+            context={
+                "family_id": int(family_id),
+                "sample_product_variant_id": int(linked_variant_id),
+            },
+        )
+
+    await db.delete(row)
+    await db.flush()
+    return row
+
+
 async def _resolve_family(
     db: AsyncSession,
     *,
