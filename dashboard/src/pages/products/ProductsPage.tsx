@@ -316,12 +316,12 @@ export default function ProductsPage() {
       />
 
       <ProductsListSection
-        filtersOpen={
-          listWorkflow.section
-            .filtersOpen
-        }
         toolbar={
           listWorkflow.section.toolbar
+        }
+        activeFilters={
+          listWorkflow.section
+            .activeFilters
         }
         filters={
           listWorkflow.section.filters
