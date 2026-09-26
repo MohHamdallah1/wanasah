@@ -30,6 +30,8 @@ import {
   type ProductBarcodeType,
   type SimpleProduct,
 } from "@/pages/products/contracts";
+import { ProductBarcodeCreatePanel } from "@/pages/products/barcode/ProductBarcodeCreatePanel";
+import { ProductBarcodeList } from "@/pages/products/barcode/ProductBarcodeList";
 
 type Props = {
   product: SimpleProduct | null;
@@ -814,317 +816,69 @@ export function ProductBarcodeManager({
       )}
       maxWidth="max-w-3xl"
     >
-      <div className="space-y-4">
-        {loadError ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 p-3">
-            <p className="text-xs font-bold text-rose-800">
-              {t(
-                "products.barcodeManager.loadFailed"
-              )}
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                setReloadToken(
-                  (current) =>
-                    current + 1
-                )
-              }
-              className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-800"
-            >
-              {t(
-                "common.retry"
-              )}
-            </button>
-          </div>
-        ) : null}
-
-        <section className="rounded-2xl border border-slate-200 p-4">
-          <h3 className="text-sm font-black text-slate-900">
-            {t(
-              "products.barcodeManager.current"
-            )}
-          </h3>
-
-          <div className="mt-3 space-y-2">
-            {loading ? (
-              <p className="text-xs font-bold text-slate-400">
-                {t(
-                  "common.loading"
-                )}
-              </p>
-            ) : null}
-
-            {loadReady &&
-            !items.length ? (
-              <p className="text-xs font-bold text-slate-400">
-                {t(
-                  "products.barcodeManager.none"
-                )}
-              </p>
-            ) : null}
-
-            {loadReady
-              ? items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex flex-col items-stretch gap-3 rounded-xl bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="break-all font-mono text-sm font-black text-slate-900">
-                        {item.barcode}
-                      </p>
-                      <p className="mt-1 text-[11px] font-bold text-slate-500">
-                        {t(
-                          `uom.${item.uom.code}`,
-                          {
-                            defaultValue:
-                              item.uom.name ||
-                              item.uom.code,
-                          }
-                        )}{" "}
-                        ·{" "}
-                        {t(
-                          `products.barcodeManager.types.${item.barcode_type}`
-                        )}
-                        {item.is_primary
-                          ? " · " +
-                            t(
-                              "products.barcodeManager.primary"
-                            )
-                          : ""}
-                        {!item.is_active
-                          ? " · " +
-                            t(
-                              "products.barcodeManager.inactive"
-                            )
-                          : ""}
-                      </p>
-                    </div>
-
-                    {item.is_active ? (
-                      <button
-                        type="button"
-                        disabled={
-                          !canMutate
-                        }
-                        onClick={() =>
-                          void deactivate(
-                            item
-                          )
-                        }
-                        className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-black text-amber-800 disabled:opacity-40 sm:w-auto"
-                      >
-                        {t(
-                          "products.barcodeManager.deactivate"
-                        )}
-                      </button>
-                    ) : null}
-                  </div>
-                ))
-              : null}
-
-            {loadReady &&
-            hasMore ? (
-              <button
-                type="button"
-                disabled={
-                  loadingMore
-                }
-                onClick={() =>
-                  void loadMore()
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-40"
-              >
-                {loadingMore
-                  ? t(
-                      "common.loading"
-                    )
-                  : t(
-                      "products.barcodeManager.loadMore"
-                    )}
-              </button>
-            ) : null}
-          </div>
-        </section>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <ProductBarcodeList
+          items={items}
+          loading={loading}
+          loadReady={loadReady}
+          loadError={loadError}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          canMutate={canMutate}
+          onRetry={
+            refreshBarcodes
+          }
+          onLoadMore={() =>
+            void loadMore()
+          }
+          onDeactivate={(item) =>
+            void deactivate(item)
+          }
+        />
 
         {loadReady &&
         !loadError ? (
-          <section className="rounded-2xl border border-slate-200 p-4">
-            <h3 className="text-sm font-black text-slate-900">
-              {t(
-                "products.barcodeManager.add"
-              )}
-            </h3>
-            <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
-              {t(
-                "products.barcodeManager.historyHint"
-              )}
-            </p>
-
-            {pendingCreate ? (
-              <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">
-                {t(
-                  "products.barcodeManager.pendingRetry"
-                )}
-              </p>
-            ) : null}
-
-            {pendingCreateBlocked ? (
-              <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-800">
-                {t(
-                  "products.barcodeManager.pendingBlocked"
-                )}
-              </p>
-            ) : null}
-
-            {product.package_uom_id !==
-              null &&
-            product.package_uses_base_barcode ? (
-              <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-600">
-                {t(
-                  "products.barcodeManager.sharedPackageHint"
-                )}
-              </p>
-            ) : null}
-
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-bold text-slate-600">
-                {t(
-                  "products.barcodeManager.scope"
-                )}
-                <select
-                  value={target}
-                  disabled={
-                    !canEditCreate
-                  }
-                  onChange={(event) =>
-                    setTarget(
-                      event.target
-                        .value as
-                        | "base"
-                        | "package"
-                    )
-                  }
-                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 disabled:opacity-40"
-                >
-                  <option value="base">
-                    {t(
-                      "products.barcodeManager.unit"
-                    )}
-                  </option>
-                  {product.package_uom_id !==
-                    null &&
-                  !product.package_uses_base_barcode ? (
-                    <option value="package">
-                      {t(
-                        "products.barcodeManager.package"
-                      )}
-                    </option>
-                  ) : null}
-                </select>
-              </label>
-
-              <label className="text-xs font-bold text-slate-600">
-                {t(
-                  "products.barcodeManager.type"
-                )}
-                <select
-                  value={barcodeType}
-                  disabled={
-                    !canEditCreate
-                  }
-                  onChange={(event) =>
-                    setBarcodeType(
-                      event.target
-                        .value as ProductBarcodeType
-                    )
-                  }
-                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 disabled:opacity-40"
-                >
-                  {[
-                    "INTERNAL",
-                    "EAN8",
-                    "EAN13",
-                    "UPC_A",
-                    "GTIN14",
-                    "GS1_128",
-                  ].map((value) => (
-                    <option
-                      key={value}
-                      value={value}
-                    >
-                      {t(
-                        `products.barcodeManager.types.${value}`
-                      )}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="sm:col-span-2 text-xs font-bold text-slate-600">
-                {t(
-                  "products.barcodeManager.value"
-                )}
-                <input
-                  value={barcode}
-                  disabled={
-                    !canEditCreate
-                  }
-                  onChange={(event) =>
-                    setBarcode(
-                      event.target.value
-                    )
-                  }
-                  maxLength={128}
-                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono disabled:opacity-40"
-                />
-              </label>
-
-              <label className="sm:col-span-2 flex items-center gap-2 text-xs font-bold text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={isPrimary}
-                  disabled={
-                    !canEditCreate
-                  }
-                  onChange={(event) =>
-                    setIsPrimary(
-                      event.target
-                        .checked
-                    )
-                  }
-                />
-                {t(
-                  "products.barcodeManager.makePrimary"
-                )}
-              </label>
-
-              <button
-                type="button"
-                disabled={
-                  !canMutate ||
-                  pendingCreateBlocked ||
-                  (!pendingCreate &&
-                    (!barcode.trim() ||
-                      targetUomId ===
-                        null))
-                }
-                onClick={() =>
-                  void addBarcode()
-                }
-                className="sm:col-span-2 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40"
-              >
-                {pendingCreate
-                  ? t(
-                      "products.barcodeManager.retryPending"
-                    )
-                  : t(
-                      "products.barcodeManager.save"
-                    )}
-              </button>
-            </div>
-          </section>
+          <ProductBarcodeCreatePanel
+            product={product}
+            barcode={barcode}
+            barcodeType={
+              barcodeType
+            }
+            target={target}
+            isPrimary={
+              isPrimary
+            }
+            pendingCreate={Boolean(
+              pendingCreate
+            )}
+            pendingCreateBlocked={
+              pendingCreateBlocked
+            }
+            canEditCreate={
+              canEditCreate
+            }
+            canMutate={
+              canMutate
+            }
+            targetUomId={
+              targetUomId
+            }
+            onBarcodeChange={
+              setBarcode
+            }
+            onBarcodeTypeChange={
+              setBarcodeType
+            }
+            onTargetChange={
+              setTarget
+            }
+            onPrimaryChange={
+              setIsPrimary
+            }
+            onSave={() =>
+              void addBarcode()
+            }
+          />
         ) : null}
       </div>
     </Modal>
