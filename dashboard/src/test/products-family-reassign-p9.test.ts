@@ -93,19 +93,19 @@ describe("Products P9 family reassignment", () => {
       '"products.familyReassign.historyHint"',
     );
     expect(dialog).toContain(
-      "<Popover",
-    );
-    expect(dialog).toContain(
       "<CommandInput",
     );
     expect(dialog).toContain(
       "shouldFilter={false}",
     );
     expect(dialog).toContain(
-      'side="bottom"',
+      'bodyClassName="h-[60dvh]',
     );
     expect(dialog).toContain(
-      "avoidCollisions={false}",
+      'className="max-h-none min-h-0 flex-1 overflow-y-auto p-2"',
+    );
+    expect(dialog).not.toContain(
+      "<Popover",
     );
     expect(dialog).not.toContain(
       "<select",
