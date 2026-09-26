@@ -122,6 +122,9 @@ describe("product import tracking workflow", () => {
     const controls = readSource(
       "../pages/products/tracking/ProductTrackingFields.tsx",
     );
+    const picker = readSource(
+      "../pages/products/tracking/ProductTrackingModePicker.tsx",
+    );
     const contracts = readSource(
       "../pages/products/contracts.ts",
     );
@@ -134,16 +137,28 @@ describe("product import tracking workflow", () => {
     expect(contracts).toContain('"OPTIONAL"');
     expect(contracts).toContain('"REQUIRED"');
     expect(controls).toContain(
-      'products.tracking.lotModes.${mode}',
+      "<ProductTrackingModePicker",
     );
-    expect(controls).toContain(
-      'products.tracking.expiryModes.${mode}',
+    expect(picker).toContain(
+      '"NONE"',
     );
-    expect(controls).toContain(
-      'products.tracking.lotExample',
+    expect(picker).toContain(
+      '"OPTIONAL"',
     );
-    expect(controls).toContain(
-      'products.tracking.expiryExample',
+    expect(picker).toContain(
+      '"REQUIRED"',
+    );
+    expect(picker).toContain(
+      "products.tracking.lotModes",
+    );
+    expect(picker).toContain(
+      "products.tracking.expiryModes",
+    );
+    expect(picker).toContain(
+      '"products.tracking.lotExample"',
+    );
+    expect(picker).toContain(
+      '"products.tracking.expiryExample"',
     );
 
     expect(translations).toContain(
