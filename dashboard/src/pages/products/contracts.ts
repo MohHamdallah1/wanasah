@@ -324,6 +324,13 @@ export interface ProductFamilyMutationResponse {
   version: number;
 }
 
+export interface ProductFamilyDeleteResponse {
+  id: number;
+  name: string;
+  version: number;
+  deleted: boolean;
+}
+
 export interface PackageUom {
   id: number;
   code: string;
@@ -827,6 +834,31 @@ export function parseProductFamilyMutation(
       code,
       1,
     ),
+  };
+}
+
+export function parseProductFamilyDelete(
+  raw: unknown,
+): ProductFamilyDeleteResponse {
+  const code =
+    "PRODUCT_FAMILY_DELETE_RESPONSE_INVALID";
+  const row = record(raw, code);
+  const deleted = bool(
+    row.deleted,
+    code,
+  );
+  if (!deleted) {
+    return contractError(code);
+  }
+  return {
+    id: int(row.id, code, 1),
+    name: str(row.name, code, 150),
+    version: int(
+      row.version,
+      code,
+      1,
+    ),
+    deleted,
   };
 }
 
