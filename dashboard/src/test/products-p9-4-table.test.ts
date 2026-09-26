@@ -34,6 +34,9 @@ describe("Products P9.4 desktop table", () => {
     expect(row).toContain(
       "canEditTracking={",
     );
+    expect(row).toContain(
+      "canReassignFamily={",
+    );
     expect(row).not.toContain(
       'className="rounded-xl border border-slate-200 bg-white px-3 py-2',
     );
@@ -52,6 +55,15 @@ describe("Products P9.4 desktop table", () => {
     );
     expect(actions).toContain(
       "onEditPrice(item)",
+    );
+    expect(actions).toContain(
+      "products.familyReassign.action",
+    );
+    expect(actions).toContain(
+      "onReassignFamily(item)",
+    );
+    expect(actions).toContain(
+      '["ACTIVE", "RETIRING"]',
     );
     expect(actions).toContain(
       "onEditTracking(item)",
