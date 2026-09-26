@@ -94,7 +94,17 @@ describe("Products P9.4 workspace foundation", () => {
       'variant="page"',
     );
     expect(header).toContain(
-      'className="mb-2 shrink-0"',
+      'className="shrink-0"',
+    );
+
+    const page = read(
+      "../pages/products/ProductsPage.tsx",
+    );
+    expect(page).toContain(
+      "flex-col gap-2 overflow-visible",
+    );
+    expect(page).not.toContain(
+      "products-a11y-scope flex min-h-0 flex-1 flex-col overflow-hidden",
     );
   });
 
