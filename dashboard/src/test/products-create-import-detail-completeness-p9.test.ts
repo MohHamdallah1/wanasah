@@ -176,6 +176,13 @@ describe(
           "../pages/products/detail/ProductDetailDrawer.tsx",
         ),
       );
+      const hero = compact(
+        readSource(
+          "../pages/products/detail/ProductDetailHero.tsx",
+        ),
+      );
+      const detailSurface =
+        `${drawer} ${hero}`;
 
       for (const evidence of [
         "product.name",
@@ -199,11 +206,11 @@ describe(
         "canManageLifecycle",
         "canManageAdvancedUom",
       ]) {
-        expect(drawer).toContain(
+        expect(detailSurface).toContain(
           evidence,
         );
       }
-      expect(drawer).not.toContain(
+      expect(detailSurface).not.toContain(
         "product_location",
       );
     });
