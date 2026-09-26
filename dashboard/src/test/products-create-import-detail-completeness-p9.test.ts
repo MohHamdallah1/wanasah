@@ -137,9 +137,9 @@ describe(
     });
 
     it("matches the frontend import mapping to the backend canonical import contract", () => {
-      const modal = compact(
+      const importFields = compact(
         readSource(
-          "../pages/products/import/ImportProductModal.tsx",
+          "../pages/products/import/importFields.ts",
         ),
       );
       const backend = compact(
@@ -161,7 +161,7 @@ describe(
       ];
 
       for (const field of fields) {
-        expect(modal).toContain(
+        expect(importFields).toContain(
           `"${field}"`,
         );
         expect(backend).toContain(
