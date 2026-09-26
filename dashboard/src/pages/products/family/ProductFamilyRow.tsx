@@ -233,7 +233,8 @@ export function ProductFamilyRow({
               )}
               disabled={
                 deletePending ||
-                deleteCommandPending
+                deleteCommandPending ||
+                deleteCommandBlocked
               }
               onClick={
                 onDeleteCancel
