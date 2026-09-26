@@ -36,7 +36,7 @@ check(
 )
 check(
     "replaced_by_id" in migration
-    and "ondelete="SET NULL"" in migration
+    and 'ondelete="SET NULL"' in migration
     and "unique=True" in migration,
     "refresh successor database contract is migrated",
 )
