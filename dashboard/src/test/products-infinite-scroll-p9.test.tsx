@@ -59,7 +59,7 @@ const page = (
 describe(
   "Products bounded infinite rows",
   () => {
-    it("appends cursor pages, replaces duplicate rows, and resets on a new result scope", async () => {
+    it("renders a cached first page synchronously, appends cursor pages, and never flashes a stale scope", async () => {
       const first = page(
         [
           product(1, "One"),
@@ -108,13 +108,11 @@ describe(
           },
         );
 
-      await waitFor(() => {
-        expect(
-          result.current.map(
-            (item) => item.id,
-          ),
-        ).toEqual([1, 2]);
-      });
+      expect(
+        result.current.map(
+          (item) => item.id,
+        ),
+      ).toEqual([1, 2]);
 
       rerender({
         currentPage: first,
@@ -158,11 +156,29 @@ describe(
         pageReady: false,
       });
 
-      await waitFor(() => {
-        expect(
-          result.current,
-        ).toEqual([]);
+      expect(
+        result.current,
+      ).toEqual([]);
+
+      const third = page(
+        [
+          product(9, "Nine"),
+        ],
+        null,
+      );
+
+      rerender({
+        currentPage: third,
+        cursor: null,
+        scopeKey: "scope-c",
+        pageReady: true,
       });
+
+      expect(
+        result.current.map(
+          (item) => item.id,
+        ),
+      ).toEqual([9]);
     });
   },
 );
