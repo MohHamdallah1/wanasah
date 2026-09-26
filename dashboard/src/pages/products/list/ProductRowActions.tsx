@@ -75,16 +75,13 @@ export function ProductRowActions({
       action;
   };
 
-  const handleCloseAutoFocus = (
-    event: Event,
-  ) => {
+  const handleCloseAutoFocus = () => {
     const action =
       pendingActionRef.current;
     if (!action) {
       return;
     }
 
-    event.preventDefault();
     pendingActionRef.current =
       null;
     window.requestAnimationFrame(
