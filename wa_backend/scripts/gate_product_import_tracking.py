@@ -142,9 +142,25 @@ def static_checks() -> None:
         ROOT
         / "dashboard/src/pages/products/import/ImportProductModal.tsx"
     ).read_text(encoding="utf-8")
+    import_start = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductStartPanel.tsx"
+    ).read_text(encoding="utf-8")
+    import_mapping = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductMappingPanel.tsx"
+    ).read_text(encoding="utf-8")
+    import_downloads = (
+        ROOT
+        / "dashboard/src/pages/products/import/createImportDownloads.ts"
+    ).read_text(encoding="utf-8")
     controls = (
         ROOT
         / "dashboard/src/pages/products/tracking/ProductTrackingFields.tsx"
+    ).read_text(encoding="utf-8")
+    mode_picker = (
+        ROOT
+        / "dashboard/src/pages/products/tracking/ProductTrackingModePicker.tsx"
     ).read_text(encoding="utf-8")
 
     check(
@@ -204,24 +220,27 @@ def static_checks() -> None:
     check(
         '"default_lot_control_mode"' in import_upload
         and '"default_expiry_control_mode"' in import_upload
-        and '"lot_control_mode"' in import_modal
-        and '"expiry_control_mode"' in import_modal
-        and "ProductTrackingFields" in import_modal,
+        and "lotControlMode" in import_start
+        and "expiryControlMode" in import_start
+        and "ProductTrackingFields" in import_start
+        and "IMPORT_MAPPING_FIELDS.map" in import_mapping
+        and "onMappingChange" in import_mapping,
         "Products UI sends import defaults and supports row mapping",
     )
     check(
-        '"products.tracking.importValues.REQUIRED"' in import_modal
-        and '"products.importTrackingValueHint"' in import_modal,
+        '"products.tracking.importValues.REQUIRED"' in import_downloads
+        and '"products.importTrackingValueHint"' in import_start,
         "Import template and guidance use localized tracking values",
     )
     check(
-        '"NONE"' in controls
-        and '"OPTIONAL"' in controls
-        and '"REQUIRED"' in controls
-        and "products.tracking.lotModes." in controls
-        and "products.tracking.expiryModes." in controls
-        and "products.tracking.lotExample" in controls
-        and "products.tracking.expiryExample" in controls,
+        "ProductTrackingModePicker" in controls
+        and '"NONE"' in mode_picker
+        and '"OPTIONAL"' in mode_picker
+        and '"REQUIRED"' in mode_picker
+        and "products.tracking.lotModes" in mode_picker
+        and "products.tracking.expiryModes" in mode_picker
+        and "products.tracking.lotExample" in mode_picker
+        and "products.tracking.expiryExample" in mode_picker,
         "Tracking controls keep API codes language-neutral while using contextual labels",
     )
     check(
