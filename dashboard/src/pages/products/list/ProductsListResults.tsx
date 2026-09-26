@@ -210,48 +210,48 @@ export function ProductsListResults({
           <table className="w-full min-w-[920px] text-start text-sm">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[11px] font-black text-slate-500 backdrop-blur-sm">
               <tr>
-                <th className={tableHeaderSpacing}>
+                <th className={`${tableHeaderSpacing} text-start`}>
                   {t(
                     "products.columns.product"
                   )}
                 </th>
                 {columns.package ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.package"
                     )}
                   </th>
                 ) : null}
                 {columns.unitsPerPackage ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.unitsPerPackage"
                     )}
                   </th>
                 ) : null}
                 {columns.tracking ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.tracking"
                     )}
                   </th>
                 ) : null}
                 {columns.lifecycle ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.lifecycle"
                     )}
                   </th>
                 ) : null}
                 {columns.unitBarcode ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.unitBarcode"
                     )}
                   </th>
                 ) : null}
                 {columns.packageBarcode ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.packageBarcode"
                     )}
@@ -259,7 +259,7 @@ export function ProductsListResults({
                 ) : null}
                 {pricingVisible &&
                 columns.packagePrice ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.packagePrice"
                     )}
@@ -267,7 +267,7 @@ export function ProductsListResults({
                 ) : null}
                 {pricingVisible &&
                 columns.unitPrice ? (
-                  <th className={tableHeaderSpacing}>
+                  <th className={`${tableHeaderSpacing} text-center`}>
                     {t(
                       "products.columns.unitPrice"
                     )}
