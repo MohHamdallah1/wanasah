@@ -25,6 +25,12 @@ type Params = {
   setFiltersOpen: Dispatch<
     SetStateAction<boolean>
   >;
+  setSearchInput: Dispatch<
+    SetStateAction<string>
+  >;
+  setSearch: Dispatch<
+    SetStateAction<string>
+  >;
   setFamilyFilterId: Dispatch<
     SetStateAction<string>
   >;
@@ -78,6 +84,8 @@ export function createProductsListActions({
   cursor,
   history,
   setFiltersOpen,
+  setSearchInput,
+  setSearch,
   setFamilyFilterId,
   setFamilyFilterName,
   setFamilyFilterSearchInput,
@@ -119,6 +127,12 @@ export function createProductsListActions({
         .direction
     );
     resetProductPagination();
+  };
+
+  const clearAllCriteria = () => {
+    setSearchInput("");
+    setSearch("");
+    clearControls();
   };
 
   const selectFamily = (
@@ -233,6 +247,7 @@ export function createProductsListActions({
   return {
     toggleFilters,
     clearControls,
+    clearAllCriteria,
     selectFamily,
     updateLifecycleFilter,
     updateTrackingTypeFilter,
