@@ -66,8 +66,16 @@ describe("Products P9.4 desktop table", () => {
       "loop",
     );
     expect(actions).toContain(
+      "const openAfterMenuClose",
+    );
+    expect(actions).toContain(
       "window.setTimeout(",
     );
+    expect(
+      actions.match(
+        /openAfterMenuClose\(/g,
+      )?.length ?? 0,
+    ).toBeGreaterThanOrEqual(5);
     expect(actions).toContain(
       '["ACTIVE", "RETIRING"]',
     );
