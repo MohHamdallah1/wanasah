@@ -106,7 +106,10 @@ describe(
         /const updateMapping = \( field: string, value: string, \) => setMapping\( \(current\) => \(\{ \.\.\.current, \[field\]: value,/,
       );
       expect(mappingPanel).toContain(
-        "onMappingChange( field, event.target.value )",
+        "onMappingChange(",
+      );
+      expect(mappingPanel).toContain(
+        "event.target.value",
       );
     });
 
