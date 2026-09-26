@@ -127,9 +127,7 @@ export function CreateProductAdvancedSection({
         >
           <Settings2 className="h-3.5 w-3.5" />
           {t(
-            createAdvancedExpanded
-              ? "products.quickCreate.hideAdvanced"
-              : "products.quickCreate.showAdvanced"
+            "products.quickCreate.advancedTitle"
           )}
           {createAdvancedExpanded ? (
             <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
