@@ -460,13 +460,16 @@ describe(
         ),
       ).toBe(false);
 
-      const barcodeManager = read(
-        "src/pages/products/barcode/ProductBarcodeManager.tsx",
+      const barcodeList = read(
+        "src/pages/products/barcode/ProductBarcodeList.tsx",
       );
-      expect(barcodeManager).toContain(
+      const barcodeCreate = read(
+        "src/pages/products/barcode/ProductBarcodeCreatePanel.tsx",
+      );
+      expect(barcodeList).toContain(
         "products.barcodeManager.types.${item.barcode_type}",
       );
-      expect(barcodeManager).toContain(
+      expect(barcodeCreate).toContain(
         "products.barcodeManager.types.${value}",
       );
     });
