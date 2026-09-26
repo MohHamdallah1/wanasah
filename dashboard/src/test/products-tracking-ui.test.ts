@@ -157,6 +157,12 @@ describe("products tracking UI contracts", () => {
       readSource("../pages/products/create/useCreateProductWorkflow.ts"),
     );
     const translations = readSource("../i18n/resources.ts");
+    const defaultsSettings =
+      normalizeWhitespace(
+        readSource(
+          "../pages/products/tracking/ProductTrackingSettings.tsx",
+        ),
+      );
 
     expect(createWorkflow).toContain(
       "trackingUsesCompanyDefaults",
@@ -280,6 +286,27 @@ describe("products tracking UI contracts", () => {
     );
     expect(translations).toContain(
       "يمكن تخصيصها لمنتج واحد أثناء إضافته",
+    );
+    expect(translations).toContain(
+      "إذا اخترت «إلزامي» فلن يكتمل التوريد بدون رقم الدفعة",
+    );
+    expect(translations).toContain(
+      "تسجيل تاريخ انتهاء الصلاحية",
+    );
+    expect(defaultsSettings).not.toContain(
+      "products.trackingSettings.companySource",
+    );
+    expect(defaultsSettings).not.toContain(
+      "products.trackingSettings.platformSource",
+    );
+    expect(defaultsSettings).not.toContain(
+      "products.trackingSettings.sourceSummary",
+    );
+    expect(defaultsSettings).not.toContain(
+      "<Building2",
+    );
+    expect(defaultsSettings).not.toContain(
+      "<BadgeInfo",
     );
     expect(translations).toContain(
       "PRODUCT_TRACKING_LOCKED:",
