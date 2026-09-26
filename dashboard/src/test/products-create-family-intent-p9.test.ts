@@ -133,8 +133,8 @@ describe("Products P9 create family intent", () => {
   });
 
   it("keeps existing and new family choices visibly separate in Quick Create", () => {
-    const modal = readSource(
-      "../pages/products/create/CreateProductModal.tsx",
+    const identity = readSource(
+      "../pages/products/create/CreateProductIdentitySection.tsx",
     );
     const mutation = readSource(
       "../pages/products/create/useCreateProductMutation.ts",
@@ -142,22 +142,22 @@ describe("Products P9 create family intent", () => {
       .replace(/\s+/g, " ")
       .trim();
 
-    expect(modal).toContain(
+    expect(identity).toContain(
       'role="group"',
     );
-    expect(modal).toContain(
+    expect(identity).toContain(
       '"products.familyModeLabel"',
     );
-    expect(modal).toContain(
+    expect(identity).toContain(
       '"products.familyExistingPlaceholder"',
     );
-    expect(modal).toContain(
+    expect(identity).toContain(
       '"products.familyNewPlaceholder"',
     );
-    expect(modal).toContain(
+    expect(identity).toContain(
       '"products.familyExistingHint"',
     );
-    expect(modal).toContain(
+    expect(identity).toContain(
       '"products.familyNewHint"',
     );
     expect(mutation).toContain(
