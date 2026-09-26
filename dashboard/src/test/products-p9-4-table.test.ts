@@ -60,7 +60,13 @@ describe("Products P9.4 desktop table", () => {
       "products.familyReassign.action",
     );
     expect(actions).toContain(
-      "onReassignFamily(item)",
+      "onReassignFamily(",
+    );
+    expect(actions).toContain(
+      "loop",
+    );
+    expect(actions).toContain(
+      "window.setTimeout(",
     );
     expect(actions).toContain(
       '["ACTIVE", "RETIRING"]',
