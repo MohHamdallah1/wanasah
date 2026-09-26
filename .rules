@@ -76,6 +76,19 @@ Be direct. Get straight to the point. No apologies, no repetitive phrasing, and 
 - Browser drafts that would otherwise be lost during connectivity failure or refresh must be stored with an appropriate company/user scope and cleared only after success or explicit cancellation.
 - Global transport code must distinguish offline/network/timeout from deterministic API rejection without relying on localized message text.
 
+
+11. Keyboard-First Dashboard Accessibility (MANDATORY, repository-wide):
+- Every dashboard workflow must be fully operable without a mouse. Mouse/touch may enhance the experience but must never be the only way to reach or execute an action.
+- Preserve a logical Tab/Shift+Tab order, visible focus states, and predictable focus restoration after dialogs, drawers, popovers, menus, and inline editors close.
+- Primary form actions must support native keyboard submission (Enter) when safe and unambiguous. Escape must close or cancel transient UI where doing so cannot lose or submit data unexpectedly.
+- Never make a critical action hover-only. Any action revealed visually on hover must also be keyboard-focusable and discoverable.
+- Menus, dialogs, listboxes, tables with interactive controls, pagination, filters, search, CRUD forms, and row actions must have keyboard-equivalent interactions and appropriate accessible names.
+- Do not hijack common browser/text-editing shortcuts or trigger page-level shortcuts while the user is typing in an input, textarea, editable control, or combobox.
+- Prefer semantic HTML behavior (form + submit button, button elements, native controls) over custom key handlers. Add explicit key handling only where native semantics are insufficient.
+- Destructive actions require an explicit confirmation path that is keyboard-operable. Disabled or blocked actions must expose a clear reason to the user rather than failing silently.
+- Any drag/drop-only workflow must provide a keyboard-accessible equivalent.
+- When modifying an existing dashboard surface, preserve or improve its keyboard operability; do not introduce regressions even when the requested change is visual-only.
+
 ## Stage 7.4 inventory costing authority
 - Physical batch allocation and financial cost flow are separate authorities. Physical FEFO stays inside the backend and never requires the driver to choose a batch.
 - Without per-carton serial/scan or enforced physical segregation, never claim the exact physical carton identity. Batch allocation is deterministic book allocation.
