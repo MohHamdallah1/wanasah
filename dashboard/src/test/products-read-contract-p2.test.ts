@@ -333,6 +333,11 @@ describe("products P2 read contract", () => {
         "../pages/products/list/ProductTableRow.tsx",
       ),
     );
+    const rowActions = normalizeWhitespace(
+      readSource(
+        "../pages/products/list/ProductRowActions.tsx",
+      ),
+    );
     const listParams = normalizeWhitespace(
       readSource(
         "../pages/products/list/useProductsListParams.ts",
@@ -387,6 +392,9 @@ describe("products P2 read contract", () => {
       '"products.fields.sku"',
     );
     expect(row).toContain(
+      "<ProductRowActions",
+    );
+    expect(rowActions).toContain(
       "canEditPrice && item.simple_compatible",
     );
     expect(page).toContain(
