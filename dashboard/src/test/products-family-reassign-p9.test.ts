@@ -92,6 +92,24 @@ describe("Products P9 family reassignment", () => {
     expect(dialog).toContain(
       '"products.familyReassign.historyHint"',
     );
+    expect(dialog).toContain(
+      "<Popover",
+    );
+    expect(dialog).toContain(
+      "<CommandInput",
+    );
+    expect(dialog).toContain(
+      "shouldFilter={false}",
+    );
+    expect(dialog).toContain(
+      'side="bottom"',
+    );
+    expect(dialog).toContain(
+      "avoidCollisions={false}",
+    );
+    expect(dialog).not.toContain(
+      "<select",
+    );
   });
 
   it("exposes family movement from Product Details only with catalog management authority", () => {
