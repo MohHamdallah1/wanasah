@@ -521,7 +521,7 @@ export const resources = {
             "هذا الاختيار يخص المنتج الجديد فقط ولا يغيّر الإعداد الافتراضي لباقي منتجات الشركة.",
           lotLabel: "رقم الدفعة",
           lotHelp:
-            "هو الرقم المطبوع من المصنع لتمييز مجموعة إنتاج واحدة. عند استلام المنتج، هل تريد أن يطلب النظام تسجيل هذا الرقم؟",
+            "هو الرقم المطبوع من المصنع لتمييز مجموعة إنتاج واحدة. عند استلام المنتج، هل تريد أن يطلب النظام تسجيل هذا الرقم؟ إذا اخترت «إلزامي» فلن يكتمل التوريد بدون رقم الدفعة.",
           lotModes: {
             NONE: "بدون — لا يُطلب رقم دفعة",
             OPTIONAL: "اختياري — يُسجّل إذا كان موجوداً",
@@ -543,7 +543,7 @@ export const resources = {
             "مثال: A123 وB456 رقما دفعتين مختلفتين من نفس المنتج.",
           expiryLabel: "تاريخ الصلاحية",
           expiryHelp:
-            "عند استلام المنتج، هل تريد أن يطلب النظام تسجيل تاريخ الصلاحية حتى يتابع التنبيهات والانتهاء؟",
+            "عند استلام المنتج، هل تريد أن يطلب النظام تسجيل تاريخ انتهاء الصلاحية حتى يتابع تنبيهات الصلاحية وقرب الانتهاء؟",
           expiryModes: {
             NONE: "بدون — لا يُطلب تاريخ صلاحية",
             OPTIONAL: "اختياري — يُسجّل إذا كان موجوداً",
@@ -2027,7 +2027,7 @@ export const resources = {
             "This choice applies only to the new product and does not change the company default for other products.",
           lotLabel: "Manufacturer batch / lot number",
           lotHelp:
-            "When this product is received, is there a manufacturer batch or lot number on the package that staff should record? It distinguishes one production run from another for traceability or recalls.",
+            "This is the manufacturer number that identifies one production batch. When receiving the product, should the system require staff to record it? If Required is selected, the receipt cannot be completed without a batch number.",
           lotModes: {
             NONE: "No — this product does not use a batch or lot number",
             OPTIONAL: "Optional — record it when it appears on the product",
@@ -2049,7 +2049,7 @@ export const resources = {
             "Example: the same chips may arrive as lot A123 and later as lot B456; recording the lot identifies which quantity came from each run.",
           expiryLabel: "Expiry date",
           expiryHelp:
-            "When this product is received, should staff record its expiry date so the system can track expiration, alerts, and sellability rules?",
+            "When receiving the product, should the system require its expiry date so it can track expiry alerts and approaching expiration?",
           expiryModes: {
             NONE: "No — this product does not require an expiry date",
             OPTIONAL: "Optional — record it when available",
