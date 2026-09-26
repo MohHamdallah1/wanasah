@@ -7,6 +7,31 @@ const DEFAULT_LANGUAGE_LOCALES:
     en: "en-US",
   };
 
+const applyAppNumberingSystem = (
+  locale: string,
+): string => {
+  try {
+    const parsed =
+      new Intl.Locale(locale);
+
+    if (
+      parsed.language.toLowerCase() !==
+      "ar"
+    ) {
+      return parsed.toString();
+    }
+
+    return new Intl.Locale(
+      parsed,
+      {
+        numberingSystem: "latn",
+      },
+    ).toString();
+  } catch {
+    return locale;
+  }
+};
+
 export type I18nLocaleSource = {
   resolvedLanguage?:
     | string
@@ -47,22 +72,19 @@ export const resolveAppLocale = (
         .split("-")[0]
         .toLowerCase();
 
-    // Only bare languages get the app's
-    // preferred regional default. Explicit
-    // user/resource locales such as ar-EG,
-    // en-GB, fr-FR or de-DE are preserved.
-    if (
+    const regionalLocale =
       canonical.toLowerCase() ===
       baseLanguage
-    ) {
-      return (
-        DEFAULT_LANGUAGE_LOCALES[
-          baseLanguage
-        ] ?? canonical
-      );
-    }
+        ? (
+            DEFAULT_LANGUAGE_LOCALES[
+              baseLanguage
+            ] ?? canonical
+          )
+        : canonical;
 
-    return canonical;
+    return applyAppNumberingSystem(
+      regionalLocale,
+    );
   } catch {
     return DEFAULT_APP_LOCALE;
   }
