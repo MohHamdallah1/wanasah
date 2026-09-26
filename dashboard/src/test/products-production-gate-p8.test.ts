@@ -378,9 +378,9 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/ProductsPage.tsx",
       ),
     );
-    const catalogTools = compact(
+    const addAction = compact(
       readSource(
-        "../pages/products/header/ProductsCatalogToolsMenu.tsx",
+        "../pages/products/header/ProductsAddAction.tsx",
       ),
     );
     const fileActions = compact(
@@ -421,7 +421,7 @@ describe("Products P8 production frontend gate", () => {
     expect(page).toContain(
       "onOpenImport={ importWorkflow.openImport }",
     );
-    expect(catalogTools).toMatch(
+    expect(addAction).toMatch(
       /onSelect=\{\s*onOpenImport\s*\}/,
     );
     expect(importWorkflow).toContain(
