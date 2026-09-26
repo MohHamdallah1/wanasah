@@ -43,7 +43,10 @@ export function ProductsCatalogToolsMenu({
   onOpenAdvancedUom,
   onOpenFamilies,
 }: Props) {
-  const { t, i18n } = useTranslation();\n  const direction = i18n.dir();
+  const { t, i18n } =
+    useTranslation();
+  const direction =
+    i18n.dir();
 
   return (
     <DropdownMenu dir={direction}>
@@ -57,7 +60,11 @@ export function ProductsCatalogToolsMenu({
           }`}
         >
           <Settings2 className="h-4 w-4 shrink-0" />
-          <span>{t("products.catalogTools")}</span>
+          <span>
+            {t(
+              "products.catalogTools",
+            )}
+          </span>
           <ChevronDown
             className={`h-3.5 w-3.5 ${
               triggerVariant === "topbar"
@@ -69,38 +76,53 @@ export function ProductsCatalogToolsMenu({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
+        dir={direction}
         align="end"
-        className="w-72 rounded-xl border-slate-200 p-1.5 shadow-xl"
+        className="w-72 rounded-xl border-slate-200 p-1.5 text-start shadow-xl"
       >
-        <DropdownMenuLabel className="px-2.5 py-2 text-[11px] font-black text-slate-400">
-          {t("products.catalogTools")}
+        <DropdownMenuLabel className="px-2.5 py-2 text-start text-[11px] font-black text-slate-400">
+          {t(
+            "products.catalogTools",
+          )}
         </DropdownMenuLabel>
 
         <DropdownMenuItem
-          onSelect={onOpenDisplayPreferences}
+          onSelect={
+            onOpenDisplayPreferences
+          }
           className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
         >
           <SlidersHorizontal className="h-4 w-4 shrink-0 text-slate-400" />
-          {t("products.displayPreferences.action")}
+          {t(
+            "products.displayPreferences.action",
+          )}
         </DropdownMenuItem>
 
         {canManageFamilies ? (
           <DropdownMenuItem
-            onSelect={onOpenFamilies}
+            onSelect={
+              onOpenFamilies
+            }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <FolderTree className="h-4 w-4 shrink-0 text-slate-400" />
-            {t("products.families")}
+            {t(
+              "products.families",
+            )}
           </DropdownMenuItem>
         ) : null}
 
         {canImportProducts ? (
           <DropdownMenuItem
-            onSelect={onOpenImport}
+            onSelect={
+              onOpenImport
+            }
             className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
           >
             <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-400" />
-            {t("products.importFile")}
+            {t(
+              "products.importFile",
+            )}
           </DropdownMenuItem>
         ) : null}
 
@@ -109,34 +131,50 @@ export function ProductsCatalogToolsMenu({
             <DropdownMenuSeparator />
 
             <DropdownMenuItem
-              disabled={trackingDefaultsLoading}
-              onSelect={onOpenTrackingDefaults}
+              disabled={
+                trackingDefaultsLoading
+              }
+              onSelect={
+                onOpenTrackingDefaults
+              }
               className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
             >
               <Waypoints className="h-4 w-4 shrink-0 text-slate-400" />
-              {t("products.trackingSettings.action")}
+              {t(
+                "products.trackingSettings.action",
+              )}
             </DropdownMenuItem>
 
             <DropdownMenuItem
-              onSelect={onOpenAdvancedUom}
+              onSelect={
+                onOpenAdvancedUom
+              }
               className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
             >
               <Settings2 className="h-4 w-4 shrink-0 text-slate-400" />
-              {t("products.advancedUom.action")}
+              {t(
+                "products.advancedUom.action",
+              )}
             </DropdownMenuItem>
 
             <DropdownMenuItem
               disabled
-              title={t("products.advancedPricingHint")}
+              title={t(
+                "products.advancedPricingHint",
+              )}
               className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-400"
             >
-              <LockKeyhole className="h-4 w-4" />
+              <LockKeyhole className="h-4 w-4 shrink-0" />
               <span className="min-w-0 text-start">
                 <span className="block">
-                  {t("products.advancedPricing")}
+                  {t(
+                    "products.advancedPricing",
+                  )}
                 </span>
                 <span className="mt-0.5 block text-[10px] font-semibold leading-4 text-slate-400">
-                  {t("products.advancedPricingHint")}
+                  {t(
+                    "products.advancedPricingHint",
+                  )}
                 </span>
               </span>
             </DropdownMenuItem>
