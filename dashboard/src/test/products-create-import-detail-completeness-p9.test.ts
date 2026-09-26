@@ -108,20 +108,30 @@ describe(
           "../pages/products/create/CreateProductModal.tsx",
         ),
       );
+      const advanced = compact(
+        readSource(
+          "../pages/products/create/CreateProductAdvancedSection.tsx",
+        ),
+      );
+      const commerce = compact(
+        readSource(
+          "../pages/products/create/CreateProductCommerceSection.tsx",
+        ),
+      );
 
       expect(modal).toContain(
         "createAdvancedExpanded",
       );
-      expect(modal).toContain(
+      expect(advanced).toContain(
         '"products.quickCreate.advancedTitle"',
       );
-      expect(modal).toContain(
+      expect(advanced).toContain(
         '"products.tracking.createChange"',
       );
-      expect(modal).toContain(
+      expect(advanced).toContain(
         '"products.barcodeSection"',
       );
-      expect(modal).toContain(
+      expect(commerce).toContain(
         "draft.has_package",
       );
     });
