@@ -279,6 +279,16 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/barcode/ProductBarcodeManager.tsx",
       ),
     );
+    const barcodeList = compact(
+      readSource(
+        "../pages/products/barcode/ProductBarcodeList.tsx",
+      ),
+    );
+    const barcodeCreate = compact(
+      readSource(
+        "../pages/products/barcode/ProductBarcodeCreatePanel.tsx",
+      ),
+    );
     const catalogBackend = compact(
       readSource(
         "../../../wa_backend/api/catalog.py",
@@ -354,13 +364,13 @@ describe("Products P3 detail foundation", () => {
     expect(catalogBackend).toContain(
       "limit: int = Query(100, ge=1, le=200)",
     );
-    expect(manager).toContain(
+    expect(barcodeList).toContain(
       '"products.barcodeManager.loadMore"',
     );
-    expect(manager).toContain(
+    expect(barcodeCreate).toContain(
       "!product.package_uses_base_barcode",
     );
-    expect(manager).toContain(
+    expect(barcodeCreate).toContain(
       '"products.barcodeManager.pendingRetry"',
     );
   });
