@@ -721,7 +721,6 @@ async def _import_rows(
                 company_id=company_id,
                 actor_id=int(job.created_by),
             )
-            )
             if actor is None:
                 raise ProductImportTerminalError(
                     "The import actor is no longer active."
