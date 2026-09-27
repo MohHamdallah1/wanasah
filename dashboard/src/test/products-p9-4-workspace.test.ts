@@ -40,6 +40,24 @@ describe("Products P9.4 workspace foundation", () => {
     expect(header).toContain(
       "onOpenCreateProduct",
     );
+    expect(
+      header.indexOf(
+        "<ProductsCatalogToolsMenu"
+      )
+    ).toBeLessThan(
+      header.indexOf(
+        "<ProductsAddMenu"
+      )
+    );
+    expect(
+      header.indexOf(
+        "<ProductsAddMenu"
+      )
+    ).toBeLessThan(
+      header.indexOf(
+        "onClick={onRefresh}"
+      )
+    );
     expect(header).not.toContain(
       "onClick={onOpenImport}",
     );
