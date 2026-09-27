@@ -28,7 +28,7 @@ def check(condition: bool, label: str) -> None:
 def static_checks() -> None:
     from openpyxl import load_workbook
 
-    from product_import_template import (
+    from domains.simple_products.imports.infrastructure.template import (
         build_product_import_template,
     )
     from product_import_worker import (
@@ -176,7 +176,7 @@ def static_checks() -> None:
     )
 
     api = (
-        BACKEND / "api/simple_products.py"
+        BACKEND / "domains/simple_products/imports/api/router.py"
     ).read_text(encoding="utf-8")
     worker = (
         BACKEND / "product_import_worker.py"
@@ -185,7 +185,7 @@ def static_checks() -> None:
         BACKEND / "domains/simple_products/imports/domain/localization.py"
     ).read_text(encoding="utf-8")
     queue = (
-        BACKEND / "product_import_queue.py"
+        BACKEND / "domains/simple_products/imports/infrastructure/queue.py"
     ).read_text(encoding="utf-8")
     models = (
         BACKEND / "models.py"
@@ -227,7 +227,7 @@ def static_checks() -> None:
         / "dashboard/src/pages/products/import/ImportProductQuickGuide.tsx"
     ).read_text(encoding="utf-8")
     import_template = (
-        BACKEND / "product_import_template.py"
+        BACKEND / "domains/simple_products/imports/infrastructure/template.py"
     ).read_text(encoding="utf-8")
     controls = (
         ROOT
