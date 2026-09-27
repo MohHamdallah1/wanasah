@@ -49,6 +49,74 @@ CORRECTION_META_HEADERS = (
     CORRECTION_ERROR_CODE_HEADER,
     CORRECTION_ERROR_MESSAGE_HEADER,
 )
+
+_FORMULA_PREFIXES = (
+    "=",
+    "+",
+    "-",
+    "@",
+)
+
+
+def sanitize_spreadsheet_cell(
+    value: Any,
+) -> Any:
+    """Prevent CSV/XLSX formula execution while preserving ordinary values."""
+    if not isinstance(
+        value,
+        str,
+    ):
+        return value
+    probe = value.lstrip(
+        " \t\r\n"
+    )
+    if (
+        probe.startswith(
+            _FORMULA_PREFIXES
+        )
+        or value.startswith(
+            (
+                "\t",
+                "\r",
+            )
+        )
+    ):
+        return "'" + value
+    return value
+
+
+def _restore_sanitized_cell(
+    value: Any,
+) -> Any:
+    if (
+        isinstance(
+            value,
+            str,
+        )
+        and value.startswith(
+            "'"
+        )
+    ):
+        candidate = value[
+            1:
+        ]
+        probe = candidate.lstrip(
+            " \t\r\n"
+        )
+        if (
+            probe.startswith(
+                _FORMULA_PREFIXES
+            )
+            or candidate.startswith(
+                (
+                    "\t",
+                    "\r",
+                )
+            )
+        ):
+            return candidate
+    return value
+
 CORRECTION_BATCH_SIZE = 1000
 
 
@@ -79,10 +147,32 @@ def _artifact_headers(
         raise ProductImportTerminalError(
             "The original import uses a reserved correction column."
         )
-    return [
-        *CORRECTION_META_HEADERS,
-        *source_headers,
+    safe_source_headers = [
+        str(
+            sanitize_spreadsheet_cell(
+                header
+            )
+        )
+        for header in source_headers
     ]
+    output_headers = [
+        *CORRECTION_META_HEADERS,
+        *safe_source_headers,
+    ]
+    if (
+        len(
+            output_headers
+        )
+        != len(
+            set(
+                output_headers
+            )
+        )
+    ):
+        raise ProductImportTerminalError(
+            "Correction headers collide after spreadsheet sanitization."
+        )
+    return output_headers
 
 
 def _artifact_values(
@@ -94,31 +184,39 @@ def _artifact_values(
         or {}
     )
     return [
-        str(
-            row.row_identity
+        sanitize_spreadsheet_cell(
+            str(
+                row.row_identity
+            )
         ),
         int(
             row.row_number
         ),
-        (
-            str(
-                row.error_code
+        sanitize_spreadsheet_cell(
+            (
+                str(
+                    row.error_code
+                )
+                if row.error_code
+                is not None
+                else ""
             )
-            if row.error_code
-            is not None
-            else ""
         ),
-        (
-            str(
-                row.error_message
+        sanitize_spreadsheet_cell(
+            (
+                str(
+                    row.error_message
+                )
+                if row.error_message
+                is not None
+                else ""
             )
-            if row.error_message
-            is not None
-            else ""
         ),
         *[
-            raw.get(
-                header
+            sanitize_spreadsheet_cell(
+                raw.get(
+                    header
+                )
             )
             for header
             in source_headers
@@ -193,7 +291,13 @@ async def build_correction_artifact(
                 stream
             )
             writer.writerow(
-                headers
+                [
+                    sanitize_spreadsheet_cell(
+                        header
+                    )
+                    for header
+                    in headers
+                ]
             )
             workbook = None
             sheet = None
@@ -207,7 +311,13 @@ async def build_correction_artifact(
                 "Corrections"
             )
             sheet.append(
-                headers
+                [
+                    sanitize_spreadsheet_cell(
+                        header
+                    )
+                    for header
+                    in headers
+                ]
             )
 
         after_row_number = 0
@@ -363,8 +473,14 @@ def parse_correction_payload(
                         row_identity,
                     raw_data={
                         header:
-                            raw.get(
-                                header
+                            _restore_sanitized_cell(
+                                raw.get(
+                                    str(
+                                        sanitize_spreadsheet_cell(
+                                            header
+                                        )
+                                    )
+                                )
                             )
                         for header
                         in source_headers
