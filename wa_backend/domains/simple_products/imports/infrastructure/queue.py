@@ -89,8 +89,8 @@ async def process_product_import(
         mark_import_runtime_failure,
         run_product_import_job,
     )
-    from domains.simple_products.imports.domain import (
-        ProductImportTerminalError,
+    from domains.simple_products.imports.domain.errors import (
+        classify_import_error,
     )
 
     job_uuid = UUID(str(job_id))
@@ -99,15 +99,22 @@ async def process_product_import(
             company_id=int(company_id),
             job_id=job_uuid,
         )
-    except ProductImportTerminalError as exc:
-        await mark_import_runtime_failure(
-            company_id=int(company_id),
-            job_id=job_uuid,
-            message=str(exc),
-            final_attempt=True,
-            retryable=False,
-        )
     except Exception as exc:
+        classification = (
+            classify_import_error(
+                exc
+            )
+        )
+        if not classification.retryable:
+            await mark_import_runtime_failure(
+                company_id=int(company_id),
+                job_id=job_uuid,
+                message=str(exc),
+                final_attempt=True,
+                retryable=False,
+            )
+            return
+
         final_attempt = (
             context.task.retry.get_retry_decision(
                 exception=exc,
@@ -354,6 +361,14 @@ async def requeue_import(
             )
 
             if status == "NEEDS_MAPPING":
+                from domains.simple_products.imports.application.state_machine import (
+                    assert_job_transition,
+                )
+
+                assert_job_transition(
+                    status,
+                    "VALIDATING",
+                )
                 result = await conn.execute(
                     """
                     UPDATE product_import_jobs
@@ -484,6 +499,15 @@ async def retry_failed_import(
                 "IMPORTING",
             }:
                 resume_status = "QUEUED"
+
+            from domains.simple_products.imports.application.state_machine import (
+                assert_job_transition,
+            )
+
+            assert_job_transition(
+                status,
+                resume_status,
+            )
 
             result = await conn.execute(
                 """
