@@ -10,13 +10,24 @@ from __future__ import annotations
 import codecs
 import csv
 import io
+import sqlite3
 import zipfile
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, ContextManager, Iterator, Protocol
 
-from openpyxl import load_workbook
+from openpyxl.reader.excel import (
+    ExcelReader,
+    SHARED_STRINGS,
+)
+from openpyxl.reader.strings import (
+    SHEET_MAIN_NS,
+    Text,
+    iterparse,
+)
 
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
@@ -52,6 +63,250 @@ class SourceParser(Protocol):
         payload: bytes,
     ) -> ContextManager[ParsedSource]:
         ...
+
+
+class _DiskBackedSharedStrings(
+    Sequence[str]
+):
+    """Bounded-memory shared-string table for read-only XLSX traversal."""
+
+    _INSERT_BATCH = 512
+
+    def __init__(
+        self,
+    ) -> None:
+        # Empty database name asks SQLite for an automatically-cleaned
+        # temporary on-disk database. Cache size stays fixed as row count grows.
+        self._db = sqlite3.connect(
+            ""
+        )
+        self._db.execute(
+            "PRAGMA temp_store=FILE"
+        )
+        self._db.execute(
+            "PRAGMA cache_size=-2048"
+        )
+        self._db.execute(
+            "PRAGMA synchronous=OFF"
+        )
+        self._db.execute(
+            "PRAGMA journal_mode=OFF"
+        )
+        self._db.execute(
+            "CREATE TABLE shared_strings ("
+            "idx INTEGER PRIMARY KEY, "
+            "value TEXT NOT NULL"
+            ")"
+        )
+        self._length = 0
+        self._closed = False
+
+    def load(
+        self,
+        xml_source,
+    ) -> None:
+        string_tag = (
+            f"{{{SHEET_MAIN_NS}}}si"
+        )
+        batch: list[
+            tuple[int, str]
+        ] = []
+
+        for _, node in iterparse(
+            xml_source
+        ):
+            if node.tag != string_tag:
+                continue
+
+            value = (
+                Text.from_tree(
+                    node
+                )
+                .content
+                .replace(
+                    "x005F_",
+                    "",
+                )
+            )
+            batch.append(
+                (
+                    self._length,
+                    value,
+                )
+            )
+            self._length += 1
+            node.clear()
+
+            if (
+                len(batch)
+                >= self._INSERT_BATCH
+            ):
+                self._flush(
+                    batch
+                )
+
+        self._flush(batch)
+        self._db.commit()
+
+    def _flush(
+        self,
+        batch: list[
+            tuple[int, str]
+        ],
+    ) -> None:
+        if not batch:
+            return
+        self._db.executemany(
+            "INSERT INTO shared_strings "
+            "(idx, value) VALUES (?, ?)",
+            batch,
+        )
+        batch.clear()
+
+    @lru_cache(
+        maxsize=512
+    )
+    def _lookup(
+        self,
+        index: int,
+    ) -> str:
+        row = self._db.execute(
+            "SELECT value "
+            "FROM shared_strings "
+            "WHERE idx = ?",
+            (
+                int(index),
+            ),
+        ).fetchone()
+        if row is None:
+            raise IndexError(index)
+        return str(row[0])
+
+    def __getitem__(
+        self,
+        index,
+    ) -> str:
+        if isinstance(
+            index,
+            slice,
+        ):
+            raise TypeError(
+                "Shared-string slices are not supported."
+            )
+
+        normalized = int(index)
+        if normalized < 0:
+            normalized += self._length
+        if (
+            normalized < 0
+            or normalized
+            >= self._length
+        ):
+            raise IndexError(index)
+
+        return self._lookup(
+            normalized
+        )
+
+    def __len__(
+        self,
+    ) -> int:
+        return self._length
+
+    def close(
+        self,
+    ) -> None:
+        if self._closed:
+            return
+        self._lookup.cache_clear()
+        self._db.close()
+        self._closed = True
+
+
+class _BoundedExcelReader(
+    ExcelReader
+):
+    """OpenPyXL reader with disk-backed shared strings."""
+
+    def __init__(
+        self,
+        file_object,
+    ) -> None:
+        super().__init__(
+            file_object,
+            read_only=True,
+            keep_vba=False,
+            data_only=True,
+            keep_links=False,
+            rich_text=False,
+        )
+        self._shared_string_store: (
+            _DiskBackedSharedStrings
+            | None
+        ) = None
+
+    def read_strings(
+        self,
+    ) -> None:
+        content_type = (
+            self.package.find(
+                SHARED_STRINGS
+            )
+        )
+        if content_type is None:
+            self.shared_strings = []
+            return
+
+        store = (
+            _DiskBackedSharedStrings()
+        )
+        strings_path = (
+            content_type.PartName[1:]
+        )
+        try:
+            with self.archive.open(
+                strings_path
+            ) as source:
+                store.load(source)
+        except Exception:
+            store.close()
+            raise
+
+        self._shared_string_store = (
+            store
+        )
+        self.shared_strings = store
+
+    def close_bounded_resources(
+        self,
+        *,
+        close_archive: bool,
+    ) -> None:
+        if (
+            self._shared_string_store
+            is not None
+        ):
+            self._shared_string_store.close()
+            self._shared_string_store = None
+
+        if close_archive:
+            self.archive.close()
+
+
+def _load_bounded_workbook(
+    file_object,
+) -> _BoundedExcelReader:
+    reader = _BoundedExcelReader(
+        file_object
+    )
+    try:
+        reader.read()
+    except Exception:
+        reader.close_bounded_resources(
+            close_archive=True
+        )
+        raise
+    return reader
 
 
 def _json_cell(
@@ -430,12 +685,12 @@ def _open_xlsx_source(
         payload
     ) as workbook_stream:
         try:
-            workbook = load_workbook(
-                workbook_stream,
-                read_only=True,
-                data_only=True,
-                keep_links=False,
+            reader = (
+                _load_bounded_workbook(
+                    workbook_stream
+                )
             )
+            workbook = reader.wb
         except Exception as exc:
             raise ProductImportTerminalError(
                 "The Excel file could not be opened."
@@ -473,7 +728,12 @@ def _open_xlsx_source(
                 ),
             )
         finally:
-            workbook.close()
+            try:
+                workbook.close()
+            finally:
+                reader.close_bounded_resources(
+                    close_archive=False
+                )
 
 
 @contextmanager
