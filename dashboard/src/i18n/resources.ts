@@ -660,6 +660,8 @@ export const resources = {
         rowNumber: "الصف {{row}}",
         importFailed:
           "فشلت العملية بعد محاولات الإعادة. لم يترك النظام منتجاً نصف مكتمل.",
+        importCancelled:
+          "تم إلغاء الاستيراد بأمان. احتُفظ فقط بالصفوف التي اكتملت معاملاتها قبل الإلغاء.",
         importCompleted:
           "تم استيراد {{count}} منتج بنجاح",
         importCompletedWithErrors:
@@ -2245,6 +2247,8 @@ export const resources = {
         rowNumber: "Row {{row}}",
         importFailed:
           "The import failed after retries. No half-created product was left behind.",
+        importCancelled:
+          "The import was cancelled safely. Only rows whose transactions completed before cancellation were kept.",
         importCompleted:
           "{{count}} products imported successfully",
         importCompletedWithErrors:
