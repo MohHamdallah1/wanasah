@@ -467,27 +467,31 @@ This weakens audit, support, correction and forensic capability.
 
 # Phase 12 — Upload/source-payload memory and storage boundary
 
-## Current bounded condition
+## Production boundary after hardening
 
-The HTTP endpoint currently reads at most 8MB + 1 byte into memory and stores the source payload durably in PostgreSQL until parsing completes.
+The server upload ceiling remains **8 MiB**, but the HTTP path no longer materializes the whole source to calculate size or SHA-256. Upload bytes are read in fixed chunks into a disk-backed bounded spool while size and SHA-256 are calculated incrementally.
 
-This is bounded **per request** today, so it is not the same severity as the 50k-row materialization problem. It is **not bounded in aggregate**: many individually valid 8MB uploads can still exhaust PostgreSQL storage/WAL or overwhelm the queue before workers drain it. The storage boundary and admission policy therefore must be explicit before file limits or ingestion channels expand.
+Application/queue logic now depends on the storage-neutral `SourceStore` contract. The current V1 production adapter stores immutable source metadata plus fixed **256 KiB PostgreSQL chunks**, because the current 8 MiB ceiling lets source persistence, durable capacity reservation, job creation and queue defer remain one database transaction. The application contract does not depend on PostgreSQL blobs; a future object-storage adapter can replace it without changing import orchestration.
+
+Admission is enforced before source persistence with tenant/user rate limits, active-job limits, tenant live-source byte limits and a global source-storage ceiling. Concurrent requests are protected by tenant admission serialization plus durable atomic source-byte counters. Capacity denials return stable retryable codes with `Retry-After`.
 
 ## Tasks
 
-- [ ] Keep the current upload size bound enforced server-side.
-- [ ] Add import-specific admission control **before** persisting source bytes: per-user/per-tenant upload rate, maximum concurrent/queued jobs, maximum queued source bytes per tenant, and a global source-storage safety ceiling.
-- [ ] Make admission decisions from durable/atomic counters or database state so concurrent requests cannot race past quotas.
-- [ ] Return a stable retryable capacity/rate-limit error with Retry-After semantics when admission is denied; do not accept payload bytes and hope the worker catches up.
-- [ ] Keep the existing global HTTP/IP rate limiter as defense-in-depth only; it is not a substitute for tenant-aware import quotas.
-- [ ] Add queue/source-storage metrics and alerts for queued bytes, oldest payload age, quota rejections and storage high-water marks.
-- [ ] Include PostgreSQL/WAL amplification in capacity tests while source payloads remain database-backed.
-- [ ] Compute size/hash in a bounded manner rather than assuming future payloads can always be materialized.
-- [ ] Introduce a SourceStore abstraction so queue/application logic references an immutable source rather than depending on one storage implementation.
-- [ ] Decide and document the production SourceStore implementation based on deployment needs.
-- [ ] If/when limits grow beyond the bounded DB-payload design, move source blobs to durable object storage without changing application contracts.
-- [ ] Guarantee source cleanup after staging according to retention policy.
-- [ ] Add hash verification before parsing/retry.
+- [x] Keep the current upload size bound enforced server-side — 8 MiB remains the authoritative Product Import HTTP ceiling.
+- [x] Add import-specific admission control **before** persisting source bytes: per-user/per-tenant upload rate, maximum concurrent/queued jobs, maximum queued source bytes per tenant, and a global source-storage safety ceiling.
+- [x] Make admission decisions from durable/atomic counters or database state so concurrent requests cannot race past quotas — tenant admissions use an advisory transaction lock and source bytes use durable tenant/global counters with conditional atomic reservation.
+- [x] Return a stable retryable capacity/rate-limit error with Retry-After semantics when admission is denied; rejected admissions do not persist a new source.
+- [x] Keep the existing global HTTP/IP rate limiter as defense-in-depth only; it is not a substitute for tenant-aware import quotas. This boundary is explicit in `domains/simple_products/imports/SOURCE_STORE.md`.
+- [x] Add queue/source-storage metrics and alerts for queued/live source bytes, oldest retained source age, quota rejections and storage high-water marks.
+- [x] Include PostgreSQL/WAL amplification in capacity tests while source payloads remain database-backed — the Phase 12 integration test measures `pg_wal_lsn_diff`; the current development run measured **1.073×** for the 1 MiB source fixture.
+- [x] Compute size/hash in a bounded manner — HTTP uploads are read in 64 KiB chunks into a disk-backed spool while SHA-256 and exact byte count are calculated incrementally.
+- [x] Introduce a `SourceStore` abstraction so queue/application logic references an immutable source rather than depending on one storage implementation.
+- [x] Decide and document the production SourceStore implementation based on deployment needs — current V1 adapter is bounded PostgreSQL chunks under the 8 MiB ceiling.
+- [x] If/when limits grow beyond the bounded DB-payload design, move source blobs to durable object storage without changing application contracts — the documented migration boundary is an immutable/checksummed S3-compatible adapter behind the same `SourceStore` port.
+- [x] Guarantee source cleanup after staging according to retention policy — successful staging deletes retained SourceStore bytes immediately and Phase 10 remains the 7-day terminal-job hard ceiling; capacity counters are released atomically with source deletion.
+- [x] Add hash verification before parsing/retry — the SourceStore streams every retained chunk in order, verifies exact size + SHA-256, and only then hands bytes to the parser; tampered/missing/reordered sources fail closed before parsing.
+
+> Phase 12 migration `c9e5f2a7d310` backfills any still-live legacy inline source into the immutable SourceStore and initializes durable capacity counters. Its downgrade reconstructs still-live sources into the legacy inline payload before dropping the SourceStore schema, so migration rollback does not discard a queued source.
 
 ---
 
