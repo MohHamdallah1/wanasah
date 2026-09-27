@@ -108,11 +108,6 @@ export function CreateProductIdentitySection({
         <h3 className="text-sm font-black text-slate-950">
           {t("products.productName")}
         </h3>
-        <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
-          {t("products.family")}
-          {" · "}
-          {t("common.optional")}
-        </p>
       </div>
 
       <div className="space-y-4">
@@ -137,7 +132,7 @@ export function CreateProductIdentitySection({
                 ? "product-name-error"
                 : undefined
             }
-            className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-950 outline-none transition placeholder:font-semibold placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+            className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-950 outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
           />
           {createFieldError?.field === "name" ? (
             <span
@@ -250,6 +245,7 @@ export function CreateProductIdentitySection({
                   side="bottom"
                   align="start"
                   sideOffset={6}
+                  avoidCollisions={false}
                   className="w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-xl"
                 >
                   <Command
@@ -377,7 +373,7 @@ export function CreateProductIdentitySection({
                     ? "product-family-error"
                     : undefined
                 }
-                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               />
               <p className="mt-1 text-[10px] font-semibold leading-4 text-amber-700">
                 {t(
