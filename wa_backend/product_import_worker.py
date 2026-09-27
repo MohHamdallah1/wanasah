@@ -37,6 +37,7 @@ from models import (
 )
 from product_import_localization import (
     CANONICAL_IMPORT_FIELDS,
+    IMPORT_TRACKING_DEFAULT_SENTINEL,
     canonical_package_value,
     canonical_tracking_value,
     normalize_import_token,
@@ -74,6 +75,14 @@ def _tracking_import_mode(
     canonical = canonical_tracking_value(
         raw_value,
     )
+    if (
+        canonical
+        == IMPORT_TRACKING_DEFAULT_SENTINEL
+    ):
+        return normalize_tracking_mode(
+            fallback,
+            field_name=field_name,
+        )
     return normalize_tracking_mode(
         canonical,
         field_name=field_name,
