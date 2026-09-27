@@ -36,6 +36,7 @@ from domains.simple_products.imports.domain.normalization import (
 )
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
+    count_job_rows,
     count_validation_outcomes,
     fetch_validation_batch,
     invalidate_external_barcode_conflicts,
@@ -86,15 +87,25 @@ def classify_row_error(
 def validation_outcome(
     valid_count: int,
     invalid_count: int,
+    *,
+    imported_count: int = 0,
+    import_failed_count: int = 0,
 ) -> tuple[str, bool]:
-    if int(valid_count) <= 0:
+    if int(valid_count) > 0:
         return (
-            JobStatus.VALIDATION_FAILED.value,
+            JobStatus.IMPORTING.value,
+            True,
+        )
+
+    if int(imported_count) > 0:
+        return (
+            JobStatus.COMPLETED_WITH_ERRORS.value,
             False,
         )
+
     return (
-        JobStatus.IMPORTING.value,
-        True,
+        JobStatus.VALIDATION_FAILED.value,
+        False,
     )
 
 
@@ -294,17 +305,40 @@ async def _validation_contract(
             company_id=company_id,
             job_id=job_id,
         )
+        imported_count = await count_job_rows(
+            db,
+            company_id=company_id,
+            job_id=job_id,
+            status=RowStatus.IMPORTED.value,
+        )
+        import_failed_count = await count_job_rows(
+            db,
+            company_id=company_id,
+            job_id=job_id,
+            status=RowStatus.IMPORT_FAILED.value,
+        )
+        durable_valid_count = (
+            valid_count
+            + imported_count
+            + import_failed_count
+        )
 
         if (
             int(job.valid_rows)
-            != valid_count
+            != durable_valid_count
             or int(job.failed_rows)
             != invalid_count
+            or int(job.processed_rows)
+            != imported_count
         ):
             touch_job(
                 job,
-                valid_rows=valid_count,
-                failed_rows=invalid_count,
+                valid_rows=
+                    durable_valid_count,
+                failed_rows=
+                    invalid_count,
+                processed_rows=
+                    imported_count,
             )
             await db.commit()
 
@@ -429,9 +463,24 @@ async def validate_rows(
                             "Validation finalization found staged rows unexpectedly."
                         )
 
+                    imported_count = await count_job_rows(
+                        db,
+                        company_id=company_id,
+                        job_id=job_id,
+                        status=RowStatus.IMPORTED.value,
+                    )
+                    import_failed_count = await count_job_rows(
+                        db,
+                        company_id=company_id,
+                        job_id=job_id,
+                        status=RowStatus.IMPORT_FAILED.value,
+                    )
+
                     if (
                         valid_count
                         + invalid_count
+                        + imported_count
+                        + import_failed_count
                         != int(
                             job.total_rows
                         )
@@ -446,17 +495,25 @@ async def validate_rows(
                     ) = validation_outcome(
                         valid_count,
                         invalid_count,
+                        imported_count=
+                            imported_count,
+                        import_failed_count=
+                            import_failed_count,
                     )
                     transition_job(
                         job,
                         target,
                         column_mapping=
                             mapping,
-                        valid_rows=
-                            valid_count,
+                        valid_rows=(
+                            valid_count
+                            + imported_count
+                            + import_failed_count
+                        ),
                         failed_rows=
                             invalid_count,
-                        processed_rows=0,
+                        processed_rows=
+                            imported_count,
                         error_summary=(
                             {
                                 "code": (
