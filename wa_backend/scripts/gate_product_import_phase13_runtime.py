@@ -130,7 +130,13 @@ check(
     "global worker capacity metrics exist",
     "healthy_worker_processes" in runtime
     and "configured_worker_slots" in runtime
-    and "available_worker_slots" in runtime,
+    and "available_worker_slots" in runtime
+    and "product_import_worker_registry" in runtime,
+)
+check(
+    "readiness is proven by a Product Import queue heartbeat",
+    "wanasah.product_import_worker_heartbeat" in queue
+    and "register_product_import_worker" in queue,
 )
 check(
     "queue age and oldest job monitoring exist",
