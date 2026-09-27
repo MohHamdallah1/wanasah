@@ -34,6 +34,9 @@ type Props = {
   onSearchChange: (value: string) => void;
   onSelect: (family: ProductFamily) => void;
   onClear: () => void;
+  formatOptionMeta?: (
+    family: ProductFamily,
+  ) => string;
   inputClassName: string;
 };
 
@@ -55,6 +58,7 @@ export function ProductFamilyCombobox({
   onSearchChange,
   onSelect,
   onClear,
+  formatOptionMeta,
   inputClassName,
 }: Props) {
   const [
@@ -410,9 +414,13 @@ export function ProductFamilyCombobox({
                       <span className="min-w-0 flex-1 truncate font-bold">
                         {family.name}
                       </span>
-                      <span className="shrink-0 text-[10px] font-semibold text-slate-400">
-                        {family.variant_count}
-                      </span>
+                      {formatOptionMeta ? (
+                        <span className="shrink-0 text-[10px] font-semibold text-slate-400">
+                          {formatOptionMeta(
+                            family
+                          )}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 }
