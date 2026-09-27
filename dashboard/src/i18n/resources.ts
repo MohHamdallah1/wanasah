@@ -410,6 +410,12 @@ export const resources = {
           "سيتم إنشاء المنتج بدون ربطه بعائلة.",
         noOuterPackage: "يباع بالحبة فقط",
         hasOuterPackage: "له عبوة أكبر",
+        packagingModeLabel:
+          "طريقة البيع والتعبئة",
+        packagingMode: {
+          withPackage: "عبوة + حبة",
+          unitOnly: "حبة فقط",
+        },
         packageType: "نوع العبوة",
         unitsPerPackage:
           "عدد الحبات داخل العبوة",
@@ -423,7 +429,7 @@ export const resources = {
           "النظام سيحسب السعر الناقص تلقائياً.",
         independentPrices:
           "سيتم اعتماد السعرين كما أدخلتهما حتى لو لم يتطابقا حسابياً.",
-        barcodeSection: "الباركود — اختياري",
+        barcodeSection: "الباركود",
         unitBarcode: "باركود الحبة",
         packageBarcode: "باركود العبوة",
         copyBarcode:
@@ -1668,7 +1674,7 @@ export const resources = {
         quickCreate: {
           advancedTitle: "Advanced settings",
           advancedHint:
-            "Use these for barcodes or a product-specific tracking override. The basic fields are enough for most products.",
+            "Change batch and expiry settings only when this product needs an exception.",
           showAdvanced: "Show settings",
           hideAdvanced: "Hide settings",
           trackingAdvancedHint:
@@ -1918,6 +1924,12 @@ export const resources = {
         noOuterPackage: "Sold as a unit only",
         hasOuterPackage:
           "Has an outer package",
+        packagingModeLabel:
+          "Selling and packaging",
+        packagingMode: {
+          withPackage: "Package + unit",
+          unitOnly: "Unit only",
+        },
         packageType: "Package type",
         unitsPerPackage:
           "Units inside package",
@@ -1931,7 +1943,7 @@ export const resources = {
           "The missing price will be calculated automatically.",
         independentPrices:
           "Both prices will be stored exactly as entered, even when they do not match mathematically.",
-        barcodeSection: "Barcode — optional",
+        barcodeSection: "Barcode",
         unitBarcode: "Unit barcode",
         packageBarcode: "Package barcode",
         copyBarcode:
