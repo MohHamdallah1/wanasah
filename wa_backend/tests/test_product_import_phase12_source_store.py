@@ -938,7 +938,7 @@ class Phase12SourceStoreIntegrationTests(
                 )
 
         with patch(
-            "domains.simple_products.imports.application.worker.open_source"
+            "domains.simple_products.imports.application.source_service.open_source"
         ) as parser:
             with self.assertRaises(
                 ProductImportSourceIntegrityError
