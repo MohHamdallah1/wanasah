@@ -163,6 +163,16 @@ export const resources = {
           advancedTitle: "إعدادات متقدمة",
           advancedHint:
             "غيّر إعدادات رقم الدفعة والصلاحية لهذا المنتج فقط عند الحاجة.",
+          clearFamilySearch:
+            "مسح بحث العائلة",
+          packageTypeLabel:
+            "نوع التغليف",
+          unitsPerPackage:
+            "عدد الحبات داخل {{package}}",
+          packagePrice:
+            "سعر {{package}}",
+          packageBarcode:
+            "باركود {{package}}",
           showAdvanced: "عرض الإعدادات",
           hideAdvanced: "إخفاء الإعدادات",
           trackingAdvancedHint:
@@ -413,7 +423,7 @@ export const resources = {
         packagingModeLabel:
           "طريقة البيع والتعبئة",
         packagingMode: {
-          withPackage: "عبوة + حبة",
+          withPackage: "{{package}} + حبة",
           unitOnly: "حبة فقط",
         },
         packageType: "نوع العبوة",
@@ -424,7 +434,7 @@ export const resources = {
         packagePricePlaceholder:
           "اتركه فارغاً إذا أدخلت سعر الحبة",
         unitPricePlaceholder:
-          "اتركه فارغاً ليحسبه النظام",
+          "إذا تركته فارغاً سيتم حسابه تلقائياً",
         derivedPrice:
           "النظام سيحسب السعر الناقص تلقائياً.",
         independentPrices:
@@ -1675,6 +1685,16 @@ export const resources = {
           advancedTitle: "Advanced settings",
           advancedHint:
             "Change batch and expiry settings only when this product needs an exception.",
+          clearFamilySearch:
+            "Clear family search",
+          packageTypeLabel:
+            "Package type",
+          unitsPerPackage:
+            "Units inside {{package}}",
+          packagePrice:
+            "{{package}} price",
+          packageBarcode:
+            "{{package}} barcode",
           showAdvanced: "Show settings",
           hideAdvanced: "Hide settings",
           trackingAdvancedHint:
@@ -1927,7 +1947,7 @@ export const resources = {
         packagingModeLabel:
           "Selling and packaging",
         packagingMode: {
-          withPackage: "Package + unit",
+          withPackage: "{{package}} + unit",
           unitOnly: "Unit only",
         },
         packageType: "Package type",
@@ -1938,7 +1958,7 @@ export const resources = {
         packagePricePlaceholder:
           "Leave blank if you entered a unit price",
         unitPricePlaceholder:
-          "Leave blank to calculate automatically",
+          "If left blank, it will be calculated automatically",
         derivedPrice:
           "The missing price will be calculated automatically.",
         independentPrices:
