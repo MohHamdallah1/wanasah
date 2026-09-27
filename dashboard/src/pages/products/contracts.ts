@@ -193,6 +193,7 @@ export type ProductImportStatus =
   | "VALIDATION_FAILED"
   | "IMPORTING"
   | "RETRYING"
+  | "CANCELLED"
   | "COMPLETED"
   | "COMPLETED_WITH_ERRORS"
   | "FAILED";
@@ -209,6 +210,7 @@ const importStatus = (
     value !== "VALIDATION_FAILED" &&
     value !== "IMPORTING" &&
     value !== "RETRYING" &&
+    value !== "CANCELLED" &&
     value !== "COMPLETED" &&
     value !== "COMPLETED_WITH_ERRORS" &&
     value !== "FAILED"
