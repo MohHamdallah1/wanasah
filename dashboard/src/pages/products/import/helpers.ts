@@ -28,7 +28,8 @@ export function calculateImportProgress(
     ? Math.min(
         100,
         Math.round(
-          (status.processed_rows /
+          ((status.imported_rows +
+            status.import_failed_rows) /
             status.valid_rows) *
             100
         )
