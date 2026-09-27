@@ -697,7 +697,7 @@ class ProductImportJob(Base):
         UniqueConstraint('company_id', 'id', name='uq_product_import_jobs_company_id'),
         UniqueConstraint('company_id', 'request_id', name='uq_product_import_job_request'),
         ForeignKeyConstraint(['company_id', 'created_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_product_import_job_tenant_creator'),
-        CheckConstraint("status IN ('QUEUED','PARSING','NEEDS_MAPPING','VALIDATING','VALIDATION_FAILED','IMPORTING','RETRYING','COMPLETED','FAILED')", name='chk_product_import_job_status'),
+        CheckConstraint("status IN ('QUEUED','PARSING','NEEDS_MAPPING','VALIDATING','VALIDATION_FAILED','IMPORTING','RETRYING','COMPLETED','COMPLETED_WITH_ERRORS','FAILED')", name='chk_product_import_job_status'),
         CheckConstraint('file_size > 0', name='chk_product_import_job_file_size'),
         CheckConstraint('total_rows >= 0 AND processed_rows >= 0 AND valid_rows >= 0 AND failed_rows >= 0', name='chk_product_import_job_counts_nonnegative'),
         CheckConstraint('version > 0', name='chk_product_import_job_version'),
@@ -746,7 +746,7 @@ class ProductImportRow(Base):
         ForeignKeyConstraint(['company_id', 'job_id'], ['product_import_jobs.company_id', 'product_import_jobs.id'], ondelete='CASCADE', name='fk_product_import_row_tenant_job'),
         ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'], ondelete='RESTRICT', name='fk_product_import_row_tenant_variant'),
         CheckConstraint('row_number >= 2', name='chk_product_import_row_number'),
-        CheckConstraint("status IN ('STAGED','VALID','FAILED','IMPORTED')", name='chk_product_import_row_status'),
+        CheckConstraint("status IN ('STAGED','VALID','INVALID','IMPORT_FAILED','IMPORTED')", name='chk_product_import_row_status'),
         CheckConstraint('version > 0', name='chk_product_import_row_version'),
         Index('ix_product_import_row_job_status', 'company_id', 'job_id', 'status', 'row_number'),
     )
