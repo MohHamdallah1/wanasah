@@ -1540,6 +1540,16 @@ export const resources = {
             "رقم العملية مستخدم لملف مختلف. تم إيقاف الطلب حمايةً من التكرار.",
           PRODUCT_IMPORT_FILE_TYPE_UNSUPPORTED:
             "ارفع ملف CSV أو XLSX.",
+          PRODUCT_IMPORT_USER_RATE_LIMITED:
+            "تم إرسال ملفات استيراد كثيرة خلال وقت قصير. انتظر قليلاً ثم أعد المحاولة.",
+          PRODUCT_IMPORT_TENANT_RATE_LIMITED:
+            "وصلت الشركة مؤقتاً إلى حد رفع ملفات الاستيراد. أعد المحاولة بعد قليل.",
+          PRODUCT_IMPORT_ACTIVE_JOB_LIMIT:
+            "يوجد عدد كبير من عمليات استيراد المنتجات قيد التنفيذ أو الانتظار. انتظر اكتمال بعضها ثم أعد المحاولة.",
+          PRODUCT_IMPORT_TENANT_SOURCE_CAPACITY:
+            "وصلت مساحة ملفات الاستيراد المؤقتة للشركة إلى الحد الحالي. أعد المحاولة بعد معالجة الملفات المنتظرة.",
+          PRODUCT_IMPORT_GLOBAL_SOURCE_CAPACITY:
+            "خدمة استيراد المنتجات ممتلئة مؤقتاً. أعد المحاولة بعد قليل.",
           PRODUCT_IMPORT_FILE_TOO_LARGE:
             "ملف الاستيراد أكبر من الحد المسموح.",
           PRODUCT_IMPORT_FILE_EMPTY:
@@ -3114,6 +3124,16 @@ export const resources = {
             "This operation id was already used for a different file.",
           PRODUCT_IMPORT_FILE_TYPE_UNSUPPORTED:
             "Upload a CSV or XLSX file.",
+          PRODUCT_IMPORT_USER_RATE_LIMITED:
+            "Too many import files were submitted in a short time. Wait briefly and try again.",
+          PRODUCT_IMPORT_TENANT_RATE_LIMITED:
+            "This company has temporarily reached its Product Import upload rate. Try again shortly.",
+          PRODUCT_IMPORT_ACTIVE_JOB_LIMIT:
+            "Too many Product Import jobs are active or waiting. Let some finish before trying again.",
+          PRODUCT_IMPORT_TENANT_SOURCE_CAPACITY:
+            "This company's temporary Product Import source storage is currently full. Try again after queued files are processed.",
+          PRODUCT_IMPORT_GLOBAL_SOURCE_CAPACITY:
+            "Product Import is temporarily at source-storage capacity. Try again shortly.",
           PRODUCT_IMPORT_FILE_TOO_LARGE:
             "The import file exceeds the size limit.",
           PRODUCT_IMPORT_FILE_EMPTY:
