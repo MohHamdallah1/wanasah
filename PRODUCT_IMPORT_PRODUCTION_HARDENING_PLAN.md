@@ -394,20 +394,22 @@ Conceptually:
 
 ## Tasks
 
-- [ ] Define deterministic row-attributable exception classes/codes.
-- [ ] Define transient/system exception classes/codes.
-- [ ] Add savepoint support around import execution attempts.
-- [ ] Implement deterministic batch bisection.
-- [ ] Stop recursion at one row and record its import-time error.
-- [ ] Preserve domain authority by continuing to call the real Product creation service.
-- [ ] Ensure Pricing publication behavior remains valid across successful sub-batches.
-- [ ] Keep Product/UOM/barcode/pricing effects atomic inside each successful unit.
-- [ ] Add tests where 1 of 100 rows violates a database constraint and the other 99 import.
-- [ ] Add tests proving a database outage does not get converted into 100 fake row errors.
+- [x] Define explicit deterministic row-attributable validation/execution exception classes and stable codes.
+- [x] Classify unknown/database/infrastructure failures as transient job-scoped system failures rather than row failures.
+- [x] Wrap optimistic execution attempts in nested database savepoints.
+- [x] Bisect only deterministic row-attributable failed batches while preserving the fast full-batch path.
+- [x] Stop bisection at one row and record that row as `IMPORT_FAILED` with its deterministic error.
+- [x] Preserve Product/Pricing authority by continuing to execute through `create_products_and_prices`.
+- [x] Keep each successful sub-batch on the same Product/Pricing creation authority and transaction path, preserving its pricing publication semantics.
+- [x] Keep Product/UOM/barcode/pricing effects and the matching row outcome inside the successful transactional unit.
+- [x] Add an explicit 100-row test where one active-barcode constraint failure is isolated and the other 99 rows import.
+- [x] Add an explicit 100-row database-outage test proving the outage remains transient/job-scoped and no row is falsely marked failed.
 
 ---
 
 # Phase 10 — Preserve audit lineage instead of deleting successful staging rows immediately
+
+> **Retention contract:** source file bytes are normally removed as soon as durable staging succeeds and have a 7-day terminal-job hard ceiling; full row source/normalized detail is retained for 30 days; compact row lineage metadata is retained for 365 days. Cleanup is tenant-scoped, terminal-job-only, cutoff-bound, and batch-limited. Product Import job summaries and immutable source hashes are not deleted by this phase.
 
 ## Problem
 
@@ -421,15 +423,15 @@ This weakens audit, support, correction and forensic capability.
 
 ## Tasks
 
-- [ ] Stop immediate deletion of imported row lineage.
-- [ ] Define a retention policy for raw source data, normalized row data and row outcome metadata.
-- [ ] Keep durable linkage from source row to `product_variant_id`.
-- [ ] Keep immutable source hash, row number/token and outcome.
-- [ ] Define compaction after retention so long-term audit does not require keeping full raw JSON forever.
-- [ ] Separate retention of uploaded file bytes from retention of row lineage.
-- [ ] Add authorized audit/query path without exposing cross-tenant data.
-- [ ] Add cleanup/retention worker with bounded batches and observability.
-- [ ] Test cleanup under RLS and tenant boundaries.
+- [x] Keep imported row lineage after successful execution; execution no longer deletes `IMPORTED` rows.
+- [x] Define retention as: upload bytes hard ceiling 7 days, full raw/normalized row detail 30 days, compact row lineage metadata 365 days.
+- [x] Preserve durable `row_number` / `row_identity` → `product_variant_id` linkage through compaction.
+- [x] Preserve immutable `source_sha256`, row number/token, status/outcome and error code across retention compaction.
+- [x] After 30 days compact heavy `raw_data` / `normalized_data` and row error message while retaining compact audit metadata; prune derived barcode staging for compacted rows.
+- [x] Separate source bytes from row lineage: source bytes are cleared immediately after successful staging when possible and forcibly cleared from terminal jobs by the 7-day ceiling; row lineage follows independent 30/365-day windows.
+- [x] Add authorized keyset-paginated `/simple-products/imports/{job_id}/lineage` audit path backed by an explicit tenant session.
+- [x] Add hourly Product Import retention scheduling with per-company locked cleanup jobs, 1,000-row bounded batches, a 10-batch/run ceiling, and explicit cleanup counters.
+- [x] Add integration tests proving cleanup/compaction respects tenant RLS, never touches another company, preserves compact lineage fields, expires 365-day lineage, and honors bounded work.
 
 ---
 
