@@ -313,11 +313,6 @@ class Phase5ValidationTests(
             ),
             patch.object(
                 validation_service,
-                "find_active_barcodes",
-                state.find_barcodes,
-            ),
-            patch.object(
-                validation_service,
                 "normalize_raw_row",
                 state.normalize,
             ),
