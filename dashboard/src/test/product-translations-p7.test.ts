@@ -191,6 +191,21 @@ describe(
             `products.filters.sortFields.${value}`,
         ),
         ...[
+          "activeFirst",
+          "retiringFirst",
+          "newest",
+          "oldest",
+          "nameAsc",
+          "nameDesc",
+          "familyAsc",
+          "familyDesc",
+          "skuAsc",
+          "skuDesc",
+        ].map(
+          (value) =>
+            `products.filters.sortOptions.${value}`,
+        ),
+        ...[
           "NONE",
           "OPTIONAL",
           "REQUIRED",
