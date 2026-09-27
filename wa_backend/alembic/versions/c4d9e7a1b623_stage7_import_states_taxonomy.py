@@ -358,10 +358,10 @@ def downgrade() -> None:
         "product_import_jobs",
         JOB_LEGACY_CONSTRAINT,
     )
-    op.drop_constraint(
-        JOB_CONSTRAINT,
+    _drop_existing(
         "product_import_jobs",
-        type_="check",
+        JOB_CONSTRAINT,
+        JOB_COMPAT_CONSTRAINT,
     )
     _rename(
         "product_import_jobs",
@@ -378,10 +378,10 @@ def downgrade() -> None:
         "product_import_rows",
         ROW_BRIDGE_CONSTRAINT,
     )
-    op.drop_constraint(
-        ROW_CONSTRAINT,
+    _drop_existing(
         "product_import_rows",
-        type_="check",
+        ROW_CONSTRAINT,
+        ROW_COMPAT_CONSTRAINT,
     )
 
     op.execute(
