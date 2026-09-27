@@ -2,7 +2,7 @@
 
 **Status:** CANONICAL ARCHITECTURE DIRECTION  
 **Scope:** Entire repository and all future modules  
-**Last updated:** 2026-09-24
+**Last updated:** 2026-09-27
 
 This document is the architectural constitution of the Wanasah platform. It records the intended long-term direction so future work does not accidentally optimize one feature at the expense of the platform.
 
@@ -363,6 +363,20 @@ When splitting an existing large page:
 ### Design-change rule
 
 Visual redesign comes **after** structural behavior-preserving refactoring when the current page is too coupled to change safely. Styling/icon/layout work should not require touching unrelated business workflows.
+
+### Color-mode / theme architecture
+
+Wanasah is a **multi-color-mode UI architecture**, not a light-only interface. The supported presentation model must be able to carry at least Light and Dark modes, and may add approved branded modes later without rewriting page components.
+
+- Color modes are presentation state only. They must never change business logic, backend authority, permissions, isolation, idempotency, request semantics, or domain behavior.
+- Shared semantic design tokens are the authority for surfaces, text, borders, inputs, overlays, focus rings, status colors, and navigation surfaces.
+- New UI and every page/feature slice touched by visual work must prefer semantic theme tokens over page-local hardcoded light-only colors.
+- Existing hardcoded color utilities may be migrated incrementally when a page is actively worked on; do not perform risky unrelated mass rewrites.
+- Light/Dark parity includes hover, focus, disabled, loading, error, success, overlays, modals, dropdowns, tables, mobile layouts, RTL/LTR, and accessibility contrast.
+- Color must not be the only carrier of business meaning; text/icon/state semantics must remain understandable in every mode.
+- Theme preference ownership belongs to a shared frontend presentation layer, not to business modules or individual pages.
+- Theme changes must not invalidate server caches, alter API payloads, or create tenant/business state mutations.
+- Visual regression/gates should progressively cover each supported mode as pages are migrated.
 
 The goal is not "many small files." The goal is **clear ownership, predictable change impact, and the ability to modify one visual or functional concern without risking unrelated logic**.
 
