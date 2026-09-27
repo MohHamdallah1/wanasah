@@ -105,7 +105,7 @@ export function useProductsListState() {
     setSortBy,
   ] =
     useState<ProductSortField>(
-      "id"
+      "lifecycle"
     );
   const [
     sortDir,
