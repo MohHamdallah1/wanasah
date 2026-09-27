@@ -118,6 +118,12 @@ describe("product import tracking workflow", () => {
     expect(quickGuide).toContain(
       '"products.importGuideFallbackImport"'
     );
+    expect(quickGuide).toContain(
+      '"products.importGuideUseDefault"'
+    );
+    expect(quickGuide).toContain(
+      '"products.importGuideBulkTip"'
+    );
     expect(page).not.toContain(
       '"REQUIRED", "REQUIRED",',
     );
