@@ -248,6 +248,8 @@ Future months/years may add adjacent systems such as shipping/logistics, account
 
 We are **not** building all of those now.
 
+Product capabilities intentionally deferred from Version 1 are tracked in the root-level `VERSION_2_FUTURE_FEATURES.md`. Treat that file as canonical scope: deferred foundations must not be silently deleted, re-enabled, or reclassified without reconciling that document.
+
 We are building today's distribution product so that future modules can be added without:
 
 - rewriting the core;
