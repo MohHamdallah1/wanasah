@@ -125,6 +125,16 @@ describe(
           "aria-activedescendant",
         ),
       ).toBeTruthy();
+      expect(
+        screen.getByRole(
+          "option",
+          {
+            name: "Chips",
+          },
+        ),
+      ).toHaveClass(
+        "bg-amber-100",
+      );
 
       fireEvent.keyDown(
         input,
