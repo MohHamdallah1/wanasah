@@ -16,6 +16,13 @@ from domains.simple_products.imports.domain.localization import (
     canonical_package_value,
     canonical_tracking_value,
 )
+from domains.simple_products.imports.domain.source_semantics import (
+    formula_has_cached_value,
+    is_formula_metadata,
+    is_numeric_source_cell,
+    looks_like_scientific_barcode,
+    source_cell_metadata,
+)
 from domains.simple_products.service import (
     SimpleProductError,
     normalize_barcode,
@@ -84,12 +91,65 @@ def normalize_raw_row(
     default_expiry_control_mode: str,
 ) -> dict[str, Any]:
     def value(field: str):
-        header = mapping.get(field)
-        return (
-            raw.get(header)
-            if header
-            else None
+        header = mapping.get(
+            field
         )
+        if not header:
+            return None
+
+        current = raw.get(
+            header
+        )
+        metadata = (
+            source_cell_metadata(
+                raw,
+                header,
+            )
+        )
+
+        if is_formula_metadata(
+            metadata
+        ):
+            if field in {
+                "unit_barcode",
+                "package_barcode",
+            }:
+                raise SimpleProductError(
+                    "IMPORT_BARCODE_FORMULA_NOT_ALLOWED",
+                    "Barcode cells must contain literal text, not formulas.",
+                    status_code=422,
+                )
+            if not formula_has_cached_value(
+                metadata
+            ):
+                raise SimpleProductError(
+                    "IMPORT_FORMULA_VALUE_UNAVAILABLE",
+                    "The formula cell has no safe cached value. Replace it with a literal value.",
+                    status_code=422,
+                )
+
+        if field in {
+            "unit_barcode",
+            "package_barcode",
+        }:
+            if is_numeric_source_cell(
+                metadata
+            ):
+                raise SimpleProductError(
+                    "IMPORT_BARCODE_NUMERIC_UNSAFE",
+                    "Barcode cells stored as Excel numbers are unsafe because leading zeros or digits may have been lost. Store the barcode as text.",
+                    status_code=422,
+                )
+            if looks_like_scientific_barcode(
+                current
+            ):
+                raise SimpleProductError(
+                    "IMPORT_BARCODE_SCIENTIFIC_NOTATION",
+                    "Barcode is written in scientific notation. Store the complete barcode as literal text.",
+                    status_code=422,
+                )
+
+        return current
 
     name = str(
         value("name") or ""
