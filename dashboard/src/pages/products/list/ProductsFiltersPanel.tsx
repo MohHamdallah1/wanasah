@@ -1,4 +1,21 @@
+import {
+  useRef,
+  useState,
+} from "react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 
 import type {
   ProductFamily,
@@ -93,89 +110,228 @@ export function ProductsFiltersPanel({
   onSortDirChange,
 }: Props) {
   const { t } = useTranslation();
+  const [
+    familyPickerOpen,
+    setFamilyPickerOpen,
+  ] = useState(false);
+  const familyInputRef =
+    useRef<HTMLInputElement | null>(
+      null
+    );
+
+  const familyInputValue =
+    familyPickerOpen
+      ? familyFilterSearchInput
+      : familyFilterName ||
+        familyFilterSearchInput;
+
+  const clearFamily = () => {
+    onFamilyFilterChange("");
+    onFamilySearchInputChange("");
+    setFamilyPickerOpen(true);
+    queueMicrotask(() =>
+      familyInputRef.current?.focus()
+    );
+  };
 
   return (
     <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      <label className="space-y-1">
+      <div className="space-y-1">
         <span className="text-[11px] font-black text-slate-500">
           {t(
             "products.filters.family"
           )}
         </span>
-        <input
-          type="search"
-          value={
-            familyFilterSearchInput
+
+        <Popover
+          open={familyPickerOpen}
+          onOpenChange={
+            setFamilyPickerOpen
           }
-          maxLength={100}
-          onChange={(event) =>
-            onFamilySearchInputChange(
-              event.target.value
-            )
-          }
-          placeholder={t(
-            "products.filters.familySearch"
-          )}
-          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-        />
-        <select
-          value={familyFilterId}
-          onChange={(event) =>
-            onFamilyFilterChange(
-              event.target.value
-            )
-          }
-          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
         >
-          <option value="">
-            {t(
-              "products.filters.all"
-            )}
-          </option>
-          {familyFilterId &&
-          !familyFilterOptions.some(
-            (item) =>
-              String(item.id) ===
-              familyFilterId
-          ) ? (
-            <option
-              value={
-                familyFilterId
-              }
-            >
-              {familyFilterName ||
-                familyFilterId}
-            </option>
-          ) : null}
-          {familyFilterOptions.map(
-            (
-              family: ProductFamily
-            ) => (
-              <option
-                key={family.id}
-                value={String(
-                  family.id
+          <div className="relative">
+            <PopoverAnchor asChild>
+              <input
+                ref={familyInputRef}
+                type="text"
+                value={familyInputValue}
+                maxLength={100}
+                onFocus={() => {
+                  if (
+                    familyFilterId &&
+                    !familyFilterSearchInput
+                  ) {
+                    onFamilySearchInputChange(
+                      familyFilterName
+                    );
+                  }
+                  setFamilyPickerOpen(
+                    true
+                  );
+                }}
+                onChange={(event) => {
+                  const value =
+                    event.target.value;
+                  if (familyFilterId) {
+                    onFamilyFilterChange(
+                      ""
+                    );
+                  }
+                  onFamilySearchInputChange(
+                    value
+                  );
+                  setFamilyPickerOpen(
+                    true
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key ===
+                    "ArrowDown"
+                  ) {
+                    setFamilyPickerOpen(
+                      true
+                    );
+                  }
+                }}
+                placeholder={t(
+                  "products.filters.familySearch"
                 )}
+                aria-expanded={
+                  familyPickerOpen
+                }
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white pe-9 ps-2.5 text-xs font-bold outline-none transition placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              />
+            </PopoverAnchor>
+
+            {familyInputValue ? (
+              <button
+                type="button"
+                onClick={clearFamily}
+                aria-label={t(
+                  "products.quickCreate.clearFamilySearch"
+                )}
+                className="absolute end-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
               >
-                {family.name}
-              </option>
-            )
-          )}
-        </select>
-        {familyOptionsError ? (
-          <button
-            type="button"
-            onClick={
-              onRetryFamilyOptions
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+
+          <PopoverContent
+            side="bottom"
+            align="start"
+            sideOffset={5}
+            avoidCollisions={false}
+            onOpenAutoFocus={(event) =>
+              event.preventDefault()
             }
-            className="text-[11px] font-black text-rose-700"
+            onCloseAutoFocus={(event) =>
+              event.preventDefault()
+            }
+            onInteractOutside={(event) => {
+              if (
+                event.target ===
+                familyInputRef.current
+              ) {
+                event.preventDefault();
+              }
+            }}
+            className="z-[70] w-[var(--radix-popover-anchor-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-1.5 shadow-xl"
           >
-            {t(
-              "products.filters.familyLoadFailed"
-            )}
-          </button>
-        ) : null}
-      </label>
+            <Command shouldFilter={false}>
+              <CommandList className="max-h-64">
+                <CommandGroup>
+                  <CommandItem
+                    value="__all__"
+                    onSelect={() => {
+                      onFamilyFilterChange(
+                        ""
+                      );
+                      onFamilySearchInputChange(
+                        ""
+                      );
+                      setFamilyPickerOpen(
+                        false
+                      );
+                    }}
+                    className="rounded-lg px-3 py-2.5 text-start font-bold"
+                  >
+                    {t(
+                      "products.filters.all"
+                    )}
+                  </CommandItem>
+
+                  {familyFilterOptions.map(
+                    (
+                      family: ProductFamily
+                    ) => (
+                      <CommandItem
+                        key={family.id}
+                        value={family.name}
+                        onSelect={() => {
+                          onFamilyFilterChange(
+                            String(
+                              family.id
+                            )
+                          );
+                          onFamilySearchInputChange(
+                            ""
+                          );
+                          setFamilyPickerOpen(
+                            false
+                          );
+                        }}
+                        className="gap-3 rounded-lg px-3 py-2.5 text-start"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-bold">
+                          {family.name}
+                        </span>
+                        <span className="shrink-0 text-[10px] font-semibold text-slate-400">
+                          {t(
+                            "products.variantCount",
+                            {
+                              count:
+                                family.variant_count,
+                            }
+                          )}
+                        </span>
+                      </CommandItem>
+                    )
+                  )}
+                </CommandGroup>
+
+                {!familyOptionsError &&
+                familyFilterOptions.length ===
+                  0 &&
+                familyFilterSearchInput ? (
+                  <div className="px-3 py-4 text-center text-[11px] font-bold text-slate-400">
+                    {t(
+                      "products.noMatchingFamilies"
+                    )}
+                  </div>
+                ) : null}
+
+                {familyOptionsError ? (
+                  <div className="px-3 py-4 text-center">
+                    <button
+                      type="button"
+                      onClick={
+                        onRetryFamilyOptions
+                      }
+                      className="text-[11px] font-black text-rose-700"
+                    >
+                      {t(
+                        "products.filters.familyLoadFailed"
+                      )}
+                    </button>
+                  </div>
+                ) : null}
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
 
       <label className="space-y-1">
         <span className="text-[11px] font-black text-slate-500">
