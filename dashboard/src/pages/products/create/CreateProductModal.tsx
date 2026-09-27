@@ -27,7 +27,6 @@ type Props = {
   familyOptions: ProductFamily[];
   familyOptionsLoading: boolean;
   familyOptionsError: boolean;
-  familyOptionSearch: string;
   packageUoms: PackageUom[];
   packageUomsLoading: boolean;
   packageUomsError: boolean;
@@ -87,7 +86,6 @@ export function CreateProductModal({
   familyOptions,
   familyOptionsLoading,
   familyOptionsError,
-  familyOptionSearch,
   packageUoms,
   packageUomsLoading,
   packageUomsError,
