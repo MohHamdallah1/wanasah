@@ -31,7 +31,7 @@ def static_checks() -> None:
     from domains.simple_products.imports.infrastructure.template import (
         build_product_import_template,
     )
-    from product_import_worker import (
+    from domains.simple_products.imports.application.worker import (
         normalize_raw_row,
         suggest_mapping,
     )
@@ -179,7 +179,7 @@ def static_checks() -> None:
         BACKEND / "domains/simple_products/imports/api/router.py"
     ).read_text(encoding="utf-8")
     worker = (
-        BACKEND / "product_import_worker.py"
+        BACKEND / "domains/simple_products/imports/application/worker.py"
     ).read_text(encoding="utf-8")
     localization = (
         BACKEND / "domains/simple_products/imports/domain/localization.py"
