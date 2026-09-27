@@ -1,15 +1,20 @@
-"""CSV/XLSX parsing infrastructure for Product Import.
+"""Bounded CSV/XLSX streaming parsers for Product Import.
 
-Behavior is intentionally preserved from the legacy root worker during the
-Phase 1 structural refactor.
+The immutable source payload is currently supplied by the existing SourceStore
+contract. Phase 4 guarantees that parsing does not materialize Product rows
+proportional to source row count: rows are yielded one at a time and consumed
+by bounded staging batches.
 """
 from __future__ import annotations
 
+import codecs
 import csv
 import io
 import zipfile
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, ContextManager, Iterator, Protocol
 
 from openpyxl import load_workbook
 
@@ -24,26 +29,40 @@ MAX_IMPORT_COLUMNS = 100
 MAX_XLSX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 MAX_XLSX_ARCHIVE_ENTRIES = 500
 MAX_XLSX_COMPRESSION_RATIO = 200
+_CSV_DECODE_CHUNK_BYTES = 64 * 1024
+_CSV_SNIFF_BYTES = 8 * 1024
 
 
-ParsedSource = tuple[
-    list[str],
-    list[dict[str, Any]],
-]
+@dataclass(frozen=True, slots=True)
+class ParsedRow:
+    row_number: int
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedSource:
+    headers: list[str]
+    rows: Iterator[ParsedRow]
 
 
 class SourceParser(Protocol):
     def __call__(
         self,
+        file_name: str,
         payload: bytes,
-    ) -> ParsedSource:
+    ) -> ContextManager[ParsedSource]:
         ...
 
 
-def _json_cell(value: Any) -> str | None:
+def _json_cell(
+    value: Any,
+) -> str | None:
     if value is None:
         return None
-    if isinstance(value, datetime):
+    if isinstance(
+        value,
+        datetime,
+    ):
         return value.isoformat()
     clean = str(value).strip()
     return clean or None
@@ -64,16 +83,24 @@ def _header_layout(
         raise ProductImportTerminalError(
             "The header row is empty."
         )
-    if len(layout) > MAX_IMPORT_COLUMNS:
+    if (
+        len(layout)
+        > MAX_IMPORT_COLUMNS
+    ):
         raise ProductImportTerminalError(
             f"The file has more than {MAX_IMPORT_COLUMNS} columns."
         )
 
     normalized = [
-        normalize_import_token(header)
+        normalize_import_token(
+            header
+        )
         for _, header in layout
     ]
-    if len(normalized) != len(set(normalized)):
+    if (
+        len(normalized)
+        != len(set(normalized))
+    ):
         raise ProductImportTerminalError(
             "The header row contains duplicate columns after normalization."
         )
@@ -90,207 +117,395 @@ def _row_from_layout(
             if index < len(values)
             else None
         )
-        for index, header in layout
+        for index, header
+        in layout
     }
 
 
-def _parse_csv(
+def _count_and_yield(
+    *,
+    row_number: int,
+    raw: dict[str, Any],
+    accepted_count: int,
+) -> tuple[
+    ParsedRow | None,
+    int,
+]:
+    if not any(
+        value is not None
+        for value in raw.values()
+    ):
+        return None, accepted_count
+
+    next_count = (
+        accepted_count + 1
+    )
+    if (
+        next_count
+        > MAX_IMPORT_ROWS
+    ):
+        raise ProductImportTerminalError(
+            f"The import exceeds the {MAX_IMPORT_ROWS:,}-row safety limit."
+        )
+    return (
+        ParsedRow(
+            row_number=int(
+                row_number
+            ),
+            raw=raw,
+        ),
+        next_count,
+    )
+
+
+def _detect_csv_encoding(
     payload: bytes,
-) -> ParsedSource:
-    decoded = None
-    last_error = None
+) -> str:
+    last_error: UnicodeDecodeError | None = None
     for encoding in (
         "utf-8-sig",
         "utf-8",
         "cp1256",
     ):
+        decoder = (
+            codecs.getincrementaldecoder(
+                encoding
+            )(
+                errors="strict"
+            )
+        )
         try:
-            decoded = payload.decode(encoding)
-            break
+            for offset in range(
+                0,
+                len(payload),
+                _CSV_DECODE_CHUNK_BYTES,
+            ):
+                decoder.decode(
+                    payload[
+                        offset:
+                        offset
+                        + _CSV_DECODE_CHUNK_BYTES
+                    ],
+                    final=False,
+                )
+            decoder.decode(
+                b"",
+                final=True,
+            )
+            return encoding
         except UnicodeDecodeError as exc:
             last_error = exc
 
-    if decoded is None:
-        raise ProductImportTerminalError(
-            "CSV encoding is not supported."
-        ) from last_error
+    raise ProductImportTerminalError(
+        "CSV encoding is not supported."
+    ) from last_error
 
+
+def _csv_dialect(
+    payload: bytes,
+    *,
+    encoding: str,
+) -> csv.Dialect:
+    sample = payload[
+        :_CSV_SNIFF_BYTES
+    ].decode(
+        encoding,
+        errors="ignore",
+    )
     try:
-        dialect = csv.Sniffer().sniff(
-            decoded[:8192],
+        return csv.Sniffer().sniff(
+            sample,
             delimiters=",;\t|",
         )
     except csv.Error:
-        dialect = csv.excel
+        return csv.excel
 
-    reader = csv.reader(
-        io.StringIO(decoded),
-        dialect=dialect,
-    )
-    first = next(reader, None)
-    if first is None:
-        raise ProductImportTerminalError(
-            "The file is empty."
+
+def _iter_csv_rows(
+    reader: csv.reader,
+    layout: list[tuple[int, str]],
+) -> Iterator[ParsedRow]:
+    accepted_count = 0
+
+    while True:
+        source_row_number = (
+            int(reader.line_num)
+            + 1
         )
+        try:
+            values = next(reader)
+        except StopIteration:
+            break
 
-    layout = _header_layout(first)
-    headers = [
-        header
-        for _, header in layout
-    ]
-    rows: list[dict[str, Any]] = []
-    for values in reader:
         raw = _row_from_layout(
             values,
             layout,
         )
-        if not any(
-            value is not None
-            for value in raw.values()
-        ):
-            continue
-        if len(rows) >= MAX_IMPORT_ROWS:
-            raise ProductImportTerminalError(
-                f"The import exceeds the {MAX_IMPORT_ROWS:,}-row safety limit."
-            )
-        rows.append(raw)
+        (
+            parsed,
+            accepted_count,
+        ) = _count_and_yield(
+            row_number=
+                source_row_number,
+            raw=raw,
+            accepted_count=
+                accepted_count,
+        )
+        if parsed is not None:
+            yield parsed
 
-    if not rows:
+    if accepted_count == 0:
         raise ProductImportTerminalError(
             "The file contains no product rows."
         )
 
-    return headers, rows
+
+@contextmanager
+def _open_csv_source(
+    payload: bytes,
+) -> Iterator[ParsedSource]:
+    encoding = (
+        _detect_csv_encoding(
+            payload
+        )
+    )
+    dialect = _csv_dialect(
+        payload,
+        encoding=encoding,
+    )
+
+    with io.BytesIO(
+        payload
+    ) as binary_stream:
+        with io.TextIOWrapper(
+            binary_stream,
+            encoding=encoding,
+            newline="",
+        ) as text_stream:
+            reader = csv.reader(
+                text_stream,
+                dialect=dialect,
+            )
+            first = next(
+                reader,
+                None,
+            )
+            if first is None:
+                raise ProductImportTerminalError(
+                    "The file is empty."
+                )
+
+            layout = (
+                _header_layout(
+                    first
+                )
+            )
+            headers = [
+                header
+                for _, header
+                in layout
+            ]
+            yield ParsedSource(
+                headers=headers,
+                rows=_iter_csv_rows(
+                    reader,
+                    layout,
+                ),
+            )
 
 
 def _validate_xlsx_archive(
     payload: bytes,
 ) -> None:
     try:
-        with zipfile.ZipFile(
-            io.BytesIO(payload)
-        ) as archive:
-            infos = archive.infolist()
-            if not infos:
-                raise ProductImportTerminalError(
-                    "The Excel file is empty or invalid."
+        with io.BytesIO(
+            payload
+        ) as archive_stream:
+            with zipfile.ZipFile(
+                archive_stream
+            ) as archive:
+                infos = (
+                    archive.infolist()
                 )
-            if (
-                len(infos)
-                > MAX_XLSX_ARCHIVE_ENTRIES
-            ):
-                raise ProductImportTerminalError(
-                    "The Excel archive has an abnormal number of internal entries."
-                )
+                if not infos:
+                    raise ProductImportTerminalError(
+                        "The Excel file is empty or invalid."
+                    )
+                if (
+                    len(infos)
+                    > MAX_XLSX_ARCHIVE_ENTRIES
+                ):
+                    raise ProductImportTerminalError(
+                        "The Excel archive has an abnormal number of internal entries."
+                    )
 
-            total = 0
-            for info in infos:
-                total += int(info.file_size)
-                if (
-                    total
-                    > MAX_XLSX_UNCOMPRESSED_BYTES
-                ):
-                    raise ProductImportTerminalError(
-                        "The uncompressed Excel content exceeds the safety limit."
-                    )
-                if (
-                    info.compress_size > 0
-                    and info.file_size > 1_000_000
-                    and (
+                total = 0
+                for info in infos:
+                    total += int(
                         info.file_size
-                        / info.compress_size
                     )
-                    > MAX_XLSX_COMPRESSION_RATIO
-                ):
-                    raise ProductImportTerminalError(
-                        "The Excel file was rejected because of an abnormal compression ratio."
-                    )
-                if info.filename.lower().endswith(
-                    "vbaproject.bin"
-                ):
-                    raise ProductImportTerminalError(
-                        "Macro-enabled Excel files are not supported."
-                    )
+                    if (
+                        total
+                        > MAX_XLSX_UNCOMPRESSED_BYTES
+                    ):
+                        raise ProductImportTerminalError(
+                            "The uncompressed Excel content exceeds the safety limit."
+                        )
+                    if (
+                        info.compress_size
+                        > 0
+                        and info.file_size
+                        > 1_000_000
+                        and (
+                            info.file_size
+                            / info.compress_size
+                        )
+                        > MAX_XLSX_COMPRESSION_RATIO
+                    ):
+                        raise ProductImportTerminalError(
+                            "The Excel file was rejected because of an abnormal compression ratio."
+                        )
+                    if (
+                        info.filename
+                        .lower()
+                        .endswith(
+                            "vbaproject.bin"
+                        )
+                    ):
+                        raise ProductImportTerminalError(
+                            "Macro-enabled Excel files are not supported."
+                        )
     except zipfile.BadZipFile as exc:
         raise ProductImportTerminalError(
             "The Excel file is invalid or corrupted."
         ) from exc
 
 
-def _parse_xlsx(
-    payload: bytes,
-) -> tuple[list[str], list[dict[str, Any]]]:
-    _validate_xlsx_archive(payload)
-    try:
-        workbook = load_workbook(
-            io.BytesIO(payload),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
+def _iter_xlsx_rows(
+    iterator: Iterator[
+        tuple[Any, ...]
+    ],
+    layout: list[tuple[int, str]],
+) -> Iterator[ParsedRow]:
+    accepted_count = 0
+    for (
+        row_number,
+        values,
+    ) in enumerate(
+        iterator,
+        start=2,
+    ):
+        raw = _row_from_layout(
+            values,
+            layout,
         )
-    except Exception as exc:
+        (
+            parsed,
+            accepted_count,
+        ) = _count_and_yield(
+            row_number=row_number,
+            raw=raw,
+            accepted_count=
+                accepted_count,
+        )
+        if parsed is not None:
+            yield parsed
+
+    if accepted_count == 0:
         raise ProductImportTerminalError(
-            "The Excel file could not be opened."
-        ) from exc
-
-    try:
-        sheet = workbook.active
-        iterator = sheet.iter_rows(
-            values_only=True
+            "The file contains no product rows."
         )
-        first = next(iterator, None)
-        if first is None:
-            raise ProductImportTerminalError(
-                "The file is empty."
-            )
 
-        layout = _header_layout(first)
-        headers = [
-            header
-            for _, header in layout
-        ]
-        rows: list[dict[str, Any]] = []
-        for values in iterator:
-            raw = _row_from_layout(
-                values,
-                layout,
+
+@contextmanager
+def _open_xlsx_source(
+    payload: bytes,
+) -> Iterator[ParsedSource]:
+    # Security inspection must finish before OpenPyXL traverses the workbook.
+    _validate_xlsx_archive(
+        payload
+    )
+
+    with io.BytesIO(
+        payload
+    ) as workbook_stream:
+        try:
+            workbook = load_workbook(
+                workbook_stream,
+                read_only=True,
+                data_only=True,
+                keep_links=False,
             )
-            if not any(
-                value is not None
-                for value in raw.values()
-            ):
-                continue
-            if len(rows) >= MAX_IMPORT_ROWS:
+        except Exception as exc:
+            raise ProductImportTerminalError(
+                "The Excel file could not be opened."
+            ) from exc
+
+        try:
+            sheet = workbook.active
+            iterator = sheet.iter_rows(
+                values_only=True
+            )
+            first = next(
+                iterator,
+                None,
+            )
+            if first is None:
                 raise ProductImportTerminalError(
-                    f"The import exceeds the {MAX_IMPORT_ROWS:,}-row safety limit."
+                    "The file is empty."
                 )
-            rows.append(raw)
 
-        if not rows:
-            raise ProductImportTerminalError(
-                "The file contains no product rows."
+            layout = (
+                _header_layout(
+                    first
+                )
             )
+            headers = [
+                header
+                for _, header
+                in layout
+            ]
+            yield ParsedSource(
+                headers=headers,
+                rows=_iter_xlsx_rows(
+                    iterator,
+                    layout,
+                ),
+            )
+        finally:
+            workbook.close()
 
-        return headers, rows
-    finally:
-        workbook.close()
 
-
-def parse_source(
+@contextmanager
+def open_source(
     file_name: str,
     payload: bytes,
-) -> tuple[list[str], list[dict[str, Any]]]:
+) -> Iterator[ParsedSource]:
     suffix = (
-        file_name.lower().rsplit(".", 1)[-1]
+        file_name
+        .lower()
+        .rsplit(
+            ".",
+            1,
+        )[-1]
         if "." in file_name
         else ""
     )
+
     if suffix == "csv":
-        return _parse_csv(payload)
+        with _open_csv_source(
+            payload
+        ) as source:
+            yield source
+        return
+
     if suffix == "xlsx":
-        return _parse_xlsx(payload)
+        with _open_xlsx_source(
+            payload
+        ) as source:
+            yield source
+        return
+
     raise ProductImportTerminalError(
         "Only CSV and XLSX files are supported."
     )
-
-
