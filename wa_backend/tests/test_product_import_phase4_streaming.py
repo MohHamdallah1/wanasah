@@ -178,6 +178,18 @@ class ParserStreamingTests(
 
         workbook = FakeWorkbook()
 
+        class FakeReader:
+            wb = workbook
+
+            def close_bounded_resources(
+                self,
+                *,
+                close_archive: bool,
+            ) -> None:
+                events.append(
+                    "close_store"
+                )
+
         def validate(
             _payload: bytes,
         ) -> None:
@@ -192,7 +204,7 @@ class ParserStreamingTests(
             events.append(
                 "load"
             )
-            return workbook
+            return FakeReader()
 
         with (
             patch.object(
@@ -202,7 +214,7 @@ class ParserStreamingTests(
             ),
             patch.object(
                 parsers,
-                "load_workbook",
+                "_load_bounded_workbook",
                 load,
             ),
         ):
@@ -225,6 +237,7 @@ class ParserStreamingTests(
                 "validate",
                 "load",
                 "close",
+                "close_store",
             ],
         )
         self.assertTrue(
@@ -258,6 +271,16 @@ class ParserStreamingTests(
 
         workbook = FakeWorkbook()
 
+        class FakeReader:
+            wb = workbook
+
+            def close_bounded_resources(
+                self,
+                *,
+                close_archive: bool,
+            ) -> None:
+                return None
+
         with (
             patch.object(
                 parsers,
@@ -266,9 +289,9 @@ class ParserStreamingTests(
             ),
             patch.object(
                 parsers,
-                "load_workbook",
+                "_load_bounded_workbook",
                 lambda *_args, **_kwargs:
-                    workbook,
+                    FakeReader(),
             ),
         ):
             with self.assertRaises(
