@@ -329,6 +329,53 @@ async def list_job_rows(
     )
 
 
+async def fetch_failed_rows_batch(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    after_row_number: int,
+    limit: int,
+) -> list[ProductImportRow]:
+    if limit <= 0:
+        raise ValueError(
+            "limit must be positive."
+        )
+
+    result = await db.execute(
+        select(
+            ProductImportRow
+        )
+        .where(
+            ProductImportRow.company_id
+            == int(company_id),
+            ProductImportRow.job_id
+            == job_id,
+            ProductImportRow.status.in_(
+                (
+                    "INVALID",
+                    "IMPORT_FAILED",
+                )
+            ),
+            ProductImportRow.row_number
+            > int(
+                after_row_number
+            ),
+        )
+        .order_by(
+            ProductImportRow.row_number.asc()
+        )
+        .limit(
+            int(limit)
+        )
+    )
+    return list(
+        result.scalars().fetchmany(
+            int(limit)
+        )
+    )
+
+
 async def rebuild_job_barcode_staging(
     db: AsyncSession,
     *,
