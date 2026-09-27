@@ -24,7 +24,7 @@ load_dotenv(
 
 
 TARGET_ROWS = 50_000
-NOISE_JOBS = 0
+NOISE_JOBS = 2
 
 checks = 0
 failures: list[str] = []
