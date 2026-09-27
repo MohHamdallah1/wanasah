@@ -4,14 +4,10 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { X } from "lucide-react";
 
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "@/components/ui/popover";
 import type {
   ProductFamily,
 } from "@/pages/products/contracts";
@@ -69,6 +65,10 @@ export function ProductFamilyCombobox({
     activeIndex,
     setActiveIndex,
   ] = useState(-1);
+  const rootRef =
+    useRef<HTMLDivElement | null>(
+      null
+    );
   const inputRef =
     useRef<HTMLInputElement | null>(
       null
@@ -110,6 +110,39 @@ export function ProductFamilyCombobox({
     });
   }, [activeIndex]);
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleOutside = (
+      event: MouseEvent,
+    ) => {
+      const target =
+        event.target;
+      if (
+        target instanceof Node &&
+        !rootRef.current?.contains(
+          target
+        )
+      ) {
+        setOpen(false);
+        setActiveIndex(-1);
+      }
+    };
+
+    document.addEventListener(
+      "mousedown",
+      handleOutside,
+    );
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutside,
+      );
+    };
+  }, [open]);
+
   const selectIndex = (
     index: number,
   ) => {
@@ -144,9 +177,7 @@ export function ProductFamilyCombobox({
       event.key === "ArrowDown"
     ) {
       event.preventDefault();
-      if (!open) {
-        setOpen(true);
-      }
+      setOpen(true);
       setActiveIndex(
         (current) =>
           itemCount === 0
@@ -165,9 +196,7 @@ export function ProductFamilyCombobox({
       event.key === "ArrowUp"
     ) {
       event.preventDefault();
-      if (!open) {
-        setOpen(true);
-      }
+      setOpen(true);
       setActiveIndex(
         (current) =>
           itemCount === 0
@@ -209,105 +238,92 @@ export function ProductFamilyCombobox({
     }
   };
 
+  const keepInputFocus = (
+    event: ReactMouseEvent<
+      HTMLButtonElement
+    >,
+  ) => {
+    event.preventDefault();
+  };
+
   const activeId =
     activeIndex >= 0
       ? `${listboxId}-option-${activeIndex}`
       : undefined;
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
+    <div
+      ref={rootRef}
+      className="relative"
     >
-      <div className="relative">
-        <PopoverAnchor asChild>
-          <input
-            ref={inputRef}
-            type="text"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={open}
-            aria-controls={
-              listboxId
-            }
-            aria-activedescendant={
-              activeId
-            }
-            value={displayValue}
-            maxLength={100}
-            onClick={(event) => {
-              if (
-                selectedName &&
-                !searchValue
-              ) {
-                event.currentTarget.select();
-              }
-              setOpen(true);
-            }}
-            onChange={(event) => {
-              onSearchChange(
-                event.target.value
-              );
-              setOpen(true);
-            }}
-            onKeyDown={
-              handleKeyDown
-            }
-            placeholder={
-              placeholder
-            }
-            className={
-              inputClassName
-            }
-          />
-        </PopoverAnchor>
-
-        {displayValue ? (
-          <button
-            type="button"
-            onMouseDown={(event) =>
-              event.preventDefault()
-            }
-            onClick={() => {
-              onClear();
-              setOpen(true);
-              queueMicrotask(() =>
-                inputRef.current?.focus()
-              );
-            }}
-            aria-label={clearLabel}
-            className="absolute end-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-      </div>
-
-      <PopoverContent
-        side="bottom"
-        align="start"
-        sideOffset={5}
-        avoidCollisions={false}
-        onOpenAutoFocus={(event) =>
-          event.preventDefault()
+      <input
+        ref={inputRef}
+        type="text"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={
+          listboxId
         }
-        onCloseAutoFocus={(event) =>
-          event.preventDefault()
+        aria-activedescendant={
+          activeId
         }
-        onInteractOutside={(event) => {
+        value={displayValue}
+        maxLength={100}
+        onFocus={(event) => {
           if (
-            event.target ===
-            inputRef.current
+            selectedName &&
+            !searchValue
           ) {
-            event.preventDefault();
+            event.currentTarget.select();
           }
         }}
-        className="z-[70] w-[var(--radix-popover-anchor-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-1.5 shadow-xl"
-      >
+        onClick={() =>
+          setOpen(true)
+        }
+        onChange={(event) => {
+          onSearchChange(
+            event.target.value
+          );
+          setOpen(true);
+        }}
+        onKeyDown={
+          handleKeyDown
+        }
+        placeholder={
+          placeholder
+        }
+        className={
+          inputClassName
+        }
+      />
+
+      {displayValue ? (
+        <button
+          type="button"
+          onMouseDown={
+            keepInputFocus
+          }
+          onClick={() => {
+            onClear();
+            setOpen(true);
+            queueMicrotask(() =>
+              inputRef.current?.focus()
+            );
+          }}
+          aria-label={clearLabel}
+          className="absolute end-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-amber-50 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+
+      {open ? (
         <div
           id={listboxId}
           role="listbox"
-          className="max-h-64 overflow-y-auto"
+          className="absolute start-0 top-full z-[80] mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
         >
           {loading ? (
             <div className="px-3 py-6 text-center text-xs font-bold text-slate-400">
@@ -321,6 +337,9 @@ export function ProductFamilyCombobox({
               {onRetry ? (
                 <button
                   type="button"
+                  onMouseDown={
+                    keepInputFocus
+                  }
                   onClick={onRetry}
                   className="mt-2 text-xs font-black text-slate-900 underline underline-offset-4"
                 >
@@ -341,10 +360,10 @@ export function ProductFamilyCombobox({
                   type="button"
                   role="option"
                   aria-selected={
-                    activeIndex === 0
+                    !selectedName
                   }
-                  onMouseDown={(event) =>
-                    event.preventDefault()
+                  onMouseDown={
+                    keepInputFocus
                   }
                   onMouseEnter={() =>
                     setActiveIndex(
@@ -383,13 +402,11 @@ export function ProductFamilyCombobox({
                       type="button"
                       role="option"
                       aria-selected={
-                        activeIndex ===
-                        index
+                        family.name ===
+                        selectedName
                       }
-                      onMouseDown={(
-                        event
-                      ) =>
-                        event.preventDefault()
+                      onMouseDown={
+                        keepInputFocus
                       }
                       onMouseEnter={() =>
                         setActiveIndex(
@@ -432,7 +449,7 @@ export function ProductFamilyCombobox({
             </>
           )}
         </div>
-      </PopoverContent>
-    </Popover>
+      ) : null}
+    </div>
   );
 }
