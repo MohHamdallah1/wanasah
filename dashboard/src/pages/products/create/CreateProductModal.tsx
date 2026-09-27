@@ -25,7 +25,9 @@ type Props = {
   draft: ProductDraft;
   createFieldError: CreateFieldError | null;
   familyOptions: ProductFamily[];
+  familyOptionsLoading: boolean;
   familyOptionsError: boolean;
+  familyOptionSearch: string;
   packageUoms: PackageUom[];
   packageUomsLoading: boolean;
   packageUomsError: boolean;
@@ -50,6 +52,9 @@ type Props = {
   onFamilyChange: (
     value: string,
     familyId?: number | null,
+  ) => void;
+  onFamilySearchChange: (
+    value: string,
   ) => void;
   onRetryFamilyOptions: () => void;
   onRetryTrackingDefaults: () => void;
@@ -80,7 +85,9 @@ export function CreateProductModal({
   draft,
   createFieldError,
   familyOptions,
+  familyOptionsLoading,
   familyOptionsError,
+  familyOptionSearch,
   packageUoms,
   packageUomsLoading,
   packageUomsError,
@@ -99,6 +106,7 @@ export function CreateProductModal({
   onNameChange,
   onFamilyModeChange,
   onFamilyChange,
+  onFamilySearchChange,
   onRetryFamilyOptions,
   onRetryTrackingDefaults,
   onHasPackageChange,
@@ -183,6 +191,9 @@ export function CreateProductModal({
             familyOptions={
               familyOptions
             }
+            familyOptionsLoading={
+              familyOptionsLoading
+            }
             familyOptionsError={
               familyOptionsError
             }
@@ -200,6 +211,9 @@ export function CreateProductModal({
             }
             onFamilyChange={
               onFamilyChange
+            }
+            onFamilySearchChange={
+              onFamilySearchChange
             }
             onRetryFamilyOptions={
               onRetryFamilyOptions
