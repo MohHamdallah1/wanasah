@@ -27,10 +27,11 @@ from slowapi.middleware import SlowAPIMiddleware
 from api import auth, branches, catalog, commercial_policy, driver, dispatch, inventory_stock_policy, offers, pricing, taxation, product_locations, product_tracking, tenant, warehouse, reconciliation, platform_manager, sales_returns, simple_products
 from config import Config
 from database import engine, get_db, warm_database_pool
+from domains.simple_products.imports.api import router as product_import_router
 from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
-from product_import_queue import app as product_import_app
+from domains.simple_products.imports.infrastructure.queue import app as product_import_app
 from observability.http_errors import log_http_server_error
 
 # ═══ S-01: Hardened IP extraction (trusted proxy CIDRs) ═══
@@ -435,6 +436,7 @@ app.include_router(inventory_stock_policy.router, tags=["Warehouse & Inventory"]
 app.include_router(branches.router)
 app.include_router(catalog.router)
 app.include_router(simple_products.router)
+app.include_router(product_import_router)
 app.include_router(product_tracking.router)
 app.include_router(pricing.router)
 app.include_router(commercial_policy.router)
