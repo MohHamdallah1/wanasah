@@ -466,6 +466,12 @@ describe(
       expect(createIdentity).toContain(
         "{familyOptions.map(",
       );
+      expect(createIdentity).toContain(
+        "<CommandInput",
+      );
+      expect(createIdentity).toContain(
+        "onFamilySearchChange(",
+      );
       expect(page).toContain(
         "<ProductFamiliesManager",
       );
