@@ -1160,6 +1160,132 @@ class Phase12SourceStoreIntegrationTests(
             1,
         )
 
+    def test_all_admission_dimensions_fail_closed_before_new_source_persistence(
+        self,
+    ) -> None:
+        seed_payload = (
+            b"Product,Unit Price\n"
+            b"Seed,1.000\n"
+        )
+        self._enqueue(
+            seed_payload
+        )
+        sources_before = (
+            self._source_count()
+        )
+        tenant_live, global_live = (
+            self._capacity()
+        )
+        incoming = len(
+            seed_payload
+        )
+
+        cases = [
+            (
+                "PRODUCT_IMPORT_USER_RATE_LIMITED",
+                ProductImportAdmissionPolicy(
+                    user_window_seconds=60,
+                    max_uploads_per_user_window=1,
+                    max_uploads_per_tenant_window=10_000,
+                    max_active_jobs_per_tenant=10_000,
+                    max_live_source_bytes_per_tenant=
+                        10 * 1024 * 1024 * 1024,
+                    global_live_source_bytes=
+                        100 * 1024 * 1024 * 1024,
+                    retry_after_seconds=13,
+                    storage_alert_percent=80,
+                    oldest_source_alert_seconds=300,
+                ),
+            ),
+            (
+                "PRODUCT_IMPORT_TENANT_RATE_LIMITED",
+                ProductImportAdmissionPolicy(
+                    user_window_seconds=60,
+                    max_uploads_per_user_window=10_000,
+                    max_uploads_per_tenant_window=1,
+                    max_active_jobs_per_tenant=10_000,
+                    max_live_source_bytes_per_tenant=
+                        10 * 1024 * 1024 * 1024,
+                    global_live_source_bytes=
+                        100 * 1024 * 1024 * 1024,
+                    retry_after_seconds=13,
+                    storage_alert_percent=80,
+                    oldest_source_alert_seconds=300,
+                ),
+            ),
+            (
+                "PRODUCT_IMPORT_ACTIVE_JOB_LIMIT",
+                ProductImportAdmissionPolicy(
+                    user_window_seconds=60,
+                    max_uploads_per_user_window=10_000,
+                    max_uploads_per_tenant_window=10_000,
+                    max_active_jobs_per_tenant=1,
+                    max_live_source_bytes_per_tenant=
+                        10 * 1024 * 1024 * 1024,
+                    global_live_source_bytes=
+                        100 * 1024 * 1024 * 1024,
+                    retry_after_seconds=13,
+                    storage_alert_percent=80,
+                    oldest_source_alert_seconds=300,
+                ),
+            ),
+            (
+                "PRODUCT_IMPORT_GLOBAL_SOURCE_CAPACITY",
+                ProductImportAdmissionPolicy(
+                    user_window_seconds=60,
+                    max_uploads_per_user_window=10_000,
+                    max_uploads_per_tenant_window=10_000,
+                    max_active_jobs_per_tenant=10_000,
+                    max_live_source_bytes_per_tenant=
+                        10 * 1024 * 1024 * 1024,
+                    global_live_source_bytes=(
+                        global_live
+                        + incoming
+                        - 1
+                    ),
+                    retry_after_seconds=13,
+                    storage_alert_percent=80,
+                    oldest_source_alert_seconds=300,
+                ),
+            ),
+        ]
+
+        for (
+            expected_code,
+            policy,
+        ) in cases:
+            with self.subTest(
+                code=expected_code
+            ):
+                with self.assertRaises(
+                    ProductImportAdmissionDenied
+                ) as raised:
+                    self._enqueue(
+                        seed_payload,
+                        policy=
+                            policy,
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    expected_code,
+                )
+                self.assertEqual(
+                    raised.exception.retry_after_seconds,
+                    13,
+                )
+                self.assertEqual(
+                    self._source_count(),
+                    sources_before,
+                )
+                self.assertEqual(
+                    self._capacity(),
+                    (
+                        tenant_live,
+                        global_live,
+                    ),
+                )
+
+
     def test_postgres_source_chunks_are_bounded_and_wal_amplification_is_measured(
         self,
     ) -> None:
