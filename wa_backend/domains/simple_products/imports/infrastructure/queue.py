@@ -1,7 +1,7 @@
 """PostgreSQL-backed queue for asynchronous product imports."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, BinaryIO
 from uuid import UUID, uuid4
 
 import psycopg
@@ -10,6 +10,18 @@ from psycopg.types.json import Jsonb
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     assert_job_transition,
+)
+from domains.simple_products.imports.domain.admission import (
+    DEFAULT_PRODUCT_IMPORT_ADMISSION_POLICY,
+    ProductImportAdmissionDenied,
+)
+from domains.simple_products.imports.infrastructure.admission_repository import (
+    check_import_admission_before_persist,
+    record_admission_rejection,
+    reserve_source_capacity_after_persist,
+)
+from domains.simple_products.imports.infrastructure.postgres_source_store import (
+    POSTGRES_PRODUCT_IMPORT_SOURCE_STORE,
 )
 from domains.product_tracking import normalize_tracking_mode
 from workers.recovery import recover_safe_stalled_jobs
@@ -93,6 +105,8 @@ async def process_product_import(
         await run_product_import_job(
             company_id=int(company_id),
             job_id=job_uuid,
+            source_store=
+                POSTGRES_PRODUCT_IMPORT_SOURCE_STORE,
         )
     except Exception as exc:
         classification = (
@@ -149,7 +163,8 @@ async def enqueue_new_import(
     request_id: UUID,
     file_name: str,
     content_type: str,
-    payload: bytes,
+    source_stream: BinaryIO,
+    source_size: int,
     source_sha256: str,
     default_lot_control_mode: str,
     default_expiry_control_mode: str,
@@ -170,143 +185,200 @@ async def enqueue_new_import(
         field_name="default_expiry_control_mode",
     )
 
-    async with await psycopg.AsyncConnection.connect(
-        DSN
-    ) as conn:
-        async with conn.transaction():
-            await conn.execute(
-                "SELECT set_config("
-                "'app.current_tenant', %s, true)",
-                [str(int(company_id))],
-            )
-            await conn.execute(
-                "SELECT pg_advisory_xact_lock("
-                "%s, hashtext(%s))",
-                [
-                    int(company_id),
-                    request_text,
-                ],
-            )
-
-            cursor = await conn.execute(
-                """
-                SELECT
-                    id,
-                    created_by,
-                    file_name,
-                    source_sha256,
-                    file_size,
-                    status,
-                    default_lot_control_mode,
-                    default_expiry_control_mode
-                FROM product_import_jobs
-                WHERE company_id = %s
-                  AND request_id = %s
-                FOR UPDATE
-                """,
-                [
-                    int(company_id),
-                    request_id,
-                ],
-            )
-            existing = await cursor.fetchone()
-            if existing is not None:
-                (
-                    existing_id,
-                    existing_actor,
-                    existing_name,
-                    existing_sha,
-                    existing_size,
-                    existing_status,
-                    existing_lot_default,
-                    existing_expiry_default,
-                ) = existing
-
-                same_request = (
-                    int(existing_actor)
-                    == int(actor_id)
-                    and str(existing_name)
-                    == str(file_name)
-                    and str(existing_sha)
-                    == str(source_sha256)
-                    and int(existing_size)
-                    == len(payload)
-                    and str(existing_lot_default)
-                    == default_lot_control_mode
-                    and str(existing_expiry_default)
-                    == default_expiry_control_mode
+    try:
+        async with await psycopg.AsyncConnection.connect(
+            DSN
+        ) as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT set_config("
+                    "'app.current_tenant', %s, true)",
+                    [str(int(company_id))],
                 )
-                if not same_request:
-                    raise ValueError(
-                        "request_id was already used for a different product import."
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock("
+                    "%s, hashtext(%s))",
+                    [
+                        int(company_id),
+                        request_text,
+                    ],
+                )
+
+                cursor = await conn.execute(
+                    """
+                    SELECT
+                        id,
+                        created_by,
+                        file_name,
+                        source_sha256,
+                        file_size,
+                        status,
+                        default_lot_control_mode,
+                        default_expiry_control_mode
+                    FROM product_import_jobs
+                    WHERE company_id = %s
+                      AND request_id = %s
+                    FOR UPDATE
+                    """,
+                    [
+                        int(company_id),
+                        request_id,
+                    ],
+                )
+                existing = await cursor.fetchone()
+                if existing is not None:
+                    (
+                        existing_id,
+                        existing_actor,
+                        existing_name,
+                        existing_sha,
+                        existing_size,
+                        existing_status,
+                        existing_lot_default,
+                        existing_expiry_default,
+                    ) = existing
+
+                    same_request = (
+                        int(existing_actor)
+                        == int(actor_id)
+                        and str(existing_name)
+                        == str(file_name)
+                        and str(existing_sha)
+                        == str(source_sha256)
+                        and int(existing_size)
+                        == int(source_size)
+                        and str(existing_lot_default)
+                        == default_lot_control_mode
+                        and str(existing_expiry_default)
+                        == default_expiry_control_mode
                     )
+                    if not same_request:
+                        raise ValueError(
+                            "request_id was already used for a different product import."
+                        )
 
-                return {
-                    "job_id": UUID(
-                        str(existing_id)
-                    ),
-                    "status": str(
-                        existing_status
-                    ),
-                    "replayed": True,
-                }
+                    return {
+                        "job_id": UUID(
+                            str(existing_id)
+                        ),
+                        "status": str(
+                            existing_status
+                        ),
+                        "replayed": True,
+                    }
 
-            await conn.execute(
-                """
-                INSERT INTO product_import_jobs (
-                    id,
-                    company_id,
-                    request_id,
-                    created_by,
-                    file_name,
-                    content_type,
-                    source_payload,
-                    source_sha256,
-                    file_size,
-                    status,
-                    detected_headers,
-                    suggested_mapping,
-                    column_mapping,
-                    default_lot_control_mode,
-                    default_expiry_control_mode,
-                    error_summary,
-                    total_rows,
-                    processed_rows,
-                    valid_rows,
-                    failed_rows,
-                    version
+                await check_import_admission_before_persist(
+                    conn,
+                    company_id=int(
+                        company_id
+                    ),
+                    actor_id=int(
+                        actor_id
+                    ),
+                    incoming_bytes=int(
+                        source_size
+                    ),
+                    policy=
+                        DEFAULT_PRODUCT_IMPORT_ADMISSION_POLICY,
                 )
-                VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    'QUEUED',
-                    '[]'::jsonb,
-                    '{}'::jsonb,
-                    '{}'::jsonb,
-                    %s,
-                    %s,
-                    '{}'::jsonb,
-                    0,0,0,0,1
+
+                source_ref = (
+                    await POSTGRES_PRODUCT_IMPORT_SOURCE_STORE.persist_stream_on_connection(
+                        connection=conn,
+                        company_id=int(
+                            company_id
+                        ),
+                        stream=source_stream,
+                        byte_size=int(
+                            source_size
+                        ),
+                        sha256=
+                            source_sha256,
+                    )
                 )
-                """,
-                [
-                    job_id,
-                    int(company_id),
-                    request_id,
-                    int(actor_id),
-                    file_name,
-                    content_type,
-                    payload,
-                    source_sha256,
-                    len(payload),
-                    default_lot_control_mode,
-                    default_expiry_control_mode,
-                ],
-            )
-            await defer_import_on_connection(
-                conn,
-                company_id=int(company_id),
-                job_id=job_id,
-            )
+                await reserve_source_capacity_after_persist(
+                    conn,
+                    company_id=int(
+                        company_id
+                    ),
+                    incoming_bytes=int(
+                        source_size
+                    ),
+                    policy=
+                        DEFAULT_PRODUCT_IMPORT_ADMISSION_POLICY,
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO product_import_jobs (
+                        id,
+                        company_id,
+                        request_id,
+                        created_by,
+                        file_name,
+                        content_type,
+                        source_id,
+                        source_payload,
+                        source_sha256,
+                        file_size,
+                        status,
+                        detected_headers,
+                        suggested_mapping,
+                        column_mapping,
+                        default_lot_control_mode,
+                        default_expiry_control_mode,
+                        error_summary,
+                        total_rows,
+                        processed_rows,
+                        valid_rows,
+                        failed_rows,
+                        version
+                    )
+                    VALUES (
+                        %s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,
+                        'QUEUED',
+                        '[]'::jsonb,
+                        '{}'::jsonb,
+                        '{}'::jsonb,
+                        %s,
+                        %s,
+                        '{}'::jsonb,
+                        0,0,0,0,1
+                    )
+                    """,
+                    [
+                        job_id,
+                        int(company_id),
+                        request_id,
+                        int(actor_id),
+                        file_name,
+                        content_type,
+                        source_ref.source_id,
+                        source_sha256,
+                        int(
+                            source_size
+                        ),
+                        default_lot_control_mode,
+                        default_expiry_control_mode,
+                    ],
+                )
+                await defer_import_on_connection(
+                    conn,
+                    company_id=int(company_id),
+                    job_id=job_id,
+                )
+
+    except ProductImportAdmissionDenied as exc:
+        await record_admission_rejection(
+            company_id=int(
+                company_id
+            ),
+            actor_id=int(
+                actor_id
+            ),
+            denial=exc,
+        )
+        raise
 
     return {
         "job_id": job_id,
