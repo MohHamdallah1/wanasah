@@ -28,7 +28,6 @@ import {
 import { productDraftStorageKey } from "@/pages/products/create/productDraftStorageKey";
 import { useCreateFamilyOptionParams } from "@/pages/products/create/useCreateFamilyOptionParams";
 import { useCreateFamilyOptionsQuery } from "@/pages/products/create/useCreateFamilyOptionsQuery";
-import { useCreateFamilyOptionSearchDebounce } from "@/pages/products/create/useCreateFamilyOptionSearchDebounce";
 import { useCreateFamilyOptionSearchState } from "@/pages/products/create/useCreateFamilyOptionSearchState";
 import { useCreateProductDraftPersistence } from "@/pages/products/create/useCreateProductDraftPersistence";
 import { useCreateProductMutation } from "@/pages/products/create/useCreateProductMutation";
@@ -176,12 +175,6 @@ export function useCreateProductWorkflow({
       driverId
     );
 
-  useCreateFamilyOptionSearchDebounce({
-    createOpen,
-    family: draft.family,
-    setFamilyOptionSearch,
-  });
-
   useCreateProductDraftPersistence({
     draftStorageKey,
     draft,
@@ -302,8 +295,12 @@ export function useCreateProductWorkflow({
       draft,
       createFieldError,
       familyOptions,
+      familyOptionsLoading:
+        familyOptionsQuery.isLoading ||
+        familyOptionsQuery.isFetching,
       familyOptionsError:
         familyOptionsQuery.isError,
+      familyOptionSearch,
       packageUoms,
       packageUomsLoading:
         packageUomsQuery.isLoading,
@@ -329,6 +326,8 @@ export function useCreateProductWorkflow({
         updateFamilyMode,
       onFamilyChange:
         updateFamily,
+      onFamilySearchChange:
+        setFamilyOptionSearch,
       onRetryFamilyOptions: () =>
         void familyOptionsQuery.refetch(),
       onRetryTrackingDefaults:
