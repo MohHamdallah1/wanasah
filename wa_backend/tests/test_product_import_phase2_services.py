@@ -28,7 +28,7 @@ from domains.simple_products.imports.domain.normalization import (
 )
 from domains.simple_products.imports.infrastructure.parsers import (
     SourceParser,
-    parse_source,
+    open_source,
 )
 
 
@@ -326,25 +326,28 @@ class ParserInterfaceTests(
     def test_parse_source_matches_parser_contract(
         self,
     ) -> None:
-        parser: SourceParser = (
-            lambda payload:
-            parse_source(
-                "products.csv",
-                payload,
+        parser: SourceParser = open_source
+        with parser(
+            "products.csv",
+            b"Product,Unit Price\nTea,1.250\n",
+        ) as source:
+            rows = list(
+                source.rows
             )
-        )
-        headers, rows = parser(
-            b"Product,Unit Price\nTea,1.250\n"
-        )
+
         self.assertEqual(
-            headers,
+            source.headers,
             [
                 "Product",
                 "Unit Price",
             ],
         )
         self.assertEqual(
-            rows[0]["Product"],
+            rows[0].row_number,
+            2,
+        )
+        self.assertEqual(
+            rows[0].raw["Product"],
             "Tea",
         )
 
