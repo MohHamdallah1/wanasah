@@ -65,9 +65,27 @@ describe("Products P9.4 create flow", () => {
     expect(identity).toContain(
       "familyOptions.map",
     );
+    expect(identity).toContain(
+      "<Popover",
+    );
+    expect(identity).toContain(
+      "<CommandInput",
+    );
+    expect(identity).toContain(
+      "onFamilySearchChange(",
+    );
+    expect(identity).not.toContain(
+      "<Tags",
+    );
+    expect(identity).toContain(
+      "border border-slate-200 bg-white px-3",
+    );
 
     expect(commerce).toContain(
       "onHasPackageChange",
+    );
+    expect(commerce).not.toContain(
+      "<PackageOpen",
     );
     expect(commerce).toContain(
       '"products.unitsPerPackage"',
