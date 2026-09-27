@@ -39,6 +39,9 @@ from domains.simple_products.imports.domain import (
     normalize_import_token,
     numeric_source_metadata,
 )
+from domains.simple_products.imports.infrastructure.content_security import (
+    validate_source_content,
+)
 
 
 MAX_IMPORT_ROWS = 50_000
@@ -1156,6 +1159,13 @@ def open_source(
     *,
     max_columns: int = MAX_IMPORT_COLUMNS,
 ) -> Iterator[ParsedSource]:
+    # Extension selects the supported parser, but content is independently
+    # verified. Client MIME never participates in parser authority.
+    validate_source_content(
+        file_name,
+        payload,
+    )
+
     suffix = (
         file_name
         .lower()
