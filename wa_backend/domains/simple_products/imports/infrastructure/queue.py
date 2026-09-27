@@ -85,10 +85,12 @@ async def process_product_import(
     company_id: int,
     job_id: str,
 ) -> None:
-    from product_import_worker import (
-        ProductImportTerminalError,
+    from domains.simple_products.imports.application import (
         mark_import_runtime_failure,
         run_product_import_job,
+    )
+    from domains.simple_products.imports.domain import (
+        ProductImportTerminalError,
     )
 
     job_uuid = UUID(str(job_id))
