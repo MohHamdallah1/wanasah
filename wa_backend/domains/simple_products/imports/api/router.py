@@ -1489,6 +1489,7 @@ async def cancel_product_import(
 )
 async def retry_product_import(
     job_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
@@ -1517,21 +1518,49 @@ async def retry_product_import(
             job_id=job_id,
         )
     except ValueError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_NOT_RETRYABLE",
+            job_id=job_id,
+        )
         raise HTTPException(
             409,
             detail={
-                "code": "PRODUCT_IMPORT_NOT_RETRYABLE",
-                "message": str(exc),
-                "context": {},
+                "code":
+                    "PRODUCT_IMPORT_NOT_RETRYABLE",
+                "message":
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_NOT_RETRYABLE"
+                    ),
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
     except Exception as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+            job_id=job_id,
+        )
         raise HTTPException(
             503,
             detail={
-                "code": "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
-                "message": "Import could not be retried.",
-                "context": {},
+                "code":
+                    "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+                "message":
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_QUEUE_UNAVAILABLE"
+                    ),
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
 
