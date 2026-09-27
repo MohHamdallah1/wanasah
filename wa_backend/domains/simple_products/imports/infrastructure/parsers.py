@@ -937,34 +937,64 @@ def _validate_xlsx_archive(
 
 
 def _iter_xlsx_rows(
-    iterator: Iterator[
+    cached_iterator: Iterator[
+        tuple[Any, ...]
+    ],
+    formula_iterator: Iterator[
         tuple[Any, ...]
     ],
     layout: list[tuple[int, str]],
 ) -> Iterator[ParsedRow]:
     accepted_count = 0
-    for (
-        row_number,
-        values,
-    ) in enumerate(
-        iterator,
-        start=2,
-    ):
-        raw = _row_from_layout(
-            values,
+    row_number = 2
+
+    while True:
+        try:
+            cached_cells = next(
+                cached_iterator
+            )
+        except StopIteration:
+            try:
+                next(
+                    formula_iterator
+                )
+            except StopIteration:
+                break
+            raise ProductImportTerminalError(
+                "Excel worksheet traversal became inconsistent."
+            )
+
+        try:
+            formula_cells = next(
+                formula_iterator
+            )
+        except StopIteration as exc:
+            raise ProductImportTerminalError(
+                "Excel worksheet traversal became inconsistent."
+            ) from exc
+
+        raw = _xlsx_row_from_layout(
+            cached_cells,
+            formula_cells,
             layout,
         )
         (
             parsed,
             accepted_count,
         ) = _count_and_yield(
-            row_number=row_number,
+            row_number=
+                row_number,
             raw=raw,
             accepted_count=
                 accepted_count,
         )
         if parsed is not None:
             yield parsed
+
+        # iter_rows emits missing/blank physical worksheet rows as empty cells.
+        # Incrementing independently from accepted_count preserves the exact
+        # physical XLSX row number through staging.
+        row_number += 1
 
     if accepted_count == 0:
         raise ProductImportTerminalError(
@@ -978,43 +1008,107 @@ def _open_xlsx_source(
     *,
     max_columns: int = MAX_IMPORT_COLUMNS,
 ) -> Iterator[ParsedSource]:
-    # Security inspection must finish before OpenPyXL traverses the workbook.
+    # Security inspection must finish before either OpenPyXL reader traverses
+    # the workbook.
     _validate_xlsx_archive(
         payload
     )
 
-    with io.BytesIO(
-        payload
-    ) as workbook_stream:
+    with (
+        io.BytesIO(
+            payload
+        ) as cached_stream,
+        io.BytesIO(
+            payload
+        ) as formula_stream,
+    ):
         try:
-            reader = (
+            cached_reader = (
                 _load_bounded_workbook(
-                    workbook_stream
+                    cached_stream,
+                    data_only=True,
                 )
             )
-            workbook = reader.wb
+            cached_workbook = (
+                cached_reader.wb
+            )
         except Exception as exc:
             raise ProductImportTerminalError(
                 "The Excel file could not be opened."
             ) from exc
 
+        formula_reader = None
+        formula_workbook = None
         try:
-            sheet = workbook.active
-            iterator = sheet.iter_rows(
-                values_only=True
+            formula_reader = (
+                _load_bounded_workbook(
+                    formula_stream,
+                    data_only=False,
+                )
             )
-            first = next(
-                iterator,
+            formula_workbook = (
+                formula_reader.wb
+            )
+
+            sheet_name = (
+                _select_xlsx_sheet_name(
+                    cached_workbook
+                )
+            )
+            if (
+                sheet_name
+                not in formula_workbook.sheetnames
+            ):
+                raise ProductImportTerminalError(
+                    "Excel worksheet metadata is inconsistent."
+                )
+
+            cached_sheet = (
+                cached_workbook[
+                    sheet_name
+                ]
+            )
+            formula_sheet = (
+                formula_workbook[
+                    sheet_name
+                ]
+            )
+
+            cached_iterator = (
+                cached_sheet.iter_rows(
+                    values_only=False
+                )
+            )
+            formula_iterator = (
+                formula_sheet.iter_rows(
+                    values_only=False
+                )
+            )
+            cached_first = next(
+                cached_iterator,
                 None,
             )
-            if first is None:
+            formula_first = next(
+                formula_iterator,
+                None,
+            )
+            if (
+                cached_first is None
+                or formula_first is None
+            ):
                 raise ProductImportTerminalError(
                     "The file is empty."
                 )
 
+            first_values = (
+                _xlsx_header_values(
+                    cached_first,
+                    formula_first,
+                )
+            )
             layout = (
                 _header_layout(
-                    first,
+                    first_values,
                     max_columns=
                         max_columns,
                 )
@@ -1027,15 +1121,30 @@ def _open_xlsx_source(
             yield ParsedSource(
                 headers=headers,
                 rows=_iter_xlsx_rows(
-                    iterator,
+                    cached_iterator,
+                    formula_iterator,
                     layout,
                 ),
             )
         finally:
             try:
-                workbook.close()
+                if (
+                    formula_workbook
+                    is not None
+                ):
+                    formula_workbook.close()
             finally:
-                reader.close_bounded_resources(
+                if (
+                    formula_reader
+                    is not None
+                ):
+                    formula_reader.close_bounded_resources(
+                        close_archive=False
+                    )
+            try:
+                cached_workbook.close()
+            finally:
+                cached_reader.close_bounded_resources(
                     close_archive=False
                 )
 
