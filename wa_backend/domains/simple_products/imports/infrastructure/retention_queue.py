@@ -7,6 +7,9 @@ from domains.simple_products.imports.application.retention_service import (
     iter_retention_company_id_pages,
     run_product_import_retention,
 )
+from domains.simple_products.imports.infrastructure.postgres_source_store import (
+    POSTGRES_PRODUCT_IMPORT_SOURCE_STORE,
+)
 from domains.simple_products.imports.infrastructure.queue import (
     app,
 )
@@ -32,7 +35,9 @@ async def cleanup_product_import_retention(
     return await run_product_import_retention(
         company_id=int(
             company_id
-        )
+        ),
+        source_store=
+            POSTGRES_PRODUCT_IMPORT_SOURCE_STORE,
     )
 
 
