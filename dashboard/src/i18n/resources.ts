@@ -517,25 +517,25 @@ export const resources = {
         importIntro:
           "يدعم CSV وExcel. ترتيب الأعمدة لا يهم، وإذا لم نتعرف على عمود لن نخمن؛ سنطلب منك ربطه قبل الاستيراد.",
         importTrackingTitle:
-          "تتبع المنتجات في هذا الاستيراد",
+          "الإعداد الافتراضي للخانات الفارغة",
         importTrackingHint:
-          "سيستخدم هذا الاستيراد افتراضيات شركتك تلقائياً. غيّرها فقط إذا كان هذا الملف يحتاج قاعدة مختلفة.",
+          "لا تحتاج تغييره عادةً. يُستخدم فقط إذا تركت خانة الدفعة أو الصلاحية فارغة، أو اخترت «استخدام الافتراضي» داخل الملف.",
         importTrackingSummary:
           "الدفعة / التشغيلة: {{lot}} — الصلاحية: {{expiry}}",
         importTrackingCompanyScope:
-          "يستخدم افتراضيات الشركة الحالية.",
+          "مأخوذ تلقائياً من إعدادات الشركة.",
         importTrackingCustomScope:
-          "تم تخصيص التتبع لهذا الاستيراد فقط.",
+          "مخصص لهذا الملف فقط.",
         importTrackingChange:
-          "تغيير لهذا الاستيراد",
+          "تغيير الافتراضي لهذا الملف",
         importTrackingReset:
-          "استخدام افتراضيات الشركة",
+          "العودة لإعدادات الشركة",
         importTrackingOnlyThisImport:
-          "أي تغيير هنا يخص هذا الاستيراد فقط ولا يغيّر افتراضيات الشركة أو المنتجات الموجودة.",
+          "هذا يغيّر فقط قيمة الخانات الفارغة في هذا الاستيراد. أي قيمة صريحة داخل صف المنتج تبقى هي المعتمدة.",
         importTrackingOverrideHint:
-          "إذا ربطت أعمدة تتبع الدفعة أو الصلاحية من الملف، فقيمة الصف غير الفارغة تتقدم على اختيار هذا الاستيراد.",
+          "القيمة المكتوبة داخل صف المنتج لها الأولوية، والخانة الفارغة تستخدم هذا الافتراضي.",
         importTrackingValueHint:
-          "داخل الملف استخدم القيم: {{none}} / {{optional}} / {{required}}. القيم الفارغة تستخدم اختيار هذا الاستيراد.",
+          "داخل Excel: {{defaultValue}} / {{none}} / {{optional}} / {{required}}. ترك الخلية فارغة = {{defaultValue}}.",
         trackingDefaultsLoading:
           "جاري تحميل الإعدادات الافتراضية للدفعة والصلاحية...",
         tracking: {
@@ -614,31 +614,25 @@ export const resources = {
         },
         downloadTemplate: "تحميل نموذج Excel فارغ",
         importTemplateProductsSheet: "المنتجات",
-        importGuideTitle: "قبل رفع الملف",
+        importGuideTitle: "ارفع ملفك بدون تعقيد",
         importGuideSubtitle:
-          "النموذج الجاهز Excel، ويمكنك أيضاً رفع CSV. هذه القواعد تكفي لبدء الاستيراد بدون مصطلحات تقنية.",
-        importGuideRowTitle: "صف واحد = منتج واحد",
+          "نزّل نموذج Excel الجاهز أو استخدم CSV. النظام يتولى الافتراضيات تلقائياً، وأنت تحدد الاستثناءات فقط.",
+        importGuideRowTitle: "1. كل صف = منتج واحد",
         importGuideRowRule:
-          "ضع كل منتج في صف مستقل. يمكن أن تختلف العائلة والتغليف والسعر والتتبع من صف لآخر.",
-        importGuideTrackingTitle: "التتبع لكل منتج مستقل",
+          "ضع كل منتج في صف مستقل. يمكن أن تختلف العائلة والتغليف والسعر من صف لآخر.",
+        importGuideTrackingTitle: "2. التتبع: حدّد الاستثناءات فقط",
         importGuideTrackingRule:
-          "في عمودي الدفعات والصلاحية استخدم: {{none}} أو {{optional}} أو {{required}} لكل منتج حسب حاجته.",
-        importGuideBlankTitle: "الخانة الفارغة ليست خطأ",
+          "في Excel ستجد قائمة جاهزة: {{defaultValue}} / {{none}} / {{optional}} / {{required}}.",
+        importGuideUseDefault: "استخدام الافتراضي",
+        importGuideBlankTitle: "3. اتركها فارغة إذا ما عندك استثناء",
         importGuideFallbackCompany:
-          "إذا تركت التتبع فارغاً، يستخدم هذا المنتج إعدادات الشركة الحالية: الدفعة {{lot}}، الصلاحية {{expiry}}.",
+          "الفراغ أو «استخدام الافتراضي» يعني الآن: الدفعة {{lot}}، الصلاحية {{expiry}}.",
         importGuideFallbackImport:
-          "إذا تركت التتبع فارغاً، يستخدم هذا المنتج إعدادات هذا الاستيراد: الدفعة {{lot}}، الصلاحية {{expiry}}.",
+          "الفراغ أو «استخدام الافتراضي» يعني لهذا الملف: الدفعة {{lot}}، الصلاحية {{expiry}}.",
         importGuideFallbackUnavailable:
-          "بعد تحميل إعدادات التتبع سيعرض النظام هنا بالضبط ما سيستخدمه عند ترك الخانة فارغة.",
-        importGuideShowExample: "عرض مثال سريع لثلاثة منتجات مختلفة",
-        importGuideHideExample: "إخفاء المثال",
-        importGuideExampleProduct: "المنتج",
-        importGuideExampleResult: "النتيجة",
-        importGuideExampleA: "منتج أ",
-        importGuideExampleB: "منتج ب",
-        importGuideExampleC: "منتج ج",
-        importGuideOwnValues: "يستخدم القيم المكتوبة في الصف",
-        importGuideUsesDefaults: "يستخدم الإعدادات الافتراضية أعلاه",
+          "بعد تحميل إعدادات الشركة سيعرض النظام هنا بالضبط ما سيستخدمه للفراغات.",
+        importGuideBulkTip:
+          "عندك 1,000 أو 50,000 منتج؟ لا تعبّي عمودي التتبع إذا أغلب المنتجات على الافتراضي؛ اتركهما فارغين وحدد فقط الصفوف المختلفة.",
         dropFile:
           "اسحب الملف هنا أو اضغط للاختيار",
         importLimit:
@@ -2088,25 +2082,25 @@ export const resources = {
         importIntro:
           "CSV and Excel are supported. Column order does not matter; unclear columns are never guessed and will be mapped before import.",
         importTrackingTitle:
-          "Tracking for this import",
+          "Default for blank tracking cells",
         importTrackingHint:
-          "This import uses your company defaults automatically. Change them only when this file needs different tracking rules.",
+          "You normally do not need to change this. It is used only when a batch or expiry cell is blank, or says “Use default” in the file.",
         importTrackingSummary:
           "Batch / lot: {{lot}} — expiry: {{expiry}}",
         importTrackingCompanyScope:
-          "Using the current company defaults.",
+          "Automatically inherited from the company settings.",
         importTrackingCustomScope:
-          "Tracking is customized for this import only.",
+          "Customized for this file only.",
         importTrackingChange:
-          "Change for this import",
+          "Change this file's default",
         importTrackingReset:
-          "Use company defaults",
+          "Return to company settings",
         importTrackingOnlyThisImport:
-          "Changes here apply only to this import and do not change company defaults or existing products.",
+          "This changes only the fallback for blank cells in this import. Any explicit value in a product row remains authoritative.",
         importTrackingOverrideHint:
-          "When lot or expiry tracking columns are mapped, a non-empty row value overrides this import selection.",
+          "An explicit row value wins; a blank cell uses this default.",
         importTrackingValueHint:
-          "Inside the file use: {{none}} / {{optional}} / {{required}}. Blank values use this import selection.",
+          "In Excel: {{defaultValue}} / {{none}} / {{optional}} / {{required}}. A blank cell = {{defaultValue}}.",
         trackingDefaultsLoading:
           "Loading company tracking defaults...",
         tracking: {
@@ -2185,31 +2179,25 @@ export const resources = {
         },
         downloadTemplate: "Download blank Excel template",
         importTemplateProductsSheet: "Products",
-        importGuideTitle: "Before uploading",
+        importGuideTitle: "Upload without the complexity",
         importGuideSubtitle:
-          "The ready-made template is Excel, and CSV is also supported. These rules are enough to start without technical terminology.",
-        importGuideRowTitle: "One row = one product",
+          "Download the ready Excel template or use CSV. Wanasah handles defaults automatically; you only mark exceptions.",
+        importGuideRowTitle: "1. One row = one product",
         importGuideRowRule:
-          "Put each product on its own row. Family, packaging, price, and tracking may differ from row to row.",
-        importGuideTrackingTitle: "Tracking is per product",
+          "Put each product on its own row. Family, packaging, and price may differ per row.",
+        importGuideTrackingTitle: "2. Tracking: mark exceptions only",
         importGuideTrackingRule:
-          "In the batch and expiry columns use {{none}}, {{optional}}, or {{required}} independently for each product.",
-        importGuideBlankTitle: "A blank tracking cell is valid",
+          "Excel provides a ready list: {{defaultValue}} / {{none}} / {{optional}} / {{required}}.",
+        importGuideUseDefault: "Use default",
+        importGuideBlankTitle: "3. Leave it blank when there is no exception",
         importGuideFallbackCompany:
-          "If tracking is blank, that product uses the current company defaults: batch {{lot}}, expiry {{expiry}}.",
+          "Blank or “Use default” currently means: batch {{lot}}, expiry {{expiry}}.",
         importGuideFallbackImport:
-          "If tracking is blank, that product uses this import's defaults: batch {{lot}}, expiry {{expiry}}.",
+          "Blank or “Use default” for this file means: batch {{lot}}, expiry {{expiry}}.",
         importGuideFallbackUnavailable:
-          "Once tracking settings load, the exact fallback used for blank cells will be shown here.",
-        importGuideShowExample: "Show a quick three-product example",
-        importGuideHideExample: "Hide example",
-        importGuideExampleProduct: "Product",
-        importGuideExampleResult: "Result",
-        importGuideExampleA: "Product A",
-        importGuideExampleB: "Product B",
-        importGuideExampleC: "Product C",
-        importGuideOwnValues: "Uses the values written on this row",
-        importGuideUsesDefaults: "Uses the defaults shown above",
+          "Once company settings load, the exact fallback for blank cells will be shown here.",
+        importGuideBulkTip:
+          "Importing 1,000 or 50,000 products? If most use the default, leave both tracking columns blank and fill only the rows that are exceptions.",
         dropFile:
           "Drop the file here or click to choose",
         importLimit:
