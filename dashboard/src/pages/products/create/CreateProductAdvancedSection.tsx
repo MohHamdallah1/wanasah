@@ -60,8 +60,8 @@ export function CreateProductAdvancedSection({
     );
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="bg-white">
+      <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
             {t(
@@ -92,8 +92,8 @@ export function CreateProductAdvancedSection({
               </p>
             )
           ) : (
-            <>
-              <p className="mt-1 text-xs font-black leading-5 text-slate-800">
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="text-xs font-black leading-5 text-slate-800">
                 {t(
                   "products.tracking.createSummary",
                   {
@@ -106,14 +106,18 @@ export function CreateProductAdvancedSection({
                   }
                 )}
               </p>
-              <p className="mt-0.5 text-[10px] font-semibold leading-4 text-slate-500">
+              <span
+                aria-hidden="true"
+                className="h-1 w-1 rounded-full bg-slate-300"
+              />
+              <p className="text-[10px] font-semibold leading-4 text-slate-500">
                 {t(
                   trackingUsesCompanyDefaults
                     ? "products.tracking.createCompanyScope"
                     : "products.tracking.createCustomScope"
                 )}
               </p>
-            </>
+            </div>
           )}
         </div>
 
@@ -123,7 +127,7 @@ export function CreateProductAdvancedSection({
           aria-expanded={
             createAdvancedExpanded
           }
-          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[11px] font-black text-slate-700 transition hover:border-slate-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         >
           <Settings2 className="h-3.5 w-3.5" />
           {t(
@@ -138,7 +142,7 @@ export function CreateProductAdvancedSection({
       </div>
 
       {createAdvancedExpanded ? (
-        <div className="grid gap-5 px-4 py-4 lg:grid-cols-2">
+        <div className="grid gap-5 border-t border-slate-200 bg-slate-50/70 px-4 py-4 sm:px-5 lg:grid-cols-2">
           <div className="min-w-0">
             <div className="mb-3">
               <h4 className="text-xs font-black text-slate-900">
@@ -158,7 +162,7 @@ export function CreateProductAdvancedSection({
                 type="button"
                 onClick={onExpandTracking}
                 disabled={!trackingReady}
-                className="inline-flex min-h-9 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-[11px] font-black text-slate-700 transition hover:bg-white disabled:opacity-40"
+                className="inline-flex min-h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-40"
               >
                 {t(
                   "products.tracking.createChange"
@@ -196,7 +200,7 @@ export function CreateProductAdvancedSection({
             )}
           </div>
 
-          <div className="min-w-0 border-t border-slate-100 pt-4 lg:border-s lg:border-t-0 lg:ps-5 lg:pt-0">
+          <div className="min-w-0 border-t border-slate-200 pt-4 lg:border-s lg:border-t-0 lg:ps-5 lg:pt-0">
             <div className="mb-3">
               <h4 className="text-xs font-black text-slate-900">
                 {t(
@@ -269,7 +273,7 @@ export function CreateProductAdvancedSection({
             </div>
           </div>
 
-          <p className="lg:col-span-2 border-t border-slate-100 pt-3 text-[10px] font-semibold leading-4 text-slate-400">
+          <p className="border-t border-slate-200 pt-3 text-[10px] font-semibold leading-4 text-slate-400 lg:col-span-2">
             {t(
               "products.quickCreate.systemManagedHint"
             )}
