@@ -325,7 +325,31 @@ Advanced UOM in V2 must consume this company-configurable catalog rather than in
 
 ---
 
-## 4. Version 1 UI policy for deferred features
+## 4. External Product ingestion channels
+
+### V1 decision
+
+Version 1 keeps **CSV/XLSX file import** as the only external bulk Product-ingestion channel.
+
+The current file-import pipeline remains the production authority for V1 and must be polished for non-technical users rather than diluted by adding partially finished integrations.
+
+### Version 2 scope
+
+Version 2 should add, in this order unless customer evidence changes the priority:
+
+1. **B2B REST APIs** for companies with ERP/internal engineering teams.
+2. **Data Feeds / Sync Links** for scheduled CSV/JSON/XML ingestion from approved HTTPS sources.
+3. **SFTP / approved object-storage bulk drops** for enterprise scheduled file exchange.
+
+All three must map into the same canonical Product ingestion authority and preserve the existing validation, permission, isolation, idempotency, audit, tracking, barcode, UOM, pricing, and lifecycle rules.
+
+Native marketplace/commerce-platform connectors, vendor-specific ERP connectors, and EDI are intentionally treated as **Version 3 by default** because they introduce connector-specific authentication, reconciliation, rate-limit, support, and versioning costs.
+
+The architecture source of truth for the complete channel roadmap is `ARCHITECTURE.md`.
+
+---
+
+## 5. Version 1 UI policy for deferred features
 
 For both deferred capabilities:
 
@@ -339,7 +363,7 @@ For both deferred capabilities:
 
 ---
 
-## 5. Preservation rule
+## 6. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 
