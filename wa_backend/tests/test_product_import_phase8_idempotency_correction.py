@@ -146,6 +146,7 @@ class Phase8CorrectionContractTests(
                 "__wanasah_row_identity",
                 "__wanasah_original_row",
                 "__wanasah_error_code",
+                "__wanasah_error_field",
                 "__wanasah_error_message",
                 *source_headers,
             ]
@@ -157,6 +158,7 @@ class Phase8CorrectionContractTests(
                 ),
                 "2",
                 "BAD_ROW",
+                "",
                 "Bad row",
                 *[
                     f"value-{index}"
