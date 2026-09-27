@@ -387,13 +387,13 @@ def static_checks() -> None:
     )
     check(
         "ProductImportTerminalError" in worker
-        and 'status == "VALIDATING"' in worker
-        and 'status == "IMPORTING"' in worker
+        and "JobStatus.VALIDATING.value" in worker
+        and "JobStatus.IMPORTING.value" in worker
         and "ProductImportRow.status" in repository
-        and 'status="VALID"' in execution
-        and '"IMPORTED"' in execution
+        and "RowStatus.VALID.value" in execution
+        and "RowStatus.IMPORTED" in execution
         and "transition_row(" in execution
-        and "_ALLOWED_ROW_TRANSITIONS" in state_machine,
+        and "ALLOWED_ROW_TRANSITIONS" in state_machine,
         "Retry path resumes durable phases without replaying committed rows",
     )
     check(
