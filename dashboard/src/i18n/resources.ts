@@ -162,7 +162,7 @@ export const resources = {
         quickCreate: {
           advancedTitle: "إعدادات متقدمة",
           advancedHint:
-            "للباركود أو تخصيص التتبع لهذا المنتج. الإعدادات الأساسية تكفي لمعظم المنتجات.",
+            "غيّر إعدادات رقم الدفعة والصلاحية لهذا المنتج فقط عند الحاجة.",
           showAdvanced: "عرض الإعدادات",
           hideAdvanced: "إخفاء الإعدادات",
           trackingAdvancedHint:
