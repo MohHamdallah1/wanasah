@@ -330,6 +330,56 @@ def upgrade() -> None:
         unique=False,
     )
 
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION product_import_source_metadata_immutable()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $
+        BEGIN
+            IF NEW.id IS DISTINCT FROM OLD.id
+               OR NEW.company_id IS DISTINCT FROM OLD.company_id
+               OR NEW.sha256 IS DISTINCT FROM OLD.sha256
+               OR NEW.byte_size IS DISTINCT FROM OLD.byte_size
+               OR NEW.storage_backend IS DISTINCT FROM OLD.storage_backend
+               OR NEW.created_at IS DISTINCT FROM OLD.created_at
+            THEN
+                RAISE EXCEPTION 'Product Import source metadata is immutable';
+            END IF;
+            RETURN NEW;
+        END;
+        $
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_product_import_source_metadata_immutable
+        BEFORE UPDATE ON product_import_sources
+        FOR EACH ROW
+        EXECUTE FUNCTION product_import_source_metadata_immutable()
+        """
+    )
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION product_import_source_chunk_immutable()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $
+        BEGIN
+            RAISE EXCEPTION 'Product Import source chunks are immutable';
+        END;
+        $
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_product_import_source_chunk_immutable
+        BEFORE UPDATE ON product_import_source_chunks
+        FOR EACH ROW
+        EXECUTE FUNCTION product_import_source_chunk_immutable()
+        """
+    )
+
     _enable_rls(
         "product_import_sources"
     )
@@ -342,6 +392,24 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        "DROP TRIGGER IF EXISTS "
+        "trg_product_import_source_chunk_immutable "
+        "ON product_import_source_chunks"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS "
+        "product_import_source_chunk_immutable()"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS "
+        "trg_product_import_source_metadata_immutable "
+        "ON product_import_sources"
+    )
+    op.execute(
+        "DROP FUNCTION IF EXISTS "
+        "product_import_source_metadata_immutable()"
+    )
     op.drop_index(
         "ix_product_import_job_source",
         table_name=
