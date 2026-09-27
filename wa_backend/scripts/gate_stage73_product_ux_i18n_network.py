@@ -113,7 +113,7 @@ def static_checks() -> None:
     ).read_text(encoding="utf-8")
     api = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
     import_api = (BACKEND / "domains/simple_products/imports/api/router.py").read_text(encoding="utf-8")
-    worker = (BACKEND / "product_import_worker.py").read_text(encoding="utf-8")
+    worker = (BACKEND / "domains/simple_products/imports/application/worker.py").read_text(encoding="utf-8")
     queue = (BACKEND / "domains/simple_products/imports/infrastructure/queue.py").read_text(encoding="utf-8")
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     rules = (ROOT / ".rules").read_text(encoding="utf-8")
