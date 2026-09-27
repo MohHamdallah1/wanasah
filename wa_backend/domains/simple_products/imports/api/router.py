@@ -991,6 +991,7 @@ async def get_product_import_lineage(
 )
 async def get_product_import_correction(
     job_id: UUID,
+    request: Request,
     file_format: str = Query(
         "xlsx",
         alias="format",
@@ -1040,16 +1041,26 @@ async def get_product_import_correction(
             )
         )
     except ProductImportTerminalError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE",
+            job_id=job_id,
+        )
         raise HTTPException(
             409,
             detail={
                 "code":
                     "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE",
                 "message":
-                    str(
-                        exc
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE"
                     ),
-                "context": {},
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
 
@@ -1077,6 +1088,7 @@ async def get_product_import_correction(
 )
 async def upload_product_import_correction(
     job_id: UUID,
+    request: Request,
     request_id: UUID = Form(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -1166,6 +1178,33 @@ async def upload_product_import_correction(
         )
 
     try:
+        validate_source_content(
+            file_name,
+            payload,
+        )
+    except ProductImportTerminalError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=exc.code,
+            job_id=job_id,
+        )
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    exc.code,
+                "message":
+                    exc.user_message,
+                "context":
+                    _error_context(
+                        request,
+                        exc.context,
+                    ),
+            },
+        ) from exc
+
+    try:
         result = (
             await apply_correction_upload(
                 company_id=int(
@@ -1183,40 +1222,70 @@ async def upload_product_import_correction(
             )
         )
     except ProductImportTerminalError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_CORRECTION_INVALID",
+            job_id=job_id,
+        )
         raise HTTPException(
             422,
             detail={
                 "code":
                     "PRODUCT_IMPORT_CORRECTION_INVALID",
                 "message":
-                    str(
-                        exc
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_CORRECTION_INVALID"
                     ),
-                "context": {},
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
     except ValueError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_CORRECTION_CONFLICT",
+            job_id=job_id,
+        )
         raise HTTPException(
             409,
             detail={
                 "code":
                     "PRODUCT_IMPORT_CORRECTION_CONFLICT",
                 "message":
-                    str(
-                        exc
+                    "The correction request conflicts with the current import state.",
+                "context":
+                    _error_context(
+                        request
                     ),
-                "context": {},
             },
         ) from exc
     except Exception as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+            job_id=job_id,
+        )
         raise HTTPException(
             503,
             detail={
                 "code":
                     "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
                 "message":
-                    "Correction could not be queued.",
-                "context": {},
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_QUEUE_UNAVAILABLE"
+                    ),
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
 
@@ -1234,6 +1303,7 @@ async def upload_product_import_correction(
 async def set_product_import_mapping(
     job_id: UUID,
     payload: ImportMappingRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
@@ -1302,21 +1372,49 @@ async def set_product_import_mapping(
             mapping=payload.mapping,
         )
     except ValueError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_MAPPING_CONFLICT",
+            job_id=job_id,
+        )
         raise HTTPException(
             409,
             detail={
-                "code": "PRODUCT_IMPORT_MAPPING_CONFLICT",
-                "message": str(exc),
-                "context": {},
+                "code":
+                    "PRODUCT_IMPORT_MAPPING_CONFLICT",
+                "message":
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_MAPPING_CONFLICT"
+                    ),
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
     except Exception as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+            job_id=job_id,
+        )
         raise HTTPException(
             503,
             detail={
-                "code": "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
-                "message": "Import could not be requeued.",
-                "context": {},
+                "code":
+                    "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+                "message":
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_QUEUE_UNAVAILABLE"
+                    ),
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
 
@@ -1333,6 +1431,7 @@ async def set_product_import_mapping(
 )
 async def cancel_product_import(
     job_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
@@ -1348,23 +1447,27 @@ async def cancel_product_import(
             job_id=job_id,
         )
     except ProductImportTerminalError as exc:
-        code = (
-            "PRODUCT_IMPORT_NOT_FOUND"
-            if "not found"
-            in str(exc).lower()
-            else "PRODUCT_IMPORT_NOT_CANCELLABLE"
+        _log_api_exception(
+            request,
+            exc,
+            code=exc.code,
+            job_id=job_id,
         )
         raise HTTPException(
             404
-            if code
+            if exc.code
             == "PRODUCT_IMPORT_NOT_FOUND"
             else 409,
             detail={
-                "code": code,
-                "message": str(
-                    exc
-                ),
-                "context": {},
+                "code":
+                    exc.code,
+                "message":
+                    exc.user_message,
+                "context":
+                    _error_context(
+                        request,
+                        exc.context,
+                    ),
             },
         ) from exc
 
