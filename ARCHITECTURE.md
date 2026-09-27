@@ -244,7 +244,7 @@ For a solo/small team, premature microservices are rejected.
 
 Wanasah starts as a focused distribution/operations system.
 
-Future months/years may add adjacent systems such as accounting, CRM, purchasing, HR, manufacturing, or other capabilities.
+Future months/years may add adjacent systems such as shipping/logistics, accounting, CRM, purchasing, HR, manufacturing, or other capabilities.
 
 We are **not** building all of those now.
 
@@ -374,7 +374,89 @@ Its purpose is to move the existing system from “monolith with growing domain 
 
 ---
 
-## 16. PERMANENT DECISION SUMMARY
+## 16. FUTURE SHIPPING / LOGISTICS EXPANSION
+
+Wanasah is currently a distribution/operations platform, but the architecture must deliberately preserve a clean path to a broader shipping/logistics product in the future.
+
+This is **not** permission to build shipping features prematurely in Version 1. It is an architectural constraint: today's domains must remain reusable and must not be designed in a way that forces a rewrite when shipping becomes an approved product scope.
+
+### 16.1 Capabilities intended for direct reuse
+
+The following foundations are expected to remain directly reusable, subject to their existing domain contracts and permissions:
+
+- company/tenant isolation and policy-driven organizational scopes;
+- warehouse/location isolation and authorization;
+- Catalog/Product identity, UOM, barcode, and package authority;
+- Inventory/Warehouse stock, inbound/outbound, batch, expiry, and movement evidence;
+- Pricing/commercial calculation authority;
+- driver/dispatch/route foundations where their current contracts match the future use case;
+- durable idempotency, optimistic concurrency, audit, and transactional-outbox patterns;
+- reporting/read-model architecture and tenant-scoped background work.
+
+Direct reuse means **reuse the owning domain through public contracts**. It does not mean future shipping code may import or mutate another domain's internals.
+
+### 16.2 Capabilities expected to need extension or minor customization
+
+Future shipping/logistics will require concepts that are adjacent to the current system but should not be forced into today's Product, Inventory, Sales, or Dispatch entities merely because they look similar.
+
+Likely future first-class concepts include:
+
+- shipment / parcel identity and lifecycle;
+- merchant/order intake from external sales channels;
+- pickup and delivery jobs;
+- hubs and cross-docking;
+- carrier / 3PL assignment and integrations;
+- fleet and vehicle operations;
+- route planning/optimization, live location, ETA, and delivery exceptions;
+- proof of delivery;
+- cash-on-delivery collection and settlement;
+- reverse logistics / shipment returns;
+- shipping rates, customer-specific fees, and service levels;
+- shipment tracking events and customer/merchant visibility.
+
+These should be added as explicit modules or feature slices with clear ownership instead of expanding one existing table or API into a multi-purpose logistics god-domain.
+
+### 16.3 Distribution-to-shipping boundary
+
+Product stock and a shipment are related but are **not the same business aggregate**.
+
+- Catalog owns what the item is.
+- Inventory owns physical stock truth.
+- Sales/Commercial owns commercial transaction evidence.
+- Shipping/Logistics will own parcel/shipment movement and delivery lifecycle.
+- Dispatch may coordinate assignments/routes, but must not silently become the owner of shipment identity, accounting, inventory, and customer truth at the same time.
+
+Cross-domain coordination should use public application contracts and, where durability or loose coupling is required, transactional events/outbox.
+
+### 16.4 Route and commercial evidence
+
+As route/shipping workflows grow, commercial context that must remain historically stable should be locked/snapshotted at the correct operational boundary rather than re-resolved from mutable live configuration after execution has begun.
+
+Examples may include:
+
+- the applicable price/publication revision;
+- assignment/route revision;
+- source location / warehouse context;
+- customer/merchant shipping terms;
+- applicable fees or service level.
+
+The exact evidence contract belongs to the owning future workflow, but mutable configuration must never silently rewrite completed operational history.
+
+### 16.5 Extensibility rule
+
+Future shipping support must be achievable primarily by **adding modules and contracts**, not by rewriting the existing distribution core.
+
+When a future shipping requirement overlaps an existing Wanasah capability:
+
+1. reuse the existing authority when the semantics are genuinely the same;
+2. extend it through a public/versioned contract when only small additional context is required;
+3. create a separate module when the lifecycle, ownership, or invariants are materially different;
+4. never duplicate live mutable truth merely to make integration easier;
+5. preserve tenant/location isolation, idempotency, auditability, upgrade paths, and Arabic/English contract neutrality from day one.
+
+---
+
+## 17. PERMANENT DECISION SUMMARY
 
 1. **Company/tenant isolation is absolute and fail-closed.**
 2. **Warehouse/location isolation is explicit and backend-enforced.**
