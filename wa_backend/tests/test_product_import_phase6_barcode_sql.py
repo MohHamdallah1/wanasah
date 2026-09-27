@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from psycopg.errors import UniqueViolation
 from sqlalchemy.engine import make_url
 
+from database import engine
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
     invalidate_external_barcode_conflicts,
@@ -309,6 +310,14 @@ class ProductImportBarcodeSqlTests(
                 ),
             )
 
+    async def _run_set_validation_and_dispose(
+        self,
+    ) -> tuple[int, int, int]:
+        try:
+            return await self._run_set_validation()
+        finally:
+            await engine.dispose()
+
     async def _run_set_validation(
         self,
     ) -> tuple[int, int, int]:
@@ -362,7 +371,7 @@ class ProductImportBarcodeSqlTests(
             duplicates,
             conflicts,
         ) = asyncio.run(
-            self._run_set_validation()
+            self._run_set_validation_and_dispose()
         )
 
         self.assertEqual(
@@ -381,8 +390,20 @@ class ProductImportBarcodeSqlTests(
         with psycopg.connect(
             self.owner_dsn
         ) as conn:
-            statuses = dict(
-                conn.execute(
+            statuses = {
+                int(row_number): (
+                    str(status),
+                    (
+                        str(error_code)
+                        if error_code is not None
+                        else None
+                    ),
+                )
+                for (
+                    row_number,
+                    status,
+                    error_code,
+                ) in conn.execute(
                     """
                     SELECT
                         row_number,
@@ -398,7 +419,7 @@ class ProductImportBarcodeSqlTests(
                         self.job_id,
                     ),
                 ).fetchall()
-            )
+            }
 
             shared_count = (
                 conn.execute(
@@ -456,7 +477,7 @@ class ProductImportBarcodeSqlTests(
         self,
     ) -> None:
         asyncio.run(
-            self._run_set_validation()
+            self._run_set_validation_and_dispose()
         )
 
         with psycopg.connect(
