@@ -8,6 +8,7 @@ import type {
   ProductDisplaySortDirection,
   ProductDisplaySortField,
 } from "@/lib/productDisplayPreferences";
+import { findProductSortOption } from "@/pages/products/list/productSortOptions";
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -209,8 +210,8 @@ export function ProductsActiveFilters({
             t(
               booleanLabelKey(
                 barcodeFilter,
-                "products.filters.present",
-                "products.filters.missing",
+                "products.filters.barcodePresent",
+                "products.filters.barcodeMissing",
               ),
             ),
           )}
@@ -228,8 +229,8 @@ export function ProductsActiveFilters({
             t(
               booleanLabelKey(
                 priceFilter,
-                "products.filters.present",
-                "products.filters.missing",
+                "products.filters.pricePresent",
+                "products.filters.priceMissing",
               ),
             ),
           )}
@@ -278,14 +279,15 @@ export function ProductsActiveFilters({
       {hasSortOverride ? (
         <FilterChip
           label={label(
-            "products.filters.sortBy",
-            `${t(
-              `products.filters.sortFields.${sortBy}`,
-            )} · ${t(
-              sortDir === "asc"
-                ? "products.filters.ascending"
-                : "products.filters.descending",
-            )}`,
+            "products.filters.sort",
+            t(
+              `products.filters.sortOptions.${
+                findProductSortOption(
+                  sortBy,
+                  sortDir,
+                )?.key ?? "activeFirst"
+              }`,
+            ),
           )}
           onRemove={() => {
             onSortByChange(
