@@ -8,6 +8,8 @@ abort the job so the queue/runtime failure path can handle them.
 from __future__ import annotations
 
 from decimal import Decimal
+import hashlib
+import json
 from typing import Any
 from uuid import UUID, uuid5
 
@@ -41,10 +43,15 @@ from domains.simple_products.service import (
     SimpleProductSpec,
     create_products_and_prices,
 )
+from services import (
+    begin_idempotent_operation,
+    complete_idempotent_operation,
+)
 from inventory_access import InventoryAccess
 
 
 IMPORT_BATCH = 100
+_ROW_CREATE_OPERATION = "PRODUCT_IMPORT_ROW_CREATE"
 
 
 def build_product_spec(
@@ -197,18 +204,146 @@ def completion_outcome(
     return JobStatus.COMPLETED
 
 
+def _row_identity(
+    row: Any,
+) -> str:
+    value = getattr(
+        row,
+        "row_identity",
+        None,
+    )
+    if value is None:
+        raise ProductImportTerminalError(
+            "Product Import row identity is missing."
+        )
+    return str(value)
+
+
 def _batch_request_id(
     job_id: UUID,
     rows: list[Any],
 ) -> UUID:
+    identities = ",".join(
+        _row_identity(row)
+        for row in rows
+    )
     return uuid5(
         job_id,
-        (
-            "rows:"
-            f"{int(rows[0].row_number)}:"
-            f"{int(rows[-1].row_number)}"
-        ),
+        "product-import-rows:"
+        + identities,
     )
+
+
+def _batch_request_hash(
+    rows: list[Any],
+) -> str:
+    payload = [
+        {
+            "row_identity":
+                _row_identity(row),
+            "normalized_data":
+                dict(
+                    row.normalized_data
+                    or {}
+                ),
+        }
+        for row in rows
+    ]
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(
+        canonical
+    ).hexdigest()
+
+
+def _replayed_variant_ids(
+    replay: dict[str, object],
+    rows: list[Any],
+) -> list[int]:
+    stored = replay.get(
+        "rows"
+    )
+    if not isinstance(
+        stored,
+        list,
+    ):
+        raise ProductImportTerminalError(
+            "Product Import idempotency response is malformed."
+        )
+
+    by_identity: dict[
+        str,
+        int,
+    ] = {}
+    for item in stored:
+        if not isinstance(
+            item,
+            dict,
+        ):
+            raise ProductImportTerminalError(
+                "Product Import idempotency response is malformed."
+            )
+        identity = str(
+            item.get(
+                "row_identity",
+                "",
+            )
+        )
+        variant_id = item.get(
+            "product_variant_id"
+        )
+        if (
+            not identity
+            or isinstance(
+                variant_id,
+                bool,
+            )
+            or not isinstance(
+                variant_id,
+                int,
+            )
+            or int(
+                variant_id
+            )
+            <= 0
+            or identity
+            in by_identity
+        ):
+            raise ProductImportTerminalError(
+                "Product Import idempotency response is malformed."
+            )
+        by_identity[
+            identity
+        ] = int(
+            variant_id
+        )
+
+    expected = [
+        _row_identity(
+            row
+        )
+        for row in rows
+    ]
+    if set(
+        by_identity
+    ) != set(
+        expected
+    ):
+        raise ProductImportTerminalError(
+            "Product Import idempotency response does not match the requested rows."
+        )
+
+    return [
+        by_identity[
+            identity
+        ]
+        for identity
+        in expected
+    ]
 
 
 async def _execute_rows_once(
@@ -231,6 +366,58 @@ async def _execute_rows_once(
         job_id,
         rows,
     )
+    request_hash = (
+        _batch_request_hash(
+            rows
+        )
+    )
+
+    (
+        idempotency,
+        replay,
+    ) = await begin_idempotent_operation(
+        db,
+        company_id=int(
+            actor.company_id
+        ),
+        actor_id=int(
+            actor.id
+        ),
+        operation=
+            _ROW_CREATE_OPERATION,
+        request_id=str(
+            request_id
+        ),
+        request_hash=
+            request_hash,
+    )
+
+    if replay is not None:
+        variant_ids = (
+            _replayed_variant_ids(
+                replay,
+                rows,
+            )
+        )
+        for (
+            row,
+            variant_id,
+        ) in zip(
+            rows,
+            variant_ids,
+            strict=True,
+        ):
+            transition_row(
+                row,
+                RowStatus.IMPORTED,
+                product_variant_id=
+                    int(
+                        variant_id
+                    ),
+                error_code=None,
+                error_message=None,
+            )
+        return
 
     created = (
         await create_products_and_prices(
@@ -241,6 +428,9 @@ async def _execute_rows_once(
         )
     )
 
+    response_rows: list[
+        dict[str, object]
+    ] = []
     for (
         row,
         (variant, _prices),
@@ -249,15 +439,35 @@ async def _execute_rows_once(
         created,
         strict=True,
     ):
+        variant_id = int(
+            variant.id
+        )
+        response_rows.append(
+            {
+                "row_identity":
+                    _row_identity(
+                        row
+                    ),
+                "product_variant_id":
+                    variant_id,
+            }
+        )
         transition_row(
             row,
             RowStatus.IMPORTED,
-            product_variant_id=int(
-                variant.id
-            ),
+            product_variant_id=
+                variant_id,
             error_code=None,
             error_message=None,
         )
+
+    complete_idempotent_operation(
+        idempotency,
+        {
+            "rows":
+                response_rows,
+        },
+    )
 
 
 async def _execute_rows_best_effort(
