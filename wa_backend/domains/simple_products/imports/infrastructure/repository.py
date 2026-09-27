@@ -6,6 +6,7 @@ It intentionally does not own Product/Pricing/Tracking business rules.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
@@ -14,6 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from context import tenant_context
 from database import AsyncSessionLocal
+from domains.simple_products.imports.domain import (
+    ProductImportTerminalError,
+)
+from domains.simple_products.imports.infrastructure.parsers import (
+    ParsedRow,
+)
 from models import (
     Driver,
     ProductBarcode,
@@ -110,39 +117,70 @@ async def insert_staged_rows(
     *,
     company_id: int,
     job_id: UUID,
-    rows: list[dict[str, Any]],
+    rows: Iterable[ParsedRow],
     batch_size: int,
-) -> None:
-    for offset in range(
-        0,
-        len(rows),
-        batch_size,
-    ):
-        chunk = rows[
-            offset : offset + batch_size
-        ]
+    max_rows: int,
+) -> int:
+    if batch_size <= 0:
+        raise ValueError(
+            "batch_size must be positive."
+        )
+    if max_rows <= 0:
+        raise ValueError(
+            "max_rows must be positive."
+        )
+
+    batch: list[
+        dict[str, Any]
+    ] = []
+    total_rows = 0
+
+    async def flush() -> None:
+        if not batch:
+            return
         await db.execute(
             insert(ProductImportRow),
-            [
-                {
-                    "company_id": int(
-                        company_id
-                    ),
-                    "job_id": job_id,
-                    "row_number": (
-                        offset
-                        + index
-                        + 2
-                    ),
-                    "raw_data": raw,
-                    "normalized_data": {},
-                    "status": "STAGED",
-                    "version": 1,
-                }
-                for index, raw
-                in enumerate(chunk)
-            ],
+            list(batch),
         )
+        batch.clear()
+
+    for parsed in rows:
+        total_rows += 1
+        if total_rows > max_rows:
+            raise ProductImportTerminalError(
+                f"The import exceeds the {max_rows:,}-row safety limit."
+            )
+
+        batch.append(
+            {
+                "company_id": int(
+                    company_id
+                ),
+                "job_id": job_id,
+                "row_number": int(
+                    parsed.row_number
+                ),
+                "raw_data": dict(
+                    parsed.raw
+                ),
+                "normalized_data": {},
+                "status": "STAGED",
+                "version": 1,
+            }
+        )
+        if (
+            len(batch)
+            >= batch_size
+        ):
+            await flush()
+
+    if total_rows == 0:
+        raise ProductImportTerminalError(
+            "The file contains no product rows."
+        )
+
+    await flush()
+    return total_rows
 
 
 async def list_job_rows(
