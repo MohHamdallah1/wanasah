@@ -39,10 +39,14 @@ def static_checks() -> None:
         normalize_tracking_mode,
     )
     from domains.simple_products.service import resolve_price_pair
-    from product_import_worker import (
-        ProductImportTerminalError,
-        parse_source,
+    from domains.simple_products.imports.application.worker import (
         suggest_mapping,
+    )
+    from domains.simple_products.imports.domain import (
+        ProductImportTerminalError,
+    )
+    from domains.simple_products.imports.infrastructure.parsers import (
+        parse_source,
     )
 
     package_only = resolve_price_pair(
@@ -288,7 +292,9 @@ def static_checks() -> None:
     tracking = (
         BACKEND / "domains/product_tracking.py"
     ).read_text(encoding="utf-8")
-    worker = (BACKEND / "product_import_worker.py").read_text(encoding="utf-8")
+    worker = (BACKEND / "domains/simple_products/imports/application/worker.py").read_text(encoding="utf-8")
+    parser = (BACKEND / "domains/simple_products/imports/infrastructure/parsers.py").read_text(encoding="utf-8")
+    repository = (BACKEND / "domains/simple_products/imports/infrastructure/repository.py").read_text(encoding="utf-8")
     queue = (BACKEND / "domains/simple_products/imports/infrastructure/queue.py").read_text(encoding="utf-8")
     models = (BACKEND / "models.py").read_text(encoding="utf-8")
     main_py = (BACKEND / "main.py").read_text(encoding="utf-8")
@@ -353,7 +359,7 @@ def static_checks() -> None:
         and "onDrop=" in import_start
         and ".xlsx" in import_start
         and "products.importLimit" in import_start
-        and "MAX_IMPORT_ROWS = 50_000" in worker,
+        and "MAX_IMPORT_ROWS = 50_000" in parser,
         "Bulk upload has durable request identity, drag/drop and large async import UX",
     )
     check(
@@ -364,10 +370,10 @@ def static_checks() -> None:
         "Bulk import is multipart and asynchronous",
     )
     check(
-        "MAX_IMPORT_ROWS = 50_000" in worker
-        and "MAX_XLSX_UNCOMPRESSED_BYTES" in worker
-        and "MAX_XLSX_COMPRESSION_RATIO" in worker
-        and "keep_links=False" in worker,
+        "MAX_IMPORT_ROWS = 50_000" in parser
+        and "MAX_XLSX_UNCOMPRESSED_BYTES" in parser
+        and "MAX_XLSX_COMPRESSION_RATIO" in parser
+        and "keep_links=False" in parser,
         "Worker bounds import size and defends XLSX archive hazards",
     )
     check(
@@ -381,8 +387,8 @@ def static_checks() -> None:
         "ProductImportTerminalError" in worker
         and 'status == "VALIDATING"' in worker
         and 'status == "IMPORTING"' in worker
-        and "ProductImportRow.status" in worker
-        and '== "VALID"' in worker
+        and "ProductImportRow.status" in repository
+        and 'status="VALID"' in worker
         and 'row.status = "IMPORTED"' in worker,
         "Retry path resumes durable phases without replaying committed rows",
     )
