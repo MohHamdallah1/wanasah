@@ -789,7 +789,7 @@ class ProductImportJob(Base):
         UniqueConstraint('company_id', 'request_id', name='uq_product_import_job_request'),
         ForeignKeyConstraint(['company_id', 'created_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_product_import_job_tenant_creator'),
         ForeignKeyConstraint(['company_id', 'source_id'], ['product_import_sources.company_id', 'product_import_sources.id'], ondelete='RESTRICT', name='fk_product_import_job_source'),
-        CheckConstraint("status IN ('QUEUED','PARSING','NEEDS_MAPPING','VALIDATING','VALIDATION_FAILED','IMPORTING','RETRYING','COMPLETED','COMPLETED_WITH_ERRORS','FAILED')", name='chk_product_import_job_status'),
+        CheckConstraint("status IN ('QUEUED','PARSING','NEEDS_MAPPING','VALIDATING','VALIDATION_FAILED','IMPORTING','RETRYING','CANCELLED','COMPLETED','COMPLETED_WITH_ERRORS','FAILED')", name='chk_product_import_job_status'),
         CheckConstraint('file_size > 0', name='chk_product_import_job_file_size'),
         CheckConstraint('total_rows >= 0 AND processed_rows >= 0 AND valid_rows >= 0 AND failed_rows >= 0', name='chk_product_import_job_counts_nonnegative'),
         CheckConstraint('version > 0', name='chk_product_import_job_version'),
