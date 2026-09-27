@@ -288,16 +288,18 @@ At 50,000 Products with unit/package barcodes, candidate count can approach 100,
 
 Use staging/database operations for set-based validation rather than giant Python collections and giant parameter lists.
 
+> Phase 6 uses dedicated barcode staging as a derived validation projection. Product/Pricing authority remains outside the import module, and the existing active-barcode unique index remains the final concurrency authority at Product creation time.
+
 ## Tasks
 
-- [ ] Persist normalized candidate barcodes in a queryable staging form.
-- [ ] Detect duplicate barcodes inside the import through SQL grouping/join logic.
-- [ ] Detect conflicts with existing active company barcodes through tenant-scoped SQL joins.
-- [ ] Preserve the valid same-row shared unit/package barcode rule.
-- [ ] Add appropriate staging indexes for job + barcode lookup.
-- [ ] Avoid giant parameter lists.
-- [ ] Prove query plans do not degrade into repeated full scans at 50k-row scale.
-- [ ] Add concurrent-conflict tests so a barcode becoming active after validation is still caught safely at commit time.
+- [x] Persist normalized candidate barcodes in dedicated tenant-scoped `product_import_row_barcodes` staging.
+- [x] Detect duplicate barcodes across the whole import with set-based SQL `GROUP BY barcode HAVING COUNT(*) > 1` and invalidate matching rows in SQL.
+- [x] Detect conflicts with existing active company barcodes through a tenant-scoped indexed SQL join against `product_barcodes`.
+- [x] Preserve the valid same-row shared unit/package barcode rule through the staging primary key `(company_id, job_id, row_number, barcode)`, which stores shared identity once per row.
+- [x] Add owned Phase 6 staging index `ix_product_import_row_barcode_job_barcode (company_id, job_id, barcode, row_number)` plus ENABLE + FORCE RLS.
+- [x] Remove Python-wide barcode sets and giant `IN (...)` parameter lists from validation; barcode checks are database set operations.
+- [x] Prove 50k-row internal/external query plans use indexes and contain no protected Sequential Scans.
+- [x] Add database integration/concurrent-conflict tests covering first/last-row duplicates, existing active conflicts, same-row shared identity, and a barcode becoming active after validation; `uq_active_product_barcode` remains the final race-closing authority.
 
 ---
 
