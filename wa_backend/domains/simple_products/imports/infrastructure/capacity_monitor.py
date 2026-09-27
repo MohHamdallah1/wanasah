@@ -18,6 +18,8 @@ class ProductImportCapacityMetrics:
     oldest_live_source_age_seconds: int
     quota_rejections_last_hour: int
     active_jobs: int
+    oldest_active_job_age_seconds: int
+    oldest_queued_job_age_seconds: int
 
     def as_dict(
         self,
@@ -182,17 +184,46 @@ async def read_tenant_source_capacity_metrics(
 
             cursor = await connection.execute(
                 """
-                SELECT count(*)::bigint
+                SELECT
+                    count(*) FILTER (
+                        WHERE status IN (
+                            'QUEUED',
+                            'PARSING',
+                            'NEEDS_MAPPING',
+                            'VALIDATING',
+                            'IMPORTING',
+                            'RETRYING'
+                        )
+                    )::bigint,
+                    COALESCE(
+                        EXTRACT(
+                            EPOCH FROM (
+                                CURRENT_TIMESTAMP
+                                - min(updated_at) FILTER (
+                                    WHERE status IN (
+                                        'PARSING',
+                                        'VALIDATING',
+                                        'IMPORTING',
+                                        'RETRYING'
+                                    )
+                                )
+                            )
+                        ),
+                        0
+                    )::bigint,
+                    COALESCE(
+                        EXTRACT(
+                            EPOCH FROM (
+                                CURRENT_TIMESTAMP
+                                - min(created_at) FILTER (
+                                    WHERE status = 'QUEUED'
+                                )
+                            )
+                        ),
+                        0
+                    )::bigint
                 FROM product_import_jobs
                 WHERE company_id = %s
-                  AND status IN (
-                      'QUEUED',
-                      'PARSING',
-                      'NEEDS_MAPPING',
-                      'VALIDATING',
-                      'IMPORTING',
-                      'RETRYING'
-                  )
                 """,
                 [
                     int(
@@ -200,11 +231,24 @@ async def read_tenant_source_capacity_metrics(
                     )
                 ],
             )
+            runtime_row = (
+                await cursor.fetchone()
+            )
             active_jobs = int(
-                (
-                    await cursor.fetchone()
-                )[
+                runtime_row[
                     0
+                ]
+                or 0
+            )
+            oldest_active_job_age = int(
+                runtime_row[
+                    1
+                ]
+                or 0
+            )
+            oldest_queued_job_age = int(
+                runtime_row[
+                    2
                 ]
                 or 0
             )
@@ -223,4 +267,8 @@ async def read_tenant_source_capacity_metrics(
                     rejection_count,
                 active_jobs=
                     active_jobs,
+                oldest_active_job_age_seconds=
+                    oldest_active_job_age,
+                oldest_queued_job_age_seconds=
+                    oldest_queued_job_age,
             )
