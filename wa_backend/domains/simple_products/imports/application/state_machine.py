@@ -1,12 +1,13 @@
-"""Current Product Import state-transition authority.
+"""Canonical Product Import state-transition authority.
 
-Phase 2 preserves the existing execution policy. This module centralizes the
-currently legal transitions and fails closed on any transition outside that
-contract.
+Phase 3 centralizes the vocabulary and legal transitions. The new
+COMPLETED_WITH_ERRORS and IMPORT_FAILED states are part of the contract, but
+best-effort execution is not enabled here.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
@@ -21,77 +22,103 @@ from domains.simple_products.imports.infrastructure.repository import (
 )
 
 
-JOB_STATUSES = frozenset({
-    "QUEUED",
-    "PARSING",
-    "NEEDS_MAPPING",
-    "VALIDATING",
-    "VALIDATION_FAILED",
-    "IMPORTING",
-    "RETRYING",
-    "COMPLETED",
-    "FAILED",
-})
+class JobStatus(str, Enum):
+    QUEUED = "QUEUED"
+    PARSING = "PARSING"
+    NEEDS_MAPPING = "NEEDS_MAPPING"
+    VALIDATING = "VALIDATING"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+    IMPORTING = "IMPORTING"
+    RETRYING = "RETRYING"
+    COMPLETED = "COMPLETED"
+    COMPLETED_WITH_ERRORS = "COMPLETED_WITH_ERRORS"
+    FAILED = "FAILED"
 
-ROW_STATUSES = frozenset({
-    "STAGED",
-    "VALID",
-    "FAILED",
-    "IMPORTED",
-})
 
-_ALLOWED_JOB_TRANSITIONS = {
-    "QUEUED": {
-        "PARSING",
-        "FAILED",
-    },
-    "PARSING": {
-        "PARSING",
-        "NEEDS_MAPPING",
-        "VALIDATING",
-        "FAILED",
-    },
-    "NEEDS_MAPPING": {
-        "VALIDATING",
-    },
-    "VALIDATING": {
-        "NEEDS_MAPPING",
-        "VALIDATION_FAILED",
-        "IMPORTING",
-        "FAILED",
-    },
-    "VALIDATION_FAILED": set(),
-    "IMPORTING": {
-        "IMPORTING",
-        "COMPLETED",
-        "FAILED",
-    },
-    "RETRYING": {
-        "QUEUED",
-        "PARSING",
-        "VALIDATING",
-        "IMPORTING",
-        "FAILED",
-    },
-    "COMPLETED": set(),
-    "FAILED": {
-        "QUEUED",
-        "PARSING",
-        "VALIDATING",
-        "IMPORTING",
-    },
+class RowStatus(str, Enum):
+    STAGED = "STAGED"
+    VALID = "VALID"
+    INVALID = "INVALID"
+    IMPORT_FAILED = "IMPORT_FAILED"
+    IMPORTED = "IMPORTED"
+
+
+JOB_STATUSES = frozenset(
+    status.value
+    for status in JobStatus
+)
+ROW_STATUSES = frozenset(
+    status.value
+    for status in RowStatus
+)
+
+
+ALLOWED_JOB_TRANSITIONS: dict[
+    JobStatus,
+    frozenset[JobStatus],
+] = {
+    JobStatus.QUEUED: frozenset({
+        JobStatus.PARSING,
+        JobStatus.FAILED,
+    }),
+    JobStatus.PARSING: frozenset({
+        JobStatus.PARSING,
+        JobStatus.NEEDS_MAPPING,
+        JobStatus.VALIDATING,
+        JobStatus.FAILED,
+    }),
+    JobStatus.NEEDS_MAPPING: frozenset({
+        JobStatus.VALIDATING,
+    }),
+    JobStatus.VALIDATING: frozenset({
+        JobStatus.NEEDS_MAPPING,
+        JobStatus.VALIDATION_FAILED,
+        JobStatus.IMPORTING,
+        JobStatus.FAILED,
+    }),
+    JobStatus.VALIDATION_FAILED:
+        frozenset(),
+    JobStatus.IMPORTING: frozenset({
+        JobStatus.IMPORTING,
+        JobStatus.COMPLETED,
+        JobStatus.COMPLETED_WITH_ERRORS,
+        JobStatus.FAILED,
+    }),
+    JobStatus.RETRYING: frozenset({
+        JobStatus.QUEUED,
+        JobStatus.PARSING,
+        JobStatus.VALIDATING,
+        JobStatus.IMPORTING,
+        JobStatus.FAILED,
+    }),
+    JobStatus.COMPLETED: frozenset(),
+    JobStatus.COMPLETED_WITH_ERRORS:
+        frozenset(),
+    JobStatus.FAILED: frozenset({
+        JobStatus.QUEUED,
+        JobStatus.PARSING,
+        JobStatus.VALIDATING,
+        JobStatus.IMPORTING,
+    }),
 }
 
-_ALLOWED_ROW_TRANSITIONS = {
-    "STAGED": {
-        "VALID",
-        "FAILED",
-    },
-    "VALID": {
-        "IMPORTED",
-    },
-    "FAILED": set(),
-    "IMPORTED": set(),
+
+ALLOWED_ROW_TRANSITIONS: dict[
+    RowStatus,
+    frozenset[RowStatus],
+] = {
+    RowStatus.STAGED: frozenset({
+        RowStatus.VALID,
+        RowStatus.INVALID,
+    }),
+    RowStatus.VALID: frozenset({
+        RowStatus.IMPORTED,
+        RowStatus.IMPORT_FAILED,
+    }),
+    RowStatus.INVALID: frozenset(),
+    RowStatus.IMPORT_FAILED:
+        frozenset(),
+    RowStatus.IMPORTED: frozenset(),
 }
 
 
@@ -101,58 +128,96 @@ class ProductImportStateTransitionError(
     """Illegal Product Import state transition."""
 
 
+def _job_status(
+    value: JobStatus | str,
+) -> JobStatus:
+    if isinstance(
+        value,
+        JobStatus,
+    ):
+        return value
+    try:
+        return JobStatus(
+            str(value)
+        )
+    except ValueError as exc:
+        raise ProductImportStateTransitionError(
+            "Unknown Product Import job state: "
+            f"{value!r}."
+        ) from exc
+
+
+def _row_status(
+    value: RowStatus | str,
+) -> RowStatus:
+    if isinstance(
+        value,
+        RowStatus,
+    ):
+        return value
+    try:
+        return RowStatus(
+            str(value)
+        )
+    except ValueError as exc:
+        raise ProductImportStateTransitionError(
+            "Unknown Product Import row state: "
+            f"{value!r}."
+        ) from exc
+
+
+def assert_job_transition(
+    current: JobStatus | str,
+    target: JobStatus | str,
+) -> None:
+    current_status = _job_status(
+        current
+    )
+    target_status = _job_status(
+        target
+    )
+    if (
+        target_status
+        not in ALLOWED_JOB_TRANSITIONS[
+            current_status
+        ]
+    ):
+        raise ProductImportStateTransitionError(
+            "Illegal Product Import job transition: "
+            f"{current_status.value} -> "
+            f"{target_status.value}."
+        )
+
+
+def assert_row_transition(
+    current: RowStatus | str,
+    target: RowStatus | str,
+) -> None:
+    current_status = _row_status(
+        current
+    )
+    target_status = _row_status(
+        target
+    )
+    if (
+        target_status
+        not in ALLOWED_ROW_TRANSITIONS[
+            current_status
+        ]
+    ):
+        raise ProductImportStateTransitionError(
+            "Illegal Product Import row transition: "
+            f"{current_status.value} -> "
+            f"{target_status.value}."
+        )
+
+
 def utc_naive_now() -> datetime:
     return datetime.now(
         timezone.utc
     ).replace(
         tzinfo=None
     )
-
-
-def assert_job_transition(
-    current: str,
-    target: str,
-) -> None:
-    current_status = str(current)
-    target_status = str(target)
-
-    if (
-        current_status
-        not in JOB_STATUSES
-        or target_status
-        not in JOB_STATUSES
-        or target_status
-        not in _ALLOWED_JOB_TRANSITIONS[
-            current_status
-        ]
-    ):
-        raise ProductImportStateTransitionError(
-            "Illegal Product Import job transition: "
-            f"{current_status} -> {target_status}."
-        )
-
-
-def assert_row_transition(
-    current: str,
-    target: str,
-) -> None:
-    current_status = str(current)
-    target_status = str(target)
-
-    if (
-        current_status
-        not in ROW_STATUSES
-        or target_status
-        not in ROW_STATUSES
-        or target_status
-        not in _ALLOWED_ROW_TRANSITIONS[
-            current_status
-        ]
-    ):
-        raise ProductImportStateTransitionError(
-            "Illegal Product Import row transition: "
-            f"{current_status} -> {target_status}."
-        )
 
 
 def touch_job(
@@ -174,16 +239,19 @@ def touch_job(
 
 def transition_job(
     job: Any,
-    target: str,
+    target: JobStatus | str,
     *,
     touch_updated_at: bool = True,
     **values: Any,
 ) -> None:
+    target_status = _job_status(
+        target
+    )
     assert_job_transition(
         str(job.status),
-        target,
+        target_status,
     )
-    job.status = str(target)
+    job.status = target_status.value
     touch_job(
         job,
         touch_updated_at=touch_updated_at,
@@ -193,14 +261,17 @@ def transition_job(
 
 def transition_row(
     row: Any,
-    target: str,
+    target: RowStatus | str,
     **values: Any,
 ) -> None:
+    target_status = _row_status(
+        target
+    )
     assert_row_transition(
         str(row.status),
-        target,
+        target_status,
     )
-    row.status = str(target)
+    row.status = target_status.value
     for key, value in values.items():
         setattr(
             row,
@@ -214,7 +285,7 @@ async def set_job_status(
     *,
     company_id: int,
     job_id: UUID,
-    target: str,
+    target: JobStatus | str,
     **values: Any,
 ) -> None:
     token, db = await open_tenant_session(
@@ -282,7 +353,7 @@ async def record_runtime_failure(
         if final_attempt:
             transition_job(
                 job,
-                "FAILED",
+                JobStatus.FAILED,
                 error_summary=summary,
                 finished_at=utc_naive_now(),
             )
