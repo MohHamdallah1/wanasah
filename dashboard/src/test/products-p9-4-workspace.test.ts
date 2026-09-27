@@ -42,16 +42,16 @@ describe("Products P9.4 workspace foundation", () => {
     );
     expect(
       header.indexOf(
-        "<ProductsCatalogToolsMenu"
+        "<ProductsAddMenu"
       )
     ).toBeLessThan(
       header.indexOf(
-        "<ProductsAddMenu"
+        "<ProductsCatalogToolsMenu"
       )
     );
     expect(
       header.indexOf(
-        "<ProductsAddMenu"
+        "<ProductsCatalogToolsMenu"
       )
     ).toBeLessThan(
       header.indexOf(
