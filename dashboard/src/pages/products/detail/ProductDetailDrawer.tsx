@@ -43,7 +43,6 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
-  canManageAdvancedUom: boolean;
   detailSections?: Record<
     ProductDetailSectionKey,
     boolean
@@ -67,9 +66,6 @@ type Props = {
   onManageLifecycle: (
     product: SimpleProduct,
   ) => void;
-  onManageAdvancedUom: (
-    product: SimpleProduct,
-  ) => void;
 };
 
 export function ProductDetailDrawer({
@@ -81,7 +77,6 @@ export function ProductDetailDrawer({
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
-  canManageAdvancedUom,
   detailSections =
     DEFAULT_PRODUCT_DISPLAY_PREFERENCES.detailSections,
   onClose,
@@ -91,7 +86,6 @@ export function ProductDetailDrawer({
   onEditTracking,
   onManageBarcodes,
   onManageLifecycle,
-  onManageAdvancedUom,
 }: Props) {
   const { t, i18n } =
     useTranslation();
@@ -214,9 +208,6 @@ export function ProductDetailDrawer({
           canManageLifecycle={
             canManageLifecycle
           }
-          canManageAdvancedUom={
-            canManageAdvancedUom
-          }
           onToggleExpanded={() =>
             setExpanded(
               (current) =>
@@ -241,9 +232,6 @@ export function ProductDetailDrawer({
           }
           onManageLifecycle={
             onManageLifecycle
-          }
-          onManageAdvancedUom={
-            onManageAdvancedUom
           }
         />
 
