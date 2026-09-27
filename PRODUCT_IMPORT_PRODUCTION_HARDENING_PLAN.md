@@ -6,8 +6,32 @@
 **Owning domain today:** `domains/simple_products`  
 **Goal:** Enterprise-grade bulk Product ingestion that is modular, maintainable, bounded in memory, resumable, tenant-safe, observable, idempotent, and simple for the UI to consume.
 
+> **🚨 RED-LINE REFACTORING RULE — DO NOT DELETE OR SILENTLY DROP EXISTING CODE DURING FILE MOVES / MODULE SPLITS.**
+>
+> **Architecture/refactor phases must preserve behavior first. Moving, renaming, splitting, or re-exporting code is not permission to “clean up” logic. No branch, helper, validation, security check, retry rule, tenant guard, idempotency behavior, or operational path may be removed merely because it looks redundant. Any later deletion must be a separate, explicit change backed by references/search evidence and tests proving the code is obsolete. When uncertain, preserve it.**
+>
+> This warning is intentionally repeated at the top because Phase 1–3 are structural and therefore have the highest accidental-deletion risk.
+
 > This plan is implementation authority for the current Product Import hardening work.  
 > Complete items one by one and mark them `[x]`. Do not skip forward when a previous phase defines contracts relied on by later phases.
+
+## Execution priority and official stop point
+
+The plan is intentionally split into two tracks:
+
+### Track A — FOUNDATION FIRST (must be completed before any import-behavior redesign)
+
+1. **Phase 1 — correct module ownership and file placement**
+2. **Phase 2 — split the 1,500-line worker by responsibility without changing runtime behavior**
+3. **Phase 3 — centralize and formalize the import state machine / contracts**
+
+After Phase 3, the backend should have a clean, scalable structure and a single explicit state-machine authority. **This is an approved stopping point.** If Product Import feature hardening is postponed, stop here and leave the existing import semantics intact.
+
+### Track B — IMPORT ENGINE HARDENING (may be postponed as one unit)
+
+Everything after Phase 3 changes or strengthens the behavior of the import engine itself: streaming, bounded validation, database-backed duplicate detection, best-effort semantics, row-safe retry/idempotency, transaction isolation, audit retention, source fidelity, storage, queue scaling, error contracts, performance gates, and final cleanup.
+
+**Do not start Track B accidentally while doing Track A. Structural refactoring must not silently change import semantics.**
 
 ---
 
@@ -134,7 +158,9 @@ This makes maintenance and safe testing harder and will become worse as import c
 
 ---
 
-# Phase 3 — Define one coherent import state machine and error taxonomy
+# Phase 3 — Centralize and lock the import state machine / contracts
+
+> **FOUNDATION PHASE:** centralize the state definitions and allowed transitions first. Do not enable best-effort/partial-import behavior yet. Track B begins only after the current state behavior is represented faithfully by one explicit state-machine authority.
 
 ## Problems
 
@@ -142,28 +168,40 @@ The current job mixes validation-terminal states, runtime-terminal states and re
 
 Validation currently behaves all-or-nothing, while import execution commits in batches. Those semantics are inconsistent.
 
-## Target semantics
+## Foundation target
 
-Wanasah should be:
+Phase 3 first captures the **current** job/row lifecycle in one authoritative state-machine contract so status strings and transitions are no longer scattered across API, queue, worker, ORM constraints and migrations.
+
+The desired future Track B semantics are already decided, but they are **not activated during the foundation refactor**:
 
 - **best-effort across rows** — one bad Product must not block unrelated valid Products;
 - **atomic within each successfully committed import unit** — a Product must never be half-created without its required Product/UOM/barcode/price effects;
 - **idempotent on retries** — a committed successful row is never created twice;
 - **fail-closed for infrastructure/system errors** — database outages, bugs and invariant failures are not mislabeled as bad Product rows.
 
-This achieves atomicity and best-effort at different, compatible levels. The whole 50,000-row job is not one giant transaction.
+That future design achieves atomicity and best-effort at different, compatible levels. The whole 50,000-row job is not one giant transaction.
 
 ## Tasks
 
-- [ ] Define canonical job states and allowed transitions.
-- [ ] Add `COMPLETED_WITH_ERRORS` (or an equivalent explicit state) for successful partial imports.
-- [ ] Distinguish deterministic validation failure from deterministic import-time row failure.
-- [ ] Distinguish transient system failure from terminal system failure.
-- [ ] Define canonical row states, including separate invalid/import-failed/imported outcomes.
-- [ ] Centralize state constants/contracts rather than scattering raw strings.
-- [ ] Update database constraints through an owned migration.
-- [ ] Add state-transition tests for every allowed and forbidden transition.
-- [ ] Ensure public API status contracts remain deterministic and documented.
+- [ ] Inventory every current job status, row status and transition before changing any of them.
+- [ ] Centralize current state constants/contracts rather than scattering raw strings.
+- [ ] Define canonical current job states and allowed transitions.
+- [ ] Define canonical current row states and allowed transitions.
+- [ ] Add state-transition tests for every current allowed and forbidden transition.
+- [ ] Ensure ORM/database constraints and public API status contracts derive from or remain synchronized with the central contract.
+- [ ] Preserve current runtime semantics through the end of Track A.
+- [ ] Document the Track B state additions needed for partial success (including a future `COMPLETED_WITH_ERRORS` or equivalent) without enabling them yet.
+- [ ] Document future deterministic validation/import-time row failure states and transient/system failure categories without enabling them yet.
+
+### Foundation stop gate
+
+- [ ] Phase 1 module ownership/placement is complete.
+- [ ] Phase 2 worker decomposition is complete.
+- [ ] Phase 3 state-machine authority is centralized and tested.
+- [ ] Full existing Product Import regression suite passes with no intended behavior change.
+- [ ] Architecture/import-boundary gates pass.
+- [ ] No legacy code was deleted unless separately proven obsolete.
+- [ ] Track A can be merged/stopped independently before any Track B import-engine redesign.
 
 ---
 
