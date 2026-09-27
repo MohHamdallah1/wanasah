@@ -66,7 +66,7 @@ describe("Products P9.4 workspace foundation", () => {
       tools.match(
         /queueAfterMenuClose\(/g,
       )?.length ?? 0,
-    ).toBe(4);
+    ).toBe(3);
     expect(tools).not.toContain(
       "onOpenImport",
     );
@@ -76,8 +76,14 @@ describe("Products P9.4 workspace foundation", () => {
     expect(tools).toContain(
       "onOpenTrackingDefaults",
     );
-    expect(tools).toContain(
+    expect(tools).not.toContain(
       "onOpenAdvancedUom",
+    );
+    expect(header).not.toContain(
+      "onOpenAdvancedUom",
+    );
+    expect(tools).toContain(
+      '"products.advancedUom.deferredHint"',
     );
     expect(tools).toContain(
       "<DropdownMenuItem",
@@ -105,6 +111,19 @@ describe("Products P9.4 workspace foundation", () => {
       tools.indexOf(
         '"products.advancedUom.action"',
       ),
+    );
+
+    const v2Scope = read(
+      "../../../VERSION_2_FUTURE_FEATURES.md",
+    );
+    expect(v2Scope).toContain(
+      "Advanced Units of Measure / Advanced UOM",
+    );
+    expect(v2Scope).toContain(
+      "Advanced Pricing",
+    );
+    expect(v2Scope).toContain(
+      "The real V1 workflow gap",
     );
   });
 
