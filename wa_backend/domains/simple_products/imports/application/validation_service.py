@@ -12,12 +12,18 @@ from domains.product_tracking import (
     ProductTrackingError,
 )
 from domains.simple_products.imports.application.state_machine import (
+    JobStatus,
+    RowStatus,
     set_job_status,
     transition_job,
     transition_row,
 )
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
+)
+from domains.simple_products.imports.domain.errors import (
+    ProductImportRowValidationError,
+    classify_import_error,
 )
 from domains.simple_products.imports.domain.mapping import (
     mapping_complete,
@@ -40,27 +46,33 @@ from domains.simple_products.service import (
 
 def classify_row_error(
     exc: Exception,
-) -> tuple[str, str]:
+) -> ProductImportRowValidationError:
     if isinstance(
         exc,
-        ProductTrackingError,
+        (
+            ProductTrackingError,
+            SimpleProductError,
+        ),
     ):
-        return (
+        return ProductImportRowValidationError(
             exc.code,
             exc.message,
         )
-    if isinstance(
-        exc,
-        SimpleProductError,
-    ):
-        return (
-            exc.code,
-            exc.message,
+
+    classification = (
+        classify_import_error(
+            exc
         )
-    return (
-        "IMPORT_ROW_INVALID",
-        str(exc),
     )
+    if classification.row_failure:
+        return ProductImportRowValidationError(
+            classification.code
+            or "IMPORT_ROW_INVALID",
+            classification.message
+            or str(exc),
+        )
+
+    raise exc
 
 
 def validation_outcome(
@@ -68,11 +80,11 @@ def validation_outcome(
 ) -> tuple[str, bool]:
     if int(failed_count) > 0:
         return (
-            "VALIDATION_FAILED",
+            JobStatus.VALIDATION_FAILED.value,
             False,
         )
     return (
-        "IMPORTING",
+        JobStatus.IMPORTING.value,
         True,
     )
 
@@ -139,10 +151,14 @@ def collect_row_validation(
                     row_id
                 )
         except Exception as exc:
-            errors[int(row.id)] = (
+            classified = (
                 classify_row_error(
                     exc
                 )
+            )
+            errors[int(row.id)] = (
+                classified.code,
+                classified.message,
             )
 
     return (
@@ -192,7 +208,7 @@ async def validate_rows(
             await set_job_status(
                 company_id=company_id,
                 job_id=job_id,
-                target="NEEDS_MAPPING",
+                target=JobStatus.NEEDS_MAPPING,
             )
             return False
 
@@ -268,7 +284,7 @@ async def validate_rows(
                 ) = errors[row_id]
                 transition_row(
                     row,
-                    "FAILED",
+                    RowStatus.INVALID,
                     normalized_data=
                         normalized_data,
                     error_code=error_code,
@@ -278,7 +294,7 @@ async def validate_rows(
             else:
                 transition_row(
                     row,
-                    "VALID",
+                    RowStatus.VALID,
                     normalized_data=
                         normalized_data,
                     error_code=None,
@@ -288,7 +304,7 @@ async def validate_rows(
         valid_count = sum(
             1
             for row in rows
-            if row.status == "VALID"
+            if row.status == RowStatus.VALID.value
         )
         failed_count = (
             len(rows)
