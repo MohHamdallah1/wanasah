@@ -79,6 +79,42 @@ class ProductImportRuntimeMetrics:
         )
 
 
+async def register_product_import_worker(
+    worker_id: int,
+) -> None:
+    """Bind one live Procrastinate worker to the Product Import queue."""
+    resolved_worker_id = int(
+        worker_id
+    )
+    if resolved_worker_id <= 0:
+        raise ValueError(
+            "worker_id must be positive."
+        )
+
+    async with await psycopg.AsyncConnection.connect(
+        product_import_psycopg_dsn()
+    ) as connection:
+        await connection.execute(
+            """
+            INSERT INTO product_import_worker_registry (
+                worker_id,
+                last_seen_at
+            )
+            VALUES (
+                %s,
+                CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (worker_id)
+            DO UPDATE
+            SET last_seen_at = CURRENT_TIMESTAMP
+            """,
+            [
+                resolved_worker_id
+            ],
+        )
+        await connection.commit()
+
+
 async def read_product_import_runtime_metrics(
 ) -> ProductImportRuntimeMetrics:
     """Read global queue metrics without exposing them to tenant payloads."""
@@ -88,8 +124,10 @@ async def read_product_import_runtime_metrics(
         cursor = await connection.execute(
             """
             SELECT count(*)::bigint
-            FROM procrastinate_workers
-            WHERE last_heartbeat >= (
+            FROM product_import_worker_registry AS registry
+            JOIN procrastinate_workers AS workers
+              ON workers.id = registry.worker_id
+            WHERE workers.last_heartbeat >= (
                 CURRENT_TIMESTAMP
                 - (%s * INTERVAL '1 second')
             )
