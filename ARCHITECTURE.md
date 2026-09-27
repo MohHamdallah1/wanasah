@@ -472,7 +472,71 @@ When a future shipping requirement overlaps an existing Wanasah capability:
 
 ---
 
-## 17. PERMANENT DECISION SUMMARY
+## 17. PRODUCT INGESTION & EXTERNAL CATALOG CONNECTIVITY ROADMAP
+
+Product intake must evolve as multiple channels feeding **one canonical Product/Catalog application contract**. A new channel must never become a shortcut around Catalog/Product authority, Pricing authority, UOM/package rules, barcode uniqueness, tracking rules, lifecycle semantics, permissions, tenant isolation, idempotency, audit, validation, or observability.
+
+### 17.1 Version 1 — file import is the production bulk-ingestion channel
+
+Version 1 supports **CSV and XLSX** as the only external bulk Product-ingestion formats.
+
+The V1 import experience must remain suitable for non-technical business users:
+
+- one row represents one Product;
+- localized/common headers may be recognized, with explicit column mapping as the fallback;
+- lot/batch and expiry modes may differ per row (NONE, OPTIONAL, REQUIRED);
+- blank per-row tracking values inherit the immutable defaults captured for that import;
+- the UI must explain those rules before upload, not hide them only inside a downloaded workbook;
+- the downloadable template must be safe when untouched and must not contain an importable sample Product;
+- empty/header-only files are rejected before queueing when possible and again by backend authority;
+- bounded file size, row count, archive safety, duplicate barcode validation, durable queueing, progress/recovery, error reporting, and all-or-nothing validation semantics remain enforced;
+- direct PDF ingestion is intentionally excluded from V1 because PDF is a presentation/document format, not a reliable structured Product-data contract.
+
+Manual Product creation remains available as a separate first-party UI workflow; it is not a replacement for bulk import.
+
+### 17.2 Version 2 — programmable and scheduled ingestion
+
+Version 2 may add the following channels, all reusing the same canonical ingestion/validation authority:
+
+1. **B2B REST APIs**
+   - versioned Product/batch ingestion contracts;
+   - service-to-service authentication and scoped credentials;
+   - idempotency keys, request limits, deterministic validation errors, audit, and tenant isolation;
+   - synchronous validation for small writes and durable asynchronous jobs for large batches.
+
+2. **Data Feeds / Sync Links**
+   - scheduled or manual pull from approved HTTPS endpoints;
+   - CSV, JSON, and XML feed adapters;
+   - reusable mapping profiles;
+   - ETag / Last-Modified / content-hash support where available;
+   - dry-run/preview, change detection, conflict policy, retries, and observable sync history.
+
+3. **Enterprise bulk drop channels**
+   - SFTP and approved object-storage drop locations (for example S3-compatible storage) for companies that exchange large scheduled files;
+   - files must enter the same import parser, validation, idempotency, audit, and tenant-scoped worker pipeline rather than creating a second importer.
+
+Inbound webhooks/event push may complement REST/feed integrations for incremental changes, but they do not become a separate source of Product truth.
+
+### 17.3 Version 3 — native ecosystem integrations
+
+Version 3 is the default target for connector-heavy channels whose external contracts, OAuth lifecycle, reconciliation rules, and support burden are platform-specific:
+
+- **native marketplace / commerce-platform integrations**;
+- **native ERP connectors** where direct vendor-specific integration is justified by demand;
+- **EDI (X12 / EDIFACT or regionally required equivalents)** for larger distributors, retailers, and supply-chain partners;
+- a reusable connector framework for credentials, sync cursors, retries, rate limits, mapping, reconciliation, observability, and connector versioning.
+
+A connector may be promoted earlier only when real customer demand justifies the operational and maintenance cost.
+
+### 17.4 Channel-neutral ingestion rule
+
+Regardless of source — Dashboard file upload, REST API, feed, SFTP/object storage, marketplace, ERP, or EDI — the source adapter is responsible only for transport, authentication, parsing, and mapping into the canonical import command.
+
+Source adapters must **not** duplicate or override Product business rules. The owning Wanasah domains remain the final authority.
+
+---
+
+## 18. PERMANENT DECISION SUMMARY
 
 1. **Company/tenant isolation is absolute and fail-closed.**
 2. **Warehouse/location isolation is explicit and backend-enforced.**
