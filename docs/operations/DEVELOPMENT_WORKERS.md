@@ -62,7 +62,7 @@ When asynchronous product imports are being exercised, run:
 It runs product-import startup recovery, then listens to:
 
 ```text
-app: product_import_queue.app
+app: domains.simple_products.imports.infrastructure.queue.app
 queue: product-import
 ```
 
