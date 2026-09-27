@@ -178,6 +178,36 @@ export function ImportProductStatusPanel({
     );
   }
 
+  if (
+    status.status ===
+    "CANCELLED"
+  ) {
+    return (
+      <div className="space-y-3">
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
+          <p className="text-[10px] font-bold leading-4 text-slate-800">
+            {t(
+              "products.importCancelled",
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onResetImport}
+          className="min-h-10 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700"
+        >
+          {t(
+            "products.newImport",
+          )}
+        </button>
+      </div>
+    );
+  }
+
   if (status.status === "FAILED") {
     return (
       <div className="space-y-3">
