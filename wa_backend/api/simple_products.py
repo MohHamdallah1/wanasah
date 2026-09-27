@@ -81,7 +81,7 @@ from models import (
     ProductVariant,
     SystemAuditLog,
 )
-from product_import_localization import (
+from domains.simple_products.imports.domain import (
     CANONICAL_IMPORT_FIELDS,
 )
 from product_import_template import (
