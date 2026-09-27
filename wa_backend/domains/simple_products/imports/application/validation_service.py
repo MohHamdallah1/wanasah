@@ -339,6 +339,13 @@ async def _validation_contract(
             await db.commit()
             return None
 
+        default_lot_control_mode = str(
+            job.default_lot_control_mode
+        )
+        default_expiry_control_mode = str(
+            job.default_expiry_control_mode
+        )
+
         (
             valid_count,
             invalid_count,
@@ -364,12 +371,8 @@ async def _validation_contract(
 
         return (
             mapping,
-            str(
-                job.default_lot_control_mode
-            ),
-            str(
-                job.default_expiry_control_mode
-            ),
+            default_lot_control_mode,
+            default_expiry_control_mode,
         )
     except Exception:
         await db.rollback()
