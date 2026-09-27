@@ -147,7 +147,7 @@ export function CreateProductModal({
         }
       }}
       title={t("products.addTitle")}
-      maxWidth="max-w-4xl"
+      maxWidth="max-w-5xl"
       footer={
         <>
           <button
@@ -163,7 +163,7 @@ export function CreateProductModal({
             type="button"
             disabled={saveDisabled}
             onClick={onSubmit}
-            className="min-h-10 rounded-xl bg-amber-400 px-5 text-sm font-black text-slate-950 shadow-sm transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+            className="min-h-10 rounded-xl bg-amber-400 px-6 text-sm font-black text-slate-950 shadow-sm transition hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {t("products.saveProduct")}
           </button>
@@ -180,7 +180,7 @@ export function CreateProductModal({
           </div>
         ) : null}
 
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_18px_50px_-40px_rgba(15,23,42,0.65)]">
           <CreateProductIdentitySection
             draft={draft}
             createFieldError={
@@ -263,50 +263,50 @@ export function CreateProductModal({
               onUnitPriceChange
             }
           />
-        </div>
 
-        <CreateProductAdvancedSection
-          draft={draft}
-          trackingDefaultsError={
-            trackingDefaultsError
-          }
-          trackingUsesCompanyDefaults={
-            trackingUsesCompanyDefaults
-          }
-          createAdvancedExpanded={
-            createAdvancedExpanded
-          }
-          createTrackingExpanded={
-            createTrackingExpanded
-          }
-          onRetryTrackingDefaults={
-            onRetryTrackingDefaults
-          }
-          onToggleAdvanced={
-            onToggleAdvanced
-          }
-          onExpandTracking={
-            onExpandTracking
-          }
-          onLotControlModeChange={
-            onLotControlModeChange
-          }
-          onExpiryControlModeChange={
-            onExpiryControlModeChange
-          }
-          onResetTracking={
-            onResetTracking
-          }
-          onUnitBarcodeChange={
-            onUnitBarcodeChange
-          }
-          onCopyBarcode={
-            onCopyBarcode
-          }
-          onPackageBarcodeChange={
-            onPackageBarcodeChange
-          }
-        />
+          <CreateProductAdvancedSection
+            draft={draft}
+            trackingDefaultsError={
+              trackingDefaultsError
+            }
+            trackingUsesCompanyDefaults={
+              trackingUsesCompanyDefaults
+            }
+            createAdvancedExpanded={
+              createAdvancedExpanded
+            }
+            createTrackingExpanded={
+              createTrackingExpanded
+            }
+            onRetryTrackingDefaults={
+              onRetryTrackingDefaults
+            }
+            onToggleAdvanced={
+              onToggleAdvanced
+            }
+            onExpandTracking={
+              onExpandTracking
+            }
+            onLotControlModeChange={
+              onLotControlModeChange
+            }
+            onExpiryControlModeChange={
+              onExpiryControlModeChange
+            }
+            onResetTracking={
+              onResetTracking
+            }
+            onUnitBarcodeChange={
+              onUnitBarcodeChange
+            }
+            onCopyBarcode={
+              onCopyBarcode
+            }
+            onPackageBarcodeChange={
+              onPackageBarcodeChange
+            }
+          />
+        </div>
       </div>
     </Modal>
   );
