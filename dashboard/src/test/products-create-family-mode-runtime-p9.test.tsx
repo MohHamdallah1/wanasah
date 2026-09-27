@@ -91,7 +91,13 @@ describe(
       render(<Harness />);
 
       const group =
-        screen.getByRole("group");
+        screen.getByRole(
+          "group",
+          {
+            name:
+              "products.familyModeLabel",
+          },
+        );
 
       const buttons =
         Array.from(
