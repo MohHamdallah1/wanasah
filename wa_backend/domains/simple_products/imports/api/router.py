@@ -33,6 +33,10 @@ from domains.product_tracking import (
     ProductTrackingError,
     resolve_product_tracking_modes,
 )
+from domains.simple_products.imports.application.correction_service import (
+    apply_correction_upload,
+    build_correction_artifact,
+)
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     RowStatus,
@@ -531,6 +535,247 @@ async def get_product_import_errors(
             if has_more and page
             else None
         ),
+    }
+
+
+@router.get(
+    "/imports/{job_id}/correction",
+)
+async def get_product_import_correction(
+    job_id: UUID,
+    file_format: str = Query(
+        "xlsx",
+        alias="format",
+        pattern="^(csv|xlsx)$",
+    ),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(
+        db,
+        actor,
+    )
+
+    job_exists = await db.scalar(
+        select(
+            ProductImportJob.id
+        ).where(
+            ProductImportJob.company_id
+            == int(
+                actor.company_id
+            ),
+            ProductImportJob.id
+            == job_id,
+        )
+    )
+    if job_exists is None:
+        raise HTTPException(
+            404,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_NOT_FOUND",
+                "message":
+                    "Import job was not found.",
+                "context": {},
+            },
+        )
+
+    try:
+        artifact = (
+            await build_correction_artifact(
+                company_id=int(
+                    actor.company_id
+                ),
+                job_id=job_id,
+                file_format=
+                    file_format,
+            )
+        )
+    except ProductImportTerminalError as exc:
+        raise HTTPException(
+            409,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE",
+                "message":
+                    str(
+                        exc
+                    ),
+                "context": {},
+            },
+        ) from exc
+
+    return {
+        "file_name":
+            artifact.file_name,
+        "content_type":
+            artifact.content_type,
+        "content_base64":
+            base64.b64encode(
+                artifact.payload
+            ).decode(
+                "ascii"
+            ),
+        "row_count":
+            int(
+                artifact.row_count
+            ),
+    }
+
+
+@router.post(
+    "/imports/{job_id}/correction",
+    status_code=202,
+)
+async def upload_product_import_correction(
+    job_id: UUID,
+    request_id: UUID = Form(...),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(
+        db,
+        actor,
+    )
+
+    job_exists = await db.scalar(
+        select(
+            ProductImportJob.id
+        ).where(
+            ProductImportJob.company_id
+            == int(
+                actor.company_id
+            ),
+            ProductImportJob.id
+            == job_id,
+        )
+    )
+    if job_exists is None:
+        raise HTTPException(
+            404,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_NOT_FOUND",
+                "message":
+                    "Import job was not found.",
+                "context": {},
+            },
+        )
+
+    file_name = str(
+        file.filename
+        or ""
+    ).strip()
+    suffix = (
+        "."
+        + file_name.lower().rsplit(
+            ".",
+            1,
+        )[-1]
+        if "." in file_name
+        else ""
+    )
+    if suffix not in _ALLOWED_IMPORT_SUFFIXES:
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_CORRECTION_FILE_INVALID",
+                "message":
+                    "Correction file must be CSV or XLSX.",
+                "context": {},
+            },
+        )
+
+    payload = await file.read(
+        MAX_IMPORT_FILE_BYTES
+        + 1
+    )
+    if not payload:
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_CORRECTION_FILE_EMPTY",
+                "message":
+                    "Correction file is empty.",
+                "context": {},
+            },
+        )
+    if len(
+        payload
+    ) > MAX_IMPORT_FILE_BYTES:
+        raise HTTPException(
+            413,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_FILE_TOO_LARGE",
+                "message":
+                    "Import file exceeds the 8 MB limit.",
+                "context": {},
+            },
+        )
+
+    try:
+        result = (
+            await apply_correction_upload(
+                company_id=int(
+                    actor.company_id
+                ),
+                actor_id=int(
+                    actor.id
+                ),
+                job_id=job_id,
+                request_id=
+                    request_id,
+                file_name=
+                    file_name,
+                payload=payload,
+            )
+        )
+    except ProductImportTerminalError as exc:
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_CORRECTION_INVALID",
+                "message":
+                    str(
+                        exc
+                    ),
+                "context": {},
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            409,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_CORRECTION_CONFLICT",
+                "message":
+                    str(
+                        exc
+                    ),
+                "context": {},
+            },
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+                "message":
+                    "Correction could not be queued.",
+                "context": {},
+            },
+        ) from exc
+
+    return {
+        **result,
+        "message":
+            "Correction accepted for revalidation.",
     }
 
 
