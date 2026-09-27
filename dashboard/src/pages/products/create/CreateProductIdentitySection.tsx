@@ -301,6 +301,14 @@ export function CreateProductIdentitySection({
                   onCloseAutoFocus={(event) =>
                     event.preventDefault()
                   }
+                  onInteractOutside={(event) => {
+                    if (
+                      event.target ===
+                      createFamilyRef.current
+                    ) {
+                      event.preventDefault();
+                    }
+                  }}
                   className="z-[70] w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-1.5 shadow-xl"
                 >
                   <Command
