@@ -86,8 +86,8 @@ async def main() -> None:
             migration.revision
             for migration
             in script.walk_revisions(
-                str(revision),
                 "base",
+                str(revision),
             )
         }
         check(
