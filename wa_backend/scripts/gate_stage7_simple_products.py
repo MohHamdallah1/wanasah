@@ -281,6 +281,7 @@ def static_checks() -> None:
         / "dashboard/src/pages/products/import/ImportProductStartPanel.tsx"
     ).read_text(encoding="utf-8")
     backend = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
+    import_api = (BACKEND / "domains/simple_products/imports/api/router.py").read_text(encoding="utf-8")
     simple_service = (
         BACKEND / "domains/simple_products/service.py"
     ).read_text(encoding="utf-8")
@@ -288,7 +289,7 @@ def static_checks() -> None:
         BACKEND / "domains/product_tracking.py"
     ).read_text(encoding="utf-8")
     worker = (BACKEND / "product_import_worker.py").read_text(encoding="utf-8")
-    queue = (BACKEND / "product_import_queue.py").read_text(encoding="utf-8")
+    queue = (BACKEND / "domains/simple_products/imports/infrastructure/queue.py").read_text(encoding="utf-8")
     models = (BACKEND / "models.py").read_text(encoding="utf-8")
     main_py = (BACKEND / "main.py").read_text(encoding="utf-8")
     auth_fetch = (
@@ -356,10 +357,10 @@ def static_checks() -> None:
         "Bulk upload has durable request identity, drag/drop and large async import UX",
     )
     check(
-        "request_id: UUID = Form(...)" in backend
-        and "status_code=202" in backend
-        and "enqueue_new_import" in backend
-        and "csv_text" not in backend,
+        "request_id: UUID = Form(...)" in import_api
+        and "status_code=202" in import_api
+        and "enqueue_new_import" in import_api
+        and "csv_text" not in import_api,
         "Bulk import is multipart and asynchronous",
     )
     check(
@@ -403,6 +404,8 @@ def static_checks() -> None:
     check(
         "simple_products" in main_py
         and "app.include_router(simple_products.router)" in main_py
+        and "app.include_router(product_import_router)" in main_py
+        and "domains.simple_products.imports.api" in main_py
         and "product_import_app.open_async()" in main_py,
         "API and queue connector remain registered in application lifecycle",
     )
