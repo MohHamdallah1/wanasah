@@ -173,9 +173,9 @@ export function createImportDownloads({
         ),
       ];
 
-      // Import sheet intentionally contains headers only.
-      // Examples live on the guide sheet so the untouched template
-      // can never create a fake/sample product.
+      // Untouched template is intentionally headers-only.
+      // Guidance and examples live in the UI so a user cannot
+      // accidentally import a sample Product from the template.
       const productsSheet =
         XLSX.utils.aoa_to_sheet([
           headers,
@@ -184,75 +184,23 @@ export function createImportDownloads({
         headers.map(() => ({
           wch: 24,
         }));
-
-      const guideRows = [
-        [
-          t(
-            "products.importTemplateGuideTitle"
-          ),
-        ],
-        [
-          t(
-            "products.importTemplateGuideTracking",
-            {
-              none: t(
-                "products.tracking.importValues.NONE"
-              ),
-              optional: t(
-                "products.tracking.importValues.OPTIONAL"
-              ),
-              required: t(
-                "products.tracking.importValues.REQUIRED"
-              ),
-            }
-          ),
-        ],
-        [
-          t(
-            "products.importTemplateGuidePackages"
-          ),
-        ],
-        [
-          t(
-            "products.importTemplateGuidePrices"
-          ),
-        ],
-        [],
-        [
-          t(
-            "products.importTemplateExampleTitle"
-          ),
-        ],
-        headers,
-        [
-          t(
-            "products.importTemplateSampleName"
-          ),
-          t(
-            "products.importTemplateSampleFamily"
-          ),
-          "CARTON",
-          "50",
-          "10.000",
-          "",
-          "6251234567890",
-          "",
-          t(
-            "products.tracking.importValues.REQUIRED"
-          ),
-          t(
-            "products.tracking.importValues.REQUIRED"
-          ),
-        ],
-      ];
-      const guideSheet =
-        XLSX.utils.aoa_to_sheet(
-          guideRows
-        );
-      guideSheet["!cols"] =
-        headers.map(() => ({
-          wch: 24,
-        }));
+      productsSheet[
+        "!autofilter"
+      ] = {
+        ref:
+          XLSX.utils.encode_range({
+            s: {
+              r: 0,
+              c: 0,
+            },
+            e: {
+              r: 0,
+              c:
+                headers.length -
+                1,
+            },
+          }),
+      };
 
       const workbook =
         XLSX.utils.book_new();
@@ -261,13 +209,6 @@ export function createImportDownloads({
         productsSheet,
         t(
           "products.importTemplateProductsSheet"
-        ).slice(0, 31)
-      );
-      XLSX.utils.book_append_sheet(
-        workbook,
-        guideSheet,
-        t(
-          "products.importTemplateGuideSheet"
         ).slice(0, 31)
       );
 
