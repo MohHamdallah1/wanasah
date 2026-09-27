@@ -18,6 +18,7 @@ sys.path.insert(
 
 from domains.simple_products.imports.infrastructure.parsers import (  # noqa: E402
     MAX_IMPORT_ROWS,
+    _DiskBackedSharedStrings,
     open_source,
 )
 from domains.simple_products.imports.infrastructure.repository import (  # noqa: E402
@@ -96,6 +97,73 @@ def csv_payload(
     return buffer.getvalue()
 
 
+def shared_strings_xml(
+    count: int,
+) -> bytes:
+    buffer = io.BytesIO()
+    buffer.write(
+        (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<sst xmlns="http://schemas.openxmlformats.org/'
+            'spreadsheetml/2006/main">'
+        ).encode("utf-8")
+    )
+    for index in range(
+        count
+    ):
+        buffer.write(
+            (
+                f"<si><t>S{index}</t></si>"
+            ).encode("utf-8")
+        )
+    buffer.write(
+        b"</sst>"
+    )
+    return buffer.getvalue()
+
+
+def measure_shared_strings_peak(
+    count: int,
+) -> tuple[int, int]:
+    payload = shared_strings_xml(
+        count
+    )
+    store = (
+        _DiskBackedSharedStrings()
+    )
+    gc.collect()
+    tracemalloc.start()
+    try:
+        store.load(
+            io.BytesIO(
+                payload
+            )
+        )
+        self_check = (
+            store[0]
+            == "S0"
+            and store[
+                count - 1
+            ]
+            == f"S{count - 1}"
+        )
+        _current, peak = (
+            tracemalloc.get_traced_memory()
+        )
+    finally:
+        tracemalloc.stop()
+        store.close()
+
+    if not self_check:
+        raise RuntimeError(
+            "Disk-backed shared-string lookup failed."
+        )
+    return (
+        count,
+        int(peak),
+    )
+
+
 async def measure_peak(
     count: int,
 ) -> tuple[int, int, int]:
@@ -168,16 +236,30 @@ async def main() -> None:
         and "ParsedRow" in parser_source,
         "Parser contract yields Product rows incrementally with source row numbers",
     )
+    xlsx_open_source = parser_source[
+        parser_source.index(
+            "def _open_xlsx_source("
+        ):
+    ]
     check(
         "read_only=True"
         in parser_source
-        and parser_source.index(
+        and xlsx_open_source.index(
             "_validate_xlsx_archive("
         )
-        < parser_source.index(
-            "load_workbook("
+        < xlsx_open_source.index(
+            "_load_bounded_workbook("
         ),
         "XLSX archive security remains ahead of workbook traversal",
+    )
+    check(
+        "_DiskBackedSharedStrings"
+        in parser_source
+        and "sqlite3.connect("
+        in parser_source
+        and "load_workbook("
+        not in parser_source,
+        "XLSX shared strings use bounded disk-backed storage instead of OpenPyXL list materialization",
     )
     check(
         "batch.clear()"
@@ -268,6 +350,45 @@ async def main() -> None:
             f"baseline={baseline_peak} "
             f"peak={fifty_k_peak} "
             f"limit={allowed_peak}"
+        ),
+    )
+
+    shared_1k_count, shared_1k_peak = (
+        measure_shared_strings_peak(
+            1_000
+        )
+    )
+    shared_50k_count, shared_50k_peak = (
+        measure_shared_strings_peak(
+            50_000
+        )
+    )
+    shared_allowed_peak = (
+        shared_1k_peak
+        + (3 * 1024 * 1024)
+    )
+    print(
+        "SHARED_STRINGS_MEMORY_PEAK_1000="
+        f"{shared_1k_peak}"
+    )
+    print(
+        "SHARED_STRINGS_MEMORY_PEAK_50000="
+        f"{shared_50k_peak}"
+    )
+    check(
+        shared_1k_count == 1_000
+        and shared_50k_count
+        == 50_000,
+        "Disk-backed XLSX shared-string store indexes every entry",
+    )
+    check(
+        shared_50k_peak
+        <= shared_allowed_peak,
+        "50,000 shared XLSX strings remain inside a fixed-memory envelope",
+        (
+            f"baseline={shared_1k_peak} "
+            f"peak={shared_50k_peak} "
+            f"limit={shared_allowed_peak}"
         ),
     )
 
