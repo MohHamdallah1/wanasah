@@ -257,7 +257,9 @@ class ProductImportBarcodeSqlTests(
                 valid_from,
                 valid_to,
                 is_active,
-                version
+                version,
+                created_at,
+                updated_at
             )
             VALUES (
                 %s,%s,%s,%s,
@@ -266,7 +268,9 @@ class ProductImportBarcodeSqlTests(
                 CURRENT_TIMESTAMP,
                 NULL,
                 TRUE,
-                1
+                1,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
             )
             """,
             (
