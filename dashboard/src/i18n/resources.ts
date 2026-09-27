@@ -526,7 +526,7 @@ export const resources = {
           createSummary:
             "رقم الدفعة: {{lot}} — تاريخ الصلاحية: {{expiry}}",
           createCompanyScope:
-            "يستخدم إعدادات الشركة الافتراضية.",
+            "يتم الآن استخدام إعدادات الشركة الافتراضية.",
           createCustomScope:
             "تم تخصيص الإعداد لهذا المنتج فقط.",
           createChange:
@@ -2050,7 +2050,7 @@ export const resources = {
           createSummary:
             "Batch / lot: {{lot}} — expiry: {{expiry}}",
           createCompanyScope:
-            "Using the current company defaults.",
+            "Currently using the company defaults.",
           createCustomScope:
             "Tracking is customized for this product only.",
           createChange:
