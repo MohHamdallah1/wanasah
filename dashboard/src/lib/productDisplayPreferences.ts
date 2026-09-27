@@ -66,7 +66,7 @@ export const DEFAULT_PRODUCT_DISPLAY_PREFERENCES: ProductDisplayPreferences =
     },
     density: "comfortable",
     defaultSort: {
-      field: "id",
+      field: "lifecycle",
       direction: "asc",
     },
     detailSections: {
