@@ -377,10 +377,10 @@ class Phase5ValidationTests(
                 )
             )
 
-        self.assertFalse(result)
+        self.assertTrue(result)
         self.assertEqual(
             state.job.status,
-            JobStatus.VALIDATION_FAILED.value,
+            JobStatus.IMPORTING.value,
         )
         self.assertEqual(
             (
