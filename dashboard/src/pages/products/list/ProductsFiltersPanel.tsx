@@ -7,6 +7,7 @@ import type {
   ProductFamily,
 } from "@/pages/products/contracts";
 import { ProductFamilyCombobox } from "@/pages/products/family/ProductFamilyCombobox";
+import { PRODUCT_SORT_OPTIONS } from "@/pages/products/list/productSortOptions";
 import type {
   ProductBooleanFilter,
   ProductLifecycleFilter,
@@ -70,63 +71,6 @@ type Props = {
 const selectClassName =
   "h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100";
 
-const sortOptions: Array<{
-  field: ProductSortField;
-  direction: ProductSortDirection;
-  key: string;
-}> = [
-  {
-    field: "lifecycle",
-    direction: "asc",
-    key: "activeFirst",
-  },
-  {
-    field: "lifecycle",
-    direction: "desc",
-    key: "retiringFirst",
-  },
-  {
-    field: "id",
-    direction: "desc",
-    key: "newest",
-  },
-  {
-    field: "id",
-    direction: "asc",
-    key: "oldest",
-  },
-  {
-    field: "name",
-    direction: "asc",
-    key: "nameAsc",
-  },
-  {
-    field: "name",
-    direction: "desc",
-    key: "nameDesc",
-  },
-  {
-    field: "family",
-    direction: "asc",
-    key: "familyAsc",
-  },
-  {
-    field: "family",
-    direction: "desc",
-    key: "familyDesc",
-  },
-  {
-    field: "sku",
-    direction: "asc",
-    key: "skuAsc",
-  },
-  {
-    field: "sku",
-    direction: "desc",
-    key: "skuDesc",
-  },
-];
-
 export function ProductsFiltersPanel({
   familyFilterSearchInput,
   familyFilterId,
@@ -180,7 +124,7 @@ export function ProductsFiltersPanel({
     value: string,
   ) => {
     const option =
-      sortOptions.find(
+      PRODUCT_SORT_OPTIONS.find(
         (item) =>
           `${item.field}:${item.direction}` ===
           value,
@@ -402,7 +346,7 @@ export function ProductsFiltersPanel({
               selectClassName
             }
           >
-            {sortOptions.map(
+            {PRODUCT_SORT_OPTIONS.map(
               (option) => (
                 <option
                   key={
@@ -411,7 +355,7 @@ export function ProductsFiltersPanel({
                   value={`${option.field}:${option.direction}`}
                 >
                   {t(
-                    `products.filters.sortOptions.${option.key}`
+                    `products.filters.PRODUCT_SORT_OPTIONS.${option.key}`
                   )}
                 </option>
               )
