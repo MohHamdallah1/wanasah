@@ -97,12 +97,12 @@ async def main() -> None:
                       AND (
                         (
                           rel.relname = 'product_import_jobs'
-                          AND con.conname = 'chk_product_import_job_status'
+                          AND con.conname = 'ck_product_import_jobs_chk_product_import_job_status'
                         )
                         OR
                         (
                           rel.relname = 'product_import_rows'
-                          AND con.conname = 'chk_product_import_row_status'
+                          AND con.conname = 'ck_product_import_rows_chk_product_import_row_status'
                         )
                       )
                     ORDER BY rel.relname
