@@ -84,6 +84,9 @@ from models import (
 from product_import_localization import (
     CANONICAL_IMPORT_FIELDS,
 )
+from product_import_template import (
+    build_product_import_template,
+)
 from product_import_queue import (
     enqueue_new_import,
     requeue_import,
@@ -2202,6 +2205,33 @@ async def update_simple_product_price(
                 "context": {},
             },
         ) from exc
+
+
+@router.get("/import-template")
+async def get_product_import_template(
+    locale: str = Query(
+        "ar",
+        pattern="^(ar|en)$",
+    ),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(db, actor)
+
+    payload = build_product_import_template(
+        locale=locale,
+    )
+    return {
+        "file_name":
+            "products-import-template.xlsx",
+        "content_type": (
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        "content_base64": base64.b64encode(
+            payload
+        ).decode("ascii"),
+    }
 
 
 @router.post("/imports", status_code=202)
