@@ -320,6 +320,10 @@ export function useProductsListWorkflow({
           updateSortBy,
         onSortDirChange:
           updateSortDir,
+        canReset:
+          hasProductListControls,
+        onClearControls:
+          clearControls,
       },
       results: {
         items:
