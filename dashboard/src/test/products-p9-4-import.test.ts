@@ -184,5 +184,17 @@ describe("Products P9.4 import workflow", () => {
     expect(downloads).toContain(
       "result.next_after_row",
     );
+    expect(downloads).toContain(
+      '"products-import-template.xlsx"',
+    );
+    expect(downloads).toContain(
+      "XLSX.utils.book_append_sheet",
+    );
+    expect(polling).toContain(
+      "MAX_QUEUED_WAIT_MS",
+    );
+    expect(polling).toContain(
+      '"products.errors.importProcessingDelayed"',
+    );
   });
 });
