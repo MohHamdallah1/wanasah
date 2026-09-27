@@ -331,11 +331,11 @@ class ProductImportRetentionAuditTests(
             VALUES (
                 %s,%s,2,
                 jsonb_build_object(
-                    'Product', %s,
+                    'Product', %s::text,
                     'Unit Price', '1.000'
                 ),
                 jsonb_build_object(
-                    'name', %s,
+                    'name', %s::text,
                     'unit_price', '1.000'
                 ),
                 NULL,
