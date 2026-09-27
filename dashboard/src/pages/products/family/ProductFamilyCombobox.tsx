@@ -105,7 +105,7 @@ export function ProductFamilyCombobox({
     }
     optionRefs.current[
       activeIndex
-    ]?.scrollIntoView({
+    ]?.scrollIntoView?.({
       block: "nearest",
     });
   }, [activeIndex]);
@@ -118,7 +118,6 @@ export function ProductFamilyCombobox({
       index === 0
     ) {
       onSelectAll?.();
-      onSearchChange("");
       setOpen(false);
       setActiveIndex(-1);
       return;
@@ -134,7 +133,6 @@ export function ProductFamilyCombobox({
     }
 
     onSelect(option);
-    onSearchChange("");
     setOpen(false);
     setActiveIndex(-1);
   };
@@ -272,7 +270,6 @@ export function ProductFamilyCombobox({
             }
             onClick={() => {
               onClear();
-              onSearchChange("");
               setOpen(true);
               queueMicrotask(() =>
                 inputRef.current?.focus()
