@@ -182,11 +182,11 @@ describe(
       expect(drawer).toContain(
         "product.units_per_package",
       );
-      expect(detailActionMenu).toContain(
-        "canManageAdvancedUom &&",
+      expect(detailActionMenu).not.toContain(
+        "canManageAdvancedUom",
       );
-      expect(detailActionMenu).toContain(
-        "!product.simple_compatible",
+      expect(detailActionMenu).not.toContain(
+        "products.advancedUom.productAction",
       );
       expect(advanced).toContain(
         "/catalog/variants/${selectedVariant!.id}/conversions",
