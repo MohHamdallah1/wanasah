@@ -615,6 +615,18 @@ export const resources = {
         downloadTemplate: "تحميل النموذج",
         importTemplateSampleName: "شيبس لولو بالجبنة 20غ",
         importTemplateSampleFamily: "شيبس لولو",
+        importTemplateProductsSheet: "المنتجات",
+        importTemplateGuideSheet: "دليل الاستخدام",
+        importTemplateGuideTitle:
+          "اكتب المنتجات في ورقة المنتجات فقط. ورقة الدليل للشرح والأمثلة ولا يتم استيرادها.",
+        importTemplateGuideTracking:
+          "قيم التتبع لكل منتج: {{none}} أو {{optional}} أو {{required}}. إذا تركتها فارغة يستخدم النظام إعدادات الاستيراد الافتراضية.",
+        importTemplateGuidePackages:
+          "أنواع التغليف المدعومة: CARTON, CASE, PACK, BAG, SACK, TRAY, CRATE, BUNDLE, PALLET. للمنتج بدون تغليف خارجي استخدم NONE.",
+        importTemplateGuidePrices:
+          "أدخل سعر الكرتونة/التغليف أو سعر الحبة على الأقل؛ يمكن للنظام حساب السعر الآخر تلقائياً عند وجود تغليف.",
+        importTemplateExampleTitle:
+          "مثال فقط — لا تنسخه إلى ورقة المنتجات إلا إذا أردت استيراده فعلياً.",
         dropFile:
           "اسحب الملف هنا أو اضغط للاختيار",
         importLimit:
@@ -699,6 +711,10 @@ export const resources = {
             "اختر ملفاً أولاً.",
           unsupportedFile:
             "الملفات المدعومة CSV وXLSX.",
+          importNoRows:
+            "الملف لا يحتوي أي صف منتج. أضف منتجاً واحداً على الأقل ثم أعد الرفع.",
+          importProcessingDelayed:
+            "تأخرت خدمة معالجة الاستيراد بشكل غير طبيعي. لم نكرر العملية؛ أعد فحص الحالة أو حاول لاحقاً.",
           createFailed:
             "تعذر حفظ المنتج.",
           priceFailed:
@@ -2158,6 +2174,18 @@ export const resources = {
         downloadTemplate: "Download template",
         importTemplateSampleName: "Lolo Chips Cheese 20g",
         importTemplateSampleFamily: "Lolo Chips",
+        importTemplateProductsSheet: "Products",
+        importTemplateGuideSheet: "Guide",
+        importTemplateGuideTitle:
+          "Enter products only on the Products sheet. The Guide sheet is for instructions and examples and is not imported.",
+        importTemplateGuideTracking:
+          "Per-product tracking values: {{none}}, {{optional}}, or {{required}}. Leave blank to use the import defaults.",
+        importTemplateGuidePackages:
+          "Supported package types: CARTON, CASE, PACK, BAG, SACK, TRAY, CRATE, BUNDLE, PALLET. Use NONE for unit-only products.",
+        importTemplateGuidePrices:
+          "Provide at least a package price or a unit price; when a package exists the system can derive the other price.",
+        importTemplateExampleTitle:
+          "Example only — copy it to the Products sheet only if you intend to import it.",
         dropFile:
           "Drop the file here or click to choose",
         importLimit:
@@ -2240,6 +2268,10 @@ export const resources = {
             "Choose a file first.",
           unsupportedFile:
             "Supported files are CSV and XLSX.",
+          importNoRows:
+            "The file contains no product rows. Add at least one product and upload it again.",
+          importProcessingDelayed:
+            "Import processing is taking unusually long. The operation was not duplicated; refresh its status or try again later.",
           createFailed:
             "Could not save the product.",
           priceFailed:
