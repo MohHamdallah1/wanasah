@@ -40,6 +40,7 @@ async def run_product_import_job(
         JobStatus.COMPLETED_WITH_ERRORS.value,
         JobStatus.VALIDATION_FAILED.value,
         JobStatus.FAILED.value,
+        JobStatus.CANCELLED.value,
         JobStatus.NEEDS_MAPPING.value,
     }:
         return
