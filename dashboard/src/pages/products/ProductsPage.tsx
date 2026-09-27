@@ -302,11 +302,6 @@ export default function ProductsPage() {
         onOpenImport={
           importWorkflow.openImport
         }
-        onOpenAdvancedUom={() =>
-          navigate(
-            "/products/advanced-uom"
-          )
-        }
         onOpenFamilies={
           familiesWorkflow.openFamilies
         }
