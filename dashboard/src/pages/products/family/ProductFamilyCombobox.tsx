@@ -1,11 +1,13 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import type {
@@ -34,6 +36,13 @@ type Props = {
     family: ProductFamily,
   ) => string;
   inputClassName: string;
+};
+
+type FloatingPosition = {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
 };
 
 export function ProductFamilyCombobox({
@@ -65,12 +74,22 @@ export function ProductFamilyCombobox({
     activeIndex,
     setActiveIndex,
   ] = useState(-1);
+  const [
+    floatingPosition,
+    setFloatingPosition,
+  ] = useState<FloatingPosition | null>(
+    null
+  );
   const rootRef =
     useRef<HTMLDivElement | null>(
       null
     );
   const inputRef =
     useRef<HTMLInputElement | null>(
+      null
+    );
+  const listboxRef =
+    useRef<HTMLDivElement | null>(
       null
     );
   const optionRefs =
@@ -110,6 +129,68 @@ export function ProductFamilyCombobox({
     });
   }, [activeIndex]);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setFloatingPosition(
+        null
+      );
+      return;
+    }
+
+    const updatePosition = () => {
+      const input =
+        inputRef.current;
+      if (!input) {
+        return;
+      }
+
+      const rect =
+        input.getBoundingClientRect();
+      const gap = 6;
+      const availableBelow =
+        window.innerHeight -
+        rect.bottom -
+        gap -
+        12;
+
+      setFloatingPosition({
+        top: rect.bottom + gap,
+        left: rect.left,
+        width: rect.width,
+        maxHeight: Math.max(
+          96,
+          Math.min(
+            256,
+            availableBelow
+          )
+        ),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener(
+      "resize",
+      updatePosition
+    );
+    window.addEventListener(
+      "scroll",
+      updatePosition,
+      true
+    );
+
+    return () => {
+      window.removeEventListener(
+        "resize",
+        updatePosition
+      );
+      window.removeEventListener(
+        "scroll",
+        updatePosition,
+        true
+      );
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -121,10 +202,23 @@ export function ProductFamilyCombobox({
       const target =
         event.target;
       if (
-        target instanceof Node &&
-        !rootRef.current?.contains(
+        !(target instanceof Node)
+      ) {
+        return;
+      }
+
+      const insideInput =
+        rootRef.current?.contains(
           target
-        )
+        );
+      const insideListbox =
+        listboxRef.current?.contains(
+          target
+        );
+
+      if (
+        !insideInput &&
+        !insideListbox
       ) {
         setOpen(false);
         setActiveIndex(-1);
@@ -135,6 +229,7 @@ export function ProductFamilyCombobox({
       "mousedown",
       handleOutside,
     );
+
     return () => {
       document.removeEventListener(
         "mousedown",
@@ -219,6 +314,7 @@ export function ProductFamilyCombobox({
         setOpen(true);
         return;
       }
+
       if (activeIndex >= 0) {
         event.preventDefault();
         selectIndex(
@@ -251,205 +347,234 @@ export function ProductFamilyCombobox({
       ? `${listboxId}-option-${activeIndex}`
       : undefined;
 
-  return (
-    <div
-      ref={rootRef}
-      className="relative"
-    >
-      <input
-        ref={inputRef}
-        type="text"
-        role="combobox"
-        aria-autocomplete="list"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={
-          listboxId
-        }
-        aria-activedescendant={
-          activeId
-        }
-        value={displayValue}
-        maxLength={100}
-        onFocus={(event) => {
-          if (
-            selectedName &&
-            !searchValue
-          ) {
-            event.currentTarget.select();
-          }
-        }}
-        onClick={() =>
-          setOpen(true)
-        }
-        onChange={(event) => {
-          onSearchChange(
-            event.target.value
-          );
-          setOpen(true);
-        }}
-        onKeyDown={
-          handleKeyDown
-        }
-        placeholder={
-          placeholder
-        }
-        className={
-          inputClassName
-        }
-      />
+  const listbox =
+    open &&
+    floatingPosition &&
+    typeof document !==
+      "undefined"
+      ? createPortal(
+          <div
+            ref={listboxRef}
+            id={listboxId}
+            role="listbox"
+            style={{
+              top:
+                floatingPosition.top,
+              left:
+                floatingPosition.left,
+              width:
+                floatingPosition.width,
+              maxHeight:
+                floatingPosition.maxHeight,
+            }}
+            className="fixed z-[100] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+          >
+            {loading ? (
+              <div className="px-3 py-6 text-center text-xs font-bold text-slate-400">
+                {loadingLabel}
+              </div>
+            ) : error ? (
+              <div className="px-3 py-5 text-center">
+                <p className="text-xs font-bold text-rose-700">
+                  {errorLabel}
+                </p>
+                {onRetry ? (
+                  <button
+                    type="button"
+                    onMouseDown={
+                      keepInputFocus
+                    }
+                    onClick={onRetry}
+                    className="mt-2 text-xs font-black text-slate-900 underline underline-offset-4"
+                  >
+                    {retryLabel}
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                {hasAllOption ? (
+                  <button
+                    ref={(node) => {
+                      optionRefs.current[
+                        0
+                      ] = node;
+                    }}
+                    id={`${listboxId}-option-0`}
+                    type="button"
+                    role="option"
+                    aria-selected={
+                      !selectedName
+                    }
+                    onMouseDown={
+                      keepInputFocus
+                    }
+                    onMouseEnter={() =>
+                      setActiveIndex(
+                        0
+                      )
+                    }
+                    onClick={() =>
+                      selectIndex(0)
+                    }
+                    className={`flex w-full items-center rounded-lg px-3 py-2.5 text-start text-xs font-bold transition ${
+                      activeIndex === 0
+                        ? "bg-amber-100 text-amber-950"
+                        : "text-slate-700 hover:bg-amber-50 hover:text-slate-950"
+                    }`}
+                  >
+                    {allOptionLabel}
+                  </button>
+                ) : null}
 
-      {displayValue ? (
-        <button
-          type="button"
-          onMouseDown={
-            keepInputFocus
-          }
-          onClick={() => {
-            onClear();
-            setOpen(true);
-            queueMicrotask(() =>
-              inputRef.current?.focus()
-            );
-          }}
-          aria-label={clearLabel}
-          className="absolute end-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-amber-50 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      ) : null}
+                {options.map(
+                  (
+                    family,
+                    optionIndex
+                  ) => {
+                    const index =
+                      optionIndex +
+                      (hasAllOption
+                        ? 1
+                        : 0);
 
-      {open ? (
-        <div
-          id={listboxId}
-          role="listbox"
-          className="absolute start-0 top-full z-[80] mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
-        >
-          {loading ? (
-            <div className="px-3 py-6 text-center text-xs font-bold text-slate-400">
-              {loadingLabel}
-            </div>
-          ) : error ? (
-            <div className="px-3 py-5 text-center">
-              <p className="text-xs font-bold text-rose-700">
-                {errorLabel}
-              </p>
-              {onRetry ? (
-                <button
-                  type="button"
-                  onMouseDown={
-                    keepInputFocus
-                  }
-                  onClick={onRetry}
-                  className="mt-2 text-xs font-black text-slate-900 underline underline-offset-4"
-                >
-                  {retryLabel}
-                </button>
-              ) : null}
-            </div>
-          ) : (
-            <>
-              {hasAllOption ? (
-                <button
-                  ref={(node) => {
-                    optionRefs.current[
-                      0
-                    ] = node;
-                  }}
-                  id={`${listboxId}-option-0`}
-                  type="button"
-                  role="option"
-                  aria-selected={
-                    !selectedName
-                  }
-                  onMouseDown={
-                    keepInputFocus
-                  }
-                  onMouseEnter={() =>
-                    setActiveIndex(
-                      0
-                    )
-                  }
-                  onClick={() =>
-                    selectIndex(0)
-                  }
-                  className={`flex w-full items-center rounded-lg px-3 py-2.5 text-start text-xs font-bold transition ${
-                    activeIndex === 0
-                      ? "bg-amber-100 text-amber-950"
-                      : "text-slate-700 hover:bg-amber-50 hover:text-slate-950"
-                  }`}
-                >
-                  {allOptionLabel}
-                </button>
-              ) : null}
-
-              {options.map(
-                (family, optionIndex) => {
-                  const index =
-                    optionIndex +
-                    (hasAllOption
-                      ? 1
-                      : 0);
-                  return (
-                    <button
-                      key={family.id}
-                      ref={(node) => {
-                        optionRefs.current[
+                    return (
+                      <button
+                        key={family.id}
+                        ref={(node) => {
+                          optionRefs.current[
+                            index
+                          ] = node;
+                        }}
+                        id={`${listboxId}-option-${index}`}
+                        type="button"
+                        role="option"
+                        aria-selected={
+                          family.name ===
+                          selectedName
+                        }
+                        onMouseDown={
+                          keepInputFocus
+                        }
+                        onMouseEnter={() =>
+                          setActiveIndex(
+                            index
+                          )
+                        }
+                        onClick={() =>
+                          selectIndex(
+                            index
+                          )
+                        }
+                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-start text-xs transition ${
+                          activeIndex ===
                           index
-                        ] = node;
-                      }}
-                      id={`${listboxId}-option-${index}`}
-                      type="button"
-                      role="option"
-                      aria-selected={
-                        family.name ===
-                        selectedName
-                      }
-                      onMouseDown={
-                        keepInputFocus
-                      }
-                      onMouseEnter={() =>
-                        setActiveIndex(
-                          index
-                        )
-                      }
-                      onClick={() =>
-                        selectIndex(
-                          index
-                        )
-                      }
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-start text-xs transition ${
-                        activeIndex ===
-                        index
-                          ? "bg-amber-100 text-amber-950"
-                          : "text-slate-700 hover:bg-amber-50 hover:text-slate-950"
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1 truncate font-bold">
-                        {family.name}
-                      </span>
-                      {formatOptionMeta ? (
-                        <span className="shrink-0 text-[10px] font-semibold text-slate-400">
-                          {formatOptionMeta(
-                            family
-                          )}
+                            ? "bg-amber-100 text-amber-950"
+                            : "text-slate-700 hover:bg-amber-50 hover:text-slate-950"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate font-bold">
+                          {
+                            family.name
+                          }
                         </span>
-                      ) : null}
-                    </button>
-                  );
-                }
-              )}
+                        {formatOptionMeta ? (
+                          <span className="shrink-0 text-[10px] font-semibold text-slate-400">
+                            {formatOptionMeta(
+                              family
+                            )}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  }
+                )}
 
-              {options.length === 0 &&
-              !hasAllOption ? (
-                <div className="px-3 py-5 text-center text-xs font-bold text-slate-400">
-                  {emptyLabel}
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
-      ) : null}
-    </div>
+                {options.length ===
+                  0 &&
+                !hasAllOption ? (
+                  <div className="px-3 py-5 text-center text-xs font-bold text-slate-400">
+                    {emptyLabel}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <>
+      <div
+        ref={rootRef}
+        className="relative"
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={
+            listboxId
+          }
+          aria-activedescendant={
+            activeId
+          }
+          value={displayValue}
+          maxLength={100}
+          onFocus={(event) => {
+            if (
+              selectedName &&
+              !searchValue
+            ) {
+              event.currentTarget.select();
+            }
+          }}
+          onClick={() =>
+            setOpen(true)
+          }
+          onChange={(event) => {
+            onSearchChange(
+              event.target.value
+            );
+            setOpen(true);
+          }}
+          onKeyDown={
+            handleKeyDown
+          }
+          placeholder={
+            placeholder
+          }
+          className={
+            inputClassName
+          }
+        />
+
+        {displayValue ? (
+          <button
+            type="button"
+            onMouseDown={
+              keepInputFocus
+            }
+            onClick={() => {
+              onClear();
+              setOpen(true);
+              queueMicrotask(() =>
+                inputRef.current?.focus()
+              );
+            }}
+            aria-label={clearLabel}
+            className="absolute end-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-amber-50 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+
+      {listbox}
+    </>
   );
 }
