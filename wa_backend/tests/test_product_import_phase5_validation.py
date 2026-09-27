@@ -216,6 +216,22 @@ class ValidationState:
             ),
         )
 
+    async def count_status(
+        self,
+        _db,
+        *,
+        company_id: int,
+        job_id,
+        status: str,
+    ) -> int:
+        self.assert_tenant(
+            company_id
+        )
+        return sum(
+            row.status == status
+            for row in self.rows
+        )
+
     async def finalize_barcodes(
         self,
         _db,
@@ -310,6 +326,11 @@ class Phase5ValidationTests(
                 validation_service,
                 "count_validation_outcomes",
                 state.counts,
+            ),
+            patch.object(
+                validation_service,
+                "count_job_rows",
+                state.count_status,
             ),
             patch.object(
                 validation_service,
