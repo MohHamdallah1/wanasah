@@ -35,7 +35,7 @@ from models import (
     ProductImportJob,
     ProductImportRow,
 )
-from product_import_localization import (
+from domains.simple_products.imports.domain import (
     CANONICAL_IMPORT_FIELDS,
     IMPORT_TRACKING_DEFAULT_SENTINEL,
     canonical_package_value,
