@@ -53,7 +53,9 @@ async def cancel_import_job(
         )
         if job is None:
             raise ProductImportTerminalError(
-                "Product import job was not found."
+                "Product import job was not found.",
+                code=
+                    "PRODUCT_IMPORT_NOT_FOUND",
             )
 
         current = str(
@@ -64,7 +66,9 @@ async def cancel_import_job(
             return current
         if current not in _CANCELLABLE_STATUSES:
             raise ProductImportTerminalError(
-                "Product import job is no longer cancellable."
+                "Product import job is no longer cancellable.",
+                code=
+                    "PRODUCT_IMPORT_NOT_CANCELLABLE",
             )
 
         transition_job(
