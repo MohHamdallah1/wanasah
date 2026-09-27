@@ -58,6 +58,22 @@ export function ProductsPageHeader({
         </div>
 
         <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:justify-end">
+          <ProductsAddMenu
+            canCreateSimpleProduct={
+              canCreateSimpleProduct
+            }
+            canImportProducts={
+              canImportProducts
+            }
+            onOpenCreateProduct={
+              onOpenCreateProduct
+            }
+            onOpenImport={
+              onOpenImport
+            }
+          />
+
+
           <ProductsCatalogToolsMenu
             triggerVariant="topbar"
             trackingDefaultsLoading={
@@ -77,21 +93,6 @@ export function ProductsPageHeader({
             }
             onOpenFamilies={
               onOpenFamilies
-            }
-          />
-
-          <ProductsAddMenu
-            canCreateSimpleProduct={
-              canCreateSimpleProduct
-            }
-            canImportProducts={
-              canImportProducts
-            }
-            onOpenCreateProduct={
-              onOpenCreateProduct
-            }
-            onOpenImport={
-              onOpenImport
             }
           />
 
