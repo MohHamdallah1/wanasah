@@ -43,6 +43,7 @@ from domains.simple_products.imports.application.state_machine import (
 )
 from domains.simple_products.imports.domain import (
     CANONICAL_IMPORT_FIELDS,
+    ProductImportTerminalError,
 )
 from domains.simple_products.imports.infrastructure.queue import (
     enqueue_new_import,
