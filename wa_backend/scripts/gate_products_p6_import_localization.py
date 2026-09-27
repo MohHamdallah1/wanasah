@@ -31,10 +31,12 @@ from domains.simple_products.imports.domain import (  # noqa: E402
     canonical_tracking_value,
     suggest_import_mapping,
 )
-from domains.simple_products.imports.application.worker import (  # noqa: E402
-    _package_code,
-    _tracking_import_mode,
+from domains.simple_products.imports.domain.mapping import (  # noqa: E402
     suggest_mapping,
+)
+from domains.simple_products.imports.domain.normalization import (  # noqa: E402
+    package_code as _package_code,
+    tracking_import_mode as _tracking_import_mode,
 )
 
 
