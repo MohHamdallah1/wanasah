@@ -227,6 +227,58 @@ export function ImportProductStatusPanel({
 
   if (
     status.status ===
+    "COMPLETED_WITH_ERRORS"
+  ) {
+    const errorCount =
+      status.invalid_rows +
+      status.import_failed_rows;
+
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-amber-700 ring-1 ring-amber-200">
+            <AlertCircle className="h-5 w-5" />
+          </span>
+          <strong className="text-sm font-black leading-5 text-amber-950">
+            {t(
+              "products.importCompletedWithErrors",
+              {
+                imported:
+                  status.imported_rows,
+                errors: errorCount,
+              },
+            )}
+          </strong>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            disabled={!online}
+            onClick={onDownloadErrorReport}
+            className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-amber-200 bg-white px-4 text-xs font-black text-amber-900 disabled:opacity-40"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {t(
+              "products.downloadErrors",
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onCompletedClose}
+            className="min-h-10 flex-1 rounded-xl bg-amber-950 px-4 text-xs font-black text-white"
+          >
+            {t(
+              "common.close",
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    status.status ===
     "COMPLETED"
   ) {
     return (
@@ -240,7 +292,7 @@ export function ImportProductStatusPanel({
               "products.importCompleted",
               {
                 count:
-                  status.processed_rows,
+                  status.imported_rows,
               },
             )}
           </strong>
@@ -275,7 +327,8 @@ export function ImportProductStatusPanel({
           </span>
         </span>
         <span className="shrink-0 tabular-nums text-slate-500">
-          {status.processed_rows} /{" "}
+          {status.imported_rows +
+            status.import_failed_rows} /{" "}
           {status.valid_rows ||
             status.total_rows}
         </span>
