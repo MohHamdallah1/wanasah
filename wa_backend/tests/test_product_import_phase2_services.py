@@ -192,18 +192,24 @@ class ValidationServiceTests(
         )
 
 
-    def test_validation_outcome_preserves_all_or_nothing_policy(
+    def test_validation_outcome_preserves_phase7_best_effort_policy(
         self,
     ) -> None:
         self.assertEqual(
-            validation_outcome(0),
+            validation_outcome(
+                1,
+                1,
+            ),
             (
                 "IMPORTING",
                 True,
             ),
         )
         self.assertEqual(
-            validation_outcome(1),
+            validation_outcome(
+                0,
+                1,
+            ),
             (
                 "VALIDATION_FAILED",
                 False,
