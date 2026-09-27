@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from domains.simple_products.imports.application.state_machine import (
+    JobStatus,
     transition_job,
 )
 from domains.simple_products.imports.domain import (
@@ -75,9 +76,9 @@ async def stage_source(
             or {}
         )
         target = (
-            "VALIDATING"
+            JobStatus.VALIDATING
             if mapping_complete(mapping)
-            else "NEEDS_MAPPING"
+            else JobStatus.NEEDS_MAPPING
         )
 
         transition_job(
