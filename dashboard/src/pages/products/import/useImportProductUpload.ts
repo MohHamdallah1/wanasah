@@ -26,6 +26,9 @@ import {
 import {
   productDurableScope,
 } from "@/pages/products/productDurableScope";
+import {
+  productImportFileHasDataRows,
+} from "@/pages/products/import/productImportFilePreflight";
 
 type AuthFetch = (
   path: string,
@@ -90,6 +93,20 @@ export function useImportProductUpload({
           throw new Error(
             t(
               "products.errors.trackingDefaultsRequired"
+            )
+          );
+        }
+
+        const hasDataRows =
+          await productImportFileHasDataRows(
+            importFile
+          );
+        if (
+          hasDataRows === false
+        ) {
+          throw new Error(
+            t(
+              "products.errors.importNoRows"
             )
           );
         }
