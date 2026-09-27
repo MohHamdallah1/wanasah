@@ -13,6 +13,8 @@ from domains.simple_products.imports.domain import (
     EN_IMPORT_LOCALE,
     IMPORT_TRACKING_DEFAULT_SENTINEL,
     ImportLocalePack,
+    WANASAH_TEMPLATE_MARKER,
+    WANASAH_TEMPLATE_META_SHEET,
 )
 
 
@@ -20,6 +22,10 @@ MAX_TEMPLATE_ROWS = 50_000
 _TRACKING_FIELDS = (
     "lot_control_mode",
     "expiry_control_mode",
+)
+_BARCODE_FIELDS = (
+    "unit_barcode",
+    "package_barcode",
 )
 
 
@@ -61,6 +67,11 @@ def _template_copy(
                 "Choose a value from the list, or leave the cell blank."
             ),
             "validation_title": "Product tracking",
+            "barcode_validation_title": "Barcode text",
+            "barcode_validation_error": (
+                "Enter the complete barcode as text. "
+                "Do not use numbers, formulas, or scientific notation."
+            ),
         }
     return {
         "sheet": "المنتجات",
@@ -73,6 +84,10 @@ def _template_copy(
             "اختر قيمة من القائمة، أو اترك الخانة فارغة."
         ),
         "validation_title": "تتبع المنتج",
+        "barcode_validation_title": "الباركود كنص",
+        "barcode_validation_error": (
+            "أدخل الباركود كاملاً كنص. لا تستخدم رقماً أو معادلة أو صيغة علمية."
+        ),
     }
 
 
@@ -162,6 +177,56 @@ def build_product_import_template(
         sheet.column_dimensions[
             chr(64 + index)
         ].width = width
+
+    for field in _BARCODE_FIELDS:
+        column_index = (
+            CANONICAL_IMPORT_FIELDS.index(
+                field
+            )
+            + 1
+        )
+        column_letter = chr(
+            64 + column_index
+        )
+        sheet.column_dimensions[
+            column_letter
+        ].number_format = "@"
+
+        barcode_validation = DataValidation(
+            type="custom",
+            formula1=(
+                f'=OR({column_letter}2="",'
+                f'ISTEXT({column_letter}2))'
+            ),
+            allow_blank=True,
+        )
+        barcode_validation.errorTitle = (
+            copy[
+                "barcode_validation_title"
+            ]
+        )
+        barcode_validation.error = copy[
+            "barcode_validation_error"
+        ]
+        barcode_validation.showErrorMessage = True
+        sheet.add_data_validation(
+            barcode_validation
+        )
+        barcode_validation.add(
+            f"{column_letter}2:"
+            f"{column_letter}{MAX_TEMPLATE_ROWS + 1}"
+        )
+
+    meta_sheet = workbook.create_sheet(
+        WANASAH_TEMPLATE_META_SHEET
+    )
+    meta_sheet["A1"] = (
+        WANASAH_TEMPLATE_MARKER
+    )
+    meta_sheet["A2"] = sheet.title
+    meta_sheet.sheet_state = (
+        "veryHidden"
+    )
 
     list_sheet = workbook.create_sheet(
         "_wanasah_lists"
