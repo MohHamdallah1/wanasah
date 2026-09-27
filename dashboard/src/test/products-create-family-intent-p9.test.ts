@@ -40,7 +40,10 @@ describe("Products P9 create family intent", () => {
   it("creates no implicit family when family mode is none", () => {
     expect(
       resolveCreateProductFamilyIntent(
-        emptyDraft,
+        {
+          ...emptyDraft,
+          family_mode: "none",
+        },
         families,
       ),
     ).toEqual({
