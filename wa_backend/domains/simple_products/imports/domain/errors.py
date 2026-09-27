@@ -59,6 +59,130 @@ def user_safe_error_message(
     )
 
 
+_ROW_SAFE_MESSAGES: dict[str, str] = {
+    "IMPORT_NAME_REQUIRED":
+        "Product name is required.",
+    "IMPORT_NAME_TOO_LONG":
+        "Product name is too long.",
+    "IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE":
+        "A package barcode requires an outer package.",
+    "IMPORT_PACKAGING_REQUIRED":
+        "Package quantity is required.",
+    "IMPORT_PACKAGING_INVALID":
+        "Package quantity is invalid.",
+    "IMPORT_FORMULA_VALUE_UNAVAILABLE":
+        "A formula cell has no safe cached value.",
+    "IMPORT_BARCODE_FORMULA_NOT_ALLOWED":
+        "Barcode cells must contain literal text.",
+    "IMPORT_BARCODE_NUMERIC_UNSAFE":
+        "The barcode must be stored as text.",
+    "IMPORT_BARCODE_SCIENTIFIC_NOTATION":
+        "The barcode must not use scientific notation.",
+    "IMPORT_BARCODE_DUPLICATE":
+        "The barcode is duplicated in the import.",
+    "IMPORT_BARCODE_CONFLICT":
+        "The barcode is already in use.",
+    "IMPORT_ROW_INVALID":
+        "This row contains invalid import data.",
+}
+
+
+def import_error_field(
+    code: str | None,
+) -> str | None:
+    normalized = str(
+        code
+        or ""
+    ).upper()
+    if "PACKAGE_BARCODE" in normalized:
+        return "package_barcode"
+    if "UNIT_BARCODE" in normalized:
+        return "unit_barcode"
+    if "BARCODE" in normalized:
+        return "barcode"
+    if "NAME" in normalized:
+        return "name"
+    if "PACKAG" in normalized:
+        return "units_per_package"
+    if "PRICE" in normalized:
+        return "price"
+    if "LOT" in normalized:
+        return "lot_control_mode"
+    if "EXPIRY" in normalized:
+        return "expiry_control_mode"
+    if "FAMILY" in normalized:
+        return "family"
+    return None
+
+
+def user_safe_row_error_message(
+    code: str | None,
+) -> str:
+    normalized = str(
+        code
+        or "IMPORT_ROW_INVALID"
+    )
+    if normalized in _ROW_SAFE_MESSAGES:
+        return _ROW_SAFE_MESSAGES[
+            normalized
+        ]
+    if normalized.startswith(
+        "SIMPLE_PRODUCT_"
+    ):
+        return "This row contains invalid product data."
+    if normalized.startswith(
+        "PRODUCT_TRACKING_"
+    ):
+        return "This row contains invalid tracking data."
+    return _ROW_SAFE_MESSAGES[
+        "IMPORT_ROW_INVALID"
+    ]
+
+
+def public_error_summary(
+    summary: dict[str, Any] | None,
+) -> dict[str, object]:
+    """Whitelist durable fields and regenerate the public message from code."""
+    raw = dict(
+        summary
+        or {}
+    )
+    code = str(
+        raw.get(
+            "code"
+        )
+        or ""
+    )
+    if not code:
+        return {}
+
+    public: dict[str, object] = {
+        "code":
+            code,
+        "message":
+            user_safe_error_message(
+                code
+            ),
+    }
+    for key in (
+        "retryable",
+        "resume_status",
+        "correlation_id",
+        "failed_rows",
+        "imported_rows",
+        "invalid_rows",
+        "import_failed_rows",
+    ):
+        value = raw.get(
+            key
+        )
+        if value is not None:
+            public[
+                key
+            ] = value
+    return public
+
+
 class ProductImportTerminalError(RuntimeError):
     """Deterministic job failure with a stable public contract.
 
