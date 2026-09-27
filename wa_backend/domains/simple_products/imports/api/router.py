@@ -6,6 +6,7 @@ Product Import transport concerns inside the owning capability module.
 from __future__ import annotations
 
 import base64
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -54,6 +56,12 @@ from domains.simple_products.imports.domain.admission import (
 from domains.simple_products.imports.domain import (
     CANONICAL_IMPORT_FIELDS,
     ProductImportTerminalError,
+)
+from domains.simple_products.imports.domain.errors import (
+    user_safe_error_message,
+)
+from domains.simple_products.imports.infrastructure.content_security import (
+    validate_source_content,
 )
 from domains.simple_products.imports.infrastructure.queue import (
     enqueue_new_import,
@@ -100,6 +108,74 @@ _ALLOWED_IMPORT_SUFFIXES = {".csv", ".xlsx"}
 _CANONICAL_MAPPING_FIELDS = frozenset(
     CANONICAL_IMPORT_FIELDS,
 )
+
+
+logger = logging.getLogger(
+    "wanasah_logger"
+)
+
+
+def _correlation_id(
+    request: Request,
+) -> str:
+    return str(
+        getattr(
+            request.state,
+            "request_id",
+            "unknown",
+        )
+        or "unknown"
+    )
+
+
+def _error_context(
+    request: Request,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        **dict(
+            context
+            or {}
+        ),
+        "correlation_id":
+            _correlation_id(
+                request
+            ),
+    }
+
+
+def _log_api_exception(
+    request: Request,
+    exc: BaseException,
+    *,
+    code: str,
+    job_id: UUID | None = None,
+) -> None:
+    logger.error(
+        "PRODUCT_IMPORT_API_FAILURE "
+        "correlation_id=%s code=%s job_id=%s",
+        _correlation_id(
+            request
+        ),
+        str(
+            code
+        ),
+        (
+            str(
+                job_id
+            )
+            if job_id
+            is not None
+            else "-"
+        ),
+        exc_info=(
+            type(
+                exc
+            ),
+            exc,
+            exc.__traceback__,
+        ),
+    )
 
 
 class StrictImportRequest(BaseModel):
@@ -204,6 +280,7 @@ async def get_product_import_template(
 
 @router.get("/import-worker/readiness")
 async def get_product_import_worker_readiness(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
@@ -216,6 +293,12 @@ async def get_product_import_worker_readiness(
             await read_product_import_runtime_metrics()
         )
     except Exception as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_WORKER_HEALTH_UNAVAILABLE",
+        )
         raise HTTPException(
             503,
             detail={
@@ -223,7 +306,10 @@ async def get_product_import_worker_readiness(
                     "PRODUCT_IMPORT_WORKER_HEALTH_UNAVAILABLE",
                 "message":
                     "Product Import worker readiness could not be determined.",
-                "context": {},
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
 
@@ -346,6 +432,7 @@ async def product_import_progress_websocket(
 
 @router.post("/imports", status_code=202)
 async def create_product_import(
+    request: Request,
     request_id: UUID = Form(...),
     default_lot_control_mode: str | None = Form(None),
     default_expiry_control_mode: str | None = Form(None),
@@ -403,10 +490,7 @@ async def create_product_import(
             },
         )
 
-    content_type = str(
-        file.content_type
-        or "application/octet-stream"
-    )
+    # Client MIME is intentionally ignored as authority.
     bounded_upload = None
     try:
         bounded_upload = (
@@ -452,6 +536,35 @@ async def create_product_import(
                 "context": {},
             },
         )
+
+    try:
+        content_type = (
+            validate_source_content(
+                file_name,
+                bounded_upload.stream,
+            )
+        )
+    except ProductImportTerminalError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=exc.code,
+        )
+        bounded_upload.close()
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    exc.code,
+                "message":
+                    exc.user_message,
+                "context":
+                    _error_context(
+                        request,
+                        exc.context,
+                    ),
+            },
+        ) from exc
 
     try:
         tracking_defaults = (
@@ -532,27 +645,47 @@ async def create_product_import(
             },
         ) from exc
     except ValueError as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_REQUEST_CONFLICT",
+        )
         raise HTTPException(
             409,
             detail={
                 "code":
                     "PRODUCT_IMPORT_REQUEST_CONFLICT",
                 "message":
-                    str(
-                        exc
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_REQUEST_CONFLICT"
                     ),
-                "context": {},
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
     except Exception as exc:
+        _log_api_exception(
+            request,
+            exc,
+            code=
+                "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+        )
         raise HTTPException(
             503,
             detail={
                 "code":
                     "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
                 "message":
-                    "Import could not be queued.",
-                "context": {},
+                    user_safe_error_message(
+                        "PRODUCT_IMPORT_QUEUE_UNAVAILABLE"
+                    ),
+                "context":
+                    _error_context(
+                        request
+                    ),
             },
         ) from exc
     finally:
