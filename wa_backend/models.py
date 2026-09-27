@@ -690,6 +690,71 @@ class InventoryCostAllocation(Base):
     created_at      = Column(DateTime, nullable=False, default=utc_now, index=True)
 
 
+class ProductImportSource(Base):
+    """Tenant-owned immutable Product Import source metadata."""
+    __tablename__ = 'product_import_sources'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_product_import_source_company_id'),
+        ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE', name='fk_product_import_source_company'),
+        CheckConstraint('byte_size > 0', name='chk_product_import_source_size'),
+        CheckConstraint('char_length(sha256) = 64', name='chk_product_import_source_sha256'),
+        Index(
+            'ix_product_import_source_live',
+            'company_id',
+            'created_at',
+            'id',
+            postgresql_where=text('deleted_at IS NULL'),
+        ),
+    )
+    id = Column(Uuid, primary_key=True, default=uuid4)
+    company_id = Column(Integer, nullable=False, index=True)
+    sha256 = Column(String(64), nullable=False)
+    byte_size = Column(BigInteger, nullable=False)
+    storage_backend = Column(String(40), nullable=False, default='POSTGRES_CHUNKS', server_default='POSTGRES_CHUNKS')
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+    deleted_at = Column(DateTime, nullable=True)
+
+
+class ProductImportSourceChunk(Base):
+    """Bounded immutable chunk belonging to one Product Import source."""
+    __tablename__ = 'product_import_source_chunks'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['company_id', 'source_id'],
+            ['product_import_sources.company_id', 'product_import_sources.id'],
+            ondelete='CASCADE',
+            name='fk_product_import_source_chunk_source',
+        ),
+        CheckConstraint('chunk_index >= 0', name='chk_product_import_source_chunk_index'),
+        CheckConstraint('byte_size > 0', name='chk_product_import_source_chunk_size'),
+    )
+    company_id = Column(Integer, primary_key=True)
+    source_id = Column(Uuid, primary_key=True)
+    chunk_index = Column(Integer, primary_key=True)
+    byte_size = Column(Integer, nullable=False)
+    payload = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+
+
+class ProductImportAdmissionRejection(Base):
+    """Durable Product Import admission-denial telemetry."""
+    __tablename__ = 'product_import_admission_rejections'
+    __table_args__ = (
+        ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE', name='fk_product_import_admission_company'),
+        CheckConstraint('current_value >= 0 AND limit_value > 0', name='chk_product_import_admission_values'),
+        CheckConstraint('retry_after_seconds > 0', name='chk_product_import_admission_retry_after'),
+        Index('ix_product_import_admission_rejection_company_time', 'company_id', 'created_at'),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    company_id = Column(Integer, nullable=False)
+    actor_id = Column(Integer, nullable=False)
+    code = Column(String(100), nullable=False)
+    current_value = Column(BigInteger, nullable=False)
+    limit_value = Column(BigInteger, nullable=False)
+    retry_after_seconds = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+
+
 class ProductImportJob(Base):
     """Tenant-owned durable staging job; source payload is cleared after parsing."""
     __tablename__ = 'product_import_jobs'
@@ -697,6 +762,7 @@ class ProductImportJob(Base):
         UniqueConstraint('company_id', 'id', name='uq_product_import_jobs_company_id'),
         UniqueConstraint('company_id', 'request_id', name='uq_product_import_job_request'),
         ForeignKeyConstraint(['company_id', 'created_by'], ['drivers.company_id', 'drivers.id'], ondelete='RESTRICT', name='fk_product_import_job_tenant_creator'),
+        ForeignKeyConstraint(['company_id', 'source_id'], ['product_import_sources.company_id', 'product_import_sources.id'], ondelete='RESTRICT', name='fk_product_import_job_source'),
         CheckConstraint("status IN ('QUEUED','PARSING','NEEDS_MAPPING','VALIDATING','VALIDATION_FAILED','IMPORTING','RETRYING','COMPLETED','COMPLETED_WITH_ERRORS','FAILED')", name='chk_product_import_job_status'),
         CheckConstraint('file_size > 0', name='chk_product_import_job_file_size'),
         CheckConstraint('total_rows >= 0 AND processed_rows >= 0 AND valid_rows >= 0 AND failed_rows >= 0', name='chk_product_import_job_counts_nonnegative'),
@@ -711,6 +777,7 @@ class ProductImportJob(Base):
         ),
         Index('ix_product_import_job_company_status', 'company_id', 'status', 'created_at'),
         Index('ix_product_import_job_retention', 'company_id', 'finished_at', 'id', postgresql_where=text("finished_at IS NOT NULL")),
+        Index('ix_product_import_job_source', 'company_id', 'source_id'),
     )
     id = Column(Uuid, primary_key=True, default=uuid4)
     company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -718,6 +785,7 @@ class ProductImportJob(Base):
     created_by = Column(Integer, nullable=False, index=True)
     file_name = Column(String(255), nullable=False)
     content_type = Column(String(150), nullable=False)
+    source_id = Column(Uuid, nullable=True)
     source_payload = Column(LargeBinary, nullable=True)
     source_payload_cleared_at = Column(DateTime, nullable=True)
     source_sha256 = Column(String(64), nullable=False)
