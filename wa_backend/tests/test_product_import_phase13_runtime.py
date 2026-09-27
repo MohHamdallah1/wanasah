@@ -12,6 +12,10 @@ from domains.simple_products.imports.application.cancellation_service import (
 from domains.simple_products.imports.application.execution_service import (
     _execute_rows_once,
 )
+from domains.simple_products.imports.application.source_service import (
+    ProductImportSourceContext,
+    prepare_import_source,
+)
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     ProductImportStateTransitionError,
@@ -201,6 +205,57 @@ class Phase13CancellationTests(
             load_job.await_args.kwargs[
                 "for_update"
             ]
+        )
+
+
+    async def test_cancelled_queued_delivery_releases_retained_source(
+        self,
+    ) -> None:
+        source_id = uuid4()
+        job_id = uuid4()
+        store = SimpleNamespace(
+            delete_source_bytes=
+                AsyncMock()
+        )
+        with (
+            patch(
+                "domains.simple_products.imports.application.source_service._load_source_context",
+                AsyncMock(
+                    return_value=
+                        ProductImportSourceContext(
+                            legacy_payload=None,
+                            source_id=source_id,
+                            source_size=128,
+                            source_sha256="a" * 64,
+                            source_cleared=False,
+                            file_name="products.csv",
+                            status=
+                                JobStatus.CANCELLED.value,
+                        )
+                ),
+            ),
+            patch(
+                "domains.simple_products.imports.application.source_service._mark_source_cleaned",
+                AsyncMock(),
+            ) as mark_cleaned,
+        ):
+            status = await prepare_import_source(
+                company_id=11,
+                job_id=job_id,
+                source_store=store,
+            )
+
+        self.assertEqual(
+            status,
+            JobStatus.CANCELLED.value,
+        )
+        store.delete_source_bytes.assert_awaited_once_with(
+            company_id=11,
+            source_id=source_id,
+        )
+        mark_cleaned.assert_awaited_once_with(
+            company_id=11,
+            job_id=job_id,
         )
 
 
