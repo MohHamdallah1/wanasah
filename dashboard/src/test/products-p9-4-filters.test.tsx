@@ -204,13 +204,28 @@ describe("Products P9.4 active filters", () => {
       "PRODUCT_SORT_OPTIONS",
     );
     expect(panel).toContain(
-      '"products.filters.more"'
+      '"products.filters.barcodePresent"'
     );
     expect(panel).toContain(
-      '"products.filters.barcodePresent"'
+      "products.filters.sortOptions."
     );
     expect(panel).not.toContain(
       '"products.filters.sortDirection"'
+    );
+    expect(panel).not.toContain(
+      '"products.filters.compatibility"'
+    );
+    expect(panel).not.toContain(
+      '"products.filters.price"'
+    );
+    expect(panel).not.toContain(
+      '"products.filters.lot"'
+    );
+    expect(panel).not.toContain(
+      '"products.filters.expiry"'
+    );
+    expect(panel).not.toContain(
+      "PRODUCT_SORT_OPTIONS."
     );
     expect(panel).not.toContain(
       "rounded-2xl border border-slate-100 bg-slate-50/70 p-3",
