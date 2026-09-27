@@ -63,6 +63,20 @@ def classify_row_error(
     )
 
 
+def validation_outcome(
+    failed_count: int,
+) -> tuple[str, bool]:
+    if int(failed_count) > 0:
+        return (
+            "VALIDATION_FAILED",
+            False,
+        )
+    return (
+        "IMPORTING",
+        True,
+    )
+
+
 def collect_row_validation(
     rows: list[Any],
     *,
@@ -289,10 +303,11 @@ async def validate_rows(
         )
         assert locked is not None
 
-        target = (
-            "VALIDATION_FAILED"
-            if failed_count
-            else "IMPORTING"
+        (
+            target,
+            can_execute,
+        ) = validation_outcome(
+            failed_count
         )
         transition_job(
             locked,
@@ -314,7 +329,7 @@ async def validate_rows(
         )
 
         await db.commit()
-        return failed_count == 0
+        return can_execute
     except Exception:
         await db.rollback()
         raise
