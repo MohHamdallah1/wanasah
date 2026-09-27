@@ -91,20 +91,31 @@ class ExhaustiveJobTransitionTests(
                 "NOT_A_STATE",
             )
 
-    def test_terminal_job_states_have_no_exit(
+    def test_only_noncorrectable_terminal_job_state_has_no_exit(
         self,
     ) -> None:
-        for terminal in (
-            JobStatus.COMPLETED,
-            JobStatus.COMPLETED_WITH_ERRORS,
-            JobStatus.VALIDATION_FAILED,
-        ):
-            self.assertEqual(
-                ALLOWED_JOB_TRANSITIONS[
-                    terminal
-                ],
-                frozenset(),
-            )
+        self.assertEqual(
+            ALLOWED_JOB_TRANSITIONS[
+                JobStatus.COMPLETED
+            ],
+            frozenset(),
+        )
+        self.assertEqual(
+            ALLOWED_JOB_TRANSITIONS[
+                JobStatus.VALIDATION_FAILED
+            ],
+            frozenset({
+                JobStatus.VALIDATING,
+            }),
+        )
+        self.assertEqual(
+            ALLOWED_JOB_TRANSITIONS[
+                JobStatus.COMPLETED_WITH_ERRORS
+            ],
+            frozenset({
+                JobStatus.VALIDATING,
+            }),
+        )
 
 
 class ExhaustiveRowTransitionTests(
@@ -180,19 +191,26 @@ class ExhaustiveRowTransitionTests(
                 "NOT_A_STATE",
             )
 
-    def test_terminal_row_outcomes_have_no_exit(
+    def test_only_imported_row_is_immutable_terminal_outcome(
         self,
     ) -> None:
-        for terminal in (
+        self.assertEqual(
+            ALLOWED_ROW_TRANSITIONS[
+                RowStatus.IMPORTED
+            ],
+            frozenset(),
+        )
+        for correctable in (
             RowStatus.INVALID,
             RowStatus.IMPORT_FAILED,
-            RowStatus.IMPORTED,
         ):
             self.assertEqual(
                 ALLOWED_ROW_TRANSITIONS[
-                    terminal
+                    correctable
                 ],
-                frozenset(),
+                frozenset({
+                    RowStatus.STAGED,
+                }),
             )
 
 
