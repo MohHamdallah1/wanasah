@@ -635,6 +635,40 @@ class Phase11BarcodeTests(
         )
 
 
+    def test_formula_barcode_is_rejected_even_when_cached_value_exists(
+        self,
+    ) -> None:
+        raw = {
+            "Product": "Tea",
+            "Unit Price": "1.000",
+            "Unit Barcode": "001234",
+            SOURCE_CELL_META_KEY: {
+                "Unit Barcode": {
+                    "formula": True,
+                    "cached": True,
+                }
+            },
+        }
+        with self.assertRaises(
+            SimpleProductError
+        ) as raised:
+            _normalized(
+                raw,
+                {
+                    "name":
+                        "Product",
+                    "unit_price":
+                        "Unit Price",
+                    "unit_barcode":
+                        "Unit Barcode",
+                },
+            )
+        self.assertEqual(
+            raised.exception.code,
+            "IMPORT_BARCODE_FORMULA_NOT_ALLOWED",
+        )
+
+
 class Phase11FutureDateContractTests(
     unittest.TestCase
 ):
