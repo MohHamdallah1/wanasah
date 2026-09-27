@@ -158,6 +158,15 @@ describe("Products P9 create family intent", () => {
       '"products.familyExistingHint"',
     );
     expect(identity).toContain(
+      "<CommandInput",
+    );
+    expect(identity).toContain(
+      "onFamilySearchChange(",
+    );
+    expect(identity).not.toContain(
+      "<datalist",
+    );
+    expect(identity).toContain(
       '"products.familyNewHint"',
     );
     expect(mutation).toContain(
