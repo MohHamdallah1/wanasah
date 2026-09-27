@@ -22,6 +22,9 @@ depends_on = None
 
 
 JOB_CONSTRAINT = (
+    "ck_product_import_jobs_chk_product_import_job_status"
+)
+JOB_COMPAT_CONSTRAINT = (
     "chk_product_import_job_status"
 )
 JOB_PHASE3_CONSTRAINT = (
@@ -32,6 +35,9 @@ JOB_LEGACY_CONSTRAINT = (
 )
 
 ROW_CONSTRAINT = (
+    "ck_product_import_rows_chk_product_import_row_status"
+)
+ROW_COMPAT_CONSTRAINT = (
     "chk_product_import_row_status"
 )
 ROW_BRIDGE_CONSTRAINT = (
@@ -182,6 +188,57 @@ def _validate(
     )
 
 
+def _constraint_exists(
+    table_name: str,
+    constraint_name: str,
+) -> bool:
+    bind = op.get_bind()
+    return bool(
+        bind.execute(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint AS con
+                    JOIN pg_class AS rel
+                      ON rel.oid = con.conrelid
+                    JOIN pg_namespace AS ns
+                      ON ns.oid = rel.relnamespace
+                    WHERE ns.nspname = 'public'
+                      AND rel.relname = :table_name
+                      AND con.conname = :constraint_name
+                )
+                """
+            ),
+            {
+                "table_name": table_name,
+                "constraint_name":
+                    constraint_name,
+            },
+        ).scalar()
+    )
+
+
+def _drop_existing(
+    table_name: str,
+    *constraint_names: str,
+) -> None:
+    for constraint_name in constraint_names:
+        if _constraint_exists(
+            table_name,
+            constraint_name,
+        ):
+            _drop_raw(
+                table_name,
+                constraint_name,
+            )
+            return
+    raise RuntimeError(
+        "Expected Product Import constraint was not found on "
+        f"{table_name}: {constraint_names!r}"
+    )
+
+
 def _drop_raw(
     table_name: str,
     constraint_name: str,
@@ -224,10 +281,10 @@ def upgrade() -> None:
         "product_import_jobs",
         JOB_PHASE3_CONSTRAINT,
     )
-    op.drop_constraint(
-        JOB_CONSTRAINT,
+    _drop_existing(
         "product_import_jobs",
-        type_="check",
+        JOB_CONSTRAINT,
+        JOB_COMPAT_CONSTRAINT,
     )
     _rename(
         "product_import_jobs",
@@ -244,10 +301,10 @@ def upgrade() -> None:
         "product_import_rows",
         ROW_BRIDGE_CONSTRAINT,
     )
-    op.drop_constraint(
-        ROW_CONSTRAINT,
+    _drop_existing(
         "product_import_rows",
-        type_="check",
+        ROW_CONSTRAINT,
+        ROW_COMPAT_CONSTRAINT,
     )
 
     op.execute(
