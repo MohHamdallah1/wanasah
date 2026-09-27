@@ -47,6 +47,7 @@ const currentStage = (
   }
   if (
     status?.status === "COMPLETED" ||
+    status?.status === "COMPLETED_WITH_ERRORS" ||
     status?.status === "FAILED" ||
     status?.status === "VALIDATION_FAILED"
   ) {
