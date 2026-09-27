@@ -1,21 +1,19 @@
 """Product Import source staging orchestration."""
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterable
 from uuid import UUID
 
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     transition_job,
 )
-from domains.simple_products.imports.domain import (
-    ProductImportTerminalError,
-)
 from domains.simple_products.imports.domain.mapping import (
     mapping_complete,
 )
 from domains.simple_products.imports.infrastructure.parsers import (
     MAX_IMPORT_ROWS,
+    ParsedRow,
 )
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
@@ -34,14 +32,9 @@ async def stage_source(
     company_id: int,
     job_id: UUID,
     headers: list[str],
-    rows: list[dict[str, Any]],
+    rows: Iterable[ParsedRow],
     suggestions: dict[str, str],
 ) -> None:
-    if len(rows) > MAX_IMPORT_ROWS:
-        raise ProductImportTerminalError(
-            f"The import exceeds the {MAX_IMPORT_ROWS:,}-row safety limit."
-        )
-
     token, db = await open_tenant_session(
         company_id
     )
@@ -51,12 +44,13 @@ async def stage_source(
             company_id=company_id,
             job_id=job_id,
         )
-        await insert_staged_rows(
+        total_rows = await insert_staged_rows(
             db,
             company_id=company_id,
             job_id=job_id,
             rows=rows,
             batch_size=STAGE_BATCH,
+            max_rows=MAX_IMPORT_ROWS,
         )
 
         job = await load_job(
@@ -87,7 +81,7 @@ async def stage_source(
             detected_headers=headers,
             suggested_mapping=suggestions,
             column_mapping=mapping,
-            total_rows=len(rows),
+            total_rows=total_rows,
             processed_rows=0,
             valid_rows=0,
             failed_rows=0,
