@@ -114,8 +114,11 @@ describe("Products P9.4 detail drawer", () => {
     expect(actions).toContain(
       "{canManageLifecycle ? (",
     );
-    expect(actions).toContain(
-      "canManageAdvancedUom &&",
+    expect(actions).not.toContain(
+      "canManageAdvancedUom",
+    );
+    expect(actions).not.toContain(
+      "products.advancedUom.productAction",
     );
 
     expect(primitives).toContain(
