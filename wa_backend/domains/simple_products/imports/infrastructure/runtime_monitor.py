@@ -135,14 +135,16 @@ async def read_product_import_runtime_metrics(
                         EXTRACT(
                             EPOCH FROM (
                                 CURRENT_TIMESTAMP
-                                - min(
-                                    COALESCE(
-                                        jobs.scheduled_at,
-                                        first_defer.enqueued_at,
-                                        CURRENT_TIMESTAMP
+                                - (
+                                    min(
+                                        COALESCE(
+                                            jobs.scheduled_at,
+                                            first_defer.enqueued_at,
+                                            CURRENT_TIMESTAMP
+                                        )
+                                    ) FILTER (
+                                        WHERE jobs.status = 'todo'
                                     )
-                                ) FILTER (
-                                    WHERE jobs.status = 'todo'
                                 )
                             )
                         ),
