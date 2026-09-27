@@ -199,12 +199,14 @@ async def read_tenant_source_capacity_metrics(
                         EXTRACT(
                             EPOCH FROM (
                                 CURRENT_TIMESTAMP
-                                - min(updated_at) FILTER (
-                                    WHERE status IN (
-                                        'PARSING',
-                                        'VALIDATING',
-                                        'IMPORTING',
-                                        'RETRYING'
+                                - (
+                                    min(updated_at) FILTER (
+                                        WHERE status IN (
+                                            'PARSING',
+                                            'VALIDATING',
+                                            'IMPORTING',
+                                            'RETRYING'
+                                        )
                                     )
                                 )
                             )
@@ -215,8 +217,10 @@ async def read_tenant_source_capacity_metrics(
                         EXTRACT(
                             EPOCH FROM (
                                 CURRENT_TIMESTAMP
-                                - min(created_at) FILTER (
-                                    WHERE status = 'QUEUED'
+                                - (
+                                    min(created_at) FILTER (
+                                        WHERE status = 'QUEUED'
+                                    )
                                 )
                             )
                         ),
