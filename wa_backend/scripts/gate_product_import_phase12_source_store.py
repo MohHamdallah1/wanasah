@@ -104,6 +104,13 @@ worker_source = source(
     "application",
     "worker.py",
 )
+source_service_source = source(
+    "domains",
+    "simple_products",
+    "imports",
+    "application",
+    "source_service.py",
+)
 admission_source = source(
     "domains",
     "simple_products",
@@ -298,17 +305,17 @@ check(
     "Admission-capacity error codes have user-facing localization",
 )
 
-verify_index = worker_source.index(
+verify_index = source_service_source.index(
     "read_verified_bytes("
 )
-parser_index = worker_source.index(
+parser_index = source_service_source.index(
     "with open_source("
 )
 check(
     verify_index
     < parser_index
     and "_verify_legacy_payload("
-    in worker_source,
+    in source_service_source,
     "Source hash/size verification occurs before parsing and retry parsing",
 )
 
