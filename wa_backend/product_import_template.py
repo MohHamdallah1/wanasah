@@ -7,7 +7,7 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
-from product_import_localization import (
+from domains.simple_products.imports.domain import (
     AR_IMPORT_LOCALE,
     CANONICAL_IMPORT_FIELDS,
     EN_IMPORT_LOCALE,
