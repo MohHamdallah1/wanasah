@@ -1,8 +1,7 @@
 import {
   ChevronDown,
   ChevronUp,
-  Copy,
-  Settings2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -30,9 +29,6 @@ type Props = {
     value: ProductTrackingMode,
   ) => void;
   onResetTracking: () => void;
-  onUnitBarcodeChange: (value: string) => void;
-  onCopyBarcode: () => void;
-  onPackageBarcodeChange: (value: string) => void;
 };
 
 export function CreateProductAdvancedSection({
@@ -47,9 +43,6 @@ export function CreateProductAdvancedSection({
   onLotControlModeChange,
   onExpiryControlModeChange,
   onResetTracking,
-  onUnitBarcodeChange,
-  onCopyBarcode,
-  onPackageBarcodeChange,
 }: Props) {
   const { t } = useTranslation();
 
@@ -59,11 +52,22 @@ export function CreateProductAdvancedSection({
         draft.expiry_control_mode,
     );
 
+  const handleToggle = () => {
+    if (
+      !createAdvancedExpanded &&
+      trackingReady &&
+      !createTrackingExpanded
+    ) {
+      onExpandTracking();
+    }
+    onToggleAdvanced();
+  };
+
   return (
     <section className="bg-white">
-      <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+          <p className="text-[10px] font-black text-slate-400">
             {t(
               "products.tracking.createTitle"
             )}
@@ -92,46 +96,44 @@ export function CreateProductAdvancedSection({
               </p>
             )
           ) : (
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <p className="text-xs font-black leading-5 text-slate-800">
-                {t(
-                  "products.tracking.createSummary",
-                  {
-                    lot: t(
-                      `products.tracking.lotModes.${draft.lot_control_mode}`
-                    ),
-                    expiry: t(
-                      `products.tracking.expiryModes.${draft.expiry_control_mode}`
-                    ),
-                  }
-                )}
-              </p>
-              <span
-                aria-hidden="true"
-                className="h-1 w-1 rounded-full bg-slate-300"
-              />
-              <p className="text-[10px] font-semibold leading-4 text-slate-500">
+            <p className="mt-1 text-xs font-black leading-5 text-slate-800">
+              {t(
+                "products.tracking.createSummary",
+                {
+                  lot: t(
+                    `products.tracking.lotModes.${draft.lot_control_mode}`
+                  ),
+                  expiry: t(
+                    `products.tracking.expiryModes.${draft.expiry_control_mode}`
+                  ),
+                }
+              )}
+              <span className="mx-2 text-slate-300">
+                ·
+              </span>
+              <span className="font-semibold text-slate-500">
                 {t(
                   trackingUsesCompanyDefaults
                     ? "products.tracking.createCompanyScope"
                     : "products.tracking.createCustomScope"
                 )}
-              </p>
-            </div>
+              </span>
+            </p>
           )}
         </div>
 
         <button
           type="button"
-          onClick={onToggleAdvanced}
+          onClick={handleToggle}
           aria-expanded={
             createAdvancedExpanded
           }
-          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[11px] font-black text-slate-700 transition hover:border-slate-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          disabled={!trackingReady}
+          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[11px] font-black text-slate-700 transition hover:border-slate-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-40"
         >
-          <Settings2 className="h-3.5 w-3.5" />
+          <SlidersHorizontal className="h-3.5 w-3.5" />
           {t(
-            "products.quickCreate.advancedTitle"
+            "products.tracking.createChange"
           )}
           {createAdvancedExpanded ? (
             <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
@@ -142,142 +144,33 @@ export function CreateProductAdvancedSection({
       </div>
 
       {createAdvancedExpanded ? (
-        <div className="grid gap-5 border-t border-slate-200 bg-slate-50/70 px-4 py-4 sm:px-5 lg:grid-cols-2">
-          <div className="min-w-0">
-            <div className="mb-3">
-              <h4 className="text-xs font-black text-slate-900">
-                {t(
-                  "products.tracking.createTitle"
-                )}
-              </h4>
-              <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">
-                {t(
-                  "products.tracking.createOnlyThisProduct"
-                )}
-              </p>
-            </div>
+        <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-4 sm:px-6">
+          <ProductTrackingFields
+            lotControlMode={
+              draft.lot_control_mode
+            }
+            expiryControlMode={
+              draft.expiry_control_mode
+            }
+            onLotControlModeChange={
+              onLotControlModeChange
+            }
+            onExpiryControlModeChange={
+              onExpiryControlModeChange
+            }
+          />
 
-            {!createTrackingExpanded ? (
-              <button
-                type="button"
-                onClick={onExpandTracking}
-                disabled={!trackingReady}
-                className="inline-flex min-h-9 items-center rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-40"
-              >
-                {t(
-                  "products.tracking.createChange"
-                )}
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <ProductTrackingFields
-                  lotControlMode={
-                    draft.lot_control_mode
-                  }
-                  expiryControlMode={
-                    draft.expiry_control_mode
-                  }
-                  onLotControlModeChange={
-                    onLotControlModeChange
-                  }
-                  onExpiryControlModeChange={
-                    onExpiryControlModeChange
-                  }
-                />
-
-                {!trackingUsesCompanyDefaults ? (
-                  <button
-                    type="button"
-                    onClick={onResetTracking}
-                    className="text-[11px] font-black text-slate-600 underline decoration-slate-300 underline-offset-4"
-                  >
-                    {t(
-                      "products.tracking.createReset"
-                    )}
-                  </button>
-                ) : null}
-              </div>
-            )}
-          </div>
-
-          <div className="min-w-0 border-t border-slate-200 pt-4 lg:border-s lg:border-t-0 lg:ps-5 lg:pt-0">
-            <div className="mb-3">
-              <h4 className="text-xs font-black text-slate-900">
-                {t(
-                  "products.barcodeSection"
-                )}
-              </h4>
-              <p className="mt-1 text-[10px] font-semibold leading-4 text-slate-500">
-                {t(
-                  "products.quickCreate.advancedHint"
-                )}
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <label className="block text-xs font-bold text-slate-500">
-                {t(
-                  "products.unitBarcode"
-                )}
-                <input
-                  value={
-                    draft.unit_barcode
-                  }
-                  onChange={(event) =>
-                    onUnitBarcodeChange(
-                      event.target.value
-                    )
-                  }
-                  className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                />
-              </label>
-
-              {draft.has_package ? (
-                <label className="block text-xs font-bold text-slate-500">
-                  <span className="flex items-center justify-between gap-2">
-                    <span>
-                      {t(
-                        "products.packageBarcode"
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={
-                        !draft.unit_barcode.trim()
-                      }
-                      onClick={onCopyBarcode}
-                      title={t(
-                        "products.copyBarcode"
-                      )}
-                      className="inline-flex items-center gap-1 text-[10px] font-black text-slate-500 transition hover:text-slate-900 disabled:opacity-30"
-                    >
-                      <Copy className="h-3 w-3" />
-                      {t(
-                        "products.copyBarcode"
-                      )}
-                    </button>
-                  </span>
-                  <input
-                    value={
-                      draft.package_barcode
-                    }
-                    onChange={(event) =>
-                      onPackageBarcodeChange(
-                        event.target.value
-                      )
-                    }
-                    className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                  />
-                </label>
-              ) : null}
-            </div>
-          </div>
-
-          <p className="border-t border-slate-200 pt-3 text-[10px] font-semibold leading-4 text-slate-400 lg:col-span-2">
-            {t(
-              "products.quickCreate.systemManagedHint"
-            )}
-          </p>
+          {!trackingUsesCompanyDefaults ? (
+            <button
+              type="button"
+              onClick={onResetTracking}
+              className="mt-3 text-[11px] font-black text-slate-600 underline decoration-slate-300 underline-offset-4"
+            >
+              {t(
+                "products.tracking.createReset"
+              )}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </section>
