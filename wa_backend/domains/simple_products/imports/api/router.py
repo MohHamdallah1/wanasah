@@ -58,7 +58,10 @@ from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
 )
 from domains.simple_products.imports.domain.errors import (
+    import_error_field,
+    public_error_summary,
     user_safe_error_message,
+    user_safe_row_error_message,
 )
 from domains.simple_products.imports.infrastructure.content_security import (
     validate_source_content,
@@ -770,9 +773,10 @@ def _job_payload(
         "default_expiry_control_mode": str(
             job.default_expiry_control_mode
         ),
-        "error_summary": dict(
-            job.error_summary or {}
-        ),
+        "error_summary":
+            public_error_summary(
+                job.error_summary
+            ),
         "created_at": (
             job.created_at.isoformat()
             if job.created_at
@@ -860,7 +864,14 @@ async def get_product_import(
                     row.row_number
                 ),
                 "code": row.error_code,
-                "message": row.error_message,
+                "field":
+                    import_error_field(
+                        row.error_code
+                    ),
+                "message":
+                    user_safe_row_error_message(
+                        row.error_code
+                    ),
             }
             for row in rows
         ]
@@ -929,7 +940,14 @@ async def get_product_import_errors(
             {
                 "row_number": int(row.row_number),
                 "code": row.error_code,
-                "message": row.error_message,
+                "field":
+                    import_error_field(
+                        row.error_code
+                    ),
+                "message":
+                    user_safe_row_error_message(
+                        row.error_code
+                    ),
             }
             for row in page
         ],
