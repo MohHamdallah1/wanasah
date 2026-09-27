@@ -74,6 +74,7 @@ ALLOWED_JOB_TRANSITIONS: dict[
         JobStatus.NEEDS_MAPPING,
         JobStatus.VALIDATION_FAILED,
         JobStatus.IMPORTING,
+        JobStatus.COMPLETED_WITH_ERRORS,
         JobStatus.FAILED,
     }),
     JobStatus.VALIDATION_FAILED:
