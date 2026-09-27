@@ -21,6 +21,12 @@ from domains.simple_products.imports.infrastructure.runtime_monitor import (
     STUCK_STAGE_ALERT_SECONDS,
     read_product_import_runtime_metrics,
 )
+from domains.simple_products.imports.infrastructure.table_health_monitor import (
+    AUTOVACUUM_LAG_ALERT_SECONDS,
+    DEAD_TUPLE_ALERT_PERCENT,
+    TRANSACTION_AGE_ALERT,
+    read_product_import_table_health,
+)
 
 
 logger = logging.getLogger(
@@ -221,6 +227,78 @@ async def schedule_product_import_capacity_monitor(
     runtime_metrics = (
         await read_product_import_runtime_metrics()
     )
+    table_health = (
+        await read_product_import_table_health()
+    )
+
+    max_dead_tuple_percent = 0.0
+    for metric in table_health:
+        max_dead_tuple_percent = max(
+            max_dead_tuple_percent,
+            metric.dead_tuple_percent,
+        )
+        logger.info(
+            "PRODUCT_IMPORT_TABLE_HEALTH "
+            "table=%s live=%s dead=%s dead_pct=%.2f "
+            "table_bytes=%s index_bytes=%s total_bytes=%s "
+            "transaction_age=%s autovacuum_lag_seconds=%s "
+            "autoanalyze_lag_seconds=%s active_vacuum_seconds=%s "
+            "autovacuum_count=%s autoanalyze_count=%s",
+            metric.table_name,
+            metric.live_tuples,
+            metric.dead_tuples,
+            metric.dead_tuple_percent,
+            metric.table_bytes,
+            metric.index_bytes,
+            metric.total_bytes,
+            metric.transaction_age,
+            metric.autovacuum_lag_seconds,
+            metric.autoanalyze_lag_seconds,
+            metric.active_vacuum_seconds,
+            metric.autovacuum_count,
+            metric.autoanalyze_count,
+        )
+
+        if (
+            metric.dead_tuple_percent
+            >= DEAD_TUPLE_ALERT_PERCENT
+            and metric.dead_tuples
+            >= 1000
+        ):
+            logger.warning(
+                "PRODUCT_IMPORT_TABLE_BLOAT_HIGH "
+                "table=%s dead=%s dead_pct=%.2f total_bytes=%s",
+                metric.table_name,
+                metric.dead_tuples,
+                metric.dead_tuple_percent,
+                metric.total_bytes,
+            )
+
+        if (
+            metric.autovacuum_lag_seconds
+            >= AUTOVACUUM_LAG_ALERT_SECONDS
+            and metric.dead_tuples
+            >= 1000
+        ):
+            logger.warning(
+                "PRODUCT_IMPORT_AUTOVACUUM_LAG "
+                "table=%s lag_seconds=%s dead=%s dead_pct=%.2f",
+                metric.table_name,
+                metric.autovacuum_lag_seconds,
+                metric.dead_tuples,
+                metric.dead_tuple_percent,
+            )
+
+        if (
+            metric.transaction_age
+            >= TRANSACTION_AGE_ALERT
+        ):
+            logger.error(
+                "PRODUCT_IMPORT_TRANSACTION_AGE_HIGH "
+                "table=%s transaction_age=%s",
+                metric.table_name,
+                metric.transaction_age,
+            )
 
     if (
         runtime_metrics.queued_jobs
@@ -354,4 +432,14 @@ async def schedule_product_import_capacity_monitor(
             runtime_metrics.queued_jobs,
         "oldest_queue_age_seconds":
             runtime_metrics.oldest_queue_age_seconds,
+        "health_tables":
+            len(
+                table_health
+            ),
+        "max_dead_tuple_percent":
+            int(
+                round(
+                    max_dead_tuple_percent
+                )
+            ),
     }
