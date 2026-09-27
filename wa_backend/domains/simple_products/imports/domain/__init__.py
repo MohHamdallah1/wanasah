@@ -6,6 +6,7 @@ reaching into internal module files. The domain layer is a leaf: it must not
 depend on application, infrastructure or API layers.
 """
 
+from .errors import ProductImportTerminalError
 from .localization import (
     AR_IMPORT_LOCALE,
     CANONICAL_IMPORT_FIELDS,
@@ -23,6 +24,7 @@ from .localization import (
 )
 
 __all__ = (
+    "ProductImportTerminalError",
     "AR_IMPORT_LOCALE",
     "CANONICAL_IMPORT_FIELDS",
     "EN_IMPORT_LOCALE",
