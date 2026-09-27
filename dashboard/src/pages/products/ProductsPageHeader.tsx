@@ -58,23 +58,6 @@ export function ProductsPageHeader({
         </div>
 
         <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:justify-end">
-          <div className="order-3 rtl:order-1">
-            <ProductsAddMenu
-              canCreateSimpleProduct={
-                canCreateSimpleProduct
-              }
-              canImportProducts={
-                canImportProducts
-              }
-              onOpenCreateProduct={
-                onOpenCreateProduct
-              }
-              onOpenImport={
-                onOpenImport
-              }
-            />
-          </div>
-
           <ProductsCatalogToolsMenu
             triggerVariant="topbar"
             trackingDefaultsLoading={
@@ -97,12 +80,27 @@ export function ProductsPageHeader({
             }
           />
 
+          <ProductsAddMenu
+            canCreateSimpleProduct={
+              canCreateSimpleProduct
+            }
+            canImportProducts={
+              canImportProducts
+            }
+            onOpenCreateProduct={
+              onOpenCreateProduct
+            }
+            onOpenImport={
+              onOpenImport
+            }
+          />
+
           <button
             type="button"
             onClick={onRefresh}
             aria-label={t("common.refresh")}
             title={t("common.refresh")}
-            className="order-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-slate-200 transition hover:border-white/15 hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 rtl:order-3"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-slate-200 transition hover:border-white/15 hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
           >
             <RefreshCw
               className={`h-4 w-4 ${
