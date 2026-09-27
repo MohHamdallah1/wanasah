@@ -37,8 +37,10 @@ from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
     count_validation_outcomes,
     fetch_validation_batch,
-    find_active_barcodes,
+    invalidate_external_barcode_conflicts,
+    invalidate_internal_duplicate_barcodes,
     load_job,
+    rebuild_job_barcode_staging,
     open_tenant_session,
 )
 from domains.simple_products.service import (
@@ -103,7 +105,6 @@ def collect_row_validation(
 ) -> tuple[
     dict[int, dict[str, Any]],
     dict[int, tuple[str, str]],
-    dict[str, list[int]],
 ]:
     if (
         len(rows)
@@ -121,11 +122,6 @@ def collect_row_validation(
         int,
         tuple[str, str],
     ] = {}
-    barcode_rows: dict[
-        str,
-        list[int],
-    ] = {}
-
     for row in rows:
         try:
             data = normalize_raw_row(
@@ -144,25 +140,6 @@ def collect_row_validation(
                 row_id
             ] = data
 
-            row_barcodes = {
-                str(barcode)
-                for barcode in (
-                    data.get(
-                        "unit_barcode"
-                    ),
-                    data.get(
-                        "package_barcode"
-                    ),
-                )
-                if barcode
-            }
-            for barcode in row_barcodes:
-                barcode_rows.setdefault(
-                    barcode,
-                    [],
-                ).append(
-                    row_id
-                )
         except Exception as exc:
             classified = (
                 classify_row_error(
@@ -177,7 +154,6 @@ def collect_row_validation(
     return (
         normalized,
         errors,
-        barcode_rows,
     )
 
 
@@ -193,7 +169,6 @@ async def _validate_batch(
     (
         normalized,
         errors,
-        barcode_rows,
     ) = collect_row_validation(
         rows,
         mapping=mapping,
@@ -202,44 +177,6 @@ async def _validate_batch(
         default_expiry_control_mode=
             default_expiry_control_mode,
     )
-
-    # Phase 5 intentionally keeps duplicate detection bounded to this batch.
-    # Phase 6 replaces this with database-backed whole-job duplicate detection.
-    for barcode, row_ids in (
-        barcode_rows.items()
-    ):
-        if len(row_ids) > 1:
-            for row_id in row_ids:
-                errors[row_id] = (
-                    "IMPORT_BARCODE_DUPLICATE",
-                    f"Barcode {barcode} appears on more than one import row.",
-                )
-
-    candidates = [
-        barcode
-        for barcode, row_ids
-        in barcode_rows.items()
-        if len(row_ids) == 1
-    ]
-    if candidates:
-        existing = (
-            await find_active_barcodes(
-                db,
-                company_id=company_id,
-                candidates=candidates,
-            )
-        )
-        for barcode in existing:
-            for row_id in (
-                barcode_rows.get(
-                    str(barcode),
-                    [],
-                )
-            ):
-                errors[row_id] = (
-                    "IMPORT_BARCODE_CONFLICT",
-                    f"Barcode {barcode} is already active.",
-                )
 
     valid_count = 0
     failed_count = 0
@@ -457,6 +394,35 @@ async def validate_rows(
                         reset_cursor = True
                         await db.rollback()
                     else:
+                    await rebuild_job_barcode_staging(
+                        db,
+                        company_id=company_id,
+                        job_id=job_id,
+                    )
+                    await invalidate_internal_duplicate_barcodes(
+                        db,
+                        company_id=company_id,
+                        job_id=job_id,
+                    )
+                    await invalidate_external_barcode_conflicts(
+                        db,
+                        company_id=company_id,
+                        job_id=job_id,
+                    )
+                    (
+                        valid_count,
+                        invalid_count,
+                        staged_count,
+                    ) = await count_validation_outcomes(
+                        db,
+                        company_id=company_id,
+                        job_id=job_id,
+                    )
+                    if staged_count != 0:
+                        raise ProductImportTerminalError(
+                            "Validation finalization found staged rows unexpectedly."
+                        )
+
                         raise ProductImportTerminalError(
                             "Validation checkpoint is inconsistent: staged rows remain unreachable."
                         )
