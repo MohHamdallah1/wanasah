@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,103 @@ def _bounded_limit(
         )
     return int(
         limit
+    )
+
+
+async def fetch_expired_source_ids(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    cutoff: datetime,
+    limit: int,
+) -> list[UUID]:
+    batch_limit = _bounded_limit(
+        limit
+    )
+    result = await db.execute(
+        text(
+            f"""
+            SELECT jobs.source_id
+            FROM product_import_jobs AS jobs
+            WHERE jobs.company_id = :company_id
+              AND jobs.status IN ({_TERMINAL_STATUS_SQL})
+              AND jobs.finished_at IS NOT NULL
+              AND jobs.finished_at <= :cutoff
+              AND jobs.source_id IS NOT NULL
+              AND jobs.source_payload_cleared_at IS NULL
+            ORDER BY
+                jobs.finished_at ASC,
+                jobs.id ASC
+            LIMIT :batch_limit
+            """
+        ),
+        {
+            "company_id":
+                int(
+                    company_id
+                ),
+            "cutoff":
+                cutoff,
+            "batch_limit":
+                batch_limit,
+        },
+    )
+    return [
+        UUID(
+            str(
+                source_id
+            )
+        )
+        for (
+            source_id,
+        )
+        in result.fetchall()
+    ]
+
+
+async def mark_source_ids_cleared(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    source_ids: list[UUID],
+) -> int:
+    if not source_ids:
+        return 0
+    result = await db.execute(
+        text(
+            """
+            UPDATE product_import_jobs
+            SET source_payload_cleared_at =
+                    COALESCE(
+                        source_payload_cleared_at,
+                        CURRENT_TIMESTAMP
+                    ),
+                updated_at =
+                    CURRENT_TIMESTAMP
+            WHERE company_id = :company_id
+              AND source_id = ANY(
+                  CAST(:source_ids AS uuid[])
+              )
+              AND source_payload_cleared_at IS NULL
+            """
+        ),
+        {
+            "company_id":
+                int(
+                    company_id
+                ),
+            "source_ids": [
+                str(
+                    source_id
+                )
+                for source_id
+                in source_ids
+            ],
+        },
+    )
+    return int(
+        result.rowcount
+        or 0
     )
 
 
