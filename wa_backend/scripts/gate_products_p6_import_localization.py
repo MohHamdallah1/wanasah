@@ -61,7 +61,7 @@ def static_checks() -> None:
         BACKEND / "product_import_worker.py"
     ).read_text(encoding="utf-8")
     api = (
-        BACKEND / "api/simple_products.py"
+        BACKEND / "domains/simple_products/imports/api/router.py"
     ).read_text(encoding="utf-8")
     localization = (
         BACKEND / "domains/simple_products/imports/domain/localization.py"
@@ -83,7 +83,7 @@ def static_checks() -> None:
         / "dashboard/src/pages/products/import/createImportDownloads.ts"
     ).read_text(encoding="utf-8")
     import_template = (
-        BACKEND / "product_import_template.py"
+        BACKEND / "domains/simple_products/imports/infrastructure/template.py"
     ).read_text(encoding="utf-8")
     modal_compact = " ".join(import_modal.split())
     mapping_compact = " ".join(import_mapping.split())
