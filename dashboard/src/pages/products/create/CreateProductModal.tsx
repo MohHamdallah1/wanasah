@@ -10,6 +10,7 @@ import type {
   ProductTrackingMode,
 } from "@/pages/products/contracts";
 import { CreateProductAdvancedSection } from "@/pages/products/create/CreateProductAdvancedSection";
+import { CreateProductBarcodeSection } from "@/pages/products/create/CreateProductBarcodeSection";
 import { CreateProductCommerceSection } from "@/pages/products/create/CreateProductCommerceSection";
 import { CreateProductIdentitySection } from "@/pages/products/create/CreateProductIdentitySection";
 import type {
@@ -148,6 +149,8 @@ export function CreateProductModal({
       }}
       title={t("products.addTitle")}
       maxWidth="max-w-5xl"
+      bodyClassName="p-0"
+      initialFocusRef={createNameRef}
       footer={
         <>
           <button
@@ -170,144 +173,144 @@ export function CreateProductModal({
         </>
       }
     >
-      <div className="space-y-3">
-        {!online ? (
-          <div
-            role="status"
-            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-900"
-          >
-            {t("products.offlineSaveHint")}
-          </div>
-        ) : null}
-
-        <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_18px_50px_-40px_rgba(15,23,42,0.65)]">
-          <CreateProductIdentitySection
-            draft={draft}
-            createFieldError={
-              createFieldError
-            }
-            familyOptions={
-              familyOptions
-            }
-            familyOptionsLoading={
-              familyOptionsLoading
-            }
-            familyOptionsError={
-              familyOptionsError
-            }
-            createNameRef={
-              createNameRef
-            }
-            createFamilyRef={
-              createFamilyRef
-            }
-            onNameChange={
-              onNameChange
-            }
-            onFamilyModeChange={
-              onFamilyModeChange
-            }
-            onFamilyChange={
-              onFamilyChange
-            }
-            onFamilySearchChange={
-              onFamilySearchChange
-            }
-            onRetryFamilyOptions={
-              onRetryFamilyOptions
-            }
-          />
-
-          <CreateProductCommerceSection
-            draft={draft}
-            createFieldError={
-              createFieldError
-            }
-            packageUoms={
-              packageUoms
-            }
-            packageUomsLoading={
-              packageUomsLoading
-            }
-            packageUomsError={
-              packageUomsError
-            }
-            draftDerived={
-              draftDerived
-            }
-            createUnitsRef={
-              createUnitsRef
-            }
-            createPackagePriceRef={
-              createPackagePriceRef
-            }
-            createUnitPriceRef={
-              createUnitPriceRef
-            }
-            onHasPackageChange={
-              onHasPackageChange
-            }
-            onRetryPackageUoms={
-              onRetryPackageUoms
-            }
-            onPackageUomChange={
-              onPackageUomChange
-            }
-            onUnitsPerPackageChange={
-              onUnitsPerPackageChange
-            }
-            onPackagePriceChange={
-              onPackagePriceChange
-            }
-            onUnitPriceChange={
-              onUnitPriceChange
-            }
-          />
-
-          <CreateProductAdvancedSection
-            draft={draft}
-            trackingDefaultsError={
-              trackingDefaultsError
-            }
-            trackingUsesCompanyDefaults={
-              trackingUsesCompanyDefaults
-            }
-            createAdvancedExpanded={
-              createAdvancedExpanded
-            }
-            createTrackingExpanded={
-              createTrackingExpanded
-            }
-            onRetryTrackingDefaults={
-              onRetryTrackingDefaults
-            }
-            onToggleAdvanced={
-              onToggleAdvanced
-            }
-            onExpandTracking={
-              onExpandTracking
-            }
-            onLotControlModeChange={
-              onLotControlModeChange
-            }
-            onExpiryControlModeChange={
-              onExpiryControlModeChange
-            }
-            onResetTracking={
-              onResetTracking
-            }
-            onUnitBarcodeChange={
-              onUnitBarcodeChange
-            }
-            onCopyBarcode={
-              onCopyBarcode
-            }
-            onPackageBarcodeChange={
-              onPackageBarcodeChange
-            }
-          />
+      {!online ? (
+        <div
+          role="status"
+          className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-bold leading-5 text-amber-900 sm:px-6"
+        >
+          {t("products.offlineSaveHint")}
         </div>
-      </div>
+      ) : null}
+
+      <CreateProductIdentitySection
+        draft={draft}
+        createFieldError={
+          createFieldError
+        }
+        familyOptions={
+          familyOptions
+        }
+        familyOptionsLoading={
+          familyOptionsLoading
+        }
+        familyOptionsError={
+          familyOptionsError
+        }
+        createNameRef={
+          createNameRef
+        }
+        createFamilyRef={
+          createFamilyRef
+        }
+        onNameChange={
+          onNameChange
+        }
+        onFamilyModeChange={
+          onFamilyModeChange
+        }
+        onFamilyChange={
+          onFamilyChange
+        }
+        onFamilySearchChange={
+          onFamilySearchChange
+        }
+        onRetryFamilyOptions={
+          onRetryFamilyOptions
+        }
+      />
+
+      <CreateProductCommerceSection
+        draft={draft}
+        createFieldError={
+          createFieldError
+        }
+        packageUoms={
+          packageUoms
+        }
+        packageUomsLoading={
+          packageUomsLoading
+        }
+        packageUomsError={
+          packageUomsError
+        }
+        draftDerived={
+          draftDerived
+        }
+        createUnitsRef={
+          createUnitsRef
+        }
+        createPackagePriceRef={
+          createPackagePriceRef
+        }
+        createUnitPriceRef={
+          createUnitPriceRef
+        }
+        onHasPackageChange={
+          onHasPackageChange
+        }
+        onRetryPackageUoms={
+          onRetryPackageUoms
+        }
+        onPackageUomChange={
+          onPackageUomChange
+        }
+        onUnitsPerPackageChange={
+          onUnitsPerPackageChange
+        }
+        onPackagePriceChange={
+          onPackagePriceChange
+        }
+        onUnitPriceChange={
+          onUnitPriceChange
+        }
+      />
+
+      <CreateProductBarcodeSection
+        draft={draft}
+        onUnitBarcodeChange={
+          onUnitBarcodeChange
+        }
+        onCopyBarcode={
+          onCopyBarcode
+        }
+        onPackageBarcodeChange={
+          onPackageBarcodeChange
+        }
+      />
+
+      <CreateProductAdvancedSection
+        draft={draft}
+        trackingDefaultsError={
+          trackingDefaultsError
+        }
+        trackingUsesCompanyDefaults={
+          trackingUsesCompanyDefaults
+        }
+        createAdvancedExpanded={
+          createAdvancedExpanded
+        }
+        createTrackingExpanded={
+          createTrackingExpanded
+        }
+        onRetryTrackingDefaults={
+          onRetryTrackingDefaults
+        }
+        onToggleAdvanced={
+          onToggleAdvanced
+        }
+        onExpandTracking={
+          onExpandTracking
+        }
+        onLotControlModeChange={
+          onLotControlModeChange
+        }
+        onExpiryControlModeChange={
+          onExpiryControlModeChange
+        }
+        onResetTracking={
+          onResetTracking
+        }
+      />
     </Modal>
   );
 }
