@@ -182,6 +182,20 @@ def _validate(
     )
 
 
+def _drop_raw(
+    table_name: str,
+    constraint_name: str,
+) -> None:
+    op.execute(
+        text(
+            f"""
+            ALTER TABLE {table_name}
+            DROP CONSTRAINT {constraint_name}
+            """
+        )
+    )
+
+
 def _rename(
     table_name: str,
     current_name: str,
@@ -255,10 +269,9 @@ def upgrade() -> None:
         "product_import_rows",
         ROW_PHASE3_CONSTRAINT,
     )
-    op.drop_constraint(
-        ROW_BRIDGE_CONSTRAINT,
+    _drop_raw(
         "product_import_rows",
-        type_="check",
+        ROW_BRIDGE_CONSTRAINT,
     )
     _rename(
         "product_import_rows",
@@ -336,10 +349,9 @@ def downgrade() -> None:
         "product_import_rows",
         ROW_LEGACY_CONSTRAINT,
     )
-    op.drop_constraint(
-        ROW_BRIDGE_CONSTRAINT,
+    _drop_raw(
         "product_import_rows",
-        type_="check",
+        ROW_BRIDGE_CONSTRAINT,
     )
     _rename(
         "product_import_rows",
