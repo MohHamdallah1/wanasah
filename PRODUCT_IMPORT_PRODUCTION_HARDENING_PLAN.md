@@ -350,21 +350,23 @@ Retries of failed rows stay attached to the same durable import job and stable r
 
 Successful rows are immutable outcomes and are never replayed.
 
+> Phase 8 uses the existing tenant-scoped `operation_idempotency` authority rather than inventing a second Product idempotency store. Correction upload, failed-row mutation, same-job transition, and queue defer are one PostgreSQL transaction. The generated correction format may add only its reserved metadata columns above the normal 100-column source limit.
+
 ## Tasks
 
-- [ ] Give every staged source row a stable immutable identity/token inside the job.
-- [ ] Derive deterministic idempotency identity from job + row/sub-batch identity.
-- [ ] Commit Product changes and the corresponding row outcome atomically.
-- [ ] On worker retry, select only rows that are still eligible for execution.
-- [ ] Never replay `IMPORTED` rows.
-- [ ] Add a correction/retry contract for failed rows within the same job.
-- [ ] Generate a correction artifact containing only failed rows plus stable hidden/explicit row identity.
-- [ ] Validate that a correction can update only its matching failed rows.
-- [ ] Reject correction files that attempt to mutate already imported row identities.
-- [ ] Support retrying corrected failed rows without touching previous successes.
-- [ ] Add crash tests for “Product committed / worker died immediately afterward”.
-- [ ] Add duplicate client retry tests.
-- [ ] Add duplicate queue delivery tests.
+- [x] Give every staged source row a durable UUID `row_identity`, unique within tenant + job and protected by a database immutability trigger.
+- [x] Derive deterministic Product-creation request identity from `job_id` + ordered immutable row identities, with a canonical request hash over row identities + normalized payload.
+- [x] Keep Product creation, durable operation-idempotency completion, and `IMPORTED` row outcome inside the same outer database transaction.
+- [x] Keep execution/retry selection strictly `VALID`-only through the bounded repository path.
+- [x] Keep `IMPORTED` as an immutable terminal row state; neither execution nor correction can move it back into the pipeline.
+- [x] Add an idempotent correction contract that updates failed rows in-place and re-enters `VALIDATING` on the same durable job.
+- [x] Generate CSV/XLSX correction artifacts containing only `INVALID` / `IMPORT_FAILED` rows plus explicit stable row identity metadata.
+- [x] Validate correction identities tenant + job scoped and allow updates only for matching `INVALID` / `IMPORT_FAILED` rows.
+- [x] Reject correction files that reference an `IMPORTED` row identity before any row mutation is applied.
+- [x] Reset only corrected failed rows to `STAGED`; previous `IMPORTED` rows remain untouched while the same job is revalidated/re-executed.
+- [x] Add crash/replay coverage proving a durable idempotency result restores the row outcome without a second Product create, while the normal path keeps Product + idempotency + row outcome atomic.
+- [x] Add duplicate correction client-request tests proving the same `request_id` + payload replays without re-mutating rows.
+- [x] Add duplicate queue-delivery tests proving the same job + row identity creates the Product once and replays the stored outcome.
 
 ---
 
