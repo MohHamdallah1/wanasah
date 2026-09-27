@@ -1,10 +1,11 @@
-"""Application/use-case boundary for Product Import.
+"""Public application entry point for Product Import."""
 
-Application orchestration may depend on the import domain and existing owning
-Product/Tracking/Pricing authorities. Infrastructure must be supplied through
-explicit contracts/adapters rather than imported through package side effects.
+from .worker import (
+    mark_import_runtime_failure,
+    run_product_import_job,
+)
 
-No eager cross-layer imports are allowed here.
-"""
-
-__all__: tuple[str, ...] = ()
+__all__ = (
+    "mark_import_runtime_failure",
+    "run_product_import_job",
+)
