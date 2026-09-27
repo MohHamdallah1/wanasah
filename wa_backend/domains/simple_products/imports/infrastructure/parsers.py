@@ -112,10 +112,26 @@ class _DiskBackedSharedStrings(
             tuple[int, str]
         ] = []
 
-        for _, node in iterparse(
-            xml_source
-        ):
-            if node.tag != string_tag:
+        events = iterparse(
+            xml_source,
+            events=(
+                "start",
+                "end",
+            ),
+        )
+        try:
+            _event, root = next(
+                events
+            )
+        except StopIteration:
+            return
+
+        for event, node in events:
+            if (
+                event != "end"
+                or node.tag
+                != string_tag
+            ):
                 continue
 
             value = (
@@ -135,7 +151,12 @@ class _DiskBackedSharedStrings(
                 )
             )
             self._length += 1
+
+            # Clearing both the processed node and the root releases prior
+            # sibling elements instead of allowing ElementTree to retain one
+            # empty object per shared string.
             node.clear()
+            root.clear()
 
             if (
                 len(batch)
