@@ -13,6 +13,7 @@ type AuthFetch = (
 
 type I18nLookup = {
   exists: (key: string) => boolean;
+  language: string;
 };
 
 type Params = {
@@ -137,87 +138,95 @@ export function createImportDownloads({
 
   const downloadTemplate =
     async () => {
-      const XLSX =
-        await import("xlsx");
+      const locale =
+        i18n.language
+          .split("-")[0] === "en"
+          ? "en"
+          : "ar";
+      const raw =
+        await authFetch(
+          `/simple-products/import-template?locale=${locale}`
+        );
 
-      const headers = [
-        t(
-          "products.fields.name"
-        ),
-        t(
-          "products.fields.family"
-        ),
-        t(
-          "products.fields.packageUom"
-        ),
-        t(
-          "products.fields.unitsPerPackage"
-        ),
-        t(
-          "products.fields.packagePrice"
-        ),
-        t(
-          "products.fields.unitPrice"
-        ),
-        t(
-          "products.fields.unitBarcode"
-        ),
-        t(
-          "products.fields.packageBarcode"
-        ),
-        t(
-          "products.fields.lotControlMode"
-        ),
-        t(
-          "products.fields.expiryControlMode"
-        ),
-      ];
+      if (
+        !raw ||
+        typeof raw !== "object"
+      ) {
+        throw new Error(
+          "INVALID_IMPORT_TEMPLATE_RESPONSE"
+        );
+      }
 
-      // Untouched template is intentionally headers-only.
-      // Guidance and examples live in the UI so a user cannot
-      // accidentally import a sample Product from the template.
-      const productsSheet =
-        XLSX.utils.aoa_to_sheet([
-          headers,
-        ]);
-      productsSheet["!cols"] =
-        headers.map(() => ({
-          wch: 24,
-        }));
-      productsSheet[
-        "!autofilter"
-      ] = {
-        ref:
-          XLSX.utils.encode_range({
-            s: {
-              r: 0,
-              c: 0,
-            },
-            e: {
-              r: 0,
-              c:
-                headers.length -
-                1,
-            },
-          }),
-      };
+      const record =
+        raw as Record<
+          string,
+          unknown
+        >;
+      const fileName =
+        typeof record.file_name ===
+        "string"
+          ? record.file_name
+          : "";
+      const contentType =
+        typeof record.content_type ===
+        "string"
+          ? record.content_type
+          : "";
+      const contentBase64 =
+        typeof record.content_base64 ===
+        "string"
+          ? record.content_base64
+          : "";
 
-      const workbook =
-        XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(
-        workbook,
-        productsSheet,
-        t(
-          "products.importTemplateProductsSheet"
-        ).slice(0, 31)
-      );
+      if (
+        !fileName ||
+        !contentType ||
+        !contentBase64
+      ) {
+        throw new Error(
+          "INVALID_IMPORT_TEMPLATE_RESPONSE"
+        );
+      }
 
-      XLSX.writeFile(
-        workbook,
-        "products-import-template.xlsx",
-        {
-          compression: true,
-        }
+      const binary =
+        window.atob(
+          contentBase64
+        );
+      const bytes =
+        new Uint8Array(
+          binary.length
+        );
+      for (
+        let index = 0;
+        index < binary.length;
+        index += 1
+      ) {
+        bytes[index] =
+          binary.charCodeAt(
+            index
+          );
+      }
+
+      const href =
+        URL.createObjectURL(
+          new Blob(
+            [bytes],
+            {
+              type:
+                contentType,
+            }
+          )
+        );
+      const link =
+        document.createElement(
+          "a"
+        );
+      link.href = href;
+      link.download =
+        fileName;
+      link.click();
+      URL.revokeObjectURL(
+        href
       );
     };
 
