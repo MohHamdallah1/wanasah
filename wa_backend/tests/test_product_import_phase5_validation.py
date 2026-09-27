@@ -216,17 +216,17 @@ class ValidationState:
             ),
         )
 
-    async def find_barcodes(
+    async def finalize_barcodes(
         self,
         _db,
         *,
         company_id: int,
-        candidates: list[str],
-    ) -> set[str]:
+        job_id,
+    ) -> int:
         self.assert_tenant(
             company_id
         )
-        return set()
+        return 0
 
     def normalize(
         self,
@@ -310,6 +310,21 @@ class Phase5ValidationTests(
                 validation_service,
                 "count_validation_outcomes",
                 state.counts,
+            ),
+            patch.object(
+                validation_service,
+                "rebuild_job_barcode_staging",
+                state.finalize_barcodes,
+            ),
+            patch.object(
+                validation_service,
+                "invalidate_internal_duplicate_barcodes",
+                state.finalize_barcodes,
+            ),
+            patch.object(
+                validation_service,
+                "invalidate_external_barcode_conflicts",
+                state.finalize_barcodes,
             ),
             patch.object(
                 validation_service,
