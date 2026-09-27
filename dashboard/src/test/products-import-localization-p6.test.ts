@@ -28,13 +28,13 @@ describe(
   () => {
     it("keeps locale aliases outside the import worker and shares canonical field IDs", () => {
       const worker = readSource(
-        "../../../wa_backend/product_import_worker.py",
+        "../../../wa_backend/domains/simple_products/imports/application/worker.py",
       );
       const localization = readSource(
-        "../../../wa_backend/product_import_localization.py",
+        "../../../wa_backend/domains/simple_products/imports/domain/localization.py",
       );
       const api = readSource(
-        "../../../wa_backend/api/simple_products.py",
+        "../../../wa_backend/domains/simple_products/imports/api/router.py",
       );
 
       expect(localization).toContain(
@@ -48,7 +48,7 @@ describe(
       );
 
       expect(worker).toContain(
-        "from product_import_localization import",
+        "run_product_import_job",
       );
       expect(worker).not.toContain(
         "_TRACKING_VALUE_ALIASES",
@@ -115,10 +115,10 @@ describe(
 
     it("keeps workbook localization in the backend template and value guidance in the UI", () => {
       const template = readSource(
-        "../../../wa_backend/product_import_template.py",
+        "../../../wa_backend/domains/simple_products/imports/infrastructure/template.py",
       );
       const localization = readSource(
-        "../../../wa_backend/product_import_localization.py",
+        "../../../wa_backend/domains/simple_products/imports/domain/localization.py",
       );
       const downloads = readSource(
         "../pages/products/import/createImportDownloads.ts",
@@ -189,18 +189,23 @@ describe(
     });
 
     it("has translation keys for every import row validation code emitted by the worker", () => {
-      const worker = readSource(
-        "../../../wa_backend/product_import_worker.py",
-      );
+      const validationSources = [
+        "../../../wa_backend/domains/simple_products/imports/domain/normalization.py",
+        "../../../wa_backend/domains/simple_products/imports/application/validation_service.py",
+        "../../../wa_backend/domains/simple_products/imports/application/execution_service.py",
+      ].map(readSource);
       const translations = readSource(
         "../i18n/resources.ts",
       );
       const codes = new Set(
-        Array.from(
-          worker.matchAll(
-            /["'](IMPORT_[A-Z0-9_]+)["']/g,
-          ),
-          (match) => match[1],
+        validationSources.flatMap(
+          (source) =>
+            Array.from(
+              source.matchAll(
+                /["'](IMPORT_[A-Z0-9_]+)["']/g,
+              ),
+              (match) => match[1],
+            ),
         ),
       );
 
