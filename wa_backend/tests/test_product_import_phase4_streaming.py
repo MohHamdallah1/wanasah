@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import unittest
+import zipfile
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -51,6 +52,78 @@ def _xlsx_payload_with_blank_row() -> bytes:
     buffer = io.BytesIO()
     workbook.save(buffer)
     workbook.close()
+    return buffer.getvalue()
+
+
+def _shared_strings_xlsx_payload() -> bytes:
+    parts = {
+        "[Content_Types].xml": """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>""",
+        "_rels/.rels": """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""",
+        "xl/workbook.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Sheet1" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>""",
+        "xl/_rels/workbook.xml.rels": """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>""",
+        "xl/styles.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="0"/>
+  <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
+  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>""",
+        "xl/sharedStrings.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="3" uniqueCount="3">
+  <si><t>Product</t></si>
+  <si><t>Unit Price</t></si>
+  <si><t>Tea</t></si>
+</sst>""",
+        "xl/worksheets/sheet1.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="s"><v>0</v></c>
+      <c r="B1" t="s"><v>1</v></c>
+    </row>
+    <row r="2">
+      <c r="A2" t="s"><v>2</v></c>
+      <c r="B2"><v>1.25</v></c>
+    </row>
+  </sheetData>
+</worksheet>""",
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(
+        buffer,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as archive:
+        for name, payload in parts.items():
+            archive.writestr(
+                name,
+                payload,
+            )
     return buffer.getvalue()
 
 
@@ -143,6 +216,43 @@ class ParserStreamingTests(
         self.assertEqual(
             yielded,
             MAX_IMPORT_ROWS,
+        )
+
+    def test_xlsx_shared_strings_parse_through_disk_backed_reader(
+        self,
+    ) -> None:
+        with open_source(
+            "products.xlsx",
+            _shared_strings_xlsx_payload(),
+        ) as source:
+            rows = list(
+                source.rows
+            )
+
+        self.assertEqual(
+            source.headers,
+            [
+                "Product",
+                "Unit Price",
+            ],
+        )
+        self.assertEqual(
+            len(rows),
+            1,
+        )
+        self.assertEqual(
+            rows[0].row_number,
+            2,
+        )
+        self.assertEqual(
+            rows[0].raw["Product"],
+            "Tea",
+        )
+        self.assertEqual(
+            rows[0].raw[
+                "Unit Price"
+            ],
+            "1.25",
         )
 
     def test_xlsx_security_runs_before_workbook_traversal_and_closes(
