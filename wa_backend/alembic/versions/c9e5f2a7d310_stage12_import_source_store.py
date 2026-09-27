@@ -550,7 +550,7 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION product_import_source_metadata_immutable()
         RETURNS trigger
         LANGUAGE plpgsql
-        AS $
+        AS $body$
         BEGIN
             IF NEW.id IS DISTINCT FROM OLD.id
                OR NEW.company_id IS DISTINCT FROM OLD.company_id
@@ -563,7 +563,7 @@ def upgrade() -> None:
             END IF;
             RETURN NEW;
         END;
-        $
+        $body$
         """
     )
     op.execute(
@@ -579,11 +579,11 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION product_import_source_chunk_immutable()
         RETURNS trigger
         LANGUAGE plpgsql
-        AS $
+        AS $body$
         BEGIN
             RAISE EXCEPTION 'Product Import source chunks are immutable';
         END;
-        $
+        $body$
         """
     )
     op.execute(
