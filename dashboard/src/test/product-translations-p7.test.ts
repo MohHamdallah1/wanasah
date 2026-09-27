@@ -481,7 +481,10 @@ describe(
         '"Lolo Chips Cheese 20g"',
       );
       expect(importDownloads).toContain(
-        't("products.importTemplateSampleName")',
+        "/simple-products/import-template?locale=",
+      );
+      expect(importDownloads).not.toContain(
+        "importTemplateSampleName",
       );
 
       const advancedUom = read(
