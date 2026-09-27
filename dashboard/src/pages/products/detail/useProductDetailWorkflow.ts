@@ -32,7 +32,6 @@ type Params = {
   openBarcodeManager: (
     product: SimpleProduct
   ) => void;
-  navigate: (to: string) => void;
 };
 
 export function useProductDetailWorkflow({
@@ -47,7 +46,6 @@ export function useProductDetailWorkflow({
   openTrackingEditor,
   openLifecycleManager,
   openBarcodeManager,
-  navigate,
 }: Params) {
   const {
     detailProduct,
@@ -63,7 +61,6 @@ export function useProductDetailWorkflow({
     editTrackingFromDetails,
     manageLifecycleFromDetails,
     manageBarcodesFromDetails,
-    manageAdvancedUomFromDetails,
   } = createProductDetailActions({
     closeProductDetails,
     openRenameProduct,
@@ -72,7 +69,6 @@ export function useProductDetailWorkflow({
     openTrackingEditor,
     openLifecycleManager,
     openBarcodeManager,
-    navigate,
   });
 
   return {
@@ -94,8 +90,6 @@ export function useProductDetailWorkflow({
       canManageBarcodes:
         canManageCatalog,
       canManageLifecycle,
-      canManageAdvancedUom:
-        canManageCatalog,
       detailSections,
       onClose:
         closeProductDetails,
@@ -111,8 +105,6 @@ export function useProductDetailWorkflow({
         manageLifecycleFromDetails,
       onManageBarcodes:
         manageBarcodesFromDetails,
-      onManageAdvancedUom:
-        manageAdvancedUomFromDetails,
     },
   };
 }
