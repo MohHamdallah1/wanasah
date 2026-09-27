@@ -23,7 +23,7 @@ from models import (  # noqa: E402
     InventoryLiveStockCompanySummary,
     InventoryLocation,
 )
-from product_import_queue import (  # noqa: E402
+from domains.simple_products.imports.infrastructure.queue import (  # noqa: E402
     PRODUCT_IMPORT_STALLED_ALLOWLIST,
     PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS,
     app as product_import_app,
