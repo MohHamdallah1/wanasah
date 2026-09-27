@@ -1,4 +1,5 @@
-from sqlalchemy import BigInteger, Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, Uuid, LargeBinary, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint, Computed
+from sqlalchemy import BigInteger, Column, Integer, String, Boolean, DateTime, Date, Numeric, Text, JSON, Uuid, LargeBinary, ForeignKey, CheckConstraint, UniqueConstraint, Index, MetaData, text, Table, ForeignKeyConstraint,
+    PrimaryKeyConstraint, Computed
 from sqlalchemy.dialects.postgresql import JSONB, TSTZRANGE, ExcludeConstraint
 from sqlalchemy.orm import relationship, declarative_base, backref
 from datetime import datetime, timezone
