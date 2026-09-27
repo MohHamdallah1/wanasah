@@ -16,6 +16,7 @@ from domains.simple_products.imports.application.state_machine import (
     transition_row,
 )
 from domains.simple_products.imports.application.validation_service import (
+    collect_row_validation,
     validation_outcome,
 )
 from domains.simple_products.imports.domain.normalization import (
@@ -113,6 +114,96 @@ class Phase7OutcomeTests(
                 progress
             ),
             JobStatus.COMPLETED_WITH_ERRORS,
+        )
+
+    def test_mixed_tracking_package_and_price_errors_do_not_block_valid_row(
+        self,
+    ) -> None:
+        rows = [
+            SimpleNamespace(
+                id=1,
+                raw_data={
+                    "Product": "Good",
+                    "Package": "CARTON",
+                    "Units": "12",
+                    "Price": "1.000",
+                    "Lot": "NONE",
+                },
+            ),
+            SimpleNamespace(
+                id=2,
+                raw_data={
+                    "Product": "Bad tracking",
+                    "Package": "CARTON",
+                    "Units": "12",
+                    "Price": "1.000",
+                    "Lot": "NOT_A_MODE",
+                },
+            ),
+            SimpleNamespace(
+                id=3,
+                raw_data={
+                    "Product": "Bad package",
+                    "Package": "CARTON",
+                    "Units": "1",
+                    "Price": "1.000",
+                    "Lot": "NONE",
+                },
+            ),
+            SimpleNamespace(
+                id=4,
+                raw_data={
+                    "Product": "Bad price",
+                    "Package": "CARTON",
+                    "Units": "12",
+                    "Price": "not-a-price",
+                    "Lot": "NONE",
+                },
+            ),
+        ]
+
+        normalized, errors = (
+            collect_row_validation(
+                rows,
+                mapping={
+                    "name": "Product",
+                    "package_uom":
+                        "Package",
+                    "units_per_package":
+                        "Units",
+                    "unit_price":
+                        "Price",
+                    "lot_control_mode":
+                        "Lot",
+                },
+                default_lot_control_mode=
+                    "NONE",
+                default_expiry_control_mode=
+                    "NONE",
+            )
+        )
+
+        self.assertEqual(
+            set(normalized),
+            {1},
+        )
+        self.assertEqual(
+            set(errors),
+            {
+                2,
+                3,
+                4,
+            },
+        )
+        self.assertEqual(
+            validation_outcome(
+                1,
+                3,
+            ),
+            (
+                JobStatus.IMPORTING.value,
+                True,
+            ),
         )
 
     def test_zero_valid_rows_stops_at_validation_failed(
