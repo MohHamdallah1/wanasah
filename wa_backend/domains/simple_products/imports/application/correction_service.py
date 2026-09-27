@@ -17,6 +17,7 @@ from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
 )
 from domains.simple_products.imports.infrastructure.parsers import (
+    MAX_IMPORT_COLUMNS,
     open_source,
 )
 from domains.simple_products.imports.infrastructure.correction_repository import (
@@ -313,6 +314,12 @@ def parse_correction_payload(
     with open_source(
         file_name,
         payload,
+        max_columns=(
+            MAX_IMPORT_COLUMNS
+            + len(
+                CORRECTION_META_HEADERS
+            )
+        ),
     ) as source:
         actual_headers = set(
             source.headers
