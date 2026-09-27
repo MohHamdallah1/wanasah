@@ -300,7 +300,6 @@ export function useCreateProductWorkflow({
         familyOptionsQuery.isFetching,
       familyOptionsError:
         familyOptionsQuery.isError,
-      familyOptionSearch,
       packageUoms,
       packageUomsLoading:
         packageUomsQuery.isLoading,
