@@ -350,9 +350,11 @@ async def record_runtime_failure(
     *,
     company_id: int,
     job_id: UUID,
-    message: str,
+    message: str | None = None,
     final_attempt: bool,
     retryable: bool,
+    code: str | None = None,
+    correlation_id: str | None = None,
 ) -> None:
     token, db = await open_tenant_session(
         company_id
@@ -382,6 +384,9 @@ async def record_runtime_failure(
             final_attempt=final_attempt,
             retryable=retryable,
             resume_status=current_status,
+            code=code,
+            correlation_id=
+                correlation_id,
         )
 
         if final_attempt:
