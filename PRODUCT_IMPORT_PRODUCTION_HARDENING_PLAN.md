@@ -219,7 +219,7 @@ The complete uploaded payload is decoded into one large string, then every parse
 
 ### XLSX
 
-OpenPyXL is correctly opened in read-only mode, but every parsed row is still accumulated into a Python list before staging.
+OpenPyXL was correctly opened in read-only mode, but every parsed row was still accumulated into a Python list before staging. Phase 4 also verified a deeper library-level issue: OpenPyXL 3.1.5 materializes the workbook shared-string table in memory even in read-only mode. The final Phase 4 implementation therefore keeps OpenPyXL's read-only cell semantics while replacing shared-string materialization with a bounded disk-backed SQLite sequence.
 
 ### Staging
 
@@ -235,17 +235,17 @@ Memory must be approximately proportional to batch size, not total Product count
 
 ## Tasks
 
-- [ ] Introduce a parser contract that yields rows with their original source row numbers.
-- [ ] Stream CSV rows without building a complete `rows` list.
-- [ ] Stream XLSX rows from read-only workbook iteration without building a complete `rows` list.
-- [ ] Stage fixed-size batches directly as they are parsed.
-- [ ] Preserve exact original row numbers, including when blank rows exist in the source.
-- [ ] Track total staged rows incrementally.
-- [ ] Enforce the 50,000-row limit incrementally without materializing the file.
-- [ ] Keep XLSX zip-bomb/archive safety checks before workbook traversal.
-- [ ] Guarantee workbook/file handles close on success and failure.
-- [ ] Add memory-bounded tests/benchmarks at 1k, 10k and 50k rows.
-- [ ] Prove that peak row-object accumulation is bounded by configured batch size.
+- [x] Introduce a parser contract that yields rows with their original source row numbers.
+- [x] Stream CSV rows without building a complete `rows` list.
+- [x] Stream XLSX rows from read-only workbook iteration without building a complete `rows` list, including disk-backed shared-string resolution so OpenPyXL cannot reintroduce row-count-scale RAM usage.
+- [x] Stage fixed-size batches directly as they are parsed.
+- [x] Preserve exact original row numbers, including when blank rows exist in the source.
+- [x] Track total staged rows incrementally.
+- [x] Enforce the 50,000-row limit incrementally without materializing the file.
+- [x] Keep XLSX zip-bomb/archive safety checks before workbook traversal.
+- [x] Guarantee workbook/file handles and disk-backed shared-string resources close on success and failure.
+- [x] Add memory-bounded tests/benchmarks at 1k, 10k and 50k rows.
+- [x] Prove that peak row-object accumulation is bounded by configured batch size.
 
 ---
 
