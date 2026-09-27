@@ -194,6 +194,7 @@ export type ProductImportStatus =
   | "IMPORTING"
   | "RETRYING"
   | "COMPLETED"
+  | "COMPLETED_WITH_ERRORS"
   | "FAILED";
 
 const importStatus = (
@@ -209,6 +210,7 @@ const importStatus = (
     value !== "IMPORTING" &&
     value !== "RETRYING" &&
     value !== "COMPLETED" &&
+    value !== "COMPLETED_WITH_ERRORS" &&
     value !== "FAILED"
   ) {
     return contractError(code);
@@ -358,6 +360,10 @@ export interface ProductImportState {
   processed_rows: number;
   valid_rows: number;
   failed_rows: number;
+  imported_rows: number;
+  invalid_rows: number;
+  import_failed_rows: number;
+  pending_rows: number;
   detected_headers: string[];
   suggested_mapping: Record<string, string>;
   column_mapping: Record<string, string>;
@@ -970,6 +976,28 @@ export function parseProductImportState(
     ),
     valid_rows: int(row.valid_rows, code, 0),
     failed_rows: int(row.failed_rows, code, 0),
+    imported_rows: int(
+      row.imported_rows ??
+        row.processed_rows,
+      code,
+      0,
+    ),
+    invalid_rows: int(
+      row.invalid_rows ??
+        row.failed_rows,
+      code,
+      0,
+    ),
+    import_failed_rows: int(
+      row.import_failed_rows ?? 0,
+      code,
+      0,
+    ),
+    pending_rows: int(
+      row.pending_rows ?? 0,
+      code,
+      0,
+    ),
     detected_headers: stringArray(
       row.detected_headers,
       code,
