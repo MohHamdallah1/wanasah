@@ -227,6 +227,15 @@ describe("Products P9.4 active filters", () => {
     expect(panel).not.toContain(
       "products.filters.PRODUCT_SORT_OPTIONS."
     );
+    expect(panel).toContain(
+      "onClearControls"
+    );
+    expect(panel).toContain(
+      '"products.filters.clear"'
+    );
+    expect(panel).toContain(
+      "disabled={!canReset}"
+    );
     expect(panel).not.toContain(
       "rounded-2xl border border-slate-100 bg-slate-50/70 p-3",
     );
