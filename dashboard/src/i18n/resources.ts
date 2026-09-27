@@ -114,9 +114,11 @@ export const resources = {
         families: "العائلات",
         advancedPricing: "التسعير المتقدم",
         advancedPricingHint:
-          "غير مفعّل حالياً وسيتم تفعيله في مرحلة لاحقة.",
+          "مؤجل للنسخة الثانية (V2).",
         advancedUom: {
           action: "إدارة وحدات القياس المتقدمة",
+          deferredHint:
+            "مؤجل للنسخة الثانية (V2) حتى يكتمل مسار المسودة والإعداد والنشر.",
           productAction: "إدارة وحدات القياس",
           title: "إدارة وحدات القياس المتقدمة",
           description:
@@ -1618,9 +1620,11 @@ export const resources = {
         families: "Families",
         advancedPricing: "Advanced pricing",
         advancedPricingHint:
-          "Not enabled yet. It will be activated in a later stage.",
+          "Deferred to Version 2 (V2).",
         advancedUom: {
           action: "Advanced UOM management",
+          deferredHint:
+            "Deferred to Version 2 (V2) until the draft, configuration, and publish workflow is complete.",
           productAction: "Manage units of measure",
           title: "Advanced units of measure",
           description:
