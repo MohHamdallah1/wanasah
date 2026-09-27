@@ -102,11 +102,11 @@ A final modular design should expose the import router from its owning module. A
 - [x] Create the module package and explicit public entry point.
 - [x] Define allowed dependency directions for the import module.
 - [x] Move localization into the import domain layer.
-- [ ] Move template generation into import infrastructure.
-- [ ] Move queue implementation into import infrastructure.
+- [x] Move template generation into import infrastructure.
+- [x] Move queue implementation into import infrastructure.
 - [ ] Split worker responsibilities into application orchestration + infrastructure/parser/repository components.
-- [ ] Move Product-import HTTP endpoints out of the large `api/simple_products.py` file into the module-local API layer.
-- [ ] Keep the application router registration thin and explicit.
+- [x] Move Product-import HTTP endpoints out of the large `api/simple_products.py` file into the module-local API layer.
+- [x] Keep the application router registration thin and explicit.
 - [ ] Introduce an import repository so application code no longer reaches global ORM models everywhere.
 - [ ] Keep global model relocation as a controlled schema/model-ownership step; do not create circular imports just to move class declarations.
 - [ ] Add an architecture gate that forbids new root-level `product_import_*.py` business files.
