@@ -1,8 +1,9 @@
 """Bounded, resumable Product Import validation orchestration.
 
-Validation remains all-or-nothing at the job level in Phase 5. Rows are
-classified and committed in fixed-size transactions so a worker restart resumes
-from rows that are still STAGED instead of reclassifying durable outcomes.
+Rows are classified and committed in fixed-size transactions so a worker
+restart resumes from rows that are still STAGED instead of reclassifying durable
+outcomes. Phase 7 continues to execution whenever at least one row is valid;
+zero-valid jobs stop at VALIDATION_FAILED.
 """
 from __future__ import annotations
 
