@@ -7,6 +7,22 @@ depend on application, infrastructure or API layers.
 """
 
 from .errors import ProductImportTerminalError
+from .source_semantics import (
+    SOURCE_CELL_META_KEY,
+    WANASAH_TEMPLATE_MARKER,
+    WANASAH_TEMPLATE_META_SHEET,
+    WANASAH_TEMPLATE_PRODUCT_SHEET_CELL,
+    formula_has_cached_value,
+    formula_source_metadata,
+    is_formula_metadata,
+    is_numeric_source_cell,
+    looks_like_scientific_barcode,
+    numeric_source_metadata,
+    source_cell_metadata,
+)
+from .spreadsheet_dates import (
+    normalize_spreadsheet_date,
+)
 from .localization import (
     AR_IMPORT_LOCALE,
     CANONICAL_IMPORT_FIELDS,
@@ -25,6 +41,18 @@ from .localization import (
 
 __all__ = (
     "ProductImportTerminalError",
+    "SOURCE_CELL_META_KEY",
+    "WANASAH_TEMPLATE_MARKER",
+    "WANASAH_TEMPLATE_META_SHEET",
+    "WANASAH_TEMPLATE_PRODUCT_SHEET_CELL",
+    "formula_has_cached_value",
+    "formula_source_metadata",
+    "is_formula_metadata",
+    "is_numeric_source_cell",
+    "looks_like_scientific_barcode",
+    "numeric_source_metadata",
+    "source_cell_metadata",
+    "normalize_spreadsheet_date",
     "AR_IMPORT_LOCALE",
     "CANONICAL_IMPORT_FIELDS",
     "EN_IMPORT_LOCALE",
