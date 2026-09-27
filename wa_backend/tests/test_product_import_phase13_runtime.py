@@ -14,6 +14,7 @@ from domains.simple_products.imports.application.execution_service import (
 )
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
+    ProductImportStateTransitionError,
     transition_job,
 )
 from domains.simple_products.imports.application.worker import (
@@ -106,7 +107,7 @@ class Phase13StateAndBackpressureTests(
             updated_at=None,
         )
         with self.assertRaises(
-            ValueError
+            ProductImportStateTransitionError
         ):
             transition_job(
                 cancelled,
