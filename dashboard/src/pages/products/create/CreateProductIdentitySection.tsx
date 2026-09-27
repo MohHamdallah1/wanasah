@@ -15,8 +15,8 @@ import {
 } from "@/components/ui/command";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
-  PopoverTrigger,
 } from "@/components/ui/popover";
 import type {
   ProductFamily,
@@ -218,10 +218,15 @@ export function CreateProductIdentitySection({
                 }}
               >
                 <div className="relative mt-2">
-                  <PopoverTrigger asChild>
+                  <PopoverAnchor asChild>
                     <input
                       ref={createFamilyRef}
                       value={familyInputValue}
+                      onFocus={() => {
+                        setFamilyPickerOpen(
+                          true
+                        );
+                      }}
                       onChange={(event) => {
                         const value =
                           event.target.value;
@@ -266,7 +271,7 @@ export function CreateProductIdentitySection({
                       }
                       className="h-10 w-full rounded-xl border border-slate-200 bg-white pe-10 ps-3 text-sm font-bold text-slate-900 outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
                     />
-                  </PopoverTrigger>
+                  </PopoverAnchor>
 
                   {familyInputValue ? (
                     <button
@@ -290,6 +295,12 @@ export function CreateProductIdentitySection({
                   align="start"
                   sideOffset={6}
                   avoidCollisions={false}
+                  onOpenAutoFocus={(event) =>
+                    event.preventDefault()
+                  }
+                  onCloseAutoFocus={(event) =>
+                    event.preventDefault()
+                  }
                   className="z-[70] w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-1.5 shadow-xl"
                 >
                   <Command
