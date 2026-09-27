@@ -136,6 +136,16 @@ router_source = (
 ).read_text(
     encoding="utf-8"
 )
+parser_source = (
+    BACKEND
+    / "domains"
+    / "simple_products"
+    / "imports"
+    / "infrastructure"
+    / "parsers.py"
+).read_text(
+    encoding="utf-8"
+)
 migration_source = (
     BACKEND
     / "alembic"
@@ -379,6 +389,16 @@ check(
     and '@router.post(\n    "/imports/{job_id}/correction"'
     in router_source,
     "Correction download/upload API contract is registered",
+)
+
+check(
+    "max_columns=("
+    in correction_service_source
+    and "MAX_IMPORT_COLUMNS"
+    in correction_service_source
+    and "max_columns: int = MAX_IMPORT_COLUMNS"
+    in parser_source,
+    "Correction metadata has a bounded parser allowance without weakening the normal 100-column limit",
 )
 
 check(
