@@ -31,6 +31,9 @@ from domains.simple_products.imports.api import router as product_import_router
 from ws_manager import dispatch_manager
 from realtime.worker_event_relay import worker_event_relay
 from realtime.auth import WebSocketAuthError, authenticate_websocket_admin
+from domains.simple_products.imports.infrastructure.realtime_relay import (
+    product_import_event_relay,
+)
 from domains.simple_products.imports.infrastructure.queue import app as product_import_app
 from observability.http_errors import log_http_server_error
 
@@ -79,9 +82,11 @@ async def lifespan(app: FastAPI):
     # Queue connector is opened for atomic defer only; the heavy worker is a separate process.
     async with product_import_app.open_async():
         await worker_event_relay.start()
+        await product_import_event_relay.start()
         try:
             yield
         finally:
+            await product_import_event_relay.stop()
             await worker_event_relay.stop()
             await engine.dispose()
 
