@@ -21,7 +21,11 @@ class WebSocketAdminIdentity:
     driver_id: int
 
 
-async def authenticate_websocket_admin(token: str) -> WebSocketAdminIdentity:
+async def _authenticate_websocket_identity(
+    token: str,
+    *,
+    require_admin: bool,
+) -> WebSocketAdminIdentity:
     try:
         payload = jwt.decode(
             token,
@@ -54,11 +58,35 @@ async def authenticate_websocket_admin(token: str) -> WebSocketAdminIdentity:
         if (
             driver is None
             or not bool(driver.is_active)
-            or not bool(driver.is_admin)
+            or (
+                require_admin
+                and not bool(driver.is_admin)
+            )
         ):
-            raise WebSocketAuthError("websocket admin authorization failed")
+            raise WebSocketAuthError(
+                "websocket authorization failed"
+            )
 
     return WebSocketAdminIdentity(
         company_id=company_id,
         driver_id=driver_id,
+    )
+
+
+async def authenticate_websocket_admin(
+    token: str,
+) -> WebSocketAdminIdentity:
+    return await _authenticate_websocket_identity(
+        token,
+        require_admin=True,
+    )
+
+
+async def authenticate_websocket_user(
+    token: str,
+) -> WebSocketAdminIdentity:
+    """Authenticate an active dashboard user; endpoint scopes permissions."""
+    return await _authenticate_websocket_identity(
+        token,
+        require_admin=False,
     )
