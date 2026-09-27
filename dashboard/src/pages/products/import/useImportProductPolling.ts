@@ -22,17 +22,69 @@ import {
   type ProductTrackingMode,
 } from "@/pages/products/contracts";
 
-const MAX_QUEUED_WAIT_MS =
-  30_000;
-
-const terminalImportStatuses =
+const settledImportStatuses =
   new Set([
     "COMPLETED",
     "COMPLETED_WITH_ERRORS",
     "VALIDATION_FAILED",
     "FAILED",
+    "CANCELLED",
     "NEEDS_MAPPING",
   ]);
+
+export function productImportBackoffDelay(
+  attempt: number,
+  jitter: number,
+  baseMs = 1500,
+): number {
+  const safeAttempt =
+    Math.max(
+      0,
+      Math.min(
+        Math.floor(attempt),
+        8,
+      ),
+    );
+  const boundedJitter =
+    Math.max(
+      0,
+      Math.min(
+        jitter,
+        1,
+      ),
+    );
+  return (
+    Math.min(
+      baseMs *
+        2 ** safeAttempt,
+      30_000,
+    ) +
+    Math.floor(
+      boundedJitter * 500,
+    )
+  );
+}
+
+export function isProductImportProgressEvent(
+  raw: unknown,
+  jobId: string,
+): boolean {
+  if (
+    typeof raw !== "object" ||
+    raw === null
+  ) {
+    return false;
+  }
+  const event = raw as {
+    event?: unknown;
+    job_id?: unknown;
+  };
+  return (
+    event.event ===
+      "PRODUCT_IMPORT_PROGRESS" &&
+    event.job_id === jobId
+  );
+}
 
 type AuthFetch = (
   path: string,
@@ -40,6 +92,7 @@ type AuthFetch = (
 ) => Promise<unknown>;
 
 type Params = {
+  enabled: boolean;
   importJobId: string | null;
   importPollKey: number;
   setImportPollKey: Dispatch<
@@ -67,6 +120,7 @@ type Params = {
 };
 
 export function useImportProductPolling({
+  enabled,
   importJobId,
   importPollKey,
   setImportPollKey,
@@ -81,183 +135,484 @@ export function useImportProductPolling({
   setMapping,
 }: Params) {
   useEffect(() => {
-    if (!importJobId) {
+    if (
+      !enabled ||
+      !importJobId
+    ) {
       return;
     }
 
     let disposed = false;
-    let timer:
+    let settled = false;
+    let realtimeOpen = false;
+    let completionHandled =
+      false;
+    let fallbackAttempt = 0;
+    let reconnectAttempt = 0;
+    let websocket:
+      | WebSocket
+      | undefined;
+    let fallbackTimer:
       | number
       | undefined;
-    let queuedSince:
+    let reconnectTimer:
       | number
-      | null = null;
+      | undefined;
+    let refreshTimer:
+      | number
+      | undefined;
 
-    const poll = async () => {
-      if (!navigator.onLine) {
-        timer =
-          window.setTimeout(
-            poll,
-            3000
-          );
-        return;
-      }
-
-      try {
-        const status =
-          parseProductImportState(
-            await authFetch(
-              `/simple-products/imports/${importJobId}`
-            )
-          );
-
-        if (disposed) {
-          return;
-        }
-
-        setImportPollError(null);
-        setImportStatus(
-          status
-        );
-        setImportLotControlMode(
-          status.default_lot_control_mode
-        );
-        setImportExpiryControlMode(
-          status.default_expiry_control_mode
-        );
-
-        if (
-          status.status ===
-          "QUEUED"
-        ) {
-          queuedSince ??=
-            Date.now();
-          if (
-            Date.now() -
-              queuedSince >=
-            MAX_QUEUED_WAIT_MS
-          ) {
-            setImportPollError(
-              t(
-                "products.errors.importProcessingDelayed"
-              )
-            );
-            return;
-          }
-        } else {
-          queuedSince = null;
-        }
-
-        if (
-          status.status ===
-          "NEEDS_MAPPING"
-        ) {
-          setMapping(
-            Object.keys(
-              status.column_mapping ||
-                {}
-            ).length
-              ? status.column_mapping
-              : status.suggested_mapping
-          );
-        }
-
-        if (
-          status.status ===
-            "COMPLETED" ||
-          status.status ===
-            "COMPLETED_WITH_ERRORS"
-        ) {
-          if (
-            status.status ===
-            "COMPLETED"
-          ) {
-            toast.success(
-              t(
-                "products.importCompleted",
-                {
-                  count:
-                    status.imported_rows,
-                }
-              )
-            );
-          } else {
-            toast.warning(
-              t(
-                "products.importCompletedWithErrors",
-                {
-                  imported:
-                    status.imported_rows,
-                  errors:
-                    status.invalid_rows +
-                    status.import_failed_rows,
-                }
-              )
-            );
-          }
-          await Promise.all([
-            queryClient.invalidateQueries(
-              {
-                queryKey: [
-                  "simple-products",
-                ],
-              }
-            ),
-            queryClient.invalidateQueries(
-              {
-                queryKey: [
-                  "simple-product-families",
-                ],
-              }
-            ),
-          ]);
-          return;
-        }
-
-        if (
-          !terminalImportStatuses.has(
-            status.status
-          )
-        ) {
-          timer =
-            window.setTimeout(
-              poll,
-              1500
-            );
-        }
-      } catch (error) {
-        if (!disposed) {
-          setImportPollError(
-            apiErrorMessage(
-              error,
-              t(
-                "products.errors.importStatusLoad"
-              )
-            )
-          );
-          timer =
-            window.setTimeout(
-              poll,
-              3000
-            );
-        }
-      }
-    };
-
-    void poll();
-
-    return () => {
-      disposed = true;
+    const clearTimer = (
+      timer:
+        | number
+        | undefined,
+    ) => {
       if (
         timer !== undefined
       ) {
         window.clearTimeout(
-          timer
+          timer,
         );
       }
     };
+
+    const clearTransportTimers =
+      () => {
+        clearTimer(
+          fallbackTimer,
+        );
+        clearTimer(
+          reconnectTimer,
+        );
+        clearTimer(
+          refreshTimer,
+        );
+        fallbackTimer =
+          undefined;
+        reconnectTimer =
+          undefined;
+        refreshTimer =
+          undefined;
+      };
+
+    const closeRealtime = () => {
+      const current =
+        websocket;
+      websocket = undefined;
+      realtimeOpen = false;
+      if (
+        current &&
+        (
+          current.readyState ===
+            WebSocket.OPEN ||
+          current.readyState ===
+            WebSocket.CONNECTING
+        )
+      ) {
+        current.close();
+      }
+    };
+
+    const finishTransport =
+      () => {
+        settled = true;
+        clearTransportTimers();
+        closeRealtime();
+      };
+
+    const applyStatus = async (
+      status:
+        ProductImportState,
+    ) => {
+      if (disposed) {
+        return true;
+      }
+
+      setImportPollError(null);
+      setImportStatus(
+        status,
+      );
+      setImportLotControlMode(
+        status.default_lot_control_mode,
+      );
+      setImportExpiryControlMode(
+        status.default_expiry_control_mode,
+      );
+
+      if (
+        status.status ===
+        "NEEDS_MAPPING"
+      ) {
+        setMapping(
+          Object.keys(
+            status.column_mapping ||
+              {},
+          ).length
+            ? status.column_mapping
+            : status.suggested_mapping,
+        );
+      }
+
+      if (
+        (
+          status.status ===
+            "COMPLETED" ||
+          status.status ===
+            "COMPLETED_WITH_ERRORS"
+        ) &&
+        !completionHandled
+      ) {
+        completionHandled =
+          true;
+        if (
+          status.status ===
+          "COMPLETED"
+        ) {
+          toast.success(
+            t(
+              "products.importCompleted",
+              {
+                count:
+                  status.imported_rows,
+              },
+            ),
+          );
+        } else {
+          toast.warning(
+            t(
+              "products.importCompletedWithErrors",
+              {
+                imported:
+                  status.imported_rows,
+                errors:
+                  status.invalid_rows +
+                  status.import_failed_rows,
+              },
+            ),
+          );
+        }
+        await Promise.all([
+          queryClient.invalidateQueries(
+            {
+              queryKey: [
+                "simple-products",
+              ],
+            },
+          ),
+          queryClient.invalidateQueries(
+            {
+              queryKey: [
+                "simple-product-families",
+              ],
+            },
+          ),
+        ]);
+      }
+
+      const isSettled =
+        settledImportStatuses.has(
+          status.status,
+        );
+      if (isSettled) {
+        finishTransport();
+      }
+      return isSettled;
+    };
+
+    const refreshStatus =
+      async (): Promise<boolean> => {
+        if (
+          disposed ||
+          settled
+        ) {
+          return true;
+        }
+        if (
+          !isOnline ||
+          !navigator.onLine
+        ) {
+          return false;
+        }
+
+        try {
+          const status =
+            parseProductImportState(
+              await authFetch(
+                `/simple-products/imports/${importJobId}`,
+              ),
+            );
+          return await applyStatus(
+            status,
+          );
+        } catch (error) {
+          if (!disposed) {
+            setImportPollError(
+              apiErrorMessage(
+                error,
+                t(
+                  "products.errors.importStatusLoad",
+                ),
+              ),
+            );
+          }
+          return false;
+        }
+      };
+
+    const scheduleFallback =
+      () => {
+        clearTimer(
+          fallbackTimer,
+        );
+        fallbackTimer =
+          undefined;
+
+        if (
+          disposed ||
+          settled ||
+          realtimeOpen ||
+          document.visibilityState !==
+            "visible"
+        ) {
+          return;
+        }
+
+        const delay =
+          productImportBackoffDelay(
+            fallbackAttempt,
+            Math.random(),
+          );
+        fallbackAttempt += 1;
+        fallbackTimer =
+          window.setTimeout(
+            () => {
+              void refreshStatus()
+                .finally(
+                  () => {
+                    if (
+                      !disposed &&
+                      !settled &&
+                      !realtimeOpen
+                    ) {
+                      scheduleFallback();
+                    }
+                  },
+                );
+            },
+            delay,
+          );
+      };
+
+    const scheduleRealtimeRefresh =
+      () => {
+        clearTimer(
+          refreshTimer,
+        );
+        refreshTimer =
+          window.setTimeout(
+            () => {
+              refreshTimer =
+                undefined;
+              void refreshStatus();
+            },
+            200,
+          );
+      };
+
+    const scheduleReconnect =
+      () => {
+        clearTimer(
+          reconnectTimer,
+        );
+        reconnectTimer =
+          undefined;
+        if (
+          disposed ||
+          settled ||
+          document.visibilityState !==
+            "visible"
+        ) {
+          return;
+        }
+
+        const delay =
+          productImportBackoffDelay(
+            reconnectAttempt,
+            Math.random(),
+            1000,
+          );
+        reconnectAttempt += 1;
+        reconnectTimer =
+          window.setTimeout(
+            () => {
+              reconnectTimer =
+                undefined;
+              connectRealtime();
+            },
+            delay,
+          );
+      };
+
+    const connectRealtime =
+      () => {
+        if (
+          disposed ||
+          settled ||
+          document.visibilityState !==
+            "visible"
+        ) {
+          return;
+        }
+
+        const token =
+          localStorage.getItem(
+            "admin_token",
+          );
+        if (!token) {
+          scheduleFallback();
+          return;
+        }
+
+        const apiBase = (
+          import.meta.env.VITE_API_URL ||
+          window.location.origin
+        ).replace(
+          /\/+$/,
+          "",
+        );
+        const wsBase =
+          apiBase.replace(
+            /^http/,
+            "ws",
+          );
+        const nextSocket =
+          new WebSocket(
+            `${wsBase}/simple-products/imports/${encodeURIComponent(
+              importJobId,
+            )}/ws?token=${encodeURIComponent(
+              token,
+            )}`,
+          );
+        websocket =
+          nextSocket;
+
+        nextSocket.onopen =
+          () => {
+            if (
+              disposed ||
+              settled ||
+              websocket !==
+                nextSocket
+            ) {
+              nextSocket.close();
+              return;
+            }
+            realtimeOpen =
+              true;
+            reconnectAttempt =
+              0;
+            fallbackAttempt =
+              0;
+            clearTimer(
+              fallbackTimer,
+            );
+            fallbackTimer =
+              undefined;
+            void refreshStatus();
+          };
+
+        nextSocket.onmessage =
+          (message) => {
+            if (
+              disposed ||
+              settled
+            ) {
+              return;
+            }
+            try {
+              const payload:
+                unknown =
+                JSON.parse(
+                  message.data,
+                );
+              if (
+                isProductImportProgressEvent(
+                  payload,
+                  importJobId,
+                )
+              ) {
+                scheduleRealtimeRefresh();
+              }
+            } catch {
+              // Ignore malformed push data; canonical HTTP state remains authoritative.
+            }
+          };
+
+        nextSocket.onclose =
+          () => {
+            if (
+              websocket ===
+              nextSocket
+            ) {
+              websocket =
+                undefined;
+              realtimeOpen =
+                false;
+            }
+            if (
+              disposed ||
+              settled
+            ) {
+              return;
+            }
+            scheduleFallback();
+            scheduleReconnect();
+          };
+
+        nextSocket.onerror =
+          () => {
+            // onclose owns fallback/reconnect to avoid duplicate timers.
+          };
+      };
+
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+          "hidden"
+        ) {
+          clearTransportTimers();
+          closeRealtime();
+          return;
+        }
+
+        fallbackAttempt = 0;
+        reconnectAttempt = 0;
+        void refreshStatus();
+        connectRealtime();
+      };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
+
+    void refreshStatus();
+    connectRealtime();
+    scheduleFallback();
+
+    return () => {
+      disposed = true;
+      clearTransportTimers();
+      closeRealtime();
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
+    };
   }, [
     authFetch,
+    enabled,
     importJobId,
     importPollKey,
     isOnline,
@@ -275,7 +630,7 @@ export function useImportProductPolling({
       setImportPollError(null);
       setImportPollKey(
         (current) =>
-          current + 1
+          current + 1,
       );
     };
 
