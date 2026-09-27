@@ -27,6 +27,7 @@ from domains.simple_products.imports.domain import (
 from domains.simple_products.imports.domain.errors import (
     ProductImportRowValidationError,
     classify_import_error,
+    user_safe_error_message,
 )
 from domains.simple_products.imports.domain.mapping import (
     mapping_complete,
@@ -79,7 +80,10 @@ def classify_row_error(
             classification.code
             or "IMPORT_ROW_INVALID",
             classification.message
-            or str(exc),
+            or user_safe_error_message(
+                classification.code
+                or "IMPORT_ROW_INVALID"
+            ),
         )
 
     raise exc
