@@ -195,6 +195,11 @@ def _parse_csv(
             )
         rows.append(raw)
 
+    if not rows:
+        raise ProductImportTerminalError(
+            "The file contains no product rows."
+        )
+
     return headers, rows
 
 
@@ -300,6 +305,11 @@ def _parse_xlsx(
                     f"The import exceeds the {MAX_IMPORT_ROWS:,}-row safety limit."
                 )
             rows.append(raw)
+
+        if not rows:
+            raise ProductImportTerminalError(
+                "The file contains no product rows."
+            )
 
         return headers, rows
     finally:
