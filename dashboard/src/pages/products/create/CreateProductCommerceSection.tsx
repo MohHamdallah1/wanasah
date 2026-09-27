@@ -57,6 +57,9 @@ export function CreateProductCommerceSection({
 }: Props) {
   const { t, i18n } =
     useTranslation();
+  const packageLabel = t(
+    `uom.${draft.package_uom_code}`
+  );
 
   return (
     <section className="border-b border-slate-200 bg-slate-50/60 px-4 py-4 sm:px-6">
@@ -86,14 +89,18 @@ export function CreateProductCommerceSection({
             onClick={() =>
               onHasPackageChange(true)
             }
-            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${ 
+            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
               draft.has_package
                 ? "bg-amber-400 text-slate-950 shadow-sm"
                 : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
             }`}
           >
             {t(
-              "products.packagingMode.withPackage"
+              "products.packagingMode.withPackage",
+              {
+                package:
+                  packageLabel,
+              }
             )}
           </button>
           <button
@@ -102,7 +109,7 @@ export function CreateProductCommerceSection({
             onClick={() =>
               onHasPackageChange(false)
             }
-            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${ 
+            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
               !draft.has_package
                 ? "bg-slate-900 text-white shadow-sm"
                 : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
@@ -115,7 +122,13 @@ export function CreateProductCommerceSection({
         </div>
       </div>
 
-      <div className={`mt-3 grid gap-3 sm:grid-cols-2 ${draft.has_package ? "lg:grid-cols-4" : "lg:grid-cols-4"}`}>
+      <div
+        className={`mt-3 grid gap-3 sm:grid-cols-2 ${
+          draft.has_package
+            ? "lg:grid-cols-4"
+            : ""
+        }`}
+      >
         {draft.has_package ? (
           packageUomsLoading ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-500">
@@ -144,7 +157,7 @@ export function CreateProductCommerceSection({
           ) : (
             <label className="text-xs font-black text-slate-600">
               {t(
-                "products.packageType"
+                "products.quickCreate.packageTypeLabel"
               )}
               <Select
                 dir={i18n.dir()}
@@ -189,7 +202,11 @@ export function CreateProductCommerceSection({
         {draft.has_package ? (
           <label className="text-xs font-black text-slate-600">
             {t(
-              "products.unitsPerPackage"
+              "products.quickCreate.unitsPerPackage",
+              {
+                package:
+                  packageLabel,
+              }
             )}
             <input
               ref={createUnitsRef}
@@ -232,7 +249,11 @@ export function CreateProductCommerceSection({
         {draft.has_package ? (
           <label className="text-xs font-black text-slate-600">
             {t(
-              "products.packagePrice"
+              "products.quickCreate.packagePrice",
+              {
+                package:
+                  packageLabel,
+              }
             )}
             <input
               ref={createPackagePriceRef}
@@ -275,9 +296,7 @@ export function CreateProductCommerceSection({
           </label>
         ) : null}
 
-        <label
-          className={`text-xs font-black text-slate-600 ${!draft.has_package ? "sm:col-span-1 lg:col-span-1" : ""}`}
-        >
+        <label className="text-xs font-black text-slate-600">
           {t("products.unitPrice")}
           <input
             ref={createUnitPriceRef}
