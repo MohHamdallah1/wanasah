@@ -28,6 +28,7 @@ const MAX_QUEUED_WAIT_MS =
 const terminalImportStatuses =
   new Set([
     "COMPLETED",
+    "COMPLETED_WITH_ERRORS",
     "VALIDATION_FAILED",
     "FAILED",
     "NEEDS_MAPPING",
@@ -163,17 +164,37 @@ export function useImportProductPolling({
 
         if (
           status.status ===
-          "COMPLETED"
+            "COMPLETED" ||
+          status.status ===
+            "COMPLETED_WITH_ERRORS"
         ) {
-          toast.success(
-            t(
-              "products.importCompleted",
-              {
-                count:
-                  status.processed_rows,
-              }
-            )
-          );
+          if (
+            status.status ===
+            "COMPLETED"
+          ) {
+            toast.success(
+              t(
+                "products.importCompleted",
+                {
+                  count:
+                    status.imported_rows,
+                }
+              )
+            );
+          } else {
+            toast.warning(
+              t(
+                "products.importCompletedWithErrors",
+                {
+                  imported:
+                    status.imported_rows,
+                  errors:
+                    status.invalid_rows +
+                    status.import_failed_rows,
+                }
+              )
+            );
+          }
           await Promise.all([
             queryClient.invalidateQueries(
               {
