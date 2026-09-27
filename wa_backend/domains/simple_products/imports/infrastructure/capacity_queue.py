@@ -16,6 +16,11 @@ from domains.simple_products.imports.infrastructure.capacity_monitor import (
 from domains.simple_products.imports.infrastructure.queue import (
     app,
 )
+from domains.simple_products.imports.infrastructure.runtime_monitor import (
+    QUEUE_AGE_ALERT_SECONDS,
+    STUCK_STAGE_ALERT_SECONDS,
+    read_product_import_runtime_metrics,
+)
 
 
 logger = logging.getLogger(
@@ -94,6 +99,21 @@ async def monitor_product_import_capacity(
                 company_id
             ),
             metrics.quota_rejections_last_hour,
+        )
+
+    if (
+        metrics.oldest_active_job_age_seconds
+        >= int(
+            STUCK_STAGE_ALERT_SECONDS
+        )
+    ):
+        logger.warning(
+            "PRODUCT_IMPORT_STUCK_STAGE "
+            "company_id=%s oldest_active_age_seconds=%s",
+            int(
+                company_id
+            ),
+            metrics.oldest_active_job_age_seconds,
         )
 
     return payload
@@ -198,6 +218,59 @@ async def schedule_product_import_capacity_monitor(
     global_metrics = (
         await read_global_source_capacity_metrics()
     )
+    runtime_metrics = (
+        await read_product_import_runtime_metrics()
+    )
+
+    if (
+        runtime_metrics.queued_jobs
+        > 0
+        and not runtime_metrics.ready
+    ):
+        logger.error(
+            "PRODUCT_IMPORT_WORKER_UNAVAILABLE "
+            "queued_jobs=%s oldest_queue_age_seconds=%s",
+            runtime_metrics.queued_jobs,
+            runtime_metrics.oldest_queue_age_seconds,
+        )
+    elif (
+        runtime_metrics.queued_jobs
+        > 0
+        and runtime_metrics.available_worker_slots
+        <= 0
+    ):
+        logger.warning(
+            "PRODUCT_IMPORT_WORKER_AT_CAPACITY "
+            "worker_slots=%s running_jobs=%s queued_jobs=%s",
+            runtime_metrics.configured_worker_slots,
+            runtime_metrics.running_jobs,
+            runtime_metrics.queued_jobs,
+        )
+
+    if (
+        runtime_metrics.oldest_queue_age_seconds
+        >= int(
+            QUEUE_AGE_ALERT_SECONDS
+        )
+    ):
+        logger.warning(
+            "PRODUCT_IMPORT_QUEUE_AGE_HIGH "
+            "oldest_queue_age_seconds=%s queued_jobs=%s",
+            runtime_metrics.oldest_queue_age_seconds,
+            runtime_metrics.queued_jobs,
+        )
+
+    logger.info(
+        "PRODUCT_IMPORT_WORKER_CAPACITY "
+        "healthy_workers=%s worker_slots=%s available_slots=%s "
+        "running_jobs=%s queued_jobs=%s oldest_queue_age_seconds=%s",
+        runtime_metrics.healthy_worker_processes,
+        runtime_metrics.configured_worker_slots,
+        runtime_metrics.available_worker_slots,
+        runtime_metrics.running_jobs,
+        runtime_metrics.queued_jobs,
+        runtime_metrics.oldest_queue_age_seconds,
+    )
 
     global_alert_bytes = (
         int(
@@ -269,4 +342,16 @@ async def schedule_product_import_capacity_monitor(
                     "high_water_source_bytes"
                 ]
             ),
+        "healthy_worker_processes":
+            runtime_metrics.healthy_worker_processes,
+        "configured_worker_slots":
+            runtime_metrics.configured_worker_slots,
+        "available_worker_slots":
+            runtime_metrics.available_worker_slots,
+        "running_jobs":
+            runtime_metrics.running_jobs,
+        "queued_jobs":
+            runtime_metrics.queued_jobs,
+        "oldest_queue_age_seconds":
+            runtime_metrics.oldest_queue_age_seconds,
     }
