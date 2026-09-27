@@ -145,11 +145,11 @@ check(
 )
 
 check(
-    "Phase 6 replaces this"
-    in validation_source
-    and "barcode_rows"
-    in validation_source,
-    "Cross-row barcode duplicate scope remains explicitly bounded to the current batch until Phase 6",
+    "barcode_rows"
+    not in validation_source
+    and "find_active_barcodes"
+    not in validation_source,
+    "Phase 6 removed Python barcode ownership collections from validation",
 )
 
 tree = ast.parse(
