@@ -118,21 +118,49 @@ describe(
           "../pages/products/create/CreateProductCommerceSection.tsx",
         ),
       );
+      const barcode = compact(
+        readSource(
+          "../pages/products/create/CreateProductBarcodeSection.tsx",
+        ),
+      );
+      const state = compact(
+        readSource(
+          "../pages/products/create/useCreateProductState.ts",
+        ),
+      );
 
       expect(modal).toContain(
         "createAdvancedExpanded",
       );
-      expect(advanced).toContain(
-        '"products.quickCreate.advancedTitle"',
+      expect(modal).toContain(
+        "<CreateProductBarcodeSection",
       );
       expect(advanced).toContain(
         '"products.tracking.createChange"',
       );
-      expect(advanced).toContain(
+      expect(advanced).not.toContain(
         '"products.barcodeSection"',
       );
+      expect(barcode).toContain(
+        '"products.barcodeSection"',
+      );
+      expect(barcode).toContain(
+        "draft.unit_barcode",
+      );
       expect(commerce).toContain(
-        "draft.has_package",
+        '"products.packagingMode.withPackage"',
+      );
+      expect(commerce).toContain(
+        'side="bottom"',
+      );
+      expect(commerce).toContain(
+        "avoidCollisions={false}",
+      );
+      expect(state).toContain(
+        'family_mode: "existing"',
+      );
+      expect(state).toContain(
+        "has_package: true",
       );
     });
 
