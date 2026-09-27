@@ -736,6 +736,32 @@ class ProductImportSourceChunk(Base):
     created_at = Column(DateTime, nullable=False, default=utc_now)
 
 
+class ProductImportGlobalSourceCapacity(Base):
+    """Singleton durable global Product Import source-byte counter."""
+    __tablename__ = 'product_import_global_source_capacity'
+    __table_args__ = (
+        CheckConstraint('id = 1', name='chk_product_import_global_capacity_singleton'),
+        CheckConstraint('live_bytes >= 0 AND high_water_bytes >= live_bytes', name='chk_product_import_global_capacity_values'),
+    )
+    id = Column(SmallInteger, primary_key=True)
+    live_bytes = Column(BigInteger, nullable=False, default=0, server_default='0')
+    high_water_bytes = Column(BigInteger, nullable=False, default=0, server_default='0')
+    updated_at = Column(DateTime, nullable=False, default=utc_now)
+
+
+class ProductImportTenantSourceCapacity(Base):
+    """Tenant-scoped durable Product Import source-byte counter."""
+    __tablename__ = 'product_import_tenant_source_capacity'
+    __table_args__ = (
+        ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE', name='fk_product_import_tenant_capacity_company'),
+        CheckConstraint('live_bytes >= 0 AND high_water_bytes >= live_bytes', name='chk_product_import_tenant_capacity_values'),
+    )
+    company_id = Column(Integer, primary_key=True)
+    live_bytes = Column(BigInteger, nullable=False, default=0, server_default='0')
+    high_water_bytes = Column(BigInteger, nullable=False, default=0, server_default='0')
+    updated_at = Column(DateTime, nullable=False, default=utc_now)
+
+
 class ProductImportAdmissionRejection(Base):
     """Durable Product Import admission-denial telemetry."""
     __tablename__ = 'product_import_admission_rejections'
