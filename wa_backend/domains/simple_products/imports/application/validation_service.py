@@ -394,6 +394,10 @@ async def validate_rows(
                         reset_cursor = True
                         await db.rollback()
                     else:
+                        raise ProductImportTerminalError(
+                            "Validation checkpoint is inconsistent: staged rows remain unreachable."
+                        )
+                else:
                     await rebuild_job_barcode_staging(
                         db,
                         company_id=company_id,
@@ -423,10 +427,6 @@ async def validate_rows(
                             "Validation finalization found staged rows unexpectedly."
                         )
 
-                        raise ProductImportTerminalError(
-                            "Validation checkpoint is inconsistent: staged rows remain unreachable."
-                        )
-                else:
                     if (
                         valid_count
                         + invalid_count
