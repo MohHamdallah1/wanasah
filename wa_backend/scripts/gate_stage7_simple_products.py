@@ -46,7 +46,7 @@ def static_checks() -> None:
         ProductImportTerminalError,
     )
     from domains.simple_products.imports.infrastructure.parsers import (
-        parse_source,
+        open_source,
     )
 
     package_only = resolve_price_pair(
@@ -210,16 +210,21 @@ def static_checks() -> None:
         "Barcode cursor rejects signature tampering",
     )
 
-    headers, rows = parse_source(
+    with open_source(
         "products.csv",
         (
             "سعر الوحدة,اسم المنتج,عدد الوحدات في العبوة,نوع العبوة,العائلة\n"
             "0.300,لولو جبنة,50,كرتونة,شيبس لولو\n"
         ).encode("utf-8"),
-    )
+    ) as source:
+        headers = source.headers
+        rows = list(
+            source.rows
+        )
     suggestions = suggest_mapping(headers)
     check(
         len(rows) == 1
+        and rows[0].row_number == 2
         and suggestions.get("name") == "اسم المنتج"
         and suggestions.get("package_uom") == "نوع العبوة"
         and suggestions.get("units_per_package") == "عدد الوحدات في العبوة"
