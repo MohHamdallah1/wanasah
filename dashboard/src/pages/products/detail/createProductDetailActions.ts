@@ -22,7 +22,6 @@ type Params = {
   openBarcodeManager: (
     product: SimpleProduct
   ) => void;
-  navigate: (to: string) => void;
 };
 
 export function createProductDetailActions({
@@ -33,7 +32,6 @@ export function createProductDetailActions({
   openTrackingEditor,
   openLifecycleManager,
   openBarcodeManager,
-  navigate,
 }: Params) {
   const renameProductFromDetails = (
     product: SimpleProduct
@@ -77,15 +75,6 @@ export function createProductDetailActions({
     openBarcodeManager(product);
   };
 
-  const manageAdvancedUomFromDetails = (
-    product: SimpleProduct
-  ) => {
-    closeProductDetails();
-    navigate(
-      `/products/advanced-uom?variant=${product.id}`
-    );
-  };
-
   return {
     renameProductFromDetails,
     reassignFamilyFromDetails,
@@ -93,6 +82,5 @@ export function createProductDetailActions({
     editTrackingFromDetails,
     manageLifecycleFromDetails,
     manageBarcodesFromDetails,
-    manageAdvancedUomFromDetails,
   };
 }
