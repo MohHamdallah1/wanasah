@@ -16,9 +16,9 @@ from api.simple_products import (
     list_simple_products,
 )
 from models import Driver
-from product_import_worker import (
-    _close as close_worker_tenant_session,
-    _tenant_session as worker_tenant_session,
+from domains.simple_products.imports.infrastructure.repository import (
+    close_tenant_session as close_worker_tenant_session,
+    open_tenant_session as worker_tenant_session,
 )
 
 
