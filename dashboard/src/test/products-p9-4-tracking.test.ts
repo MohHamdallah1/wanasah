@@ -79,7 +79,7 @@ describe("Products P9.4 tracking workspace", () => {
     );
   });
 
-  it("separates company-default provenance from per-product tracking safety guidance", () => {
+  it("keeps company defaults plain-language while per-product tracking retains safety guidance", () => {
     const settings = read(
       "../pages/products/tracking/ProductTrackingSettings.tsx",
     );
@@ -87,17 +87,20 @@ describe("Products P9.4 tracking workspace", () => {
       "../pages/products/tracking/ProductTrackingEditor.tsx",
     );
 
-    expect(settings).toContain(
+    expect(settings).not.toContain(
       "lotControlSource",
     );
-    expect(settings).toContain(
+    expect(settings).not.toContain(
       "expiryControlSource",
     );
-    expect(settings).toContain(
+    expect(settings).not.toContain(
       '"products.trackingSettings.companySource"',
     );
-    expect(settings).toContain(
+    expect(settings).not.toContain(
       '"products.trackingSettings.platformSource"',
+    );
+    expect(settings).toContain(
+      '"products.trackingSettings.description"',
     );
 
     expect(editor).toContain(
