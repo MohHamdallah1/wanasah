@@ -16,8 +16,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Starting Wanasah product-import worker..."
-Write-Host "App: product_import_queue.app"
+Write-Host "App: domains.simple_products.imports.infrastructure.queue.app"
 Write-Host "Queue: product-import"
 
-& $Python -m procrastinate --app=product_import_queue.app worker -q product-import
+& $Python -m procrastinate --app=domains.simple_products.imports.infrastructure.queue.app worker -q product-import
 exit $LASTEXITCODE
