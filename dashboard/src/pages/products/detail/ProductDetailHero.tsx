@@ -20,7 +20,6 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
-  canManageAdvancedUom: boolean;
   onToggleExpanded: () => void;
   onClose: () => void;
   onRenameProduct: (
@@ -41,9 +40,6 @@ type Props = {
   onManageLifecycle: (
     product: SimpleProduct,
   ) => void;
-  onManageAdvancedUom: (
-    product: SimpleProduct,
-  ) => void;
 };
 
 export function ProductDetailHero({
@@ -55,7 +51,6 @@ export function ProductDetailHero({
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
-  canManageAdvancedUom,
   onToggleExpanded,
   onClose,
   onRenameProduct,
@@ -64,7 +59,6 @@ export function ProductDetailHero({
   onEditTracking,
   onManageBarcodes,
   onManageLifecycle,
-  onManageAdvancedUom,
 }: Props) {
   const { t } = useTranslation();
 
@@ -112,9 +106,6 @@ export function ProductDetailHero({
             canManageLifecycle={
               canManageLifecycle
             }
-            canManageAdvancedUom={
-              canManageAdvancedUom
-            }
             onRenameProduct={
               onRenameProduct
             }
@@ -132,9 +123,6 @@ export function ProductDetailHero({
             }
             onManageLifecycle={
               onManageLifecycle
-            }
-            onManageAdvancedUom={
-              onManageAdvancedUom
             }
           />
 
