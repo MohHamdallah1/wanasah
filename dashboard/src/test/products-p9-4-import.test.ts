@@ -87,6 +87,9 @@ describe("Products P9.4 import workflow", () => {
       "onStartImport",
     );
     expect(start).toContain(
+      "<ImportProductQuickGuide",
+    );
+    expect(start).toContain(
       "<ProductTrackingFields",
     );
     expect(start).toContain(
@@ -189,6 +192,34 @@ describe("Products P9.4 import workflow", () => {
     );
     expect(downloads).toContain(
       "XLSX.utils.book_append_sheet",
+    );
+    expect(downloads).toContain(
+      '"!autofilter"'
+    );
+    expect(downloads).not.toContain(
+      "importTemplateGuideSheet"
+    );
+    expect(downloads).not.toContain(
+      "importTemplateSampleName"
+    );
+
+    const quickGuide = read(
+      "../pages/products/import/ImportProductQuickGuide.tsx",
+    );
+    expect(quickGuide).toContain(
+      '"products.importGuideFallbackCompany"'
+    );
+    expect(quickGuide).toContain(
+      '"products.importGuideFallbackImport"'
+    );
+    expect(quickGuide).toContain(
+      '"REQUIRED"'
+    );
+    expect(quickGuide).toContain(
+      '"OPTIONAL"'
+    );
+    expect(quickGuide).toContain(
+      '"NONE"'
     );
     expect(polling).toContain(
       "MAX_QUEUED_WAIT_MS",
