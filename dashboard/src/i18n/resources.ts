@@ -1560,6 +1560,14 @@ export const resources = {
             "عدد الحبات داخل العبوة مطلوب.",
           IMPORT_PACKAGING_INVALID:
             "عدد الحبات داخل العبوة غير صالح.",
+          IMPORT_FORMULA_VALUE_UNAVAILABLE:
+            "تحتوي الخلية على معادلة بدون قيمة محسوبة محفوظة. استبدل المعادلة بقيمة ثابتة.",
+          IMPORT_BARCODE_FORMULA_NOT_ALLOWED:
+            "يجب إدخال الباركود كنص ثابت، ولا يمكن استخدام معادلة في خانة الباركود.",
+          IMPORT_BARCODE_NUMERIC_UNSAFE:
+            "تم تخزين الباركود كرقم في Excel وقد تكون أصفاره البادئة أو بعض أرقامه قد فُقدت. أدخله كنص كامل.",
+          IMPORT_BARCODE_SCIENTIFIC_NOTATION:
+            "الباركود مكتوب بصيغة علمية. أدخل الباركود كاملاً كنص.",
           IMPORT_BARCODE_DUPLICATE:
             "الباركود مكرر في أكثر من صف.",
           IMPORT_BARCODE_CONFLICT:
@@ -3126,6 +3134,14 @@ export const resources = {
             "Units per package are required.",
           IMPORT_PACKAGING_INVALID:
             "Units per package are invalid.",
+          IMPORT_FORMULA_VALUE_UNAVAILABLE:
+            "This cell contains a formula without a safe cached value. Replace the formula with a literal value.",
+          IMPORT_BARCODE_FORMULA_NOT_ALLOWED:
+            "Barcode cells must contain literal text; formulas are not allowed.",
+          IMPORT_BARCODE_NUMERIC_UNSAFE:
+            "Excel stored this barcode as a number, so leading zeros or digits may have been lost. Enter the complete barcode as text.",
+          IMPORT_BARCODE_SCIENTIFIC_NOTATION:
+            "The barcode is written in scientific notation. Enter the complete barcode as text.",
           IMPORT_BARCODE_DUPLICATE:
             "The barcode appears on more than one row.",
           IMPORT_BARCODE_CONFLICT:
