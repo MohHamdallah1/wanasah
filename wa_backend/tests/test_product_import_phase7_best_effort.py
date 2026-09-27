@@ -6,6 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
+from domains.simple_products.imports.api.router import (
+    _job_payload,
+)
 from domains.simple_products.imports.application.execution_service import (
     _execute_rows_best_effort,
     completion_outcome,
@@ -261,6 +264,68 @@ class _FakeNestedDb:
         yield
 
 
+class Phase7PayloadTests(
+    unittest.TestCase
+):
+    def test_public_payload_exposes_explicit_outcome_counters(
+        self,
+    ) -> None:
+        job = SimpleNamespace(
+            id=uuid4(),
+            status=
+                JobStatus.COMPLETED_WITH_ERRORS.value,
+            file_name="products.csv",
+            total_rows=5,
+            processed_rows=3,
+            valid_rows=4,
+            failed_rows=1,
+            detected_headers=[],
+            suggested_mapping={},
+            column_mapping={},
+            default_lot_control_mode="NONE",
+            default_expiry_control_mode="NONE",
+            error_summary={},
+            created_at=None,
+            started_at=None,
+            finished_at=None,
+        )
+        payload = _job_payload(
+            job,
+            ProductImportProgress(
+                total_rows=5,
+                imported_rows=3,
+                invalid_rows=1,
+                import_failed_rows=1,
+                pending_rows=0,
+            ),
+        )
+
+        self.assertEqual(
+            payload[
+                "imported_rows"
+            ],
+            3,
+        )
+        self.assertEqual(
+            payload[
+                "invalid_rows"
+            ],
+            1,
+        )
+        self.assertEqual(
+            payload[
+                "import_failed_rows"
+            ],
+            1,
+        )
+        self.assertEqual(
+            payload[
+                "pending_rows"
+            ],
+            0,
+        )
+
+
 class Phase7ExecutionIsolationTests(
     unittest.IsolatedAsyncioTestCase
 ):
@@ -361,6 +426,60 @@ class Phase7ExecutionIsolationTests(
         self.assertEqual(
             rows[2].error_code,
             "SIMPLE_PRODUCT_ROW_REJECTED",
+        )
+
+    async def test_system_failure_propagates_without_reclassifying_rows(
+        self,
+    ) -> None:
+        rows = [
+            SimpleNamespace(
+                row_number=1,
+                status=RowStatus.VALID.value,
+                version=1,
+                normalized_data={
+                    "name": "P1",
+                },
+                product_variant_id=None,
+                error_code=None,
+                error_message=None,
+            )
+        ]
+
+        async def crash(
+            _db,
+            *,
+            actor,
+            job_id,
+            rows,
+        ) -> None:
+            raise RuntimeError(
+                "database unavailable"
+            )
+
+        with patch(
+            "domains.simple_products.imports.application.execution_service._execute_rows_once",
+            crash,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "database unavailable",
+            ):
+                await _execute_rows_best_effort(
+                    _FakeNestedDb(),
+                    actor=SimpleNamespace(
+                        id=1,
+                        company_id=1,
+                    ),
+                    job_id=uuid4(),
+                    rows=rows,
+                )
+
+        self.assertEqual(
+            rows[0].status,
+            RowStatus.VALID.value,
+        )
+        self.assertIsNone(
+            rows[0].error_code
         )
 
 
