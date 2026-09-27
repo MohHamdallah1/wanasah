@@ -10,6 +10,10 @@ from psycopg.types.json import Jsonb
 from sqlalchemy.engine import make_url
 
 from config import Config
+from domains.simple_products.imports.application.state_machine import (
+    JobStatus,
+    assert_job_transition,
+)
 from domains.product_tracking import normalize_tracking_mode
 from workers.recovery import recover_safe_stalled_jobs
 
@@ -315,7 +319,7 @@ async def enqueue_new_import(
 
     return {
         "job_id": job_id,
-        "status": "QUEUED",
+        "status": JobStatus.QUEUED.value,
         "replayed": False,
     }
 
@@ -360,31 +364,29 @@ async def requeue_import(
                 row[1] or {}
             )
 
-            if status == "NEEDS_MAPPING":
-                from domains.simple_products.imports.application.state_machine import (
-                    assert_job_transition,
-                )
-
+            if status == JobStatus.NEEDS_MAPPING.value:
                 assert_job_transition(
                     status,
-                    "VALIDATING",
+                    JobStatus.VALIDATING,
                 )
                 result = await conn.execute(
                     """
                     UPDATE product_import_jobs
                     SET column_mapping = %s,
-                        status = 'VALIDATING',
+                        status = %s,
                         error_summary = '{}'::jsonb,
                         version = version + 1,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE company_id = %s
                       AND id = %s
-                      AND status = 'NEEDS_MAPPING'
+                      AND status = %s
                     """,
                     [
                         Jsonb(mapping),
+                        JobStatus.VALIDATING.value,
                         int(company_id),
                         job_id,
+                        JobStatus.NEEDS_MAPPING.value,
                     ],
                 )
                 if result.rowcount != 1:
@@ -396,16 +398,17 @@ async def requeue_import(
                     company_id=int(company_id),
                     job_id=job_id,
                 )
-                return "VALIDATING"
+                return JobStatus.VALIDATING.value
 
             replayable_states = {
-                "QUEUED",
-                "PARSING",
-                "VALIDATING",
-                "IMPORTING",
-                "RETRYING",
-                "VALIDATION_FAILED",
-                "COMPLETED",
+                JobStatus.QUEUED.value,
+                JobStatus.PARSING.value,
+                JobStatus.VALIDATING.value,
+                JobStatus.IMPORTING.value,
+                JobStatus.RETRYING.value,
+                JobStatus.VALIDATION_FAILED.value,
+                JobStatus.COMPLETED.value,
+                JobStatus.COMPLETED_WITH_ERRORS.value,
             }
             if (
                 status in replayable_states
@@ -465,14 +468,15 @@ async def retry_failed_import(
                 row[1] or {}
             )
 
-            if status != "FAILED":
+            if status != JobStatus.FAILED.value:
                 if status in {
-                    "QUEUED",
-                    "PARSING",
-                    "VALIDATING",
-                    "IMPORTING",
-                    "RETRYING",
-                    "COMPLETED",
+                    JobStatus.QUEUED.value,
+                    JobStatus.PARSING.value,
+                    JobStatus.VALIDATING.value,
+                    JobStatus.IMPORTING.value,
+                    JobStatus.RETRYING.value,
+                    JobStatus.COMPLETED.value,
+                    JobStatus.COMPLETED_WITH_ERRORS.value,
                 }:
                     return status
                 raise ValueError(
@@ -490,19 +494,15 @@ async def retry_failed_import(
                 summary.get(
                     "resume_status"
                 )
-                or "QUEUED"
+                or JobStatus.QUEUED.value
             )
             if resume_status not in {
-                "QUEUED",
-                "PARSING",
-                "VALIDATING",
-                "IMPORTING",
+                JobStatus.QUEUED.value,
+                JobStatus.PARSING.value,
+                JobStatus.VALIDATING.value,
+                JobStatus.IMPORTING.value,
             }:
-                resume_status = "QUEUED"
-
-            from domains.simple_products.imports.application.state_machine import (
-                assert_job_transition,
-            )
+                resume_status = JobStatus.QUEUED.value
 
             assert_job_transition(
                 status,
@@ -519,12 +519,13 @@ async def retry_failed_import(
                     updated_at = CURRENT_TIMESTAMP
                 WHERE company_id = %s
                   AND id = %s
-                  AND status = 'FAILED'
+                  AND status = %s
                 """,
                 [
                     resume_status,
                     int(company_id),
                     job_id,
+                    JobStatus.FAILED.value,
                 ],
             )
             if result.rowcount != 1:
