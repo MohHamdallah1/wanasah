@@ -183,9 +183,9 @@ check(
 )
 
 check(
-    "raw_data = '{}'::jsonb"
+    "raw_data = '{{}}'::jsonb"
     in retention_repo
-    and "normalized_data = '{}'::jsonb"
+    and "normalized_data = '{{}}'::jsonb"
     in retention_repo
     and "compacted_at = CURRENT_TIMESTAMP"
     in retention_repo,
