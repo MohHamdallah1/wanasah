@@ -2,7 +2,6 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -40,8 +39,6 @@ import { useTrackingDefaultsQuery } from "@/pages/products/tracking/useTrackingD
 export default function ProductsPage() {
   const { t, i18n } =
     useTranslation();
-  const navigate =
-    useNavigate();
   const authFetch =
     useAuthFetch();
   const queryClient =
@@ -228,7 +225,6 @@ export default function ProductsPage() {
         lifecycleWorkflow.openLifecycleManager,
       openBarcodeManager:
         barcodeWorkflow.openBarcodeManager,
-      navigate,
     });
 
   useProductsIdentityScopeReset({
