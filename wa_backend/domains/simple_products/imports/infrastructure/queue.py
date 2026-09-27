@@ -149,6 +149,11 @@ async def defer_import_on_connection(
     company_id: int,
     job_id: UUID,
 ) -> None:
+    # Deliberately retain company serialization. Product Import executes through
+    # create_products_and_prices, which owns a shared company-default
+    # PriceBook/assignment and publishes against its version. Parallel imports
+    # inside one company can race that Pricing aggregate. Cross-company imports
+    # remain concurrent because this lock is tenant-scoped.
     await process_product_import.configure(
         connection=conn,
         lock=f"product-import:{int(company_id)}",
