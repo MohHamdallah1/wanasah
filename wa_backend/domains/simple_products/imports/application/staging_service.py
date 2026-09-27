@@ -76,6 +76,10 @@ async def stage_source(
             else JobStatus.NEEDS_MAPPING
         )
 
+        had_legacy_payload = (
+            job.source_payload
+            is not None
+        )
         transition_job(
             job,
             target,
@@ -87,8 +91,11 @@ async def stage_source(
             valid_rows=0,
             failed_rows=0,
             source_payload=None,
-            source_payload_cleared_at=
-                utc_naive_now(),
+            source_payload_cleared_at=(
+                utc_naive_now()
+                if had_legacy_payload
+                else job.source_payload_cleared_at
+            ),
         )
         await db.commit()
     except Exception:
