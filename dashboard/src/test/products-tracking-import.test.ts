@@ -91,23 +91,32 @@ describe("product import tracking workflow", () => {
     );
   });
 
-  it("uses localized tracking values in the downloadable template and guidance", () => {
+  it("shows localized per-row tracking guidance before upload", () => {
     const page = normalizeWhitespace(
       readSource("../pages/products/ProductsPage.tsx"),
     );
     const importStart = normalizeWhitespace(
       readSource("../pages/products/import/ImportProductStartPanel.tsx"),
     );
-    const importDownloads = normalizeWhitespace(
-      readSource("../pages/products/import/createImportDownloads.ts"),
+    const quickGuide = normalizeWhitespace(
+      readSource("../pages/products/import/ImportProductQuickGuide.tsx"),
     );
     const translations = readSource("../i18n/resources.ts");
 
-    expect(importDownloads).toContain(
-      '"products.tracking.importValues.REQUIRED"',
+    expect(importStart).toContain(
+      "<ImportProductQuickGuide"
     );
     expect(importStart).toContain(
       '"products.importTrackingValueHint"',
+    );
+    expect(quickGuide).toContain(
+      "products.tracking.importValues."
+    );
+    expect(quickGuide).toContain(
+      '"products.importGuideFallbackCompany"'
+    );
+    expect(quickGuide).toContain(
+      '"products.importGuideFallbackImport"'
     );
     expect(page).not.toContain(
       '"REQUIRED", "REQUIRED",',
@@ -117,7 +126,7 @@ describe("product import tracking workflow", () => {
       'importValues: {',
     );
     expect(translations).toContain(
-      'importTrackingValueHint:',
+      'importGuideTrackingRule:',
     );
   });
 
