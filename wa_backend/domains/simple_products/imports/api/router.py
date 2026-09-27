@@ -33,6 +33,10 @@ from domains.product_tracking import (
     ProductTrackingError,
     resolve_product_tracking_modes,
 )
+from domains.simple_products.imports.application.state_machine import (
+    JobStatus,
+    RowStatus,
+)
 from domains.simple_products.imports.domain import (
     CANONICAL_IMPORT_FIELDS,
 )
@@ -382,7 +386,7 @@ async def get_product_import(
         )
 
     errors = []
-    if str(job.status) == "VALIDATION_FAILED":
+    if str(job.status) == JobStatus.VALIDATION_FAILED.value:
         rows = list(
             (
                 await db.scalars(
@@ -392,8 +396,12 @@ async def get_product_import(
                         == int(actor.company_id),
                         ProductImportRow.job_id
                         == job_id,
-                        ProductImportRow.status
-                        == "FAILED",
+                        ProductImportRow.status.in_(
+                            (
+                                RowStatus.INVALID.value,
+                                RowStatus.IMPORT_FAILED.value,
+                            )
+                        ),
                     )
                     .order_by(
                         ProductImportRow.row_number.asc()
@@ -454,7 +462,12 @@ async def get_product_import_errors(
                 .where(
                     ProductImportRow.company_id == int(actor.company_id),
                     ProductImportRow.job_id == job_id,
-                    ProductImportRow.status == "FAILED",
+                    ProductImportRow.status.in_(
+                        (
+                            RowStatus.INVALID.value,
+                            RowStatus.IMPORT_FAILED.value,
+                        )
+                    ),
                     ProductImportRow.row_number > int(after_row),
                 )
                 .order_by(ProductImportRow.row_number.asc())
