@@ -260,23 +260,62 @@ class ParserStreamingTests(
     ) -> None:
         events: list[str] = []
 
+        class FakeCell:
+            def __init__(
+                self,
+                value,
+            ) -> None:
+                self.value = value
+                self.data_type = "s"
+                self.number_format = "General"
+
         class FakeSheet:
+            title = "Products"
+            sheet_state = "visible"
+
             def iter_rows(
                 self,
                 *,
                 values_only: bool,
             ):
                 self_values = (
-                    ("Product",),
-                    ("Tea",),
+                    (
+                        FakeCell(
+                            "Product"
+                        ),
+                    ),
+                    (
+                        FakeCell(
+                            "Tea"
+                        ),
+                    ),
                 )
                 return iter(
                     self_values
                 )
 
         class FakeWorkbook:
-            active = FakeSheet()
-            closed = False
+            def __init__(
+                self,
+            ) -> None:
+                self.sheet = FakeSheet()
+                self.sheetnames = [
+                    "Products"
+                ]
+                self.worksheets = [
+                    self.sheet
+                ]
+                self.closed = False
+
+            def __getitem__(
+                self,
+                name: str,
+            ):
+                if name != "Products":
+                    raise KeyError(
+                        name
+                    )
+                return self.sheet
 
             def close(
                 self,
@@ -286,10 +325,12 @@ class ParserStreamingTests(
                     "close"
                 )
 
-        workbook = FakeWorkbook()
-
         class FakeReader:
-            wb = workbook
+            def __init__(
+                self,
+                workbook,
+            ) -> None:
+                self.wb = workbook
 
             def close_bounded_resources(
                 self,
@@ -299,6 +340,10 @@ class ParserStreamingTests(
                 events.append(
                     "close_store"
                 )
+
+        workbooks: list[
+            FakeWorkbook
+        ] = []
 
         def validate(
             _payload: bytes,
@@ -314,7 +359,15 @@ class ParserStreamingTests(
             events.append(
                 "load"
             )
-            return FakeReader()
+            workbook = (
+                FakeWorkbook()
+            )
+            workbooks.append(
+                workbook
+            )
+            return FakeReader(
+                workbook
+            )
 
         with (
             patch.object(
@@ -346,43 +399,93 @@ class ParserStreamingTests(
             [
                 "validate",
                 "load",
+                "load",
+                "close",
+                "close_store",
                 "close",
                 "close_store",
             ],
         )
+        self.assertEqual(
+            len(
+                workbooks
+            ),
+            2,
+        )
         self.assertTrue(
-            workbook.closed
+            all(
+                workbook.closed
+                for workbook
+                in workbooks
+            )
         )
 
     def test_xlsx_workbook_closes_when_row_iteration_fails(
         self,
     ) -> None:
+        class FakeCell:
+            def __init__(
+                self,
+                value,
+            ) -> None:
+                self.value = value
+                self.data_type = "s"
+                self.number_format = "General"
+
         class BrokenSheet:
+            title = "Products"
+            sheet_state = "visible"
+
             def iter_rows(
                 self,
                 *,
                 values_only: bool,
             ):
                 yield (
-                    "Product",
+                    FakeCell(
+                        "Product"
+                    ),
                 )
                 raise RuntimeError(
                     "read failure"
                 )
 
         class FakeWorkbook:
-            active = BrokenSheet()
-            closed = False
+            def __init__(
+                self,
+            ) -> None:
+                self.sheet = (
+                    BrokenSheet()
+                )
+                self.sheetnames = [
+                    "Products"
+                ]
+                self.worksheets = [
+                    self.sheet
+                ]
+                self.closed = False
+
+            def __getitem__(
+                self,
+                name: str,
+            ):
+                if name != "Products":
+                    raise KeyError(
+                        name
+                    )
+                return self.sheet
 
             def close(
                 self,
             ) -> None:
                 self.closed = True
 
-        workbook = FakeWorkbook()
-
         class FakeReader:
-            wb = workbook
+            def __init__(
+                self,
+                workbook,
+            ) -> None:
+                self.wb = workbook
 
             def close_bounded_resources(
                 self,
@@ -390,6 +493,24 @@ class ParserStreamingTests(
                 close_archive: bool,
             ) -> None:
                 return None
+
+        workbooks: list[
+            FakeWorkbook
+        ] = []
+
+        def load(
+            *_args,
+            **_kwargs,
+        ):
+            workbook = (
+                FakeWorkbook()
+            )
+            workbooks.append(
+                workbook
+            )
+            return FakeReader(
+                workbook
+            )
 
         with (
             patch.object(
@@ -400,8 +521,7 @@ class ParserStreamingTests(
             patch.object(
                 parsers,
                 "_load_bounded_workbook",
-                lambda *_args, **_kwargs:
-                    FakeReader(),
+                load,
             ),
         ):
             with self.assertRaises(
@@ -415,8 +535,18 @@ class ParserStreamingTests(
                         source.rows
                     )
 
+        self.assertEqual(
+            len(
+                workbooks
+            ),
+            2,
+        )
         self.assertTrue(
-            workbook.closed
+            all(
+                workbook.closed
+                for workbook
+                in workbooks
+            )
         )
 
 
