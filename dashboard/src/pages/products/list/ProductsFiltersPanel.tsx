@@ -1,3 +1,4 @@
+import { RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -63,6 +64,8 @@ type Props = {
   onSortDirChange: (
     value: ProductSortDirection,
   ) => void;
+  canReset: boolean;
+  onClearControls: () => void;
 };
 
 const selectClassName =
@@ -87,6 +90,8 @@ export function ProductsFiltersPanel({
   onBarcodeFilterChange,
   onSortByChange,
   onSortDirChange,
+  canReset,
+  onClearControls,
 }: Props) {
   const { t } = useTranslation();
   const sortValue =
@@ -113,7 +118,8 @@ export function ProductsFiltersPanel({
   };
 
   return (
-    <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div className="space-y-3">
+      <div className="grid gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <div className="space-y-1">
         <span className="text-[11px] font-black text-slate-500">
           {t(
@@ -369,6 +375,19 @@ export function ProductsFiltersPanel({
           )}
         </select>
       </label>
+      </div>
+
+      <div className="flex justify-end border-t border-slate-100 pt-2">
+        <button
+          type="button"
+          disabled={!canReset}
+          onClick={onClearControls}
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          {t("products.filters.clear")}
+        </button>
+      </div>
     </div>
   );
 }
