@@ -7,6 +7,7 @@ from uuid import UUID
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     transition_job,
+    utc_naive_now,
 )
 from domains.simple_products.imports.domain.mapping import (
     mapping_complete,
@@ -86,6 +87,8 @@ async def stage_source(
             valid_rows=0,
             failed_rows=0,
             source_payload=None,
+            source_payload_cleared_at=
+                utc_naive_now(),
         )
         await db.commit()
     except Exception:
