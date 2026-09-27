@@ -234,10 +234,13 @@ def static_checks() -> None:
 
     empty_import_rejected = False
     try:
-        parse_source(
+        with open_source(
             "products.csv",
             "اسم المنتج,سعر الوحدة\n".encode("utf-8"),
-        )
+        ) as source:
+            list(
+                source.rows
+            )
     except ProductImportTerminalError as exc:
         empty_import_rejected = (
             "no product rows" in str(exc).lower()
