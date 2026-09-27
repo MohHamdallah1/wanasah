@@ -429,6 +429,493 @@ async def requeue_import(
             )
 
 
+_CORRECTION_OPERATION = (
+    "PRODUCT_IMPORT_CORRECTION"
+)
+
+
+async def apply_correction_and_requeue(
+    *,
+    company_id: int,
+    actor_id: int,
+    job_id: UUID,
+    request_id: UUID,
+    request_hash: str,
+    corrections: list[
+        dict[str, Any]
+    ],
+) -> dict[str, Any]:
+    """Atomically apply failed-row corrections and enqueue the same job.
+
+    The correction request itself is idempotent. A replay with the same
+    request_id and payload returns the stored result without touching rows,
+    even if those rows have already become IMPORTED in the meantime.
+    """
+    if not corrections:
+        raise ValueError(
+            "Correction file contains no rows."
+        )
+
+    identities = [
+        UUID(
+            str(
+                item[
+                    "row_identity"
+                ]
+            )
+        )
+        for item in corrections
+    ]
+    if len(
+        identities
+    ) != len(
+        set(
+            identities
+        )
+    ):
+        raise ValueError(
+            "Correction contains duplicate row identities."
+        )
+
+    request_text = str(
+        UUID(
+            str(
+                request_id
+            )
+        )
+    )
+    request_hash = str(
+        request_hash
+    ).strip().lower()
+    if (
+        len(
+            request_hash
+        )
+        != 64
+        or any(
+            ch
+            not in "0123456789abcdef"
+            for ch
+            in request_hash
+        )
+    ):
+        raise ValueError(
+            "Correction request hash is invalid."
+        )
+
+    async with await psycopg.AsyncConnection.connect(
+        DSN
+    ) as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT set_config("
+                "'app.current_tenant', %s, true)",
+                [
+                    str(
+                        int(
+                            company_id
+                        )
+                    )
+                ],
+            )
+
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock("
+                "%s, hashtext(%s))",
+                [
+                    int(
+                        company_id
+                    ),
+                    (
+                        "op-idempotency:"
+                        f"{_CORRECTION_OPERATION}:"
+                        f"{request_text}"
+                    ),
+                ],
+            )
+
+            cursor = await conn.execute(
+                """
+                SELECT
+                    id,
+                    created_by,
+                    request_hash,
+                    response_json,
+                    completed_at
+                FROM operation_idempotency
+                WHERE company_id = %s
+                  AND operation = %s
+                  AND request_id = %s
+                FOR UPDATE
+                """,
+                [
+                    int(
+                        company_id
+                    ),
+                    _CORRECTION_OPERATION,
+                    request_text,
+                ],
+            )
+            existing = await cursor.fetchone()
+            if existing is not None:
+                (
+                    _record_id,
+                    existing_actor,
+                    existing_hash,
+                    response_json,
+                    completed_at,
+                ) = existing
+                if int(
+                    existing_actor
+                ) != int(
+                    actor_id
+                ):
+                    raise ValueError(
+                        "Correction request_id belongs to another actor."
+                    )
+                if str(
+                    existing_hash
+                ) != request_hash:
+                    raise ValueError(
+                        "Correction request_id was reused with different content."
+                    )
+                if (
+                    completed_at
+                    is None
+                    or not isinstance(
+                        response_json,
+                        dict,
+                    )
+                ):
+                    raise RuntimeError(
+                        "Correction idempotency record is incomplete."
+                    )
+
+                replay = dict(
+                    response_json
+                )
+                replay[
+                    "replayed"
+                ] = True
+                return replay
+
+            await conn.execute(
+                """
+                INSERT INTO operation_idempotency (
+                    company_id,
+                    operation,
+                    request_id,
+                    request_hash,
+                    created_by,
+                    response_json,
+                    completed_at
+                )
+                VALUES (
+                    %s,%s,%s,%s,%s,
+                    NULL,NULL
+                )
+                """,
+                [
+                    int(
+                        company_id
+                    ),
+                    _CORRECTION_OPERATION,
+                    request_text,
+                    request_hash,
+                    int(
+                        actor_id
+                    ),
+                ],
+            )
+
+            cursor = await conn.execute(
+                """
+                SELECT status
+                FROM product_import_jobs
+                WHERE company_id = %s
+                  AND id = %s
+                FOR UPDATE
+                """,
+                [
+                    int(
+                        company_id
+                    ),
+                    job_id,
+                ],
+            )
+            job_row = await cursor.fetchone()
+            if job_row is None:
+                raise ValueError(
+                    "Import job was not found."
+                )
+
+            status = str(
+                job_row[
+                    0
+                ]
+            )
+            if status not in {
+                JobStatus.VALIDATION_FAILED.value,
+                JobStatus.COMPLETED_WITH_ERRORS.value,
+            }:
+                raise ValueError(
+                    "Import job is not awaiting failed-row correction."
+                )
+
+            assert_job_transition(
+                status,
+                JobStatus.VALIDATING.value,
+            )
+
+            await conn.execute(
+                """
+                CREATE TEMP TABLE
+                    product_import_correction_input (
+                        row_identity uuid PRIMARY KEY,
+                        raw_data jsonb NOT NULL
+                    )
+                ON COMMIT DROP
+                """
+            )
+            async with conn.cursor() as correction_cursor:
+                await correction_cursor.executemany(
+                    """
+                    INSERT INTO product_import_correction_input (
+                        row_identity,
+                        raw_data
+                    )
+                    VALUES (%s, %s)
+                    """,
+                    [
+                        (
+                            identity,
+                            Jsonb(
+                                dict(
+                                    correction[
+                                        "raw_data"
+                                    ]
+                                )
+                            ),
+                        )
+                        for (
+                            identity,
+                            correction,
+                        )
+                        in zip(
+                            identities,
+                            corrections,
+                            strict=True,
+                        )
+                    ],
+                )
+
+            cursor = await conn.execute(
+                """
+                SELECT count(*)
+                FROM product_import_correction_input AS correction
+                LEFT JOIN product_import_rows AS rows
+                  ON rows.company_id = %s
+                 AND rows.job_id = %s
+                 AND rows.row_identity = correction.row_identity
+                WHERE rows.id IS NULL
+                """,
+                [
+                    int(
+                        company_id
+                    ),
+                    job_id,
+                ],
+            )
+            unknown_count = int(
+                (
+                    await cursor.fetchone()
+                )[
+                    0
+                ]
+                or 0
+            )
+            if unknown_count:
+                raise ValueError(
+                    "Correction contains a row identity that does not belong to this import."
+                )
+
+            cursor = await conn.execute(
+                """
+                SELECT count(*)
+                FROM product_import_correction_input AS correction
+                JOIN product_import_rows AS rows
+                  ON rows.company_id = %s
+                 AND rows.job_id = %s
+                 AND rows.row_identity = correction.row_identity
+                WHERE rows.status = 'IMPORTED'
+                """,
+                [
+                    int(
+                        company_id
+                    ),
+                    job_id,
+                ],
+            )
+            imported_count = int(
+                (
+                    await cursor.fetchone()
+                )[
+                    0
+                ]
+                or 0
+            )
+            if imported_count:
+                raise ValueError(
+                    "Correction cannot modify an already imported row."
+                )
+
+            cursor = await conn.execute(
+                """
+                SELECT count(*)
+                FROM product_import_correction_input AS correction
+                JOIN product_import_rows AS rows
+                  ON rows.company_id = %s
+                 AND rows.job_id = %s
+                 AND rows.row_identity = correction.row_identity
+                WHERE rows.status NOT IN (
+                    'INVALID',
+                    'IMPORT_FAILED'
+                )
+                """,
+                [
+                    int(
+                        company_id
+                    ),
+                    job_id,
+                ],
+            )
+            ineligible_count = int(
+                (
+                    await cursor.fetchone()
+                )[
+                    0
+                ]
+                or 0
+            )
+            if ineligible_count:
+                raise ValueError(
+                    "Correction can update only failed Product Import rows."
+                )
+
+            result = await conn.execute(
+                """
+                UPDATE product_import_rows AS rows
+                SET raw_data = correction.raw_data,
+                    normalized_data = '{}'::jsonb,
+                    status = 'STAGED',
+                    error_code = NULL,
+                    error_message = NULL,
+                    product_variant_id = NULL,
+                    version = rows.version + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                FROM product_import_correction_input AS correction
+                WHERE rows.company_id = %s
+                  AND rows.job_id = %s
+                  AND rows.row_identity = correction.row_identity
+                  AND rows.status IN (
+                      'INVALID',
+                      'IMPORT_FAILED'
+                  )
+                """,
+                [
+                    int(
+                        company_id
+                    ),
+                    job_id,
+                ],
+            )
+            if int(
+                result.rowcount
+                or 0
+            ) != len(
+                corrections
+            ):
+                raise ValueError(
+                    "Correction rows changed concurrently."
+                )
+
+            await conn.execute(
+                """
+                UPDATE product_import_jobs
+                SET status = %s,
+                    error_summary = '{}'::jsonb,
+                    finished_at = NULL,
+                    version = version + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE company_id = %s
+                  AND id = %s
+                  AND status = %s
+                """,
+                [
+                    JobStatus.VALIDATING.value,
+                    int(
+                        company_id
+                    ),
+                    job_id,
+                    status,
+                ],
+            )
+
+            await _defer(
+                conn,
+                company_id=int(
+                    company_id
+                ),
+                job_id=job_id,
+            )
+
+            response = {
+                "job_id":
+                    str(
+                        job_id
+                    ),
+                "status":
+                    JobStatus.VALIDATING.value,
+                "corrected_rows":
+                    len(
+                        corrections
+                    ),
+                "replayed":
+                    False,
+            }
+            result = await conn.execute(
+                """
+                UPDATE operation_idempotency
+                SET response_json = %s,
+                    completed_at = CURRENT_TIMESTAMP
+                WHERE company_id = %s
+                  AND operation = %s
+                  AND request_id = %s
+                  AND response_json IS NULL
+                  AND completed_at IS NULL
+                """,
+                [
+                    Jsonb(
+                        response
+                    ),
+                    int(
+                        company_id
+                    ),
+                    _CORRECTION_OPERATION,
+                    request_text,
+                ],
+            )
+            if int(
+                result.rowcount
+                or 0
+            ) != 1:
+                raise RuntimeError(
+                    "Correction idempotency completion failed."
+                )
+
+            return response
+
+
 async def retry_failed_import(
     *,
     company_id: int,
