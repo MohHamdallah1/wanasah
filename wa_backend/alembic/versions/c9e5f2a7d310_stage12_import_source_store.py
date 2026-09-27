@@ -610,6 +610,39 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Restore any still-live immutable source into the legacy inline payload
+    # before the SourceStore schema is removed. Deleted sources intentionally
+    # remain cleared.
+    op.execute(
+        """
+        UPDATE product_import_jobs AS jobs
+        SET source_payload = source_bytes.payload,
+            source_payload_cleared_at = NULL
+        FROM (
+            SELECT
+                sources.company_id,
+                sources.id AS source_id,
+                string_agg(
+                    chunks.payload,
+                    ''::bytea
+                    ORDER BY chunks.chunk_index
+                ) AS payload
+            FROM product_import_sources AS sources
+            JOIN product_import_source_chunks AS chunks
+              ON chunks.company_id = sources.company_id
+             AND chunks.source_id = sources.id
+            WHERE sources.deleted_at IS NULL
+            GROUP BY
+                sources.company_id,
+                sources.id
+        ) AS source_bytes
+        WHERE jobs.company_id =
+                source_bytes.company_id
+          AND jobs.source_id =
+                source_bytes.source_id
+        """
+    )
+
     op.execute(
         "DROP TRIGGER IF EXISTS "
         "trg_product_import_source_chunk_immutable "
