@@ -3,13 +3,13 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
   Command,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
@@ -102,6 +102,21 @@ export function CreateProductIdentitySection({
     onFamilySearchChange,
   ]);
 
+  const familyInputValue =
+    familyPickerOpen
+      ? familySearchInput
+      : draft.family;
+
+  const clearFamilySearch = () => {
+    setFamilySearchInput("");
+    onFamilySearchChange("");
+    onFamilyChange("", null);
+    setFamilyPickerOpen(true);
+    queueMicrotask(() =>
+      createFamilyRef.current?.focus()
+    );
+  };
+
   return (
     <section className="border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
@@ -126,7 +141,7 @@ export function CreateProductIdentitySection({
                 ? "product-name-error"
                 : undefined
             }
-            className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 text-sm font-bold text-slate-950 outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
+            className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-950 outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
           />
           {createFieldError?.field === "name" ? (
             <span
@@ -172,7 +187,7 @@ export function CreateProductIdentitySection({
                   setFamilySearchInput("");
                   onFamilySearchChange("");
                 }}
-                className={`min-h-9 rounded-lg px-2 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${ 
+                className={`min-h-9 rounded-lg px-2 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
                   draft.family_mode === mode
                     ? "bg-slate-900 text-white shadow-sm"
                     : "text-slate-500 hover:bg-white hover:text-slate-900"
@@ -193,46 +208,81 @@ export function CreateProductIdentitySection({
                 onOpenChange={(open) => {
                   setFamilyPickerOpen(open);
                   if (open) {
-                    setFamilySearchInput("");
-                    onFamilySearchChange("");
+                    setFamilySearchInput(
+                      draft.family
+                    );
+                    onFamilySearchChange(
+                      draft.family
+                    );
                   }
                 }}
               >
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    aria-expanded={
-                      familyPickerOpen
-                    }
-                    aria-invalid={
-                      createFieldError?.field ===
-                      "family"
-                        ? "true"
-                        : undefined
-                    }
-                    aria-describedby={
-                      createFieldError?.field ===
-                      "family"
-                        ? "product-family-error"
-                        : undefined
-                    }
-                    className="mt-2 flex h-10 w-full items-center rounded-xl border border-slate-200 bg-white px-3 text-start text-sm font-bold text-slate-900 outline-none transition hover:border-slate-300 focus-visible:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-100"
-                  >
-                    <span
-                      className={
-                        draft.family_id
-                          ? "min-w-0 truncate"
-                          : "min-w-0 truncate text-slate-400"
+                <div className="relative mt-2">
+                  <PopoverTrigger asChild>
+                    <input
+                      ref={createFamilyRef}
+                      value={familyInputValue}
+                      onChange={(event) => {
+                        const value =
+                          event.target.value;
+                        setFamilySearchInput(
+                          value
+                        );
+                        onFamilyChange(
+                          value,
+                          null
+                        );
+                        setFamilyPickerOpen(
+                          true
+                        );
+                      }}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key ===
+                          "ArrowDown"
+                        ) {
+                          setFamilyPickerOpen(
+                            true
+                          );
+                        }
+                      }}
+                      placeholder={t(
+                        "products.familyExistingPlaceholder"
+                      )}
+                      aria-expanded={
+                        familyPickerOpen
                       }
+                      aria-invalid={
+                        createFieldError?.field ===
+                        "family"
+                          ? "true"
+                          : undefined
+                      }
+                      aria-describedby={
+                        createFieldError?.field ===
+                        "family"
+                          ? "product-family-error"
+                          : undefined
+                      }
+                      className="h-10 w-full rounded-xl border border-slate-200 bg-white pe-10 ps-3 text-sm font-bold text-slate-900 outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                    />
+                  </PopoverTrigger>
+
+                  {familyInputValue ? (
+                    <button
+                      type="button"
+                      onClick={
+                        clearFamilySearch
+                      }
+                      aria-label={t(
+                        "products.quickCreate.clearFamilySearch"
+                      )}
+                      className="absolute end-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                     >
-                      {draft.family_id
-                        ? draft.family
-                        : t(
-                            "products.familyExistingPlaceholder"
-                          )}
-                    </span>
-                  </button>
-                </PopoverTrigger>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
 
                 <PopoverContent
                   dir={i18n.dir()}
@@ -240,25 +290,12 @@ export function CreateProductIdentitySection({
                   align="start"
                   sideOffset={6}
                   avoidCollisions={false}
-                  className="z-[70] w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-xl"
+                  className="z-[70] w-[var(--radix-popover-trigger-width)] overflow-hidden rounded-xl border-slate-200 bg-white p-1.5 shadow-xl"
                 >
                   <Command
                     dir={i18n.dir()}
                     shouldFilter={false}
                   >
-                    <CommandInput
-                      ref={createFamilyRef}
-                      autoFocus
-                      value={familySearchInput}
-                      onValueChange={
-                        setFamilySearchInput
-                      }
-                      placeholder={t(
-                        "products.familyExistingPlaceholder"
-                      )}
-                      className="font-normal"
-                    />
-
                     <CommandList className="max-h-64">
                       {familyOptionsLoading ? (
                         <div className="px-3 py-6 text-center text-xs font-bold text-slate-400">
@@ -293,14 +330,14 @@ export function CreateProductIdentitySection({
                                     family.name,
                                     family.id
                                   );
-                                  setFamilyPickerOpen(
-                                    false
-                                  );
                                   setFamilySearchInput(
                                     ""
                                   );
                                   onFamilySearchChange(
                                     ""
+                                  );
+                                  setFamilyPickerOpen(
+                                    false
                                   );
                                 }}
                                 className="gap-3 rounded-lg px-3 py-2.5 text-start"
