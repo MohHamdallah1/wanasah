@@ -30,6 +30,7 @@ class JobStatus(str, Enum):
     VALIDATION_FAILED = "VALIDATION_FAILED"
     IMPORTING = "IMPORTING"
     RETRYING = "RETRYING"
+    CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
     COMPLETED_WITH_ERRORS = "COMPLETED_WITH_ERRORS"
     FAILED = "FAILED"
@@ -60,15 +61,18 @@ ALLOWED_JOB_TRANSITIONS: dict[
     JobStatus.QUEUED: frozenset({
         JobStatus.PARSING,
         JobStatus.FAILED,
+        JobStatus.CANCELLED,
     }),
     JobStatus.PARSING: frozenset({
         JobStatus.PARSING,
         JobStatus.NEEDS_MAPPING,
         JobStatus.VALIDATING,
         JobStatus.FAILED,
+        JobStatus.CANCELLED,
     }),
     JobStatus.NEEDS_MAPPING: frozenset({
         JobStatus.VALIDATING,
+        JobStatus.CANCELLED,
     }),
     JobStatus.VALIDATING: frozenset({
         JobStatus.NEEDS_MAPPING,
@@ -76,6 +80,7 @@ ALLOWED_JOB_TRANSITIONS: dict[
         JobStatus.IMPORTING,
         JobStatus.COMPLETED_WITH_ERRORS,
         JobStatus.FAILED,
+        JobStatus.CANCELLED,
     }),
     JobStatus.VALIDATION_FAILED:
         frozenset({
@@ -86,6 +91,7 @@ ALLOWED_JOB_TRANSITIONS: dict[
         JobStatus.COMPLETED,
         JobStatus.COMPLETED_WITH_ERRORS,
         JobStatus.FAILED,
+        JobStatus.CANCELLED,
     }),
     JobStatus.RETRYING: frozenset({
         JobStatus.QUEUED,
@@ -93,7 +99,9 @@ ALLOWED_JOB_TRANSITIONS: dict[
         JobStatus.VALIDATING,
         JobStatus.IMPORTING,
         JobStatus.FAILED,
+        JobStatus.CANCELLED,
     }),
+    JobStatus.CANCELLED: frozenset(),
     JobStatus.COMPLETED: frozenset(),
     JobStatus.COMPLETED_WITH_ERRORS:
         frozenset({
@@ -296,7 +304,7 @@ async def set_job_status(
     job_id: UUID,
     target: JobStatus | str,
     **values: Any,
-) -> None:
+) -> str:
     token, db = await open_tenant_session(
         company_id
     )
@@ -312,12 +320,22 @@ async def set_job_status(
                 "Product import job not found."
             )
 
+        if (
+            str(job.status)
+            == JobStatus.CANCELLED.value
+            and _job_status(target)
+            != JobStatus.CANCELLED
+        ):
+            await db.rollback()
+            return JobStatus.CANCELLED.value
+
         transition_job(
             job,
             target,
             **values,
         )
         await db.commit()
+        return str(job.status)
     except Exception:
         await db.rollback()
         raise
@@ -352,6 +370,13 @@ async def record_runtime_failure(
         current_status = str(
             job.status
         )
+        if (
+            current_status
+            == JobStatus.CANCELLED.value
+        ):
+            await db.rollback()
+            return
+
         summary = runtime_failure_summary(
             message=message,
             final_attempt=final_attempt,
