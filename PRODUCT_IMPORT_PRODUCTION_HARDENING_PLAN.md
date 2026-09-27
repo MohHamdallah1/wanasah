@@ -542,15 +542,17 @@ Import error/report artifacts must also be safe when opened in spreadsheet softw
 
 ## Tasks
 
-- [ ] Create stable import error codes by phase and category.
-- [ ] Map deterministic domain errors to user-safe messages/context.
-- [ ] Keep technical exception detail only in structured server logs/observability with correlation IDs.
-- [ ] Never expose SQL/constraint/internal stack details to ordinary users.
-- [ ] Preserve actionable row number + field + safe code for business errors.
-- [ ] Sanitize generated CSV/error-report cells against spreadsheet formula injection.
-- [ ] Validate MIME/extension/content consistency where useful without trusting client MIME as authority.
-- [ ] Keep XLSX archive bomb, entry-count, compression-ratio and macro defenses.
-- [ ] Add malformed/corrupt/adversarial CSV/XLSX tests.
+- [x] Create stable import error codes by phase and category.
+- [x] Map deterministic domain errors to user-safe messages/context.
+- [x] Keep technical exception detail only in structured server logs/observability with correlation IDs.
+- [x] Never expose SQL/constraint/internal stack details to ordinary users.
+- [x] Preserve actionable row number + field + safe code for business errors.
+- [x] Sanitize generated CSV/error-report cells against spreadsheet formula injection.
+- [x] Validate MIME/extension/content consistency where useful without trusting client MIME as authority.
+- [x] Keep XLSX archive bomb, entry-count, compression-ratio and macro defenses.
+- [x] Add malformed/corrupt/adversarial CSV/XLSX tests.
+
+> **Phase 14 closure:** public Product Import diagnostics are code-driven and whitelist-based; technical exception/SQL/constraint detail is server-log-only with correlation IDs. Correction CSV/XLSX output is formula-injection sanitized, client MIME is not authoritative, source content signatures are verified, and XLSX archive/ratio/macro defenses remain fail-closed. Verified by `test_product_import_phase14_security.py` and `gate_product_import_phase14_security.py`.
 
 ---
 
