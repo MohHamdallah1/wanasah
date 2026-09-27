@@ -103,3 +103,8 @@ Be direct. Get straight to the point. No apologies, no repetitive phrasing, and 
 - Before that lazy assignment, the backend must authorize `inbound.create` on the exact location and validate every requested variant under the same `company_id`; tenant and warehouse isolation remain fail-closed.
 - Existing ProductLocation rows and their `inbound_enabled` / `outbound_enabled` flags are authoritative and must never be overwritten by the lazy path.
 - Lazy assignment must use the logical unique constraint, be concurrency-safe, audited with the same request id, and roll back if the inbound transaction fails.
+
+
+## Version 2 deferred-capability preservation
+- `VERSION_2_FUTURE_FEATURES.md` is a canonical root-level product scope document. Do not delete, archive, silently ignore, or treat it as a temporary handoff file.
+- Capabilities explicitly deferred there may remain implemented in backend/code but disabled in the Version 1 UI. Re-enabling them requires completing the documented workflow and verification criteria first.
