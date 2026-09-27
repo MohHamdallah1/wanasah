@@ -20,7 +20,7 @@ BACKEND = ROOT / "wa_backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from product_import_localization import (  # noqa: E402
+from domains.simple_products.imports.domain import (  # noqa: E402
     AR_IMPORT_LOCALE,
     CANONICAL_IMPORT_FIELDS,
     EN_IMPORT_LOCALE,
@@ -64,7 +64,7 @@ def static_checks() -> None:
         BACKEND / "api/simple_products.py"
     ).read_text(encoding="utf-8")
     localization = (
-        BACKEND / "product_import_localization.py"
+        BACKEND / "domains/simple_products/imports/domain/localization.py"
     ).read_text(encoding="utf-8")
     import_modal = (
         ROOT
@@ -90,7 +90,7 @@ def static_checks() -> None:
     ).read_text(encoding="utf-8")
 
     check(
-        "from product_import_localization import"
+        "from domains.simple_products.imports.domain import"
         in worker
         and "_ALIASES = {" not in worker
         and "_TRACKING_VALUE_ALIASES" not in worker
