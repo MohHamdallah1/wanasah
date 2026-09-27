@@ -260,6 +260,12 @@ async def _validation_contract(
             )
         if (
             str(job.status)
+            == JobStatus.CANCELLED.value
+        ):
+            await db.rollback()
+            return None
+        if (
+            str(job.status)
             != JobStatus.VALIDATING.value
         ):
             raise ProductImportTerminalError(
@@ -394,6 +400,12 @@ async def validate_rows(
                 raise ValueError(
                     "Product import job not found."
                 )
+            if (
+                str(job.status)
+                == JobStatus.CANCELLED.value
+            ):
+                await db.rollback()
+                return False
             if (
                 str(job.status)
                 != JobStatus.VALIDATING.value
