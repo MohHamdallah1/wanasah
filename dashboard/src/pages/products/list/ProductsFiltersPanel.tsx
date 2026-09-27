@@ -106,17 +106,8 @@ export function ProductsFiltersPanel({
     setAdvancedFiltersOpen,
   ] = useState(false);
 
-  const advancedCriteriaActive =
-    Boolean(
-      compatibilityFilter ||
-        barcodeFilter ||
-        priceFilter ||
-        lotFilter ||
-        expiryFilter,
-    );
   const showAdvancedFilters =
-    advancedFiltersOpen ||
-    advancedCriteriaActive;
+    advancedFiltersOpen;
   const sortValue =
     `${sortBy}:${sortDir}`;
 
