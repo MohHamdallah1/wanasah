@@ -31,9 +31,11 @@ def static_checks() -> None:
     from domains.simple_products.imports.infrastructure.template import (
         build_product_import_template,
     )
-    from domains.simple_products.imports.application.worker import (
-        normalize_raw_row,
+    from domains.simple_products.imports.domain.mapping import (
         suggest_mapping,
+    )
+    from domains.simple_products.imports.domain.normalization import (
+        normalize_raw_row,
     )
 
     inherited = normalize_raw_row(
@@ -181,6 +183,12 @@ def static_checks() -> None:
     worker = (
         BACKEND / "domains/simple_products/imports/application/worker.py"
     ).read_text(encoding="utf-8")
+    normalization = (
+        BACKEND / "domains/simple_products/imports/domain/normalization.py"
+    ).read_text(encoding="utf-8")
+    execution = (
+        BACKEND / "domains/simple_products/imports/application/execution_service.py"
+    ).read_text(encoding="utf-8")
     localization = (
         BACKEND / "domains/simple_products/imports/domain/localization.py"
     ).read_text(encoding="utf-8")
@@ -250,16 +258,16 @@ def static_checks() -> None:
         "Import responses expose the immutable tracking snapshot",
     )
     check(
-        '"lot_control_mode"' in worker
-        and '"expiry_control_mode"' in worker
-        and "default_lot_control_mode" in worker
-        and "default_expiry_control_mode" in worker
-        and "lot_control_mode=str(" in worker
-        and "expiry_control_mode=str(" in worker,
-        "Worker forwards normalized tracking through SimpleProductSpec",
+        '"lot_control_mode"' in execution
+        and '"expiry_control_mode"' in execution
+        and "lot_control_mode=str(" in execution
+        and "expiry_control_mode=str(" in execution
+        and "default_lot_control_mode" in normalization
+        and "default_expiry_control_mode" in normalization,
+        "Normalization and execution preserve Product tracking contract",
     )
     check(
-        "canonical_tracking_value" in worker
+        "canonical_tracking_value" in normalization
         and "tracking_value_aliases" in localization
         and "IMPORT_TRACKING_DEFAULT_SENTINEL" in localization
         and '"استخدام الافتراضي"' in localization
