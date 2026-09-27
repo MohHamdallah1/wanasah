@@ -173,6 +173,9 @@ describe("Products P9 create family intent", () => {
       "onOpenAutoFocus",
     );
     expect(identity).toContain(
+      "onInteractOutside",
+    );
+    expect(identity).toContain(
       "onFocus={() =>",
     );
     expect(identity).toContain(
