@@ -1,8 +1,8 @@
 """Canonical Product Import state-transition authority.
 
-Phase 3 centralizes the vocabulary and legal transitions. The new
-COMPLETED_WITH_ERRORS and IMPORT_FAILED states are part of the contract, but
-best-effort execution is not enabled here.
+Phase 3 centralized the vocabulary and legal transitions. Phase 7 activates
+COMPLETED_WITH_ERRORS and IMPORT_FAILED for best-effort outcomes while this
+module remains the fail-closed transition authority.
 """
 from __future__ import annotations
 
