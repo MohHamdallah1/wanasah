@@ -77,7 +77,9 @@ ALLOWED_JOB_TRANSITIONS: dict[
         JobStatus.FAILED,
     }),
     JobStatus.VALIDATION_FAILED:
-        frozenset(),
+        frozenset({
+            JobStatus.VALIDATING,
+        }),
     JobStatus.IMPORTING: frozenset({
         JobStatus.IMPORTING,
         JobStatus.COMPLETED,
@@ -93,7 +95,9 @@ ALLOWED_JOB_TRANSITIONS: dict[
     }),
     JobStatus.COMPLETED: frozenset(),
     JobStatus.COMPLETED_WITH_ERRORS:
-        frozenset(),
+        frozenset({
+            JobStatus.VALIDATING,
+        }),
     JobStatus.FAILED: frozenset({
         JobStatus.QUEUED,
         JobStatus.PARSING,
@@ -115,9 +119,13 @@ ALLOWED_ROW_TRANSITIONS: dict[
         RowStatus.IMPORTED,
         RowStatus.IMPORT_FAILED,
     }),
-    RowStatus.INVALID: frozenset(),
+    RowStatus.INVALID: frozenset({
+        RowStatus.STAGED,
+    }),
     RowStatus.IMPORT_FAILED:
-        frozenset(),
+        frozenset({
+            RowStatus.STAGED,
+        }),
     RowStatus.IMPORTED: frozenset(),
 }
 
