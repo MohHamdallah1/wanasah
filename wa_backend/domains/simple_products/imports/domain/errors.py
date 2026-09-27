@@ -1,4 +1,4 @@
-"""Product Import error taxonomy and stable failure summaries."""
+"""Canonical Product Import error taxonomy."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,23 +6,72 @@ from enum import Enum
 
 
 class ProductImportTerminalError(RuntimeError):
-    """Deterministic import failure that must not be retried automatically."""
+    """Deterministic job-level failure that must not be retried automatically."""
+
+
+class ProductImportRowValidationError(
+    RuntimeError
+):
+    """Deterministic validation failure attributable to one source row."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+    ) -> None:
+        super().__init__(message)
+        self.code = str(code)
+        self.message = str(message)
+
+
+class ProductImportRowExecutionError(
+    RuntimeError
+):
+    """Deterministic execution failure attributable to one validated row."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+    ) -> None:
+        super().__init__(message)
+        self.code = str(code)
+        self.message = str(message)
+
+
+class ImportFailureScope(str, Enum):
+    ROW = "ROW"
+    JOB = "JOB"
 
 
 class ImportErrorKind(str, Enum):
-    DETERMINISTIC = "DETERMINISTIC"
-    TRANSIENT = "TRANSIENT"
+    DETERMINISTIC_VALIDATION = (
+        "DETERMINISTIC_VALIDATION"
+    )
+    DETERMINISTIC_ROW_EXECUTION = (
+        "DETERMINISTIC_ROW_EXECUTION"
+    )
+    DETERMINISTIC_JOB = (
+        "DETERMINISTIC_JOB"
+    )
+    TRANSIENT_SYSTEM = (
+        "TRANSIENT_SYSTEM"
+    )
 
 
 @dataclass(frozen=True)
 class ImportErrorClassification:
     kind: ImportErrorKind
+    scope: ImportFailureScope
+    retryable: bool
+    code: str | None = None
+    message: str | None = None
 
     @property
-    def retryable(self) -> bool:
+    def row_failure(self) -> bool:
         return (
-            self.kind
-            is ImportErrorKind.TRANSIENT
+            self.scope
+            is ImportFailureScope.ROW
         )
 
 
@@ -31,13 +80,39 @@ def classify_import_error(
 ) -> ImportErrorClassification:
     if isinstance(
         exc,
+        ProductImportRowValidationError,
+    ):
+        return ImportErrorClassification(
+            kind=ImportErrorKind.DETERMINISTIC_VALIDATION,
+            scope=ImportFailureScope.ROW,
+            retryable=False,
+            code=exc.code,
+            message=exc.message,
+        )
+    if isinstance(
+        exc,
+        ProductImportRowExecutionError,
+    ):
+        return ImportErrorClassification(
+            kind=ImportErrorKind.DETERMINISTIC_ROW_EXECUTION,
+            scope=ImportFailureScope.ROW,
+            retryable=False,
+            code=exc.code,
+            message=exc.message,
+        )
+    if isinstance(
+        exc,
         ProductImportTerminalError,
     ):
         return ImportErrorClassification(
-            ImportErrorKind.DETERMINISTIC
+            kind=ImportErrorKind.DETERMINISTIC_JOB,
+            scope=ImportFailureScope.JOB,
+            retryable=False,
         )
     return ImportErrorClassification(
-        ImportErrorKind.TRANSIENT
+        kind=ImportErrorKind.TRANSIENT_SYSTEM,
+        scope=ImportFailureScope.JOB,
+        retryable=True,
     )
 
 
