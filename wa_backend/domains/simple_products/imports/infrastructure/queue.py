@@ -41,6 +41,8 @@ PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
         "wanasah.recover_stalled_product_imports",
         "wanasah.cleanup_product_import_retention",
         "wanasah.schedule_product_import_retention",
+        "wanasah.monitor_product_import_capacity",
+        "wanasah.schedule_product_import_capacity_monitor",
     }
 )
 
@@ -606,3 +608,4 @@ async def retry_failed_import(
 # Import after the queue app/tasks exist so retention jobs share the same
 # product-import worker without folding retention orchestration into this module.
 from domains.simple_products.imports.infrastructure import retention_queue as _retention_queue  # noqa: E402,F401
+from domains.simple_products.imports.infrastructure import capacity_queue as _capacity_queue  # noqa: E402,F401
