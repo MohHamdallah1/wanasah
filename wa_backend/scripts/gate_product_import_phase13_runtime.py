@@ -88,7 +88,7 @@ tests = read(
 check(
     "company serialization retained and documented",
     'lock=f"product-import:{int(company_id)}"' in queue
-    and "shared company-default" in decision,
+    and "company-default PriceBook/assignment" in decision,
 )
 check(
     "per-tenant active import backpressure remains authoritative",
