@@ -39,7 +39,11 @@ def static_checks() -> None:
         normalize_tracking_mode,
     )
     from domains.simple_products.service import resolve_price_pair
-    from product_import_worker import parse_source, suggest_mapping
+    from product_import_worker import (
+        ProductImportTerminalError,
+        parse_source,
+        suggest_mapping,
+    )
 
     package_only = resolve_price_pair(
         units_per_package=50,
@@ -217,6 +221,21 @@ def static_checks() -> None:
         and suggestions.get("units_per_package") == "عدد الوحدات في العبوة"
         and suggestions.get("unit_price") == "سعر الوحدة",
         "Flexible localized import headers map without positional guessing",
+    )
+
+    empty_import_rejected = False
+    try:
+        parse_source(
+            "products.csv",
+            "اسم المنتج,سعر الوحدة\n".encode("utf-8"),
+        )
+    except ProductImportTerminalError as exc:
+        empty_import_rejected = (
+            "no product rows" in str(exc).lower()
+        )
+    check(
+        empty_import_rejected,
+        "Headers-only product imports are rejected instead of completing with zero rows",
     )
 
     sidebar = (
