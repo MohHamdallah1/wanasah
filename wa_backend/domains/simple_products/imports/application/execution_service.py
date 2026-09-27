@@ -595,6 +595,12 @@ async def execute_import(
                 )
             if (
                 str(job.status)
+                == JobStatus.CANCELLED.value
+            ):
+                await db.rollback()
+                return
+            if (
+                str(job.status)
                 != JobStatus.IMPORTING.value
             ):
                 raise ProductImportTerminalError(
