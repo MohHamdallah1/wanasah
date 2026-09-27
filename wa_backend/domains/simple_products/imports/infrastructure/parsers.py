@@ -31,7 +31,13 @@ from openpyxl.reader.strings import (
 
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
+    SOURCE_CELL_META_KEY,
+    WANASAH_TEMPLATE_MARKER,
+    WANASAH_TEMPLATE_META_SHEET,
+    WANASAH_TEMPLATE_PRODUCT_SHEET_CELL,
+    formula_source_metadata,
     normalize_import_token,
+    numeric_source_metadata,
 )
 
 
@@ -252,12 +258,16 @@ class _BoundedExcelReader(
     def __init__(
         self,
         file_object,
+        *,
+        data_only: bool,
     ) -> None:
         super().__init__(
             file_object,
             read_only=True,
             keep_vba=False,
-            data_only=True,
+            data_only=bool(
+                data_only
+            ),
             keep_links=False,
             rich_text=False,
         )
@@ -316,9 +326,13 @@ class _BoundedExcelReader(
 
 def _load_bounded_workbook(
     file_object,
+    *,
+    data_only: bool,
 ) -> _BoundedExcelReader:
     reader = _BoundedExcelReader(
-        file_object
+        file_object,
+        data_only=
+            data_only,
     )
     try:
         reader.read()
