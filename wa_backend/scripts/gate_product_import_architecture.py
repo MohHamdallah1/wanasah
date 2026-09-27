@@ -182,6 +182,133 @@ check(
 )
 
 
+required_phase2_services = (
+    IMPORTS
+    / "application"
+    / "state_machine.py",
+    IMPORTS
+    / "application"
+    / "staging_service.py",
+    IMPORTS
+    / "application"
+    / "validation_service.py",
+    IMPORTS
+    / "application"
+    / "execution_service.py",
+    IMPORTS
+    / "domain"
+    / "normalization.py",
+    IMPORTS
+    / "domain"
+    / "errors.py",
+    INFRASTRUCTURE
+    / "parsers.py",
+    INFRASTRUCTURE
+    / "repository.py",
+)
+missing_services = [
+    str(
+        path.relative_to(
+            BACKEND
+        )
+    )
+    for path in required_phase2_services
+    if not path.is_file()
+]
+check(
+    not missing_services,
+    "Product Import responsibilities remain split into dedicated Phase 2 services",
+    ", ".join(
+        missing_services
+    ),
+)
+
+
+worker_lines = (
+    application_source.count("\n")
+    + 1
+)
+check(
+    worker_lines <= 230,
+    "Product Import worker stays a thin orchestrator",
+    f"lines={worker_lines}, limit=230",
+)
+
+worker_tree = ast.parse(
+    application_source,
+    filename=str(
+        APPLICATION_WORKER
+    ),
+)
+worker_functions = [
+    node
+    for node in worker_tree.body
+    if isinstance(
+        node,
+        (
+            ast.FunctionDef,
+            ast.AsyncFunctionDef,
+        ),
+    )
+]
+oversized_worker_functions = [
+    (
+        node.name,
+        (
+            int(
+                node.end_lineno
+                or node.lineno
+            )
+            - int(node.lineno)
+            + 1
+        ),
+    )
+    for node in worker_functions
+    if (
+        int(
+            node.end_lineno
+            or node.lineno
+        )
+        - int(node.lineno)
+        + 1
+    )
+    > 120
+]
+check(
+    not oversized_worker_functions,
+    "Product Import worker has no oversized orchestration function",
+    ", ".join(
+        f"{name}={size}"
+        for name, size
+        in oversized_worker_functions
+    ),
+)
+
+worker_forbidden_tokens = {
+    "InventoryAccess(",
+    "SimpleProductSpec(",
+    "create_products_and_prices(",
+    "normalize_raw_row(",
+    "find_active_barcodes(",
+    "list_job_rows(",
+    "ProductImportRow",
+    "transition_row(",
+}
+worker_responsibility_leaks = sorted(
+    token
+    for token
+    in worker_forbidden_tokens
+    if token in application_source
+)
+check(
+    not worker_responsibility_leaks,
+    "Thin Product Import worker does not absorb validation/execution/persistence responsibilities",
+    ", ".join(
+        worker_responsibility_leaks
+    ),
+)
+
+
 if failures:
     print(
         f"CHECKS={checks}"
