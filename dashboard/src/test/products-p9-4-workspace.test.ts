@@ -123,6 +123,9 @@ describe("Products P9.4 workspace foundation", () => {
       "Advanced Pricing",
     );
     expect(v2Scope).toContain(
+      "Company-configurable unit / package catalog",
+    );
+    expect(v2Scope).toContain(
       "The real V1 workflow gap",
     );
   });
