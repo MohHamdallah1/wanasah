@@ -138,6 +138,15 @@ describe(
       localStorage.clear();
     });
 
+    it("defaults Product ordering to operational lifecycle priority", () => {
+      expect(
+        DEFAULT_PRODUCT_DISPLAY_PREFERENCES.defaultSort,
+      ).toEqual({
+        field: "lifecycle",
+        direction: "asc",
+      });
+    });
+
     it("scopes persisted display preferences by company and user", () => {
       const custom =
         clonePreferences();
