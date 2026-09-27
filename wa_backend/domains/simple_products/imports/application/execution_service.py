@@ -32,7 +32,7 @@ from domains.simple_products.imports.domain.errors import (
 from domains.simple_products.imports.infrastructure.repository import (
     ProductImportProgress,
     close_tenant_session,
-    count_job_progress,
+    count_job_rows,
     list_job_rows,
     load_active_actor,
     load_job,
@@ -648,34 +648,66 @@ async def execute_import(
             )
 
             if not rows:
-                progress = (
-                    await count_job_progress(
+                pending_valid_rows = (
+                    await count_job_rows(
                         db,
                         company_id=
                             company_id,
                         job_id=job_id,
+                        status=
+                            RowStatus.VALID.value,
                     )
                 )
-
                 if (
-                    progress.total_rows
+                    pending_valid_rows
+                    > 0
+                ):
+                    # A concurrent delivery may own rows hidden by SKIP LOCKED.
+                    # Count only the indexed VALID slice; never rescan the
+                    # entire staged job merely to detect that condition.
+                    await db.rollback()
+                    return
+
+                imported_rows = int(
+                    job.processed_rows
+                )
+                invalid_rows = int(
+                    job.failed_rows
+                )
+                import_failed_rows = (
+                    int(
+                        job.valid_rows
+                    )
+                    - imported_rows
+                )
+                if (
+                    import_failed_rows
+                    < 0
+                    or (
+                        imported_rows
+                        + invalid_rows
+                        + import_failed_rows
+                    )
                     != int(
                         job.total_rows
                     )
                 ):
                     raise ProductImportTerminalError(
-                        "Product import outcome counts do not match the staged import total."
+                        "Product import outcome counters do not match the staged import total."
                     )
 
-                if (
-                    progress.pending_rows
-                    > 0
-                ):
-                    # Another delivery may currently own the remaining
-                    # SKIP LOCKED rows. Never finalize while durable pending
-                    # outcomes still exist.
-                    await db.rollback()
-                    return
+                progress = ProductImportProgress(
+                    total_rows=int(
+                        job.total_rows
+                    ),
+                    imported_rows=
+                        imported_rows,
+                    invalid_rows=
+                        invalid_rows,
+                    import_failed_rows=
+                        import_failed_rows,
+                    pending_rows=0,
+                )
 
                 target = (
                     completion_outcome(
