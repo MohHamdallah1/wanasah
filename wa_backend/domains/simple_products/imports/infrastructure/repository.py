@@ -23,7 +23,6 @@ from domains.simple_products.imports.infrastructure.parsers import (
 )
 from models import (
     Driver,
-    ProductBarcode,
     ProductImportJob,
     ProductImportRow,
 )
@@ -329,32 +328,163 @@ async def list_job_rows(
     )
 
 
-async def find_active_barcodes(
+async def rebuild_job_barcode_staging(
     db: AsyncSession,
     *,
     company_id: int,
-    candidates: list[str],
-) -> set[str]:
-    if not candidates:
-        return set()
-    result = await db.execute(
-        select(
-            ProductBarcode.barcode
-        ).where(
-            ProductBarcode.company_id
-            == int(company_id),
-            ProductBarcode.barcode.in_(
-                candidates
-            ),
-            ProductBarcode.is_active.is_(
-                True
-            ),
-        )
+    job_id: UUID,
+) -> int:
+    await db.execute(
+        text(
+            """
+            DELETE FROM product_import_row_barcodes
+            WHERE company_id = :company_id
+              AND job_id = :job_id
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "job_id": job_id,
+        },
     )
-    return set(
-        result.scalars().fetchmany(
-            len(candidates)
-        )
+
+    result = await db.execute(
+        text(
+            """
+            INSERT INTO product_import_row_barcodes (
+                company_id,
+                job_id,
+                row_number,
+                barcode
+            )
+            SELECT DISTINCT
+                rows.company_id,
+                rows.job_id,
+                rows.row_number,
+                candidate.barcode
+            FROM product_import_rows AS rows
+            CROSS JOIN LATERAL (
+                VALUES
+                    (
+                        NULLIF(
+                            rows.normalized_data->>'unit_barcode',
+                            ''
+                        )
+                    ),
+                    (
+                        NULLIF(
+                            rows.normalized_data->>'package_barcode',
+                            ''
+                        )
+                    )
+            ) AS candidate(barcode)
+            WHERE rows.company_id = :company_id
+              AND rows.job_id = :job_id
+              AND rows.status = 'VALID'
+              AND candidate.barcode IS NOT NULL
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "job_id": job_id,
+        },
+    )
+    return int(
+        result.rowcount
+        or 0
+    )
+
+
+async def invalidate_internal_duplicate_barcodes(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> int:
+    result = await db.execute(
+        text(
+            """
+            WITH duplicate_barcodes AS (
+                SELECT barcode
+                FROM product_import_row_barcodes
+                WHERE company_id = :company_id
+                  AND job_id = :job_id
+                GROUP BY barcode
+                HAVING COUNT(*) > 1
+            ),
+            bad_rows AS (
+                SELECT DISTINCT staged.row_number
+                FROM product_import_row_barcodes AS staged
+                JOIN duplicate_barcodes AS duplicates
+                  ON duplicates.barcode = staged.barcode
+                WHERE staged.company_id = :company_id
+                  AND staged.job_id = :job_id
+            )
+            UPDATE product_import_rows AS rows
+            SET status = 'INVALID',
+                error_code = 'IMPORT_BARCODE_DUPLICATE',
+                error_message = 'Barcode appears on more than one import row.',
+                version = rows.version + 1,
+                updated_at = CURRENT_TIMESTAMP
+            FROM bad_rows
+            WHERE rows.company_id = :company_id
+              AND rows.job_id = :job_id
+              AND rows.row_number = bad_rows.row_number
+              AND rows.status = 'VALID'
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "job_id": job_id,
+        },
+    )
+    return int(
+        result.rowcount
+        or 0
+    )
+
+
+async def invalidate_external_barcode_conflicts(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> int:
+    result = await db.execute(
+        text(
+            """
+            WITH bad_rows AS (
+                SELECT DISTINCT staged.row_number
+                FROM product_import_row_barcodes AS staged
+                JOIN product_barcodes AS existing
+                  ON existing.company_id = staged.company_id
+                 AND existing.barcode = staged.barcode
+                 AND existing.is_active IS TRUE
+                WHERE staged.company_id = :company_id
+                  AND staged.job_id = :job_id
+            )
+            UPDATE product_import_rows AS rows
+            SET status = 'INVALID',
+                error_code = 'IMPORT_BARCODE_CONFLICT',
+                error_message = 'Barcode is already active.',
+                version = rows.version + 1,
+                updated_at = CURRENT_TIMESTAMP
+            FROM bad_rows
+            WHERE rows.company_id = :company_id
+              AND rows.job_id = :job_id
+              AND rows.row_number = bad_rows.row_number
+              AND rows.status = 'VALID'
+            """
+        ),
+        {
+            "company_id": int(company_id),
+            "job_id": job_id,
+        },
+    )
+    return int(
+        result.rowcount
+        or 0
     )
 
 
