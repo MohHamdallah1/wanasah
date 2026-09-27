@@ -6,7 +6,6 @@ Product Import transport concerns inside the owning capability module.
 from __future__ import annotations
 
 import base64
-import hashlib
 from typing import Any
 from uuid import UUID
 
@@ -44,6 +43,9 @@ from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     RowStatus,
 )
+from domains.simple_products.imports.domain.admission import (
+    ProductImportAdmissionDenied,
+)
 from domains.simple_products.imports.domain import (
     CANONICAL_IMPORT_FIELDS,
     ProductImportTerminalError,
@@ -56,6 +58,10 @@ from domains.simple_products.imports.infrastructure.queue import (
 from domains.simple_products.imports.infrastructure.repository import (
     ProductImportProgress,
     count_job_progress,
+)
+from domains.simple_products.imports.infrastructure.upload_stream import (
+    ProductImportUploadTooLarge,
+    spool_upload_bounded,
 )
 from domains.simple_products.imports.infrastructure.template import (
     build_product_import_template,
@@ -189,29 +195,40 @@ async def create_product_import(
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
-    await _require_manage(db, actor)
+    await _require_manage(
+        db,
+        actor,
+    )
 
     file_name = str(
-        file.filename or ""
+        file.filename
+        or ""
     ).strip()
     if (
         not file_name
-        or len(file_name) > 255
+        or len(
+            file_name
+        ) > 255
         or "\x00" in file_name
     ):
         await file.close()
         raise HTTPException(
             422,
             detail={
-                "code": "PRODUCT_IMPORT_FILE_NAME_INVALID",
-                "message": "Invalid file name.",
+                "code":
+                    "PRODUCT_IMPORT_FILE_NAME_INVALID",
+                "message":
+                    "Invalid file name.",
                 "context": {},
             },
         )
 
     suffix = (
         "."
-        + file_name.lower().rsplit(".", 1)[-1]
+        + file_name.lower().rsplit(
+            ".",
+            1,
+        )[-1]
         if "." in file_name
         else ""
     )
@@ -220,59 +237,93 @@ async def create_product_import(
         raise HTTPException(
             415,
             detail={
-                "code": "PRODUCT_IMPORT_FILE_TYPE_UNSUPPORTED",
-                "message": "Upload a CSV or XLSX file.",
+                "code":
+                    "PRODUCT_IMPORT_FILE_TYPE_UNSUPPORTED",
+                "message":
+                    "Upload a CSV or XLSX file.",
                 "context": {},
             },
         )
 
-    payload = await file.read(
-        MAX_IMPORT_FILE_BYTES + 1
-    )
     content_type = str(
         file.content_type
         or "application/octet-stream"
     )
-    await file.close()
-
-    if not payload:
-        raise HTTPException(
-            422,
-            detail={
-                "code": "PRODUCT_IMPORT_FILE_EMPTY",
-                "message": "The import file is empty.",
-                "context": {},
-            },
+    bounded_upload = None
+    try:
+        bounded_upload = (
+            await spool_upload_bounded(
+                file,
+                max_bytes=
+                    MAX_IMPORT_FILE_BYTES,
+            )
         )
-    if len(payload) > MAX_IMPORT_FILE_BYTES:
+    except ProductImportUploadTooLarge as exc:
         raise HTTPException(
             413,
             detail={
-                "code": "PRODUCT_IMPORT_FILE_TOO_LARGE",
-                "message": "The import file is larger than 8MB.",
+                "code":
+                    "PRODUCT_IMPORT_FILE_TOO_LARGE",
+                "message":
+                    "The import file is larger than 8MB.",
                 "context": {
-                    "max_bytes": MAX_IMPORT_FILE_BYTES
+                    "max_bytes":
+                        MAX_IMPORT_FILE_BYTES,
                 },
+            },
+        ) from exc
+    finally:
+        await file.close()
+
+    if (
+        bounded_upload
+        is None
+        or int(
+            bounded_upload.byte_size
+        ) <= 0
+    ):
+        if bounded_upload is not None:
+            bounded_upload.close()
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_FILE_EMPTY",
+                "message":
+                    "The import file is empty.",
+                "context": {},
             },
         )
 
     try:
-        tracking_defaults = await resolve_product_tracking_modes(
-            db,
-            company_id=int(actor.company_id),
-            lot_control_mode=default_lot_control_mode,
-            expiry_control_mode=default_expiry_control_mode,
+        tracking_defaults = (
+            await resolve_product_tracking_modes(
+                db,
+                company_id=int(
+                    actor.company_id
+                ),
+                lot_control_mode=
+                    default_lot_control_mode,
+                expiry_control_mode=
+                    default_expiry_control_mode,
+            )
         )
         queued = await enqueue_new_import(
-            company_id=int(actor.company_id),
-            actor_id=int(actor.id),
+            company_id=int(
+                actor.company_id
+            ),
+            actor_id=int(
+                actor.id
+            ),
             request_id=request_id,
             file_name=file_name,
             content_type=content_type,
-            payload=payload,
-            source_sha256=hashlib.sha256(
-                payload
-            ).hexdigest(),
+            source_stream=
+                bounded_upload.stream,
+            source_size=
+                bounded_upload.byte_size,
+            source_sha256=
+                bounded_upload.sha256,
             default_lot_control_mode=(
                 tracking_defaults.lot_control_mode
             ),
@@ -284,17 +335,54 @@ async def create_product_import(
         raise HTTPException(
             exc.status_code,
             detail={
-                "code": exc.code,
-                "message": exc.message,
-                "context": exc.context,
+                "code":
+                    exc.code,
+                "message":
+                    exc.message,
+                "context":
+                    exc.context,
+            },
+        ) from exc
+    except ProductImportAdmissionDenied as exc:
+        status_code = (
+            503
+            if exc.code
+            == "PRODUCT_IMPORT_GLOBAL_SOURCE_CAPACITY"
+            else 429
+        )
+        raise HTTPException(
+            status_code,
+            detail={
+                "code":
+                    exc.code,
+                "message":
+                    exc.message,
+                "context": {
+                    "current":
+                        exc.current_value,
+                    "limit":
+                        exc.limit_value,
+                    "retry_after_seconds":
+                        exc.retry_after_seconds,
+                },
+            },
+            headers={
+                "Retry-After":
+                    str(
+                        exc.retry_after_seconds
+                    ),
             },
         ) from exc
     except ValueError as exc:
         raise HTTPException(
             409,
             detail={
-                "code": "PRODUCT_IMPORT_REQUEST_CONFLICT",
-                "message": str(exc),
+                "code":
+                    "PRODUCT_IMPORT_REQUEST_CONFLICT",
+                "message":
+                    str(
+                        exc
+                    ),
                 "context": {},
             },
         ) from exc
@@ -302,23 +390,43 @@ async def create_product_import(
         raise HTTPException(
             503,
             detail={
-                "code": "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
-                "message": "Import could not be queued.",
+                "code":
+                    "PRODUCT_IMPORT_QUEUE_UNAVAILABLE",
+                "message":
+                    "Import could not be queued.",
                 "context": {},
             },
         ) from exc
+    finally:
+        bounded_upload.close()
 
     return {
-        "job_id": str(queued["job_id"]),
-        "status": str(queued["status"]),
-        "replayed": bool(queued["replayed"]),
+        "job_id":
+            str(
+                queued[
+                    "job_id"
+                ]
+            ),
+        "status":
+            str(
+                queued[
+                    "status"
+                ]
+            ),
+        "replayed":
+            bool(
+                queued[
+                    "replayed"
+                ]
+            ),
         "default_lot_control_mode": (
             tracking_defaults.lot_control_mode
         ),
         "default_expiry_control_mode": (
             tracking_defaults.expiry_control_mode
         ),
-        "message": "Import accepted for background processing.",
+        "message":
+            "Import accepted for background processing.",
     }
 
 
