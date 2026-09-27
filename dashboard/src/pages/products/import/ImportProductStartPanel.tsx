@@ -1,5 +1,4 @@
 import {
-  Download,
   RotateCcw,
   Settings2,
   Upload,
@@ -12,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import type {
   ProductTrackingMode,
 } from "@/pages/products/contracts";
+import { ImportProductQuickGuide } from "@/pages/products/import/ImportProductQuickGuide";
 import { ProductTrackingFields } from "@/pages/products/tracking/ProductTrackingFields";
 
 type Props = {
@@ -80,23 +80,20 @@ export function ImportProductStartPanel({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col gap-2 rounded-xl border border-sky-100 bg-sky-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-[10px] font-bold leading-4 text-sky-900">
-          {t(
-            "products.importIntro",
-          )}
-        </p>
-        <button
-          type="button"
-          onClick={onDownloadTemplate}
-          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-100 bg-white px-3 text-xs font-black text-sky-900 shadow-sm"
-        >
-          <Download className="h-3.5 w-3.5" />
-          {t(
-            "products.downloadTemplate",
-          )}
-        </button>
-      </div>
+      <ImportProductQuickGuide
+        lotControlMode={
+          lotControlMode
+        }
+        expiryControlMode={
+          expiryControlMode
+        }
+        trackingUsesCompanyDefaults={
+          trackingUsesCompanyDefaults
+        }
+        onDownloadTemplate={
+          onDownloadTemplate
+        }
+      />
 
       <input
         ref={fileRef}
