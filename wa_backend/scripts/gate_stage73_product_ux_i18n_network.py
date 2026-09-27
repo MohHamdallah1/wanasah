@@ -114,6 +114,7 @@ def static_checks() -> None:
     api = (BACKEND / "api/simple_products.py").read_text(encoding="utf-8")
     import_api = (BACKEND / "domains/simple_products/imports/api/router.py").read_text(encoding="utf-8")
     worker = (BACKEND / "domains/simple_products/imports/application/worker.py").read_text(encoding="utf-8")
+    import_execution = (BACKEND / "domains/simple_products/imports/application/execution_service.py").read_text(encoding="utf-8")
     queue = (BACKEND / "domains/simple_products/imports/infrastructure/queue.py").read_text(encoding="utf-8")
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     rules = (ROOT / ".rules").read_text(encoding="utf-8")
@@ -185,10 +186,10 @@ def static_checks() -> None:
         "Family create/rename is managed inside Products and idempotent",
     )
     check(
-        "package_uom_code" in worker
-        and "units_per_package" in worker
-        and "package_price" in worker
-        and "package_barcode" in worker
+        "package_uom_code" in import_execution
+        and "units_per_package" in import_execution
+        and "package_price" in import_execution
+        and "package_barcode" in import_execution
         and '@router.get("/imports/{job_id}/errors")' in import_api
         and "downloadErrorReport" in import_downloads,
         "Async importer uses generalized package vocabulary and downloadable validation reports",
