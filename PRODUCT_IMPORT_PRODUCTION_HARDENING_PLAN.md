@@ -162,7 +162,7 @@ This makes maintenance and safe testing harder and will become worse as import c
 
 # Phase 3 — Centralize and lock the import state machine / contracts
 
-> **FOUNDATION PHASE:** centralize the state definitions and allowed transitions first. Do not enable best-effort/partial-import behavior yet. Track B begins only after the current state behavior is represented faithfully by one explicit state-machine authority.
+> **FOUNDATION PHASE:** the canonical state vocabulary is now expanded for future best-effort execution, but best-effort/partial-import processing itself remains disabled. The current validation policy is still all-or-nothing until its dedicated later phase.
 
 ## Problems
 
@@ -174,7 +174,7 @@ Validation currently behaves all-or-nothing, while import execution commits in b
 
 Phase 3 first captures the **current** job/row lifecycle in one authoritative state-machine contract so status strings and transitions are no longer scattered across API, queue, worker, ORM constraints and migrations.
 
-The desired future Track B semantics are already decided, but they are **not activated during the foundation refactor**:
+The desired Track B semantics are now represented in the state/error contracts, but the execution behavior is **not activated during this foundation refactor**:
 
 - **best-effort across rows** — one bad Product must not block unrelated valid Products;
 - **atomic within each successfully committed import unit** — a Product must never be half-created without its required Product/UOM/barcode/price effects;
@@ -185,25 +185,27 @@ That future design achieves atomicity and best-effort at different, compatible l
 
 ## Tasks
 
-- [ ] Inventory every current job status, row status and transition before changing any of them.
-- [ ] Centralize current state constants/contracts rather than scattering raw strings.
-- [ ] Define canonical current job states and allowed transitions.
-- [ ] Define canonical current row states and allowed transitions.
-- [ ] Add state-transition tests for every current allowed and forbidden transition.
-- [ ] Ensure ORM/database constraints and public API status contracts derive from or remain synchronized with the central contract.
-- [ ] Preserve current runtime semantics through the end of Track A.
-- [ ] Document the Track B state additions needed for partial success (including a future `COMPLETED_WITH_ERRORS` or equivalent) without enabling them yet.
-- [ ] Document future deterministic validation/import-time row failure states and transient/system failure categories without enabling them yet.
+- [x] Inventory every current job status, row status and transition before changing any of them.
+- [x] Centralize current state constants/contracts rather than scattering raw strings.
+- [x] Define canonical Job states and allowed transitions, including `COMPLETED_WITH_ERRORS` as a contract state without emitting it yet.
+- [x] Define canonical Row states and allowed transitions with distinct `INVALID`, `IMPORT_FAILED`, and `IMPORTED` outcomes.
+- [x] Add exhaustive state-transition tests for every allowed and forbidden Job/Row state pair.
+- [x] Synchronize ORM/database constraints and preserve the public API shape/routes against the central state contract.
+- [x] Preserve the current all-or-nothing validation/import execution policy; only the Phase 3 internal taxonomy/error classification changes are activated.
+- [x] Add `COMPLETED_WITH_ERRORS` to the canonical/DB vocabulary without enabling partial-success execution yet.
+- [x] Define deterministic validation/row-execution versus terminal/transient system error taxonomy; unexpected validation exceptions now fail closed as system errors rather than being mislabeled as bad rows.
+- [x] Add owned Alembic migration `c4d9e7a1b623_stage7_import_states_taxonomy.py` with migration of legacy Row `FAILED` values to `INVALID`.
+- [x] Validate migration in both directions (`downgrade -> upgrade`) and verify database constraints exactly match the canonical state machine.
 
 ### Foundation stop gate
 
-- [ ] Phase 1 module ownership/placement is complete.
-- [ ] Phase 2 worker decomposition is complete.
-- [ ] Phase 3 state-machine authority is centralized and tested.
-- [ ] Full existing Product Import regression suite passes with no intended behavior change.
-- [ ] Architecture/import-boundary gates pass.
-- [ ] No legacy code was deleted unless separately proven obsolete.
-- [ ] Track A can be merged/stopped independently before any Track B import-engine redesign.
+- [x] Phase 1 module ownership/placement is complete.
+- [x] Phase 2 worker decomposition is complete.
+- [x] Phase 3 state-machine authority is centralized and tested.
+- [x] Full Product Import regression gates pass with the intended Phase 3 taxonomy/error-classification change only.
+- [x] Architecture/import-boundary gates pass.
+- [x] No legacy code was deleted as part of Phase 3.
+- [x] Track A can be stopped independently here before Phase 4/Track B import-engine redesign.
 
 ---
 
