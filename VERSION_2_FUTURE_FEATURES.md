@@ -235,7 +235,97 @@ Do not enable it merely because backend pricing primitives exist.
 
 ---
 
-## 3. Version 1 UI policy for deferred features
+## 3. Company-configurable unit / package catalog
+
+### V2 decision
+
+**Add a company-configurable Unit / Package Catalog in Version 2.**
+
+Version 1 may continue using the current supported package/unit set in the simple Product workflow. Version 2 should let each company control which business-facing units and package types are available to its users, while starting from a safe platform-provided default set.
+
+Examples of user-facing concepts include:
+
+- piece / unit;
+- pack;
+- box;
+- carton;
+- bag;
+- bottle;
+- can;
+- tray;
+- pallet;
+- other units that are appropriate to a company's business.
+
+The exact starter set is a product decision for V2 and must not be hard-coded into frontend business logic.
+
+### Why this belongs in V2
+
+The current V1 workflow deliberately keeps Product creation simple:
+
+- choose whether the Product has an outer package;
+- choose the package type;
+- enter the number of base units inside it.
+
+That is enough for the normal distribution workflow.
+
+A configurable catalog becomes valuable when different companies use different commercial vocabulary, package types, unit availability, or advanced conversion structures. Adding that flexibility safely requires a deliberate company-scoped model rather than a list of frontend-only labels.
+
+### Required architecture
+
+The V2 design must preserve Catalog/UOM backend authority.
+
+Recommended direction:
+
+1. **Platform starter catalog**
+   - provide a curated default set of common units/package types;
+   - a new company starts with a usable set without configuration work.
+
+2. **Company-scoped availability/configuration**
+   - each company can choose which units/package types are available in its workflows;
+   - company configuration must never leak across tenants;
+   - disabled entries should stop future selection, not corrupt historical Product references.
+
+3. **Stable canonical identity**
+   - business labels shown to users may be configurable/localized;
+   - conversion identity and quantity math must remain canonical and backend-owned;
+   - do not make free-text frontend labels the authority for conversion semantics.
+
+4. **One source for all Product workflows**
+   - simple Product creation;
+   - imports;
+   - Product details;
+   - future Advanced UOM;
+   - any future purchasing, warehouse, sales, or shipping workflow that consumes UOMs.
+   All must resolve available units through the same approved Catalog contract.
+
+5. **Safe lifecycle**
+   - units already referenced by Products, inventory history, sales evidence, or other durable records must not be hard-deleted merely because a company no longer wants them selectable;
+   - use an inactive/retired state for future selection where required.
+
+6. **Localization and aliases**
+   - Arabic/English labels and common business aliases may be presented per locale/company;
+   - canonical codes remain language-neutral.
+
+7. **Production gates**
+   - tenant isolation;
+   - duplicate/conflicting code protection;
+   - referenced-unit retirement behavior;
+   - conversion correctness;
+   - import/create parity;
+   - RTL/LTR and keyboard accessibility.
+
+### Relationship to Advanced UOM
+
+This catalog and Advanced UOM are related but not the same feature.
+
+- **Unit / Package Catalog:** defines which units and package types the company can use.
+- **Advanced UOM:** defines the structural relationships/conversions for a Product that needs more than the normal V1 package + units-per-package flow.
+
+Advanced UOM in V2 must consume this company-configurable catalog rather than inventing a second UOM source.
+
+---
+
+## 4. Version 1 UI policy for deferred features
 
 For both deferred capabilities:
 
@@ -249,7 +339,7 @@ For both deferred capabilities:
 
 ---
 
-## 4. Preservation rule
+## 5. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 
