@@ -19,7 +19,7 @@ from domains.simple_products.imports.domain import (
 from domains.simple_products.imports.infrastructure.parsers import (
     open_source,
 )
-from domains.simple_products.imports.infrastructure.queue import (
+from domains.simple_products.imports.infrastructure.correction_repository import (
     apply_correction_and_requeue,
 )
 from domains.simple_products.imports.infrastructure.repository import (
