@@ -17,6 +17,8 @@ from fastapi import (
     HTTPException,
     Query,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
 )
 from pydantic import (
     BaseModel,
@@ -34,6 +36,9 @@ from domains.product_tracking import (
 )
 from domains.simple_products.imports.application.audit_service import (
     get_import_lineage,
+)
+from domains.simple_products.imports.application.cancellation_service import (
+    cancel_import_job,
 )
 from domains.simple_products.imports.application.correction_service import (
     apply_correction_upload,
@@ -59,6 +64,12 @@ from domains.simple_products.imports.infrastructure.repository import (
     ProductImportProgress,
     count_job_progress,
 )
+from domains.simple_products.imports.infrastructure.realtime_manager import (
+    product_import_connection_manager,
+)
+from domains.simple_products.imports.infrastructure.runtime_monitor import (
+    read_product_import_runtime_metrics,
+)
 from domains.simple_products.imports.infrastructure.upload_stream import (
     ProductImportUploadTooLarge,
     spool_upload_bounded,
@@ -67,6 +78,11 @@ from domains.simple_products.imports.infrastructure.template import (
     build_product_import_template,
 )
 from inventory_access import InventoryAccess
+from realtime.auth import (
+    WebSocketAuthError,
+    authenticate_websocket_user,
+)
+from workers.tenant import tenant_session
 from models import (
     Driver,
     ProductImportJob,
@@ -184,6 +200,148 @@ async def get_product_import_template(
             payload
         ).decode("ascii"),
     }
+
+
+@router.get("/import-worker/readiness")
+async def get_product_import_worker_readiness(
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(
+        db,
+        actor,
+    )
+    try:
+        metrics = (
+            await read_product_import_runtime_metrics()
+        )
+    except Exception as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_WORKER_HEALTH_UNAVAILABLE",
+                "message":
+                    "Product Import worker readiness could not be determined.",
+                "context": {},
+            },
+        ) from exc
+
+    return {
+        "ready":
+            bool(
+                metrics.ready
+            ),
+        "status": (
+            "READY"
+            if metrics.ready
+            else "UNAVAILABLE"
+        ),
+    }
+
+
+@router.websocket("/imports/{job_id}/ws")
+async def product_import_progress_websocket(
+    websocket: WebSocket,
+    job_id: UUID,
+):
+    token = websocket.query_params.get(
+        "token"
+    )
+    if not token:
+        await websocket.close(
+            code=1008
+        )
+        return
+
+    try:
+        identity = (
+            await authenticate_websocket_user(
+                token
+            )
+        )
+        async with tenant_session(
+            identity.company_id
+        ) as db:
+            actor = await db.scalar(
+                select(Driver).where(
+                    Driver.company_id
+                    == int(
+                        identity.company_id
+                    ),
+                    Driver.id
+                    == int(
+                        identity.driver_id
+                    ),
+                    Driver.is_active.is_(
+                        True
+                    ),
+                )
+            )
+            if actor is None:
+                raise WebSocketAuthError(
+                    "inactive websocket actor"
+                )
+
+            await InventoryAccess(
+                db,
+                actor,
+            ).require(
+                "catalog.read",
+                any_location=True,
+            )
+            job_exists = await db.scalar(
+                select(
+                    ProductImportJob.id
+                ).where(
+                    ProductImportJob.company_id
+                    == int(
+                        identity.company_id
+                    ),
+                    ProductImportJob.id
+                    == job_id,
+                )
+            )
+            if job_exists is None:
+                raise WebSocketAuthError(
+                    "product import websocket job scope denied"
+                )
+    except (
+        WebSocketAuthError,
+        HTTPException,
+    ):
+        await websocket.close(
+            code=1008
+        )
+        return
+
+    connected = (
+        await product_import_connection_manager.connect(
+            websocket,
+            company_id=int(
+                identity.company_id
+            ),
+            job_id=job_id,
+        )
+    )
+    if not connected:
+        return
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        await product_import_connection_manager.disconnect(
+            websocket,
+            company_id=int(
+                identity.company_id
+            ),
+            job_id=job_id,
+        )
 
 
 @router.post("/imports", status_code=202)
@@ -1033,6 +1191,59 @@ async def set_product_import_mapping(
         "job_id": str(job_id),
         "status": str(status),
         "message": "Column mapping accepted.",
+    }
+
+
+@router.post(
+    "/imports/{job_id}/cancel",
+    status_code=202,
+)
+async def cancel_product_import(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(
+        db,
+        actor,
+    )
+    try:
+        status = await cancel_import_job(
+            company_id=int(
+                actor.company_id
+            ),
+            job_id=job_id,
+        )
+    except ProductImportTerminalError as exc:
+        code = (
+            "PRODUCT_IMPORT_NOT_FOUND"
+            if "not found"
+            in str(exc).lower()
+            else "PRODUCT_IMPORT_NOT_CANCELLABLE"
+        )
+        raise HTTPException(
+            404
+            if code
+            == "PRODUCT_IMPORT_NOT_FOUND"
+            else 409,
+            detail={
+                "code": code,
+                "message": str(
+                    exc
+                ),
+                "context": {},
+            },
+        ) from exc
+
+    return {
+        "job_id": str(
+            job_id
+        ),
+        "status": str(
+            status
+        ),
+        "message":
+            "Import cancellation accepted.",
     }
 
 
