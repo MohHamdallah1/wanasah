@@ -39,11 +39,17 @@ HTTP status remains the fallback and reconciliation authority.
 
 ## Worker observability
 
-Global runtime telemetry records healthy Procrastinate worker processes,
-configured worker slots, running/queued Product Import jobs, available slots,
-and oldest queue age. `PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS` must match the
-deployed worker concurrency (default 1). These global values are for server
-observability only and are not exposed as tenant data.
+Global runtime telemetry records only Procrastinate workers that have proven
+they consume the `product-import` queue. A queue-local heartbeat task registers
+the worker id, and readiness joins that registry back to Procrastinate's live
+worker heartbeat. This avoids treating an unrelated healthy worker as Product
+Import-ready.
+
+Metrics include healthy Product Import worker processes, configured worker
+slots, running/queued Product Import jobs, available slots, and oldest queue
+age. `PRODUCT_IMPORT_WORKER_SLOTS_PER_PROCESS` must match the deployed worker
+concurrency (default 1). These global values are for server observability only
+and are not exposed as tenant data.
 
 Tenant capacity telemetry also records oldest active-stage and oldest queued-job
 age. Stuck-stage warnings use `PRODUCT_IMPORT_STUCK_STAGE_SECONDS` (default
