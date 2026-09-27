@@ -113,7 +113,7 @@ describe(
       );
     });
 
-    it("builds import templates from translated labels and values", () => {
+    it("builds a blank template from translated headers and keeps localized value guidance in the UI", () => {
       const downloads = readSource(
         "../pages/products/import/createImportDownloads.ts",
       );
@@ -151,8 +151,21 @@ describe(
         );
       }
 
-      expect(template).toContain(
-        '"products.tracking.importValues.REQUIRED"',
+      expect(template).not.toContain(
+        "importTemplateSampleName",
+      );
+      expect(template).not.toContain(
+        "importTemplateGuideSheet",
+      );
+
+      const quickGuide = readSource(
+        "../pages/products/import/ImportProductQuickGuide.tsx",
+      );
+      expect(quickGuide).toContain(
+        "products.tracking.importValues.",
+      );
+      expect(quickGuide).toContain(
+        "products.importGuideTrackingRule",
       );
     });
 
