@@ -10,7 +10,7 @@ import type {
 
 export const emptyDraft: ProductDraft = {
   name: "",
-  family_mode: "none",
+  family_mode: "existing",
   family_id: null,
   family: "",
   has_package: true,
