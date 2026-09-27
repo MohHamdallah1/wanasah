@@ -710,6 +710,7 @@ class ProductImportJob(Base):
             name='import_job_expiry_mode',
         ),
         Index('ix_product_import_job_company_status', 'company_id', 'status', 'created_at'),
+        Index('ix_product_import_job_retention', 'company_id', 'finished_at', 'id', postgresql_where=text("finished_at IS NOT NULL")),
     )
     id = Column(Uuid, primary_key=True, default=uuid4)
     company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -718,6 +719,7 @@ class ProductImportJob(Base):
     file_name = Column(String(255), nullable=False)
     content_type = Column(String(150), nullable=False)
     source_payload = Column(LargeBinary, nullable=True)
+    source_payload_cleared_at = Column(DateTime, nullable=True)
     source_sha256 = Column(String(64), nullable=False)
     file_size = Column(Integer, nullable=False)
     status = Column(String(30), nullable=False, default='QUEUED', server_default='QUEUED', index=True)
@@ -758,6 +760,7 @@ class ProductImportRow(Base):
     row_identity = Column(Uuid, nullable=False, default=uuid4, server_default=text("gen_random_uuid()"))
     raw_data = Column(JSONB, nullable=False)
     normalized_data = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    compacted_at = Column(DateTime, nullable=True)
     status = Column(String(20), nullable=False, default='STAGED', server_default='STAGED', index=True)
     error_code = Column(String(100), nullable=True)
     error_message = Column(String(1000), nullable=True)
