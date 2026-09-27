@@ -167,7 +167,6 @@ class ValidationServiceTests(
         (
             normalized,
             errors,
-            barcode_rows,
         ) = collect_row_validation(
             rows,
             mapping={
@@ -186,12 +185,6 @@ class ValidationServiceTests(
         self.assertNotIn(
             1,
             errors,
-        )
-        self.assertEqual(
-            barcode_rows[
-                "10001"
-            ],
-            [1],
         )
         self.assertEqual(
             errors[2][0],
