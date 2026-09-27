@@ -15,6 +15,7 @@ from domains.simple_products.imports.application.staging_service import (
     stage_source,
 )
 from domains.simple_products.imports.application.state_machine import (
+    JobStatus,
     set_job_status,
     utc_naive_now,
 )
@@ -125,10 +126,11 @@ async def run_product_import_job(
     )
 
     if status in {
-        "COMPLETED",
-        "VALIDATION_FAILED",
-        "FAILED",
-        "NEEDS_MAPPING",
+        JobStatus.COMPLETED.value,
+        JobStatus.COMPLETED_WITH_ERRORS.value,
+        JobStatus.VALIDATION_FAILED.value,
+        JobStatus.FAILED.value,
+        JobStatus.NEEDS_MAPPING.value,
     }:
         return
 
@@ -136,7 +138,7 @@ async def run_product_import_job(
         await set_job_status(
             company_id=company_id,
             job_id=job_id,
-            target="PARSING",
+            target=JobStatus.PARSING,
             started_at=
                 utc_naive_now(),
             error_summary={},
@@ -168,27 +170,27 @@ async def run_product_import_job(
         job_id=job_id,
     )
 
-    if status == "NEEDS_MAPPING":
+    if status == JobStatus.NEEDS_MAPPING.value:
         return
 
     if (
         status
-        in {"QUEUED", "PARSING"}
+        in {JobStatus.QUEUED.value, JobStatus.PARSING.value}
         and not has_source
     ):
         raise ProductImportTerminalError(
             "Import state is inconsistent and cannot be resumed safely."
         )
 
-    if status == "VALIDATING":
+    if status == JobStatus.VALIDATING.value:
         if not await validate_rows(
             company_id=company_id,
             job_id=job_id,
         ):
             return
-        status = "IMPORTING"
+        status = JobStatus.IMPORTING.value
 
-    if status == "IMPORTING":
+    if status == JobStatus.IMPORTING.value:
         await execute_import(
             company_id=company_id,
             job_id=job_id,
