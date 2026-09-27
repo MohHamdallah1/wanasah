@@ -3,6 +3,13 @@ import type {
 } from "react";
 import { useTranslation } from "react-i18next";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type {
   PackageUom,
 } from "@/pages/products/contracts";
@@ -48,46 +55,31 @@ export function CreateProductCommerceSection({
   onPackagePriceChange,
   onUnitPriceChange,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } =
+    useTranslation();
 
   return (
-    <section className="border-b border-slate-200 bg-slate-50/70 px-4 py-4 sm:px-5">
+    <section className="border-b border-slate-200 bg-slate-50/60 px-4 py-4 sm:px-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h3 className="text-sm font-black text-slate-950">
-            {draft.has_package
-              ? t(
-                  "products.hasOuterPackage"
-                )
-              : t(
-                  "products.noOuterPackage"
-                )}
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="h-2 w-2 rounded-full bg-amber-400"
+          />
+          <h3 className="text-xs font-black text-slate-900">
+            {t(
+              "products.packagingModeLabel"
+            )}
           </h3>
         </div>
 
         <div
           role="group"
           aria-label={t(
-            "products.packageType"
+            "products.packagingModeLabel"
           )}
           className="grid w-full grid-cols-2 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto"
         >
-          <button
-            type="button"
-            aria-pressed={!draft.has_package}
-            onClick={() =>
-              onHasPackageChange(false)
-            }
-            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${ 
-              !draft.has_package
-                ? "bg-slate-950 text-white shadow-sm"
-                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-            }`}
-          >
-            {t(
-              "products.noOuterPackage"
-            )}
-          </button>
           <button
             type="button"
             aria-pressed={draft.has_package}
@@ -101,16 +93,32 @@ export function CreateProductCommerceSection({
             }`}
           >
             {t(
-              "products.hasOuterPackage"
+              "products.packagingMode.withPackage"
+            )}
+          </button>
+          <button
+            type="button"
+            aria-pressed={!draft.has_package}
+            onClick={() =>
+              onHasPackageChange(false)
+            }
+            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${ 
+              !draft.has_package
+                ? "bg-slate-900 text-white shadow-sm"
+                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+            }`}
+          >
+            {t(
+              "products.packagingMode.unitOnly"
             )}
           </button>
         </div>
       </div>
 
-      <div className={`mt-4 grid gap-3 sm:grid-cols-2 ${draft.has_package ? "lg:grid-cols-4" : ""}`}>
+      <div className={`mt-3 grid gap-3 sm:grid-cols-2 ${draft.has_package ? "lg:grid-cols-4" : "lg:grid-cols-4"}`}>
         {draft.has_package ? (
           packageUomsLoading ? (
-            <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-500 sm:col-span-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-500">
               {t("common.loading")}
             </div>
           ) : packageUomsError ? (
@@ -138,30 +146,42 @@ export function CreateProductCommerceSection({
               {t(
                 "products.packageType"
               )}
-              <select
+              <Select
+                dir={i18n.dir()}
                 value={
                   draft.package_uom_code
                 }
-                onChange={(event) =>
-                  onPackageUomChange(
-                    event.target.value
-                  )
+                onValueChange={
+                  onPackageUomChange
                 }
-                className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               >
-                {packageUoms.map(
-                  (uom) => (
-                    <option
-                      key={uom.code}
-                      value={uom.code}
-                    >
-                      {t(
-                        `uom.${uom.code}`
-                      )}
-                    </option>
-                  )
-                )}
-              </select>
+                <SelectTrigger className="mt-1.5 h-10 rounded-xl border-slate-200 bg-white text-start font-bold focus:ring-slate-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent
+                  dir={i18n.dir()}
+                  position="popper"
+                  side="bottom"
+                  align="start"
+                  sideOffset={6}
+                  avoidCollisions={false}
+                  className="z-[70] rounded-xl border-slate-200"
+                >
+                  {packageUoms.map(
+                    (uom) => (
+                      <SelectItem
+                        key={uom.code}
+                        value={uom.code}
+                        className="text-start font-bold"
+                      >
+                        {t(
+                          `uom.${uom.code}`
+                        )}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
             </label>
           )
         ) : null}
@@ -255,7 +275,9 @@ export function CreateProductCommerceSection({
           </label>
         ) : null}
 
-        <label className="text-xs font-black text-slate-600">
+        <label
+          className={`text-xs font-black text-slate-600 ${!draft.has_package ? "sm:col-span-1 lg:col-span-1" : ""}`}
+        >
           {t("products.unitPrice")}
           <input
             ref={createUnitPriceRef}
@@ -297,7 +319,7 @@ export function CreateProductCommerceSection({
       </div>
 
       {draftDerived ? (
-        <p className="mt-3 text-[10px] font-bold leading-4 text-emerald-700">
+        <p className="mt-2 text-[10px] font-bold leading-4 text-emerald-700">
           {draft.has_package &&
           draftDerived.independent
             ? t(
