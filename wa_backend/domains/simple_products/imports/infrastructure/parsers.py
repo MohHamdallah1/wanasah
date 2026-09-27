@@ -346,6 +346,8 @@ def _json_cell(
 
 def _header_layout(
     values: list[Any] | tuple[Any, ...],
+    *,
+    max_columns: int = MAX_IMPORT_COLUMNS,
 ) -> list[tuple[int, str]]:
     layout = [
         (
@@ -359,12 +361,16 @@ def _header_layout(
         raise ProductImportTerminalError(
             "The header row is empty."
         )
+    if int(max_columns) <= 0:
+        raise ValueError(
+            "max_columns must be positive."
+        )
     if (
         len(layout)
-        > MAX_IMPORT_COLUMNS
+        > int(max_columns)
     ):
         raise ProductImportTerminalError(
-            f"The file has more than {MAX_IMPORT_COLUMNS} columns."
+            f"The file has more than {int(max_columns)} columns."
         )
 
     normalized = [
@@ -539,6 +545,8 @@ def _iter_csv_rows(
 @contextmanager
 def _open_csv_source(
     payload: bytes,
+    *,
+    max_columns: int = MAX_IMPORT_COLUMNS,
 ) -> Iterator[ParsedSource]:
     encoding = (
         _detect_csv_encoding(
@@ -573,7 +581,9 @@ def _open_csv_source(
 
             layout = (
                 _header_layout(
-                    first
+                    first,
+                    max_columns=
+                        max_columns,
                 )
             )
             headers = [
@@ -696,6 +706,8 @@ def _iter_xlsx_rows(
 @contextmanager
 def _open_xlsx_source(
     payload: bytes,
+    *,
+    max_columns: int = MAX_IMPORT_COLUMNS,
 ) -> Iterator[ParsedSource]:
     # Security inspection must finish before OpenPyXL traverses the workbook.
     _validate_xlsx_archive(
@@ -733,7 +745,9 @@ def _open_xlsx_source(
 
             layout = (
                 _header_layout(
-                    first
+                    first,
+                    max_columns=
+                        max_columns,
                 )
             )
             headers = [
@@ -761,6 +775,8 @@ def _open_xlsx_source(
 def open_source(
     file_name: str,
     payload: bytes,
+    *,
+    max_columns: int = MAX_IMPORT_COLUMNS,
 ) -> Iterator[ParsedSource]:
     suffix = (
         file_name
@@ -775,14 +791,18 @@ def open_source(
 
     if suffix == "csv":
         with _open_csv_source(
-            payload
+            payload,
+            max_columns=
+                max_columns,
         ) as source:
             yield source
         return
 
     if suffix == "xlsx":
         with _open_xlsx_source(
-            payload
+            payload,
+            max_columns=
+                max_columns,
         ) as source:
             yield source
         return
