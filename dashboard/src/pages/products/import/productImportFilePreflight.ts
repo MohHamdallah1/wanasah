@@ -1,5 +1,79 @@
 import Papa from "papaparse";
 
+const readFileAsText = (
+  file: File,
+): Promise<string> => {
+  if (
+    typeof file.text ===
+    "function"
+  ) {
+    return file.text();
+  }
+  return new Promise(
+    (resolve, reject) => {
+      const reader =
+        new FileReader();
+      reader.onload = () =>
+        resolve(
+          String(
+            reader.result ?? ""
+          )
+        );
+      reader.onerror = () =>
+        reject(
+          reader.error ??
+            new Error(
+              "FILE_READ_FAILED"
+            )
+        );
+      reader.readAsText(file);
+    }
+  );
+};
+
+const readFileAsArrayBuffer = (
+  file: File,
+): Promise<ArrayBuffer> => {
+  if (
+    typeof file.arrayBuffer ===
+    "function"
+  ) {
+    return file.arrayBuffer();
+  }
+  return new Promise(
+    (resolve, reject) => {
+      const reader =
+        new FileReader();
+      reader.onload = () => {
+        if (
+          reader.result instanceof
+          ArrayBuffer
+        ) {
+          resolve(
+            reader.result
+          );
+          return;
+        }
+        reject(
+          new Error(
+            "FILE_READ_FAILED"
+          )
+        );
+      };
+      reader.onerror = () =>
+        reject(
+          reader.error ??
+            new Error(
+              "FILE_READ_FAILED"
+            )
+        );
+      reader.readAsArrayBuffer(
+        file
+      );
+    }
+  );
+};
+
 const hasVisibleCell = (
   row: unknown[],
 ): boolean =>
@@ -12,7 +86,9 @@ async function csvHasDataRows(
 ): Promise<boolean | null> {
   try {
     const text =
-      await file.text();
+      await readFileAsText(
+        file
+      );
     const parsed =
       Papa.parse<string[]>(
         text,
@@ -44,7 +120,9 @@ async function xlsxHasDataRows(
       await import("xlsx");
     const workbook =
       XLSX.read(
-        await file.arrayBuffer(),
+        await readFileAsArrayBuffer(
+          file
+        ),
         {
           type: "array",
         }
