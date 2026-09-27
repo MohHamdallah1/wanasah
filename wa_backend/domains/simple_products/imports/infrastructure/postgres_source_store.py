@@ -414,7 +414,9 @@ class PostgresProductImportSourceStore:
                 )
                 cursor = await connection.execute(
                     """
-                    SELECT deleted_at
+                    SELECT
+                        byte_size,
+                        deleted_at
                     FROM product_import_sources
                     WHERE company_id = %s
                       AND id = %s
@@ -430,9 +432,12 @@ class PostgresProductImportSourceStore:
                 row = await cursor.fetchone()
                 if row is None:
                     return False
-                if row[
-                    0
-                ] is not None:
+
+                (
+                    source_size,
+                    deleted_at,
+                ) = row
+                if deleted_at is not None:
                     return False
 
                 await connection.execute(
@@ -463,10 +468,68 @@ class PostgresProductImportSourceStore:
                         source_id,
                     ],
                 )
-                return int(
+                if int(
                     result.rowcount
                     or 0
-                ) == 1
+                ) != 1:
+                    return False
+
+                source_size = int(
+                    source_size
+                )
+                tenant_counter = (
+                    await connection.execute(
+                        """
+                        UPDATE product_import_tenant_source_capacity
+                        SET live_bytes =
+                                live_bytes - %s,
+                            updated_at =
+                                CURRENT_TIMESTAMP
+                        WHERE company_id = %s
+                          AND live_bytes >= %s
+                        """,
+                        [
+                            source_size,
+                            int(
+                                company_id
+                            ),
+                            source_size,
+                        ],
+                    )
+                )
+                global_counter = (
+                    await connection.execute(
+                        """
+                        UPDATE product_import_global_source_capacity
+                        SET live_bytes =
+                                live_bytes - %s,
+                            updated_at =
+                                CURRENT_TIMESTAMP
+                        WHERE id = 1
+                          AND live_bytes >= %s
+                        """,
+                        [
+                            source_size,
+                            source_size,
+                        ],
+                    )
+                )
+                if (
+                    int(
+                        tenant_counter.rowcount
+                        or 0
+                    )
+                    != 1
+                    or int(
+                        global_counter.rowcount
+                        or 0
+                    )
+                    != 1
+                ):
+                    raise ProductImportSourceIntegrityError(
+                        "Product Import source capacity counters are inconsistent."
+                    )
+                return True
 
 
 POSTGRES_PRODUCT_IMPORT_SOURCE_STORE = (
