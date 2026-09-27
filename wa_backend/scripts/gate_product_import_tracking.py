@@ -182,7 +182,7 @@ def static_checks() -> None:
         BACKEND / "product_import_worker.py"
     ).read_text(encoding="utf-8")
     localization = (
-        BACKEND / "product_import_localization.py"
+        BACKEND / "domains/simple_products/imports/domain/localization.py"
     ).read_text(encoding="utf-8")
     queue = (
         BACKEND / "product_import_queue.py"
