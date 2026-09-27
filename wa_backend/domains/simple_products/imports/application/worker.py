@@ -5,7 +5,6 @@ the state machine, staging, validation and execution services.
 """
 from __future__ import annotations
 
-import asyncio
 from uuid import UUID
 
 from domains.simple_products.imports.application.execution_service import (
@@ -29,7 +28,7 @@ from domains.simple_products.imports.domain.mapping import (
     suggest_mapping,
 )
 from domains.simple_products.imports.infrastructure.parsers import (
-    parse_source,
+    open_source,
 )
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
@@ -143,24 +142,20 @@ async def run_product_import_job(
                 utc_naive_now(),
             error_summary={},
         )
-        (
-            headers,
-            rows,
-        ) = await asyncio.to_thread(
-            parse_source,
+        with open_source(
             file_name,
             payload,
-        )
-        suggestions = suggest_mapping(
-            headers
-        )
-        await stage_source(
-            company_id=company_id,
-            job_id=job_id,
-            headers=headers,
-            rows=rows,
-            suggestions=suggestions,
-        )
+        ) as source:
+            suggestions = suggest_mapping(
+                source.headers
+            )
+            await stage_source(
+                company_id=company_id,
+                job_id=job_id,
+                headers=source.headers,
+                rows=source.rows,
+                suggestions=suggestions,
+            )
 
     (
         status,
