@@ -204,7 +204,6 @@ describe(
         "canEditTracking",
         "canManageBarcodes",
         "canManageLifecycle",
-        "canManageAdvancedUom",
       ]) {
         expect(detailSurface).toContain(
           evidence,
@@ -212,6 +211,12 @@ describe(
       }
       expect(detailSurface).not.toContain(
         "product_location",
+      );
+      expect(detailSurface).not.toContain(
+        "canManageAdvancedUom",
+      );
+      expect(detailSurface).not.toContain(
+        "products.advancedUom.productAction",
       );
     });
 
