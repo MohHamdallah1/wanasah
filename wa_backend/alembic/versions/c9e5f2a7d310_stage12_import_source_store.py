@@ -211,6 +211,115 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "product_import_global_source_capacity",
+        sa.Column(
+            "id",
+            sa.SmallInteger(),
+            nullable=False,
+        ),
+        sa.Column(
+            "live_bytes",
+            sa.BigInteger(),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "high_water_bytes",
+            sa.BigInteger(),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=
+                sa.text(
+                    "CURRENT_TIMESTAMP"
+                ),
+        ),
+        sa.CheckConstraint(
+            "id = 1",
+            name=
+                "chk_product_import_global_capacity_singleton",
+        ),
+        sa.CheckConstraint(
+            "live_bytes >= 0 AND high_water_bytes >= live_bytes",
+            name=
+                "chk_product_import_global_capacity_values",
+        ),
+        sa.PrimaryKeyConstraint(
+            "id",
+            name=
+                "pk_product_import_global_source_capacity",
+        ),
+    )
+    op.execute(
+        """
+        INSERT INTO product_import_global_source_capacity (
+            id,
+            live_bytes,
+            high_water_bytes,
+            updated_at
+        )
+        VALUES (
+            1,0,0,CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    op.create_table(
+        "product_import_tenant_source_capacity",
+        sa.Column(
+            "company_id",
+            sa.Integer(),
+            nullable=False,
+        ),
+        sa.Column(
+            "live_bytes",
+            sa.BigInteger(),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "high_water_bytes",
+            sa.BigInteger(),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=
+                sa.text(
+                    "CURRENT_TIMESTAMP"
+                ),
+        ),
+        sa.ForeignKeyConstraint(
+            [
+                "company_id",
+            ],
+            [
+                "companies.id",
+            ],
+            ondelete="CASCADE",
+            name=
+                "fk_product_import_tenant_capacity_company",
+        ),
+        sa.CheckConstraint(
+            "live_bytes >= 0 AND high_water_bytes >= live_bytes",
+            name=
+                "chk_product_import_tenant_capacity_values",
+        ),
+        sa.PrimaryKeyConstraint(
+            "company_id",
+            name=
+                "pk_product_import_tenant_source_capacity",
+        ),
+    )
+
+    op.create_table(
         "product_import_admission_rejections",
         sa.Column(
             "id",
@@ -381,6 +490,9 @@ def upgrade() -> None:
     )
 
     _enable_rls(
+        "product_import_tenant_source_capacity"
+    )
+    _enable_rls(
         "product_import_sources"
     )
     _enable_rls(
@@ -429,6 +541,7 @@ def downgrade() -> None:
         "product_import_admission_rejections",
         "product_import_source_chunks",
         "product_import_sources",
+        "product_import_tenant_source_capacity",
     ):
         op.execute(
             f'DROP POLICY IF EXISTS {table_name}_company_isolation '
@@ -442,6 +555,12 @@ def downgrade() -> None:
     )
     op.drop_table(
         "product_import_admission_rejections"
+    )
+    op.drop_table(
+        "product_import_tenant_source_capacity"
+    )
+    op.drop_table(
+        "product_import_global_source_capacity"
     )
     op.drop_table(
         "product_import_source_chunks"
