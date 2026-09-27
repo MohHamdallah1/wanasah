@@ -1,12 +1,7 @@
 import {
   BookOpenText,
-  ChevronDown,
-  ChevronUp,
   Download,
 } from "lucide-react";
-import {
-  useState,
-} from "react";
 import {
   useTranslation,
 } from "react-i18next";
@@ -30,10 +25,6 @@ export function ImportProductQuickGuide({
 }: Props) {
   const { t } =
     useTranslation();
-  const [
-    exampleOpen,
-    setExampleOpen,
-  ] = useState(false);
 
   const modeLabel = (
     mode: ProductTrackingMode,
@@ -123,6 +114,10 @@ export function ImportProductQuickGuide({
             {t(
               "products.importGuideTrackingRule",
               {
+                defaultValue:
+                  t(
+                    "products.importGuideUseDefault",
+                  ),
                 none: modeLabel(
                   "NONE",
                 ),
@@ -151,128 +146,12 @@ export function ImportProductQuickGuide({
         </div>
       </div>
 
-      <div className="border-t border-slate-100">
-        <button
-          type="button"
-          aria-expanded={
-            exampleOpen
-          }
-          onClick={() =>
-            setExampleOpen(
-              (current) =>
-                !current,
-            )
-          }
-          className="flex min-h-9 w-full items-center justify-between gap-3 px-3 text-start text-[10px] font-black text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
-        >
-          <span>
-            {t(
-              exampleOpen
-                ? "products.importGuideHideExample"
-                : "products.importGuideShowExample",
-            )}
-          </span>
-          {exampleOpen ? (
-            <ChevronUp className="h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+      <div className="border-t border-amber-100 bg-amber-50/60 px-3 py-2">
+        <p className="text-[10px] font-bold leading-4 text-amber-950">
+          {t(
+            "products.importGuideBulkTip",
           )}
-        </button>
-
-        {exampleOpen ? (
-          <div className="overflow-x-auto border-t border-slate-100">
-            <table className="w-full min-w-[34rem] text-start text-[10px]">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-3 py-2 font-black">
-                    {t(
-                      "products.importGuideExampleProduct",
-                    )}
-                  </th>
-                  <th className="px-3 py-2 font-black">
-                    {t(
-                      "products.fields.lotControlMode",
-                    )}
-                  </th>
-                  <th className="px-3 py-2 font-black">
-                    {t(
-                      "products.fields.expiryControlMode",
-                    )}
-                  </th>
-                  <th className="px-3 py-2 font-black">
-                    {t(
-                      "products.importGuideExampleResult",
-                    )}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                <tr>
-                  <td className="px-3 py-2 font-bold">
-                    {t(
-                      "products.importGuideExampleA",
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {modeLabel(
-                      "REQUIRED",
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {modeLabel(
-                      "REQUIRED",
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {t(
-                      "products.importGuideOwnValues",
-                    )}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-bold">
-                    {t(
-                      "products.importGuideExampleB",
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {modeLabel(
-                      "OPTIONAL",
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {modeLabel(
-                      "NONE",
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {t(
-                      "products.importGuideOwnValues",
-                    )}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-bold">
-                    {t(
-                      "products.importGuideExampleC",
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-slate-400">
-                    —
-                  </td>
-                  <td className="px-3 py-2 text-slate-400">
-                    —
-                  </td>
-                  <td className="px-3 py-2 font-bold text-slate-900">
-                    {t(
-                      "products.importGuideUsesDefaults",
-                    )}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+        </p>
       </div>
     </section>
   );
