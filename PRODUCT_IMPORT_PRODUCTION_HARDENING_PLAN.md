@@ -261,16 +261,18 @@ This multiplies memory usage after parsing has already completed.
 
 Validation must iterate staged rows with keyset/batch pagination and persist outcomes incrementally.
 
+> Phase 5 deliberately keeps cross-row barcode duplicate detection bounded to the current validation batch. Whole-job duplicate/conflict detection remains owned by Phase 6 and is not implemented here.
+
 ## Tasks
 
-- [ ] Replace the full `.all()` staged-row load with ordered keyset/batch reads.
-- [ ] Normalize each validation batch and persist normalized results/errors in bounded writes.
-- [ ] Avoid keeping normalized data for the whole file in Python.
-- [ ] Avoid keeping error dictionaries for the whole file in Python.
-- [ ] Maintain aggregate valid/failed counters incrementally and safely.
-- [ ] Make validation resumable from a durable cursor/checkpoint if interrupted.
-- [ ] Ensure retry never reclassifies already finalized rows incorrectly.
-- [ ] Add crash/restart tests during validation.
+- [x] Replace the full `.all()` staged-row load with ordered STAGED-only keyset/batch reads using bounded `fetchmany`.
+- [x] Normalize each validation batch and persist normalized results/errors in bounded transactions.
+- [x] Avoid keeping normalized data for the whole file in Python; validation dictionaries are hard-bounded to `VALIDATION_BATCH_SIZE = 500`.
+- [x] Avoid keeping error dictionaries for the whole file in Python; only the current validation batch is retained.
+- [x] Maintain aggregate valid/failed counters transactionally per batch and reconcile them with bounded SQL aggregates before finalization.
+- [x] Make validation resumable from durable Row status checkpoints: committed `VALID`/`INVALID` rows are skipped and only `STAGED` rows are resumed.
+- [x] Ensure retry never reclassifies already finalized rows; crash/resume tests verify prior Row `version` and normalization calls remain unchanged.
+- [x] Add crash/restart tests during validation, including a simulated worker crash after the first committed batch.
 
 ---
 
