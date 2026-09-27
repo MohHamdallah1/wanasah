@@ -439,6 +439,112 @@ def upgrade() -> None:
         unique=False,
     )
 
+    # Existing live inline payloads are moved into the new immutable store
+    # before application code starts depending on source_id. Job UUIDs are
+    # already globally unique, so they are safe deterministic source ids for
+    # this one-time bridge.
+    op.execute(
+        """
+        INSERT INTO product_import_sources (
+            id,
+            company_id,
+            sha256,
+            byte_size,
+            storage_backend,
+            created_at,
+            deleted_at
+        )
+        SELECT
+            jobs.id,
+            jobs.company_id,
+            jobs.source_sha256,
+            jobs.file_size,
+            'POSTGRES_CHUNKS',
+            jobs.created_at,
+            NULL
+        FROM product_import_jobs AS jobs
+        WHERE jobs.source_payload IS NOT NULL
+        """
+    )
+    op.execute(
+        """
+        INSERT INTO product_import_source_chunks (
+            company_id,
+            source_id,
+            chunk_index,
+            byte_size,
+            payload,
+            created_at
+        )
+        SELECT
+            jobs.company_id,
+            jobs.id,
+            0,
+            octet_length(jobs.source_payload),
+            jobs.source_payload,
+            jobs.created_at
+        FROM product_import_jobs AS jobs
+        WHERE jobs.source_payload IS NOT NULL
+        """
+    )
+    op.execute(
+        """
+        UPDATE product_import_jobs
+        SET source_id = id,
+            source_payload = NULL
+        WHERE source_payload IS NOT NULL
+        """
+    )
+    op.execute(
+        """
+        INSERT INTO product_import_tenant_source_capacity (
+            company_id,
+            live_bytes,
+            high_water_bytes,
+            updated_at
+        )
+        SELECT
+            sources.company_id,
+            sum(sources.byte_size)::bigint,
+            sum(sources.byte_size)::bigint,
+            CURRENT_TIMESTAMP
+        FROM product_import_sources AS sources
+        WHERE sources.deleted_at IS NULL
+        GROUP BY sources.company_id
+        ON CONFLICT (company_id)
+        DO UPDATE SET
+            live_bytes = EXCLUDED.live_bytes,
+            high_water_bytes =
+                GREATEST(
+                    product_import_tenant_source_capacity.high_water_bytes,
+                    EXCLUDED.high_water_bytes
+                ),
+            updated_at = CURRENT_TIMESTAMP
+        """
+    )
+    op.execute(
+        """
+        UPDATE product_import_global_source_capacity
+        SET live_bytes = totals.live_bytes,
+            high_water_bytes =
+                GREATEST(
+                    high_water_bytes,
+                    totals.live_bytes
+                ),
+            updated_at = CURRENT_TIMESTAMP
+        FROM (
+            SELECT
+                COALESCE(
+                    sum(byte_size),
+                    0
+                )::bigint AS live_bytes
+            FROM product_import_sources
+            WHERE deleted_at IS NULL
+        ) AS totals
+        WHERE id = 1
+        """
+    )
+
     op.execute(
         """
         CREATE OR REPLACE FUNCTION product_import_source_metadata_immutable()
