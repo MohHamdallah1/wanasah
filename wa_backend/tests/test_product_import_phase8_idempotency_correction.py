@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+from io import StringIO
 import os
 import unittest
 from types import SimpleNamespace
@@ -17,6 +19,9 @@ from domains.simple_products.imports.application.correction_service import (
     CORRECTION_IDENTITY_HEADER,
     build_correction_artifact,
     parse_correction_payload,
+)
+from domains.simple_products.imports.application.validation_service import (
+    validation_outcome,
 )
 from domains.simple_products.imports.application.execution_service import (
     _batch_request_hash,
@@ -98,6 +103,101 @@ def _fake_row(
         error_message=None,
         version=1,
     )
+
+
+class Phase8CorrectionContractTests(
+    unittest.TestCase
+):
+    def test_prior_imported_success_keeps_correction_terminal_as_completed_with_errors(
+        self,
+    ) -> None:
+        self.assertEqual(
+            validation_outcome(
+                0,
+                2,
+                imported_count=3,
+                import_failed_count=0,
+            ),
+            (
+                JobStatus.COMPLETED_WITH_ERRORS.value,
+                False,
+            ),
+        )
+
+    def test_correction_parser_allows_reserved_metadata_beyond_100_source_columns(
+        self,
+    ) -> None:
+        source_headers = [
+            f"Column {index}"
+            for index in range(
+                1,
+                101,
+            )
+        ]
+        identity = uuid4()
+        output = StringIO(
+            newline=""
+        )
+        writer = csv.writer(
+            output
+        )
+        writer.writerow(
+            [
+                "__wanasah_row_identity",
+                "__wanasah_original_row",
+                "__wanasah_error_code",
+                "__wanasah_error_message",
+                *source_headers,
+            ]
+        )
+        writer.writerow(
+            [
+                str(
+                    identity
+                ),
+                "2",
+                "BAD_ROW",
+                "Bad row",
+                *[
+                    f"value-{index}"
+                    for index
+                    in range(
+                        1,
+                        101,
+                    )
+                ],
+            ]
+        )
+
+        patches = parse_correction_payload(
+            file_name=
+                "correction.csv",
+            payload=(
+                "\ufeff"
+                + output.getvalue()
+            ).encode(
+                "utf-8"
+            ),
+            source_headers=
+                source_headers,
+        )
+
+        self.assertEqual(
+            len(
+                patches
+            ),
+            1,
+        )
+        self.assertEqual(
+            patches[0].row_identity,
+            identity,
+        )
+        self.assertEqual(
+            len(
+                patches[0].raw_data
+            ),
+            100,
+        )
 
 
 class Phase8ExecutionIdempotencyTests(
