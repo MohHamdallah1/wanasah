@@ -7,9 +7,6 @@ from uuid import UUID, uuid4
 import psycopg
 from procrastinate import App, PsycopgConnector, RetryStrategy
 from psycopg.types.json import Jsonb
-from sqlalchemy.engine import make_url
-
-from config import Config
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     assert_job_transition,
@@ -18,20 +15,12 @@ from domains.product_tracking import normalize_tracking_mode
 from workers.recovery import recover_safe_stalled_jobs
 
 
-def _psycopg_dsn() -> str:
-    url = make_url(Config.SQLALCHEMY_DATABASE_URI)
-    if not url.drivername.startswith("postgresql"):
-        raise RuntimeError(
-            "Product import worker requires PostgreSQL."
-        )
-    return url.set(
-        drivername="postgresql"
-    ).render_as_string(
-        hide_password=False
-    )
+from domains.simple_products.imports.infrastructure.queue_dsn import (
+    product_import_psycopg_dsn,
+)
 
 
-DSN = _psycopg_dsn()
+DSN = product_import_psycopg_dsn()
 PRODUCT_IMPORT_HEARTBEAT_SECONDS = 10.0
 PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS = 30.0
 PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
