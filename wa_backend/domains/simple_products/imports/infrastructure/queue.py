@@ -23,6 +23,9 @@ from domains.simple_products.imports.infrastructure.admission_repository import 
 from domains.simple_products.imports.infrastructure.postgres_source_store import (
     POSTGRES_PRODUCT_IMPORT_SOURCE_STORE,
 )
+from domains.simple_products.imports.infrastructure.runtime_monitor import (
+    register_product_import_worker,
+)
 from domains.product_tracking import normalize_tracking_mode
 from workers.recovery import recover_safe_stalled_jobs
 
@@ -43,6 +46,7 @@ PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
         "wanasah.schedule_product_import_retention",
         "wanasah.monitor_product_import_capacity",
         "wanasah.schedule_product_import_capacity_monitor",
+        "wanasah.product_import_worker_heartbeat",
     }
 )
 
@@ -79,6 +83,42 @@ async def recover_stalled_product_imports(
     )
 
 
+@app.periodic(
+    cron="* * * * *"
+)
+@app.task(
+    name="wanasah.product_import_worker_heartbeat",
+    queue="product-import",
+    pass_context=True,
+)
+async def product_import_worker_heartbeat(
+    context,
+    timestamp: int | None = None,
+) -> dict[str, int]:
+    worker_id = getattr(
+        context.job,
+        "worker_id",
+        None,
+    )
+    if worker_id is None:
+        return {
+            "registered": 0,
+        }
+
+    await register_product_import_worker(
+        int(
+            worker_id
+        )
+    )
+    return {
+        "registered": 1,
+        "worker_id":
+            int(
+                worker_id
+            ),
+    }
+
+
 @app.task(
     name="wanasah.process_product_import",
     queue="product-import",
@@ -103,6 +143,18 @@ async def process_product_import(
     )
 
     job_uuid = UUID(str(job_id))
+    worker_id = getattr(
+        context.job,
+        "worker_id",
+        None,
+    )
+    if worker_id is not None:
+        await register_product_import_worker(
+            int(
+                worker_id
+            )
+        )
+
     try:
         await run_product_import_job(
             company_id=int(company_id),
