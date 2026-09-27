@@ -63,7 +63,6 @@ export function CreateProductIdentitySection({
       draft.family_mode !==
       "existing"
     ) {
-      setFamilyPickerOpen(false);
       setFamilySearchInput("");
       onFamilySearchChange("");
       return;
