@@ -15,6 +15,7 @@ from domains.simple_products.imports.application.state_machine import (
 )
 from domains.simple_products.imports.application.validation_service import (
     collect_row_validation,
+    validation_outcome,
 )
 from domains.simple_products.imports.domain.errors import (
     ImportErrorKind,
@@ -195,6 +196,25 @@ class ValidationServiceTests(
         self.assertEqual(
             errors[2][0],
             "IMPORT_NAME_REQUIRED",
+        )
+
+
+    def test_validation_outcome_preserves_all_or_nothing_policy(
+        self,
+    ) -> None:
+        self.assertEqual(
+            validation_outcome(0),
+            (
+                "IMPORTING",
+                True,
+            ),
+        )
+        self.assertEqual(
+            validation_outcome(1),
+            (
+                "VALIDATION_FAILED",
+                False,
+            ),
         )
 
 
