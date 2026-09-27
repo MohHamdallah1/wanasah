@@ -89,6 +89,32 @@ async def load_job(
     )
 
 
+async def mark_job_source_cleared(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> None:
+    job = await load_job(
+        db,
+        company_id=company_id,
+        job_id=job_id,
+        for_update=True,
+    )
+    if job is None:
+        raise ProductImportTerminalError(
+            "Product import job was not found."
+        )
+    if (
+        job.source_payload_cleared_at
+        is None
+    ):
+        job.source_payload_cleared_at = (
+            func.now()
+        )
+        await db.flush()
+
+
 async def delete_job_rows(
     db: AsyncSession,
     *,
