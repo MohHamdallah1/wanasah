@@ -16,6 +16,10 @@ from domains.simple_products.imports.application.state_machine import (
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
 )
+from domains.simple_products.imports.domain.errors import (
+    import_error_field,
+    user_safe_row_error_message,
+)
 from domains.simple_products.imports.infrastructure.parsers import (
     MAX_IMPORT_COLUMNS,
     open_source,
@@ -40,6 +44,9 @@ CORRECTION_ROW_NUMBER_HEADER = (
 CORRECTION_ERROR_CODE_HEADER = (
     "__wanasah_error_code"
 )
+CORRECTION_ERROR_FIELD_HEADER = (
+    "__wanasah_error_field"
+)
 CORRECTION_ERROR_MESSAGE_HEADER = (
     "__wanasah_error_message"
 )
@@ -47,6 +54,7 @@ CORRECTION_META_HEADERS = (
     CORRECTION_IDENTITY_HEADER,
     CORRECTION_ROW_NUMBER_HEADER,
     CORRECTION_ERROR_CODE_HEADER,
+    CORRECTION_ERROR_FIELD_HEADER,
     CORRECTION_ERROR_MESSAGE_HEADER,
 )
 
@@ -203,13 +211,14 @@ def _artifact_values(
             )
         ),
         sanitize_spreadsheet_cell(
-            (
-                str(
-                    row.error_message
-                )
-                if row.error_message
-                is not None
-                else ""
+            import_error_field(
+                row.error_code
+            )
+            or ""
+        ),
+        sanitize_spreadsheet_cell(
+            user_safe_row_error_message(
+                row.error_code
             )
         ),
         *[
