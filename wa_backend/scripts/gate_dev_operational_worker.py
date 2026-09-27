@@ -45,7 +45,7 @@ check(
     "launcher uses the repository backend virtual environment directly",
 )
 check(
-    "product_import_queue.app" not in operational_script
+    "domains.simple_products.imports.infrastructure.queue.app" not in operational_script
     and "-q reports" not in operational_script,
     "operational launcher does not mix independent worker roles",
 )
@@ -57,7 +57,7 @@ check(
 )
 
 check(
-    "--app=product_import_queue.app worker -q product-import"
+    "--app=domains.simple_products.imports.infrastructure.queue.app worker -q product-import"
     in product_import_script
     and "-m workers.recover_cli product-import" in product_import_script
     and "--app=workers.app.app" not in product_import_script,
@@ -81,7 +81,7 @@ check(
     and ".\\ops\\development\\run_reports_worker.ps1" in runbook
     and ".\\ops\\development\\run_product_import_worker.ps1" in runbook
     and "maintenance,notifications" in runbook
-    and "product_import_queue.app" in runbook,
+    and "domains.simple_products.imports.infrastructure.queue.app" in runbook,
     "development runbook documents required and optional worker roles",
 )
 check(
