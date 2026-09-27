@@ -65,6 +65,9 @@ describe("Products P9.4 import workflow", () => {
       'status?.status === "COMPLETED"',
     );
     expect(rail).toContain(
+      'status?.status === "COMPLETED_WITH_ERRORS"',
+    );
+    expect(rail).toContain(
       'status?.status === "FAILED"',
     );
     expect(rail).toContain(
@@ -142,6 +145,7 @@ describe("Products P9.4 import workflow", () => {
       "VALIDATION_FAILED",
       "FAILED",
       "COMPLETED",
+      "COMPLETED_WITH_ERRORS",
     ]) {
       expect(status).toContain(
         '"' + statusName + '"',
