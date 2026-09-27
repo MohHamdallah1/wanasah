@@ -74,6 +74,15 @@ describe("Products P9.4 create flow", () => {
     expect(identity).toContain(
       "onFamilySearchChange(",
     );
+    expect(identity).toContain(
+      "avoidCollisions={false}",
+    );
+    expect(identity).toContain(
+      "placeholder:text-sm placeholder:font-normal placeholder:text-slate-400",
+    );
+    expect(identity).not.toContain(
+      '{t("products.family")} {" · "} {t("common.optional")}',
+    );
     expect(identity).not.toContain(
       "<Tags",
     );
@@ -98,6 +107,15 @@ describe("Products P9.4 create flow", () => {
     );
     expect(commerce).toContain(
       '"products.derivedPrice"',
+    );
+    expect(commerce).toContain(
+      "placeholder:text-sm placeholder:font-normal placeholder:text-slate-400",
+    );
+    expect(commerce).not.toContain(
+      't("common.optional")',
+    );
+    expect(commerce).not.toContain(
+      '<p className="mt-0.5 text-[11px] font-semibold text-slate-500"> {t("products.unitPrice")} </p>',
     );
   });
 
