@@ -101,10 +101,10 @@ export function CreateProductAdvancedSection({
                 "products.tracking.createSummary",
                 {
                   lot: t(
-                    `products.tracking.lotModes.${draft.lot_control_mode}`
+                    `products.tracking.shortModes.${draft.lot_control_mode}`
                   ),
                   expiry: t(
-                    `products.tracking.expiryModes.${draft.expiry_control_mode}`
+                    `products.tracking.shortModes.${draft.expiry_control_mode}`
                   ),
                 }
               )}
