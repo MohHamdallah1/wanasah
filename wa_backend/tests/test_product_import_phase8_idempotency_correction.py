@@ -35,6 +35,16 @@ from domains.simple_products.imports.infrastructure.correction_repository import
 load_dotenv()
 
 
+def _run_async(coro):
+    with asyncio.Runner(
+        loop_factory=
+            asyncio.SelectorEventLoop
+    ) as runner:
+        return runner.run(
+            coro
+        )
+
+
 def _owner_dsn() -> str:
     raw = (
         os.getenv("DATABASE_URL_MIGRATION")
@@ -569,7 +579,7 @@ class Phase8CorrectionIntegrationTests(
             "csv",
             "xlsx",
         ):
-            artifact = asyncio.run(
+            artifact = _run_async(
                 self._build_artifact(
                     file_format
                 )
@@ -683,7 +693,7 @@ class Phase8CorrectionIntegrationTests(
             ValueError,
             "already imported",
         ):
-            asyncio.run(
+            _run_async(
                 scenario()
             )
 
@@ -769,7 +779,7 @@ class Phase8CorrectionIntegrationTests(
                         corrections,
                 )
 
-        first = asyncio.run(
+        first = _run_async(
             apply_once()
         )
         self.assertFalse(
@@ -862,7 +872,7 @@ class Phase8CorrectionIntegrationTests(
             identities[4],
         )
 
-        replay = asyncio.run(
+        replay = _run_async(
             apply_once()
         )
         self.assertTrue(
