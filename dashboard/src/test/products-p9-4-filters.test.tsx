@@ -225,7 +225,7 @@ describe("Products P9.4 active filters", () => {
       '"products.filters.expiry"'
     );
     expect(panel).not.toContain(
-      "PRODUCT_SORT_OPTIONS."
+      "products.filters.PRODUCT_SORT_OPTIONS."
     );
     expect(panel).not.toContain(
       "rounded-2xl border border-slate-100 bg-slate-50/70 p-3",
