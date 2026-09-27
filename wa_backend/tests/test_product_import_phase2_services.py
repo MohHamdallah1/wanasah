@@ -283,14 +283,14 @@ class ErrorClassificationTests(
 
         self.assertIs(
             deterministic.kind,
-            ImportErrorKind.DETERMINISTIC,
+            ImportErrorKind.DETERMINISTIC_JOB,
         )
         self.assertFalse(
             deterministic.retryable
         )
         self.assertIs(
             transient.kind,
-            ImportErrorKind.TRANSIENT,
+            ImportErrorKind.TRANSIENT_SYSTEM,
         )
         self.assertTrue(
             transient.retryable
