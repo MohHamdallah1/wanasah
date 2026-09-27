@@ -3,11 +3,23 @@
 from .state_machine import (
     record_runtime_failure as mark_import_runtime_failure,
 )
+from .source_store import (
+    ProductImportSourceIntegrityError,
+    ProductImportSourceMissingError,
+    ProductImportSourceRef,
+    SourceStore,
+    TransactionalSourceStore,
+)
 from .worker import (
     run_product_import_job,
 )
 
 __all__ = (
+    "ProductImportSourceIntegrityError",
+    "ProductImportSourceMissingError",
+    "ProductImportSourceRef",
+    "SourceStore",
+    "TransactionalSourceStore",
     "mark_import_runtime_failure",
     "run_product_import_job",
 )
