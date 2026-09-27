@@ -171,9 +171,16 @@ async def get_import_lineage(
                 int(
                     job.failed_rows
                 ),
-            "source_payload_retained":
+            "source_payload_retained": (
                 job.source_payload
-                is not None,
+                is not None
+                or (
+                    job.source_id
+                    is not None
+                    and job.source_payload_cleared_at
+                    is None
+                )
+            ),
             "source_payload_cleared_at":
                 _iso(
                     job.source_payload_cleared_at
