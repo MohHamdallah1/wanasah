@@ -320,17 +320,19 @@ A business user with 49,999 valid Products and one bad row should not lose all u
 - finish as `COMPLETED_WITH_ERRORS` when some rows were invalid or import-failed;
 - reserve `FAILED` for job/system failure that prevents safe continuation.
 
+> Phase 7 keeps Phase 5 validation transaction boundaries intact. Execution remains batch-bounded; deterministic row failures are isolated through nested savepoints, while unknown/system exceptions are never reclassified as row failures. Imported row outcomes are retained for progress/audit and left for the dedicated retention phase.
+
 ## Tasks
 
-- [ ] Remove the current “any validation error blocks all valid rows” policy.
-- [ ] Continue from validation into import when at least one valid row exists.
-- [ ] Preserve every invalid row and its error without creating Product data for it.
-- [ ] Define outcome when zero rows are valid.
-- [ ] Define progress counters as total / imported / invalid / import-failed / pending.
-- [ ] Update public job payload to expose these outcomes clearly.
-- [ ] Add tests for 49,999 valid + 1 invalid.
-- [ ] Add tests for mixed tracking/package/price/barcode errors.
-- [ ] Add tests proving invalid rows never block unrelated valid rows.
+- [x] Remove the old “any validation error blocks all valid rows” policy; validation continues whenever at least one row remains valid.
+- [x] Continue from validation into `IMPORTING` when `valid_count > 0`, while zero-valid jobs stop at `VALIDATION_FAILED`.
+- [x] Preserve every `INVALID` row and its deterministic error; execution selects only `VALID` rows.
+- [x] Define zero-valid outcome explicitly as terminal `VALIDATION_FAILED`.
+- [x] Define durable progress counters as total / imported / invalid / import-failed / pending using bounded SQL aggregation.
+- [x] Extend the public job payload additively with `imported_rows`, `invalid_rows`, `import_failed_rows`, and `pending_rows`; frontend contracts/polling recognize `COMPLETED_WITH_ERRORS`.
+- [x] Add a real 50,000-row CSV parser/normalization scenario proving 49,999 valid + 1 invalid continues and resolves to `COMPLETED_WITH_ERRORS`.
+- [x] Add mixed tracking/package/price validation tests and retain Phase 6 database-backed barcode conflict/duplicate integration coverage.
+- [x] Add tests proving invalid rows and deterministic execution failures never block unrelated valid rows; unexpected/system failures still propagate to the job failure path.
 
 ---
 
