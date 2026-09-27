@@ -5,6 +5,8 @@ import re
 import sys
 from pathlib import Path
 
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 
 
@@ -71,10 +73,27 @@ async def main() -> None:
                 "FROM alembic_version"
             )
         )
+        alembic_config = AlembicConfig(
+            str(
+                BACKEND
+                / "alembic.ini"
+            )
+        )
+        script = ScriptDirectory.from_config(
+            alembic_config
+        )
+        lineage = {
+            migration.revision
+            for migration
+            in script.walk_revisions(
+                str(revision),
+                "base",
+            )
+        }
         check(
-            revision
-            == "c4d9e7a1b623",
-            "Database is upgraded to Product Import state taxonomy migration",
+            "c4d9e7a1b623"
+            in lineage,
+            "Database Alembic lineage includes Product Import state taxonomy migration",
             str(revision),
         )
 
