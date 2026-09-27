@@ -700,26 +700,30 @@ async def execute_import(
                 await db.commit()
                 return
 
-            await _execute_rows_best_effort(
+            (
+                imported_delta,
+                _failed_delta,
+            ) = await _execute_rows_best_effort(
                 db,
                 actor=actor,
                 job_id=job_id,
                 rows=rows,
             )
 
-            progress = (
-                await count_job_progress(
-                    db,
-                    company_id=
-                        company_id,
-                    job_id=job_id,
-                )
-            )
+            # Do not rescan the whole staged job after every bounded batch.
+            # The job row is locked by this transaction, so the durable
+            # imported counter can advance by the committed batch delta.
+            # One authoritative aggregate scan remains at finalization.
             transition_job(
                 job,
                 JobStatus.IMPORTING,
-                processed_rows=int(
-                    progress.imported_rows
+                processed_rows=(
+                    int(
+                        job.processed_rows
+                    )
+                    + int(
+                        imported_delta
+                    )
                 ),
             )
             await db.commit()
