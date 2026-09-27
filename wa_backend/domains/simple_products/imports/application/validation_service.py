@@ -1,7 +1,8 @@
-"""Product Import validation orchestration.
+"""Bounded, resumable Product Import validation orchestration.
 
-Phase 2 preserves the current all-or-nothing policy: any invalid row finishes
-validation as VALIDATION_FAILED and prevents execution.
+Validation remains all-or-nothing at the job level in Phase 5. Rows are
+classified and committed in fixed-size transactions so a worker restart resumes
+from rows that are still STAGED instead of reclassifying durable outcomes.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from domains.product_tracking import (
 from domains.simple_products.imports.application.state_machine import (
     JobStatus,
     RowStatus,
-    set_job_status,
+    touch_job,
     transition_job,
     transition_row,
 )
@@ -34,14 +35,18 @@ from domains.simple_products.imports.domain.normalization import (
 )
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
+    count_validation_outcomes,
+    fetch_validation_batch,
     find_active_barcodes,
-    list_job_rows,
     load_job,
     open_tenant_session,
 )
 from domains.simple_products.service import (
     SimpleProductError,
 )
+
+
+VALIDATION_BATCH_SIZE = 500
 
 
 def classify_row_error(
@@ -100,6 +105,14 @@ def collect_row_validation(
     dict[int, tuple[str, str]],
     dict[str, list[int]],
 ]:
+    if (
+        len(rows)
+        > VALIDATION_BATCH_SIZE
+    ):
+        raise ValueError(
+            "Validation batch exceeds the bounded validation limit."
+        )
+
     normalized: dict[
         int,
         dict[str, Any],
@@ -168,11 +181,118 @@ def collect_row_validation(
     )
 
 
-async def validate_rows(
+async def _validate_batch(
+    db,
+    *,
+    company_id: int,
+    rows: list[Any],
+    mapping: dict[str, str],
+    default_lot_control_mode: str,
+    default_expiry_control_mode: str,
+) -> tuple[int, int]:
+    (
+        normalized,
+        errors,
+        barcode_rows,
+    ) = collect_row_validation(
+        rows,
+        mapping=mapping,
+        default_lot_control_mode=
+            default_lot_control_mode,
+        default_expiry_control_mode=
+            default_expiry_control_mode,
+    )
+
+    # Phase 5 intentionally keeps duplicate detection bounded to this batch.
+    # Phase 6 replaces this with database-backed whole-job duplicate detection.
+    for barcode, row_ids in (
+        barcode_rows.items()
+    ):
+        if len(row_ids) > 1:
+            for row_id in row_ids:
+                errors[row_id] = (
+                    "IMPORT_BARCODE_DUPLICATE",
+                    f"Barcode {barcode} appears on more than one import row.",
+                )
+
+    candidates = [
+        barcode
+        for barcode, row_ids
+        in barcode_rows.items()
+        if len(row_ids) == 1
+    ]
+    if candidates:
+        existing = (
+            await find_active_barcodes(
+                db,
+                company_id=company_id,
+                candidates=candidates,
+            )
+        )
+        for barcode in existing:
+            for row_id in (
+                barcode_rows.get(
+                    str(barcode),
+                    [],
+                )
+            ):
+                errors[row_id] = (
+                    "IMPORT_BARCODE_CONFLICT",
+                    f"Barcode {barcode} is already active.",
+                )
+
+    valid_count = 0
+    failed_count = 0
+
+    for row in rows:
+        row_id = int(row.id)
+        normalized_data = (
+            normalized.get(
+                row_id,
+                {},
+            )
+        )
+        if row_id in errors:
+            (
+                error_code,
+                error_message,
+            ) = errors[row_id]
+            transition_row(
+                row,
+                RowStatus.INVALID,
+                normalized_data=
+                    normalized_data,
+                error_code=error_code,
+                error_message=
+                    error_message,
+            )
+            failed_count += 1
+        else:
+            transition_row(
+                row,
+                RowStatus.VALID,
+                normalized_data=
+                    normalized_data,
+                error_code=None,
+                error_message=None,
+            )
+            valid_count += 1
+
+    return (
+        valid_count,
+        failed_count,
+    )
+
+
+async def _validation_contract(
     *,
     company_id: int,
     job_id: UUID,
-) -> bool:
+) -> tuple[
+    dict[str, str],
+    str,
+    str,
+] | None:
     token, db = await open_tenant_session(
         company_id
     )
@@ -181,10 +301,18 @@ async def validate_rows(
             db,
             company_id=company_id,
             job_id=job_id,
+            for_update=True,
         )
         if job is None:
             raise ValueError(
                 "Product import job not found."
+            )
+        if (
+            str(job.status)
+            != JobStatus.VALIDATING.value
+        ):
+            raise ProductImportTerminalError(
+                "Product import validation can only run from VALIDATING state."
             )
 
         try:
@@ -204,148 +332,45 @@ async def validate_rows(
             ) from exc
 
         if not mapping_complete(mapping):
-            await db.rollback()
-            await set_job_status(
-                company_id=company_id,
-                job_id=job_id,
-                target=JobStatus.NEEDS_MAPPING,
+            transition_job(
+                job,
+                JobStatus.NEEDS_MAPPING,
             )
-            return False
+            await db.commit()
+            return None
 
-        rows = await list_job_rows(
+        (
+            valid_count,
+            invalid_count,
+            _staged_count,
+        ) = await count_validation_outcomes(
             db,
             company_id=company_id,
             job_id=job_id,
         )
 
-        (
-            normalized,
-            errors,
-            barcode_rows,
-        ) = collect_row_validation(
-            rows,
-            mapping=mapping,
-            default_lot_control_mode=str(
+        if (
+            int(job.valid_rows)
+            != valid_count
+            or int(job.failed_rows)
+            != invalid_count
+        ):
+            touch_job(
+                job,
+                valid_rows=valid_count,
+                failed_rows=invalid_count,
+            )
+            await db.commit()
+
+        return (
+            mapping,
+            str(
                 job.default_lot_control_mode
             ),
-            default_expiry_control_mode=str(
+            str(
                 job.default_expiry_control_mode
             ),
         )
-
-        for barcode, row_ids in (
-            barcode_rows.items()
-        ):
-            if len(row_ids) > 1:
-                for row_id in row_ids:
-                    errors[row_id] = (
-                        "IMPORT_BARCODE_DUPLICATE",
-                        f"Barcode {barcode} appears on more than one import row.",
-                    )
-
-        candidates = [
-            barcode
-            for barcode, row_ids
-            in barcode_rows.items()
-            if len(row_ids) == 1
-        ]
-        if candidates:
-            existing = (
-                await find_active_barcodes(
-                    db,
-                    company_id=company_id,
-                    candidates=candidates,
-                )
-            )
-            for barcode in existing:
-                for row_id in barcode_rows.get(
-                    str(barcode),
-                    [],
-                ):
-                    errors[
-                        row_id
-                    ] = (
-                        "IMPORT_BARCODE_CONFLICT",
-                        f"Barcode {barcode} is already active.",
-                    )
-
-        for row in rows:
-            row_id = int(row.id)
-            normalized_data = (
-                normalized.get(
-                    row_id,
-                    {},
-                )
-            )
-            if row_id in errors:
-                (
-                    error_code,
-                    error_message,
-                ) = errors[row_id]
-                transition_row(
-                    row,
-                    RowStatus.INVALID,
-                    normalized_data=
-                        normalized_data,
-                    error_code=error_code,
-                    error_message=
-                        error_message,
-                )
-            else:
-                transition_row(
-                    row,
-                    RowStatus.VALID,
-                    normalized_data=
-                        normalized_data,
-                    error_code=None,
-                    error_message=None,
-                )
-
-        valid_count = sum(
-            1
-            for row in rows
-            if row.status == RowStatus.VALID.value
-        )
-        failed_count = (
-            len(rows)
-            - valid_count
-        )
-
-        locked = await load_job(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            for_update=True,
-        )
-        assert locked is not None
-
-        (
-            target,
-            can_execute,
-        ) = validation_outcome(
-            failed_count
-        )
-        transition_job(
-            locked,
-            target,
-            column_mapping=mapping,
-            valid_rows=valid_count,
-            failed_rows=failed_count,
-            processed_rows=0,
-            error_summary=(
-                {
-                    "code":
-                        "PRODUCT_IMPORT_VALIDATION_FAILED",
-                    "failed_rows":
-                        failed_count,
-                }
-                if failed_count
-                else {}
-            ),
-        )
-
-        await db.commit()
-        return can_execute
     except Exception:
         await db.rollback()
         raise
@@ -354,3 +379,167 @@ async def validate_rows(
             token,
             db,
         )
+
+
+async def validate_rows(
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> bool:
+    contract = await _validation_contract(
+        company_id=company_id,
+        job_id=job_id,
+    )
+    if contract is None:
+        return False
+
+    (
+        mapping,
+        default_lot_control_mode,
+        default_expiry_control_mode,
+    ) = contract
+
+    after_row_number = 0
+
+    while True:
+        token, db = await open_tenant_session(
+            company_id
+        )
+        reset_cursor = False
+        try:
+            job = await load_job(
+                db,
+                company_id=company_id,
+                job_id=job_id,
+                for_update=True,
+            )
+            if job is None:
+                raise ValueError(
+                    "Product import job not found."
+                )
+            if (
+                str(job.status)
+                != JobStatus.VALIDATING.value
+            ):
+                raise ProductImportTerminalError(
+                    "Product import validation state changed unexpectedly."
+                )
+
+            rows = await fetch_validation_batch(
+                db,
+                company_id=company_id,
+                job_id=job_id,
+                after_row_number=
+                    after_row_number,
+                limit=
+                    VALIDATION_BATCH_SIZE,
+            )
+
+            if not rows:
+                (
+                    valid_count,
+                    invalid_count,
+                    staged_count,
+                ) = await count_validation_outcomes(
+                    db,
+                    company_id=company_id,
+                    job_id=job_id,
+                )
+
+                if staged_count > 0:
+                    if (
+                        after_row_number
+                        > 0
+                    ):
+                        reset_cursor = True
+                        await db.rollback()
+                    else:
+                        raise ProductImportTerminalError(
+                            "Validation checkpoint is inconsistent: staged rows remain unreachable."
+                        )
+                else:
+                    if (
+                        valid_count
+                        + invalid_count
+                        != int(
+                            job.total_rows
+                        )
+                    ):
+                        raise ProductImportTerminalError(
+                            "Validation outcome counts do not match the staged import total."
+                        )
+
+                    (
+                        target,
+                        can_execute,
+                    ) = validation_outcome(
+                        invalid_count
+                    )
+                    transition_job(
+                        job,
+                        target,
+                        column_mapping=
+                            mapping,
+                        valid_rows=
+                            valid_count,
+                        failed_rows=
+                            invalid_count,
+                        processed_rows=0,
+                        error_summary=(
+                            {
+                                "code":
+                                    "PRODUCT_IMPORT_VALIDATION_FAILED",
+                                "failed_rows":
+                                    invalid_count,
+                            }
+                            if invalid_count
+                            else {}
+                        ),
+                    )
+                    await db.commit()
+                    return can_execute
+            else:
+                (
+                    valid_delta,
+                    failed_delta,
+                ) = await _validate_batch(
+                    db,
+                    company_id=company_id,
+                    rows=rows,
+                    mapping=mapping,
+                    default_lot_control_mode=
+                        default_lot_control_mode,
+                    default_expiry_control_mode=
+                        default_expiry_control_mode,
+                )
+
+                touch_job(
+                    job,
+                    valid_rows=(
+                        int(job.valid_rows)
+                        + valid_delta
+                    ),
+                    failed_rows=(
+                        int(job.failed_rows)
+                        + failed_delta
+                    ),
+                )
+
+                last_row_number = int(
+                    rows[-1].row_number
+                )
+                await db.commit()
+                after_row_number = (
+                    last_row_number
+                )
+        except Exception:
+            await db.rollback()
+            raise
+        finally:
+            await close_tenant_session(
+                token,
+                db,
+            )
+
+        if reset_cursor:
+            after_row_number = 0
