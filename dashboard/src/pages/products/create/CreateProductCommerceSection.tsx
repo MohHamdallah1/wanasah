@@ -51,47 +51,72 @@ export function CreateProductCommerceSection({
   const { t } = useTranslation();
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <section className="border-b border-slate-200 bg-slate-50/70 px-4 py-4 sm:px-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="min-w-0">
-            <h3 className="text-sm font-black text-slate-950">
-              {draft.has_package
-                ? t(
-                    "products.hasOuterPackage"
-                  )
-                : t(
-                    "products.noOuterPackage"
-                  )}
-            </h3>
-          </div>
+          <h3 className="text-sm font-black text-slate-950">
+            {draft.has_package
+              ? t(
+                  "products.hasOuterPackage"
+                )
+              : t(
+                  "products.noOuterPackage"
+                )}
+          </h3>
         </div>
 
-        <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 text-[11px] font-black text-slate-600">
-          <input
-            type="checkbox"
-            checked={draft.has_package}
-            onChange={(event) =>
-              onHasPackageChange(
-                event.target.checked
-              )
+        <div
+          role="group"
+          aria-label={t(
+            "products.packageType"
+          )}
+          className="grid w-full grid-cols-2 rounded-xl border border-slate-200 bg-white p-1 sm:w-auto"
+        >
+          <button
+            type="button"
+            aria-pressed={!draft.has_package}
+            onClick={() =>
+              onHasPackageChange(false)
             }
-            className="h-4 w-4"
-          />
-          {t("products.packageType")}
-        </label>
+            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${ 
+              !draft.has_package
+                ? "bg-slate-950 text-white shadow-sm"
+                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+            }`}
+          >
+            {t(
+              "products.noOuterPackage"
+            )}
+          </button>
+          <button
+            type="button"
+            aria-pressed={draft.has_package}
+            onClick={() =>
+              onHasPackageChange(true)
+            }
+            className={`min-h-9 rounded-lg px-4 text-[11px] font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${ 
+              draft.has_package
+                ? "bg-amber-400 text-slate-950 shadow-sm"
+                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+            }`}
+          >
+            {t(
+              "products.hasOuterPackage"
+            )}
+          </button>
+        </div>
       </div>
 
-      {draft.has_package ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {packageUomsLoading ? (
-            <div className="rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-500">
+      <div className={`mt-4 grid gap-3 sm:grid-cols-2 ${draft.has_package ? "lg:grid-cols-4" : ""}`}>
+        {draft.has_package ? (
+          packageUomsLoading ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-500 sm:col-span-2">
               {t("common.loading")}
             </div>
           ) : packageUomsError ? (
             <div
               role="alert"
-              className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 p-3"
+              className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 sm:col-span-2"
             >
               <span className="text-xs font-bold text-rose-800">
                 {t(
@@ -122,7 +147,7 @@ export function CreateProductCommerceSection({
                     event.target.value
                   )
                 }
-                className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               >
                 {packageUoms.map(
                   (uom) => (
@@ -138,8 +163,10 @@ export function CreateProductCommerceSection({
                 )}
               </select>
             </label>
-          )}
+          )
+        ) : null}
 
+        {draft.has_package ? (
           <label className="text-xs font-black text-slate-600">
             {t(
               "products.unitsPerPackage"
@@ -167,7 +194,7 @@ export function CreateProductCommerceSection({
                   ? "product-units-error"
                   : undefined
               }
-              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
             />
             {createFieldError?.field ===
             "units" ? (
@@ -180,10 +207,8 @@ export function CreateProductCommerceSection({
               </span>
             ) : null}
           </label>
-        </div>
-      ) : null}
+        ) : null}
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {draft.has_package ? (
           <label className="text-xs font-black text-slate-600">
             {t(
@@ -272,7 +297,7 @@ export function CreateProductCommerceSection({
       </div>
 
       {draftDerived ? (
-        <p className="mt-3 border-t border-slate-100 pt-3 text-[10px] font-bold leading-4 text-emerald-700">
+        <p className="mt-3 text-[10px] font-bold leading-4 text-emerald-700">
           {draft.has_package &&
           draftDerived.independent
             ? t(
