@@ -19,6 +19,7 @@ from domains.simple_products.imports.application.state_machine import (
     touch_job,
     transition_job,
     transition_row,
+    utc_naive_now,
 )
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
@@ -518,14 +519,25 @@ async def validate_rows(
                             {
                                 "code": (
                                     "PRODUCT_IMPORT_VALIDATION_FAILED"
-                                    if valid_count == 0
+                                    if target
+                                    == JobStatus.VALIDATION_FAILED.value
                                     else "PRODUCT_IMPORT_VALIDATION_PARTIAL"
                                 ),
                                 "failed_rows":
                                     invalid_count,
                             }
                             if invalid_count
+                            or import_failed_count
                             else {}
+                        ),
+                        finished_at=(
+                            utc_naive_now()
+                            if target
+                            in {
+                                JobStatus.VALIDATION_FAILED.value,
+                                JobStatus.COMPLETED_WITH_ERRORS.value,
+                            }
+                            else None
                         ),
                     )
                     await db.commit()
