@@ -612,21 +612,33 @@ export const resources = {
           lockHint:
             "إذا كان للمنتج سجل دفعات سابق، يمنع النظام التغيير العادي حفاظاً على تاريخ المخزون وسلامة التتبع.",
         },
-        downloadTemplate: "تحميل النموذج",
-        importTemplateSampleName: "شيبس لولو بالجبنة 20غ",
-        importTemplateSampleFamily: "شيبس لولو",
+        downloadTemplate: "تحميل نموذج Excel فارغ",
         importTemplateProductsSheet: "المنتجات",
-        importTemplateGuideSheet: "دليل الاستخدام",
-        importTemplateGuideTitle:
-          "اكتب المنتجات في ورقة المنتجات فقط. ورقة الدليل للشرح والأمثلة ولا يتم استيرادها.",
-        importTemplateGuideTracking:
-          "قيم التتبع لكل منتج: {{none}} أو {{optional}} أو {{required}}. إذا تركتها فارغة يستخدم النظام إعدادات الاستيراد الافتراضية.",
-        importTemplateGuidePackages:
-          "أنواع التغليف المدعومة: CARTON, CASE, PACK, BAG, SACK, TRAY, CRATE, BUNDLE, PALLET. للمنتج بدون تغليف خارجي استخدم NONE.",
-        importTemplateGuidePrices:
-          "أدخل سعر الكرتونة/التغليف أو سعر الحبة على الأقل؛ يمكن للنظام حساب السعر الآخر تلقائياً عند وجود تغليف.",
-        importTemplateExampleTitle:
-          "مثال فقط — لا تنسخه إلى ورقة المنتجات إلا إذا أردت استيراده فعلياً.",
+        importGuideTitle: "قبل رفع الملف",
+        importGuideSubtitle:
+          "النموذج الجاهز Excel، ويمكنك أيضاً رفع CSV. هذه القواعد تكفي لبدء الاستيراد بدون مصطلحات تقنية.",
+        importGuideRowTitle: "صف واحد = منتج واحد",
+        importGuideRowRule:
+          "ضع كل منتج في صف مستقل. يمكن أن تختلف العائلة والتغليف والسعر والتتبع من صف لآخر.",
+        importGuideTrackingTitle: "التتبع لكل منتج مستقل",
+        importGuideTrackingRule:
+          "في عمودي الدفعات والصلاحية استخدم: {{none}} أو {{optional}} أو {{required}} لكل منتج حسب حاجته.",
+        importGuideBlankTitle: "الخانة الفارغة ليست خطأ",
+        importGuideFallbackCompany:
+          "إذا تركت التتبع فارغاً، يستخدم هذا المنتج إعدادات الشركة الحالية: الدفعة {{lot}}، الصلاحية {{expiry}}.",
+        importGuideFallbackImport:
+          "إذا تركت التتبع فارغاً، يستخدم هذا المنتج إعدادات هذا الاستيراد: الدفعة {{lot}}، الصلاحية {{expiry}}.",
+        importGuideFallbackUnavailable:
+          "بعد تحميل إعدادات التتبع سيعرض النظام هنا بالضبط ما سيستخدمه عند ترك الخانة فارغة.",
+        importGuideShowExample: "عرض مثال سريع لثلاثة منتجات مختلفة",
+        importGuideHideExample: "إخفاء المثال",
+        importGuideExampleProduct: "المنتج",
+        importGuideExampleResult: "النتيجة",
+        importGuideExampleA: "منتج أ",
+        importGuideExampleB: "منتج ب",
+        importGuideExampleC: "منتج ج",
+        importGuideOwnValues: "يستخدم القيم المكتوبة في الصف",
+        importGuideUsesDefaults: "يستخدم الإعدادات الافتراضية أعلاه",
         dropFile:
           "اسحب الملف هنا أو اضغط للاختيار",
         importLimit:
@@ -2171,21 +2183,33 @@ export const resources = {
           lockHint:
             "If the product already has batch history, the normal edit is blocked to protect inventory history and traceability.",
         },
-        downloadTemplate: "Download template",
-        importTemplateSampleName: "Lolo Chips Cheese 20g",
-        importTemplateSampleFamily: "Lolo Chips",
+        downloadTemplate: "Download blank Excel template",
         importTemplateProductsSheet: "Products",
-        importTemplateGuideSheet: "Guide",
-        importTemplateGuideTitle:
-          "Enter products only on the Products sheet. The Guide sheet is for instructions and examples and is not imported.",
-        importTemplateGuideTracking:
-          "Per-product tracking values: {{none}}, {{optional}}, or {{required}}. Leave blank to use the import defaults.",
-        importTemplateGuidePackages:
-          "Supported package types: CARTON, CASE, PACK, BAG, SACK, TRAY, CRATE, BUNDLE, PALLET. Use NONE for unit-only products.",
-        importTemplateGuidePrices:
-          "Provide at least a package price or a unit price; when a package exists the system can derive the other price.",
-        importTemplateExampleTitle:
-          "Example only — copy it to the Products sheet only if you intend to import it.",
+        importGuideTitle: "Before uploading",
+        importGuideSubtitle:
+          "The ready-made template is Excel, and CSV is also supported. These rules are enough to start without technical terminology.",
+        importGuideRowTitle: "One row = one product",
+        importGuideRowRule:
+          "Put each product on its own row. Family, packaging, price, and tracking may differ from row to row.",
+        importGuideTrackingTitle: "Tracking is per product",
+        importGuideTrackingRule:
+          "In the batch and expiry columns use {{none}}, {{optional}}, or {{required}} independently for each product.",
+        importGuideBlankTitle: "A blank tracking cell is valid",
+        importGuideFallbackCompany:
+          "If tracking is blank, that product uses the current company defaults: batch {{lot}}, expiry {{expiry}}.",
+        importGuideFallbackImport:
+          "If tracking is blank, that product uses this import's defaults: batch {{lot}}, expiry {{expiry}}.",
+        importGuideFallbackUnavailable:
+          "Once tracking settings load, the exact fallback used for blank cells will be shown here.",
+        importGuideShowExample: "Show a quick three-product example",
+        importGuideHideExample: "Hide example",
+        importGuideExampleProduct: "Product",
+        importGuideExampleResult: "Result",
+        importGuideExampleA: "Product A",
+        importGuideExampleB: "Product B",
+        importGuideExampleC: "Product C",
+        importGuideOwnValues: "Uses the values written on this row",
+        importGuideUsesDefaults: "Uses the defaults shown above",
         dropFile:
           "Drop the file here or click to choose",
         importLimit:
