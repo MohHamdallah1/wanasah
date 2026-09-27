@@ -104,23 +104,23 @@ A final modular design should expose the import router from its owning module. A
 - [x] Move localization into the import domain layer.
 - [x] Move template generation into import infrastructure.
 - [x] Move queue implementation into import infrastructure.
-- [ ] Split worker responsibilities into application orchestration + infrastructure/parser/repository components.
+- [x] Split worker responsibilities into application orchestration + infrastructure/parser/repository components.
 - [x] Move Product-import HTTP endpoints out of the large `api/simple_products.py` file into the module-local API layer.
 - [x] Keep the application router registration thin and explicit.
-- [ ] Introduce an import repository so application code no longer reaches global ORM models everywhere.
-- [ ] Keep global model relocation as a controlled schema/model-ownership step; do not create circular imports just to move class declarations.
-- [ ] Add an architecture gate that forbids new root-level `product_import_*.py` business files.
-- [ ] Add an architecture gate that prevents import infrastructure from becoming Product/Pricing/Tracking business authority.
-- [ ] Update worker launcher/runbook imports after the move.
-- [ ] Update all tests/gates to use the module public path.
-- [ ] Remove obsolete root-level import files only after all imports and gates pass.
+- [x] Introduce an import repository so application code no longer reaches global ORM models everywhere.
+- [x] Keep global model relocation as a controlled schema/model-ownership step; do not create circular imports just to move class declarations.
+- [x] Add an architecture gate that forbids new root-level `product_import_*.py` business files.
+- [x] Add an architecture gate that prevents import infrastructure from becoming Product/Pricing/Tracking business authority.
+- [x] Update worker launcher/runbook imports after the move.
+- [x] Update all tests/gates to use the module public path.
+- [x] Remove obsolete root-level import files only after all imports and gates pass.
 
 ### Phase 1 exit criteria
 
-- [ ] No Product Import business/orchestration file remains loose in `wa_backend/` root.
-- [ ] No Product Import endpoint remains buried in the oversized general Product API file.
-- [ ] The import module has explicit domain/application/infrastructure/api boundaries.
-- [ ] Existing runtime behavior is unchanged at this phase.
+- [x] No Product Import business/orchestration file remains loose in `wa_backend/` root.
+- [x] No Product Import endpoint remains buried in the oversized general Product API file.
+- [x] The import module has explicit domain/application/infrastructure/api boundaries.
+- [x] Existing runtime behavior is unchanged at this phase.
 
 ---
 
