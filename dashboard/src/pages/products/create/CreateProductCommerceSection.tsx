@@ -64,9 +64,6 @@ export function CreateProductCommerceSection({
                     "products.noOuterPackage"
                   )}
             </h3>
-            <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
-              {t("products.unitPrice")}
-            </p>
           </div>
         </div>
 
@@ -125,7 +122,7 @@ export function CreateProductCommerceSection({
                     event.target.value
                   )
                 }
-                className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition placeholder:text-sm placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               >
                 {packageUoms.map(
                   (uom) => (
@@ -170,7 +167,7 @@ export function CreateProductCommerceSection({
                   ? "product-units-error"
                   : undefined
               }
-              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-black outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
             />
             {createFieldError?.field ===
             "units" ? (
@@ -191,10 +188,7 @@ export function CreateProductCommerceSection({
           <label className="text-xs font-black text-slate-600">
             {t(
               "products.packagePrice"
-            )}{" "}
-            <span className="font-bold text-slate-400">
-              {t("common.optional")}
-            </span>
+            )}
             <input
               ref={createPackagePriceRef}
               inputMode="decimal"
@@ -221,7 +215,7 @@ export function CreateProductCommerceSection({
                   ? "product-package-price-error"
                   : undefined
               }
-              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-black outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
             />
             {createFieldError?.field ===
             "packagePrice" ? (
@@ -237,12 +231,7 @@ export function CreateProductCommerceSection({
         ) : null}
 
         <label className="text-xs font-black text-slate-600">
-          {t("products.unitPrice")}{" "}
-          {draft.has_package ? (
-            <span className="font-bold text-slate-400">
-              {t("common.optional")}
-            </span>
-          ) : null}
+          {t("products.unitPrice")}
           <input
             ref={createUnitPriceRef}
             inputMode="decimal"
@@ -267,7 +256,7 @@ export function CreateProductCommerceSection({
                 ? "product-unit-price-error"
                 : undefined
             }
-            className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-black outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+            className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
           />
           {createFieldError?.field ===
           "unitPrice" ? (
