@@ -164,22 +164,13 @@ describe("Products P9 create family intent", () => {
       "<CommandInput",
     );
     expect(identity).toContain(
-      "familyInputValue",
+      "<ProductFamilyCombobox",
     );
     expect(identity).toContain(
-      "<PopoverAnchor",
+      "onSearchChange={",
     );
     expect(identity).toContain(
-      "onOpenAutoFocus",
-    );
-    expect(identity).toContain(
-      "onInteractOutside",
-    );
-    expect(identity).toContain(
-      "onFocus={() =>",
-    );
-    expect(identity).toContain(
-      "clearFamilySearch",
+      "onSelect={",
     );
     expect(identity).toContain(
       '"products.quickCreate.clearFamilySearch"',
