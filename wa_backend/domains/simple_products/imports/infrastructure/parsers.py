@@ -259,7 +259,7 @@ class _BoundedExcelReader(
         self,
         file_object,
         *,
-        data_only: bool,
+        data_only: bool = True,
     ) -> None:
         super().__init__(
             file_object,
@@ -327,7 +327,7 @@ class _BoundedExcelReader(
 def _load_bounded_workbook(
     file_object,
     *,
-    data_only: bool,
+    data_only: bool = True,
 ) -> _BoundedExcelReader:
     reader = _BoundedExcelReader(
         file_object,
