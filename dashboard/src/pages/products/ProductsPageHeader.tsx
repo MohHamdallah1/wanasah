@@ -20,7 +20,6 @@ type Props = {
   onOpenDisplayPreferences: () => void;
   onOpenTrackingDefaults: () => void;
   onOpenImport: () => void;
-  onOpenAdvancedUom: () => void;
   onOpenFamilies: () => void;
   onOpenCreateProduct: () => void;
 };
@@ -36,7 +35,6 @@ export function ProductsPageHeader({
   onOpenDisplayPreferences,
   onOpenTrackingDefaults,
   onOpenImport,
-  onOpenAdvancedUom,
   onOpenFamilies,
   onOpenCreateProduct,
 }: Props) {
@@ -92,9 +90,6 @@ export function ProductsPageHeader({
             }
             onOpenTrackingDefaults={
               onOpenTrackingDefaults
-            }
-            onOpenAdvancedUom={
-              onOpenAdvancedUom
             }
             onOpenFamilies={
               onOpenFamilies
