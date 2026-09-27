@@ -765,6 +765,48 @@ class ProductImportRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
 
+class ProductImportRowBarcode(Base):
+    """Derived searchable barcode staging for one normalized import row."""
+    __tablename__ = 'product_import_row_barcodes'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['company_id', 'job_id', 'row_number'],
+            [
+                'product_import_rows.company_id',
+                'product_import_rows.job_id',
+                'product_import_rows.row_number',
+            ],
+            ondelete='CASCADE',
+            name='fk_product_import_row_barcode_tenant_row',
+        ),
+        PrimaryKeyConstraint(
+            'company_id',
+            'job_id',
+            'row_number',
+            'barcode',
+            name='pk_product_import_row_barcodes',
+        ),
+        Index(
+            'ix_product_import_row_barcode_job_barcode',
+            'company_id',
+            'job_id',
+            'barcode',
+            'row_number',
+        ),
+    )
+
+    company_id = Column(Integer, nullable=False)
+    job_id = Column(Uuid, nullable=False)
+    row_number = Column(Integer, nullable=False)
+    barcode = Column(String(128), nullable=False)
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=utc_now,
+        server_default=text('CURRENT_TIMESTAMP'),
+    )
+
+
 class ProductLocation(Base):
     """Sparse operational assignment; never stores stock, reservations or prices."""
     __tablename__ = 'product_locations'
