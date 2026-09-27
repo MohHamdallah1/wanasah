@@ -155,6 +155,7 @@ export function useImportProductWorkflow({
   const {
     retryPoll,
   } = useImportProductPolling({
+    enabled: importOpen,
     importJobId,
     importPollKey,
     setImportPollKey,
