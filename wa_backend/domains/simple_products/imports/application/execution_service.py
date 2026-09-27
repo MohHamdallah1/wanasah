@@ -11,6 +11,8 @@ from uuid import UUID, uuid5
 from fastapi import HTTPException
 
 from domains.simple_products.imports.application.state_machine import (
+    JobStatus,
+    RowStatus,
     transition_job,
     transition_row,
     utc_naive_now,
@@ -147,7 +149,7 @@ async def execute_import(
                 db,
                 company_id=company_id,
                 job_id=job_id,
-                status="VALID",
+                status=RowStatus.VALID.value,
                 limit=IMPORT_BATCH,
                 for_update_skip_locked=True,
             )
@@ -155,7 +157,7 @@ async def execute_import(
             if not rows:
                 transition_job(
                     job,
-                    "COMPLETED",
+                    JobStatus.COMPLETED,
                     touch_updated_at=False,
                     processed_rows=int(
                         job.valid_rows
@@ -169,7 +171,7 @@ async def execute_import(
                     db,
                     company_id=company_id,
                     job_id=job_id,
-                    status="IMPORTED",
+                    status=RowStatus.IMPORTED.value,
                 )
                 await db.commit()
                 return
@@ -211,7 +213,7 @@ async def execute_import(
             ):
                 transition_row(
                     row,
-                    "IMPORTED",
+                    RowStatus.IMPORTED,
                     product_variant_id=int(
                         variant.id
                     ),
@@ -221,11 +223,11 @@ async def execute_import(
                 db,
                 company_id=company_id,
                 job_id=job_id,
-                status="IMPORTED",
+                status=RowStatus.IMPORTED.value,
             )
             transition_job(
                 job,
-                "IMPORTING",
+                JobStatus.IMPORTING,
                 processed_rows=int(
                     imported
                     or 0
