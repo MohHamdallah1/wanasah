@@ -183,15 +183,116 @@ async def insert_staged_rows(
     return total_rows
 
 
+async def fetch_validation_batch(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    after_row_number: int,
+    limit: int,
+) -> list[ProductImportRow]:
+    if limit <= 0:
+        raise ValueError(
+            "limit must be positive."
+        )
+
+    result = await db.execute(
+        select(
+            ProductImportRow
+        )
+        .where(
+            ProductImportRow.company_id
+            == int(company_id),
+            ProductImportRow.job_id
+            == job_id,
+            ProductImportRow.status
+            == "STAGED",
+            ProductImportRow.row_number
+            > int(
+                after_row_number
+            ),
+        )
+        .order_by(
+            ProductImportRow.row_number.asc()
+        )
+        .limit(
+            int(limit)
+        )
+        .with_for_update()
+    )
+    return list(
+        result.scalars().fetchmany(
+            int(limit)
+        )
+    )
+
+
+async def count_validation_outcomes(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> tuple[int, int, int]:
+    row = (
+        await db.execute(
+            select(
+                func.count(
+                    ProductImportRow.id
+                ).filter(
+                    ProductImportRow.status
+                    == "VALID"
+                ),
+                func.count(
+                    ProductImportRow.id
+                ).filter(
+                    ProductImportRow.status
+                    == "INVALID"
+                ),
+                func.count(
+                    ProductImportRow.id
+                ).filter(
+                    ProductImportRow.status
+                    == "STAGED"
+                ),
+            ).where(
+                ProductImportRow.company_id
+                == int(company_id),
+                ProductImportRow.job_id
+                == job_id,
+            )
+        )
+    ).one()
+
+    return (
+        int(
+            row[0]
+            or 0
+        ),
+        int(
+            row[1]
+            or 0
+        ),
+        int(
+            row[2]
+            or 0
+        ),
+    )
+
+
 async def list_job_rows(
     db: AsyncSession,
     *,
     company_id: int,
     job_id: UUID,
     status: str | None = None,
-    limit: int | None = None,
+    limit: int,
     for_update_skip_locked: bool = False,
 ) -> list[ProductImportRow]:
+    if limit <= 0:
+        raise ValueError(
+            "limit must be positive."
+        )
+
     statement = (
         select(ProductImportRow)
         .where(
@@ -209,22 +310,22 @@ async def list_job_rows(
             ProductImportRow.status
             == status,
         )
-    if limit is not None:
-        statement = statement.limit(
-            int(limit)
-        )
+    statement = statement.limit(
+        int(limit)
+    )
     if for_update_skip_locked:
         statement = (
             statement.with_for_update(
                 skip_locked=True
             )
         )
+    result = await db.execute(
+        statement
+    )
     return list(
-        (
-            await db.scalars(
-                statement
-            )
-        ).all()
+        result.scalars().fetchmany(
+            int(limit)
+        )
     )
 
 
@@ -236,23 +337,24 @@ async def find_active_barcodes(
 ) -> set[str]:
     if not candidates:
         return set()
+    result = await db.execute(
+        select(
+            ProductBarcode.barcode
+        ).where(
+            ProductBarcode.company_id
+            == int(company_id),
+            ProductBarcode.barcode.in_(
+                candidates
+            ),
+            ProductBarcode.is_active.is_(
+                True
+            ),
+        )
+    )
     return set(
-        (
-            await db.scalars(
-                select(
-                    ProductBarcode.barcode
-                ).where(
-                    ProductBarcode.company_id
-                    == int(company_id),
-                    ProductBarcode.barcode.in_(
-                        candidates
-                    ),
-                    ProductBarcode.is_active.is_(
-                        True
-                    ),
-                )
-            )
-        ).all()
+        result.scalars().fetchmany(
+            len(candidates)
+        )
     )
 
 
