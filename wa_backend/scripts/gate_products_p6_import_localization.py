@@ -82,6 +82,9 @@ def static_checks() -> None:
         ROOT
         / "dashboard/src/pages/products/import/createImportDownloads.ts"
     ).read_text(encoding="utf-8")
+    import_template = (
+        BACKEND / "product_import_template.py"
+    ).read_text(encoding="utf-8")
     modal_compact = " ".join(import_modal.split())
     mapping_compact = " ".join(import_mapping.split())
     polling_compact = " ".join(import_polling.split())
@@ -124,13 +127,13 @@ def static_checks() -> None:
     )
 
     check(
-        '"products.fields.name"' in import_downloads
-        and '"products.fields.family"' in import_downloads
-        and '"products.fields.packageUom"' in import_downloads
-        and '"products.fields.lotControlMode"' in import_downloads
-        and '"products.fields.expiryControlMode"' in import_downloads
-        and 'const downloadTemplate' in import_downloads,
-        "downloaded template derives headers from UI translations",
+        "CANONICAL_IMPORT_FIELDS" in localization
+        and "AR_IMPORT_LOCALE" in localization
+        and "EN_IMPORT_LOCALE" in localization
+        and "pack.header_aliases[field][0]" in import_template
+        and "/simple-products/import-template?locale="
+        in import_downloads,
+        "downloaded template derives headers from the Product Import localization contract",
     )
 
     report_start = import_downloads.index(
