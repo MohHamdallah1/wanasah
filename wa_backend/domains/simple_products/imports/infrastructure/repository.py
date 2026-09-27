@@ -1,0 +1,259 @@
+"""Persistence adapter for Product Import staging/job state.
+
+This module owns direct ORM/SQLAlchemy access for Product Import jobs/rows and
+the closely-related actor/barcode lookups required by the existing worker flow.
+It intentionally does not own Product/Pricing/Tracking business rules.
+"""
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from context import tenant_context
+from database import AsyncSessionLocal
+from models import (
+    Driver,
+    ProductBarcode,
+    ProductImportJob,
+    ProductImportRow,
+)
+
+
+async def open_tenant_session(
+    company_id: int,
+):
+    token = tenant_context.set(
+        int(company_id)
+    )
+    db = AsyncSessionLocal()
+    try:
+        await db.execute(
+            text(
+                "SELECT set_config("
+                "'app.current_tenant', :c, false)"
+            ),
+            {
+                "c": str(
+                    int(company_id)
+                )
+            },
+        )
+        return token, db
+    except Exception:
+        await db.close()
+        tenant_context.reset(token)
+        raise
+
+
+async def close_tenant_session(
+    token,
+    db: AsyncSession,
+) -> None:
+    try:
+        await db.close()
+    finally:
+        tenant_context.reset(token)
+
+
+async def load_job(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    for_update: bool = False,
+) -> ProductImportJob | None:
+    statement = select(
+        ProductImportJob
+    ).where(
+        ProductImportJob.company_id
+        == int(company_id),
+        ProductImportJob.id
+        == job_id,
+    )
+    if for_update:
+        statement = (
+            statement.with_for_update()
+        )
+    return await db.scalar(
+        statement
+    )
+
+
+async def delete_job_rows(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    status: str | None = None,
+) -> None:
+    statement = delete(
+        ProductImportRow
+    ).where(
+        ProductImportRow.company_id
+        == int(company_id),
+        ProductImportRow.job_id
+        == job_id,
+    )
+    if status is not None:
+        statement = statement.where(
+            ProductImportRow.status
+            == status,
+        )
+    await db.execute(statement)
+
+
+async def insert_staged_rows(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    rows: list[dict[str, Any]],
+    batch_size: int,
+) -> None:
+    for offset in range(
+        0,
+        len(rows),
+        batch_size,
+    ):
+        chunk = rows[
+            offset : offset + batch_size
+        ]
+        await db.execute(
+            insert(ProductImportRow),
+            [
+                {
+                    "company_id": int(
+                        company_id
+                    ),
+                    "job_id": job_id,
+                    "row_number": (
+                        offset
+                        + index
+                        + 2
+                    ),
+                    "raw_data": raw,
+                    "normalized_data": {},
+                    "status": "STAGED",
+                    "version": 1,
+                }
+                for index, raw
+                in enumerate(chunk)
+            ],
+        )
+
+
+async def list_job_rows(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    status: str | None = None,
+    limit: int | None = None,
+    for_update_skip_locked: bool = False,
+) -> list[ProductImportRow]:
+    statement = (
+        select(ProductImportRow)
+        .where(
+            ProductImportRow.company_id
+            == int(company_id),
+            ProductImportRow.job_id
+            == job_id,
+        )
+        .order_by(
+            ProductImportRow.row_number.asc()
+        )
+    )
+    if status is not None:
+        statement = statement.where(
+            ProductImportRow.status
+            == status,
+        )
+    if limit is not None:
+        statement = statement.limit(
+            int(limit)
+        )
+    if for_update_skip_locked:
+        statement = (
+            statement.with_for_update(
+                skip_locked=True
+            )
+        )
+    return list(
+        (
+            await db.scalars(
+                statement
+            )
+        ).all()
+    )
+
+
+async def find_active_barcodes(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    candidates: list[str],
+) -> set[str]:
+    if not candidates:
+        return set()
+    return set(
+        (
+            await db.scalars(
+                select(
+                    ProductBarcode.barcode
+                ).where(
+                    ProductBarcode.company_id
+                    == int(company_id),
+                    ProductBarcode.barcode.in_(
+                        candidates
+                    ),
+                    ProductBarcode.is_active.is_(
+                        True
+                    ),
+                )
+            )
+        ).all()
+    )
+
+
+async def load_active_actor(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+) -> Driver | None:
+    return await db.scalar(
+        select(Driver).where(
+            Driver.company_id
+            == int(company_id),
+            Driver.id
+            == int(actor_id),
+            Driver.is_active.is_(True),
+        )
+    )
+
+
+async def count_job_rows(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    status: str,
+) -> int:
+    value = await db.scalar(
+        select(
+            func.count(
+                ProductImportRow.id
+            )
+        ).where(
+            ProductImportRow.company_id
+            == int(company_id),
+            ProductImportRow.job_id
+            == job_id,
+            ProductImportRow.status
+            == status,
+        )
+    )
+    return int(value or 0)
