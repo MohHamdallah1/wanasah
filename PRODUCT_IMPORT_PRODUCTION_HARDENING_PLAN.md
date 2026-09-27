@@ -509,23 +509,26 @@ Wanasah already has WebSocket infrastructure elsewhere in the backend. Product I
 
 ## Tasks
 
-- [ ] Keep company-level serialization only if required by shared Product/Pricing invariants; document the reason.
-- [ ] Otherwise reduce lock scope safely after concurrency tests.
-- [ ] Add per-tenant active-import/backpressure limits.
-- [ ] Publish coarse-grained import progress/state-change events from the application/job-state authority after durable state changes.
-- [ ] Deliver progress push-first through a dedicated tenant-scoped realtime channel using the platform's existing WebSocket/realtime infrastructure pattern.
-- [ ] Authorize each subscription against the exact tenant/job; never trust a client-supplied company identifier as authority.
-- [ ] Coalesce/throttle progress notifications so row processing does not emit one network event per row.
-- [ ] Keep adaptive polling only as a fallback for reconnect/offline/realtime-unavailable cases, with exponential backoff, jitter and immediate stop on terminal states or hidden/closed workflow where appropriate.
-- [ ] Never poll every active import globally from the browser; subscribe only to jobs the user is actively observing.
-- [ ] Add connection/reconnect/backpressure tests for the progress channel.
-- [ ] Add global worker capacity metrics.
-- [ ] Add queue-age and oldest-job monitoring.
-- [ ] Add worker-health/readiness signal.
-- [ ] Add alerts for jobs stuck beyond expected stage duration.
-- [ ] Define cancellation semantics for jobs that have not committed all rows.
-- [ ] Ensure cancellation never leaves half-applied row effects.
-- [ ] Test duplicate queue delivery, stalled-worker recovery and worker restarts.
+- [x] Keep company-level serialization only if required by shared Product/Pricing invariants; document the reason.
+- [x] Otherwise reduce lock scope safely after concurrency tests.
+- [x] Add per-tenant active-import/backpressure limits.
+- [x] Publish coarse-grained import progress/state-change events from the application/job-state authority after durable state changes.
+- [x] Deliver progress push-first through a dedicated tenant-scoped realtime channel using the platform's existing WebSocket/realtime infrastructure pattern.
+- [x] Authorize each subscription against the exact tenant/job; never trust a client-supplied company identifier as authority.
+- [x] Coalesce/throttle progress notifications so row processing does not emit one network event per row.
+- [x] Keep adaptive polling only as a fallback for reconnect/offline/realtime-unavailable cases, with exponential backoff, jitter and immediate stop on terminal states or hidden/closed workflow where appropriate.
+- [x] Never poll every active import globally from the browser; subscribe only to jobs the user is actively observing.
+- [x] Add connection/reconnect/backpressure tests for the progress channel.
+- [x] Add global worker capacity metrics.
+- [x] Add queue-age and oldest-job monitoring.
+- [x] Add worker-health/readiness signal.
+- [x] Add alerts for jobs stuck beyond expected stage duration.
+- [x] Define cancellation semantics for jobs that have not committed all rows.
+- [x] Ensure cancellation never leaves half-applied row effects.
+- [x] Test duplicate queue delivery, stalled-worker recovery and worker restarts.
+
+
+> **Phase 13 closure:** company serialization was retained because Product Import shares the company-default Pricing publication authority; see `domains/simple_products/imports/PHASE13_RUNTIME.md`. Queue-specific worker readiness, tenant backpressure, durable/coalesced realtime progress, adaptive polling fallback, safe cancellation and recovery/restart coverage are implemented and verified by `gate_product_import_phase13_runtime.py`.
 
 ---
 
