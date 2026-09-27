@@ -358,6 +358,261 @@ def _json_cell(
     return clean or None
 
 
+def _select_xlsx_sheet_name(
+    workbook,
+) -> str:
+    if (
+        WANASAH_TEMPLATE_META_SHEET
+        in workbook.sheetnames
+    ):
+        meta = workbook[
+            WANASAH_TEMPLATE_META_SHEET
+        ]
+        marker = str(
+            meta[
+                "A1"
+            ].value
+            or ""
+        ).strip()
+        if (
+            marker
+            != WANASAH_TEMPLATE_MARKER
+        ):
+            raise ProductImportTerminalError(
+                "The Wanasah template metadata is invalid."
+            )
+
+        product_sheet_name = str(
+            meta[
+                WANASAH_TEMPLATE_PRODUCT_SHEET_CELL
+            ].value
+            or ""
+        ).strip()
+        if (
+            not product_sheet_name
+            or product_sheet_name
+            not in workbook.sheetnames
+        ):
+            raise ProductImportTerminalError(
+                "The Wanasah template Products worksheet is missing."
+            )
+
+        product_sheet = workbook[
+            product_sheet_name
+        ]
+        if (
+            product_sheet.sheet_state
+            != "visible"
+        ):
+            raise ProductImportTerminalError(
+                "The Wanasah template Products worksheet must be visible."
+            )
+        return product_sheet_name
+
+    visible_sheets = [
+        worksheet.title
+        for worksheet
+        in workbook.worksheets
+        if worksheet.sheet_state
+        == "visible"
+    ]
+    if not visible_sheets:
+        raise ProductImportTerminalError(
+            "The Excel workbook has no visible worksheet."
+        )
+    if len(
+        visible_sheets
+    ) != 1:
+        raise ProductImportTerminalError(
+            "The Excel workbook contains multiple visible worksheets. "
+            "Select exactly one product worksheet before importing, "
+            "or use the official Wanasah Product Import template."
+        )
+    return visible_sheets[
+        0
+    ]
+
+
+def _xlsx_header_values(
+    cached_cells: tuple[Any, ...],
+    formula_cells: tuple[Any, ...],
+) -> tuple[Any, ...]:
+    values: list[Any] = []
+    width = max(
+        len(
+            cached_cells
+        ),
+        len(
+            formula_cells
+        ),
+    )
+    for index in range(
+        width
+    ):
+        formula_cell = (
+            formula_cells[
+                index
+            ]
+            if index
+            < len(
+                formula_cells
+            )
+            else None
+        )
+        if (
+            formula_cell
+            is not None
+            and getattr(
+                formula_cell,
+                "data_type",
+                None,
+            )
+            == "f"
+        ):
+            raise ProductImportTerminalError(
+                "Excel header cells must be literal values, not formulas."
+            )
+
+        cached_cell = (
+            cached_cells[
+                index
+            ]
+            if index
+            < len(
+                cached_cells
+            )
+            else None
+        )
+        values.append(
+            (
+                cached_cell.value
+                if cached_cell
+                is not None
+                else None
+            )
+        )
+    return tuple(
+        values
+    )
+
+
+def _xlsx_row_from_layout(
+    cached_cells: tuple[Any, ...],
+    formula_cells: tuple[Any, ...],
+    layout: list[tuple[int, str]],
+) -> dict[str, Any]:
+    raw: dict[str, Any] = {}
+    metadata: dict[
+        str,
+        dict[str, object],
+    ] = {}
+
+    for (
+        index,
+        header,
+    ) in layout:
+        cached_cell = (
+            cached_cells[
+                index
+            ]
+            if index
+            < len(
+                cached_cells
+            )
+            else None
+        )
+        formula_cell = (
+            formula_cells[
+                index
+            ]
+            if index
+            < len(
+                formula_cells
+            )
+            else None
+        )
+        cached_value = (
+            cached_cell.value
+            if cached_cell
+            is not None
+            else None
+        )
+
+        if (
+            formula_cell
+            is not None
+            and getattr(
+                formula_cell,
+                "data_type",
+                None,
+            )
+            == "f"
+        ):
+            has_cached_value = (
+                cached_value
+                is not None
+            )
+            raw[
+                header
+            ] = _json_cell(
+                cached_value
+                if has_cached_value
+                else formula_cell.value
+            )
+            metadata[
+                header
+            ] = (
+                formula_source_metadata(
+                    cached=
+                        has_cached_value
+                )
+            )
+            continue
+
+        raw[
+            header
+        ] = _json_cell(
+            cached_value
+        )
+        if (
+            cached_value
+            is not None
+            and isinstance(
+                cached_value,
+                (
+                    int,
+                    float,
+                ),
+            )
+            and not isinstance(
+                cached_value,
+                bool,
+            )
+        ):
+            metadata[
+                header
+            ] = (
+                numeric_source_metadata(
+                    number_format=(
+                        getattr(
+                            cached_cell,
+                            "number_format",
+                            None,
+                        )
+                        if cached_cell
+                        is not None
+                        else None
+                    )
+                )
+            )
+
+    if metadata:
+        raw[
+            SOURCE_CELL_META_KEY
+        ] = metadata
+    return raw
+
+
 def _header_layout(
     values: list[Any] | tuple[Any, ...],
     *,
