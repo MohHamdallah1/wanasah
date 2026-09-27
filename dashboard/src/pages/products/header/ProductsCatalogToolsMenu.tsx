@@ -28,7 +28,6 @@ type Props = {
   canManageFamilies: boolean;
   onOpenDisplayPreferences: () => void;
   onOpenTrackingDefaults: () => void;
-  onOpenAdvancedUom: () => void;
   onOpenFamilies: () => void;
 };
 
@@ -39,7 +38,6 @@ export function ProductsCatalogToolsMenu({
   canManageFamilies,
   onOpenDisplayPreferences,
   onOpenTrackingDefaults,
-  onOpenAdvancedUom,
   onOpenFamilies,
 }: Props) {
   const { t, i18n } =
@@ -183,17 +181,25 @@ export function ProductsCatalogToolsMenu({
         {canManageCatalog ? (
           <>
             <DropdownMenuItem
-              onSelect={() =>
-                queueAfterMenuClose(
-                  onOpenAdvancedUom
-                )
-              }
-              className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-700"
-            >
-              <Settings2 className="h-4 w-4 shrink-0 text-slate-400" />
-              {t(
-                "products.advancedUom.action",
+              disabled
+              title={t(
+                "products.advancedUom.deferredHint",
               )}
+              className="gap-3 rounded-lg px-2.5 py-2.5 text-start text-xs font-bold text-slate-400"
+            >
+              <LockKeyhole className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 text-start">
+                <span className="block">
+                  {t(
+                    "products.advancedUom.action",
+                  )}
+                </span>
+                <span className="mt-0.5 block text-[10px] font-semibold leading-4 text-slate-400">
+                  {t(
+                    "products.advancedUom.deferredHint",
+                  )}
+                </span>
+              </span>
             </DropdownMenuItem>
 
             <DropdownMenuItem
