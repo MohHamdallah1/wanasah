@@ -9,7 +9,7 @@ import csv
 import io
 import zipfile
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from openpyxl import load_workbook
 
@@ -24,6 +24,20 @@ MAX_IMPORT_COLUMNS = 100
 MAX_XLSX_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 MAX_XLSX_ARCHIVE_ENTRIES = 500
 MAX_XLSX_COMPRESSION_RATIO = 200
+
+
+ParsedSource = tuple[
+    list[str],
+    list[dict[str, Any]],
+]
+
+
+class SourceParser(Protocol):
+    def __call__(
+        self,
+        payload: bytes,
+    ) -> ParsedSource:
+        ...
 
 
 def _json_cell(value: Any) -> str | None:
@@ -82,7 +96,7 @@ def _row_from_layout(
 
 def _parse_csv(
     payload: bytes,
-) -> tuple[list[str], list[dict[str, Any]]]:
+) -> ParsedSource:
     decoded = None
     last_error = None
     for encoding in (
