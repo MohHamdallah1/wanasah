@@ -132,14 +132,19 @@ def static_checks() -> None:
     validations = list(
         template_sheet.data_validations.dataValidation
     )
+    tracking_validations = [
+        validation
+        for validation in validations
+        if validation.type == "list"
+    ]
     validation_ranges = {
         str(cell_range)
-        for validation in validations
+        for validation in tracking_validations
         for cell_range in validation.ranges.ranges
     }
     list_sheet = workbook["_wanasah_lists"]
     check(
-        len(validations) == 2
+        len(tracking_validations) == 2
         and "I2:I50001" in validation_ranges
         and "J2:J50001" in validation_ranges
         and list_sheet.sheet_state == "hidden"
