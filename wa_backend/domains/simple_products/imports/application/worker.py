@@ -1,357 +1,51 @@
-"""Product Import application orchestration.\n\nBehavior is preserved from the legacy root worker during Phase 1.\n"""
+"""Thin Product Import application orchestrator.
+
+Phase 2 keeps the current execution semantics and delegates specialized work to
+the state machine, staging, validation and execution services.
+"""
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Any
-from uuid import UUID, uuid5
+from uuid import UUID
 
-from fastapi import HTTPException
-
-from domains.product_tracking import (
-    ProductTrackingError,
-    normalize_tracking_mode,
+from domains.simple_products.imports.application.execution_service import (
+    execute_import,
 )
-from domains.simple_products.service import (
-    SimpleProductError,
-    SimpleProductSpec,
-    create_products_and_prices,
-    normalize_barcode,
-    normalize_package_code,
-    resolve_price_pair,
+from domains.simple_products.imports.application.staging_service import (
+    stage_source,
 )
-from inventory_access import InventoryAccess
+from domains.simple_products.imports.application.state_machine import (
+    set_job_status,
+    utc_naive_now,
+)
+from domains.simple_products.imports.application.validation_service import (
+    validate_rows,
+)
 from domains.simple_products.imports.domain import (
-    CANONICAL_IMPORT_FIELDS,
     ProductImportTerminalError,
-    IMPORT_TRACKING_DEFAULT_SENTINEL,
-    canonical_package_value,
-    canonical_tracking_value,
-    normalize_import_token,
-    suggest_import_mapping,
+)
+from domains.simple_products.imports.domain.mapping import (
+    suggest_mapping,
 )
 from domains.simple_products.imports.infrastructure.parsers import (
-    MAX_IMPORT_ROWS,
     parse_source,
 )
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
-    count_job_rows,
-    delete_job_rows,
-    find_active_barcodes,
-    insert_staged_rows,
-    list_job_rows,
-    load_active_actor,
     load_job,
     open_tenant_session,
 )
 
-STAGE_BATCH = 1_000
-IMPORT_BATCH = 100
 
-
-_CANONICAL_FIELDS = CANONICAL_IMPORT_FIELDS
-
-
-def _tracking_import_mode(
-    raw_value: Any,
+async def _load_job_context(
     *,
-    fallback: str,
-    field_name: str,
-) -> str:
-    if raw_value is None or not str(raw_value).strip():
-        return normalize_tracking_mode(
-            fallback,
-            field_name=field_name,
-        )
-
-    canonical = canonical_tracking_value(
-        raw_value,
-    )
-    if (
-        canonical
-        == IMPORT_TRACKING_DEFAULT_SENTINEL
-    ):
-        return normalize_tracking_mode(
-            fallback,
-            field_name=field_name,
-        )
-    return normalize_tracking_mode(
-        canonical,
-        field_name=field_name,
-    )
-
-
-def suggest_mapping(
-    headers: list[str],
-) -> dict[str, str]:
-    return suggest_import_mapping(headers)
-
-
-def mapping_complete(
-    mapping: dict[str, str],
-) -> bool:
-    return bool(
-        mapping.get("name")
-        and (
-            mapping.get("package_price")
-            or mapping.get("unit_price")
-        )
-    )
-
-
-def validate_mapping(
-    headers: list[str],
-    mapping: dict[str, str],
-) -> dict[str, str]:
-    allowed = set(headers)
-    cleaned: dict[str, str] = {}
-    used: set[str] = set()
-
-    for canonical, header in mapping.items():
-        if canonical not in _CANONICAL_FIELDS:
-            raise ValueError(
-                f"Unknown mapping field: {canonical}"
-            )
-        if not header:
-            continue
-        if header not in allowed:
-            raise ValueError(
-                f"Source column does not exist: {header}"
-            )
-        if header in used:
-            raise ValueError(
-                "One source column cannot map to more than one canonical field."
-            )
-        cleaned[canonical] = header
-        used.add(header)
-
-    return cleaned
-
-
-def _package_code(
-    raw_package: Any,
-    *,
-    has_package_column: bool,
-    has_units_column: bool,
-) -> str | None:
-    if raw_package is not None and str(
-        raw_package
-    ).strip():
-        canonical = canonical_package_value(
-            raw_package,
-        )
-        return normalize_package_code(canonical)
-
-    # Backward-compatible old carton files normally carry a carton quantity
-    # column but no explicit package-type column.
-    if has_units_column:
-        return "CARTON"
-
-    # No package column and no package-size column is explicit unit-only input.
-    if not has_package_column:
-        return None
-
-    return None
-
-
-def normalize_raw_row(
-    raw: dict[str, Any],
-    mapping: dict[str, str],
-    *,
-    default_lot_control_mode: str,
-    default_expiry_control_mode: str,
-) -> dict[str, Any]:
-    def value(field: str):
-        header = mapping.get(field)
-        return (
-            raw.get(header)
-            if header
-            else None
-        )
-
-    name = str(
-        value("name") or ""
-    ).strip()
-    if not name:
-        raise SimpleProductError(
-            "IMPORT_NAME_REQUIRED",
-            "Product name is required.",
-            status_code=422,
-        )
-    if len(name) > 200:
-        raise SimpleProductError(
-            "IMPORT_NAME_TOO_LONG",
-            "Product name exceeds the supported length.",
-            status_code=422,
-        )
-
-    has_package_column = bool(
-        mapping.get("package_uom")
-    )
-    has_units_column = bool(
-        mapping.get("units_per_package")
-    )
-    package_code = _package_code(
-        value("package_uom"),
-        has_package_column=has_package_column,
-        has_units_column=has_units_column,
-    )
-
-    if package_code is None:
-        units = 1
-    else:
-        units_raw = str(
-            value("units_per_package") or ""
-        ).strip()
-        if not units_raw:
-            raise SimpleProductError(
-                "IMPORT_PACKAGING_REQUIRED",
-                "units_per_package is required for an outer package.",
-                status_code=422,
-            )
-        try:
-            units_decimal = Decimal(
-                units_raw
-            )
-            units = int(units_decimal)
-        except Exception as exc:
-            raise SimpleProductError(
-                "IMPORT_PACKAGING_INVALID",
-                "units_per_package is invalid.",
-                status_code=422,
-            ) from exc
-
-        if (
-            units_decimal
-            != Decimal(units)
-            or units < 2
-            or units > 1_000_000
-        ):
-            raise SimpleProductError(
-                "IMPORT_PACKAGING_INVALID",
-                "units_per_package must be an integer between 2 and 1,000,000.",
-                status_code=422,
-            )
-
-    prices = resolve_price_pair(
-        units_per_package=units,
-        package_uom_code=package_code,
-        package_price=value(
-            "package_price"
-        ),
-        unit_price=value("unit_price"),
-    )
-
-    family = str(
-        value("family") or ""
-    ).strip() or None
-    unit_barcode = normalize_barcode(
-        value("unit_barcode"),
-        "unit_barcode",
-    )
-    package_barcode = normalize_barcode(
-        value("package_barcode"),
-        "package_barcode",
-    )
-    if (
-        package_code is None
-        and package_barcode is not None
-    ):
-        raise SimpleProductError(
-            "IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE",
-            "package_barcode cannot be supplied without an outer package.",
-            status_code=422,
-        )
-
-    lot_control_mode = _tracking_import_mode(
-        value("lot_control_mode"),
-        fallback=default_lot_control_mode,
-        field_name="lot_control_mode",
-    )
-    expiry_control_mode = _tracking_import_mode(
-        value("expiry_control_mode"),
-        fallback=default_expiry_control_mode,
-        field_name="expiry_control_mode",
-    )
-
-    return {
-        "name": name,
-        "family_name": family,
-        "package_uom_code": package_code,
-        "units_per_package": units,
-        "package_price": (
-            format(
-                prices.package_price,
-                "f",
-            )
-            if prices.package_price
-            is not None
-            else None
-        ),
-        "unit_price": format(
-            prices.unit_price,
-            "f",
-        ),
-        "unit_barcode": unit_barcode,
-        "package_barcode": package_barcode,
-        "lot_control_mode": lot_control_mode,
-        "expiry_control_mode": expiry_control_mode,
-    }
-
-
-async def _set_status(
     company_id: int,
     job_id: UUID,
-    status: str,
-    **values: Any,
-) -> None:
-    token, db = await open_tenant_session(
-        company_id
-    )
-    try:
-        job = await load_job(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            for_update=True,
-        )
-        if job is None:
-            raise ValueError(
-                "Product import job not found."
-            )
-
-        job.status = status
-        for key, value in values.items():
-            setattr(
-                job,
-                key,
-                value,
-            )
-        job.version += 1
-        job.updated_at = (
-            datetime.now(
-                timezone.utc
-            ).replace(
-                tzinfo=None
-            )
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise
-    finally:
-        await close_tenant_session(
-            token,
-            db,
-        )
-
-
-async def _load_job(
-    company_id: int,
-    job_id: UUID,
-):
+) -> tuple[
+    bytes | None,
+    str,
+    str,
+]:
     token, db = await open_tenant_session(
         company_id
     )
@@ -365,22 +59,17 @@ async def _load_job(
             raise ValueError(
                 "Product import job not found."
             )
-
         return (
-            bytes(job.source_payload)
-            if job.source_payload
-            is not None
-            else None,
+            (
+                bytes(
+                    job.source_payload
+                )
+                if job.source_payload
+                is not None
+                else None
+            ),
             str(job.file_name),
             str(job.status),
-            list(
-                job.detected_headers
-                or []
-            ),
-            dict(
-                job.column_mapping
-                or {}
-            ),
         )
     finally:
         await close_tenant_session(
@@ -389,90 +78,11 @@ async def _load_job(
         )
 
 
-async def _stage_source(
+async def _load_runtime_state(
+    *,
     company_id: int,
     job_id: UUID,
-    headers: list[str],
-    rows: list[dict[str, Any]],
-    suggestions: dict[str, str],
-) -> None:
-    if len(rows) > MAX_IMPORT_ROWS:
-        raise ProductImportTerminalError(
-            f"The import exceeds the {MAX_IMPORT_ROWS:,}-row safety limit."
-        )
-
-    token, db = await open_tenant_session(
-        company_id
-    )
-    try:
-        await delete_job_rows(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-        )
-        await insert_staged_rows(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            rows=rows,
-            batch_size=STAGE_BATCH,
-        )
-
-        job = await load_job(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            for_update=True,
-        )
-        if job is None:
-            raise ValueError(
-                "Product import job not found."
-            )
-
-        job.detected_headers = headers
-        job.suggested_mapping = suggestions
-        if not job.column_mapping:
-            job.column_mapping = (
-                suggestions
-            )
-        job.total_rows = len(rows)
-        job.processed_rows = 0
-        job.valid_rows = 0
-        job.failed_rows = 0
-        job.source_payload = None
-        job.status = (
-            "VALIDATING"
-            if mapping_complete(
-                dict(
-                    job.column_mapping
-                    or {}
-                )
-            )
-            else "NEEDS_MAPPING"
-        )
-        job.version += 1
-        job.updated_at = (
-            datetime.now(
-                timezone.utc
-            ).replace(
-                tzinfo=None
-            )
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise
-    finally:
-        await close_tenant_session(
-            token,
-            db,
-        )
-
-
-async def _validate_rows(
-    company_id: int,
-    job_id: UUID,
-) -> bool:
+) -> tuple[str, bool]:
     token, db = await open_tenant_session(
         company_id
     )
@@ -483,416 +93,21 @@ async def _validate_rows(
             job_id=job_id,
         )
         if job is None:
-            raise ValueError(
-                "Product import job not found."
-            )
-
-        try:
-            mapping = validate_mapping(
-                list(
-                    job.detected_headers
-                    or []
-                ),
-                dict(
-                    job.column_mapping
-                    or {}
-                ),
-            )
-        except ValueError as exc:
             raise ProductImportTerminalError(
-                str(exc)
-            ) from exc
-
-        if not mapping_complete(mapping):
-            await db.rollback()
-            await _set_status(
-                company_id,
-                job_id,
-                "NEEDS_MAPPING",
+                "Product import job not found."
             )
-            return False
-
-        rows = await list_job_rows(
-            db,
-            company_id=company_id,
-            job_id=job_id,
+        return (
+            str(job.status),
+            (
+                job.source_payload
+                is not None
+            ),
         )
-
-        normalized: dict[
-            int,
-            dict[str, Any],
-        ] = {}
-        errors: dict[
-            int,
-            tuple[str, str],
-        ] = {}
-        barcode_rows: dict[
-            str,
-            list[int],
-        ] = {}
-
-        for row in rows:
-            try:
-                data = normalize_raw_row(
-                    dict(
-                        row.raw_data
-                        or {}
-                    ),
-                    mapping,
-                    default_lot_control_mode=str(
-                        job.default_lot_control_mode
-                    ),
-                    default_expiry_control_mode=str(
-                        job.default_expiry_control_mode
-                    ),
-                )
-                row_id = int(row.id)
-                normalized[
-                    row_id
-                ] = data
-
-                # Same unit/package barcode in ONE row is intentional shared
-                # identity. It only becomes a duplicate if it spans rows.
-                row_barcodes = {
-                    str(barcode)
-                    for barcode in (
-                        data.get(
-                            "unit_barcode"
-                        ),
-                        data.get(
-                            "package_barcode"
-                        ),
-                    )
-                    if barcode
-                }
-                for barcode in row_barcodes:
-                    barcode_rows.setdefault(
-                        barcode,
-                        [],
-                    ).append(
-                        row_id
-                    )
-            except ProductTrackingError as exc:
-                errors[int(row.id)] = (
-                    exc.code,
-                    exc.message,
-                )
-            except SimpleProductError as exc:
-                errors[int(row.id)] = (
-                    exc.code,
-                    exc.message,
-                )
-            except Exception as exc:
-                errors[int(row.id)] = (
-                    "IMPORT_ROW_INVALID",
-                    str(exc),
-                )
-
-        for barcode, row_ids in (
-            barcode_rows.items()
-        ):
-            if len(row_ids) > 1:
-                for row_id in row_ids:
-                    errors[row_id] = (
-                        "IMPORT_BARCODE_DUPLICATE",
-                        f"Barcode {barcode} appears on more than one import row.",
-                    )
-
-        candidates = [
-            barcode
-            for barcode, row_ids
-            in barcode_rows.items()
-            if len(row_ids) == 1
-        ]
-        if candidates:
-            existing = await find_active_barcodes(
-                db,
-                company_id=company_id,
-                candidates=candidates,
-            )
-            for barcode in existing:
-                for row_id in barcode_rows.get(
-                    str(barcode),
-                    [],
-                ):
-                    errors[
-                        row_id
-                    ] = (
-                        "IMPORT_BARCODE_CONFLICT",
-                        f"Barcode {barcode} is already active.",
-                    )
-
-        for row in rows:
-            row_id = int(row.id)
-            row.normalized_data = (
-                normalized.get(
-                    row_id,
-                    {},
-                )
-            )
-            if row_id in errors:
-                row.status = "FAILED"
-                (
-                    row.error_code,
-                    row.error_message,
-                ) = errors[row_id]
-            else:
-                row.status = "VALID"
-                row.error_code = None
-                row.error_message = None
-            row.version += 1
-
-        valid_count = sum(
-            1
-            for row in rows
-            if row.status == "VALID"
-        )
-        failed_count = (
-            len(rows)
-            - valid_count
-        )
-
-        locked = await load_job(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            for_update=True,
-        )
-        assert locked is not None
-        locked.column_mapping = mapping
-        locked.valid_rows = valid_count
-        locked.failed_rows = failed_count
-        locked.processed_rows = 0
-        locked.status = (
-            "VALIDATION_FAILED"
-            if failed_count
-            else "IMPORTING"
-        )
-        locked.error_summary = (
-            {
-                "code": "PRODUCT_IMPORT_VALIDATION_FAILED",
-                "failed_rows": failed_count,
-            }
-            if failed_count
-            else {}
-        )
-        locked.version += 1
-        locked.updated_at = (
-            datetime.now(
-                timezone.utc
-            ).replace(
-                tzinfo=None
-            )
-        )
-        await db.commit()
-        return failed_count == 0
-    except Exception:
-        await db.rollback()
-        raise
     finally:
         await close_tenant_session(
             token,
             db,
         )
-
-
-async def _import_rows(
-    company_id: int,
-    job_id: UUID,
-) -> None:
-    while True:
-        token, db = await open_tenant_session(
-            company_id
-        )
-        try:
-            job = await load_job(
-                db,
-                company_id=company_id,
-                job_id=job_id,
-                for_update=True,
-            )
-            if job is None:
-                raise ValueError(
-                    "Product import job not found."
-                )
-
-            actor = await load_active_actor(
-                db,
-                company_id=company_id,
-                actor_id=int(job.created_by),
-            )
-            if actor is None:
-                raise ProductImportTerminalError(
-                    "The import actor is no longer active."
-                )
-
-            access = InventoryAccess(
-                db,
-                actor,
-            )
-            try:
-                for permission in (
-                    "catalog.manage",
-                    "catalog.publish",
-                    "pricing.manage",
-                ):
-                    await access.require(
-                        permission,
-                        any_location=True,
-                    )
-            except HTTPException as exc:
-                raise ProductImportTerminalError(
-                    "The import actor no longer has the required permissions."
-                ) from exc
-
-            rows = await list_job_rows(
-                db,
-                company_id=company_id,
-                job_id=job_id,
-                status="VALID",
-                limit=IMPORT_BATCH,
-                for_update_skip_locked=True,
-            )
-
-            if not rows:
-                job.status = "COMPLETED"
-                job.processed_rows = int(
-                    job.valid_rows
-                )
-                job.finished_at = (
-                    datetime.now(
-                        timezone.utc
-                    ).replace(
-                        tzinfo=None
-                    )
-                )
-                job.error_summary = {}
-                job.version += 1
-
-                await delete_job_rows(
-                    db,
-                    company_id=company_id,
-                    job_id=job_id,
-                    status="IMPORTED",
-                )
-                await db.commit()
-                return
-
-            specs = []
-            for row in rows:
-                data = dict(
-                    row.normalized_data
-                    or {}
-                )
-                specs.append(
-                    SimpleProductSpec(
-                        name=str(
-                            data["name"]
-                        ),
-                        family_name=data.get(
-                            "family_name"
-                        ),
-                        package_uom_code=data.get(
-                            "package_uom_code"
-                        ),
-                        units_per_package=int(
-                            data[
-                                "units_per_package"
-                            ]
-                        ),
-                        package_price=(
-                            Decimal(
-                                str(
-                                    data[
-                                        "package_price"
-                                    ]
-                                )
-                            )
-                            if data.get(
-                                "package_price"
-                            )
-                            is not None
-                            else None
-                        ),
-                        unit_price=Decimal(
-                            str(
-                                data[
-                                    "unit_price"
-                                ]
-                            )
-                        ),
-                        unit_barcode=data.get(
-                            "unit_barcode"
-                        ),
-                        package_barcode=data.get(
-                            "package_barcode"
-                        ),
-                        lot_control_mode=str(
-                            data["lot_control_mode"]
-                        ),
-                        expiry_control_mode=str(
-                            data["expiry_control_mode"]
-                        ),
-                    )
-                )
-
-            request_id = uuid5(
-                job_id,
-                (
-                    "rows:"
-                    f"{int(rows[0].row_number)}:"
-                    f"{int(rows[-1].row_number)}"
-                ),
-            )
-            created = await create_products_and_prices(
-                db,
-                actor=actor,
-                request_id=request_id,
-                specs=specs,
-            )
-
-            for (
-                row,
-                (variant, _prices),
-            ) in zip(
-                rows,
-                created,
-                strict=True,
-            ):
-                row.status = "IMPORTED"
-                row.product_variant_id = int(
-                    variant.id
-                )
-                row.version += 1
-
-            imported = await count_job_rows(
-                db,
-                company_id=company_id,
-                job_id=job_id,
-                status="IMPORTED",
-            )
-            job.processed_rows = int(
-                imported
-                or 0
-            )
-            job.status = "IMPORTING"
-            job.version += 1
-            job.updated_at = (
-                datetime.now(
-                    timezone.utc
-                ).replace(
-                    tzinfo=None
-                )
-            )
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            raise
-        finally:
-            await close_tenant_session(
-                token,
-                db,
-            )
 
 
 async def run_product_import_job(
@@ -904,11 +119,9 @@ async def run_product_import_job(
         payload,
         file_name,
         status,
-        _headers,
-        _mapping,
-    ) = await _load_job(
-        company_id,
-        job_id,
+    ) = await _load_job_context(
+        company_id=company_id,
+        job_id=job_id,
     )
 
     if status in {
@@ -920,20 +133,18 @@ async def run_product_import_job(
         return
 
     if payload is not None:
-        await _set_status(
-            company_id,
-            job_id,
-            "PARSING",
-            started_at=(
-                datetime.now(
-                    timezone.utc
-                ).replace(
-                    tzinfo=None
-                )
-            ),
+        await set_job_status(
+            company_id=company_id,
+            job_id=job_id,
+            target="PARSING",
+            started_at=
+                utc_naive_now(),
             error_summary={},
         )
-        headers, rows = await asyncio.to_thread(
+        (
+            headers,
+            rows,
+        ) = await asyncio.to_thread(
             parse_source,
             file_name,
             payload,
@@ -941,37 +152,21 @@ async def run_product_import_job(
         suggestions = suggest_mapping(
             headers
         )
-        await _stage_source(
-            company_id,
-            job_id,
-            headers,
-            rows,
-            suggestions,
-        )
-
-    token, db = await open_tenant_session(
-        company_id
-    )
-    try:
-        job = await load_job(
-            db,
+        await stage_source(
             company_id=company_id,
             job_id=job_id,
+            headers=headers,
+            rows=rows,
+            suggestions=suggestions,
         )
-        if job is None:
-            raise ProductImportTerminalError(
-                "Product import job not found."
-            )
-        status = str(job.status)
-        has_source = (
-            job.source_payload
-            is not None
-        )
-    finally:
-        await close_tenant_session(
-            token,
-            db,
-        )
+
+    (
+        status,
+        has_source,
+    ) = await _load_runtime_state(
+        company_id=company_id,
+        job_id=job_id,
+    )
 
     if status == "NEEDS_MAPPING":
         return
@@ -986,89 +181,20 @@ async def run_product_import_job(
         )
 
     if status == "VALIDATING":
-        if not await _validate_rows(
-            company_id,
-            job_id,
+        if not await validate_rows(
+            company_id=company_id,
+            job_id=job_id,
         ):
             return
         status = "IMPORTING"
 
     if status == "IMPORTING":
-        await _import_rows(
-            company_id,
-            job_id,
+        await execute_import(
+            company_id=company_id,
+            job_id=job_id,
         )
         return
 
     raise ProductImportTerminalError(
         f"Unsupported import state: {status}"
     )
-
-
-async def mark_import_runtime_failure(
-    *,
-    company_id: int,
-    job_id: UUID,
-    message: str,
-    final_attempt: bool,
-    retryable: bool,
-) -> None:
-    token, db = await open_tenant_session(
-        company_id
-    )
-    try:
-        job = await load_job(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            for_update=True,
-        )
-        if job is None:
-            return
-
-        current_status = str(
-            job.status
-        )
-        summary = {
-            "code": (
-                "PRODUCT_IMPORT_FAILED"
-                if final_attempt
-                else "PRODUCT_IMPORT_RETRYING"
-            ),
-            "technical": str(
-                message
-            )[:500],
-            "retryable": (
-                bool(retryable)
-                if final_attempt
-                else False
-            ),
-            "resume_status": current_status,
-        }
-
-        job.error_summary = summary
-        if final_attempt:
-            job.status = "FAILED"
-            job.finished_at = (
-                datetime.now(
-                    timezone.utc
-                ).replace(
-                    tzinfo=None
-                )
-            )
-        job.version += 1
-        job.updated_at = (
-            datetime.now(
-                timezone.utc
-            ).replace(
-                tzinfo=None
-            )
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-    finally:
-        await close_tenant_session(
-            token,
-            db,
-        )
