@@ -99,9 +99,9 @@ A final modular design should expose the import router from its owning module. A
 
 ## Tasks
 
-- [ ] Create the module package and explicit public entry point.
-- [ ] Define allowed dependency directions for the import module.
-- [ ] Move localization into the import domain layer.
+- [x] Create the module package and explicit public entry point.
+- [x] Define allowed dependency directions for the import module.
+- [x] Move localization into the import domain layer.
 - [ ] Move template generation into import infrastructure.
 - [ ] Move queue implementation into import infrastructure.
 - [ ] Split worker responsibilities into application orchestration + infrastructure/parser/repository components.
