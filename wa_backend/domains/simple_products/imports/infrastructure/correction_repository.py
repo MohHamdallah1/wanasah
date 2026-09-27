@@ -164,11 +164,12 @@ async def _begin_correction_idempotency(
             request_hash,
             created_by,
             response_json,
+            created_at,
             completed_at
         )
         VALUES (
             %s,%s,%s,%s,%s,
-            NULL,NULL
+            NULL,CURRENT_TIMESTAMP,NULL
         )
         """,
         [
