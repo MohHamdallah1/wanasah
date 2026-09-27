@@ -136,7 +136,10 @@ export function createImportDownloads({
     };
 
   const downloadTemplate =
-    () => {
+    async () => {
+      const XLSX =
+        await import("xlsx");
+
       const headers = [
         t(
           "products.fields.name"
@@ -169,12 +172,66 @@ export function createImportDownloads({
           "products.fields.expiryControlMode"
         ),
       ];
-      const lines = [
-        headers.join(","),
+
+      // Import sheet intentionally contains headers only.
+      // Examples live on the guide sheet so the untouched template
+      // can never create a fake/sample product.
+      const productsSheet =
+        XLSX.utils.aoa_to_sheet([
+          headers,
+        ]);
+      productsSheet["!cols"] =
+        headers.map(() => ({
+          wch: 24,
+        }));
+
+      const guideRows = [
         [
-          t("products.importTemplateSampleName"),
-          t("products.importTemplateSampleFamily"),
-          t("uom.CARTON"),
+          t(
+            "products.importTemplateGuideTitle"
+          ),
+        ],
+        [
+          t(
+            "products.importTemplateGuideTracking",
+            {
+              none: t(
+                "products.tracking.importValues.NONE"
+              ),
+              optional: t(
+                "products.tracking.importValues.OPTIONAL"
+              ),
+              required: t(
+                "products.tracking.importValues.REQUIRED"
+              ),
+            }
+          ),
+        ],
+        [
+          t(
+            "products.importTemplateGuidePackages"
+          ),
+        ],
+        [
+          t(
+            "products.importTemplateGuidePrices"
+          ),
+        ],
+        [],
+        [
+          t(
+            "products.importTemplateExampleTitle"
+          ),
+        ],
+        headers,
+        [
+          t(
+            "products.importTemplateSampleName"
+          ),
+          t(
+            "products.importTemplateSampleFamily"
+          ),
+          "CARTON",
           "50",
           "10.000",
           "",
@@ -186,32 +243,40 @@ export function createImportDownloads({
           t(
             "products.tracking.importValues.REQUIRED"
           ),
-        ].join(","),
-      ];
-
-      const blob = new Blob(
-        [
-          "\ufeff",
-          lines.join("\n"),
         ],
-        {
-          type: "text/csv;charset=utf-8",
-        }
+      ];
+      const guideSheet =
+        XLSX.utils.aoa_to_sheet(
+          guideRows
+        );
+      guideSheet["!cols"] =
+        headers.map(() => ({
+          wch: 24,
+        }));
+
+      const workbook =
+        XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        workbook,
+        productsSheet,
+        t(
+          "products.importTemplateProductsSheet"
+        ).slice(0, 31)
       );
-      const href =
-        URL.createObjectURL(
-          blob
-        );
-      const anchor =
-        document.createElement(
-          "a"
-        );
-      anchor.href = href;
-      anchor.download =
-        "products-import-template.csv";
-      anchor.click();
-      URL.revokeObjectURL(
-        href
+      XLSX.utils.book_append_sheet(
+        workbook,
+        guideSheet,
+        t(
+          "products.importTemplateGuideSheet"
+        ).slice(0, 31)
+      );
+
+      XLSX.writeFile(
+        workbook,
+        "products-import-template.xlsx",
+        {
+          compression: true,
+        }
       );
     };
 
