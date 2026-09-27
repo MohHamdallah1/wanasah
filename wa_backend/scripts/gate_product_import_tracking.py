@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from io import BytesIO
 from pathlib import Path
 
 from sqlalchemy import text
@@ -25,6 +26,11 @@ def check(condition: bool, label: str) -> None:
 
 
 def static_checks() -> None:
+    from openpyxl import load_workbook
+
+    from product_import_template import (
+        build_product_import_template,
+    )
     from product_import_worker import (
         normalize_raw_row,
         suggest_mapping,
@@ -92,6 +98,68 @@ def static_checks() -> None:
         "Localized row tracking values normalize to canonical API codes",
     )
 
+    explicit_default = normalize_raw_row(
+        {
+            "Product": "Defaulted Item",
+            "Price": "1.250",
+            "Lot Tracking": "استخدام الافتراضي",
+            "Expiry Tracking": "استخدام الافتراضي",
+        },
+        {
+            "name": "Product",
+            "unit_price": "Price",
+            "lot_control_mode": "Lot Tracking",
+            "expiry_control_mode": "Expiry Tracking",
+        },
+        default_lot_control_mode="OPTIONAL",
+        default_expiry_control_mode="NONE",
+    )
+    check(
+        explicit_default["lot_control_mode"] == "OPTIONAL"
+        and explicit_default["expiry_control_mode"] == "NONE",
+        "Explicit Use-default tracking cells resolve to the import snapshot",
+    )
+
+    template_bytes = build_product_import_template(
+        locale="ar",
+    )
+    workbook = load_workbook(
+        BytesIO(template_bytes),
+    )
+    template_sheet = workbook["المنتجات"]
+    validations = list(
+        template_sheet.data_validations.dataValidation
+    )
+    validation_ranges = {
+        str(cell_range)
+        for validation in validations
+        for cell_range in validation.ranges.ranges
+    }
+    list_sheet = workbook["_wanasah_lists"]
+    check(
+        len(validations) == 2
+        and "I2:I50001" in validation_ranges
+        and "J2:J50001" in validation_ranges
+        and list_sheet.sheet_state == "hidden"
+        and [
+            list_sheet.cell(row=row, column=1).value
+            for row in range(1, 5)
+        ]
+        == [
+            "استخدام الافتراضي",
+            "بدون",
+            "اختياري",
+            "إلزامي",
+        ],
+        "Excel template provides validated tracking dropdowns for 50,000 product rows",
+    )
+    check(
+        template_sheet["I1"].comment is not None
+        and template_sheet["J1"].comment is not None
+        and template_sheet.freeze_panes == "A2",
+        "Excel template explains blank/default behavior at the tracking columns",
+    )
+
     suggestions = suggest_mapping(
         [
             "Product",
@@ -154,6 +222,13 @@ def static_checks() -> None:
         ROOT
         / "dashboard/src/pages/products/import/createImportDownloads.ts"
     ).read_text(encoding="utf-8")
+    import_quick_guide = (
+        ROOT
+        / "dashboard/src/pages/products/import/ImportProductQuickGuide.tsx"
+    ).read_text(encoding="utf-8")
+    import_template = (
+        BACKEND / "product_import_template.py"
+    ).read_text(encoding="utf-8")
     controls = (
         ROOT
         / "dashboard/src/pages/products/tracking/ProductTrackingFields.tsx"
@@ -186,11 +261,14 @@ def static_checks() -> None:
     check(
         "canonical_tracking_value" in worker
         and "tracking_value_aliases" in localization
+        and "IMPORT_TRACKING_DEFAULT_SENTINEL" in localization
+        and '"استخدام الافتراضي"' in localization
+        and '"use default"' in localization
         and '"لا": "NONE"' in localization
         and '"اختياري": "OPTIONAL"' in localization
         and '"إلزامي": "REQUIRED"' in localization
         and '"required": "REQUIRED"' in localization,
-        "Import accepts user-friendly localized tracking values without changing stored codes",
+        "Import accepts localized tracking values and explicit Use-default without changing stored codes",
     )
     check(
         "default_lot_control_mode" in queue
@@ -228,9 +306,15 @@ def static_checks() -> None:
         "Products UI sends import defaults and supports row mapping",
     )
     check(
-        '"products.tracking.importValues.REQUIRED"' in import_downloads
-        and '"products.importTrackingValueHint"' in import_start,
-        "Import template and guidance use localized tracking values",
+        '"/import-template"' in api
+        and "build_product_import_template" in api
+        and "DataValidation(" in import_template
+        and "MAX_TEMPLATE_ROWS = 50_000" in import_template
+        and '"products.importGuideUseDefault"' in import_quick_guide
+        and '"products.importGuideBulkTip"' in import_quick_guide
+        and '"products.importTrackingValueHint"' in import_start
+        and "/simple-products/import-template?locale=" in import_downloads,
+        "Import template and visible guidance expose simple bulk tracking defaults",
     )
     check(
         "ProductTrackingModePicker" in controls
