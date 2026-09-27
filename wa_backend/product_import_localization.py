@@ -24,11 +24,19 @@ CANONICAL_IMPORT_FIELDS = (
     "expiry_control_mode",
 )
 
+IMPORT_TRACKING_DEFAULT_SENTINEL = "__DEFAULT__"
+
 _TRACKING_CODES = {
     "NONE",
     "OPTIONAL",
     "REQUIRED",
 }
+_TRACKING_IMPORT_VALUES = (
+    _TRACKING_CODES
+    | {
+        IMPORT_TRACKING_DEFAULT_SENTINEL,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -138,6 +146,10 @@ EN_IMPORT_LOCALE = ImportLocalePack(
         ),
     },
     tracking_value_aliases={
+        "use default":
+            IMPORT_TRACKING_DEFAULT_SENTINEL,
+        "default":
+            IMPORT_TRACKING_DEFAULT_SENTINEL,
         "none": "NONE",
         "no": "NONE",
         "without": "NONE",
@@ -224,6 +236,10 @@ AR_IMPORT_LOCALE = ImportLocalePack(
         ),
     },
     tracking_value_aliases={
+        "استخدام الافتراضي":
+            IMPORT_TRACKING_DEFAULT_SENTINEL,
+        "افتراضي":
+            IMPORT_TRACKING_DEFAULT_SENTINEL,
         "بدون": "NONE",
         "لا": "NONE",
         "اختياري": "OPTIONAL",
@@ -329,9 +345,9 @@ def build_import_alias_registry(
             normalized = (
                 normalize_import_token(alias)
             )
-            if code not in _TRACKING_CODES:
+            if code not in _TRACKING_IMPORT_VALUES:
                 raise ValueError(
-                    "Unknown tracking code "
+                    "Unknown tracking import value "
                     f"{code!r} in locale {locale}.",
                 )
             existing = tracking_to_code.get(
