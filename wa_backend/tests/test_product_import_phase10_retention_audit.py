@@ -18,6 +18,9 @@ from database import engine
 from domains.simple_products.imports.application.audit_service import (
     get_import_lineage,
 )
+from domains.simple_products.imports.application.state_machine import (
+    RowStatus,
+)
 from domains.simple_products.imports.application.retention_service import (
     run_product_import_retention,
 )
@@ -909,6 +912,36 @@ class ProductImportRetentionAuditTests(
             batch_size=1,
             max_batches_per_run=1,
         )
+        with psycopg.connect(
+            self.owner_dsn
+        ) as conn:
+            eligible_before = int(
+                conn.execute(
+                    """
+                    SELECT count(*)
+                    FROM product_import_jobs
+                    WHERE company_id = %s
+                      AND status IN (
+                          'VALIDATION_FAILED',
+                          'COMPLETED',
+                          'COMPLETED_WITH_ERRORS',
+                          'FAILED'
+                      )
+                      AND finished_at <= %s
+                      AND source_payload IS NOT NULL
+                    """,
+                    (
+                        self.company_a,
+                        (
+                            self.now
+                            - timedelta(
+                                days=7
+                            )
+                        ),
+                    ),
+                ).fetchone()[0]
+            )
+
         result = _run_async(
             run_product_import_retention(
                 company_id=
@@ -932,27 +965,35 @@ class ProductImportRetentionAuditTests(
         with psycopg.connect(
             self.owner_dsn
         ) as conn:
-            remaining = int(
+            eligible_after = int(
                 conn.execute(
                     """
                     SELECT count(*)
                     FROM product_import_jobs
                     WHERE company_id = %s
-                      AND id = ANY(%s)
+                      AND status IN (
+                          'VALIDATION_FAILED',
+                          'COMPLETED',
+                          'COMPLETED_WITH_ERRORS',
+                          'FAILED'
+                      )
+                      AND finished_at <= %s
                       AND source_payload IS NOT NULL
                     """,
                     (
                         self.company_a,
-                        [
-                            self.a_payload,
-                            extra_job,
-                        ],
+                        (
+                            self.now
+                            - timedelta(
+                                days=7
+                            )
+                        ),
                     ),
                 ).fetchone()[0]
             )
         self.assertEqual(
-            remaining,
-            1,
+            eligible_after,
+            eligible_before - 1,
         )
 
 
