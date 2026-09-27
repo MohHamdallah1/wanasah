@@ -228,6 +228,66 @@ def main() -> None:
             repr(rls),
         )
 
+        policy = conn.execute(
+            """
+            SELECT
+                COALESCE(qual, ''),
+                COALESCE(with_check, '')
+            FROM pg_policies
+            WHERE schemaname = 'public'
+              AND tablename =
+                  'product_import_row_barcodes'
+              AND policyname =
+                  'product_import_row_barcodes_company_isolation'
+            """
+        ).fetchone()
+        policy_text = (
+            " ".join(
+                str(value)
+                for value in policy
+            )
+            if policy
+            else ""
+        )
+        check(
+            bool(policy)
+            and "app.current_tenant"
+            in policy_text
+            and "company_id"
+            in policy_text,
+            "Barcode staging RLS policy is tenant-context scoped",
+            policy_text,
+        )
+
+        primary_key = conn.execute(
+            """
+            SELECT pg_get_constraintdef(
+                oid
+            )
+            FROM pg_constraint
+            WHERE conrelid =
+                'product_import_row_barcodes'::regclass
+              AND contype = 'p'
+            """
+        ).fetchone()
+        primary_key_def = (
+            str(primary_key[0])
+            if primary_key
+            else ""
+        )
+        check(
+            "company_id"
+            in primary_key_def
+            and "job_id"
+            in primary_key_def
+            and "row_number"
+            in primary_key_def
+            and "barcode"
+            in primary_key_def,
+            "Barcode staging key collapses unit/package shared identity within one row",
+            primary_key_def,
+        )
+
         # The functional tests exercise the real staging table. This temporary
         # relation is deliberately schema-minimal: it makes the 50k query-plan
         # benchmark repeatable without inserting hundreds of thousands of
