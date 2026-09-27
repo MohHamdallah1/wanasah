@@ -45,6 +45,10 @@ from domains.simple_products.imports.infrastructure.queue import (
     requeue_import,
     retry_failed_import,
 )
+from domains.simple_products.imports.infrastructure.repository import (
+    ProductImportProgress,
+    count_job_progress,
+)
 from domains.simple_products.imports.infrastructure.template import (
     build_product_import_template,
 )
@@ -312,6 +316,7 @@ async def create_product_import(
 
 def _job_payload(
     job: ProductImportJob,
+    progress: ProductImportProgress,
 ) -> dict[str, Any]:
     return {
         "job_id": str(job.id),
@@ -321,6 +326,18 @@ def _job_payload(
         "processed_rows": int(job.processed_rows),
         "valid_rows": int(job.valid_rows),
         "failed_rows": int(job.failed_rows),
+        "imported_rows": int(
+            progress.imported_rows
+        ),
+        "invalid_rows": int(
+            progress.invalid_rows
+        ),
+        "import_failed_rows": int(
+            progress.import_failed_rows
+        ),
+        "pending_rows": int(
+            progress.pending_rows
+        ),
         "detected_headers": list(
             job.detected_headers or []
         ),
@@ -385,30 +402,40 @@ async def get_product_import(
             },
         )
 
+    progress = await count_job_progress(
+        db,
+        company_id=int(actor.company_id),
+        job_id=job_id,
+    )
+
     errors = []
-    if str(job.status) == JobStatus.VALIDATION_FAILED.value:
+    if (
+        progress.invalid_rows > 0
+        or progress.import_failed_rows > 0
+    ):
+        result_rows = await db.execute(
+            select(ProductImportRow)
+            .where(
+                ProductImportRow.company_id
+                == int(actor.company_id),
+                ProductImportRow.job_id
+                == job_id,
+                ProductImportRow.status.in_(
+                    (
+                        RowStatus.INVALID.value,
+                        RowStatus.IMPORT_FAILED.value,
+                    )
+                ),
+            )
+            .order_by(
+                ProductImportRow.row_number.asc()
+            )
+            .limit(50)
+        )
         rows = list(
-            (
-                await db.scalars(
-                    select(ProductImportRow)
-                    .where(
-                        ProductImportRow.company_id
-                        == int(actor.company_id),
-                        ProductImportRow.job_id
-                        == job_id,
-                        ProductImportRow.status.in_(
-                            (
-                                RowStatus.INVALID.value,
-                                RowStatus.IMPORT_FAILED.value,
-                            )
-                        ),
-                    )
-                    .order_by(
-                        ProductImportRow.row_number.asc()
-                    )
-                    .limit(50)
-                )
-            ).all()
+            result_rows.scalars().fetchmany(
+                50
+            )
         )
         errors = [
             {
@@ -421,7 +448,10 @@ async def get_product_import(
             for row in rows
         ]
 
-    result = _job_payload(job)
+    result = _job_payload(
+        job,
+        progress,
+    )
     result["errors"] = errors
     return result
 
