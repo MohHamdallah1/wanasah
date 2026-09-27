@@ -138,7 +138,7 @@ check(
     in parser_source
     and "data_only=False"
     in parser_source
-    and SOURCE_CELL_META_KEY
+    and "SOURCE_CELL_META_KEY"
     in parser_source,
     "Formula and cached-value readers are paired without losing source-cell provenance",
 )
@@ -306,13 +306,23 @@ check(
     "Current Product Catalog import still has no date-valued inventory/expiry field",
 )
 
+xlsx_flow = parser_source[
+    parser_source.index(
+        "def _open_xlsx_source("
+    ):
+    parser_source.index(
+        "def open_source("
+    )
+]
 check(
-    "_validate_xlsx_archive"
-    in parser_source
-    and parser_source.index(
+    "_validate_xlsx_archive("
+    in xlsx_flow
+    and "_load_bounded_workbook("
+    in xlsx_flow
+    and xlsx_flow.index(
         "_validate_xlsx_archive("
     )
-    < parser_source.index(
+    < xlsx_flow.index(
         "_load_bounded_workbook("
     ),
     "XLSX archive security remains before workbook traversal",
