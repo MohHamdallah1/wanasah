@@ -146,17 +146,17 @@ This makes maintenance and safe testing harder and will become worse as import c
 
 ## Tasks
 
-- [ ] Define one explicit import job state machine.
-- [ ] Extract parser interfaces and format-specific parsers.
-- [ ] Extract row normalization from job orchestration.
-- [ ] Extract staging persistence into repository methods.
-- [ ] Extract validation orchestration into its own application service.
-- [ ] Extract import execution into its own application service.
-- [ ] Extract failure classification and error recording.
-- [ ] Extract job-state transition helpers and make illegal transitions fail closed.
-- [ ] Keep queue task code thin: load context, call application use case, classify retryability.
-- [ ] Add focused unit tests per responsibility.
-- [ ] Add a size/complexity architecture guard so a new worker god-file cannot return.
+- [x] Define one explicit import job state machine.
+- [x] Extract parser interfaces and format-specific parsers.
+- [x] Extract row normalization from job orchestration.
+- [x] Extract staging persistence into repository methods.
+- [x] Extract validation orchestration into its own application service.
+- [x] Extract import execution into its own application service.
+- [x] Extract failure classification and error recording.
+- [x] Extract job-state transition helpers and make illegal transitions fail closed.
+- [x] Keep queue task code thin: load context, call application use case, classify retryability.
+- [x] Add focused unit tests per responsibility.
+- [x] Add a size/complexity architecture guard so a new worker god-file cannot return.
 
 ---
 
