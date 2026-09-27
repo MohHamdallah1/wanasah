@@ -188,19 +188,13 @@ describe("Products P9.4 import workflow", () => {
       "result.next_after_row",
     );
     expect(downloads).toContain(
-      '"products-import-template.xlsx"',
+      "/simple-products/import-template?locale="
     );
     expect(downloads).toContain(
-      "XLSX.utils.book_append_sheet",
-    );
-    expect(downloads).toContain(
-      '"!autofilter"'
+      "content_base64"
     );
     expect(downloads).not.toContain(
-      "importTemplateGuideSheet"
-    );
-    expect(downloads).not.toContain(
-      "importTemplateSampleName"
+      'import("xlsx")'
     );
 
     const quickGuide = read(
@@ -211,6 +205,12 @@ describe("Products P9.4 import workflow", () => {
     );
     expect(quickGuide).toContain(
       '"products.importGuideFallbackImport"'
+    );
+    expect(quickGuide).toContain(
+      '"products.importGuideUseDefault"'
+    );
+    expect(quickGuide).toContain(
+      '"products.importGuideBulkTip"'
     );
     expect(quickGuide).toContain(
       '"REQUIRED"'
