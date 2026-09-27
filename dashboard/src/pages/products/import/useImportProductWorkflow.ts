@@ -26,6 +26,7 @@ type AuthFetch = (
 
 type I18nLookup = {
   exists: (key: string) => boolean;
+  language: string;
 };
 
 type Params = {
