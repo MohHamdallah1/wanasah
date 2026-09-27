@@ -167,6 +167,15 @@ describe("Products P9 create family intent", () => {
       "familyInputValue",
     );
     expect(identity).toContain(
+      "<PopoverAnchor",
+    );
+    expect(identity).toContain(
+      "onOpenAutoFocus",
+    );
+    expect(identity).toContain(
+      "onFocus={() =>",
+    );
+    expect(identity).toContain(
       "clearFamilySearch",
     );
     expect(identity).toContain(
