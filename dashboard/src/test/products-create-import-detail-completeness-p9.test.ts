@@ -147,8 +147,23 @@ describe(
       expect(barcode).toContain(
         "draft.unit_barcode",
       );
+      expect(barcode).toContain(
+        '"products.quickCreate.packageBarcode"',
+      );
+      expect(barcode).toContain(
+        "bg-white",
+      );
       expect(commerce).toContain(
         '"products.packagingMode.withPackage"',
+      );
+      expect(commerce).toContain(
+        '"products.quickCreate.unitsPerPackage"',
+      );
+      expect(commerce).toContain(
+        '"products.quickCreate.packagePrice"',
+      );
+      expect(advanced).toContain(
+        "products.tracking.shortModes.",
       );
       expect(commerce).toContain(
         'side="bottom"',
