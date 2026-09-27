@@ -743,6 +743,7 @@ class ProductImportRow(Base):
     __tablename__ = 'product_import_rows'
     __table_args__ = (
         UniqueConstraint('company_id', 'job_id', 'row_number', name='uq_product_import_row_job_number'),
+        UniqueConstraint('company_id', 'job_id', 'row_identity', name='uq_product_import_row_job_identity'),
         ForeignKeyConstraint(['company_id', 'job_id'], ['product_import_jobs.company_id', 'product_import_jobs.id'], ondelete='CASCADE', name='fk_product_import_row_tenant_job'),
         ForeignKeyConstraint(['company_id', 'product_variant_id'], ['product_variants.company_id', 'product_variants.id'], ondelete='RESTRICT', name='fk_product_import_row_tenant_variant'),
         CheckConstraint('row_number >= 2', name='chk_product_import_row_number'),
@@ -754,6 +755,7 @@ class ProductImportRow(Base):
     company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     job_id = Column(Uuid, nullable=False, index=True)
     row_number = Column(Integer, nullable=False)
+    row_identity = Column(Uuid, nullable=False, default=uuid4, server_default=text("gen_random_uuid()"))
     raw_data = Column(JSONB, nullable=False)
     normalized_data = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     status = Column(String(20), nullable=False, default='STAGED', server_default='STAGED', index=True)
