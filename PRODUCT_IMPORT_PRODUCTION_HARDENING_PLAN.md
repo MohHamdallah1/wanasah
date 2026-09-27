@@ -48,6 +48,8 @@ These rules apply to every phase below.
 - [ ] Separate deterministic row/data errors from transient/system/runtime failures.
 - [ ] No silent conflict handling and no `ON CONFLICT DO NOTHING` for business invariants.
 - [ ] No unbounded in-memory collection proportional to file row count.
+- [ ] No tenant/user can exhaust import storage or queue capacity by submitting many individually-valid uploads; admission control must happen before durable payload storage.
+- [ ] Import progress delivery must not depend on high-frequency polling that scales request volume linearly with active users/jobs.
 - [ ] No raw technical exception text in user-facing error contracts.
 - [ ] Every structural move must have architecture/import-boundary tests before old paths are removed.
 - [ ] Do not alter unrelated Product business behavior while hardening import infrastructure.
@@ -429,6 +431,7 @@ This weakens audit, support, correction and forensic capability.
 - Workbook `active` sheet is accepted silently.
 - Formula/cached-cell behavior is not an explicit import contract.
 - External Excel files can coerce barcode-like values to numbers and destroy leading zeros before Wanasah receives them.
+- The current Product Catalog import does **not** ingest actual expiry dates; it only ingests expiry-tracking mode. However, any future date-valued spreadsheet field must not rely on naive Excel-number conversion because XLSX can use the 1900 or 1904 date system and includes the historic 1900 leap-year compatibility bug.
 
 ## Tasks
 
@@ -439,7 +442,12 @@ This weakens audit, support, correction and forensic capability.
 - [ ] Define formula policy: reject formulas where values must be literal, or explicitly accept only safe cached values with clear behavior.
 - [ ] Format barcode columns as text in the official template.
 - [ ] Detect suspicious numeric/scientific-notation barcode inputs and return a clear row error rather than silently changing identity.
+- [ ] If a future Product-import contract adds any date-valued field, route it through one explicit spreadsheet-date normalizer rather than ad-hoc parsing.
+- [ ] That date normalizer must honor the workbook epoch (1900 vs 1904), explicitly handle/reject Excel's phantom serial day 60, accept real date/datetime cells deterministically, and reject ambiguous locale-formatted text unless the contract defines the locale.
+- [ ] Keep date-only business values date-only; do not silently introduce timezone conversion into expiry/calendar dates.
+- [ ] Do **not** add expiry-date parsing to the current Product Catalog import merely for future-proofing; actual batch/expiry dates belong to the future owning inventory/inbound contract.
 - [ ] Add tests for blank rows, multiple sheets, formulas, leading-zero barcodes and scientific notation.
+- [ ] When date-valued fields are introduced, add fixtures covering 1900/1904 workbooks, serial 60, native date cells, ISO text and ambiguous text.
 
 ---
 
@@ -449,11 +457,17 @@ This weakens audit, support, correction and forensic capability.
 
 The HTTP endpoint currently reads at most 8MB + 1 byte into memory and stores the source payload durably in PostgreSQL until parsing completes.
 
-This is bounded today, so it is not the same severity as the 50k-row materialization problem. However, the storage boundary must be explicit before file limits or ingestion channels expand.
+This is bounded **per request** today, so it is not the same severity as the 50k-row materialization problem. It is **not bounded in aggregate**: many individually valid 8MB uploads can still exhaust PostgreSQL storage/WAL or overwhelm the queue before workers drain it. The storage boundary and admission policy therefore must be explicit before file limits or ingestion channels expand.
 
 ## Tasks
 
 - [ ] Keep the current upload size bound enforced server-side.
+- [ ] Add import-specific admission control **before** persisting source bytes: per-user/per-tenant upload rate, maximum concurrent/queued jobs, maximum queued source bytes per tenant, and a global source-storage safety ceiling.
+- [ ] Make admission decisions from durable/atomic counters or database state so concurrent requests cannot race past quotas.
+- [ ] Return a stable retryable capacity/rate-limit error with Retry-After semantics when admission is denied; do not accept payload bytes and hope the worker catches up.
+- [ ] Keep the existing global HTTP/IP rate limiter as defense-in-depth only; it is not a substitute for tenant-aware import quotas.
+- [ ] Add queue/source-storage metrics and alerts for queued bytes, oldest payload age, quota rejections and storage high-water marks.
+- [ ] Include PostgreSQL/WAL amplification in capacity tests while source payloads remain database-backed.
 - [ ] Compute size/hash in a bounded manner rather than assuming future payloads can always be materialized.
 - [ ] Introduce a SourceStore abstraction so queue/application logic references an immutable source rather than depending on one storage implementation.
 - [ ] Decide and document the production SourceStore implementation based on deployment needs.
@@ -471,11 +485,22 @@ The queue currently serializes Product imports per company through a company-sco
 
 The UI previously exposed the operational symptom of a worker not running as an endless queued spinner.
 
+The current Product Import UI polls job status approximately every 1.5 seconds while active. That is acceptable for a small development workload but is not an enterprise-scale progress transport: request volume grows with every open import screen and can consume API/database connections unnecessarily.
+
+Wanasah already has WebSocket infrastructure elsewhere in the backend. Product Import should reuse the platform realtime pattern through a **dedicated tenant-authenticated Product Import progress channel**, not reuse an admin/dispatch socket or create a second business authority.
+
 ## Tasks
 
 - [ ] Keep company-level serialization only if required by shared Product/Pricing invariants; document the reason.
 - [ ] Otherwise reduce lock scope safely after concurrency tests.
 - [ ] Add per-tenant active-import/backpressure limits.
+- [ ] Publish coarse-grained import progress/state-change events from the application/job-state authority after durable state changes.
+- [ ] Deliver progress push-first through a dedicated tenant-scoped realtime channel using the platform's existing WebSocket/realtime infrastructure pattern.
+- [ ] Authorize each subscription against the exact tenant/job; never trust a client-supplied company identifier as authority.
+- [ ] Coalesce/throttle progress notifications so row processing does not emit one network event per row.
+- [ ] Keep adaptive polling only as a fallback for reconnect/offline/realtime-unavailable cases, with exponential backoff, jitter and immediate stop on terminal states or hidden/closed workflow where appropriate.
+- [ ] Never poll every active import globally from the browser; subscribe only to jobs the user is actively observing.
+- [ ] Add connection/reconnect/backpressure tests for the progress channel.
 - [ ] Add global worker capacity metrics.
 - [ ] Add queue-age and oldest-job monitoring.
 - [ ] Add worker-health/readiness signal.
@@ -508,11 +533,23 @@ Import error/report artifacts must also be safe when opened in spreadsheet softw
 
 ---
 
-# Phase 15 — Database/index strategy for staged import scale
+# Phase 15 — Database/index, vacuum and table-health strategy for staged import scale
+
+## Problem
+
+`product_import_rows` is a high-churn staging table: rows are inserted in bulk, updated through validation/import states, and later compacted/deleted. `product_import_jobs` is smaller but update-heavy. Default PostgreSQL autovacuum thresholds are generic and may react too slowly for this workload as table size and churn grow. No Product Import-specific autovacuum reloptions are currently defined.
+
+Do **not** hardcode arbitrarily aggressive settings without evidence; tune per table from realistic churn/load measurements and monitor bloat continuously.
 
 ## Tasks
 
 - [ ] Review indexes for job/status/row-number batch scans.
+- [ ] Establish baseline table-health metrics for `product_import_rows` and `product_import_jobs`: live/dead tuples, autovacuum/analyze timestamps, table/index bloat, vacuum duration and transaction age.
+- [ ] Define Product Import-specific per-table autovacuum/analyze reloptions from 50k-row churn benchmarks, with materially lower thresholds/scale factors for the high-churn row table where measurements justify them.
+- [ ] Evaluate `autovacuum_vacuum_scale_factor`, `autovacuum_vacuum_threshold`, `autovacuum_analyze_scale_factor`, `autovacuum_analyze_threshold` and, where supported/appropriate, insert-vacuum settings rather than tuning only one knob.
+- [ ] Validate that the chosen settings do not create vacuum storms or starve foreground import work.
+- [ ] Add observability/alerts for autovacuum lag and sustained dead-tuple/bloat growth.
+- [ ] Re-test autovacuum tuning after the final retention/compaction policy is implemented because retention directly changes table churn.
 - [ ] Add normalized-barcode staging indexes needed for SQL duplicate joins.
 - [ ] Keep all import indexes tenant-prefixed where tenant isolation/query shape requires it.
 - [ ] Benchmark validation queries at 50k rows.
