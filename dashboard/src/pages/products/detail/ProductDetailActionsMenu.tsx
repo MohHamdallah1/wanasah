@@ -1,7 +1,6 @@
 import {
   ArchiveRestore,
   Barcode,
-  Boxes,
   CircleDollarSign,
   FolderTree,
   MoreHorizontal,
@@ -29,7 +28,6 @@ type Props = {
   canEditTracking: boolean;
   canManageBarcodes: boolean;
   canManageLifecycle: boolean;
-  canManageAdvancedUom: boolean;
   onRenameProduct: (
     product: SimpleProduct,
   ) => void;
@@ -48,9 +46,6 @@ type Props = {
   onManageLifecycle: (
     product: SimpleProduct,
   ) => void;
-  onManageAdvancedUom: (
-    product: SimpleProduct,
-  ) => void;
 };
 
 export function ProductDetailActionsMenu({
@@ -61,14 +56,12 @@ export function ProductDetailActionsMenu({
   canEditTracking,
   canManageBarcodes,
   canManageLifecycle,
-  canManageAdvancedUom,
   onRenameProduct,
   onReassignFamily,
   onEditPrice,
   onEditTracking,
   onManageBarcodes,
   onManageLifecycle,
-  onManageAdvancedUom,
 }: Props) {
   const { t } = useTranslation();
   const lifecycleEditable =
@@ -85,9 +78,7 @@ export function ProductDetailActionsMenu({
       product.simple_compatible) ||
     canEditTracking ||
     canManageBarcodes ||
-    canManageLifecycle ||
-    (canManageAdvancedUom &&
-      !product.simple_compatible);
+    canManageLifecycle;
 
   if (!hasActions) {
     return null;
@@ -192,23 +183,6 @@ export function ProductDetailActionsMenu({
             <Barcode className="h-4 w-4 text-slate-400" />
             {t(
               "products.barcodeManager.action",
-            )}
-          </DropdownMenuItem>
-        ) : null}
-
-        {canManageAdvancedUom &&
-        !product.simple_compatible ? (
-          <DropdownMenuItem
-            onSelect={() =>
-              onManageAdvancedUom(
-                product,
-              )
-            }
-            className="gap-3 rounded-lg px-2.5 py-2.5 text-xs font-bold"
-          >
-            <Boxes className="h-4 w-4 text-slate-400" />
-            {t(
-              "products.advancedUom.productAction",
             )}
           </DropdownMenuItem>
         ) : null}
