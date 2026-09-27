@@ -50,7 +50,7 @@ describe(
       );
     });
 
-    it("keeps Advanced UOM usable while preserving the disabled Advanced Pricing roadmap control", () => {
+    it("keeps Advanced UOM code available while deferring its normal V1 UI entry alongside Advanced Pricing", () => {
       const products = compact(
         source(
           "../pages/products/ProductsPage.tsx",
@@ -62,11 +62,14 @@ describe(
         ),
       );
 
-      expect(products).toContain(
+      expect(products).not.toContain(
         'navigate( "/products/advanced-uom" )',
       );
       expect(tools).toContain(
         '"products.advancedUom.action"',
+      );
+      expect(tools).toContain(
+        '"products.advancedUom.deferredHint"',
       );
       expect(tools).toContain(
         '"products.advancedPricing"',
@@ -80,9 +83,12 @@ describe(
       expect(tools).toMatch(
         /disabled\s+title=\{t\(\s*"products\.advancedPricingHint"/,
       );
+      expect(tools).toMatch(
+        /disabled\s+title=\{t\(\s*"products\.advancedUom\.deferredHint"/,
+      );
     });
 
-    it("offers deep-linked advanced UOM only for complex products in the detail drawer", () => {
+    it("does not expose Advanced UOM from normal V1 Product detail actions", () => {
       const drawer = compact(
         source(
           "../pages/products/detail/ProductDetailDrawer.tsx",
@@ -104,20 +110,17 @@ describe(
         ),
       );
 
-      expect(drawer).toContain(
+      expect(drawer).not.toContain(
         "canManageAdvancedUom",
       );
-      expect(actionMenu).toContain(
-        "!product.simple_compatible",
-      );
-      expect(actionMenu).toContain(
+      expect(actionMenu).not.toContain(
         '"products.advancedUom.productAction"',
       );
-      expect(detailWorkflow).toContain(
-        "canManageAdvancedUom: canManageCatalog",
+      expect(detailWorkflow).not.toContain(
+        "canManageAdvancedUom",
       );
-      expect(detailActions).toContain(
-        "`/products/advanced-uom?variant=${product.id}`",
+      expect(detailActions).not.toContain(
+        "/products/advanced-uom?variant=",
       );
     });
   },
