@@ -31,7 +31,7 @@ from domains.simple_products.imports.domain import (  # noqa: E402
     canonical_tracking_value,
     suggest_import_mapping,
 )
-from product_import_worker import (  # noqa: E402
+from domains.simple_products.imports.application.worker import (  # noqa: E402
     _package_code,
     _tracking_import_mode,
     suggest_mapping,
@@ -58,7 +58,7 @@ def check(
 
 def static_checks() -> None:
     worker = (
-        BACKEND / "product_import_worker.py"
+        BACKEND / "domains/simple_products/imports/application/worker.py"
     ).read_text(encoding="utf-8")
     api = (
         BACKEND / "domains/simple_products/imports/api/router.py"
