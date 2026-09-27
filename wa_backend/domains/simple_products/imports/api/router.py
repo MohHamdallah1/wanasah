@@ -33,6 +33,9 @@ from domains.product_tracking import (
     ProductTrackingError,
     resolve_product_tracking_modes,
 )
+from domains.simple_products.imports.application.audit_service import (
+    get_import_lineage,
+)
 from domains.simple_products.imports.application.correction_service import (
     apply_correction_upload,
     build_correction_artifact,
@@ -537,6 +540,51 @@ async def get_product_import_errors(
             else None
         ),
     }
+
+
+@router.get(
+    "/imports/{job_id}/lineage",
+)
+async def get_product_import_lineage(
+    job_id: UUID,
+    after_row_number: int = Query(
+        0,
+        ge=0,
+    ),
+    limit: int = Query(
+        100,
+        ge=1,
+        le=200,
+    ),
+    db: AsyncSession = Depends(get_db),
+    actor: Driver = Depends(get_current_driver),
+):
+    await _require_manage(
+        db,
+        actor,
+    )
+
+    lineage = await get_import_lineage(
+        company_id=int(
+            actor.company_id
+        ),
+        job_id=job_id,
+        after_row_number=
+            after_row_number,
+        limit=limit,
+    )
+    if lineage is None:
+        raise HTTPException(
+            404,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_NOT_FOUND",
+                "message":
+                    "Import job was not found.",
+                "context": {},
+            },
+        )
+    return lineage
 
 
 @router.get(
