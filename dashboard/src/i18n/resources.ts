@@ -662,6 +662,8 @@ export const resources = {
           "فشلت العملية بعد محاولات الإعادة. لم يترك النظام منتجاً نصف مكتمل.",
         importCompleted:
           "تم استيراد {{count}} منتج بنجاح",
+        importCompletedWithErrors:
+          "تم استيراد {{imported}} منتج، ويوجد {{errors}} صف بحاجة للمراجعة.",
         importAccepted:
           "تم استلام الملف. المعالجة تعمل في الخلفية.",
         importResumed:
@@ -2227,6 +2229,8 @@ export const resources = {
           "The import failed after retries. No half-created product was left behind.",
         importCompleted:
           "{{count}} products imported successfully",
+        importCompletedWithErrors:
+          "{{imported}} products imported; {{errors}} rows need review.",
         importAccepted:
           "File accepted. Processing is running in the background.",
         importResumed:
