@@ -19,6 +19,9 @@ export function CreateProductBarcodeSection({
   onPackageBarcodeChange,
 }: Props) {
   const { t } = useTranslation();
+  const packageLabel = t(
+    `uom.${draft.package_uom_code}`
+  );
 
   return (
     <section className="border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
@@ -33,10 +36,16 @@ export function CreateProductBarcodeSection({
       </div>
 
       <div
-        className={`grid gap-3 ${draft.has_package ? "sm:grid-cols-2" : "sm:max-w-[calc(50%-0.375rem)]"}`}
+        className={`grid gap-3 ${
+          draft.has_package
+            ? "sm:grid-cols-2"
+            : "sm:max-w-[calc(50%-0.375rem)]"
+        }`}
       >
         <label className="block text-xs font-black text-slate-600">
-          {t("products.unitBarcode")}
+          <span className="flex h-7 items-center">
+            {t("products.unitBarcode")}
+          </span>
           <input
             value={draft.unit_barcode}
             onChange={(event) =>
@@ -44,16 +53,20 @@ export function CreateProductBarcodeSection({
                 event.target.value
               )
             }
-            className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 font-mono text-sm text-slate-950 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
+            className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
           />
         </label>
 
         {draft.has_package ? (
           <label className="block text-xs font-black text-slate-600">
-            <span className="flex items-center justify-between gap-2">
+            <span className="flex h-7 items-center justify-between gap-2">
               <span>
                 {t(
-                  "products.packageBarcode"
+                  "products.quickCreate.packageBarcode",
+                  {
+                    package:
+                      packageLabel,
+                  }
                 )}
               </span>
               <button
@@ -65,7 +78,7 @@ export function CreateProductBarcodeSection({
                 title={t(
                   "products.copyBarcode"
                 )}
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-black text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-30"
+                className="-translate-y-0.5 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-black text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-30"
               >
                 <Copy className="h-3 w-3" />
                 {t(
@@ -82,7 +95,7 @@ export function CreateProductBarcodeSection({
                   event.target.value
                 )
               }
-              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 font-mono text-sm text-slate-950 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
+              className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
             />
           </label>
         ) : null}
