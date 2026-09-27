@@ -38,7 +38,6 @@ _SOURCE_FREE_EARLY_EXIT = frozenset({
     JobStatus.COMPLETED_WITH_ERRORS.value,
     JobStatus.VALIDATION_FAILED.value,
     JobStatus.FAILED.value,
-    JobStatus.CANCELLED.value,
     JobStatus.NEEDS_MAPPING.value,
 })
 
@@ -281,6 +280,20 @@ async def prepare_import_source(
         company_id=company_id,
         job_id=job_id,
     )
+    if (
+        context.status
+        == JobStatus.CANCELLED.value
+    ):
+        await _cleanup_source(
+            source_store=source_store,
+            company_id=company_id,
+            job_id=job_id,
+            source_id=context.source_id,
+            already_cleared=
+                context.source_cleared,
+        )
+        return JobStatus.CANCELLED.value
+
     if context.status in _SOURCE_FREE_EARLY_EXIT:
         return context.status
 
