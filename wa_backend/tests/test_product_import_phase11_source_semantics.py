@@ -11,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 
 from domains.simple_products.imports.domain import (
     CANONICAL_IMPORT_FIELDS,
+    EN_IMPORT_LOCALE,
     ProductImportTerminalError,
     SOURCE_CELL_META_KEY,
     WANASAH_TEMPLATE_MARKER,
@@ -378,16 +379,11 @@ class Phase11WorksheetTests(
             self.assertEqual(
                 source.headers,
                 [
-                    "Product",
-                    "Family",
-                    "Package Type",
-                    "Units per Package",
-                    "Package Price",
-                    "Unit Price",
-                    "Unit Barcode",
-                    "Package Barcode",
-                    "Lot Tracking",
-                    "Expiry Tracking",
+                    EN_IMPORT_LOCALE.header_aliases[
+                        field
+                    ][0]
+                    for field
+                    in CANONICAL_IMPORT_FIELDS
                 ],
             )
 
@@ -438,7 +434,7 @@ class Phase11FormulaTests(
             normalized[
                 "unit_price"
             ],
-            "2.000",
+            "2.000000",
         )
 
     def test_formula_without_cached_value_becomes_clear_row_error(
