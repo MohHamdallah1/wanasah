@@ -162,7 +162,7 @@ describe("Products P9.4 active filters", () => {
     );
 
     const label =
-      "products.filters.sortBy: products.filters.sortFields.name · products.filters.descending";
+      "products.filters.sort: products.filters.sortOptions.nameDesc";
 
     expect(
       screen.getByText(label),
@@ -194,23 +194,23 @@ describe("Products P9.4 active filters", () => {
       "../pages/products/list/ProductsListToolbar.tsx",
     );
 
-    expect(panel).not.toContain(
-      "border-t border-slate-100 pt-3",
-    );
     expect(panel).toContain(
       "xl:grid-cols-5",
     );
     expect(panel).toContain(
-      "<PopoverAnchor",
+      "<ProductFamilyCombobox",
     );
     expect(panel).toContain(
-      "familyInputValue",
+      "PRODUCT_SORT_OPTIONS",
     );
     expect(panel).toContain(
-      "clearFamily",
+      '"products.filters.more"'
     );
     expect(panel).toContain(
-      "onInteractOutside",
+      '"products.filters.barcodePresent"'
+    );
+    expect(panel).not.toContain(
+      '"products.filters.sortDirection"'
     );
     expect(panel).not.toContain(
       "rounded-2xl border border-slate-100 bg-slate-50/70 p-3",
