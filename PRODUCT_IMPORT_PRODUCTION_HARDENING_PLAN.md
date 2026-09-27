@@ -437,6 +437,8 @@ This weakens audit, support, correction and forensic capability.
 
 # Phase 11 — Correct source-row fidelity and Excel semantics
 
+> **Identity safety rule:** Wanasah never guesses a barcode that Excel may already have damaged. Numeric XLSX barcode cells are rejected because original leading zeros/digit fidelity cannot be reconstructed safely; scientific-notation text is rejected; literal text (including leading zeros) is preserved exactly. If an upstream CSV has already lost leading zeros and contains only plain digits, that lost information is not recoverable and must not be guessed.
+
 ## Problems
 
 - Blank source rows can currently shift staged row numbering because numbering is reconstructed after filtering.
@@ -447,19 +449,19 @@ This weakens audit, support, correction and forensic capability.
 
 ## Tasks
 
-- [ ] Preserve exact physical row number from CSV/XLSX parser.
-- [ ] Define multi-sheet behavior explicitly.
-- [ ] For Wanasah template files, select the canonical Products sheet by contract.
-- [ ] For arbitrary XLSX files, require deterministic sheet selection when multiple candidate sheets exist; never silently choose an ambiguous sheet.
-- [ ] Define formula policy: reject formulas where values must be literal, or explicitly accept only safe cached values with clear behavior.
-- [ ] Format barcode columns as text in the official template.
-- [ ] Detect suspicious numeric/scientific-notation barcode inputs and return a clear row error rather than silently changing identity.
-- [ ] If a future Product-import contract adds any date-valued field, route it through one explicit spreadsheet-date normalizer rather than ad-hoc parsing.
-- [ ] That date normalizer must honor the workbook epoch (1900 vs 1904), explicitly handle/reject Excel's phantom serial day 60, accept real date/datetime cells deterministically, and reject ambiguous locale-formatted text unless the contract defines the locale.
-- [ ] Keep date-only business values date-only; do not silently introduce timezone conversion into expiry/calendar dates.
-- [ ] Do **not** add expiry-date parsing to the current Product Catalog import merely for future-proofing; actual batch/expiry dates belong to the future owning inventory/inbound contract.
-- [ ] Add tests for blank rows, multiple sheets, formulas, leading-zero barcodes and scientific notation.
-- [ ] When date-valued fields are introduced, add fixtures covering 1900/1904 workbooks, serial 60, native date cells, ISO text and ambiguous text.
+- [x] Preserve exact physical CSV/XLSX row numbers in `ParsedRow` and persist them unchanged through bounded staging; blank rows never renumber later source rows.
+- [x] Define fail-closed XLSX worksheet selection: one visible external sheet is accepted; ambiguous multi-visible-sheet workbooks are rejected instead of using `active`.
+- [x] Mark official Wanasah workbooks with hidden template metadata that names the canonical Products sheet; parser selection follows that marker deterministically.
+- [x] Reject arbitrary XLSX files with multiple visible worksheets and require the user to provide/select one product worksheet; never choose one silently.
+- [x] Traverse XLSX through paired bounded formula/cached-value readers: accept available cached values for non-identity fields, emit a row error when no cached value exists, and require barcode identities to remain literal.
+- [x] Force official unit/package barcode columns to Excel Text format and apply text-only validation across all 50,000 template rows.
+- [x] Reject numeric XLSX barcode cells as identity-unsafe, reject scientific-notation barcode text, and preserve literal leading-zero barcode text exactly.
+- [x] Add one canonical `normalize_spreadsheet_date` authority for any future Product-import date-valued field; the current catalog import does not call it because it has no date-valued field.
+- [x] Date normalization explicitly handles 1900/1904 epochs, rejects phantom serial 60 and fractional date-time serials, accepts native date/naive-midnight datetime and strict ISO `YYYY-MM-DD`, and rejects ambiguous locale text.
+- [x] Keep future date-only values date-only: timezone-aware datetimes and non-midnight time components are rejected instead of silently converted.
+- [x] Keep actual expiry/manufacture dates out of the current Product Catalog import; only the reusable date authority exists for the future owning inventory/inbound contract.
+- [x] Add Phase 11 tests covering blank-row fidelity through staging, official/ambiguous worksheet selection, cached/uncached formulas, literal-only barcode formulas, numeric/scientific barcodes and preserved leading zeros.
+- [x] Add canonical date-normalizer fixtures now for 1900/1904 epochs, serial 60, native date/datetime values, ISO text, ambiguous text, timezone values and fractional serials so future date-valued contracts inherit a tested authority.
 
 ---
 
