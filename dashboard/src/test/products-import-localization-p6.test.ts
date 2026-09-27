@@ -113,59 +113,46 @@ describe(
       );
     });
 
-    it("builds a blank template from translated headers and keeps localized value guidance in the UI", () => {
+    it("keeps workbook localization in the backend template and value guidance in the UI", () => {
+      const template = readSource(
+        "../../../wa_backend/product_import_template.py",
+      );
+      const localization = readSource(
+        "../../../wa_backend/product_import_localization.py",
+      );
       const downloads = readSource(
         "../pages/products/import/createImportDownloads.ts",
       );
-      const start = downloads.indexOf(
-        "const downloadTemplate",
-      );
-      const end = downloads.indexOf(
-        "return {",
-        start,
-      );
-      expect(start).toBeGreaterThanOrEqual(
-        0,
-      );
-      expect(end).toBeGreaterThan(start);
-
-      const template = downloads.slice(
-        start,
-        end,
-      );
-
-      for (const key of [
-        "products.fields.name",
-        "products.fields.family",
-        "products.fields.packageUom",
-        "products.fields.unitsPerPackage",
-        "products.fields.packagePrice",
-        "products.fields.unitPrice",
-        "products.fields.unitBarcode",
-        "products.fields.packageBarcode",
-        "products.fields.lotControlMode",
-        "products.fields.expiryControlMode",
-      ]) {
-        expect(template).toContain(
-          `"${key}"`,
-        );
-      }
-
-      expect(template).not.toContain(
-        "importTemplateSampleName",
-      );
-      expect(template).not.toContain(
-        "importTemplateGuideSheet",
-      );
-
       const quickGuide = readSource(
         "../pages/products/import/ImportProductQuickGuide.tsx",
+      );
+
+      expect(template).toContain(
+        "AR_IMPORT_LOCALE",
+      );
+      expect(template).toContain(
+        "EN_IMPORT_LOCALE",
+      );
+      expect(template).toContain(
+        "DataValidation(",
+      );
+      expect(template).toContain(
+        "MAX_TEMPLATE_ROWS = 50_000",
+      );
+      expect(localization).toContain(
+        '"استخدام الافتراضي"',
+      );
+      expect(localization).toContain(
+        '"use default"',
+      );
+      expect(downloads).toContain(
+        "/simple-products/import-template?locale=",
       );
       expect(quickGuide).toContain(
         "products.tracking.importValues.",
       );
       expect(quickGuide).toContain(
-        "products.importGuideTrackingRule",
+        "products.importGuideUseDefault",
       );
     });
 
