@@ -64,6 +64,15 @@ async def stage_source(
             raise ValueError(
                 "Product import job not found."
             )
+        if (
+            str(job.status)
+            == JobStatus.CANCELLED.value
+        ):
+            # Cancellation may commit while source rows are being parsed.
+            # Roll back this whole staging transaction rather than preserving
+            # a partially staged source.
+            await db.rollback()
+            return
 
         mapping = dict(
             job.column_mapping
