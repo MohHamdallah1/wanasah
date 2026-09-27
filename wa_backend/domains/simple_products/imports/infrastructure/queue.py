@@ -1,6 +1,7 @@
 """PostgreSQL-backed queue for asynchronous product imports."""
 from __future__ import annotations
 
+import logging
 from typing import Any, BinaryIO
 from uuid import UUID, uuid4
 
@@ -36,6 +37,9 @@ from domains.simple_products.imports.infrastructure.queue_dsn import (
 
 
 DSN = product_import_psycopg_dsn()
+logger = logging.getLogger(
+    "wanasah_logger"
+)
 PRODUCT_IMPORT_HEARTBEAT_SECONDS = 10.0
 PRODUCT_IMPORT_STALLED_TIMEOUT_SECONDS = 30.0
 PRODUCT_IMPORT_STALLED_ALLOWLIST = frozenset(
@@ -168,13 +172,36 @@ async def process_product_import(
                 exc
             )
         )
+        correlation_id = (
+            "product-import:"
+            + str(
+                job_uuid
+            )
+        )
+        logger.exception(
+            "PRODUCT_IMPORT_WORKER_FAILURE "
+            "correlation_id=%s company_id=%s job_id=%s kind=%s code=%s",
+            correlation_id,
+            int(
+                company_id
+            ),
+            str(
+                job_uuid
+            ),
+            classification.kind.value,
+            classification.code,
+        )
+
         if not classification.retryable:
             await mark_import_runtime_failure(
                 company_id=int(company_id),
                 job_id=job_uuid,
-                message=str(exc),
                 final_attempt=True,
                 retryable=False,
+                code=
+                    classification.code,
+                correlation_id=
+                    correlation_id,
             )
             return
 
@@ -188,9 +215,15 @@ async def process_product_import(
         await mark_import_runtime_failure(
             company_id=int(company_id),
             job_id=job_uuid,
-            message=str(exc),
             final_attempt=final_attempt,
             retryable=final_attempt,
+            code=(
+                classification.code
+                if final_attempt
+                else None
+            ),
+            correlation_id=
+                correlation_id,
         )
         raise
 
