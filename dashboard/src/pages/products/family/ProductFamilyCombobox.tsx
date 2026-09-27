@@ -356,8 +356,8 @@ export function ProductFamilyCombobox({
                   }
                   className={`flex w-full items-center rounded-lg px-3 py-2.5 text-start text-xs font-bold transition ${
                     activeIndex === 0
-                      ? "bg-slate-100 text-slate-950"
-                      : "text-slate-700 hover:bg-slate-50"
+                      ? "bg-amber-100 text-amber-950"
+                      : "text-slate-700 hover:bg-amber-50 hover:text-slate-950"
                   }`}
                 >
                   {allOptionLabel}
@@ -404,8 +404,8 @@ export function ProductFamilyCombobox({
                       className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-start text-xs transition ${
                         activeIndex ===
                         index
-                          ? "bg-slate-100 text-slate-950"
-                          : "text-slate-700 hover:bg-slate-50"
+                          ? "bg-amber-100 text-amber-950"
+                          : "text-slate-700 hover:bg-amber-50 hover:text-slate-950"
                       }`}
                     >
                       <span className="min-w-0 flex-1 truncate font-bold">
