@@ -22,6 +22,9 @@ import {
   type ProductTrackingMode,
 } from "@/pages/products/contracts";
 
+const MAX_QUEUED_WAIT_MS =
+  30_000;
+
 const terminalImportStatuses =
   new Set([
     "COMPLETED",
@@ -85,6 +88,9 @@ export function useImportProductPolling({
     let timer:
       | number
       | undefined;
+    let queuedSince:
+      | number
+      | null = null;
 
     const poll = async () => {
       if (!navigator.onLine) {
@@ -118,6 +124,28 @@ export function useImportProductPolling({
         setImportExpiryControlMode(
           status.default_expiry_control_mode
         );
+
+        if (
+          status.status ===
+          "QUEUED"
+        ) {
+          queuedSince ??=
+            Date.now();
+          if (
+            Date.now() -
+              queuedSince >=
+            MAX_QUEUED_WAIT_MS
+          ) {
+            setImportPollError(
+              t(
+                "products.errors.importProcessingDelayed"
+              )
+            );
+            return;
+          }
+        } else {
+          queuedSince = null;
+        }
 
         if (
           status.status ===
