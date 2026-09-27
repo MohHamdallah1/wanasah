@@ -36,7 +36,7 @@ sessions = read(TASKS / "session_monitor.py")
 integrity = read(TASKS / "integrity.py")
 live_stock = read(TASKS / "live_stock.py")
 reports = read(TASKS / "reports.py")
-product_import = read(BACKEND / "product_import_queue.py")
+product_import = read(BACKEND / "domains/simple_products/imports/infrastructure/queue.py")
 dev_runbook = read(ROOT / "docs" / "operations" / "DEVELOPMENT_WORKERS.md")
 
 operational_launcher = read(OPS / "run_operational_worker.ps1")
@@ -170,7 +170,7 @@ check(
 
 check(
     "-m workers.recover_cli product-import" in product_launcher
-    and "--app=product_import_queue.app worker -q product-import" in product_launcher,
+    and "--app=domains.simple_products.imports.infrastructure.queue.app worker -q product-import" in product_launcher,
     "product-import launcher recovers before starting its separate worker app",
 )
 
