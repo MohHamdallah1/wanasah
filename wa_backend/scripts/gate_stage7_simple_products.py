@@ -39,7 +39,7 @@ def static_checks() -> None:
         normalize_tracking_mode,
     )
     from domains.simple_products.service import resolve_price_pair
-    from domains.simple_products.imports.application.worker import (
+    from domains.simple_products.imports.domain.mapping import (
         suggest_mapping,
     )
     from domains.simple_products.imports.domain import (
@@ -293,6 +293,8 @@ def static_checks() -> None:
         BACKEND / "domains/product_tracking.py"
     ).read_text(encoding="utf-8")
     worker = (BACKEND / "domains/simple_products/imports/application/worker.py").read_text(encoding="utf-8")
+    execution = (BACKEND / "domains/simple_products/imports/application/execution_service.py").read_text(encoding="utf-8")
+    state_machine = (BACKEND / "domains/simple_products/imports/application/state_machine.py").read_text(encoding="utf-8")
     parser = (BACKEND / "domains/simple_products/imports/infrastructure/parsers.py").read_text(encoding="utf-8")
     repository = (BACKEND / "domains/simple_products/imports/infrastructure/repository.py").read_text(encoding="utf-8")
     queue = (BACKEND / "domains/simple_products/imports/infrastructure/queue.py").read_text(encoding="utf-8")
@@ -377,19 +379,21 @@ def static_checks() -> None:
         "Worker bounds import size and defends XLSX archive hazards",
     )
     check(
-        "InventoryAccess(" in worker
-        and '"catalog.manage"' in worker
-        and '"catalog.publish"' in worker
-        and '"pricing.manage"' in worker,
-        "Worker re-checks actor permissions at execution time",
+        "InventoryAccess(" in execution
+        and '"catalog.manage"' in execution
+        and '"catalog.publish"' in execution
+        and '"pricing.manage"' in execution,
+        "Execution service re-checks actor permissions at execution time",
     )
     check(
         "ProductImportTerminalError" in worker
         and 'status == "VALIDATING"' in worker
         and 'status == "IMPORTING"' in worker
         and "ProductImportRow.status" in repository
-        and 'status="VALID"' in worker
-        and 'row.status = "IMPORTED"' in worker,
+        and 'status="VALID"' in execution
+        and '"IMPORTED"' in execution
+        and "transition_row(" in execution
+        and "_ALLOWED_ROW_TRANSITIONS" in state_machine,
         "Retry path resumes durable phases without replaying committed rows",
     )
     check(
