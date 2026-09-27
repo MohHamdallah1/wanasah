@@ -159,6 +159,48 @@ describe(
       );
     });
 
+    it("renders options outside clipping parents", () => {
+      render(
+        <div
+          data-testid="clip-parent"
+          style={{
+            overflow: "hidden",
+            height: 24,
+          }}
+        >
+          <Harness
+            onSelect={vi.fn()}
+          />
+        </div>,
+      );
+
+      const input =
+        screen.getByRole(
+          "combobox",
+        );
+      fireEvent.click(input);
+
+      const listbox =
+        screen.getByRole(
+          "listbox",
+        );
+      const clipParent =
+        screen.getByTestId(
+          "clip-parent",
+        );
+
+      expect(
+        clipParent.contains(
+          listbox,
+        ),
+      ).toBe(false);
+      expect(
+        document.body.contains(
+          listbox,
+        ),
+      ).toBe(true);
+    });
+
     it("typing keeps the same field as the search authority", () => {
       render(
         <Harness
