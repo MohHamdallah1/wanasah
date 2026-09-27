@@ -326,11 +326,21 @@ def _job_payload(
         "processed_rows": int(job.processed_rows),
         "valid_rows": int(job.valid_rows),
         "failed_rows": int(job.failed_rows),
-        "imported_rows": int(
-            progress.imported_rows
+        "imported_rows": max(
+            int(
+                progress.imported_rows
+            ),
+            int(
+                job.processed_rows
+            ),
         ),
-        "invalid_rows": int(
-            progress.invalid_rows
+        "invalid_rows": max(
+            int(
+                progress.invalid_rows
+            ),
+            int(
+                job.failed_rows
+            ),
         ),
         "import_failed_rows": int(
             progress.import_failed_rows
