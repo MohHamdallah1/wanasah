@@ -50,6 +50,15 @@ class SourceStore(Protocol):
         """Delete retained bytes while preserving immutable source metadata."""
 
 
+    async def delete_source_bytes_batch(
+        self,
+        *,
+        company_id: int,
+        source_ids: list[UUID],
+    ) -> int:
+        """Delete a bounded set of retained sources for retention cleanup."""
+
+
 class TransactionalSourceStore(
     SourceStore,
     Protocol,
