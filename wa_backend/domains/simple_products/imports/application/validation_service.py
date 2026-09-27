@@ -83,9 +83,10 @@ def classify_row_error(
 
 
 def validation_outcome(
-    failed_count: int,
+    valid_count: int,
+    invalid_count: int,
 ) -> tuple[str, bool]:
-    if int(failed_count) > 0:
+    if int(valid_count) <= 0:
         return (
             JobStatus.VALIDATION_FAILED.value,
             False,
@@ -442,7 +443,8 @@ async def validate_rows(
                         target,
                         can_execute,
                     ) = validation_outcome(
-                        invalid_count
+                        valid_count,
+                        invalid_count,
                     )
                     transition_job(
                         job,
@@ -456,8 +458,11 @@ async def validate_rows(
                         processed_rows=0,
                         error_summary=(
                             {
-                                "code":
-                                    "PRODUCT_IMPORT_VALIDATION_FAILED",
+                                "code": (
+                                    "PRODUCT_IMPORT_VALIDATION_FAILED"
+                                    if valid_count == 0
+                                    else "PRODUCT_IMPORT_VALIDATION_PARTIAL"
+                                ),
                                 "failed_rows":
                                     invalid_count,
                             }
