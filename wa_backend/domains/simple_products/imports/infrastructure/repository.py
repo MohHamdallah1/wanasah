@@ -7,6 +7,7 @@ It intentionally does not own Product/Pricing/Tracking business rules.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -508,6 +509,88 @@ async def load_active_actor(
             == int(actor_id),
             Driver.is_active.is_(True),
         )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ProductImportProgress:
+    total_rows: int
+    imported_rows: int
+    invalid_rows: int
+    import_failed_rows: int
+    pending_rows: int
+
+
+async def count_job_progress(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> ProductImportProgress:
+    row = (
+        await db.execute(
+            select(
+                func.count(
+                    ProductImportRow.id
+                ),
+                func.count(
+                    ProductImportRow.id
+                ).filter(
+                    ProductImportRow.status
+                    == "IMPORTED"
+                ),
+                func.count(
+                    ProductImportRow.id
+                ).filter(
+                    ProductImportRow.status
+                    == "INVALID"
+                ),
+                func.count(
+                    ProductImportRow.id
+                ).filter(
+                    ProductImportRow.status
+                    == "IMPORT_FAILED"
+                ),
+                func.count(
+                    ProductImportRow.id
+                ).filter(
+                    ProductImportRow.status.in_(
+                        (
+                            "STAGED",
+                            "VALID",
+                        )
+                    )
+                ),
+            ).where(
+                ProductImportRow.company_id
+                == int(company_id),
+                ProductImportRow.job_id
+                == job_id,
+            )
+        )
+    ).one()
+
+    return ProductImportProgress(
+        total_rows=int(
+            row[0]
+            or 0
+        ),
+        imported_rows=int(
+            row[1]
+            or 0
+        ),
+        invalid_rows=int(
+            row[2]
+            or 0
+        ),
+        import_failed_rows=int(
+            row[3]
+            or 0
+        ),
+        pending_rows=int(
+            row[4]
+            or 0
+        ),
     )
 
 
