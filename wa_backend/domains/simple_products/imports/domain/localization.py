@@ -448,6 +448,53 @@ def build_import_locale_registry(
             raise ValueError(
                 f"Duplicate import locale pack: {locale}"
             )
+
+        template_fields = set(
+            pack.template.headers
+        )
+        canonical_fields = set(
+            CANONICAL_IMPORT_FIELDS
+        )
+        if template_fields != canonical_fields:
+            raise ValueError(
+                "Import template headers must cover exactly "
+                f"the canonical fields for locale {locale}: "
+                f"missing={sorted(canonical_fields - template_fields)}, "
+                f"unknown={sorted(template_fields - canonical_fields)}"
+            )
+
+        normalized_headers = [
+            normalize_import_token(
+                pack.template.headers[
+                    field
+                ]
+            )
+            for field in CANONICAL_IMPORT_FIELDS
+        ]
+        if (
+            any(
+                not value
+                for value in normalized_headers
+            )
+            or len(
+                normalized_headers
+            )
+            != len(
+                set(
+                    normalized_headers
+                )
+            )
+        ):
+            raise ValueError(
+                "Import template display headers must be "
+                f"non-empty and unique for locale {locale}."
+            )
+
+        if not pack.template.sheet_name.strip():
+            raise ValueError(
+                f"Import template sheet name is empty for locale {locale}."
+            )
+
         registry[
             locale
         ] = pack
