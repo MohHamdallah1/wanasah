@@ -89,10 +89,10 @@ describe("Products P9 package and unit structure", () => {
       '"products.quickCreate.packageTypeLabel"',
     );
     expect(commerce).toContain(
-      '"products.unitsPerPackage"',
+      '"products.quickCreate.unitsPerPackage"',
     );
     expect(commerce).toContain(
-      '"products.packagePrice"',
+      '"products.quickCreate.packagePrice"',
     );
     expect(barcode).toContain(
       "{draft.has_package ? (",
