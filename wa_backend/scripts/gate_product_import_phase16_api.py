@@ -177,6 +177,9 @@ check(
             "test_company_a_cannot_read_company_b_errors",
             "test_company_a_cannot_download_company_b_correction",
             "test_company_a_cannot_cancel_company_b_job",
+            "test_company_a_cannot_map_company_b_job",
+            "test_company_a_cannot_retry_company_b_job",
+            "test_company_a_cannot_read_company_b_lineage",
             "test_company_a_correction_upload_fails_before_file_read",
         )
     ),
