@@ -64,12 +64,18 @@ _ROW_SAFE_MESSAGES: dict[str, str] = {
         "Product name is required.",
     "IMPORT_NAME_TOO_LONG":
         "Product name is too long.",
+    "IMPORT_PACKAGE_SELECTION_REQUIRED":
+        "Choose either no outer package or an outer package type.",
+    "IMPORT_PACKAGE_TYPE_REQUIRED":
+        "Outer package type is required when package quantity is supplied.",
+    "IMPORT_NO_PACKAGE_UNITS_INVALID":
+        "A product without an outer package cannot contain multiple package units.",
     "IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE":
         "A package barcode requires an outer package.",
     "IMPORT_PACKAGING_REQUIRED":
-        "Package quantity is required.",
+        "Base-unit quantity inside the outer package is required.",
     "IMPORT_PACKAGING_INVALID":
-        "Package quantity is invalid.",
+        "Base-unit quantity inside the outer package is invalid.",
     "IMPORT_FORMULA_VALUE_UNAVAILABLE":
         "A formula cell has no safe cached value.",
     "IMPORT_BARCODE_FORMULA_NOT_ALLOWED":
@@ -96,6 +102,11 @@ def import_error_field(
     ).upper()
     if "PACKAGE_BARCODE" in normalized:
         return "package_barcode"
+    if (
+        "PACKAGE_SELECTION" in normalized
+        or "PACKAGE_TYPE" in normalized
+    ):
+        return "package_uom"
     if "UNIT_BARCODE" in normalized:
         return "unit_barcode"
     if "BARCODE" in normalized:
