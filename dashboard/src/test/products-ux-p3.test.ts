@@ -135,6 +135,11 @@ describe("Products P3 detail foundation", () => {
         "../pages/products/create/CreateProductAdvancedSection.tsx",
       ),
     );
+    const createBarcode = compact(
+      readSource(
+        "../pages/products/create/CreateProductBarcodeSection.tsx",
+      ),
+    );
     const createMutation = compact(
       readSource(
         "../pages/products/create/useCreateProductMutation.ts",
@@ -148,15 +153,15 @@ describe("Products P3 detail foundation", () => {
       "createAdvancedExpanded",
     );
     expect(createAdvanced).toContain(
-      '"products.quickCreate.advancedTitle"',
+      '"products.tracking.createTitle"',
     );
     expect(createAdvanced).toContain(
-      '"products.quickCreate.advancedHint"',
+      '"products.tracking.createSummary"',
     );
     expect(createAdvanced).toContain(
-      '"products.quickCreate.systemManagedHint"',
+      '"products.tracking.createChange"',
     );
-    expect(createAdvanced).toContain(
+    expect(createBarcode).toContain(
       '"products.barcodeSection"',
     );
     expect(createMutation).toContain(
