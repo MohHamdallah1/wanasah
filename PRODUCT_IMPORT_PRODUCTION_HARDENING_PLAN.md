@@ -772,6 +772,59 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 
 ## 19.2 50,000-row real end-to-end release exercise
 
+### Live findings and release blocker — 2026-09-28
+
+- [x] The original 54-row developer job `a586d11e-64fa-4392-9284-c5e62fe81b25`
+  completed with **54 IMPORTED, 0 INVALID** and 54 distinct variant
+  identities. Those variants belong to **39 reused Product family parents**,
+  which is correct under the current family model. The same-job correction
+  script's repeat dry-run returns `ALREADY_COMPLETED=PASS` without replay.
+- [x] Live 100-row background import
+  `e5ae4dac-3f7c-4cd8-9ca3-0e1ae8d02101`:
+  **99 IMPORTED + 1 INVALID**.
+- [x] Diagnose the *previous* 50,000-row background import
+  `0f57c157-aa68-47cc-b97a-447d8b7f8fb0`:
+  **FAILED**, 0 products executed; 46,348 VALID + 452 INVALID persisted
+  out of the claimed 50,000. **3,200 nonblank source rows absent** in
+  regular approximately 64-row gaps. Queue had three attempts; its
+  `succeeded` task status merely indicates wrapper-caught terminal failure.
+- [x] Reproduce on a fresh 1,000-row *real queue* import
+  `c15e4040-6287-4265-910f-5a3628e7639b`: **FAILED**, only
+  928 VALID + 9 INVALID persist; source rows 758–820 (63 rows) are absent.
+  This is a blocking real-path row-fidelity defect, **not** a 50k runtime SLA.
+- [x] Verify generated source SHA-256 and parser row counts match both
+  failed jobs; RLS and index-vs-sequential counts do not account for
+  missing rows. Independent ProactorEventLoop stage/validate exercises
+  and exact 50k staging transaction have no row loss.
+- [x] **Isolate reproducible Windows event-loop/batch interaction:**
+  running the *same exact source* through the same committed
+  `stage_source` with `asyncio.SelectorEventLoop` and a 1,000-row
+  ORM insert batch persisted only **937/1,000**. With selector batch
+  sizes **500, 250 or 100**, all 1,000 rows were preserved; a
+  50,000-row SelectorEventLoop + 500-row insert transaction staged
+  **50,000/50,000** (~10.4 seconds, excluding full Product execution).
+  Do not label the underlying DB-driver defect independently proven;
+  the source-safe mitigation is verified in this development runtime.
+- [x] Change `staging_service.STAGE_BATCH` from 1,000 to **500** and
+  add a **same-transaction actual STAGED-row count assertion** before
+  committing validation status or clearing immutable SourceStore bytes.
+  Short writes now roll back instead of advancing a corrupted job.
+  Unit regression: `test_product_import_phase19_staging_integrity.py`
+  tests a 937/1000 mismatch is rejected before commit.
+- [x] Re-run focused backend Product Import suite: **144 tests PASS**;
+  working branch HEAD after mitigation was `102bfa7`.
+- [ ] Restart the current Product Import Worker from the **new code**,
+  verify only one current worker per queue and rerun uniquely named 1k
+  *real queue* test; collect full persisted status and Product/Variant/
+  Price/Barcode lineage (not just staging).
+- [ ] Rerun uniquely named 50k *real queue* job **only after** the
+  current-worker 1k end-to-end gate passes; measure timings and all
+  source-row/created-product evidence. Treat earlier failed jobs as
+  immutable forensic fixtures; do not retry them as if source bytes
+  were still available.
+- [ ] Verify real HTTP authorization/correction, tenant concurrency,
+  cancellation/recovery and refresh/RTL/LTR for the production release.
+
 - [ ] Generate realistic **new, unique** company-scoped test Products with
   explicit package selection and a controlled mix of clean rows, deterministic
   invalid rows, empty physical Excel rows, Arabic/English/mixed headers and
