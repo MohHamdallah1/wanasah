@@ -524,19 +524,6 @@ async def validate_rows(
                             "Validation barcode failure counts exceeded valid rows."
                         )
 
-                    imported_count = await count_job_rows(
-                        db,
-                        company_id=company_id,
-                        job_id=job_id,
-                        status=RowStatus.IMPORTED.value,
-                    )
-                    import_failed_count = await count_job_rows(
-                        db,
-                        company_id=company_id,
-                        job_id=job_id,
-                        status=RowStatus.IMPORT_FAILED.value,
-                    )
-
                     if (
                         valid_count
                         + invalid_count
