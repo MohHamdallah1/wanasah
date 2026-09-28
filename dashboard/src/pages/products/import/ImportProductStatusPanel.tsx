@@ -218,7 +218,10 @@ export function ImportProductStatusPanel({
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
           <p className="text-[10px] font-bold leading-4 text-rose-900">
             {t(
-              "products.importFailed",
+              status.error_summary
+                ?.retryable === true
+                ? "products.importFailedAfterRetries"
+                : "products.importFailed",
             )}
           </p>
         </div>
