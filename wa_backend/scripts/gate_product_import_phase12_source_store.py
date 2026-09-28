@@ -233,9 +233,7 @@ check(
     "source_id,"
     in queue_source
     and "source_payload,"
-    in queue_source
-    and "NULL"
-    in queue_source
+    not in queue_source
     and "persist_stream_on_connection("
     in queue_source,
     "New jobs persist an immutable source reference instead of inline source bytes",
@@ -314,9 +312,11 @@ parser_index = source_service_source.index(
 check(
     verify_index
     < parser_index
-    and "_verify_legacy_payload("
-    in source_service_source,
-    "Source hash/size verification occurs before parsing and retry parsing",
+    and "legacy_payload"
+    not in source_service_source
+    and "job.source_payload"
+    not in source_service_source,
+    "SourceStore hash/size verification is the only runtime source path before parsing and retry parsing",
 )
 
 check(
