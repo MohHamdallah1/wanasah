@@ -606,6 +606,52 @@ root-level Product Import business module is an approved runtime entry point.
 
 ---
 
+## 17.6 ERP-informed company-adaptive Product UX (locked principle)
+
+**Model real business concepts in their owning domains, then show each
+company only the workflow it needs. Do not copy large ERP screens wholesale.**
+A juice distributor selling cartons should be able to create/import an ordinary
+Product without encountering catch-weight tolerances, shipping handling-unit
+hierarchies or mixed-product assembly configuration.
+
+- The canonical **base stock unit**, product-specific **commercial outer
+  packaging**, **UOM conversion**, and tracked **physical shipping package**
+  are distinct concepts. Do not overload the user-facing term "package" or
+  use a display label to determine business authority.
+- Default V1 Simple Products to one base unit (EACH) and at most one
+  fixed-count same-SKU outer grouping. A **sealed pack can itself be one
+  base unit** if that is the business stock unit; do not interpret "EACH"
+  as always "loose piece".
+- Never infer a carton solely because a source has a units-per-package
+  column. In the official template the operator chooses an explicit
+  "No outer package" or a real grouping type, and a grouping requires a
+  valid conversion count.
+- Distinguish **stock, purchase and sale UOM defaults**, multiple
+  hierarchical conversions, variable/catch weight, multi-SKU kits and
+  physical handling units before designing advanced Product UX. They
+  belong to the relevant Catalog/UOM, Pricing, Inventory, Purchasing,
+  Sales and Logistics authorities; a feature flag or a locked Advanced
+  UOM page does not by itself make them supported.
+- Use language-neutral unit codes, per-company configuration and
+  locale-specific explanatory labels/aliases. Tooltips and examples
+  clarify "base unit" and "outer packaging" with the customer's actual
+  business vocabulary; no hardcoded assumption that a unit is always
+  "حبة" (loose piece).
+- Make one easy, production-verified normal Product journey the default;
+  expose draft/advanced configuration only on deliberate opt-in with
+  lifecycle, permissions, mutation idempotency, tenant/RLS and release
+  gates. Never add a UI business rule that contradicts backend authority.
+- **V1 release and error-correction gates:** see
+  \`PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md\` Phase 19.
+- **V2 and beyond backlog and scope separation:** see
+  \`VERSION_2_FUTURE_FEATURES.md\` sections 6–7.
+
+This is a cross-module design rule, not authorization to change existing
+Product lifecycle, quantity semantics, Pricing or warehouse flows
+without a separate approved plan and proof.
+
+---
+
 ## 18. PERMANENT DECISION SUMMARY
 
 1. **Company/tenant isolation is absolute and fail-closed.**
