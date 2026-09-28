@@ -720,6 +720,77 @@ class ProductImportPhase16TenantIsolationTests(
         self._assert_tenant_a_scope()
         cancel.assert_not_awaited()
 
+    def test_company_a_cannot_map_company_b_job(
+        self,
+    ) -> None:
+        response = self.client.put(
+            f"/simple-products/imports/{self.job_b}/mapping",
+            json={
+                "mapping": {
+                    "name": "Product",
+                    "unit_price": "Price",
+                }
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+        self._assert_tenant_a_scope()
+
+    def test_company_a_cannot_retry_company_b_job(
+        self,
+    ) -> None:
+        with patch.object(
+            api_service,
+            "retry_failed_import",
+            AsyncMock(),
+        ) as retry:
+            response = self.client.post(
+                f"/simple-products/imports/{self.job_b}/retry"
+            )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+        self._assert_tenant_a_scope()
+        retry.assert_not_awaited()
+
+    def test_company_a_cannot_read_company_b_lineage(
+        self,
+    ) -> None:
+        lineage = AsyncMock(
+            return_value=None
+        )
+        with patch.object(
+            router_module,
+            "get_import_lineage",
+            lineage,
+        ):
+            response = self.client.get(
+                f"/simple-products/imports/{self.job_b}/lineage"
+            )
+
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+        lineage.assert_awaited_once()
+        self.assertEqual(
+            lineage.await_args.kwargs[
+                "company_id"
+            ],
+            self.company_a,
+        )
+        self.assertEqual(
+            lineage.await_args.kwargs[
+                "job_id"
+            ],
+            self.job_b,
+        )
+
     def test_company_a_correction_upload_fails_before_file_read(
         self,
     ) -> None:
