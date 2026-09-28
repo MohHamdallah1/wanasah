@@ -129,7 +129,7 @@ check(
     "100k barcode candidates cannot become one giant IN parameter list",
     ".in_("
     not in phase6_repository
-    and "giant parameterized `IN` query"
+    and "giant parameterized IN query"
     in phase6_gate,
 )
 check(
