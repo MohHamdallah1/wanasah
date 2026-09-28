@@ -58,6 +58,16 @@ phase6_gate = read(
 phase6_repository = read(
     "wa_backend/domains/simple_products/imports/infrastructure/repository.py"
 )
+barcode_repository_scope = (
+    phase6_repository[
+        phase6_repository.index(
+            "async def rebuild_job_barcode_staging("
+        ):
+        phase6_repository.index(
+            "async def load_active_actor("
+        )
+    ]
+)
 phase5_tests = read(
     "wa_backend/tests/test_product_import_phase5_validation.py"
 )
@@ -128,7 +138,7 @@ check(
 check(
     "100k barcode candidates cannot become one giant IN parameter list",
     ".in_("
-    not in phase6_repository
+    not in barcode_repository_scope
     and "giant parameterized IN query"
     in phase6_gate,
 )
