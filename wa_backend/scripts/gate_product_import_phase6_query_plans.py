@@ -536,11 +536,15 @@ def main() -> None:
     )
 
     check(
-        "GROUP BY barcode"
+        "barcode_occurrences AS MATERIALIZED"
         in repository_source
-        and "HAVING COUNT(*) > 1"
+        and "COUNT(*) OVER ("
+        in repository_source
+        and "PARTITION BY barcode"
+        in repository_source
+        and "WHERE occurrences > 1"
         in repository_source,
-        "Internal duplicate detection is set-based SQL",
+        "Internal duplicate detection uses single-pass set-based SQL",
     )
     check(
         "JOIN LATERAL"
