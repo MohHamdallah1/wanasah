@@ -48,7 +48,7 @@ export function ProductPackagingHelp({
         <TooltipContent
           side="bottom"
           align="start"
-          className="max-w-[min(24rem,calc(100vw-2rem))] space-y-2 p-3 text-start text-xs leading-5"
+          className="max-h-[70vh] max-w-[min(26rem,calc(100vw-2rem))] space-y-2 overflow-y-auto p-3 text-start text-xs leading-5"
         >
           <p className="font-semibold">
             {t(
@@ -65,6 +65,47 @@ export function ProductPackagingHelp({
               "products.packageGlossary.none",
             )}
           </p>
+          <div className="border-t border-border pt-2">
+            <p className="mb-1 font-bold">
+              {t(
+                "products.packageGlossary.examplesTitle",
+              )}
+            </p>
+            <table className="w-full table-fixed border-collapse text-[11px] leading-4">
+              <thead>
+                <tr>
+                  <th scope="col" className="w-2/5 pb-1 text-start font-bold">
+                    {t(
+                      "products.packageGlossary.caseHeading",
+                    )}
+                  </th>
+                  <th scope="col" className="pb-1 text-start font-bold">
+                    {t(
+                      "products.packageGlossary.setupHeading",
+                    )}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(["single", "carton", "pack"] as const).map(
+                  (kind) => (
+                    <tr key={kind} className="border-t border-border">
+                      <th scope="row" className="py-1 text-start align-top font-medium">
+                        {t(
+                          `products.packageGlossary.examples.${kind}.case`,
+                        )}
+                      </th>
+                      <td className="py-1 align-top">
+                        {t(
+                          `products.packageGlossary.examples.${kind}.setup`,
+                        )}
+                      </td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
           <p className="border-t border-border pt-2 text-muted-foreground">
             {t(
               "products.packageGlossary.limits",
