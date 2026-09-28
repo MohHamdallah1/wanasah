@@ -589,14 +589,16 @@ Do **not** hardcode arbitrarily aggressive settings without evidence; tune per t
 
 ## Tasks
 
-- [ ] Move import HTTP transport into the module-local API layer.
-- [ ] Keep endpoint functions thin: auth/permission, request parsing, application call, response mapping.
-- [ ] Move job payload shaping to explicit contracts/DTOs.
-- [ ] Move mapping validation authority out of the global Product API file.
-- [ ] Keep all user-facing response codes stable or migrate them deliberately.
-- [ ] Version contracts if a breaking response/state change is required.
-- [ ] Add API tests for create/status/errors/mapping/retry/correction/cancel/template.
-- [ ] Add negative tenant-isolation tests for every import endpoint.
+- [x] Move import HTTP transport into the module-local API layer.
+- [x] Keep endpoint functions thin: auth/permission, request parsing, application call, response mapping.
+- [x] Move job payload shaping to explicit contracts/DTOs.
+- [x] Move mapping validation authority out of the global Product API file.
+- [x] Keep all user-facing response codes stable or migrate them deliberately.
+- [x] Version contracts if a breaking response/state change is required.
+- [x] Add API tests for create/status/errors/mapping/retry/correction/cancel/template.
+- [x] Add negative tenant-isolation tests for every import endpoint.
+
+> **Phase 16 closure:** Product Import HTTP transport remains module-local, explicit Pydantic DTOs now own stable response shaping, mapping authority moved to the application facade, and no ORM row/job object is returned directly from HTTP endpoints. Existing URLs/status codes and payload fields were preserved, so no contract version bump was required. Integrated TestClient coverage exercises create/status/errors/mapping/retry/correction/cancel/template, while negative tenant-isolation tests fail closed for every job-scoped HTTP path (including mapping, retry, lineage and correction upload before file read). Verified by `test_product_import_phase16_api.py` and `gate_product_import_phase16_api.py`.
 
 ---
 
