@@ -372,6 +372,11 @@ class ParserStreamingTests(
         with (
             patch.object(
                 parsers,
+                "validate_source_content",
+                lambda *_args, **_kwargs: None,
+            ),
+            patch.object(
+                parsers,
                 "_validate_xlsx_archive",
                 validate,
             ),
@@ -513,6 +518,11 @@ class ParserStreamingTests(
             )
 
         with (
+            patch.object(
+                parsers,
+                "validate_source_content",
+                lambda *_args, **_kwargs: None,
+            ),
             patch.object(
                 parsers,
                 "_validate_xlsx_archive",
