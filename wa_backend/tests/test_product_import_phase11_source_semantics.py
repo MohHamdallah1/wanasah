@@ -267,7 +267,10 @@ class _CaptureDb:
         statement,
     ) -> None:
         self.rows.extend(
-            dict(item)
+            {
+                getattr(key, "key", key): value
+                for key, value in item.items()
+            }
             for item in statement._multi_values[0]
         )
 
