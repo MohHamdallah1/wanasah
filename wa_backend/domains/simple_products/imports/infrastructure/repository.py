@@ -667,6 +667,77 @@ async def count_job_progress(
     )
 
 
+async def count_job_statuses(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> dict[str, int]:
+    rows = (
+        await db.execute(
+            select(
+                ProductImportRow.status,
+                func.count(
+                    ProductImportRow.id
+                ),
+            )
+            .where(
+                ProductImportRow.company_id
+                == int(
+                    company_id
+                ),
+                ProductImportRow.job_id
+                == job_id,
+            )
+            .group_by(
+                ProductImportRow.status
+            )
+        )
+    ).all()
+    return {
+        str(
+            status
+        ): int(
+            count
+            or 0
+        )
+        for status, count in rows
+    }
+
+
+async def job_has_rows(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+    status: str,
+) -> bool:
+    value = await db.scalar(
+        select(
+            ProductImportRow.id
+        )
+        .where(
+            ProductImportRow.company_id
+            == int(
+                company_id
+            ),
+            ProductImportRow.job_id
+            == job_id,
+            ProductImportRow.status
+            == str(
+                status
+            ),
+        )
+        .limit(
+            1
+        )
+    )
+    return (
+        value
+        is not None
+    )
+
+
 async def count_job_rows(
     db: AsyncSession,
     *,
