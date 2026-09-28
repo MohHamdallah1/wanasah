@@ -100,6 +100,143 @@ class StateMachineTests(
 class NormalizationTests(
     unittest.TestCase
 ):
+    def test_explicit_no_package_is_unit_only(
+        self,
+    ) -> None:
+        normalized = normalize_raw_row(
+            {
+                "Product": "Coffee",
+                "Package Type": "No outer package",
+                "Units per Package": None,
+                "Unit Price": "2.500",
+            },
+            {
+                "name": "Product",
+                "package_uom": "Package Type",
+                "units_per_package": "Units per Package",
+                "unit_price": "Unit Price",
+            },
+            default_lot_control_mode="OPTIONAL",
+            default_expiry_control_mode="NONE",
+        )
+        self.assertIsNone(
+            normalized[
+                "package_uom_code"
+            ]
+        )
+        self.assertEqual(
+            normalized[
+                "units_per_package"
+            ],
+            1,
+        )
+
+    def test_blank_mapped_package_choice_is_rejected(
+        self,
+    ) -> None:
+        with self.assertRaises(
+            SimpleProductError
+        ) as context:
+            normalize_raw_row(
+                {
+                    "Product": "Coffee",
+                    "Package Type": None,
+                    "Units per Package": None,
+                    "Unit Price": "2.500",
+                },
+                {
+                    "name": "Product",
+                    "package_uom": "Package Type",
+                    "units_per_package": "Units per Package",
+                    "unit_price": "Unit Price",
+                },
+                default_lot_control_mode="OPTIONAL",
+                default_expiry_control_mode="NONE",
+            )
+        self.assertEqual(
+            context.exception.code,
+            "IMPORT_PACKAGE_SELECTION_REQUIRED",
+        )
+
+    def test_outer_package_requires_base_unit_count(
+        self,
+    ) -> None:
+        with self.assertRaises(
+            SimpleProductError
+        ) as context:
+            normalize_raw_row(
+                {
+                    "Product": "Coffee",
+                    "Package Type": "Carton",
+                    "Units per Package": None,
+                    "Unit Price": "2.500",
+                },
+                {
+                    "name": "Product",
+                    "package_uom": "Package Type",
+                    "units_per_package": "Units per Package",
+                    "unit_price": "Unit Price",
+                },
+                default_lot_control_mode="OPTIONAL",
+                default_expiry_control_mode="NONE",
+            )
+        self.assertEqual(
+            context.exception.code,
+            "IMPORT_PACKAGING_REQUIRED",
+        )
+
+    def test_package_units_without_package_type_are_rejected(
+        self,
+    ) -> None:
+        with self.assertRaises(
+            SimpleProductError
+        ) as context:
+            normalize_raw_row(
+                {
+                    "Product": "Coffee",
+                    "Units per Package": "12",
+                    "Unit Price": "2.500",
+                },
+                {
+                    "name": "Product",
+                    "units_per_package": "Units per Package",
+                    "unit_price": "Unit Price",
+                },
+                default_lot_control_mode="OPTIONAL",
+                default_expiry_control_mode="NONE",
+            )
+        self.assertEqual(
+            context.exception.code,
+            "IMPORT_PACKAGE_TYPE_REQUIRED",
+        )
+
+    def test_no_package_rejects_multiple_units(
+        self,
+    ) -> None:
+        with self.assertRaises(
+            SimpleProductError
+        ) as context:
+            normalize_raw_row(
+                {
+                    "Product": "Coffee",
+                    "Package Type": "No outer package",
+                    "Units per Package": "12",
+                    "Unit Price": "2.500",
+                },
+                {
+                    "name": "Product",
+                    "package_uom": "Package Type",
+                    "units_per_package": "Units per Package",
+                    "unit_price": "Unit Price",
+                },
+                default_lot_control_mode="OPTIONAL",
+                default_expiry_control_mode="NONE",
+            )
+        self.assertEqual(
+            context.exception.code,
+            "IMPORT_NO_PACKAGE_UNITS_INVALID",
+        )
+
     def test_unit_only_row_uses_tracking_defaults(
         self,
     ) -> None:
