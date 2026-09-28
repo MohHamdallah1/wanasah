@@ -223,8 +223,7 @@ class Phase13CancellationTests(
                 AsyncMock(
                     return_value=
                         ProductImportSourceContext(
-                            legacy_payload=None,
-                            source_id=source_id,
+                                        source_id=source_id,
                             source_size=128,
                             source_sha256="a" * 64,
                             source_cleared=False,
