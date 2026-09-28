@@ -1,6 +1,6 @@
 # Product Import — Production Hardening Plan
 
-**Status:** BACKEND HARDENING PHASES 1–18 CLOSED; V1 RELEASE ACCEPTANCE / CORRECTION UX OPEN  
+**Status:** BACKEND HARDENING PHASES 1–18 CLOSED; V1 RELEASE ACCEPTANCE / CORRECTION UX OPEN
 **Scope:** Product/Catalog bulk import backend (CSV/XLSX)  
 **Architecture authority:** `ARCHITECTURE.md`  
 **Owning domain today:** `domains/simple_products`  
