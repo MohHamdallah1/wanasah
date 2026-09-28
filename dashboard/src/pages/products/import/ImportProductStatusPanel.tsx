@@ -350,13 +350,18 @@ export function ImportProductStatusPanel({
           <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-slate-500" />
           <span className="truncate">
             {status.status ===
-            "IMPORTING"
+            "QUEUED"
               ? t(
-                  "products.importingProducts",
+                  "products.queued",
                 )
-              : t(
-                  "products.preparingImport",
-                )}
+              : status.status ===
+                "IMPORTING"
+                ? t(
+                    "products.importingProducts",
+                  )
+                : t(
+                    "products.preparingImport",
+                  )}
           </span>
         </span>
         <span className="shrink-0 tabular-nums text-slate-500">
