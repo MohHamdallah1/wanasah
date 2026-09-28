@@ -27,6 +27,7 @@ _BARCODE_FIELDS = (
     "package_barcode",
 )
 _PACKAGE_CODES = (
+    "NONE",
     "CARTON",
     "CASE",
     "PACK",
@@ -109,6 +110,15 @@ def build_product_import_template(
         )
         for code in _PACKAGE_CODES
     ]
+    no_package_label = package_values[
+        0
+    ]
+    no_package_excel = (
+        no_package_label.replace(
+            '"',
+            '""',
+        )
+    )
 
     workbook = Workbook()
     sheet = workbook.active
@@ -177,11 +187,11 @@ def build_product_import_template(
 
     package_validation = DataValidation(
         type="list",
-        formula1="='_wanasah_lists'!$B$1:$B$9",
-        allow_blank=True,
+        formula1="='_wanasah_lists'!$B$1:$B$10",
+        allow_blank=False,
     )
     package_validation.errorTitle = copy.package_validation_title
-    package_validation.error = copy.validation_error
+    package_validation.error = copy.package_note
     package_validation.promptTitle = copy.package_validation_title
     package_validation.prompt = copy.package_note
     package_validation.showErrorMessage = True
@@ -197,8 +207,8 @@ def build_product_import_template(
     units_validation = DataValidation(
         type="custom",
         formula1=(
-            '=IF(C2="",D2="",'
-            'AND(ISNUMBER(D2),D2=INT(D2),'
+            f'=IF(C2="{no_package_excel}",D2="",'
+            'AND(C2<>"",ISNUMBER(D2),D2=INT(D2),'
             'D2>=2,D2<=1000000))'
         ),
         allow_blank=False,
@@ -220,8 +230,9 @@ def build_product_import_template(
     package_price_validation = DataValidation(
         type="custom",
         formula1=(
-            '=OR(E2="",AND(C2<>"",'
-            'ISNUMBER(E2),E2>0))'
+            f'=IF(C2="{no_package_excel}",E2="",'
+            'OR(AND(E2="",ISNUMBER(F2),F2>0),'
+            'AND(ISNUMBER(E2),E2>0)))'
         ),
         allow_blank=True,
     )
@@ -242,7 +253,10 @@ def build_product_import_template(
     unit_price_validation = DataValidation(
         type="custom",
         formula1=(
-            '=OR(F2="",AND(ISNUMBER(F2),F2>0))'
+            f'=IF(C2="{no_package_excel}",'
+            'AND(ISNUMBER(F2),F2>0),'
+            'OR(AND(F2="",ISNUMBER(E2),E2>0),'
+            'AND(ISNUMBER(F2),F2>0)))'
         ),
         allow_blank=True,
     )
@@ -287,7 +301,9 @@ def build_product_import_template(
         barcode_formula = (
             (
                 f'=OR({column_letter}2="",'
-                f'AND(C2<>"",ISTEXT({column_letter}2)))'
+                f'AND(C2<>"",'
+                f'C2<>"{no_package_excel}",'
+                f'ISTEXT({column_letter}2)))'
             )
             if column_letter
             == package_barcode_column
