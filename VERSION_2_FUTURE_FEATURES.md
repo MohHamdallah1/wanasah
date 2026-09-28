@@ -363,7 +363,41 @@ For both deferred capabilities:
 
 ---
 
-## 6. Preservation rule
+## 6. Distinct capabilities: advanced UOM is not a catch-all
+
+**Important:** enabling the existing Advanced UOM menu entry does **not** automatically
+complete the following independent business workflows.
+
+- **Multiple units for one SKU (Advanced UOM):** the backend has a tenant-scoped
+  product conversion graph, rational conversion factors, quantity precision/step,
+  and conflict checks. V2 still needs the complete draft → configure → review →
+  publish journey, transaction integration, and acceptance gates. Example:
+  1 carton = 10 packs and 1 pack = 6 base units.
+- **Variable-weight / catch-weight products:** a fixed UOM conversion and a
+  decimal quantity scale do not implement a measured-versus-nominal weight
+  workflow. A future separate design must cover actual weight per received
+  unit/batch, tolerances, price/cost basis, reconciliation, and downstream
+  purchasing, warehouse, and sales behavior. Do not advertise it as supported
+  merely because the UOM authority accepts fractional quantities.
+- **Mixed-product kits / bundles / assemblies:** one outer package containing
+  different SKUs needs constituent-product and inventory semantics, e.g. a
+  BOM/kit authority. A one-SKU conversion factor cannot represent it.
+- **Physical shipping packages and nested handling units:** pallets/cartons
+  containing heterogeneous goods or nested shipping containers are logistics
+  objects, not synonyms for a saleable UOM. Their IDs, locations, dimensions,
+  weight and nested contents need their own warehouse workflow.
+- **Company-defined terminology:** business display labels and translations
+  must remain distinct from canonical UOM identity and exact conversion
+  factors. A company catalog must be a single authority, not independent
+  free-text selectors in importer and dashboard.
+
+Each of these capabilities needs a separate scope decision and verified
+end-to-end gates before it is exposed as available. Keeping its planning
+here does not expand the V1 Product Import contract.
+
+---
+
+## 7. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 
