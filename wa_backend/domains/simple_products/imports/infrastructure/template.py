@@ -79,7 +79,9 @@ def build_product_import_template(
     copy = pack.template
 
     headers = [
-        pack.header_aliases[field][0]
+        copy.headers[
+            field
+        ]
         for field in CANONICAL_IMPORT_FIELDS
     ]
     tracking_values = [
