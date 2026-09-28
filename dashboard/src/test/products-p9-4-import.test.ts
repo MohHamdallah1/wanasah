@@ -226,10 +226,19 @@ describe("Products P9.4 import workflow", () => {
       '"NONE"'
     );
     expect(polling).toContain(
-      "MAX_QUEUED_WAIT_MS",
+      "productImportBackoffDelay(",
     );
     expect(polling).toContain(
-      '"products.errors.importProcessingDelayed"',
+      "new WebSocket(",
+    );
+    expect(polling).toContain(
+      "document.visibilityState",
+    );
+    expect(polling).toContain(
+      "realtimeOpen",
+    );
+    expect(polling).not.toContain(
+      "MAX_QUEUED_WAIT_MS",
     );
   });
 });
