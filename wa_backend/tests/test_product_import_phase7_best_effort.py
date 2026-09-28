@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
-from domains.simple_products.imports.api.router import (
+from domains.simple_products.imports.application.api_service import (
     _job_payload,
 )
 from domains.simple_products.imports.application.execution_service import (
