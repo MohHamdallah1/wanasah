@@ -139,7 +139,7 @@ async def process_product_import(
     job_id: str,
 ) -> None:
     from domains.simple_products.imports.application import (
-        mark_import_runtime_failure,
+        record_runtime_failure,
         run_product_import_job,
     )
     from domains.simple_products.imports.domain.errors import (
@@ -193,7 +193,7 @@ async def process_product_import(
         )
 
         if not classification.retryable:
-            await mark_import_runtime_failure(
+            await record_runtime_failure(
                 company_id=int(company_id),
                 job_id=job_uuid,
                 final_attempt=True,
@@ -212,7 +212,7 @@ async def process_product_import(
             )
             is None
         )
-        await mark_import_runtime_failure(
+        await record_runtime_failure(
             company_id=int(company_id),
             job_id=job_uuid,
             final_attempt=final_attempt,
