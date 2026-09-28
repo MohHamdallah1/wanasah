@@ -635,10 +635,10 @@ export const resources = {
           "اختر التعبئة الخارجية صراحة لكل منتج؛ الفراغ ليس اختياراً. حدد «بدون عبوة خارجية»، أو اختر نوع التجميع وأدخل عدد الوحدات الأساسية داخله.",
         packageGlossary: {
           title: "ما المقصود بالتعبئة الخارجية؟",
-          base: "الوحدة الأساسية هي وحدة الجرد لهذا الصنف في هذا المسار (EACH)، مثل قنينة مياه أو علبة مناديل كاملة. ليست بالضرورة حبة.",
-          outer: "التعبئة الخارجية هي تجميع ثابت للوحدات الأساسية من الصنف نفسه، مثل كرتونة تحتوي 12 قنينة. اختَر نوع التجميع واكتب عدد الوحدات الأساسية داخله صراحة.",
-          none: "«بدون عبوة خارجية» لا تعني أن المنتج مكشوف؛ تعني أنك لا تعرّف له مستوى تجميع أعلى. عندها أدخل سعر الوحدة الأساسية، ولا تُدخل سعر أو باركود تعبئة خارجية.",
-          limits: "هذا المسار المبسط يدعم وحدة أساسية واحدة وتعبئة خارجية واحدة بعدد ثابت صحيح؛ لا يمثّل عدة مستويات تعبئة أو طروداً مختلطة الأصناف أو البيع بوزن متغير.",
+          base: "الوحدة الأساسية = وحدة واحدة نحسب عليها رصيد المنتج: حبة، قطعة، قنينة، أو باكيت كامل إذا كان هو المنتج الذي تبيعه وتعدّه كوحدة واحدة.",
+          outer: "التعبئة الخارجية = تجميع أكبر من وحدات المنتج نفسه. مثال: تبيع القنينة منفردة وبالكرتونة؛ اختَر «كرتونة» واكتب 12 إذا كانت تحتوي 12 قنينة.",
+          none: "«بدون عبوة خارجية» تعني أنك تبيع أو تدير هذا الصنف كوحدة واحدة فقط، حتى لو كانت هذه الوحدة علبة أو باكيتًا مغلقًا. اكتب سعر الوحدة، واترك سعر وباركود التجميع الخارجي فارغين.",
+          limits: "حاليًا نسمح بمستوى تجميع إضافي واحد بعدد ثابت. الكرتونة داخل طبلية، والكرتونة المختلطة، والبيع بوزن متغير تحتاج مسارات متقدمة منفصلة.",
         },
         importGuideBulkTip:
           "عندك 1,000 أو 50,000 منتج؟ لا تعبّي عمودي التتبع إذا أغلب المنتجات على الافتراضي؛ اتركهما فارغين وحدد فقط الصفوف المختلفة.",
@@ -676,7 +676,16 @@ export const resources = {
         importCompleted:
           "تم استيراد {{count}} منتج بنجاح",
         importCompletedWithErrors:
-          "تم استيراد {{imported}} منتج، ويوجد {{errors}} صف بحاجة للمراجعة.",
+          "تم حفظ {{imported}} منتج بنجاح. لم تتم إضافة {{errors}} صف وتحتاج للمراجعة.",
+        importReceipt: {
+          label: "نتيجة آخر عملية استيراد",
+          saved: "تم حفظ {{count}} منتج بنجاح في النظام.",
+          needsReview: "{{count}} صف لم تتم إضافتها وتحتاج إلى تصحيح.",
+          listHint: "قائمة المنتجات تتأثر بالبحث والفلاتر والترتيب الحالي. إذا لم تجد المنتجات الجديدة، ألغِ البحث والفلاتر.",
+          clearFilters: "إلغاء البحث والفلاتر",
+          dismiss: "إخفاء ملخص الاستيراد",
+          returnToProducts: "العودة إلى قائمة المنتجات",
+        },
         importAccepted:
           "تم استلام الملف. المعالجة تعمل في الخلفية.",
         importResumed:
@@ -2239,10 +2248,10 @@ export const resources = {
           "Choose the outer packaging explicitly for every product; blank is not a selection. Choose No outer package, or choose a type and enter its base-unit count.",
         packageGlossary: {
           title: "What is outer packaging?",
-          base: "A base unit is what this workflow counts for this SKU (EACH), such as one complete bottle or tissue box. It does not necessarily mean a single piece.",
-          outer: "Outer packaging is a fixed grouping of base units of the same product, such as a carton of 12 bottles. Select its type and explicitly enter the number of base units it contains.",
-          none: "No outer package does not mean the item is physically unpackaged. It means no higher grouping is configured here. Provide the base-unit price and omit any outer-packaging price or barcode.",
-          limits: "This simplified workflow supports one base unit and one fixed-count outer packaging. It does not model multiple packaging levels, mixed-SKU shipping containers or variable-weight sales.",
+          base: "Base unit = one item counted in stock: a piece, bottle, individual item, or a complete pack if that pack is what you stock and sell as one unit.",
+          outer: "Outer packaging = a larger fixed grouping of the same item. Example: if you sell individual bottles and cartons of 12, choose Carton and enter 12.",
+          none: "No outer package means this product is managed as a single base unit, even if it is a sealed box or pack. Enter the base-unit price; leave outer-packaging price and barcode blank.",
+          limits: "This workflow supports one extra fixed-count packaging level. Pallet hierarchies, mixed-product packs, and variable-weight sales require separate advanced workflows.",
         },
         importGuideBulkTip:
           "Importing 1,000 or 50,000 products? If most use the default, leave both tracking columns blank and fill only the rows that are exceptions.",
@@ -2280,7 +2289,16 @@ export const resources = {
         importCompleted:
           "{{count}} products imported successfully",
         importCompletedWithErrors:
-          "{{imported}} products imported; {{errors}} rows need review.",
+          "{{imported}} products saved successfully. {{errors}} rows were not added and need review.",
+        importReceipt: {
+          label: "Last import result",
+          saved: "{{count}} products were saved successfully.",
+          needsReview: "{{count}} rows were not added and need correction.",
+          listHint: "Search, filters, and sorting can hide newly added products from the current view. Clear your search and filters if needed.",
+          clearFilters: "Clear search and filters",
+          dismiss: "Dismiss import summary",
+          returnToProducts: "Back to product list",
+        },
         importAccepted:
           "File accepted. Processing is running in the background.",
         importResumed:
