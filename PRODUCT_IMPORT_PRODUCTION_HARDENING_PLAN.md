@@ -680,26 +680,41 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   Manual browser/reload/filter/permission verification remains open.
 - The **error-report CSV is NOT a correction artifact**. The actual
   correction API accepts the server-generated job-specific CSV/XLSX with
-  immutable \`__wanasah_row_identity\` metadata.
+  immutable `__wanasah_row_identity` metadata.
 - Keep completed imported rows and their barcode/Product/Pricing lineage
   intact. Never delete or reset successful rows just to retry testing.
 
 ## 19.1 Immediate next step: correct the **original partially successful job**
 
-- [ ] Read-only snapshot its status, 38 imported identities, 16 failed
-  identities, Product and barcode counts; record reproducible before values.
-- [ ] Download **that job's** \`GET /simple-products/imports/{job_id}/correction?format=xlsx\`
-  (or CSV) artifact; assert it contains only 16 rejected rows, source
-  columns, stable original Excel row numbers and row identities.
-- [ ] Validate correction-file contract/size/headers and exact field errors;
+- [x] Snapshot the original job and its imported identity set: baseline
+  **38 IMPORTED + 16 INVALID**, **66 company Products** before a correction.
+  The comparison uses the original job identity, not the all-invalid re-upload.
+- [ ] Snapshot/compare active barcode rows, Pricing publications and full
+  Product row versions as part of final end-to-end lineage verification.
+- [x] Build the **original job's** official CSV and XLSX correction artifacts
+  through the real application service: both had **16** source-rejected rows,
+  16 distinct immutable row identities and the original 10 source headers;
+  both parsed successfully. After one correction, future artifacts should
+  contain only the remaining 15 invalid rows.
+- [ ] Verify the equivalent **authenticated HTTP GET** correction download,
+  exact physical row-number mapping and absence of exported successful rows
+  in the real Dashboard-access flow.
+- [ ] Validate correction-file contract/size/headers and exact field errors
+  across both authorized HTTP transport and repository layers;
   deliberately test malformed identity, duplicate identity, unknown identity,
-  an \`IMPORTED\` identity, and a cross-tenant job. Each must fail closed
+  an `IMPORTED` identity, and a cross-tenant job. Each must fail closed
   with **no** partial update.
-- [ ] Correct one deterministic invalid row using a uniquely identified,
-  valid test product (no conflicts with active barcodes). Apply via the
-  authorized correction endpoint to the **same job ID**, keeping one stable
-  request ID across ambiguous/lost-response retries. Inspect job/row
-  transitions, worker resume, errors remaining and final Product lineage.
+- [x] Live application-service smoke: correct the missing name on **original
+  Excel row 3** through a one-row server-generated correction artifact on
+  the same job; the real worker resumed it. Status changed from **38
+  IMPORTED / 16 INVALID** to **39 IMPORTED / 15 INVALID**; company Product
+  count increased **66 → 67**.
+- [x] Exact same correction request ID and same payload replayed with
+  `replayed=True` and no extra Product. All 38 prior imported variant
+  identities remained present in the original job.
+- [ ] Repeat the same scenario via the **real authorized HTTP POST** and
+  browser UX, with a lost-response/disconnect case and documented
+  event-loop/runtime compatibility on the actual deployment launcher.
 - [ ] Prove earlier 38 imported rows were never re-executed or altered;
   demonstrate the correction request's exact replay is idempotent.
 - [ ] Correct the remaining deliberately invalid rows **only after**
@@ -708,8 +723,9 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 - [ ] Verify final source-row counts/statuses, tenant/RLS isolation, barcode
   ownership, Pricing authority, tracking defaults and no half-created
   Products. This is an end-to-end gate, not only a unit test.
-- [ ] Do **not** use the second all-invalid re-upload as the correction
-  target; do not upload the unchanged original XLSX a third time.
+- [x] Use the original partially successful job as the correction target;
+  the all-invalid re-upload was **not** modified and no previously imported
+  Product was deleted. Never upload the unchanged original XLSX again.
 - [ ] If the old job source/lineage is no longer correctable for retention
   reasons, use a deliberately isolated fresh test job and document why;
   never overwrite or delete historical successful Products.
@@ -767,7 +783,7 @@ time and device constraints to choose direct editing vs paging/export.
   server-validate edited data again through existing Product/Pricing/
   Tracking/UOM authority before committing.
 - [ ] Keep imported rows immutable; allow correction only for
-  \`INVALID\`/\`IMPORT_FAILED\` with explicit optimistic concurrency,
+  `INVALID`/`IMPORT_FAILED` with explicit optimistic concurrency,
   durable idempotent submission, protected drafts, offline recovery and
   clear result reconciliation; reject unknown and cross-company identities.
 - [ ] Expect **multiple possible issues** per row; a row may expose its
@@ -831,3 +847,4 @@ capability support, not a template or tooltip.
 - https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/tasks/manage-unit-measure
 - https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/uom-conversion-per-product-variant
 - https://learn.microsoft.com/en-us/dynamics365/supply-chain/warehousing/catch-weight-processing
+- https://docs.frappe.io/erpnext/data-import
