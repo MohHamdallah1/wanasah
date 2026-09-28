@@ -240,16 +240,20 @@ try:
             f"{field} template column is forced to Excel Text format",
         )
 
-    custom_validations = [
+    barcode_validations = [
         validation
         for validation
         in product_sheet.data_validations.dataValidation
         if validation.type
         == "custom"
+        and "ISTEXT("
+        in str(
+            validation.formula1
+        )
     ]
     check(
         len(
-            custom_validations
+            barcode_validations
         )
         == 2
         and all(
@@ -265,9 +269,56 @@ try:
                 validation.sqref
             )
             for validation
-            in custom_validations
+            in barcode_validations
         ),
         "Official template validates barcode text entry through all 50,000 Product rows",
+    )
+    package_lists = [
+        validation
+        for validation
+        in product_sheet.data_validations.dataValidation
+        if validation.type
+        == "list"
+        and "$B$1:$B$9"
+        in str(
+            validation.formula1
+        )
+    ]
+    check(
+        len(
+            package_lists
+        )
+        == 1
+        and "C2:C50001"
+        in str(
+            package_lists[
+                0
+            ].sqref
+        ),
+        "Official template guides package type through all 50,000 Product rows",
+    )
+    check(
+        product_sheet[
+            "A1"
+        ].fill.fgColor.rgb
+        == "00475569"
+        and product_sheet.column_dimensions[
+            "E"
+        ].width
+        == 14
+        and product_sheet.column_dimensions[
+            "F"
+        ].width
+        == 14
+        and product_sheet.column_dimensions[
+            "I"
+        ].width
+        == 16
+        and product_sheet.column_dimensions[
+            "J"
+        ].width
+        == 16,
+        "Official template uses the polished slate header and compact price/tracking widths",
     )
 finally:
     workbook.close()
