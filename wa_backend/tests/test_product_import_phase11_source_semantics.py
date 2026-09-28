@@ -379,9 +379,9 @@ class Phase11WorksheetTests(
             self.assertEqual(
                 source.headers,
                 [
-                    EN_IMPORT_LOCALE.header_aliases[
+                    EN_IMPORT_LOCALE.template.headers[
                         field
-                    ][0]
+                    ]
                     for field
                     in CANONICAL_IMPORT_FIELDS
                 ],
