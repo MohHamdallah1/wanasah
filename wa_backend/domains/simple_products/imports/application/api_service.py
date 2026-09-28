@@ -192,6 +192,19 @@ def _error_item(row: ProductImportRow) -> dict[str, Any]:
     }
 
 
+async def ensure_import_job_access(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    job_id: UUID,
+) -> None:
+    await _load_job(
+        db,
+        company_id=company_id,
+        job_id=job_id,
+    )
+
+
 async def read_import_status(
     db: AsyncSession,
     *,
