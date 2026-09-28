@@ -402,11 +402,12 @@ def main() -> None:
                 count_ms, indexes, seq = explain(
                     conn,
                     """
-                    SELECT count(id)
+                    SELECT id
                     FROM product_import_rows
                     WHERE company_id = %s
                       AND job_id = %s
                       AND status = 'VALID'
+                    LIMIT 1
                     """,
                     (company_id, job_id),
                 )
@@ -417,7 +418,7 @@ def main() -> None:
                 check(
                     "product_import_rows" not in seq
                     and count_ms < 250.0,
-                    "Execution finalization uses an indexed status slice, not a full-job scan",
+                    "Execution finalization uses indexed existence, not a full-job scan",
                     f"{count_ms:.3f}ms indexes={indexes}",
                 )
 
@@ -530,12 +531,14 @@ def main() -> None:
         ).read_text(encoding="utf-8")
         check(
             "count_job_progress(" not in execution_source
-            and execution_source.count("count_job_rows(") == 1,
+            and "job_has_rows(" in execution_source,
             "Execution loop contains no repeated full-job aggregate scan",
         )
         check(
-            validation_source.count("count_validation_outcomes(") == 1,
-            "Validation performs one final aggregate scan, not one scan per batch",
+            validation_source.count("count_job_statuses(") == 1
+            and "count_validation_outcomes(" not in validation_source
+            and "job_has_rows(" in validation_source,
+            "Validation performs one reconciliation aggregate per lifecycle, not per batch",
         )
 
         with psycopg.connect(owner) as conn:
