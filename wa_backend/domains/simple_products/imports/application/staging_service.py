@@ -11,6 +11,9 @@ from domains.simple_products.imports.application.state_machine import (
 from domains.simple_products.imports.domain.mapping import (
     mapping_complete,
 )
+from domains.simple_products.imports.domain import (
+    ProductImportTerminalError,
+)
 from domains.simple_products.imports.infrastructure.parsers import (
     MAX_IMPORT_ROWS,
     ParsedRow,
@@ -19,12 +22,17 @@ from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
     delete_job_rows,
     insert_staged_rows,
+    count_job_rows,
     load_job,
     open_tenant_session,
 )
 
 
-STAGE_BATCH = 1_000
+# The Windows SelectorEventLoop/asyncpg ORM bulk-insert path can silently
+# persist only 937/1000 rows in a single 1000-row execute. A bounded
+# 500-row batch is verified lossless on that runtime up to 50,000 rows.
+# Keep the in-transaction count check below regardless of batch size.
+STAGE_BATCH = 500
 
 
 async def stage_source(
@@ -52,6 +60,22 @@ async def stage_source(
             batch_size=STAGE_BATCH,
             max_rows=MAX_IMPORT_ROWS,
         )
+
+        # Never advance to VALIDATING or release the immutable SourceStore
+        # unless every non-empty source row is durably staged. This catches
+        # silent short-writes before commit, preserving safe rollback/retry.
+        persisted_rows = await count_job_rows(
+            db,
+            company_id=company_id,
+            job_id=job_id,
+            status="STAGED",
+        )
+        if persisted_rows != total_rows:
+            raise ProductImportTerminalError(
+                "Staging row-count mismatch: parsed "
+                f"{total_rows} rows but persisted "
+                f"{persisted_rows}; source was not released."
+            )
 
         job = await load_job(
             db,
