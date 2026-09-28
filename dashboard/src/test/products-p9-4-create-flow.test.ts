@@ -32,7 +32,7 @@ describe("Products P9.4 create flow", () => {
       "<CreateProductAdvancedSection",
     );
     expect(modal).toContain(
-      'maxWidth="max-w-4xl"',
+      'maxWidth="max-w-5xl"',
     );
     expect(modal).toContain(
       "const saveDisabled =",
@@ -55,6 +55,9 @@ describe("Products P9.4 create flow", () => {
     const commerce = read(
       "../pages/products/create/CreateProductCommerceSection.tsx",
     );
+    const familyCombobox = read(
+      "../pages/products/family/ProductFamilyCombobox.tsx",
+    );
 
     expect(identity).toContain(
       '"products.productName"',
@@ -63,19 +66,25 @@ describe("Products P9.4 create flow", () => {
       '"products.familyModeLabel"',
     );
     expect(identity).toContain(
-      "familyOptions.map",
+      "<ProductFamilyCombobox",
     );
     expect(identity).toContain(
-      "<Popover",
+      "familyOptions",
     );
-    expect(identity).toContain(
-      "<CommandInput",
+    expect(familyCombobox).toContain(
+      "options.map(",
+    );
+    expect(familyCombobox).toContain(
+      'role="combobox"',
+    );
+    expect(familyCombobox).toContain(
+      "createPortal(",
     );
     expect(identity).toContain(
       "onFamilySearchChange(",
     );
-    expect(identity).toContain(
-      "avoidCollisions={false}",
+    expect(familyCombobox).toContain(
+      "aria-controls={",
     );
     expect(identity).toContain(
       "placeholder:text-sm placeholder:font-normal placeholder:text-slate-400",
@@ -119,9 +128,12 @@ describe("Products P9.4 create flow", () => {
     );
   });
 
-  it("keeps tracking overrides and barcodes deliberate behind one advanced disclosure", () => {
+  it("keeps tracking overrides deliberate and barcodes in their dedicated section", () => {
     const advanced = read(
       "../pages/products/create/CreateProductAdvancedSection.tsx",
+    );
+    const barcode = read(
+      "../pages/products/create/CreateProductBarcodeSection.tsx",
     );
 
     expect(advanced).toContain(
@@ -131,21 +143,21 @@ describe("Products P9.4 create flow", () => {
       "createAdvancedExpanded",
     );
     expect(advanced).toContain(
-      '"products.quickCreate.advancedTitle"',
+      '"products.tracking.createChange"',
     );
     expect(advanced).toContain(
       "<ProductTrackingFields",
     );
     expect(advanced).toContain(
-      "!createTrackingExpanded ?",
+      "!trackingUsesCompanyDefaults ?",
     );
-    expect(advanced).toContain(
+    expect(barcode).toContain(
       '"products.barcodeSection"',
     );
-    expect(advanced).toContain(
+    expect(barcode).toContain(
       "onUnitBarcodeChange",
     );
-    expect(advanced).toContain(
+    expect(barcode).toContain(
       "onPackageBarcodeChange",
     );
   });
