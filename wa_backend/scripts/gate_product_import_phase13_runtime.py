@@ -147,7 +147,8 @@ check(
 )
 check(
     "worker readiness signal exists without global tenant leakage",
-    '@router.get("/import-worker/readiness")' in router
+    '"/import-worker/readiness"' in router
+    and "ImportWorkerReadinessResponse" in router
     and '"ready"' in router
     and '"queued_jobs"' not in router[
         router.index('@router.get("/import-worker/readiness")'):
