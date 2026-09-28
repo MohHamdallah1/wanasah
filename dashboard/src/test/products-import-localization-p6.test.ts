@@ -137,10 +137,10 @@ describe(
       );
 
       expect(template).toContain(
-        "AR_IMPORT_LOCALE",
+        "resolve_import_locale_pack(",
       );
       expect(template).toContain(
-        "EN_IMPORT_LOCALE",
+        "pack.rtl",
       );
       expect(template).toContain(
         "DataValidation(",
@@ -156,6 +156,21 @@ describe(
       );
       expect(downloads).toContain(
         "/simple-products/import-template?locale=",
+      );
+      expect(downloads).toContain(
+        "i18n.resolvedLanguage",
+      );
+      expect(downloads).toContain(
+        "encodeURIComponent(locale)",
+      );
+      expect(downloads).not.toContain(
+        '.split("-")[0] === "en"',
+      );
+      expect(localization).toContain(
+        "resolve_import_locale_pack(",
+      );
+      expect(localization).toContain(
+        "IMPORT_LOCALE_REGISTRY",
       );
       expect(quickGuide).toContain(
         "products.tracking.importValues.",
