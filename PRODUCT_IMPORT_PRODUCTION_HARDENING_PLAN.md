@@ -699,11 +699,22 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 - [ ] Verify the equivalent **authenticated HTTP GET** correction download,
   exact physical row-number mapping and absence of exported successful rows
   in the real Dashboard-access flow.
-- [ ] Validate correction-file contract/size/headers and exact field errors
-  across both authorized HTTP transport and repository layers;
-  deliberately test malformed identity, duplicate identity, unknown identity,
-  an `IMPORTED` identity, and a cross-tenant job. Each must fail closed
-  with **no** partial update.
+- [x] Real-job application/repository safety preflight: malformed
+  UUID, duplicate UUID, missing identity metadata, unexpected extra header,
+  forged unknown row identity, previously IMPORTED row identity, and
+  wrong-tenant job: **7/7 rejected**, with unchanged job-row status and
+  Product counts.
+- [ ] Repeat forbidden corrections through the authenticated HTTP endpoint
+  and verify response codes, permission/RLS isolation, and no row mutation.
+- [x] Prepare all **15 remaining** corrections in memory using canonical
+  package/tracking codes, explicit positive amounts and unambiguous
+  synthetic test barcodes. All 15 pass the current normalizer; all 28
+  candidate barcodes have zero active tenant conflicts and product names
+  have no existing collision.
+- [ ] Apply the 15-row correction to the **same original job** and prove
+  actual end-to-end execution, replay, and lineage. The remote mutating
+  execution was blocked by tool safety checks and was **not run**; do
+  not claim all 54 rows were imported.
 - [x] Live application-service smoke: correct the missing name on **original
   Excel row 3** through a one-row server-generated correction artifact on
   the same job; the real worker resumed it. Status changed from **38
