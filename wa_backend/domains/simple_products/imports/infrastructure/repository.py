@@ -164,9 +164,13 @@ async def insert_staged_rows(
     async def flush() -> None:
         if not batch:
             return
+        # A single explicit multi-VALUES statement avoids asyncpg
+        # executemany stalls on Windows during large staging jobs.
+        # Keep the bounded batch and stage-count reconciliation.
         await db.execute(
-            insert(ProductImportRow),
-            list(batch),
+            insert(ProductImportRow).values(
+                list(batch)
+            ),
         )
         batch.clear()
 
