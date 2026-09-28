@@ -566,20 +566,22 @@ Do **not** hardcode arbitrarily aggressive settings without evidence; tune per t
 
 ## Tasks
 
-- [ ] Review indexes for job/status/row-number batch scans.
-- [ ] Establish baseline table-health metrics for `product_import_rows` and `product_import_jobs`: live/dead tuples, autovacuum/analyze timestamps, table/index bloat, vacuum duration and transaction age.
-- [ ] Define Product Import-specific per-table autovacuum/analyze reloptions from 50k-row churn benchmarks, with materially lower thresholds/scale factors for the high-churn row table where measurements justify them.
-- [ ] Evaluate `autovacuum_vacuum_scale_factor`, `autovacuum_vacuum_threshold`, `autovacuum_analyze_scale_factor`, `autovacuum_analyze_threshold` and, where supported/appropriate, insert-vacuum settings rather than tuning only one knob.
-- [ ] Validate that the chosen settings do not create vacuum storms or starve foreground import work.
-- [ ] Add observability/alerts for autovacuum lag and sustained dead-tuple/bloat growth.
-- [ ] Re-test autovacuum tuning after the final retention/compaction policy is implemented because retention directly changes table churn.
-- [ ] Add normalized-barcode staging indexes needed for SQL duplicate joins.
-- [ ] Keep all import indexes tenant-prefixed where tenant isolation/query shape requires it.
-- [ ] Benchmark validation queries at 50k rows.
-- [ ] Benchmark import selection with large mixed VALID/INVALID/IMPORTED populations.
-- [ ] Verify no repeated full table scans.
-- [ ] Verify row locks and skip-locked behavior under concurrent workers.
-- [ ] Verify RLS plans do not cause pathological regressions.
+- [x] Review indexes for job/status/row-number batch scans.
+- [x] Establish baseline table-health metrics for `product_import_rows` and `product_import_jobs`: live/dead tuples, autovacuum/analyze timestamps, table/index bloat, vacuum duration and transaction age.
+- [x] Define Product Import-specific per-table autovacuum/analyze reloptions from 50k-row churn benchmarks, with materially lower thresholds/scale factors for the high-churn row table where measurements justify them.
+- [x] Evaluate `autovacuum_vacuum_scale_factor`, `autovacuum_vacuum_threshold`, `autovacuum_analyze_scale_factor`, `autovacuum_analyze_threshold` and, where supported/appropriate, insert-vacuum settings rather than tuning only one knob.
+- [x] Validate that the chosen settings do not create vacuum storms or starve foreground import work.
+- [x] Add observability/alerts for autovacuum lag and sustained dead-tuple/bloat growth.
+- [x] Re-test autovacuum tuning after the final retention/compaction policy is implemented because retention directly changes table churn.
+- [x] Add normalized-barcode staging indexes needed for SQL duplicate joins.
+- [x] Keep all import indexes tenant-prefixed where tenant isolation/query shape requires it.
+- [x] Benchmark validation queries at 50k rows.
+- [x] Benchmark import selection with large mixed VALID/INVALID/IMPORTED populations.
+- [x] Verify no repeated full table scans.
+- [x] Verify row locks and skip-locked behavior under concurrent workers.
+- [x] Verify RLS plans do not cause pathological regressions.
+
+> **Phase 15 closure:** the existing tenant-prefixed row/status and normalized-barcode staging indexes were verified as the correct access paths; no redundant duplicate index was added. Repeated full-job execution scans were removed, validation now performs one reconciliation aggregate per lifecycle, and 50k real-table EXPLAIN ANALYZE benchmarks verify indexed validation/execution/existence paths, SKIP LOCKED concurrency and FORCE-RLS plans. Evidence-based autovacuum/analyze reloptions plus periodic table-health/bloat/autovacuum-lag observability were added and re-tested with the final Phase 10 retention/compaction policy in place. See `domains/simple_products/imports/PHASE15_DATABASE.md` and `scripts/audit_product_import_phase15_scale.py`.
 
 ---
 
