@@ -74,13 +74,13 @@ execution_source = (
 ).read_text(
     encoding="utf-8"
 )
-router_source = (
+schemas_source = (
     BACKEND
     / "domains"
     / "simple_products"
     / "imports"
     / "api"
-    / "router.py"
+    / "schemas.py"
 ).read_text(
     encoding="utf-8"
 )
@@ -190,8 +190,8 @@ for field in (
     "pending_rows",
 ):
     check(
-        f'"{field}"'
-        in router_source
+        field
+        in schemas_source
         and field
         in contracts_source,
         f"Public Product Import contract exposes {field}",
