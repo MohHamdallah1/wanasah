@@ -813,15 +813,52 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   tests a 937/1000 mismatch is rejected before commit.
 - [x] Re-run focused backend Product Import suite: **144 tests PASS**;
   working branch HEAD after mitigation was `102bfa7`.
-- [ ] Restart the current Product Import Worker from the **new code**,
-  verify only one current worker per queue and rerun uniquely named 1k
-  *real queue* test; collect full persisted status and Product/Variant/
-  Price/Barcode lineage (not just staging).
-- [ ] Rerun uniquely named 50k *real queue* job **only after** the
-  current-worker 1k end-to-end gate passes; measure timings and all
-  source-row/created-product evidence. Treat earlier failed jobs as
-  immutable forensic fixtures; do not retry them as if source bytes
-  were still available.
+- [x] Restart the current Product Import Worker from the **new code**.
+  Its prior PID (started 14:50) was older than the staging patch (15:26),
+  explaining why the first new 1k queue attempt still reproduced the
+  historical 937/1000 short-write. Stale worker processes were stopped
+  only when no Product Import task was doing/todo, and the official visible
+  PowerShell launcher started one fresh queue worker at 15:43.
+- [x] Fresh **1,000-row real queue** test after worker restart:
+  job `e0841a8f-7ee5-4d00-b8cd-32a2b787ec90` finished
+  `COMPLETED_WITH_ERRORS` in **16.36 s**: **990 IMPORTED +
+  10 deliberately INVALID**, 990 distinct imported Variant IDs,
+  correct final physical Excel row 1001 and valid Product/Variant links.
+  Source staging and full import both passed on this size.
+- [x] Attempt a uniquely named **50,000-row real queue** job after
+  the 1k pass. Job `694ca902-eecd-4b18-b3cb-a3975df97caa`
+  was admitted and picked up by the fresh worker, but stalled in
+  `PARSING`/staging with `total_rows=0` and no committed source
+  rows. A PostgreSQL `INSERT INTO product_import_rows` connection
+  remained `active` / `ClientRead` with an unchanged query for over
+  285 seconds and worker CPU usage nearly static. The live harness
+  observed `PARSING` continuously for ~477 seconds. This run was
+  **NOT A PASS**; do not infer that 50k is production-ready.
+- [x] Safely cancel the stalled **50k job only**, through the official
+  cancellation service; after a targeted `pg_cancel_backend` failed
+  to release the stuck ClientRead, targeted
+  `pg_terminate_backend` released its transaction lock. Final
+  job state `CANCELLED`, **0 staged rows, 0 products imported**,
+  source bytes cleaned, queue wrapper task succeeded on its
+  second attempt. There is no partial Product to delete.
+- [ ] **Blocking root-cause investigation before repeating 50k:**
+  instrument the actual queue worker and source staging
+  with bounded per-batch timing/progress and DB query/wait diagnostics;
+  reproduce at intermediate sizes (e.g. 5k/10k) on the same launcher.
+  Determine why real queue staging can hang while a separate
+  50k SelectorEventLoop+500-row transaction was measured at ~10.4 s.
+  Investigate asyncpg/SQLAlchemy parameter transmission, Windows
+  event-loop behavior, connection cancellation, DB backpressure and
+  driver/transaction configuration. Do **not** guess that using a 500-row
+  batch alone fixes this second observed failure.
+- [ ] Add bounded, recoverable staging stall detection and a
+  deterministic cancel/rollback/retry contract. Cancellation waiting
+  for a stalled staging transaction must not leave the user spinning
+  forever. Prove SourceStore retention and state consistency on timeout.
+- [ ] Rerun 50k real-queue import with unique identities **only
+  after** the staging-hang root cause and fresh intermediate-size gates
+  pass. Measure actual E2E latency/resources/lineage; do not
+  overwrite or retry failed historical fixtures as new imports.
 - [ ] Verify real HTTP authorization/correction, tenant concurrency,
   cancellation/recovery and refresh/RTL/LTR for the production release.
 
