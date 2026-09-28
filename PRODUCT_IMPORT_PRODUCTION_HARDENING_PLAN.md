@@ -711,10 +711,21 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   synthetic test barcodes. All 15 pass the current normalizer; all 28
   candidate barcodes have zero active tenant conflicts and product names
   have no existing collision.
-- [ ] Apply the 15-row correction to the **same original job** and prove
-  actual end-to-end execution, replay, and lineage. The remote mutating
-  execution was blocked by tool safety checks and was **not run**; do
-  not claim all 54 rows were imported.
+- [x] Apply the 15-row correction to the **same original job** through
+  the real correction service and active worker, after deterministic
+  normalization and zero tenant-barcode conflict preflight.
+  `corrected_rows=15`, then final `COMPLETED` with
+  **54/54 IMPORTED, 0 INVALID**. Persisted correction idempotency
+  ledger for the request is completed.
+- [x] Confirm the original **39 imported variant identities were retained**
+  unchanged as members of the final set of 54 distinct variant IDs.
+  Those 15 added variants attach to **6 newly created Product parents**
+  and **9 pre-existing Product parents** (family-based grouping).
+  Baseline `products` table changed **67 → 73**, which is **correct**:
+  there is no 1:1 guarantee between import rows and Product parents.
+  The earlier helper script incorrectly expected 15 new Product parents;
+  that test assertion was fixed. Use variant and reference integrity
+  for future counts rather than an incorrect parent-count invariant.
 - [x] Live application-service smoke: correct the missing name on **original
   Excel row 3** through a one-row server-generated correction artifact on
   the same job; the real worker resumed it. Status changed from **38
@@ -726,14 +737,32 @@ structural gates, parser benchmarks, or mocked failure injection alone.
 - [ ] Repeat the same scenario via the **real authorized HTTP POST** and
   browser UX, with a lost-response/disconnect case and documented
   event-loop/runtime compatibility on the actual deployment launcher.
-- [ ] Prove earlier 38 imported rows were never re-executed or altered;
-  demonstrate the correction request's exact replay is idempotent.
-- [ ] Correct the remaining deliberately invalid rows **only after**
-  confirming their intended test values. Revalidation may reveal a second
-  independent error on a row; expose it rather than silently repairing it.
-- [ ] Verify final source-row counts/statuses, tenant/RLS isolation, barcode
-  ownership, Pricing authority, tracking defaults and no half-created
-  Products. This is an end-to-end gate, not only a unit test.
+- [x] Prove previously imported variant IDs (all 39 by the final
+  15-row correction) were retained; the earlier one-row correction's
+  exact request-ID replay returned `replayed=True` with no extra
+  Product. The final 15-row request has a completed durable
+  `operation_idempotency` ledger record.
+- [ ] Rebuild and replay the final 15-row **exact payload** against the
+  correction endpoint and verify the read-back response matches;
+  completed-job short-circuit does not itself demonstrate replay.
+- [ ] Snapshot/compare historical Product/Variant row versions and
+  price publication IDs at the same-job boundaries to verify that
+  correction did not silently mutate pre-existing rows.
+- [x] Correct the 15 remaining deliberately invalid test rows after
+  preflight. A malformed fixture command (non-canonical Arabic package
+  label) was rejected **before mutation**; the canonical code fixed it.
+  Final 15 rows each have an independent, active Variant.
+- [ ] Independently test a staged row whose next validation error is
+  revealed only after an earlier error is corrected.
+- [x] Real-database final 54-row readback: **54 distinct ACTIVE variants,
+  39 Product parents, 93 active barcodes, 96 published price entries,
+  42 commercial UOM conversions**; 42 packaged + 12 unit-only rows.
+  Per-row checks against normalized source data passed for base/outer
+  barcode, unit/outer price, tracking modes and exact UOM ratios.
+  No missing variant, parent, active barcode or published price.
+- [ ] Verify authenticated HTTP transport, variant/product versions,
+  permission revocation, all foreign-key ownership/RLS negative paths
+  and audit event contents before classing V1 release acceptance complete.
 - [x] Use the original partially successful job as the correction target;
   the all-invalid re-upload was **not** modified and no previously imported
   Product was deleted. Never upload the unchanged original XLSX again.
@@ -747,9 +776,14 @@ structural gates, parser benchmarks, or mocked failure injection alone.
   explicit package selection and a controlled mix of clean rows, deterministic
   invalid rows, empty physical Excel rows, Arabic/English/mixed headers and
   values, barcodes saved as text, packaging and tracking variations.
-- [ ] Run on an isolated **test tenant/database** with known initial state
-  and one current worker per owned queue; do not measure in the user's
-  populated test tenant or against an old/stale worker.
+- [ ] Run within the explicitly authorized **development-only**
+  PostgreSQL instance; a separate physical database is **not required**.
+  Distinguish the 50k test job by a unique run identifier, names, barcodes,
+  tenant scope (where feasible) and captured baseline. Never mix that
+  fixture with the original 54-row correction evidence or another run.
+  Require a current one-per-queue worker; record measured DB and system
+  resource pressure. Treat per-run isolation as **data attribution and
+  repeatability**, not a second mandatory DB installation.
 - [ ] Measure actual upload admission, source-store write, queue wait,
   parser/staging, validation, barcode detection, row creation, pricing
   publication and completion separately, with timings, throughput, CPU,
