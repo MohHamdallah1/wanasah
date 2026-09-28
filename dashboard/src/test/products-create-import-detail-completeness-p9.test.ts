@@ -187,7 +187,7 @@ describe(
       );
       const backend = compact(
         readSource(
-          "../../../wa_backend/product_import_localization.py",
+          "../../../wa_backend/domains/simple_products/imports/domain/localization.py",
         ),
       );
       const fields = [
