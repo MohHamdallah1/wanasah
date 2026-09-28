@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 from uuid import UUID
 
 from domains.simple_products.imports.application.source_store import (
@@ -44,7 +43,6 @@ _SOURCE_FREE_EARLY_EXIT = frozenset({
 
 @dataclass(frozen=True, slots=True)
 class ProductImportSourceContext:
-    legacy_payload: bytes | None
     source_id: UUID | None
     source_size: int
     source_sha256: str
@@ -73,14 +71,6 @@ async def _load_source_context(
             )
 
         return ProductImportSourceContext(
-            legacy_payload=(
-                bytes(
-                    job.source_payload
-                )
-                if job.source_payload
-                is not None
-                else None
-            ),
             source_id=(
                 UUID(
                     str(
@@ -135,14 +125,10 @@ async def _runtime_state(
             )
 
         has_source = (
-            job.source_payload
+            job.source_id
             is not None
-            or (
-                job.source_id
-                is not None
-                and job.source_payload_cleared_at
-                is None
-            )
+            and job.source_payload_cleared_at
+            is None
         )
         return (
             str(
@@ -159,61 +145,26 @@ async def _runtime_state(
         )
 
 
-def _verify_legacy_payload(
-    payload: bytes,
-    *,
-    expected_size: int,
-    expected_sha256: str,
-) -> None:
-    if (
-        len(
-            payload
-        )
-        != int(
-            expected_size
-        )
-        or hashlib.sha256(
-            payload
-        ).hexdigest()
-        != str(
-            expected_sha256
-        ).lower()
-    ):
-        raise ProductImportTerminalError(
-            "Legacy Product Import source hash verification failed."
-        )
-
-
 async def _read_verified_source(
     *,
     source_store: SourceStore,
     company_id: int,
     context: ProductImportSourceContext,
 ) -> bytes:
-    if context.source_id is not None:
-        return await source_store.read_verified_bytes(
-            company_id=
-                company_id,
-            source_id=
-                context.source_id,
-            expected_size=
-                context.source_size,
-            expected_sha256=
-                context.source_sha256,
+    if context.source_id is None:
+        raise ProductImportTerminalError(
+            "Import state is inconsistent and has no retained SourceStore reference."
         )
 
-    if context.legacy_payload is not None:
-        _verify_legacy_payload(
-            context.legacy_payload,
-            expected_size=
-                context.source_size,
-            expected_sha256=
-                context.source_sha256,
-        )
-        return context.legacy_payload
-
-    raise ProductImportTerminalError(
-        "Import state is inconsistent and has no retained source."
+    return await source_store.read_verified_bytes(
+        company_id=
+            company_id,
+        source_id=
+            context.source_id,
+        expected_size=
+            context.source_size,
+        expected_sha256=
+            context.source_sha256,
     )
 
 
