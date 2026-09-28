@@ -407,6 +407,7 @@ def main() -> None:
                     WHERE company_id = %s
                       AND job_id = %s
                       AND status = 'VALID'
+                    ORDER BY row_number
                     LIMIT 1
                     """,
                     (company_id, job_id),
