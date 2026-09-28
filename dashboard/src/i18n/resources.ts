@@ -1350,7 +1350,7 @@ export const resources = {
           SIMPLE_PRODUCT_FILTER_INVALID: "أحد فلاتر المنتجات غير صالح.",
           SIMPLE_PRODUCT_SORT_INVALID: "خيار فرز المنتجات غير صالح.",
           SIMPLE_PRODUCT_PRICE_FILTER_FORBIDDEN: "فلترة المنتجات حسب السعر تتطلب صلاحية عرض الأسعار.",
-          SIMPLE_PRODUCT_PACKAGE_UOM_UNSUPPORTED: "وحدة العبوة المحددة غير مدعومة في مسار المنتجات المبسط.",
+          SIMPLE_PRODUCT_PACKAGE_UOM_UNSUPPORTED: "نوع العبوة الخارجية المحدد غير مدعوم في مسار المنتجات المبسط.",
           SIMPLE_PRODUCT_PACKAGING_INVALID: "بيانات تعبئة المنتج غير صالحة.",
           SIMPLE_PRODUCT_NO_PACKAGE_FACTOR_INVALID: "المنتج بدون عبوة خارجية يجب أن يستخدم حبة واحدة كوحدة أساس.",
           SIMPLE_PRODUCT_PACKAGE_PRICE_WITHOUT_PACKAGE: "لا يمكن إدخال سعر عبوة لمنتج لا يملك عبوة خارجية.",
@@ -1566,14 +1566,20 @@ export const resources = {
             "اسم المنتج مطلوب.",
           IMPORT_NAME_TOO_LONG:
             "اسم المنتج أطول من الحد المسموح.",
+          IMPORT_PACKAGE_SELECTION_REQUIRED:
+            "اختر صراحة «بدون عبوة خارجية» أو اختر نوع العبوة الخارجية الفعلي.",
+          IMPORT_PACKAGE_TYPE_REQUIRED:
+            "نوع العبوة الخارجية مطلوب عند إدخال عدد وحدات داخل العبوة.",
+          IMPORT_NO_PACKAGE_UNITS_INVALID:
+            "عند اختيار «بدون عبوة خارجية» يجب ترك عدد الوحدات داخل العبوة فارغاً أو استخدام 1 فقط.",
           IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE:
-            "لا يمكن إضافة باركود عبوة لمنتج بدون عبوة خارجية.",
+            "لا يمكن إضافة باركود عبوة خارجية لمنتج بدون عبوة خارجية.",
           IMPORT_ROW_INVALID:
             "بيانات الصف غير صالحة للاستيراد.",
           IMPORT_PACKAGING_REQUIRED:
-            "عدد الحبات داخل العبوة مطلوب.",
+            "عدد الوحدات الأساسية داخل العبوة الخارجية مطلوب.",
           IMPORT_PACKAGING_INVALID:
-            "عدد الحبات داخل العبوة غير صالح.",
+            "عدد الوحدات الأساسية داخل العبوة الخارجية غير صالح.",
           IMPORT_FORMULA_VALUE_UNAVAILABLE:
             "تحتوي الخلية على معادلة بدون قيمة محسوبة محفوظة. استبدل المعادلة بقيمة ثابتة.",
           IMPORT_BARCODE_FORMULA_NOT_ALLOWED:
@@ -3154,14 +3160,20 @@ export const resources = {
             "Product name is required.",
           IMPORT_NAME_TOO_LONG:
             "Product name exceeds the supported length.",
+          IMPORT_PACKAGE_SELECTION_REQUIRED:
+            "Choose either No outer package or the actual outer package type.",
+          IMPORT_PACKAGE_TYPE_REQUIRED:
+            "Outer package type is required when a package unit count is supplied.",
+          IMPORT_NO_PACKAGE_UNITS_INVALID:
+            "When No outer package is selected, leave package units blank or use 1 only.",
           IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE:
-            "A package barcode cannot be supplied without an outer package.",
+            "An outer-package barcode cannot be supplied without an outer package.",
           IMPORT_ROW_INVALID:
             "The row contains invalid import data.",
           IMPORT_PACKAGING_REQUIRED:
-            "Units per package are required.",
+            "Base-unit quantity inside the outer package is required.",
           IMPORT_PACKAGING_INVALID:
-            "Units per package are invalid.",
+            "Base-unit quantity inside the outer package is invalid.",
           IMPORT_FORMULA_VALUE_UNAVAILABLE:
             "This cell contains a formula without a safe cached value. Replace the formula with a literal value.",
           IMPORT_BARCODE_FORMULA_NOT_ALLOWED:
