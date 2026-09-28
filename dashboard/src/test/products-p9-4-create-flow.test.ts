@@ -106,10 +106,10 @@ describe("Products P9.4 create flow", () => {
       "<PackageOpen",
     );
     expect(commerce).toContain(
-      '"products.unitsPerPackage"',
+      '"products.quickCreate.unitsPerPackage"',
     );
     expect(commerce).toContain(
-      '"products.packagePrice"',
+      '"products.quickCreate.packagePrice"',
     );
     expect(commerce).toContain(
       '"products.unitPrice"',
