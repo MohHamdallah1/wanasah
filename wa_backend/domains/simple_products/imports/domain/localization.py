@@ -42,6 +42,10 @@ _TRACKING_IMPORT_VALUES = (
 @dataclass(frozen=True)
 class ImportTemplateCopy:
     sheet_name: str
+    headers: Mapping[
+        str,
+        str,
+    ]
     required_note: str
     family_note: str
     default_note: str
@@ -104,6 +108,18 @@ EN_IMPORT_LOCALE = ImportLocalePack(
     rtl=False,
     template=ImportTemplateCopy(
         sheet_name="Products",
+        headers={
+            "name": "Name",
+            "family": "Family",
+            "package_uom": "Package Type",
+            "units_per_package": "Units per Package",
+            "package_price": "Package Price",
+            "unit_price": "Unit Price",
+            "unit_barcode": "Unit Barcode",
+            "package_barcode": "Package Barcode",
+            "lot_control_mode": "Lot Tracking",
+            "expiry_control_mode": "Expiry Tracking",
+        },
         required_note="Required.",
         family_note="Optional product family.",
         default_note=(
@@ -251,6 +267,18 @@ AR_IMPORT_LOCALE = ImportLocalePack(
     rtl=True,
     template=ImportTemplateCopy(
         sheet_name="المنتجات",
+        headers={
+            "name": "اسم المنتج",
+            "family": "العائلة",
+            "package_uom": "نوع العبوة",
+            "units_per_package": "عدد الوحدات في العبوة",
+            "package_price": "سعر العبوة",
+            "unit_price": "سعر الوحدة",
+            "unit_barcode": "باركود الوحدة",
+            "package_barcode": "باركود العبوة",
+            "lot_control_mode": "تتبع الدفعة",
+            "expiry_control_mode": "تتبع الصلاحية",
+        },
         required_note="مطلوب.",
         family_note="عائلة المنتج اختيارية.",
         default_note=(
