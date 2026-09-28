@@ -199,7 +199,16 @@ describe(
         "canViewPricing",
       );
       expect(filters).toContain(
-        "{canViewPricing ? (",
+        "<ProductFamilyCombobox",
+      );
+      expect(filters).toContain(
+        '"products.filters.lifecycle"',
+      );
+      expect(filters).toContain(
+        '"products.filters.trackingType"',
+      );
+      expect(filters).toContain(
+        '"products.filters.barcode"',
       );
       expect(filters).toContain(
         '<option value="ARCHIVED">',
@@ -403,6 +412,11 @@ describe(
           "../pages/products/create/CreateProductIdentitySection.tsx",
         ),
       );
+      const familyCombobox = compact(
+        readSource(
+          "../pages/products/family/ProductFamilyCombobox.tsx",
+        ),
+      );
       const manager = compact(
         readSource(
           "../pages/products/family/ProductFamiliesManager.tsx",
@@ -464,10 +478,13 @@ describe(
         "/simple-products/families?limit=200",
       );
       expect(createIdentity).toContain(
-        "{familyOptions.map(",
+        "<ProductFamilyCombobox",
       );
-      expect(createIdentity).toContain(
-        "<CommandInput",
+      expect(familyCombobox).toContain(
+        "options.map(",
+      );
+      expect(familyCombobox).toContain(
+        'role="combobox"',
       );
       expect(createIdentity).toContain(
         "onFamilySearchChange(",
