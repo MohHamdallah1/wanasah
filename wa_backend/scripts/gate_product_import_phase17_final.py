@@ -56,7 +56,7 @@ phase6_gate = read(
     "wa_backend/scripts/gate_product_import_phase6_query_plans.py"
 )
 phase6_repository = read(
-    "wa_backend/domains/simple_products/imports/infrastructure/barcode_repository.py"
+    "wa_backend/domains/simple_products/imports/infrastructure/repository.py"
 )
 phase5_tests = read(
     "wa_backend/tests/test_product_import_phase5_validation.py"
