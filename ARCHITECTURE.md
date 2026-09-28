@@ -642,9 +642,9 @@ hierarchies or mixed-product assembly configuration.
   lifecycle, permissions, mutation idempotency, tenant/RLS and release
   gates. Never add a UI business rule that contradicts backend authority.
 - **V1 release and error-correction gates:** see
-  \`PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md\` Phase 19.
+  `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` Phase 19.
 - **V2 and beyond backlog and scope separation:** see
-  \`VERSION_2_FUTURE_FEATURES.md\` sections 6–7.
+  `VERSION_2_FUTURE_FEATURES.md` sections 6–7.
 
 This is a cross-module design rule, not authorization to change existing
 Product lifecycle, quantity semantics, Pricing or warehouse flows
