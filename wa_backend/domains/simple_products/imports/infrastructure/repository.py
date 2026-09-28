@@ -456,7 +456,6 @@ async def rebuild_job_barcode_staging(
               AND rows.job_id = :job_id
               AND rows.status = 'VALID'
               AND candidate.barcode IS NOT NULL
-            ON CONFLICT DO NOTHING
             """
         ),
         {
