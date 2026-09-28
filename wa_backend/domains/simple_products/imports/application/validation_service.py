@@ -38,8 +38,8 @@ from domains.simple_products.imports.domain.normalization import (
 )
 from domains.simple_products.imports.infrastructure.repository import (
     close_tenant_session,
-    count_job_rows,
-    count_validation_outcomes,
+    count_job_statuses,
+    job_has_rows,
     fetch_validation_batch,
     invalidate_external_barcode_conflicts,
     invalidate_internal_duplicate_barcodes,
@@ -247,6 +247,8 @@ async def _validation_contract(
     dict[str, str],
     str,
     str,
+    int,
+    int,
 ] | None:
     token, db = await open_tenant_session(
         company_id
@@ -307,26 +309,36 @@ async def _validation_contract(
             job.default_expiry_control_mode
         )
 
-        (
-            valid_count,
-            invalid_count,
-            _staged_count,
-        ) = await count_validation_outcomes(
-            db,
-            company_id=company_id,
-            job_id=job_id,
+        status_counts = (
+            await count_job_statuses(
+                db,
+                company_id=company_id,
+                job_id=job_id,
+            )
         )
-        imported_count = await count_job_rows(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            status=RowStatus.IMPORTED.value,
+        valid_count = int(
+            status_counts.get(
+                RowStatus.VALID.value,
+                0,
+            )
         )
-        import_failed_count = await count_job_rows(
-            db,
-            company_id=company_id,
-            job_id=job_id,
-            status=RowStatus.IMPORT_FAILED.value,
+        invalid_count = int(
+            status_counts.get(
+                RowStatus.INVALID.value,
+                0,
+            )
+        )
+        imported_count = int(
+            status_counts.get(
+                RowStatus.IMPORTED.value,
+                0,
+            )
+        )
+        import_failed_count = int(
+            status_counts.get(
+                RowStatus.IMPORT_FAILED.value,
+                0,
+            )
         )
         durable_valid_count = (
             valid_count
@@ -357,6 +369,8 @@ async def _validation_contract(
             mapping,
             default_lot_control_mode,
             default_expiry_control_mode,
+            imported_count,
+            import_failed_count,
         )
     except Exception:
         await db.rollback()
@@ -384,6 +398,8 @@ async def validate_rows(
         mapping,
         default_lot_control_mode,
         default_expiry_control_mode,
+        imported_count,
+        import_failed_count,
     ) = contract
 
     after_row_number = 0
@@ -429,17 +445,17 @@ async def validate_rows(
             )
 
             if not rows:
-                (
-                    valid_count,
-                    invalid_count,
-                    staged_count,
-                ) = await count_validation_outcomes(
-                    db,
-                    company_id=company_id,
-                    job_id=job_id,
+                staged_rows_remain = (
+                    await job_has_rows(
+                        db,
+                        company_id=company_id,
+                        job_id=job_id,
+                        status=
+                            RowStatus.STAGED.value,
+                    )
                 )
 
-                if staged_count > 0:
+                if staged_rows_remain:
                     if (
                         after_row_number
                         > 0
@@ -451,6 +467,25 @@ async def validate_rows(
                             "Validation checkpoint is inconsistent: staged rows remain unreachable."
                         )
                 else:
+                    valid_count = (
+                        int(
+                            job.valid_rows
+                        )
+                        - int(
+                            imported_count
+                        )
+                        - int(
+                            import_failed_count
+                        )
+                    )
+                    invalid_count = int(
+                        job.failed_rows
+                    )
+                    if valid_count < 0:
+                        raise ProductImportTerminalError(
+                            "Validation durable counters are inconsistent."
+                        )
+
                     await rebuild_job_barcode_staging(
                         db,
                         company_id=company_id,
