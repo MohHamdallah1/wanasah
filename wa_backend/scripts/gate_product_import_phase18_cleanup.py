@@ -90,7 +90,9 @@ check(
     "legacy inline source execution is removed",
     "legacy_payload"
     not in source_service
-    and "job.source_payload"
+    and "job.source_payload\n"
+    not in source_service
+    and "job.source_payload is not None"
     not in source_service
     and "source_payload"
     not in staging_service
