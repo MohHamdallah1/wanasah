@@ -2,7 +2,7 @@
 
 **Status:** CANONICAL V2 BACKLOG — DO NOT DELETE OR ARCHIVE AS TEMPORARY NOTES  
 **Scope:** Product capabilities intentionally deferred from Version 1  
-**Last updated:** 2026-09-27
+**Last updated:** 2026-09-28
 
 This file is the source of truth for Product capabilities that already have meaningful backend/domain foundations but are intentionally **not exposed as active Version 1 workflows**.
 
@@ -397,7 +397,100 @@ here does not expand the V1 Product Import contract.
 
 ---
 
-## 7. Preservation rule
+## 7. ERP-derived V2 roadmap — scope-separated, company-adaptive workflows
+
+**Product design principle (permanent):** Do **not** copy enterprise ERP
+screens. Build the canonical data/authority model to represent the necessary
+business cases, then expose **only the capabilities a company needs**. A
+distributor selling cartons of juice should not have to configure industrial
+weight tolerances, nested shipping containers or assembly BOMs to create an
+ordinary Product. Simple flows remain the default; advanced paths are
+intentional, discoverable and separately permissioned.
+
+These are reference-driven **backlog items, not present V1 features**. Do not
+enable a menu because a database table, endpoint, or unit-conversion graph
+exists; require a complete end-to-end workflow and verified gates.
+
+### 7.1 Company-facing unit and package catalog (extends section 3)
+
+- [ ] Maintain stable language-neutral unit identity separately from
+  business labels, aliases, translations and company-specific availability.
+  Supply safe platform defaults with company-level enable/retire choices;
+  referenced historical identities cannot be hard-deleted.
+- [ ] Evaluate separate **stock / purchase / sale unit defaults**, as in
+  NetSuite, but do not conflate defaults with the canonical stock quantity.
+  Explicitly define conversions, prices, rounding, purchase/receipt/stock/
+  sale behavior, and audit on every consuming workflow.
+- [ ] Design product-specific **commercial packaging** separately from
+  physical logistic handling units. In Odoo, a saleable packaging has a
+  product-specific contained quantity and barcode, while a physical package
+  may contain multiple goods and is used for storage/shipping.
+- [ ] Keep units that measure dimension (mass/length/volume), quantity
+  precision/step, display localization, and business-packaging names
+  semantically distinct.
+
+### 7.2 Multiple commercial packaging levels (Advanced UOM)
+
+- [ ] Expose an intentional advanced Product Draft -> Configure ->
+  Review -> Publish workflow that connects the existing conversion graph
+  and Catalog authority to Product, Pricing, Barcode, Sales and Warehouse.
+- [ ] Define one exact, non-ambiguous conversion graph per variant; for
+  example **1 box = 10 pieces, 1 layer = 8 boxes, 1 pallet = 4 layers**
+  (SAP packaging hierarchy). Guard against conflicting routes, precision
+  loss, cycles with inconsistent factors, and incompatible quantity steps.
+- [ ] Decide unit-specific barcode/GTIN ownership, ordering/receiving/
+  picking unit defaults and display before allowing more than one outer
+  package to be sold. This is more than enabling a second dropdown.
+- [ ] Product variants may have distinct conversion ratios (Dynamics
+  example: the same shirt boxed 5-to-a-box for one size, 4-to-a-box for
+  another). Resolve conversion authority per variant, not by display label.
+- [ ] Preserve structural locking after publication until a separately
+  approved versioned Product-change/migration workflow exists.
+
+### 7.3 Independent business domains — do not hide behind Advanced UOM
+
+- [ ] **Catch-weight / variable-weight:** nominal vs actual measured
+  quantities, capture at receipt/pick/count/transfer, tolerance bands,
+  cost/price basis and stock-value reconciliation. Decimal quantities and
+  UOM scale alone are not implementation proof.
+- [ ] **Mixed SKU packs / kits / assemblies (BOM):** component identities,
+  quantity/cost/inventory accounting, assembly/disassembly, stock
+  reservation and sales semantics. A single-product conversion factor
+  cannot represent mixed goods.
+- [ ] **Physical packages / shipping handling units:** package identity,
+  nesting, mixed contents, pallet locations, gross/net weights,
+  dimensions, scanners and shipping-label workflows. A commercial
+  "carton of 24" is not automatically a tracked physical carton.
+- [ ] Treat all of the above as **separate capability decisions**. Do not
+  promise them as soon as Advanced UOM is enabled.
+
+### 7.4 ERP comparison — take the pattern, not the UI
+
+- **Odoo:** separate units of measure, product-specific packaging, and
+  physical packages; do not name all three simply "package".
+- **SAP:** use explicit multi-level packaging hierarchies and
+  deterministic unit conversions; keep the current single-level V1 flow.
+- **NetSuite:** consider purchase, stock and sale UOM defaults and their
+  lifecycle constraints; avoid three unrelated measures of inventory truth.
+- **Dynamics 365:** separate localized unit labels, product-/variant-level
+  conversion factors, and catch-weight processing.
+- **ERPNext / import UX pattern:** use human-readable field guidance,
+  original source-row numbers and deterministic correction artifacts.
+  V1 import UX/inline repair tasks live in
+  \`PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md\` **Phase 19**, not here.
+
+**Authoritative source examples:**
+- Odoo product packaging: https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/packaging.html
+- Odoo physical packages: https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/package.html
+- SAP packaging hierarchy: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/9905622a5c1f49ba84e9076fc83a9c2c/6289c4535cdeb44ce10000000a174cb4.html
+- NetSuite item UOM defaults: https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_N2212390.html
+- Dynamics unit/localization setup: https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/tasks/manage-unit-measure
+- Dynamics per-variant conversions: https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/uom-conversion-per-product-variant
+- Dynamics catch weight: https://learn.microsoft.com/en-us/dynamics365/supply-chain/warehousing/catch-weight-processing
+
+---
+
+## 8. Preservation rule
 
 This file is intentional product/architecture scope, not a temporary handoff note.
 
