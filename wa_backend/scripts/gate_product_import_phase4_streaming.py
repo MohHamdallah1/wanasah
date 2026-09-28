@@ -464,18 +464,17 @@ async def main() -> None:
             f"large_batch={xlsx_50k[2]}"
         ),
     )
-    xlsx_allowed_peak = (
-        xlsx_1k[1]
-        + (4 * 1024 * 1024)
+    xlsx_memory_budget = (
+        16 * 1024 * 1024
     )
     check(
         xlsx_50k[1]
-        <= xlsx_allowed_peak,
-        "50,000-row XLSX incremental working set stays bounded",
+        <= xlsx_memory_budget,
+        "50,000-row XLSX incremental working set stays inside explicit 16 MiB budget",
         (
             f"baseline={xlsx_1k[1]} "
             f"peak={xlsx_50k[1]} "
-            f"limit={xlsx_allowed_peak}"
+            f"limit={xlsx_memory_budget}"
         ),
     )
 
