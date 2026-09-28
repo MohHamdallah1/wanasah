@@ -18,6 +18,7 @@ from domains.simple_products.imports.application.validation_service import (
     validation_outcome,
 )
 from domains.simple_products.imports.domain.errors import (
+    import_error_field,
     ImportErrorKind,
     ProductImportTerminalError,
     classify_import_error,
@@ -33,6 +34,30 @@ from domains.simple_products.imports.infrastructure.parsers import (
 from domains.simple_products.service import (
     SimpleProductError,
 )
+
+
+class PackagingDiagnosticTests(unittest.TestCase):
+    def test_package_type_errors_name_the_package_type_column(self) -> None:
+        for code in (
+            "IMPORT_PACKAGE_SELECTION_REQUIRED",
+            "IMPORT_PACKAGE_TYPE_REQUIRED",
+            "SIMPLE_PRODUCT_PACKAGE_UOM_UNSUPPORTED",
+        ):
+            self.assertEqual(import_error_field(code), "package_uom")
+
+    def test_package_quantity_price_and_barcode_point_to_correct_columns(self) -> None:
+        self.assertEqual(
+            import_error_field("IMPORT_PACKAGING_REQUIRED"),
+            "units_per_package",
+        )
+        self.assertEqual(
+            import_error_field("SIMPLE_PRODUCT_PACKAGE_PRICE_WITHOUT_PACKAGE"),
+            "package_price",
+        )
+        self.assertEqual(
+            import_error_field("IMPORT_PACKAGE_BARCODE_WITHOUT_PACKAGE"),
+            "package_barcode",
+        )
 
 
 class StateMachineTests(
