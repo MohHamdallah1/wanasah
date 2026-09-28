@@ -410,7 +410,6 @@ async def enqueue_new_import(
                         file_name,
                         content_type,
                         source_id,
-                        source_payload,
                         source_sha256,
                         file_size,
                         status,
@@ -427,7 +426,7 @@ async def enqueue_new_import(
                         version
                     )
                     VALUES (
-                        %s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,
+                        %s,%s,%s,%s,%s,%s,%s,%s,%s,
                         'QUEUED',
                         '[]'::jsonb,
                         '{}'::jsonb,
