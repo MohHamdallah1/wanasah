@@ -133,14 +133,17 @@ class ProductImportPhase16ApiLifecycleTests(
             router_module,
             "build_product_import_template",
             return_value=b"xlsx",
-        ):
+        ) as build:
             response = self.client.get(
-                "/simple-products/import-template?locale=en"
+                "/simple-products/import-template?locale=en-US"
             )
 
         self.assertEqual(
             response.status_code,
             200,
+        )
+        build.assert_called_once_with(
+            locale="en-US"
         )
         body = response.json()
         self.assertEqual(
