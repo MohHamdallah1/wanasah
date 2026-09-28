@@ -40,8 +40,31 @@ _TRACKING_IMPORT_VALUES = (
 
 
 @dataclass(frozen=True)
+class ImportTemplateCopy:
+    sheet_name: str
+    required_note: str
+    family_note: str
+    default_note: str
+    validation_error: str
+    validation_title: str
+    barcode_validation_title: str
+    barcode_validation_error: str
+    package_note: str
+    units_note: str
+    package_price_note: str
+    unit_price_note: str
+    unit_barcode_note: str
+    package_barcode_note: str
+    package_validation_title: str
+    units_validation_title: str
+    price_validation_title: str
+
+
+@dataclass(frozen=True)
 class ImportLocalePack:
     locale: str
+    rtl: bool
+    template: ImportTemplateCopy
     header_aliases: Mapping[
         str,
         tuple[str, ...],
@@ -78,6 +101,53 @@ def normalize_import_token(
 
 EN_IMPORT_LOCALE = ImportLocalePack(
     locale="en",
+    rtl=False,
+    template=ImportTemplateCopy(
+        sheet_name="Products",
+        required_note="Required.",
+        family_note="Optional product family.",
+        default_note=(
+            "Leave blank, or choose Use default, to use the "
+            "tracking default shown in Wanasah when you upload "
+            "this file. Choose another value only for exceptions."
+        ),
+        validation_error=(
+            "Choose a value from the list, or leave the cell blank."
+        ),
+        validation_title="Product tracking",
+        barcode_validation_title="Barcode text",
+        barcode_validation_error=(
+            "Enter the complete barcode as text. "
+            "Do not use numbers, formulas, or scientific notation."
+        ),
+        package_note=(
+            "Choose the outer package type. Leave blank if the product "
+            "is sold only as individual units."
+        ),
+        units_note=(
+            "Required only when an outer package is selected. "
+            "Enter a whole number from 2 to 1,000,000."
+        ),
+        package_price_note=(
+            "Optional. Use only when an outer package is selected. "
+            "Enter a positive number."
+        ),
+        unit_price_note=(
+            "Enter a positive number when provided. At least one of "
+            "Package Price or Unit Price must be supplied per product."
+        ),
+        unit_barcode_note=(
+            "Optional. Keep the complete unit barcode as text, "
+            "especially when it starts with zero."
+        ),
+        package_barcode_note=(
+            "Optional and only valid when an outer package is selected. "
+            "Keep the complete barcode as text."
+        ),
+        package_validation_title="Package type",
+        units_validation_title="Units per package",
+        price_validation_title="Price",
+    ),
     header_aliases={
         "name": (
             "name",
@@ -178,6 +248,49 @@ EN_IMPORT_LOCALE = ImportLocalePack(
 
 AR_IMPORT_LOCALE = ImportLocalePack(
     locale="ar",
+    rtl=True,
+    template=ImportTemplateCopy(
+        sheet_name="المنتجات",
+        required_note="مطلوب.",
+        family_note="عائلة المنتج اختيارية.",
+        default_note=(
+            "اترك الخانة فارغة، أو اختر «استخدام الافتراضي»، "
+            "ليستخدم المنتج إعداد التتبع الافتراضي الظاهر في وناسة "
+            "وقت رفع الملف. اختر قيمة أخرى فقط للاستثناءات."
+        ),
+        validation_error=(
+            "اختر قيمة من القائمة، أو اترك الخانة فارغة."
+        ),
+        validation_title="تتبع المنتج",
+        barcode_validation_title="الباركود كنص",
+        barcode_validation_error=(
+            "أدخل الباركود كاملاً كنص. لا تستخدم رقماً أو معادلة أو صيغة علمية."
+        ),
+        package_note=(
+            "اختر نوع العبوة الخارجية. اترك الخانة فارغة إذا كان المنتج "
+            "يباع كوحدات مفردة فقط."
+        ),
+        units_note=(
+            "مطلوب فقط عند اختيار عبوة خارجية. أدخل عدداً صحيحاً "
+            "من 2 إلى 1,000,000."
+        ),
+        package_price_note=(
+            "اختياري، ويستخدم فقط عند وجود عبوة خارجية. أدخل رقماً موجباً."
+        ),
+        unit_price_note=(
+            "أدخل رقماً موجباً عند تعبئته. يجب توفير سعر العبوة أو سعر الوحدة "
+            "على الأقل لكل منتج."
+        ),
+        unit_barcode_note=(
+            "اختياري. احتفظ بالباركود كاملاً كنص، خصوصاً إذا بدأ بصفر."
+        ),
+        package_barcode_note=(
+            "اختياري ويقبل فقط عند وجود عبوة خارجية. احتفظ بالباركود كاملاً كنص."
+        ),
+        package_validation_title="نوع العبوة",
+        units_validation_title="عدد الوحدات",
+        price_validation_title="السعر",
+    ),
     header_aliases={
         "name": (
             "اسم المنتج",
@@ -269,6 +382,125 @@ IMPORT_LOCALE_PACKS = (
 )
 
 
+def normalize_import_locale_tag(
+    value: Any,
+) -> str:
+    return (
+        str(
+            value
+            or ""
+        )
+        .strip()
+        .replace(
+            "_",
+            "-",
+        )
+        .lower()
+    )
+
+
+def build_import_locale_registry(
+    packs: Iterable[ImportLocalePack],
+) -> dict[str, ImportLocalePack]:
+    registry: dict[
+        str,
+        ImportLocalePack,
+    ] = {}
+    for pack in packs:
+        locale = (
+            normalize_import_locale_tag(
+                pack.locale
+            )
+        )
+        if not locale:
+            raise ValueError(
+                "Import locale pack must have a locale."
+            )
+        if locale in registry:
+            raise ValueError(
+                f"Duplicate import locale pack: {locale}"
+            )
+        registry[
+            locale
+        ] = pack
+    return registry
+
+
+IMPORT_LOCALE_REGISTRY = (
+    build_import_locale_registry(
+        IMPORT_LOCALE_PACKS
+    )
+)
+
+
+def resolve_import_locale_pack(
+    locale: str | None,
+    *,
+    fallback_locale: str = "en",
+    registry: Mapping[
+        str,
+        ImportLocalePack,
+    ] = IMPORT_LOCALE_REGISTRY,
+) -> ImportLocalePack:
+    requested = (
+        normalize_import_locale_tag(
+            locale
+        )
+    )
+    candidates = [
+        candidate
+        for candidate in (
+            requested,
+            (
+                requested.split(
+                    "-",
+                    1,
+                )[0]
+                if requested
+                else ""
+            ),
+        )
+        if candidate
+    ]
+    for candidate in candidates:
+        pack = registry.get(
+            candidate
+        )
+        if pack is not None:
+            return pack
+
+    fallback = (
+        normalize_import_locale_tag(
+            fallback_locale
+        )
+    )
+    fallback_candidates = [
+        candidate
+        for candidate in (
+            fallback,
+            (
+                fallback.split(
+                    "-",
+                    1,
+                )[0]
+                if fallback
+                else ""
+            ),
+        )
+        if candidate
+    ]
+    for candidate in fallback_candidates:
+        pack = registry.get(
+            candidate
+        )
+        if pack is not None:
+            return pack
+
+    raise ValueError(
+        "Import locale registry has no usable fallback locale."
+    )
+
+
 def build_import_alias_registry(
     packs: Iterable[ImportLocalePack],
 ) -> ImportAliasRegistry:
@@ -285,7 +517,9 @@ def build_import_alias_registry(
         ] = field
 
     for pack in packs:
-        locale = pack.locale.strip()
+        locale = normalize_import_locale_tag(
+            pack.locale
+        )
         if not locale:
             raise ValueError(
                 "Import locale pack must have a locale.",
