@@ -14,6 +14,7 @@ type AuthFetch = (
 type I18nLookup = {
   exists: (key: string) => boolean;
   language: string;
+  resolvedLanguage?: string;
 };
 
 type Params = {
@@ -138,14 +139,14 @@ export function createImportDownloads({
 
   const downloadTemplate =
     async () => {
-      const locale =
-        i18n.language
-          .split("-")[0] === "en"
-          ? "en"
-          : "ar";
+      const locale = (
+        i18n.resolvedLanguage ||
+        i18n.language ||
+        "en"
+      ).trim() || "en";
       const raw =
         await authFetch(
-          `/simple-products/import-template?locale=${locale}`
+          `/simple-products/import-template?locale=${encodeURIComponent(locale)}`
         );
 
       if (
