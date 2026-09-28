@@ -264,14 +264,11 @@ class _CaptureDb:
 
     async def execute(
         self,
-        _statement,
-        parameters,
+        statement,
     ) -> None:
         self.rows.extend(
-            dict(
-                item
-            )
-            for item in parameters
+            dict(item)
+            for item in statement._multi_values[0]
         )
 
 
