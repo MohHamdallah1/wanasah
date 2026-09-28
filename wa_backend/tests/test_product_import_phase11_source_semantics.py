@@ -623,7 +623,7 @@ class Phase11BarcodeTests(
             for validation in validations
             if validation.type
             == "list"
-            and "$B$1:$B$9"
+            and "$B$1:$B$10"
             in str(
                 validation.formula1
             )
@@ -633,6 +633,11 @@ class Phase11BarcodeTests(
                 package_lists
             ),
             1,
+        )
+        self.assertFalse(
+            package_lists[
+                0
+            ].allow_blank
         )
         self.assertIn(
             "C2:C50001",
@@ -720,12 +725,13 @@ class Phase11BarcodeTests(
             ).value
             for row in range(
                 1,
-                10,
+                11,
             )
         ]
         self.assertEqual(
             package_labels,
             [
+                "بدون عبوة خارجية",
                 "كرتونة",
                 "صندوق",
                 "باكيت",
