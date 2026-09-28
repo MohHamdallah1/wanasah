@@ -279,7 +279,7 @@ try:
         in product_sheet.data_validations.dataValidation
         if validation.type
         == "list"
-        and "$B$1:$B$9"
+        and "$B$1:$B$10"
         in str(
             validation.formula1
         )
@@ -289,6 +289,9 @@ try:
             package_lists
         )
         == 1
+        and not package_lists[
+            0
+        ].allow_blank
         and "C2:C50001"
         in str(
             package_lists[
