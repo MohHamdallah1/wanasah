@@ -151,7 +151,7 @@ check(
     and "ImportWorkerReadinessResponse" in router
     and '"ready"' in router
     and '"queued_jobs"' not in router[
-        router.index('@router.get("/import-worker/readiness")'):
+        router.index('"/import-worker/readiness"'):
         router.index('@router.websocket("/imports/{job_id}/ws")')
     ],
 )
