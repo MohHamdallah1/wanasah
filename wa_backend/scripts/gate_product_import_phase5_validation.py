@@ -125,13 +125,17 @@ check(
 )
 
 check(
-    "count_validation_outcomes("
+    validation_source.count(
+        "count_job_statuses("
+    )
+    == 1
+    and "job_has_rows("
     in validation_source
     and "valid_rows="
     in validation_source
     and "failed_rows="
     in validation_source,
-    "Validation reconciles durable counters with bounded SQL aggregations",
+    "Validation reconciles durable counters once per lifecycle and uses indexed existence checkpoints",
 )
 
 check(
