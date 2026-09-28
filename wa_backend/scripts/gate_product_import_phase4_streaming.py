@@ -8,6 +8,8 @@ import tracemalloc
 from pathlib import Path
 from uuid import uuid4
 
+from openpyxl import Workbook
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "wa_backend"
@@ -97,6 +99,38 @@ def csv_payload(
     return buffer.getvalue()
 
 
+def xlsx_payload(
+    count: int,
+) -> bytes:
+    buffer = io.BytesIO()
+    workbook = Workbook(
+        write_only=True
+    )
+    sheet = workbook.create_sheet(
+        "Products"
+    )
+    sheet.append(
+        [
+            "Product",
+            "Unit Price",
+        ]
+    )
+    for index in range(
+        count
+    ):
+        sheet.append(
+            [
+                f"Product-{index:05d}",
+                "1.000",
+            ]
+        )
+    workbook.save(
+        buffer
+    )
+    workbook.close()
+    return buffer.getvalue()
+
+
 def shared_strings_xml(
     count: int,
 ) -> bytes:
@@ -120,6 +154,48 @@ def shared_strings_xml(
         b"</sst>"
     )
     return buffer.getvalue()
+
+
+async def measure_xlsx_peak(
+    count: int,
+) -> tuple[int, int, int]:
+    payload = xlsx_payload(
+        count
+    )
+    db = FakeDb()
+
+    # Source bytes/workbook bootstrap are outside the incremental working-set
+    # measurement, matching the CSV gate and Phase 12 SourceStore boundary.
+    with open_source(
+        "products.xlsx",
+        payload,
+    ) as source:
+        gc.collect()
+        tracemalloc.start()
+        try:
+            total = await insert_staged_rows(
+                db,
+                company_id=1,
+                job_id=uuid4(),
+                rows=source.rows,
+                batch_size=BATCH_SIZE,
+                max_rows=MAX_IMPORT_ROWS,
+            )
+            _current, peak = (
+                tracemalloc.get_traced_memory()
+            )
+        finally:
+            tracemalloc.stop()
+
+    return (
+        total,
+        int(
+            peak
+        ),
+        int(
+            db.max_batch
+        ),
+    )
 
 
 def measure_shared_strings_peak(
@@ -350,6 +426,56 @@ async def main() -> None:
             f"baseline={baseline_peak} "
             f"peak={fifty_k_peak} "
             f"limit={allowed_peak}"
+        ),
+    )
+
+    xlsx_1k = await measure_xlsx_peak(
+        1_000
+    )
+    xlsx_50k = await measure_xlsx_peak(
+        50_000
+    )
+    print(
+        "XLSX_MEMORY_PEAK_1000="
+        f"{xlsx_1k[1]}"
+    )
+    print(
+        "XLSX_MEMORY_PEAK_50000="
+        f"{xlsx_50k[1]}"
+    )
+    check(
+        xlsx_1k[0] == 1_000
+        and xlsx_50k[0]
+        == 50_000,
+        "50,000-row XLSX stream stages every row",
+        (
+            f"baseline_total={xlsx_1k[0]} "
+            f"large_total={xlsx_50k[0]}"
+        ),
+    )
+    check(
+        xlsx_1k[2]
+        <= BATCH_SIZE
+        and xlsx_50k[2]
+        <= BATCH_SIZE,
+        "50,000-row XLSX stream never exceeds configured staging batch",
+        (
+            f"baseline_batch={xlsx_1k[2]} "
+            f"large_batch={xlsx_50k[2]}"
+        ),
+    )
+    xlsx_allowed_peak = (
+        xlsx_1k[1]
+        + (4 * 1024 * 1024)
+    )
+    check(
+        xlsx_50k[1]
+        <= xlsx_allowed_peak,
+        "50,000-row XLSX incremental working set stays bounded",
+        (
+            f"baseline={xlsx_1k[1]} "
+            f"peak={xlsx_50k[1]} "
+            f"limit={xlsx_allowed_peak}"
         ),
     )
 
