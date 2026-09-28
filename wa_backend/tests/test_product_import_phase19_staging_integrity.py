@@ -11,9 +11,51 @@ from domains.simple_products.imports.application import (
 from domains.simple_products.imports.domain import (
     ProductImportTerminalError,
 )
+from domains.simple_products.imports.infrastructure.parsers import (
+    ParsedRow,
+)
+from domains.simple_products.imports.infrastructure.repository import (
+    insert_staged_rows,
+)
 
 
 class StageIntegrityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_staging_uses_bounded_single_statement_batches(
+        self,
+    ) -> None:
+        db = AsyncMock()
+        result = await insert_staged_rows(
+            db,
+            company_id=38,
+            job_id=uuid4(),
+            rows=(
+                ParsedRow(
+                    row_number=2 + index,
+                    raw={"Product": f"Item {index}"},
+                )
+                for index in range(1_200)
+            ),
+            batch_size=500,
+            max_rows=50_000,
+        )
+
+        self.assertEqual(result, 1_200)
+        self.assertEqual(db.execute.await_count, 3)
+        self.assertTrue(
+            all(
+                len(call.args) == 1
+                for call in db.execute.await_args_list
+            ),
+            "Do not pass executemany parameter lists to asyncpg.",
+        )
+        self.assertEqual(
+            [
+                len(call.args[0]._multi_values[0])
+                for call in db.execute.await_args_list
+            ],
+            [500, 500, 200],
+        )
+
     async def _run_with_persisted_count(
         self,
         *,
