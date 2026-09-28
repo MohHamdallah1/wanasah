@@ -185,9 +185,9 @@ export const resources = {
           clearFamilySearch:
             "مسح بحث العائلة",
           packageTypeLabel:
-            "نوع التغليف",
+            "نوع التجميع الخارجي",
           unitsPerPackage:
-            "عدد الحبات داخل {{package}}",
+            "عدد الوحدات الأساسية داخل {{package}}",
           packagePrice:
             "سعر {{package}}",
           packageBarcode:
@@ -442,8 +442,8 @@ export const resources = {
         packagingModeLabel:
           "طريقة البيع والتعبئة",
         packagingMode: {
-          withPackage: "{{package}} + حبة",
-          unitOnly: "حبة فقط",
+          withPackage: "{{package}} + وحدة أساسية",
+          unitOnly: "وحدة أساسية فقط",
         },
         packageType: "نوع العبوة",
         unitsPerPackage:
@@ -631,6 +631,15 @@ export const resources = {
           "الفراغ أو «استخدام الافتراضي» يعني لهذا الملف: الدفعة {{lot}}، الصلاحية {{expiry}}.",
         importGuideFallbackUnavailable:
           "بعد تحميل إعدادات الشركة سيعرض النظام هنا بالضبط ما سيستخدمه للفراغات.",
+        importGuidePackagingRule:
+          "اختر التعبئة الخارجية صراحة لكل منتج؛ الفراغ ليس اختياراً. حدد «بدون عبوة خارجية»، أو اختر نوع التجميع وأدخل عدد الوحدات الأساسية داخله.",
+        packageGlossary: {
+          title: "ما المقصود بالتعبئة الخارجية؟",
+          base: "الوحدة الأساسية هي وحدة الجرد لهذا الصنف في هذا المسار (EACH)، مثل قنينة مياه أو علبة مناديل كاملة. ليست بالضرورة حبة.",
+          outer: "التعبئة الخارجية هي تجميع ثابت للوحدات الأساسية من الصنف نفسه، مثل كرتونة تحتوي 12 قنينة. اختَر نوع التجميع واكتب عدد الوحدات الأساسية داخله صراحة.",
+          none: "«بدون عبوة خارجية» لا تعني أن المنتج مكشوف؛ تعني أنك لا تعرّف له مستوى تجميع أعلى. عندها أدخل سعر الوحدة الأساسية، ولا تُدخل سعر أو باركود تعبئة خارجية.",
+          limits: "هذا المسار المبسط يدعم وحدة أساسية واحدة وتعبئة خارجية واحدة بعدد ثابت صحيح؛ لا يمثّل عدة مستويات تعبئة أو طروداً مختلطة الأصناف أو البيع بوزن متغير.",
+        },
         importGuideBulkTip:
           "عندك 1,000 أو 50,000 منتج؟ لا تعبّي عمودي التتبع إذا أغلب المنتجات على الافتراضي؛ اتركهما فارغين وحدد فقط الصفوف المختلفة.",
         dropFile:
@@ -688,13 +697,13 @@ export const resources = {
           name: "اسم المنتج",
           family: "العائلة",
           sku: "SKU",
-          packageUom: "نوع العبوة",
+          packageUom: "نوع التجميع الخارجي",
           unitsPerPackage:
-            "عدد الحبات داخل العبوة",
-          packagePrice: "سعر العبوة",
-          unitPrice: "سعر الحبة",
-          unitBarcode: "باركود الحبة",
-          packageBarcode: "باركود العبوة",
+            "عدد الوحدات الأساسية داخله",
+          packagePrice: "سعر التجميع الخارجي",
+          unitPrice: "سعر الوحدة الأساسية",
+          unitBarcode: "باركود الوحدة الأساسية",
+          packageBarcode: "باركود التجميع الخارجي",
           lotControlMode: "تتبع الدفعات",
           expiryControlMode: "تتبع الصلاحية",
         },
@@ -1778,9 +1787,9 @@ export const resources = {
           clearFamilySearch:
             "Clear family search",
           packageTypeLabel:
-            "Package type",
+            "Outer-packaging type",
           unitsPerPackage:
-            "Units inside {{package}}",
+            "Base units inside {{package}}",
           packagePrice:
             "{{package}} price",
           packageBarcode:
@@ -2037,8 +2046,8 @@ export const resources = {
         packagingModeLabel:
           "Selling and packaging",
         packagingMode: {
-          withPackage: "{{package}} + unit",
-          unitOnly: "Unit only",
+          withPackage: "{{package}} + base unit",
+          unitOnly: "Base unit only",
         },
         packageType: "Package type",
         unitsPerPackage:
@@ -2226,6 +2235,15 @@ export const resources = {
           "Blank or “Use default” for this file means: batch {{lot}}, expiry {{expiry}}.",
         importGuideFallbackUnavailable:
           "Once company settings load, the exact fallback for blank cells will be shown here.",
+        importGuidePackagingRule:
+          "Choose the outer packaging explicitly for every product; blank is not a selection. Choose No outer package, or choose a type and enter its base-unit count.",
+        packageGlossary: {
+          title: "What is outer packaging?",
+          base: "A base unit is what this workflow counts for this SKU (EACH), such as one complete bottle or tissue box. It does not necessarily mean a single piece.",
+          outer: "Outer packaging is a fixed grouping of base units of the same product, such as a carton of 12 bottles. Select its type and explicitly enter the number of base units it contains.",
+          none: "No outer package does not mean the item is physically unpackaged. It means no higher grouping is configured here. Provide the base-unit price and omit any outer-packaging price or barcode.",
+          limits: "This simplified workflow supports one base unit and one fixed-count outer packaging. It does not model multiple packaging levels, mixed-SKU shipping containers or variable-weight sales.",
+        },
         importGuideBulkTip:
           "Importing 1,000 or 50,000 products? If most use the default, leave both tracking columns blank and fill only the rows that are exceptions.",
         dropFile:
@@ -2280,13 +2298,13 @@ export const resources = {
           name: "Product name",
           family: "Family",
           sku: "SKU",
-          packageUom: "Package type",
+          packageUom: "Outer-packaging type",
           unitsPerPackage:
-            "Units inside package",
-          packagePrice: "Package price",
-          unitPrice: "Unit price",
-          unitBarcode: "Unit barcode",
-          packageBarcode: "Package barcode",
+            "Base units inside packaging",
+          packagePrice: "Outer-packaging price",
+          unitPrice: "Base-unit price",
+          unitBarcode: "Base-unit barcode",
+          packageBarcode: "Outer-packaging barcode",
           lotControlMode: "Batch / lot tracking",
           expiryControlMode: "Expiry tracking",
         },
