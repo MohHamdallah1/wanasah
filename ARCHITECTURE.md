@@ -536,6 +536,76 @@ Source adapters must **not** duplicate or override Product business rules. The o
 
 ---
 
+## 17.5 PRODUCT IMPORT V1 FINAL MODULE BOUNDARY
+
+Product Import V1 is a production bulk-ingestion capability owned by
+`wa_backend/domains/simple_products/imports/`. It is a reference implementation
+of the module layering described by this constitution.
+
+### Boundary
+
+- `api/` is a transport adapter only. It owns authentication/permission entry,
+  request parsing, HTTP error mapping, and explicit Pydantic response DTOs.
+- `application/` owns import use cases and orchestration: source preparation,
+  staging, validation, execution, correction, cancellation, retention-facing
+  lifecycle, and API-facing application services.
+- `domain/` owns import state/error contracts, normalization, mapping rules,
+  source semantics, localization, and other import-specific invariants.
+- `infrastructure/` owns PostgreSQL persistence, immutable SourceStore storage,
+  CSV/XLSX parsing, Procrastinate queue integration, realtime relay, and
+  operational/table-health monitoring.
+- Product Import is an ingestion/orchestration capability. It does **not** become
+  a second Product, Pricing, UOM, barcode, Tracking, Inventory, or permission
+  authority.
+
+The application worker is deliberately thin: source preparation -> validation ->
+execution. Persistence and transport do not leak into that orchestrator, and no
+root-level Product Import business module is an approved runtime entry point.
+
+### Execution semantics
+
+- Every job is durably identified by tenant-scoped `company_id + job_id`.
+- Source bytes execute only through the immutable `SourceStore` contract.
+  Inline/legacy source-payload execution is not an allowed runtime fallback.
+- Source hash/size verification precedes parsing and retry parsing.
+- Parsing/staging is bounded and transactional; a parser/worker crash cannot
+  commit a half-staged source.
+- Validation is best-effort across rows: deterministic invalid rows are recorded
+  while unrelated valid rows continue.
+- Execution is atomic for each committed Product/Pricing unit and idempotent by
+  durable row identity. Duplicate delivery or retry after a successful commit
+  replays durable evidence instead of creating a Product twice.
+- Unexpected database/system failures remain retryable job failures; they are
+  never converted into fabricated row errors.
+- The worker revalidates the active actor and required permissions before further
+  Product/Pricing writes. Permission revocation after queueing therefore fails
+  closed.
+- Cancellation shares the durable job-row transaction boundary with bounded
+  validation/execution batches. Already committed units remain valid lineage;
+  future effects stop.
+- Company-scoped queue serialization is retained while imports share the
+  company-default Pricing publication aggregate. Cross-company jobs may execute
+  concurrently.
+
+### Scale, isolation, and operations
+
+- CSV/XLSX staging has explicit 50,000-row bounded-memory gates.
+- Barcode validation is set-based/database-backed; import-sized Python candidate
+  collections and giant parameterized `IN` lists are forbidden.
+- Tenant-prefixed staging indexes plus PostgreSQL FORCE RLS remain defense in
+  depth; API, application, worker, and repository paths all carry explicit
+  tenant scope.
+- User-facing failures expose stable safe codes/DTOs. SQL, constraints, and
+  stack traces remain server-log-only with correlation IDs.
+- The canonical worker launcher is
+  `wa_backend/scripts/run_product_import_worker.ps1`; operational recovery and
+  release verification are documented in
+  `wa_backend/domains/simple_products/imports/RUNBOOK.md`.
+- New ingestion channels must enter through the same canonical application/domain
+  authority rather than reviving a root compatibility importer.
+
+---
+
 ## 18. PERMANENT DECISION SUMMARY
 
 1. **Company/tenant isolation is absolute and fail-closed.**
