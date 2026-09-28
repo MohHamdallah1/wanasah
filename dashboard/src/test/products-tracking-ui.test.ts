@@ -162,7 +162,10 @@ describe("products tracking UI contracts", () => {
       "trackingUsesCompanyDefaults",
     );
     expect(createAdvanced).toContain(
-      "!createTrackingExpanded ?",
+      "createAdvancedExpanded ?",
+    );
+    expect(createAdvanced).toContain(
+      "!createAdvancedExpanded && trackingReady && !createTrackingExpanded",
     );
     expect(createAdvanced).toContain(
       '"products.tracking.createChange"',
@@ -171,7 +174,10 @@ describe("products tracking UI contracts", () => {
       '"products.tracking.createReset"',
     );
     expect(createAdvanced).toContain(
-      '"products.tracking.createOnlyThisProduct"',
+      '"products.tracking.createCustomScope"',
+    );
+    expect(createAdvanced).toContain(
+      "!trackingUsesCompanyDefaults ?",
     );
 
     expect(translations).toContain(
