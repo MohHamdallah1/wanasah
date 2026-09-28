@@ -111,12 +111,12 @@ EN_IMPORT_LOCALE = ImportLocalePack(
         headers={
             "name": "Name",
             "family": "Family",
-            "package_uom": "Package Type",
-            "units_per_package": "Units per Package",
-            "package_price": "Package Price",
+            "package_uom": "Outer Package Type",
+            "units_per_package": "Base Units per Outer Package",
+            "package_price": "Outer Package Price",
             "unit_price": "Unit Price",
             "unit_barcode": "Unit Barcode",
-            "package_barcode": "Package Barcode",
+            "package_barcode": "Outer Package Barcode",
             "lot_control_mode": "Lot Tracking",
             "expiry_control_mode": "Expiry Tracking",
         },
@@ -137,16 +137,18 @@ EN_IMPORT_LOCALE = ImportLocalePack(
             "Do not use numbers, formulas, or scientific notation."
         ),
         package_note=(
-            "Choose the outer package type. Leave blank if the product "
-            "is sold only as individual units."
+            "Required: choose No outer package, or choose the actual outer "
+            "package type used for this product."
         ),
         units_note=(
-            "Required only when an outer package is selected. "
-            "Enter a whole number from 2 to 1,000,000."
+            "Required when an outer package is selected. Enter how many base "
+            "units it contains, from 2 to 1,000,000. Example: "
+            "1 carton = 24 base units. Leave blank only when "
+            "No outer package is selected."
         ),
         package_price_note=(
-            "Optional. Use only when an outer package is selected. "
-            "Enter a positive number."
+            "Optional. Use only for a real outer package. Enter a positive "
+            "number. Leave blank when No outer package is selected."
         ),
         unit_price_note=(
             "Enter a positive number when provided. At least one of "
@@ -157,8 +159,8 @@ EN_IMPORT_LOCALE = ImportLocalePack(
             "especially when it starts with zero."
         ),
         package_barcode_note=(
-            "Optional and only valid when an outer package is selected. "
-            "Keep the complete barcode as text."
+            "Optional and valid only for a real outer package. Keep the "
+            "complete barcode as text."
         ),
         package_validation_title="Package type",
         units_validation_title="Units per package",
@@ -180,10 +182,13 @@ EN_IMPORT_LOCALE = ImportLocalePack(
         "package_uom": (
             "package",
             "package type",
+            "outer package type",
             "outer package",
             "package uom",
         ),
         "units_per_package": (
+            "base units per outer package",
+            "units per outer package",
             "units per package",
             "units/package",
             "pieces per package",
@@ -195,6 +200,7 @@ EN_IMPORT_LOCALE = ImportLocalePack(
             "packs per carton",
         ),
         "package_price": (
+            "outer package price",
             "package price",
             "outer price",
             "carton price",
@@ -211,6 +217,7 @@ EN_IMPORT_LOCALE = ImportLocalePack(
             "each barcode",
         ),
         "package_barcode": (
+            "outer package barcode",
             "package barcode",
             "outer barcode",
             "carton barcode",
@@ -255,9 +262,10 @@ EN_IMPORT_LOCALE = ImportLocalePack(
         "crate": "CRATE",
         "bundle": "BUNDLE",
         "pallet": "PALLET",
-        "none": "NONE",
+        "no outer package": "NONE",
         "no package": "NONE",
         "unit only": "NONE",
+        "none": "NONE",
     },
 )
 
@@ -270,12 +278,12 @@ AR_IMPORT_LOCALE = ImportLocalePack(
         headers={
             "name": "اسم المنتج",
             "family": "العائلة",
-            "package_uom": "نوع العبوة",
-            "units_per_package": "عدد الوحدات في العبوة",
-            "package_price": "سعر العبوة",
+            "package_uom": "نوع العبوة الخارجية",
+            "units_per_package": "عدد الوحدات الأساسية داخل العبوة الخارجية",
+            "package_price": "سعر العبوة الخارجية",
             "unit_price": "سعر الوحدة",
             "unit_barcode": "باركود الوحدة",
-            "package_barcode": "باركود العبوة",
+            "package_barcode": "باركود العبوة الخارجية",
             "lot_control_mode": "تتبع الدفعة",
             "expiry_control_mode": "تتبع الصلاحية",
         },
@@ -295,15 +303,17 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "أدخل الباركود كاملاً كنص. لا تستخدم رقماً أو معادلة أو صيغة علمية."
         ),
         package_note=(
-            "اختر نوع العبوة الخارجية. اترك الخانة فارغة إذا كان المنتج "
-            "يباع كوحدات مفردة فقط."
+            "اختيار إلزامي: اختر «بدون عبوة خارجية» إذا كان المنتج يباع "
+            "كوحدة أساسية فقط، أو اختر نوع العبوة الخارجية الفعلي."
         ),
         units_note=(
-            "مطلوب فقط عند اختيار عبوة خارجية. أدخل عدداً صحيحاً "
-            "من 2 إلى 1,000,000."
+            "مطلوب عند اختيار عبوة خارجية: أدخل عدد الوحدات الأساسية "
+            "داخلها من 2 إلى 1,000,000. مثال: كرتونة فيها 24 وحدة "
+            "أساسية = 24. اتركه فارغاً فقط عند اختيار «بدون عبوة خارجية»."
         ),
         package_price_note=(
-            "اختياري، ويستخدم فقط عند وجود عبوة خارجية. أدخل رقماً موجباً."
+            "اختياري، ويستخدم فقط لعبوة خارجية فعلية. أدخل رقماً موجباً، "
+            "واتركه فارغاً عند اختيار «بدون عبوة خارجية»."
         ),
         unit_price_note=(
             "أدخل رقماً موجباً عند تعبئته. يجب توفير سعر العبوة أو سعر الوحدة "
@@ -313,7 +323,7 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "اختياري. احتفظ بالباركود كاملاً كنص، خصوصاً إذا بدأ بصفر."
         ),
         package_barcode_note=(
-            "اختياري ويقبل فقط عند وجود عبوة خارجية. احتفظ بالباركود كاملاً كنص."
+            "اختياري ويقبل فقط لعبوة خارجية فعلية. احتفظ بالباركود كاملاً كنص."
         ),
         package_validation_title="نوع العبوة",
         units_validation_title="عدد الوحدات",
@@ -332,11 +342,15 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "عائلة المنتج",
         ),
         "package_uom": (
+            "نوع العبوة الخارجية",
             "نوع العبوة",
+            "العبوة الخارجية",
             "العبوة",
             "وحدة العبوة",
         ),
         "units_per_package": (
+            "عدد الوحدات الأساسية داخل العبوة الخارجية",
+            "عدد الوحدات داخل العبوة الخارجية",
             "عدد الوحدات في العبوة",
             "عدد الحبات في العبوة",
             "عدد الحبات في الكرتونة",
@@ -345,6 +359,7 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "عدد القطع في الكرتونة",
         ),
         "package_price": (
+            "سعر العبوة الخارجية",
             "سعر العبوة",
             "سعر الكرتونة",
             "سعر كرتونة",
@@ -361,6 +376,7 @@ AR_IMPORT_LOCALE = ImportLocalePack(
             "باركود",
         ),
         "package_barcode": (
+            "باركود العبوة الخارجية",
             "باركود العبوة",
             "باركود الكرتونة",
         ),
@@ -397,8 +413,9 @@ AR_IMPORT_LOCALE = ImportLocalePack(
         "قفص": "CRATE",
         "حزمة": "BUNDLE",
         "طبلية": "PALLET",
-        "بدون": "NONE",
+        "بدون عبوة خارجية": "NONE",
         "بدون عبوة": "NONE",
+        "بدون": "NONE",
         "لا يوجد": "NONE",
     },
 )
