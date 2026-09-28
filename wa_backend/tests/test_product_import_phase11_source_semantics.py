@@ -511,19 +511,23 @@ class Phase11BarcodeTests(
         validations = list(
             sheet.data_validations.dataValidation
         )
-        custom = [
+        barcode_custom = [
             validation
             for validation in validations
             if validation.type
             == "custom"
+            and "ISTEXT("
+            in str(
+                validation.formula1
+            )
         ]
         self.assertEqual(
             len(
-                custom
+                barcode_custom
             ),
             2,
         )
-        for validation in custom:
+        for validation in barcode_custom:
             self.assertIn(
                 "ISTEXT(",
                 str(
@@ -539,6 +543,200 @@ class Phase11BarcodeTests(
                     validation.sqref
                 ),
             )
+        workbook.close()
+
+    def test_company_template_has_polished_layout_and_guided_entry_rules(
+        self,
+    ) -> None:
+        payload = (
+            build_product_import_template(
+                locale="ar"
+            )
+        )
+        workbook = load_workbook(
+            io.BytesIO(
+                payload
+            )
+        )
+        sheet = workbook[
+            "المنتجات"
+        ]
+
+        self.assertEqual(
+            sheet["A1"].fill.fgColor.rgb,
+            "00475569",
+        )
+        self.assertEqual(
+            sheet.row_dimensions[
+                1
+            ].height,
+            30,
+        )
+        self.assertEqual(
+            sheet.column_dimensions[
+                "E"
+            ].width,
+            14,
+        )
+        self.assertEqual(
+            sheet.column_dimensions[
+                "F"
+            ].width,
+            14,
+        )
+        self.assertEqual(
+            sheet.column_dimensions[
+                "I"
+            ].width,
+            16,
+        )
+        self.assertEqual(
+            sheet.column_dimensions[
+                "J"
+            ].width,
+            16,
+        )
+        self.assertEqual(
+            sheet.column_dimensions[
+                "D"
+            ].number_format,
+            "0",
+        )
+        self.assertEqual(
+            sheet.column_dimensions[
+                "E"
+            ].number_format,
+            "0.000",
+        )
+        self.assertEqual(
+            sheet.column_dimensions[
+                "F"
+            ].number_format,
+            "0.000",
+        )
+
+        validations = list(
+            sheet.data_validations.dataValidation
+        )
+        package_lists = [
+            validation
+            for validation in validations
+            if validation.type
+            == "list"
+            and "$B$1:$B$9"
+            in str(
+                validation.formula1
+            )
+        ]
+        self.assertEqual(
+            len(
+                package_lists
+            ),
+            1,
+        )
+        self.assertIn(
+            "C2:C50001",
+            str(
+                package_lists[
+                    0
+                ].sqref
+            ),
+        )
+
+        unit_rules = [
+            validation
+            for validation in validations
+            if validation.type
+            == "custom"
+            and "D2=INT(D2)"
+            in str(
+                validation.formula1
+            )
+        ]
+        self.assertEqual(
+            len(
+                unit_rules
+            ),
+            1,
+        )
+        self.assertIn(
+            "D2:D50001",
+            str(
+                unit_rules[
+                    0
+                ].sqref
+            ),
+        )
+
+        package_barcode_rules = [
+            validation
+            for validation in validations
+            if validation.type
+            == "custom"
+            and "H2"
+            in str(
+                validation.formula1
+            )
+            and "C2<>"
+            in str(
+                validation.formula1
+            )
+        ]
+        self.assertEqual(
+            len(
+                package_barcode_rules
+            ),
+            1,
+        )
+
+        self.assertIsNotNone(
+            sheet[
+                "C1"
+            ].comment
+        )
+        self.assertIsNotNone(
+            sheet[
+                "D1"
+            ].comment
+        )
+        self.assertIsNotNone(
+            sheet[
+                "E1"
+            ].comment
+        )
+        self.assertIsNotNone(
+            sheet[
+                "H1"
+            ].comment
+        )
+
+        list_sheet = workbook[
+            "_wanasah_lists"
+        ]
+        package_labels = [
+            list_sheet.cell(
+                row=row,
+                column=2,
+            ).value
+            for row in range(
+                1,
+                10,
+            )
+        ]
+        self.assertEqual(
+            package_labels,
+            [
+                "كرتونة",
+                "صندوق",
+                "باكيت",
+                "كيس",
+                "شوال",
+                "صينية",
+                "قفص",
+                "حزمة",
+                "طبلية",
+            ],
+        )
         workbook.close()
 
     def test_numeric_xlsx_barcode_is_rejected_as_unsafe(
