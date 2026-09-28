@@ -357,32 +357,48 @@ def main() -> None:
             )
             """
         )
-        conn.execute(
-            f"ANALYZE {PLAN_TABLE}"
-        )
-
         internal_sql = f"""
-            WITH duplicate_barcodes AS (
-                SELECT barcode
+            WITH barcode_occurrences AS MATERIALIZED (
+                SELECT
+                    row_number,
+                    COUNT(*) OVER (
+                        PARTITION BY barcode
+                    ) AS occurrences
                 FROM {PLAN_TABLE}
                 WHERE company_id = %s
                   AND job_id = %s
-                GROUP BY barcode
-                HAVING COUNT(*) > 1
             )
-            SELECT DISTINCT staged.row_number
-            FROM {PLAN_TABLE} AS staged
-            JOIN duplicate_barcodes AS duplicates
-              ON duplicates.barcode = staged.barcode
-            WHERE staged.company_id = %s
-              AND staged.job_id = %s
+            SELECT DISTINCT row_number
+            FROM barcode_occurrences
+            WHERE occurrences > 1
         """
-        internal_plan = explain(
+        # This used to take minutes on a real 50k job: staging has no
+        # committed rows visible to autovacuum before the validating
+        # transaction finishes, and the old self-join picked an N^2 loop.
+        # EXPLAIN ANALYZE BEFORE ANALYZE proves correctness under stale
+        # cardinality estimates, not merely after the plan is tuned.
+        stale_internal_plan = explain(
             conn,
             internal_sql,
             (
                 company_id,
                 target_job,
+            ),
+        )
+        check(
+            any(
+                node.get("Node Type") == "WindowAgg"
+                for node in walk_plan(stale_internal_plan)
+            ),
+            "50k internal-duplicate scan stays single-pass before ANALYZE",
+        )
+        conn.execute(
+            f"ANALYZE {PLAN_TABLE}"
+        )
+        internal_plan = explain(
+            conn,
+            internal_sql,
+            (
                 company_id,
                 target_job,
             ),
