@@ -659,6 +659,8 @@ export const resources = {
         newImport: "رفع ملف مصحح / استيراد جديد",
         rowNumber: "الصف {{row}}",
         importFailed:
+          "فشلت عملية الاستيراد بأمان. لم يترك النظام منتجاً نصف مكتمل.",
+        importFailedAfterRetries:
           "فشلت العملية بعد محاولات الإعادة. لم يترك النظام منتجاً نصف مكتمل.",
         importCancelled:
           "تم إلغاء الاستيراد بأمان. احتُفظ فقط بالصفوف التي اكتملت معاملاتها قبل الإلغاء.",
@@ -2246,6 +2248,8 @@ export const resources = {
         newImport: "Upload corrected file / new import",
         rowNumber: "Row {{row}}",
         importFailed:
+          "The import failed safely. No half-created product was left behind.",
+        importFailedAfterRetries:
           "The import failed after retries. No half-created product was left behind.",
         importCancelled:
           "The import was cancelled safely. Only rows whose transactions completed before cancellation were kept.",
