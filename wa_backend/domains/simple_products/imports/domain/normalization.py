@@ -74,11 +74,11 @@ def package_code(
         )
         return normalize_package_code(canonical)
 
+    if has_package_column:
+        return None
+
     if has_units_column:
         return "CARTON"
-
-    if not has_package_column:
-        return None
 
     return None
 
