@@ -477,7 +477,7 @@ exists; require a complete end-to-end workflow and verified gates.
 - **ERPNext / import UX pattern:** use human-readable field guidance,
   original source-row numbers and deterministic correction artifacts.
   V1 import UX/inline repair tasks live in
-  \`PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md\` **Phase 19**, not here.
+  `PRODUCT_IMPORT_PRODUCTION_HARDENING_PLAN.md` **Phase 19**, not here.
 
 **Authoritative source examples:**
 - Odoo product packaging: https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/packaging.html
@@ -487,6 +487,7 @@ exists; require a complete end-to-end workflow and verified gates.
 - Dynamics unit/localization setup: https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/tasks/manage-unit-measure
 - Dynamics per-variant conversions: https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/uom-conversion-per-product-variant
 - Dynamics catch weight: https://learn.microsoft.com/en-us/dynamics365/supply-chain/warehousing/catch-weight-processing
+- ERPNext data-import UX: https://docs.frappe.io/erpnext/data-import
 
 ---
 
