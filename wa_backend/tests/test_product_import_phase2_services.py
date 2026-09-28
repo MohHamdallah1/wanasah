@@ -30,6 +30,9 @@ from domains.simple_products.imports.infrastructure.parsers import (
     SourceParser,
     open_source,
 )
+from domains.simple_products.service import (
+    SimpleProductError,
+)
 
 
 class StateMachineTests(
