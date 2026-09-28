@@ -178,18 +178,10 @@ def build_product_import_template(
         formula1="='_wanasah_lists'!$B$1:$B$9",
         allow_blank=True,
     )
-    package_validation.errorTitle = copy[
-        "package_validation_title"
-    ]
-    package_validation.error = copy[
-        "validation_error"
-    ]
-    package_validation.promptTitle = copy[
-        "package_validation_title"
-    ]
-    package_validation.prompt = copy[
-        "package_note"
-    ]
+    package_validation.errorTitle = copy.package_validation_title
+    package_validation.error = copy.validation_error
+    package_validation.promptTitle = copy.package_validation_title
+    package_validation.prompt = copy.package_note
     package_validation.showErrorMessage = True
     package_validation.showInputMessage = True
     sheet.add_data_validation(
@@ -209,18 +201,10 @@ def build_product_import_template(
         ),
         allow_blank=False,
     )
-    units_validation.errorTitle = copy[
-        "units_validation_title"
-    ]
-    units_validation.error = copy[
-        "units_note"
-    ]
-    units_validation.promptTitle = copy[
-        "units_validation_title"
-    ]
-    units_validation.prompt = copy[
-        "units_note"
-    ]
+    units_validation.errorTitle = copy.units_validation_title
+    units_validation.error = copy.units_note
+    units_validation.promptTitle = copy.units_validation_title
+    units_validation.prompt = copy.units_note
     units_validation.showErrorMessage = True
     units_validation.showInputMessage = True
     sheet.add_data_validation(
@@ -239,18 +223,10 @@ def build_product_import_template(
         ),
         allow_blank=True,
     )
-    package_price_validation.errorTitle = copy[
-        "price_validation_title"
-    ]
-    package_price_validation.error = copy[
-        "package_price_note"
-    ]
-    package_price_validation.promptTitle = copy[
-        "price_validation_title"
-    ]
-    package_price_validation.prompt = copy[
-        "package_price_note"
-    ]
+    package_price_validation.errorTitle = copy.price_validation_title
+    package_price_validation.error = copy.package_price_note
+    package_price_validation.promptTitle = copy.price_validation_title
+    package_price_validation.prompt = copy.package_price_note
     package_price_validation.showErrorMessage = True
     package_price_validation.showInputMessage = True
     sheet.add_data_validation(
@@ -268,18 +244,10 @@ def build_product_import_template(
         ),
         allow_blank=True,
     )
-    unit_price_validation.errorTitle = copy[
-        "price_validation_title"
-    ]
-    unit_price_validation.error = copy[
-        "unit_price_note"
-    ]
-    unit_price_validation.promptTitle = copy[
-        "price_validation_title"
-    ]
-    unit_price_validation.prompt = copy[
-        "unit_price_note"
-    ]
+    unit_price_validation.errorTitle = copy.price_validation_title
+    unit_price_validation.error = copy.unit_price_note
+    unit_price_validation.promptTitle = copy.price_validation_title
+    unit_price_validation.prompt = copy.unit_price_note
     unit_price_validation.showErrorMessage = True
     unit_price_validation.showInputMessage = True
     sheet.add_data_validation(
@@ -332,13 +300,9 @@ def build_product_import_template(
             allow_blank=True,
         )
         barcode_validation.errorTitle = (
-            copy[
-                "barcode_validation_title"
-            ]
+            copy.barcode_validation_title
         )
-        barcode_validation.error = copy[
-            "barcode_validation_error"
-        ]
+        barcode_validation.error = copy.barcode_validation_error
         barcode_validation.showErrorMessage = True
         sheet.add_data_validation(
             barcode_validation
@@ -401,21 +365,13 @@ def build_product_import_template(
             allow_blank=True,
         )
         validation.errorTitle = (
-            copy[
-                "validation_title"
-            ]
+            copy.validation_title
         )
-        validation.error = copy[
-            "validation_error"
-        ]
+        validation.error = copy.validation_error
         validation.promptTitle = (
-            copy[
-                "validation_title"
-            ]
+            copy.validation_title
         )
-        validation.prompt = copy[
-            "default_note"
-        ]
+        validation.prompt = copy.default_note
         validation.showErrorMessage = True
         validation.showInputMessage = True
 
