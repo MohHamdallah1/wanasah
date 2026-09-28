@@ -32,7 +32,7 @@ from domains.simple_products.imports.domain.errors import (
 from domains.simple_products.imports.infrastructure.repository import (
     ProductImportProgress,
     close_tenant_session,
-    count_job_rows,
+    job_has_rows,
     list_job_rows,
     load_active_actor,
     load_job,
@@ -648,8 +648,8 @@ async def execute_import(
             )
 
             if not rows:
-                pending_valid_rows = (
-                    await count_job_rows(
+                valid_rows_remain = (
+                    await job_has_rows(
                         db,
                         company_id=
                             company_id,
@@ -659,8 +659,7 @@ async def execute_import(
                     )
                 )
                 if (
-                    pending_valid_rows
-                    > 0
+                    valid_rows_remain
                 ):
                     # A concurrent delivery may own rows hidden by SKIP LOCKED.
                     # Count only the indexed VALID slice; never rescan the
