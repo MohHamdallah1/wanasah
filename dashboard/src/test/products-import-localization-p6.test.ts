@@ -97,6 +97,9 @@ describe(
       expect(glossary).toContain("TooltipTrigger");
       expect(glossary).toContain("aria-label");
       expect(glossary).toContain("products.packageGlossary.limits");
+      expect(glossary).toContain("products.packageGlossary.examplesTitle");
+      expect(glossary).toContain('<table');
+      expect(glossary).toContain('scope="row"');
       expect(
         translations.split("packageGlossary:").length - 1,
       ).toBe(2);
