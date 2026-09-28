@@ -167,10 +167,10 @@ i18n_source = (
 )
 
 create_start = router_source.index(
-    '@router.post("/imports", status_code=202)'
+    "async def create_product_import("
 )
 create_end = router_source.index(
-    "\n\ndef _job_payload(",
+    "async def get_product_import(",
     create_start,
 )
 create_source = router_source[
