@@ -452,7 +452,10 @@ async def _require_manage(
         )
 
 
-@router.get("/import-template")
+@router.get(
+    "/import-template",
+    response_model=ImportTemplateResponse,
+)
 async def get_product_import_template(
     locale: str = Query(
         "ar",
@@ -479,7 +482,10 @@ async def get_product_import_template(
     }
 
 
-@router.get("/import-worker/readiness")
+@router.get(
+    "/import-worker/readiness",
+    response_model=ImportWorkerReadinessResponse,
+)
 async def get_product_import_worker_readiness(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -631,7 +637,11 @@ async def product_import_progress_websocket(
         )
 
 
-@router.post("/imports", status_code=202)
+@router.post(
+    "/imports",
+    status_code=202,
+    response_model=ImportCreateResponse,
+)
 async def create_product_import(
     request: Request,
     request_id: UUID = Form(...),
@@ -645,142 +655,18 @@ async def create_product_import(
         db,
         actor,
     )
-
-    file_name = str(
-        file.filename
-        or ""
-    ).strip()
-    if (
-        not file_name
-        or len(
-            file_name
-        ) > 255
-        or "\x00" in file_name
-    ):
-        await file.close()
-        raise HTTPException(
-            422,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_FILE_NAME_INVALID",
-                "message":
-                    "Invalid file name.",
-                "context": {},
-            },
-        )
-
-    suffix = (
-        "."
-        + file_name.lower().rsplit(
-            ".",
-            1,
-        )[-1]
-        if "." in file_name
-        else ""
+    (
+        file_name,
+        content_type,
+        bounded_upload,
+    ) = await _parse_new_import_upload(
+        request,
+        file,
     )
-    if suffix not in _ALLOWED_IMPORT_SUFFIXES:
-        await file.close()
-        raise HTTPException(
-            415,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_FILE_TYPE_UNSUPPORTED",
-                "message":
-                    "Upload a CSV or XLSX file.",
-                "context": {},
-            },
-        )
-
-    # Client MIME is intentionally ignored as authority.
-    bounded_upload = None
-    try:
-        bounded_upload = (
-            await spool_upload_bounded(
-                file,
-                max_bytes=
-                    MAX_IMPORT_FILE_BYTES,
-            )
-        )
-    except ProductImportUploadTooLarge as exc:
-        raise HTTPException(
-            413,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_FILE_TOO_LARGE",
-                "message":
-                    "The import file is larger than 8MB.",
-                "context": {
-                    "max_bytes":
-                        MAX_IMPORT_FILE_BYTES,
-                },
-            },
-        ) from exc
-    finally:
-        await file.close()
-
-    if (
-        bounded_upload
-        is None
-        or int(
-            bounded_upload.byte_size
-        ) <= 0
-    ):
-        if bounded_upload is not None:
-            bounded_upload.close()
-        raise HTTPException(
-            422,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_FILE_EMPTY",
-                "message":
-                    "The import file is empty.",
-                "context": {},
-            },
-        )
 
     try:
-        content_type = (
-            validate_source_content(
-                file_name,
-                bounded_upload.stream,
-            )
-        )
-    except ProductImportTerminalError as exc:
-        _log_api_exception(
-            request,
-            exc,
-            code=exc.code,
-        )
-        bounded_upload.close()
-        raise HTTPException(
-            422,
-            detail={
-                "code":
-                    exc.code,
-                "message":
-                    exc.user_message,
-                "context":
-                    _error_context(
-                        request,
-                        exc.context,
-                    ),
-            },
-        ) from exc
-
-    try:
-        tracking_defaults = (
-            await resolve_product_tracking_modes(
-                db,
-                company_id=int(
-                    actor.company_id
-                ),
-                lot_control_mode=
-                    default_lot_control_mode,
-                expiry_control_mode=
-                    default_expiry_control_mode,
-            )
-        )
-        queued = await enqueue_new_import(
+        result = await create_import(
+            db,
             company_id=int(
                 actor.company_id
             ),
@@ -796,12 +682,10 @@ async def create_product_import(
                 bounded_upload.byte_size,
             source_sha256=
                 bounded_upload.sha256,
-            default_lot_control_mode=(
-                tracking_defaults.lot_control_mode
-            ),
-            default_expiry_control_mode=(
-                tracking_defaults.expiry_control_mode
-            ),
+            default_lot_control_mode=
+                default_lot_control_mode,
+            default_expiry_control_mode=
+                default_expiry_control_mode,
         )
     except ProductTrackingError as exc:
         raise HTTPException(
@@ -892,110 +776,18 @@ async def create_product_import(
     finally:
         bounded_upload.close()
 
-    return {
-        "job_id":
-            str(
-                queued[
-                    "job_id"
-                ]
-            ),
-        "status":
-            str(
-                queued[
-                    "status"
-                ]
-            ),
-        "replayed":
-            bool(
-                queued[
-                    "replayed"
-                ]
-            ),
-        "default_lot_control_mode": (
-            tracking_defaults.lot_control_mode
-        ),
-        "default_expiry_control_mode": (
-            tracking_defaults.expiry_control_mode
-        ),
-        "message":
-            "Import accepted for background processing.",
-    }
+    return ImportCreateResponse.model_validate(
+        result
+    )
 
 
-def _job_payload(
-    job: ProductImportJob,
-    progress: ProductImportProgress,
-) -> dict[str, Any]:
-    return {
-        "job_id": str(job.id),
-        "status": str(job.status),
-        "file_name": str(job.file_name),
-        "total_rows": int(job.total_rows),
-        "processed_rows": int(job.processed_rows),
-        "valid_rows": int(job.valid_rows),
-        "failed_rows": int(job.failed_rows),
-        "imported_rows": max(
-            int(
-                progress.imported_rows
-            ),
-            int(
-                job.processed_rows
-            ),
-        ),
-        "invalid_rows": max(
-            int(
-                progress.invalid_rows
-            ),
-            int(
-                job.failed_rows
-            ),
-        ),
-        "import_failed_rows": int(
-            progress.import_failed_rows
-        ),
-        "pending_rows": int(
-            progress.pending_rows
-        ),
-        "detected_headers": list(
-            job.detected_headers or []
-        ),
-        "suggested_mapping": dict(
-            job.suggested_mapping or {}
-        ),
-        "column_mapping": dict(
-            job.column_mapping or {}
-        ),
-        "default_lot_control_mode": str(
-            job.default_lot_control_mode
-        ),
-        "default_expiry_control_mode": str(
-            job.default_expiry_control_mode
-        ),
-        "error_summary":
-            public_error_summary(
-                job.error_summary
-            ),
-        "created_at": (
-            job.created_at.isoformat()
-            if job.created_at
-            else None
-        ),
-        "started_at": (
-            job.started_at.isoformat()
-            if job.started_at
-            else None
-        ),
-        "finished_at": (
-            job.finished_at.isoformat()
-            if job.finished_at
-            else None
-        ),
-    }
-
-
-@router.get("/imports/{job_id}")
+@router.get(
+    "/imports/{job_id}",
+    response_model=ImportStatusResponse,
+)
 async def get_product_import(
     job_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
@@ -1004,87 +796,33 @@ async def get_product_import(
         actor,
         "catalog.read",
     )
-    job = await db.scalar(
-        select(ProductImportJob).where(
-            ProductImportJob.company_id
-            == int(actor.company_id),
-            ProductImportJob.id == job_id,
+    try:
+        result = await read_import_status(
+            db,
+            company_id=int(
+                actor.company_id
+            ),
+            job_id=job_id,
         )
-    )
-    if job is None:
-        raise HTTPException(
-            404,
-            detail={
-                "code": "PRODUCT_IMPORT_NOT_FOUND",
-                "message": "Import job was not found.",
-                "context": {},
-            },
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(
+            request,
+            exc,
+            job_id=job_id,
         )
 
-    progress = await count_job_progress(
-        db,
-        company_id=int(actor.company_id),
-        job_id=job_id,
+    return ImportStatusResponse.model_validate(
+        result
     )
 
-    errors = []
-    if (
-        progress.invalid_rows > 0
-        or progress.import_failed_rows > 0
-    ):
-        result_rows = await db.execute(
-            select(ProductImportRow)
-            .where(
-                ProductImportRow.company_id
-                == int(actor.company_id),
-                ProductImportRow.job_id
-                == job_id,
-                ProductImportRow.status.in_(
-                    (
-                        RowStatus.INVALID.value,
-                        RowStatus.IMPORT_FAILED.value,
-                    )
-                ),
-            )
-            .order_by(
-                ProductImportRow.row_number.asc()
-            )
-            .limit(50)
-        )
-        rows = list(
-            result_rows.scalars().fetchmany(
-                50
-            )
-        )
-        errors = [
-            {
-                "row_number": int(
-                    row.row_number
-                ),
-                "code": row.error_code,
-                "field":
-                    import_error_field(
-                        row.error_code
-                    ),
-                "message":
-                    user_safe_row_error_message(
-                        row.error_code
-                    ),
-            }
-            for row in rows
-        ]
 
-    result = _job_payload(
-        job,
-        progress,
-    )
-    result["errors"] = errors
-    return result
-
-
-@router.get("/imports/{job_id}/errors")
+@router.get(
+    "/imports/{job_id}/errors",
+    response_model=ImportErrorsResponse,
+)
 async def get_product_import_errors(
     job_id: UUID,
+    request: Request,
     after_row: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
@@ -1095,66 +833,26 @@ async def get_product_import_errors(
         actor,
         "catalog.read",
     )
-    job_exists = await db.scalar(
-        select(ProductImportJob.id).where(
-            ProductImportJob.company_id == int(actor.company_id),
-            ProductImportJob.id == job_id,
+    try:
+        result = await read_import_errors(
+            db,
+            company_id=int(
+                actor.company_id
+            ),
+            job_id=job_id,
+            after_row=after_row,
+            limit=limit,
         )
-    )
-    if job_exists is None:
-        raise HTTPException(
-            404,
-            detail={
-                "code": "PRODUCT_IMPORT_NOT_FOUND",
-                "message": "Import job was not found.",
-                "context": {},
-            },
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(
+            request,
+            exc,
+            job_id=job_id,
         )
 
-    rows = list(
-        (
-            await db.scalars(
-                select(ProductImportRow)
-                .where(
-                    ProductImportRow.company_id == int(actor.company_id),
-                    ProductImportRow.job_id == job_id,
-                    ProductImportRow.status.in_(
-                        (
-                            RowStatus.INVALID.value,
-                            RowStatus.IMPORT_FAILED.value,
-                        )
-                    ),
-                    ProductImportRow.row_number > int(after_row),
-                )
-                .order_by(ProductImportRow.row_number.asc())
-                .limit(limit + 1)
-            )
-        ).all()
+    return ImportErrorsResponse.model_validate(
+        result
     )
-    page = rows[:limit]
-    has_more = len(rows) > limit
-    return {
-        "items": [
-            {
-                "row_number": int(row.row_number),
-                "code": row.error_code,
-                "field":
-                    import_error_field(
-                        row.error_code
-                    ),
-                "message":
-                    user_safe_row_error_message(
-                        row.error_code
-                    ),
-            }
-            for row in page
-        ],
-        "next_after_row": (
-            int(page[-1].row_number)
-            if has_more and page
-            else None
-        ),
-    }
 
 
 @router.get(
@@ -1204,6 +902,8 @@ async def get_product_import_lineage(
 
 @router.get(
     "/imports/{job_id}/correction",
+    response_model=
+        ImportCorrectionDownloadResponse,
 )
 async def get_product_import_correction(
     job_id: UUID,
@@ -1220,87 +920,57 @@ async def get_product_import_correction(
         db,
         actor,
     )
-
-    job_exists = await db.scalar(
-        select(
-            ProductImportJob.id
-        ).where(
-            ProductImportJob.company_id
-            == int(
+    try:
+        artifact = await download_correction(
+            db,
+            company_id=int(
                 actor.company_id
             ),
-            ProductImportJob.id
-            == job_id,
-        )
-    )
-    if job_exists is None:
-        raise HTTPException(
-            404,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_NOT_FOUND",
-                "message":
-                    "Import job was not found.",
-                "context": {},
-            },
-        )
-
-    try:
-        artifact = (
-            await build_correction_artifact(
-                company_id=int(
-                    actor.company_id
-                ),
-                job_id=job_id,
-                file_format=
-                    file_format,
-            )
+            job_id=job_id,
+            file_format=file_format,
         )
     except ProductImportTerminalError as exc:
-        _log_api_exception(
+        if (
+            exc.code
+            == "PRODUCT_IMPORT_NOT_FOUND"
+        ):
+            _raise_terminal_http(
+                request,
+                exc,
+                job_id=job_id,
+            )
+        _raise_terminal_http(
             request,
             exc,
+            job_id=job_id,
+            status_code=409,
             code=
                 "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE",
-            job_id=job_id,
         )
-        raise HTTPException(
-            409,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE",
-                "message":
-                    user_safe_error_message(
-                        "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE"
-                    ),
-                "context":
-                    _error_context(
-                        request
-                    ),
-            },
-        ) from exc
 
-    return {
-        "file_name":
+    return ImportCorrectionDownloadResponse(
+        file_name=
             artifact.file_name,
-        "content_type":
+        content_type=
             artifact.content_type,
-        "content_base64":
+        content_base64=
             base64.b64encode(
                 artifact.payload
             ).decode(
                 "ascii"
             ),
-        "row_count":
-            int(
-                artifact.row_count
-            ),
-    }
+        row_count=int(
+            artifact.row_count
+        ),
+    )
 
 
 @router.post(
     "/imports/{job_id}/correction",
     status_code=202,
+    response_model=
+        ImportCorrectionUploadResponse,
+    response_model_exclude_none=True,
 )
 async def upload_product_import_correction(
     job_id: UUID,
@@ -1314,152 +984,47 @@ async def upload_product_import_correction(
         db,
         actor,
     )
+    (
+        file_name,
+        payload,
+    ) = await _parse_correction_upload(
+        request,
+        job_id=job_id,
+        file=file,
+    )
 
-    job_exists = await db.scalar(
-        select(
-            ProductImportJob.id
-        ).where(
-            ProductImportJob.company_id
-            == int(
+    try:
+        result = await apply_correction(
+            db,
+            company_id=int(
                 actor.company_id
             ),
-            ProductImportJob.id
-            == job_id,
-        )
-    )
-    if job_exists is None:
-        raise HTTPException(
-            404,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_NOT_FOUND",
-                "message":
-                    "Import job was not found.",
-                "context": {},
-            },
-        )
-
-    file_name = str(
-        file.filename
-        or ""
-    ).strip()
-    suffix = (
-        "."
-        + file_name.lower().rsplit(
-            ".",
-            1,
-        )[-1]
-        if "." in file_name
-        else ""
-    )
-    if suffix not in _ALLOWED_IMPORT_SUFFIXES:
-        raise HTTPException(
-            422,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_CORRECTION_FILE_INVALID",
-                "message":
-                    "Correction file must be CSV or XLSX.",
-                "context": {},
-            },
-        )
-
-    payload = await file.read(
-        MAX_IMPORT_FILE_BYTES
-        + 1
-    )
-    if not payload:
-        raise HTTPException(
-            422,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_CORRECTION_FILE_EMPTY",
-                "message":
-                    "Correction file is empty.",
-                "context": {},
-            },
-        )
-    if len(
-        payload
-    ) > MAX_IMPORT_FILE_BYTES:
-        raise HTTPException(
-            413,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_FILE_TOO_LARGE",
-                "message":
-                    "Import file exceeds the 8 MB limit.",
-                "context": {},
-            },
-        )
-
-    try:
-        validate_source_content(
-            file_name,
-            payload,
-        )
-    except ProductImportTerminalError as exc:
-        _log_api_exception(
-            request,
-            exc,
-            code=exc.code,
+            actor_id=int(
+                actor.id
+            ),
             job_id=job_id,
-        )
-        raise HTTPException(
-            422,
-            detail={
-                "code":
-                    exc.code,
-                "message":
-                    exc.user_message,
-                "context":
-                    _error_context(
-                        request,
-                        exc.context,
-                    ),
-            },
-        ) from exc
-
-    try:
-        result = (
-            await apply_correction_upload(
-                company_id=int(
-                    actor.company_id
-                ),
-                actor_id=int(
-                    actor.id
-                ),
-                job_id=job_id,
-                request_id=
-                    request_id,
-                file_name=
-                    file_name,
-                payload=payload,
-            )
+            request_id=request_id,
+            file_name=file_name,
+            payload=payload,
         )
     except ProductImportTerminalError as exc:
-        _log_api_exception(
+        if (
+            exc.code
+            == "PRODUCT_IMPORT_NOT_FOUND"
+        ):
+            _raise_terminal_http(
+                request,
+                exc,
+                job_id=job_id,
+            )
+        _raise_terminal_http(
             request,
             exc,
+            job_id=job_id,
+            status_code=422,
             code=
                 "PRODUCT_IMPORT_CORRECTION_INVALID",
-            job_id=job_id,
         )
-        raise HTTPException(
-            422,
-            detail={
-                "code":
-                    "PRODUCT_IMPORT_CORRECTION_INVALID",
-                "message":
-                    user_safe_error_message(
-                        "PRODUCT_IMPORT_CORRECTION_INVALID"
-                    ),
-                "context":
-                    _error_context(
-                        request
-                    ),
-            },
-        ) from exc
     except ValueError as exc:
         _log_api_exception(
             request,
@@ -1505,16 +1070,15 @@ async def upload_product_import_correction(
             },
         ) from exc
 
-    return {
-        **result,
-        "message":
-            "Correction accepted for revalidation.",
-    }
+    return ImportCorrectionUploadResponse.model_validate(
+        result
+    )
 
 
 @router.put(
     "/imports/{job_id}/mapping",
     status_code=202,
+    response_model=ImportActionResponse,
 )
 async def set_product_import_mapping(
     job_id: UUID,
@@ -1523,69 +1087,24 @@ async def set_product_import_mapping(
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
-    await _require_manage(db, actor)
-
-    job = await db.scalar(
-        select(ProductImportJob).where(
-            ProductImportJob.company_id
-            == int(actor.company_id),
-            ProductImportJob.id == job_id,
-        )
+    await _require_manage(
+        db,
+        actor,
     )
-    if job is None:
-        raise HTTPException(
-            404,
-            detail={
-                "code": "PRODUCT_IMPORT_NOT_FOUND",
-                "message": "Import job was not found.",
-                "context": {},
-            },
-        )
-
-    headers = set(
-        job.detected_headers or []
-    )
-    for field, header in payload.mapping.items():
-        if (
-            field not in _CANONICAL_MAPPING_FIELDS
-            or header not in headers
-        ):
-            raise HTTPException(
-                422,
-                detail={
-                    "code": "PRODUCT_IMPORT_MAPPING_INVALID",
-                    "message": "Column mapping is invalid.",
-                    "context": {},
-                },
-            )
-
-    if not payload.mapping.get("name"):
-        raise HTTPException(
-            422,
-            detail={
-                "code": "PRODUCT_IMPORT_MAPPING_NAME_REQUIRED",
-                "message": "Map the product-name column.",
-                "context": {},
-            },
-        )
-    if not (
-        payload.mapping.get("package_price")
-        or payload.mapping.get("unit_price")
-    ):
-        raise HTTPException(
-            422,
-            detail={
-                "code": "PRODUCT_IMPORT_MAPPING_PRICE_REQUIRED",
-                "message": "Map package_price or unit_price.",
-                "context": {},
-            },
-        )
-
     try:
-        status = await requeue_import(
-            company_id=int(actor.company_id),
+        result = await set_import_mapping(
+            db,
+            company_id=int(
+                actor.company_id
+            ),
             job_id=job_id,
             mapping=payload.mapping,
+        )
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(
+            request,
+            exc,
+            job_id=job_id,
         )
     except ValueError as exc:
         _log_api_exception(
@@ -1634,16 +1153,15 @@ async def set_product_import_mapping(
             },
         ) from exc
 
-    return {
-        "job_id": str(job_id),
-        "status": str(status),
-        "message": "Column mapping accepted.",
-    }
+    return ImportActionResponse.model_validate(
+        result
+    )
 
 
 @router.post(
     "/imports/{job_id}/cancel",
     status_code=202,
+    response_model=ImportActionResponse,
 )
 async def cancel_product_import(
     job_id: UUID,
@@ -1656,52 +1174,29 @@ async def cancel_product_import(
         actor,
     )
     try:
-        status = await cancel_import_job(
+        result = await cancel_import(
+            db,
             company_id=int(
                 actor.company_id
             ),
             job_id=job_id,
         )
     except ProductImportTerminalError as exc:
-        _log_api_exception(
+        _raise_terminal_http(
             request,
             exc,
-            code=exc.code,
             job_id=job_id,
         )
-        raise HTTPException(
-            404
-            if exc.code
-            == "PRODUCT_IMPORT_NOT_FOUND"
-            else 409,
-            detail={
-                "code":
-                    exc.code,
-                "message":
-                    exc.user_message,
-                "context":
-                    _error_context(
-                        request,
-                        exc.context,
-                    ),
-            },
-        ) from exc
 
-    return {
-        "job_id": str(
-            job_id
-        ),
-        "status": str(
-            status
-        ),
-        "message":
-            "Import cancellation accepted.",
-    }
+    return ImportActionResponse.model_validate(
+        result
+    )
 
 
 @router.post(
     "/imports/{job_id}/retry",
     status_code=202,
+    response_model=ImportActionResponse,
 )
 async def retry_product_import(
     job_id: UUID,
@@ -1709,28 +1204,22 @@ async def retry_product_import(
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
 ):
-    await _require_manage(db, actor)
-
-    job = await db.scalar(
-        select(ProductImportJob).where(
-            ProductImportJob.company_id
-            == int(actor.company_id),
-            ProductImportJob.id == job_id,
-        )
+    await _require_manage(
+        db,
+        actor,
     )
-    if job is None:
-        raise HTTPException(
-            404,
-            detail={
-                "code": "PRODUCT_IMPORT_NOT_FOUND",
-                "message": "Import job was not found.",
-                "context": {},
-            },
-        )
-
     try:
-        status = await retry_failed_import(
-            company_id=int(actor.company_id),
+        result = await retry_import(
+            db,
+            company_id=int(
+                actor.company_id
+            ),
+            job_id=job_id,
+        )
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(
+            request,
+            exc,
             job_id=job_id,
         )
     except ValueError as exc:
@@ -1780,8 +1269,7 @@ async def retry_product_import(
             },
         ) from exc
 
-    return {
-        "job_id": str(job_id),
-        "status": str(status),
-        "message": "Import retry accepted.",
-    }
+    return ImportActionResponse.model_validate(
+        result
+    )
+
