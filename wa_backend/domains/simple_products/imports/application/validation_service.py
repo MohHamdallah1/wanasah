@@ -456,28 +456,37 @@ async def validate_rows(
                         company_id=company_id,
                         job_id=job_id,
                     )
-                    await invalidate_internal_duplicate_barcodes(
-                        db,
-                        company_id=company_id,
-                        job_id=job_id,
+                    internal_barcode_failures = (
+                        await invalidate_internal_duplicate_barcodes(
+                            db,
+                            company_id=company_id,
+                            job_id=job_id,
+                        )
                     )
-                    await invalidate_external_barcode_conflicts(
-                        db,
-                        company_id=company_id,
-                        job_id=job_id,
+                    external_barcode_failures = (
+                        await invalidate_external_barcode_conflicts(
+                            db,
+                            company_id=company_id,
+                            job_id=job_id,
+                        )
                     )
-                    (
-                        valid_count,
-                        invalid_count,
-                        staged_count,
-                    ) = await count_validation_outcomes(
-                        db,
-                        company_id=company_id,
-                        job_id=job_id,
+                    barcode_failures = (
+                        int(
+                            internal_barcode_failures
+                        )
+                        + int(
+                            external_barcode_failures
+                        )
                     )
-                    if staged_count != 0:
+                    valid_count -= (
+                        barcode_failures
+                    )
+                    invalid_count += (
+                        barcode_failures
+                    )
+                    if valid_count < 0:
                         raise ProductImportTerminalError(
-                            "Validation finalization found staged rows unexpectedly."
+                            "Validation barcode failure counts exceeded valid rows."
                         )
 
                     imported_count = await count_job_rows(
