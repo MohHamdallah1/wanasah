@@ -222,7 +222,10 @@ describe("Products P9.4 workspace foundation", () => {
       "backdrop-blur-xl",
     );
     expect(section).toContain(
-      "rounded-2xl",
+      "flex min-h-0 flex-1 flex-col overflow-hidden",
+    );
+    expect(section).toContain(
+      "bg-white",
     );
     expect(toolbar).toContain(
       "relative min-w-0 flex-1",
