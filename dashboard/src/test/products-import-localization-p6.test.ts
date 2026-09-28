@@ -36,6 +36,9 @@ describe(
       const api = readSource(
         "../../../wa_backend/domains/simple_products/imports/api/router.py",
       );
+      const application = readSource(
+        "../../../wa_backend/domains/simple_products/imports/application/api_service.py",
+      );
 
       expect(localization).toContain(
         "class ImportLocalePack",
@@ -60,11 +63,17 @@ describe(
         "_ALIASES = {",
       );
 
-      expect(api).toContain(
+      expect(localization).toContain(
         "CANONICAL_IMPORT_FIELDS",
       );
-      expect(api).toContain(
-        "_CANONICAL_MAPPING_FIELDS = frozenset(",
+      expect(application).toContain(
+        "CANONICAL_IMPORT_FIELDS",
+      );
+      expect(application).toContain(
+        "_CANONICAL_MAPPING_FIELDS = frozenset(CANONICAL_IMPORT_FIELDS)",
+      );
+      expect(api).not.toContain(
+        "_CANONICAL_MAPPING_FIELDS",
       );
     });
 
