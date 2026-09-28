@@ -141,11 +141,15 @@ check(
 check(
     "after_row_number = 0"
     in validation_source
-    and "staged_count > 0"
+    and "staged_rows_remain"
+    in validation_source
+    and "job_has_rows("
+    in validation_source
+    and "RowStatus.STAGED.value"
     in validation_source
     and "reset_cursor"
     in validation_source,
-    "Validation has a durable STAGED-status checkpoint and safe cursor recovery",
+    "Validation has an indexed durable STAGED-status checkpoint and safe cursor recovery",
 )
 
 check(
