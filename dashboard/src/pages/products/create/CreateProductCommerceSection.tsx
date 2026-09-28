@@ -13,6 +13,7 @@ import {
 import type {
   PackageUom,
 } from "@/pages/products/contracts";
+import { ProductPackagingHelp } from "@/pages/products/shared/ProductPackagingHelp";
 import type {
   CreateFieldError,
   ProductDraft,
@@ -74,6 +75,7 @@ export function CreateProductCommerceSection({
               "products.packagingModeLabel"
             )}
           </h3>
+          <ProductPackagingHelp compact />
         </div>
 
         <div
