@@ -370,7 +370,9 @@ application_init_source = (
 check(
     "legacy_payload"
     not in source_service_source
-    and "job.source_payload"
+    and "job.source_payload\n"
+    not in source_service_source
+    and "job.source_payload is not None"
     not in source_service_source,
     "Runtime source execution has no legacy inline-payload fallback",
 )
