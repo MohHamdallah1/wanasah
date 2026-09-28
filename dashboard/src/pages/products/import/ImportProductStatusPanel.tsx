@@ -267,24 +267,37 @@ export function ImportProductStatusPanel({
       status.import_failed_rows;
 
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
-        <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-amber-700 ring-1 ring-amber-200">
-            <AlertCircle className="h-5 w-5" />
+      <div className="space-y-3">
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-emerald-700 ring-1 ring-emerald-200">
+            <CheckCircle2 className="h-5 w-5" />
           </span>
-          <strong className="text-sm font-black leading-5 text-amber-950">
+          <strong className="text-sm font-black leading-5 text-emerald-950">
             {t(
-              "products.importCompletedWithErrors",
-              {
-                imported:
-                  status.imported_rows,
-                errors: errorCount,
-              },
+              "products.importReceipt.saved",
+              { count: status.imported_rows },
             )}
           </strong>
         </div>
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-amber-700 ring-1 ring-amber-200">
+            <AlertCircle className="h-5 w-5" />
+          </span>
+          <p className="text-sm font-bold leading-5 text-amber-950">
+            {t(
+              "products.importReceipt.needsReview",
+              { count: errorCount },
+            )}
+          </p>
+        </div>
 
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
             disabled={!online}
@@ -299,10 +312,10 @@ export function ImportProductStatusPanel({
           <button
             type="button"
             onClick={onCompletedClose}
-            className="min-h-10 flex-1 rounded-xl bg-amber-950 px-4 text-xs font-black text-white"
+            className="min-h-10 flex-1 rounded-xl bg-emerald-900 px-4 text-xs font-black text-white"
           >
             {t(
-              "common.close",
+              "products.importReceipt.returnToProducts",
             )}
           </button>
         </div>
