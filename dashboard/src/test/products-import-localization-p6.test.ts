@@ -77,6 +77,31 @@ describe(
       );
     });
 
+    it("explains base units and outer packaging in import and product creation", () => {
+      const guide = readSource(
+        "../pages/products/import/ImportProductQuickGuide.tsx",
+      );
+      const create = readSource(
+        "../pages/products/create/CreateProductCommerceSection.tsx",
+      );
+      const glossary = readSource(
+        "../pages/products/shared/ProductPackagingHelp.tsx",
+      );
+      const translations = readSource(
+        "../i18n/resources.ts",
+      );
+
+      expect(guide).toContain("ProductPackagingHelp");
+      expect(guide).toContain("products.importGuidePackagingRule");
+      expect(create).toContain("ProductPackagingHelp compact");
+      expect(glossary).toContain("TooltipTrigger");
+      expect(glossary).toContain("aria-label");
+      expect(glossary).toContain("products.packageGlossary.limits");
+      expect(
+        translations.split("packageGlossary:").length - 1,
+      ).toBe(2);
+    });
+
     it("keeps explicit mapping as the fallback for unknown headers", () => {
       const page = compact(
         readSource(
