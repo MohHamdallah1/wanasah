@@ -1352,7 +1352,7 @@ export const resources = {
           SIMPLE_PRODUCT_PRICE_FILTER_FORBIDDEN: "فلترة المنتجات حسب السعر تتطلب صلاحية عرض الأسعار.",
           SIMPLE_PRODUCT_PACKAGE_UOM_UNSUPPORTED: "نوع العبوة الخارجية المحدد غير مدعوم في مسار المنتجات المبسط.",
           SIMPLE_PRODUCT_PACKAGING_INVALID: "بيانات تعبئة المنتج غير صالحة.",
-          SIMPLE_PRODUCT_NO_PACKAGE_FACTOR_INVALID: "المنتج بدون عبوة خارجية يجب أن يستخدم حبة واحدة كوحدة أساس.",
+          SIMPLE_PRODUCT_NO_PACKAGE_FACTOR_INVALID: "المنتج بدون عبوة خارجية يجب أن يستخدم وحدة أساسية واحدة.",
           SIMPLE_PRODUCT_PACKAGE_PRICE_WITHOUT_PACKAGE: "لا يمكن إدخال سعر عبوة لمنتج لا يملك عبوة خارجية.",
           SIMPLE_PRODUCT_PACKAGE_FACTOR_INVALID: "العبوة الخارجية يجب أن تحتوي وحدتين أساسيتين على الأقل.",
           SIMPLE_PRODUCT_PACKAGE_BARCODE_WITHOUT_PACKAGE: "لا يمكن إضافة باركود عبوة لمنتج بدون عبوة خارجية.",
