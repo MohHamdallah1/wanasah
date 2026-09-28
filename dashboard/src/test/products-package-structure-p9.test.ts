@@ -78,15 +78,15 @@ describe("Products P9 package and unit structure", () => {
     const commerce = source(
       "../pages/products/create/CreateProductCommerceSection.tsx",
     );
-    const advanced = source(
-      "../pages/products/create/CreateProductAdvancedSection.tsx",
+    const barcode = source(
+      "../pages/products/create/CreateProductBarcodeSection.tsx",
     );
 
     expect(commerce).toContain(
       "{draft.has_package ? (",
     );
     expect(commerce).toContain(
-      '"products.packageType"',
+      '"products.quickCreate.packageTypeLabel"',
     );
     expect(commerce).toContain(
       '"products.unitsPerPackage"',
@@ -94,11 +94,14 @@ describe("Products P9 package and unit structure", () => {
     expect(commerce).toContain(
       '"products.packagePrice"',
     );
-    expect(advanced).toContain(
-      '"products.packageBarcode"',
+    expect(barcode).toContain(
+      "{draft.has_package ? (",
+    );
+    expect(barcode).toContain(
+      '"products.quickCreate.packageBarcode"',
     );
     expect(commerce).toContain(
-      '"products.noOuterPackage"',
+      '"products.packagingMode.unitOnly"',
     );
   });
 
