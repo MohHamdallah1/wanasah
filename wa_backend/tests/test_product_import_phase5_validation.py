@@ -232,6 +232,47 @@ class ValidationState:
             for row in self.rows
         )
 
+    async def status_counts(
+        self,
+        _db,
+        *,
+        company_id: int,
+        job_id,
+    ) -> dict[str, int]:
+        self.assert_tenant(
+            company_id
+        )
+        return {
+            status: sum(
+                row.status == status
+                for row in self.rows
+            )
+            for status in (
+                RowStatus.STAGED.value,
+                RowStatus.VALID.value,
+                RowStatus.INVALID.value,
+                RowStatus.IMPORTED.value,
+                RowStatus.IMPORT_FAILED.value,
+            )
+        }
+
+    async def has_rows(
+        self,
+        _db,
+        *,
+        company_id: int,
+        job_id,
+        status: str,
+    ) -> bool:
+        return (
+            await self.count_status(
+                _db,
+                company_id=company_id,
+                job_id=job_id,
+                status=status,
+            )
+        ) > 0
+
     async def finalize_barcodes(
         self,
         _db,
@@ -324,13 +365,13 @@ class Phase5ValidationTests(
             ),
             patch.object(
                 validation_service,
-                "count_validation_outcomes",
-                state.counts,
+                "count_job_statuses",
+                state.status_counts,
             ),
             patch.object(
                 validation_service,
-                "count_job_rows",
-                state.count_status,
+                "job_has_rows",
+                state.has_rows,
             ),
             patch.object(
                 validation_service,
