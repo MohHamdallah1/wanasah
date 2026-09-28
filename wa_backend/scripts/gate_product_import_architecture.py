@@ -73,6 +73,20 @@ check(
     ", ".join(root_business_files),
 )
 
+repo_root_business_files = sorted(
+    path.name
+    for path in ROOT.glob(
+        "product_import_*.py"
+    )
+)
+check(
+    not repo_root_business_files,
+    "No Product Import executable business files remain in repository root",
+    ", ".join(
+        repo_root_business_files
+    ),
+)
+
 
 forbidden_infrastructure_symbols = {
     "SimpleProductSpec",
@@ -306,6 +320,64 @@ check(
     ", ".join(
         worker_responsibility_leaks
     ),
+)
+
+
+application_files = python_files(
+    IMPORTS / "application"
+)
+alternate_orchestrators: list[str] = []
+for path in application_files:
+    if path == APPLICATION_WORKER:
+        continue
+    source_text = path.read_text(
+        encoding="utf-8"
+    )
+    if all(
+        token in source_text
+        for token in (
+            "prepare_import_source(",
+            "validate_rows(",
+            "execute_import(",
+        )
+    ):
+        alternate_orchestrators.append(
+            path.name
+        )
+
+check(
+    not alternate_orchestrators,
+    "No Product Import god-worker was recreated under another application filename",
+    ", ".join(
+        alternate_orchestrators
+    ),
+)
+
+source_service_source = (
+    IMPORTS
+    / "application"
+    / "source_service.py"
+).read_text(
+    encoding="utf-8"
+)
+application_init_source = (
+    IMPORTS
+    / "application"
+    / "__init__.py"
+).read_text(
+    encoding="utf-8"
+)
+check(
+    "legacy_payload"
+    not in source_service_source
+    and "job.source_payload"
+    not in source_service_source,
+    "Runtime source execution has no legacy inline-payload fallback",
+)
+check(
+    "mark_import_runtime_failure"
+    not in application_init_source,
+    "Migration-era Product Import application alias is removed",
 )
 
 
