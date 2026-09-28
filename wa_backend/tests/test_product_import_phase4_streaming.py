@@ -570,11 +570,10 @@ class _FakeDb:
 
     async def execute(
         self,
-        _statement,
-        parameters,
+        statement,
     ) -> None:
         self.batch_sizes.append(
-            len(parameters)
+            len(statement._multi_values[0])
         )
 
 
