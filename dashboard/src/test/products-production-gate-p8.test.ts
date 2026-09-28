@@ -448,6 +448,11 @@ describe("Products P8 production frontend gate", () => {
         "../pages/products/create/CreateProductCommerceSection.tsx",
       ),
     );
+    const familyCombobox = compact(
+      readSource(
+        "../pages/products/family/ProductFamilyCombobox.tsx",
+      ),
+    );
     const createWorkflow = compact(
       readSource(
         "../pages/products/create/useCreateProductWorkflow.ts",
@@ -496,7 +501,16 @@ describe("Products P8 production frontend gate", () => {
       "familyOptionsError: familyOptionsQuery.isError",
     );
     expect(createIdentity).toContain(
-      "familyOptionsError ? (",
+      "<ProductFamilyCombobox",
+    );
+    expect(createIdentity).toContain(
+      "error={ familyOptionsError }",
+    );
+    expect(familyCombobox).toContain(
+      ") : error ? (",
+    );
+    expect(familyCombobox).toContain(
+      "onClick={onRetry}",
     );
     expect(createWorkflow).toContain(
       "void familyOptionsQuery.refetch()",
