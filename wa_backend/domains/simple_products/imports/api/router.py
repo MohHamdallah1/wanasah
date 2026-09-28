@@ -22,58 +22,47 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    field_validator,
-)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_driver
 from database import get_db
-from domains.product_tracking import (
-    ProductTrackingError,
-    resolve_product_tracking_modes,
+from domains.product_tracking import ProductTrackingError
+from domains.simple_products.imports.api.schemas import (
+    ImportActionResponse,
+    ImportCorrectionDownloadResponse,
+    ImportCorrectionUploadResponse,
+    ImportCreateResponse,
+    ImportErrorsResponse,
+    ImportMappingRequest,
+    ImportStatusResponse,
+    ImportTemplateResponse,
+    ImportWorkerReadinessResponse,
+)
+from domains.simple_products.imports.application.api_service import (
+    apply_correction,
+    cancel_import,
+    create_import,
+    download_correction,
+    read_import_errors,
+    read_import_status,
+    retry_import,
+    set_import_mapping,
 )
 from domains.simple_products.imports.application.audit_service import (
     get_import_lineage,
 )
-from domains.simple_products.imports.application.cancellation_service import (
-    cancel_import_job,
-)
-from domains.simple_products.imports.application.correction_service import (
-    apply_correction_upload,
-    build_correction_artifact,
-)
-from domains.simple_products.imports.application.state_machine import (
-    JobStatus,
-    RowStatus,
+from domains.simple_products.imports.domain import (
+    ProductImportTerminalError,
 )
 from domains.simple_products.imports.domain.admission import (
     ProductImportAdmissionDenied,
 )
-from domains.simple_products.imports.domain import (
-    CANONICAL_IMPORT_FIELDS,
-    ProductImportTerminalError,
-)
 from domains.simple_products.imports.domain.errors import (
-    import_error_field,
-    public_error_summary,
     user_safe_error_message,
-    user_safe_row_error_message,
 )
 from domains.simple_products.imports.infrastructure.content_security import (
     validate_source_content,
-)
-from domains.simple_products.imports.infrastructure.queue import (
-    enqueue_new_import,
-    requeue_import,
-    retry_failed_import,
-)
-from domains.simple_products.imports.infrastructure.repository import (
-    ProductImportProgress,
-    count_job_progress,
 )
 from domains.simple_products.imports.infrastructure.realtime_manager import (
     product_import_connection_manager,
@@ -81,24 +70,20 @@ from domains.simple_products.imports.infrastructure.realtime_manager import (
 from domains.simple_products.imports.infrastructure.runtime_monitor import (
     read_product_import_runtime_metrics,
 )
+from domains.simple_products.imports.infrastructure.template import (
+    build_product_import_template,
+)
 from domains.simple_products.imports.infrastructure.upload_stream import (
     ProductImportUploadTooLarge,
     spool_upload_bounded,
 )
-from domains.simple_products.imports.infrastructure.template import (
-    build_product_import_template,
-)
 from inventory_access import InventoryAccess
+from models import Driver, ProductImportJob
 from realtime.auth import (
     WebSocketAuthError,
     authenticate_websocket_user,
 )
 from workers.tenant import tenant_session
-from models import (
-    Driver,
-    ProductImportJob,
-    ProductImportRow,
-)
 
 
 router = APIRouter(
@@ -108,9 +93,6 @@ router = APIRouter(
 
 MAX_IMPORT_FILE_BYTES = 8 * 1024 * 1024
 _ALLOWED_IMPORT_SUFFIXES = {".csv", ".xlsx"}
-_CANONICAL_MAPPING_FIELDS = frozenset(
-    CANONICAL_IMPORT_FIELDS,
-)
 
 
 logger = logging.getLogger(
@@ -181,47 +163,263 @@ def _log_api_exception(
     )
 
 
-class StrictImportRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+def _raise_terminal_http(
+    request: Request,
+    exc: ProductImportTerminalError,
+    *,
+    job_id: UUID | None = None,
+    status_code: int | None = None,
+    code: str | None = None,
+) -> None:
+    resolved_code = str(
+        code
+        or exc.code
+    )
+    resolved_status = (
+        int(
+            status_code
+        )
+        if status_code
+        is not None
+        else (
+            404
+            if resolved_code
+            == "PRODUCT_IMPORT_NOT_FOUND"
+            else 409
+            if resolved_code
+            in {
+                "PRODUCT_IMPORT_CORRECTION_UNAVAILABLE",
+                "PRODUCT_IMPORT_NOT_CANCELLABLE",
+            }
+            else 422
+        )
+    )
+    _log_api_exception(
+        request,
+        exc,
+        code=resolved_code,
+        job_id=job_id,
+    )
+    raise HTTPException(
+        resolved_status,
+        detail={
+            "code":
+                resolved_code,
+            "message":
+                (
+                    user_safe_error_message(
+                        resolved_code
+                    )
+                    if code
+                    is not None
+                    else exc.user_message
+                ),
+            "context":
+                _error_context(
+                    request,
+                    exc.context,
+                ),
+        },
+    ) from exc
+
+
+async def _parse_new_import_upload(
+    request: Request,
+    file: UploadFile,
+):
+    file_name = str(
+        file.filename
+        or ""
+    ).strip()
+    if (
+        not file_name
+        or len(
+            file_name
+        ) > 255
+        or "\x00" in file_name
+    ):
+        await file.close()
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_FILE_NAME_INVALID",
+                "message":
+                    "Invalid file name.",
+                "context": {},
+            },
+        )
+
+    suffix = (
+        "."
+        + file_name.lower().rsplit(
+            ".",
+            1,
+        )[-1]
+        if "." in file_name
+        else ""
+    )
+    if suffix not in _ALLOWED_IMPORT_SUFFIXES:
+        await file.close()
+        raise HTTPException(
+            415,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_FILE_TYPE_UNSUPPORTED",
+                "message":
+                    "Upload a CSV or XLSX file.",
+                "context": {},
+            },
+        )
+
+    bounded_upload = None
+    try:
+        bounded_upload = (
+            await spool_upload_bounded(
+                file,
+                max_bytes=
+                    MAX_IMPORT_FILE_BYTES,
+            )
+        )
+    except ProductImportUploadTooLarge as exc:
+        raise HTTPException(
+            413,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_FILE_TOO_LARGE",
+                "message":
+                    "The import file is larger than 8MB.",
+                "context": {
+                    "max_bytes":
+                        MAX_IMPORT_FILE_BYTES,
+                },
+            },
+        ) from exc
+    finally:
+        await file.close()
+
+    if (
+        bounded_upload
+        is None
+        or int(
+            bounded_upload.byte_size
+        ) <= 0
+    ):
+        if bounded_upload is not None:
+            bounded_upload.close()
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_FILE_EMPTY",
+                "message":
+                    "The import file is empty.",
+                "context": {},
+            },
+        )
+
+    try:
+        content_type = (
+            validate_source_content(
+                file_name,
+                bounded_upload.stream,
+            )
+        )
+    except ProductImportTerminalError as exc:
+        bounded_upload.close()
+        _raise_terminal_http(
+            request,
+            exc,
+        )
+
+    return (
+        file_name,
+        content_type,
+        bounded_upload,
     )
 
 
-class ImportMappingRequest(
-    StrictImportRequest
-):
-    mapping: dict[str, str]
-
-    @field_validator("mapping")
-    @classmethod
-    def mapping_contract(
-        cls,
-        value: dict[str, str],
-    ) -> dict[str, str]:
-        unknown = (
-            set(value)
-            - _CANONICAL_MAPPING_FIELDS
+async def _parse_correction_upload(
+    request: Request,
+    *,
+    job_id: UUID,
+    file: UploadFile,
+) -> tuple[str, bytes]:
+    file_name = str(
+        file.filename
+        or ""
+    ).strip()
+    suffix = (
+        "."
+        + file_name.lower().rsplit(
+            ".",
+            1,
+        )[-1]
+        if "." in file_name
+        else ""
+    )
+    if suffix not in _ALLOWED_IMPORT_SUFFIXES:
+        await file.close()
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_CORRECTION_FILE_INVALID",
+                "message":
+                    "Correction file must be CSV or XLSX.",
+                "context": {},
+            },
         )
-        if unknown:
-            raise ValueError(
-                "Unknown import mapping field."
-            )
-        cleaned = {
-            str(key):
-                str(header).strip()
-            for key, header
-            in value.items()
-            if str(header).strip()
-        }
-        if len(
-            cleaned.values()
-        ) != len(
-            set(cleaned.values())
-        ):
-            raise ValueError(
-                "One source column cannot map to multiple fields."
-            )
-        return cleaned
+
+    try:
+        payload = await file.read(
+            MAX_IMPORT_FILE_BYTES
+            + 1
+        )
+    finally:
+        await file.close()
+
+    if not payload:
+        raise HTTPException(
+            422,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_CORRECTION_FILE_EMPTY",
+                "message":
+                    "Correction file is empty.",
+                "context": {},
+            },
+        )
+    if len(
+        payload
+    ) > MAX_IMPORT_FILE_BYTES:
+        raise HTTPException(
+            413,
+            detail={
+                "code":
+                    "PRODUCT_IMPORT_FILE_TOO_LARGE",
+                "message":
+                    "Import file exceeds the 8 MB limit.",
+                "context": {},
+            },
+        )
+
+    try:
+        validate_source_content(
+            file_name,
+            payload,
+        )
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(
+            request,
+            exc,
+            job_id=job_id,
+        )
+
+    return (
+        file_name,
+        payload,
+    )
 
 
 async def _require(
