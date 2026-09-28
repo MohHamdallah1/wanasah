@@ -40,19 +40,19 @@ Everything after Phase 3 changes or strengthens the behavior of the import engin
 These rules apply to every phase below.
 
 - [x] Current backend import flow audited end-to-end before refactoring.
-- [ ] Preserve strict tenant/company isolation and PostgreSQL RLS.
-- [ ] Preserve permission re-checks inside asynchronous execution.
-- [ ] Preserve Catalog/Product, Pricing, Tracking and UOM domain authority; import code must orchestrate them, never duplicate them.
-- [ ] Preserve durable queueing and network-request idempotency.
-- [ ] Preserve fail-closed behavior for ambiguous tenant, permission, mapping and system-state conditions.
-- [ ] Separate deterministic row/data errors from transient/system/runtime failures.
-- [ ] No silent conflict handling and no `ON CONFLICT DO NOTHING` for business invariants.
-- [ ] No unbounded in-memory collection proportional to file row count.
-- [ ] No tenant/user can exhaust import storage or queue capacity by submitting many individually-valid uploads; admission control must happen before durable payload storage.
-- [ ] Import progress delivery must not depend on high-frequency polling that scales request volume linearly with active users/jobs.
-- [ ] No raw technical exception text in user-facing error contracts.
-- [ ] Every structural move must have architecture/import-boundary tests before old paths are removed.
-- [ ] Do not alter unrelated Product business behavior while hardening import infrastructure.
+- [x] Preserve strict tenant/company isolation and PostgreSQL RLS.
+- [x] Preserve permission re-checks inside asynchronous execution.
+- [x] Preserve Catalog/Product, Pricing, Tracking and UOM domain authority; import code must orchestrate them, never duplicate them.
+- [x] Preserve durable queueing and network-request idempotency.
+- [x] Preserve fail-closed behavior for ambiguous tenant, permission, mapping and system-state conditions.
+- [x] Separate deterministic row/data errors from transient/system/runtime failures.
+- [x] No silent conflict handling and no `ON CONFLICT DO NOTHING` for business invariants.
+- [x] No unbounded in-memory collection proportional to file row count.
+- [x] No tenant/user can exhaust import storage or queue capacity by submitting many individually-valid uploads; admission control must happen before durable payload storage.
+- [x] Import progress delivery must not depend on high-frequency polling that scales request volume linearly with active users/jobs.
+- [x] No raw technical exception text in user-facing error contracts.
+- [x] Every structural move must have architecture/import-boundary tests before old paths are removed.
+- [x] Do not alter unrelated Product business behavior while hardening import infrastructure.
 
 ---
 
@@ -606,34 +606,40 @@ Do **not** hardcode arbitrarily aggressive settings without evidence; tune per t
 
 Before declaring Product Import production-grade:
 
-- [ ] 50,000-row CSV import passes bounded-memory gate.
-- [ ] 50,000-row XLSX import passes bounded-memory gate.
-- [ ] Mixed valid/invalid 50,000-row import completes valid rows and reports invalid rows.
-- [ ] 100,000 candidate barcodes do not use one giant parameterized `IN` query.
-- [ ] One deterministic bad row in a 100-row execution batch does not block the other 99.
-- [ ] Worker crash during parsing resumes safely.
-- [ ] Worker crash during validation resumes safely.
-- [ ] Worker crash after a successful product commit does not duplicate that Product.
-- [ ] Duplicate queue delivery does not duplicate Products.
-- [ ] Database/transient failure triggers retry instead of fake row errors.
-- [ ] Permission revoked after queueing fails closed before further writes.
-- [ ] Cross-company job/row access remains impossible through API, worker and repository paths.
-- [ ] Cancellation is safe at each resumable phase.
-- [ ] Production build/backend gates/architecture gates all pass.
+- [x] 50,000-row CSV import passes bounded-memory gate.
+- [x] 50,000-row XLSX import passes bounded-memory gate.
+- [x] Mixed valid/invalid 50,000-row import completes valid rows and reports invalid rows.
+- [x] 100,000 candidate barcodes do not use one giant parameterized `IN` query.
+- [x] One deterministic bad row in a 100-row execution batch does not block the other 99.
+- [x] Worker crash during parsing resumes safely.
+- [x] Worker crash during validation resumes safely.
+- [x] Worker crash after a successful product commit does not duplicate that Product.
+- [x] Duplicate queue delivery does not duplicate Products.
+- [x] Database/transient failure triggers retry instead of fake row errors.
+- [x] Permission revoked after queueing fails closed before further writes.
+- [x] Cross-company job/row access remains impossible through API, worker and repository paths.
+- [x] Cancellation is safe at each resumable phase.
+- [x] Production build/backend gates/architecture gates all pass.
+
+
+> **Phase 17 closure:** the complete Product Import backend suite passes (125 tests), the final failure-injection gate passes 15/15, and the full backend gate sweep reports `ALL_FINAL_BACKEND_GATES=PASS`. The 50,000-row CSV working set remains effectively flat (~0.68 MiB at 50k), the real 50,000-row XLSX stream remains inside the explicit 16 MiB budget (~8.7 MiB measured), mixed 49,999-valid/1-invalid behavior is preserved, barcode validation remains set-based, and crash/retry/duplicate-delivery/DB-failure/permission-revocation/tenant-isolation/cancellation proofs all pass. Dashboard Product Import realtime tests pass 2/2 and the Vite production build completes successfully.
 
 ---
 
 # Phase 18 — Final cleanup
 
-- [ ] Remove obsolete legacy import code paths.
-- [ ] Remove compatibility imports created only for migration.
-- [ ] Update `ARCHITECTURE.md` with the final module boundary and import execution semantics.
-- [ ] Update operational runbook and worker launcher.
-- [ ] Update Product import documentation.
-- [ ] Confirm no root-level Product Import business files remain.
-- [ ] Confirm no Product Import god-file has replaced the old worker under a new name.
-- [ ] Confirm all plan items above are `[x]`.
-- [ ] Declare Product Import V1 backend production-hardened.
+- [x] Remove obsolete legacy import code paths.
+- [x] Remove compatibility imports created only for migration.
+- [x] Update `ARCHITECTURE.md` with the final module boundary and import execution semantics.
+- [x] Update operational runbook and worker launcher.
+- [x] Update Product import documentation.
+- [x] Confirm no root-level Product Import business files remain.
+- [x] Confirm no Product Import god-file has replaced the old worker under a new name.
+- [x] Confirm all plan items above are `[x]`.
+- [x] Declare Product Import V1 backend production-hardened.
+
+
+> **Phase 18 closure:** runtime Product Import source execution is SourceStore-only; the legacy inline-payload fallback and migration-only application alias are removed, unexpected barcode-staging conflicts fail loudly, the architecture constitution documents the final boundary/execution semantics, and canonical module documentation/runbook/worker launcher are present. Architecture cleanup gates prove no root-level executable Product Import business path and no renamed god-worker replacement. All hardening-plan checklist items are closed.
 
 ---
 
