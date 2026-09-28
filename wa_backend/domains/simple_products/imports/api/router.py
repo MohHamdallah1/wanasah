@@ -460,7 +460,12 @@ async def _require_manage(
 async def get_product_import_template(
     locale: str = Query(
         "ar",
-        pattern="^(ar|en)$",
+        min_length=2,
+        max_length=35,
+        pattern=(
+            "^[A-Za-z0-9]+"
+            "(?:[-_][A-Za-z0-9]+)*$"
+        ),
     ),
     db: AsyncSession = Depends(get_db),
     actor: Driver = Depends(get_current_driver),
