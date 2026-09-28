@@ -105,8 +105,11 @@ def import_error_field(
     if (
         "PACKAGE_SELECTION" in normalized
         or "PACKAGE_TYPE" in normalized
+        or "PACKAGE_UOM" in normalized
     ):
         return "package_uom"
+    if "PACKAGE_PRICE" in normalized:
+        return "package_price"
     if "UNIT_BARCODE" in normalized:
         return "unit_barcode"
     if "BARCODE" in normalized:
