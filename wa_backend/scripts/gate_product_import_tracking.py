@@ -185,6 +185,14 @@ def static_checks() -> None:
     api = (
         BACKEND / "domains/simple_products/imports/api/router.py"
     ).read_text(encoding="utf-8")
+    api_service = (
+        BACKEND
+        / "domains/simple_products/imports/application/api_service.py"
+    ).read_text(encoding="utf-8")
+    api_schemas = (
+        BACKEND
+        / "domains/simple_products/imports/api/schemas.py"
+    ).read_text(encoding="utf-8")
     worker = (
         BACKEND / "domains/simple_products/imports/application/worker.py"
     ).read_text(encoding="utf-8")
@@ -254,12 +262,14 @@ def static_checks() -> None:
     check(
         "default_lot_control_mode: str | None = Form(None)" in api
         and "default_expiry_control_mode: str | None = Form(None)" in api
-        and "resolve_product_tracking_modes(" in api,
+        and "resolve_product_tracking_modes(" in api_service,
         "Import API resolves explicit or company tracking defaults",
     )
     check(
-        '"default_lot_control_mode"' in api
-        and '"default_expiry_control_mode"' in api,
+        "default_lot_control_mode: str" in api_schemas
+        and "default_expiry_control_mode: str" in api_schemas
+        and '"default_lot_control_mode"' in api_service
+        and '"default_expiry_control_mode"' in api_service,
         "Import responses expose the immutable tracking snapshot",
     )
     check(
