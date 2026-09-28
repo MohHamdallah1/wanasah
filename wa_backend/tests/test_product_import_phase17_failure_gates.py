@@ -28,7 +28,6 @@ class Phase17ParsingCrashTests(
         )
         first_context = (
             source_service.ProductImportSourceContext(
-                legacy_payload=None,
                 source_id=source_id,
                 source_size=len(
                     payload
@@ -48,7 +47,6 @@ class Phase17ParsingCrashTests(
         )
         retry_context = (
             source_service.ProductImportSourceContext(
-                legacy_payload=None,
                 source_id=source_id,
                 source_size=len(
                     payload
