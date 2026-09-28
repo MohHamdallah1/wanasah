@@ -728,6 +728,9 @@ async def job_has_rows(
                 status
             ),
         )
+        .order_by(
+            ProductImportRow.row_number.asc()
+        )
         .limit(
             1
         )
