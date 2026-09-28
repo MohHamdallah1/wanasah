@@ -478,21 +478,22 @@ async def invalidate_internal_duplicate_barcodes(
     result = await db.execute(
         text(
             """
-            WITH duplicate_barcodes AS (
-                SELECT barcode
+            -- A single ordered barcode scan avoids a quadratic join when
+            -- newly populated staging tables have stale planner estimates.
+            WITH barcode_occurrences AS MATERIALIZED (
+                SELECT
+                    row_number,
+                    COUNT(*) OVER (
+                        PARTITION BY barcode
+                    ) AS occurrences
                 FROM product_import_row_barcodes
                 WHERE company_id = :company_id
                   AND job_id = :job_id
-                GROUP BY barcode
-                HAVING COUNT(*) > 1
             ),
             bad_rows AS (
-                SELECT DISTINCT staged.row_number
-                FROM product_import_row_barcodes AS staged
-                JOIN duplicate_barcodes AS duplicates
-                  ON duplicates.barcode = staged.barcode
-                WHERE staged.company_id = :company_id
-                  AND staged.job_id = :job_id
+                SELECT DISTINCT row_number
+                FROM barcode_occurrences
+                WHERE occurrences > 1
             )
             UPDATE product_import_rows AS rows
             SET status = 'INVALID',
