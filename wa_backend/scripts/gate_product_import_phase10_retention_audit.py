@@ -131,6 +131,13 @@ staging_source = source(
     "application",
     "staging_service.py",
 )
+source_service = source(
+    "domains",
+    "simple_products",
+    "imports",
+    "application",
+    "source_service.py",
+)
 execution_source = source(
     "domains",
     "simple_products",
@@ -140,11 +147,13 @@ execution_source = source(
 )
 
 check(
-    "source_payload=None"
-    in staging_source
-    and "source_payload_cleared_at="
-    in staging_source,
-    "Successful staging clears upload bytes early and records cleanup time",
+    "source_payload"
+    not in staging_source
+    and "delete_source_bytes("
+    in source_service
+    and "mark_job_source_cleared"
+    in source_service,
+    "Successful staging cleanup is SourceStore-owned and records source cleanup time",
 )
 
 check(
