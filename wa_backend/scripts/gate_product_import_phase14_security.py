@@ -24,6 +24,12 @@ errors = read(
 router = read(
     "wa_backend/domains/simple_products/imports/api/router.py"
 )
+api_service = read(
+    "wa_backend/domains/simple_products/imports/application/api_service.py"
+)
+schemas = read(
+    "wa_backend/domains/simple_products/imports/api/schemas.py"
+)
 queue = read(
     "wa_backend/domains/simple_products/imports/infrastructure/queue.py"
 )
@@ -53,8 +59,8 @@ check(
 check(
     "legacy job summaries are public-whitelisted",
     "def public_error_summary" in errors
-    and "public_error_summary(" in router
-    and "dict(\n            job.error_summary" not in router,
+    and "public_error_summary(" in api_service
+    and "dict(\n            job.error_summary" not in api_service,
 )
 check(
     "API never returns raw exception strings",
@@ -72,8 +78,9 @@ check(
     "row diagnostics expose safe code message and actionable field",
     "def import_error_field" in errors
     and "def user_safe_row_error_message" in errors
-    and '"field":' in router
-    and "row.error_message" not in router,
+    and '"field":' in api_service
+    and "row.error_message" not in api_service
+    and "field: str | None" in schemas,
 )
 check(
     "CSV and XLSX correction cells are formula-injection sanitized",
