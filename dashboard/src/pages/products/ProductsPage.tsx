@@ -1,6 +1,9 @@
 import {
   useQueryClient,
 } from "@tanstack/react-query";
+import {
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
@@ -23,6 +26,8 @@ import { useProductLifecycleWorkflow } from "@/pages/products/lifecycle/useProdu
 import { CreateProductModal } from "@/pages/products/create/CreateProductModal";
 import { useCreateProductWorkflow } from "@/pages/products/create/useCreateProductWorkflow";
 import { ImportProductModal } from "@/pages/products/import/ImportProductModal";
+import { ProductImportReceiptBanner } from "@/pages/products/import/ProductImportReceiptBanner";
+import type { ProductImportState } from "@/pages/products/contracts";
 import { useImportProductWorkflow } from "@/pages/products/import/useImportProductWorkflow";
 import { ProductsListSection } from "@/pages/products/list/ProductsListSection";
 import { useProductsListWorkflow } from "@/pages/products/list/useProductsListWorkflow";
@@ -58,6 +63,15 @@ export default function ProductsPage() {
   const driverId =
     access.data?.driver_id ??
     null;
+  const [
+    lastImportReceipt,
+    setLastImportReceipt,
+  ] = useState<{
+    companyId: number;
+    jobId: string;
+    imported: number;
+    needsReview: number;
+  } | null>(null);
 
   const {
     canManageCatalog,
@@ -177,6 +191,30 @@ export default function ProductsPage() {
       retryTrackingDefaults: () =>
         void trackingDefaultsQuery.refetch(),
     });
+
+  const rememberCompletedImport = (
+    status: ProductImportState | null,
+  ) => {
+    if (
+      companyId === null ||
+      !status ||
+      (
+        status.status !== "COMPLETED" &&
+        status.status !== "COMPLETED_WITH_ERRORS"
+      )
+    ) {
+      return;
+    }
+
+    setLastImportReceipt({
+      companyId,
+      jobId: status.job_id,
+      imported: status.imported_rows,
+      needsReview:
+        status.invalid_rows +
+        status.import_failed_rows,
+    });
+  };
 
   const priceWorkflow =
     usePriceEditWorkflow({
@@ -306,6 +344,16 @@ export default function ProductsPage() {
         }
       />
 
+      {lastImportReceipt?.companyId === companyId ? (
+        <ProductImportReceiptBanner
+          imported={lastImportReceipt.imported}
+          needsReview={lastImportReceipt.needsReview}
+          hasFilters={listWorkflow.section.results.hasResultCriteria}
+          onClearFilters={listWorkflow.section.results.onClearCriteria}
+          onDismiss={() => setLastImportReceipt(null)}
+        />
+      ) : null}
+
       <ProductsListSection
         toolbar={
           listWorkflow.section.toolbar
@@ -391,6 +439,14 @@ export default function ProductsPage() {
 
       <ImportProductModal
         {...importWorkflow.modalProps}
+        onClose={() => {
+          rememberCompletedImport(importWorkflow.modalProps.status);
+          importWorkflow.modalProps.onClose();
+        }}
+        onCompletedClose={() => {
+          rememberCompletedImport(importWorkflow.modalProps.status);
+          importWorkflow.modalProps.onCompletedClose();
+        }}
       />
     </div>
   );
