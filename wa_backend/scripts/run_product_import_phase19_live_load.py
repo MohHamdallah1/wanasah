@@ -1,13 +1,13 @@
-"""Opt-in real-DB Product Import E2E smoke/load harness (DEVELOPMENT ONLY).
+r"""Opt-in real-DB Product Import E2E smoke/load harness (DEVELOPMENT ONLY).
 
 This is NOT a unit benchmark. It submits a real CSV to the existing
 application SourceStore/queue and observes the worker's persisted results.
 It never truncates/deletes business data and does not change the schema.
 
 Usage from wa_backend:
-    .\venv\Scripts\python.exe .\scripts\run_product_import_phase19_live_load.py --rows 100 --run-id PH19-SMOKE-20260928 --dry-run
-    .\venv\Scripts\python.exe .\scripts\run_product_import_phase19_live_load.py --rows 100 --run-id PH19-SMOKE-20260928 --execute
-    .\venv\Scripts\python.exe .\scripts\run_product_import_phase19_live_load.py --rows 50000 --run-id PH19-LOAD-20260928 --execute
+    .\venv\Scripts\python.exe -m scripts.run_product_import_phase19_live_load --rows 100 --run-id PH19-SMOKE-20260928 --dry-run
+    .\venv\Scripts\python.exe -m scripts.run_product_import_phase19_live_load --rows 100 --run-id PH19-SMOKE-20260928 --execute
+    .\venv\Scripts\python.exe -m scripts.run_product_import_phase19_live_load --rows 50000 --run-id PH19-LOAD-20260928 --execute
 
 Run IDs must be distinct across independent runs. All rows are synthetic.
 The test environment is the user's explicitly authorized LOCAL development DB,
@@ -24,9 +24,14 @@ import ipaddress
 import io
 import json
 import selectors
+import sys
 import time
 from collections import Counter
+from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text
 
