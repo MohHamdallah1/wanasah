@@ -44,6 +44,7 @@ from domains.simple_products.imports.application.api_service import (
     cancel_import,
     create_import,
     download_correction,
+    ensure_import_job_access,
     read_import_errors,
     read_import_status,
     retry_import,
@@ -984,6 +985,21 @@ async def upload_product_import_correction(
         db,
         actor,
     )
+    try:
+        await ensure_import_job_access(
+            db,
+            company_id=int(
+                actor.company_id
+            ),
+            job_id=job_id,
+        )
+    except ProductImportTerminalError as exc:
+        _raise_terminal_http(
+            request,
+            exc,
+            job_id=job_id,
+        )
+
     (
         file_name,
         payload,
