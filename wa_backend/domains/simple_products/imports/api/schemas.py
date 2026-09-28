@@ -1,1 +1,99 @@
-"""Version-stable HTTP contracts for Product Import.\n\nThese models describe the existing /simple-products import payloads. They do\nnot own mapping/business validation; application/domain services do.\n"""\nfrom __future__ import annotations\n\nfrom typing import Any\n\nfrom pydantic import BaseModel, ConfigDict, Field\n\n\nclass StrictImportRequest(BaseModel):\n    model_config = ConfigDict(extra="forbid")\n\n\nclass ImportMappingRequest(StrictImportRequest):\n    mapping: dict[str, str]\n\n\nclass ImportErrorItem(BaseModel):\n    row_number: int\n    code: str | None = None\n    field: str | None = None\n    message: str\n\n\nclass ImportErrorsResponse(BaseModel):\n    items: list[ImportErrorItem] = Field(default_factory=list)\n    next_after_row: int | None = None\n\n\nclass ImportTemplateResponse(BaseModel):\n    file_name: str\n    content_type: str\n    content_base64: str\n\n\nclass ImportWorkerReadinessResponse(BaseModel):\n    ready: bool\n    status: str\n\n\nclass ImportCreateResponse(BaseModel):\n    job_id: str\n    status: str\n    replayed: bool\n    default_lot_control_mode: str\n    default_expiry_control_mode: str\n    message: str\n\n\nclass ImportStatusResponse(BaseModel):\n    job_id: str\n    status: str\n    file_name: str\n    total_rows: int\n    processed_rows: int\n    valid_rows: int\n    failed_rows: int\n    imported_rows: int\n    invalid_rows: int\n    import_failed_rows: int\n    pending_rows: int\n    detected_headers: list[str]\n    suggested_mapping: dict[str, str]\n    column_mapping: dict[str, str]\n    default_lot_control_mode: str\n    default_expiry_control_mode: str\n    error_summary: dict[str, Any]\n    created_at: str | None = None\n    started_at: str | None = None\n    finished_at: str | None = None\n    errors: list[ImportErrorItem] = Field(default_factory=list)\n\n\nclass ImportActionResponse(BaseModel):\n    job_id: str\n    status: str\n    message: str\n\n\nclass ImportCorrectionDownloadResponse(BaseModel):\n    file_name: str\n    content_type: str\n    content_base64: str\n    row_count: int\n\n\nclass ImportCorrectionUploadResponse(BaseModel):\n    """Stable known correction fields; preserves existing extra metadata."""\n\n    model_config = ConfigDict(extra="allow")\n\n    message: str\n    replayed: bool | None = None\n    job_id: str | None = None\n    status: str | None = None\n    corrected_rows: int | None = None\n
+"""Version-stable HTTP contracts for Product Import.
+
+These models describe the existing /simple-products import payloads. They do
+not own mapping/business validation; application/domain services do.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class StrictImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ImportMappingRequest(StrictImportRequest):
+    mapping: dict[str, str]
+
+
+class ImportErrorItem(BaseModel):
+    row_number: int
+    code: str | None = None
+    field: str | None = None
+    message: str
+
+
+class ImportErrorsResponse(BaseModel):
+    items: list[ImportErrorItem] = Field(default_factory=list)
+    next_after_row: int | None = None
+
+
+class ImportTemplateResponse(BaseModel):
+    file_name: str
+    content_type: str
+    content_base64: str
+
+
+class ImportWorkerReadinessResponse(BaseModel):
+    ready: bool
+    status: str
+
+
+class ImportCreateResponse(BaseModel):
+    job_id: str
+    status: str
+    replayed: bool
+    default_lot_control_mode: str
+    default_expiry_control_mode: str
+    message: str
+
+
+class ImportStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    file_name: str
+    total_rows: int
+    processed_rows: int
+    valid_rows: int
+    failed_rows: int
+    imported_rows: int
+    invalid_rows: int
+    import_failed_rows: int
+    pending_rows: int
+    detected_headers: list[str]
+    suggested_mapping: dict[str, str]
+    column_mapping: dict[str, str]
+    default_lot_control_mode: str
+    default_expiry_control_mode: str
+    error_summary: dict[str, Any]
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    errors: list[ImportErrorItem] = Field(default_factory=list)
+
+
+class ImportActionResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+
+class ImportCorrectionDownloadResponse(BaseModel):
+    file_name: str
+    content_type: str
+    content_base64: str
+    row_count: int
+
+
+class ImportCorrectionUploadResponse(BaseModel):
+    """Stable known correction fields; preserves existing extra metadata."""
+
+    model_config = ConfigDict(extra="allow")
+
+    message: str
+    replayed: bool | None = None
+    job_id: str | None = None
+    status: str | None = None
+    corrected_rows: int | None = None
