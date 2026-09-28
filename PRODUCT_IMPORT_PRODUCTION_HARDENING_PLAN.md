@@ -1,6 +1,6 @@
 # Product Import — Production Hardening Plan
 
-**Status:** ACTIVE IMPLEMENTATION PLAN  
+**Status:** BACKEND HARDENING PHASES 1–18 CLOSED; V1 RELEASE ACCEPTANCE / CORRECTION UX OPEN  
 **Scope:** Product/Catalog bulk import backend (CSV/XLSX)  
 **Architecture authority:** `ARCHITECTURE.md`  
 **Owning domain today:** `domains/simple_products`  
@@ -655,3 +655,179 @@ Before declaring Product Import production-grade:
 8. **Audit semantics:** successful row lineage is retained according to policy; it is not immediately deleted.
 9. **Domain authority:** import is an ingestion/orchestration capability, never a second Product/Pricing/Tracking authority.
 10. **Architecture rule:** future Product ingestion channels (API, feeds, SFTP, integrations) must reuse the same canonical ingestion/application contracts rather than creating parallel business logic.
+
+
+---
+
+# Phase 19 — V1 Post-Hardening Release Acceptance & Assisted Error Correction (OPEN)
+
+**Why this phase exists:** Phases 1–18 proved the backend hardening contract.
+They do **not** by themselves prove that the complete user-facing import,
+correction and 50,000-row execution journeys have passed live end-to-end
+release acceptance. Do not mark this phase complete on the strength of
+structural gates, parser benchmarks, or mocked failure injection alone.
+
+**Test evidence recorded 2026-09-28 (development tenant only):**
+- Mixed 54-product XLSX: one durable import finished with **38 IMPORTED +
+  16 INVALID** rows (verified against persisted job-row states).
+- Re-uploading that **same source as a new job** correctly produced **0
+  IMPORTED + 54 INVALID** rows: 38 previously successful identifiers now
+  conflict with active product barcodes; the original 16 input errors remain.
+  This is **create-only** import, not upsert/synchronization. Re-upload is
+  not a correction mechanism.
+- New Dashboard success/review separation, localized in-modal messaging and
+  company-scoped post-close receipt exist; automated focused UI tests pass.
+  Manual browser/reload/filter/permission verification remains open.
+- The **error-report CSV is NOT a correction artifact**. The actual
+  correction API accepts the server-generated job-specific CSV/XLSX with
+  immutable \`__wanasah_row_identity\` metadata.
+- Keep completed imported rows and their barcode/Product/Pricing lineage
+  intact. Never delete or reset successful rows just to retry testing.
+
+## 19.1 Immediate next step: correct the **original partially successful job**
+
+- [ ] Read-only snapshot its status, 38 imported identities, 16 failed
+  identities, Product and barcode counts; record reproducible before values.
+- [ ] Download **that job's** \`GET /simple-products/imports/{job_id}/correction?format=xlsx\`
+  (or CSV) artifact; assert it contains only 16 rejected rows, source
+  columns, stable original Excel row numbers and row identities.
+- [ ] Validate correction-file contract/size/headers and exact field errors;
+  deliberately test malformed identity, duplicate identity, unknown identity,
+  an \`IMPORTED\` identity, and a cross-tenant job. Each must fail closed
+  with **no** partial update.
+- [ ] Correct one deterministic invalid row using a uniquely identified,
+  valid test product (no conflicts with active barcodes). Apply via the
+  authorized correction endpoint to the **same job ID**, keeping one stable
+  request ID across ambiguous/lost-response retries. Inspect job/row
+  transitions, worker resume, errors remaining and final Product lineage.
+- [ ] Prove earlier 38 imported rows were never re-executed or altered;
+  demonstrate the correction request's exact replay is idempotent.
+- [ ] Correct the remaining deliberately invalid rows **only after**
+  confirming their intended test values. Revalidation may reveal a second
+  independent error on a row; expose it rather than silently repairing it.
+- [ ] Verify final source-row counts/statuses, tenant/RLS isolation, barcode
+  ownership, Pricing authority, tracking defaults and no half-created
+  Products. This is an end-to-end gate, not only a unit test.
+- [ ] Do **not** use the second all-invalid re-upload as the correction
+  target; do not upload the unchanged original XLSX a third time.
+- [ ] If the old job source/lineage is no longer correctable for retention
+  reasons, use a deliberately isolated fresh test job and document why;
+  never overwrite or delete historical successful Products.
+
+## 19.2 50,000-row real end-to-end release exercise
+
+- [ ] Generate realistic **new, unique** company-scoped test Products with
+  explicit package selection and a controlled mix of clean rows, deterministic
+  invalid rows, empty physical Excel rows, Arabic/English/mixed headers and
+  values, barcodes saved as text, packaging and tracking variations.
+- [ ] Run on an isolated **test tenant/database** with known initial state
+  and one current worker per owned queue; do not measure in the user's
+  populated test tenant or against an old/stale worker.
+- [ ] Measure actual upload admission, source-store write, queue wait,
+  parser/staging, validation, barcode detection, row creation, pricing
+  publication and completion separately, with timings, throughput, CPU,
+  memory, database round trips, table/index health and queue metrics.
+  Do not infer whole-job runtime from the Phase 17 **streaming-only** memory
+  gate or Phase 15 query-plan audit.
+- [ ] Assert every physical source-row number, **IMPORTED + INVALID +
+  IMPORT_FAILED** reconciliation, no duplicate successful products, and
+  expected product/price/barcode persistence. Test 0/100/1k/50k rows,
+  near-100% invalid, and mixed 50k cases without inventing performance SLAs.
+- [ ] Exercise crash/restart, lost HTTP response, duplicate queue delivery,
+  permission revocation, cancellation, retention, concurrent tenants and
+  worker-backpressure with the real pipeline where safe.
+- [ ] Use measured baseline and representative target hardware/tenant
+  load to define an evidence-based p50/p95 completion-time and resource
+  acceptance envelope. Fail and investigate any regression; do not claim
+  "50,000 rows fast" without real end-to-end measurement.
+- [ ] Run full backend+frontend gates, audit tenant isolation and validate
+  the Dashboard's large-job progress, row report, retry, and reconnection
+  behavior with keyboard and both RTL/LTR locales.
+
+## 19.3 V1 inline correction UX — approved direction, NOT yet implemented
+
+**Decision:** This belongs in V1 after sections 19.1–19.2 pass.
+The user's illustrative "20 errors" is **not** a business rule, API limit,
+or fixed release threshold. Use observed row count, payload size, response
+time and device constraints to choose direct editing vs paging/export.
+
+- [ ] Provide a bounded job-specific **Review rejected rows** view, with
+  original Excel physical row numbers, canonical field identity,
+  user-safe localized error text, and current row values; never expose
+  successful Products as editable correction targets.
+- [ ] For a comfortably small error set, render an accessible compact
+  editable table. Visually identify erroneous cells but also give every
+  invalid field a **keyboard-focusable** error indicator, explicit message
+  and non-hover-only help. Do not rely on red color alone.
+- [ ] For large error sets, use server pagination/virtualization and the
+  same job-specific correction XLSX/CSV path. Never fetch 50k failed rows
+  or entire files into React just to show the first page.
+- [ ] Treat correction as a patch to existing **failed row identities**,
+  not as a fresh Product import; authorize tenant/job/field access and
+  server-validate edited data again through existing Product/Pricing/
+  Tracking/UOM authority before committing.
+- [ ] Keep imported rows immutable; allow correction only for
+  \`INVALID\`/\`IMPORT_FAILED\` with explicit optimistic concurrency,
+  durable idempotent submission, protected drafts, offline recovery and
+  clear result reconciliation; reject unknown and cross-company identities.
+- [ ] Expect **multiple possible issues** per row; a row may expose its
+  next error only after the first is fixed. Show row-level and field-level
+  feedback without promising that the first report is exhaustive.
+- [ ] If a server API is needed for row data/pages or patch requests,
+  design/review its DTO, masking, permissions, rate limits, storage/retention
+  and audit contract first. Do not leak raw staged data in public error DTOs.
+- [ ] Do not duplicate validation or package/pricing authority in React.
+  Use canonical error codes + field mapping + localization; locale and
+  mixed-language inputs remain independent from canonical business rules.
+- [ ] On successful correction, refresh Products queries without forced
+  full-page reload; show saved, rejected and pending separately; support
+  status resume after the modal closes or the browser refreshes.
+- [ ] Test mobile, keyboard, screen reader, i18n, concurrent correction,
+  stale drafts, tenant changes, unexpected worker failure, large error
+  pagination and no Products/Prices/Barcodes duplication.
+
+## 19.4 V1 product education and source semantics
+
+- [x] Explain **base unit** as one business stock unit (piece, bottle,
+  sealed pack, etc.), not necessarily a loose "piece"/"حبة".
+- [x] Explain **outer packaging** as one fixed grouping of the same SKU,
+  separate from physical shipping containers and multi-SKU kits, using
+  concise Arabic/English tooltip and 1–3 real business examples.
+- [x] Make outer-package selection explicit in the official template;
+  require the base-unit count for an actual grouping and reject silent
+  guessed carton conversions.
+- [x] Surface an explicit saved-product count separately from rejected
+  rows after import and retain a tenant-scoped, dismissible UI receipt.
+- [ ] Manually verify the guide/tooltip, dynamic-locale template,
+  "No outer package" semantics, role-restricted prices, result receipt,
+  search/filter behavior and list freshness on real browsers/devices.
+- [ ] Record user confusion or genuinely unsupported V1 requirements as
+  acceptance failures. Do not move required V1 correctness into V2 merely
+  because V2 has a broader UOM domain.
+
+## 19.5 V1 release rule and references
+
+- [ ] Close Phase 19 only with live correction results and a measured
+  real 50k end-to-end run, complete accessibility/i18n and tenant/security
+  verification, plus clean architecture/build/test gates.
+- [ ] Do not call the **entire V1 product experience** release-ready until
+  the above items close; "Product Import V1 backend is production-hardened"
+  remains the **backend-only** Phase 18 claim.
+- [ ] Add repeatable focused gates for the accepted correction workflow,
+  real-load suite and representative small/mixed edge-case regressions.
+
+Relevant external design references (patterns to evaluate, **not** feature
+promises): Odoo product packaging and physical packages; SAP packaging
+hierarchy; NetSuite purchase/stock/sale UOM defaults; ERPNext import
+error/repair workflow; Microsoft Dynamics translations, per-variant UOM
+and distinct catch-weight flow. Product/warehouse domains own actual
+capability support, not a template or tooltip.
+
+**Reference links:**
+- https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/packaging.html
+- https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/configure/package.html
+- https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/9905622a5c1f49ba84e9076fc83a9c2c/6289c4535cdeb44ce10000000a174cb4.html
+- https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_N2212390.html
+- https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/tasks/manage-unit-measure
+- https://learn.microsoft.com/en-us/dynamics365/supply-chain/pim/uom-conversion-per-product-variant
+- https://learn.microsoft.com/en-us/dynamics365/supply-chain/warehousing/catch-weight-processing
