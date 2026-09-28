@@ -639,6 +639,23 @@ export const resources = {
           outer: "التعبئة الخارجية = تجميع أكبر من وحدات المنتج نفسه. مثال: تبيع القنينة منفردة وبالكرتونة؛ اختَر «كرتونة» واكتب 12 إذا كانت تحتوي 12 قنينة.",
           none: "«بدون عبوة خارجية» تعني أنك تبيع أو تدير هذا الصنف كوحدة واحدة فقط، حتى لو كانت هذه الوحدة علبة أو باكيتًا مغلقًا. اكتب سعر الوحدة، واترك سعر وباركود التجميع الخارجي فارغين.",
           limits: "حاليًا نسمح بمستوى تجميع إضافي واحد بعدد ثابت. الكرتونة داخل طبلية، والكرتونة المختلطة، والبيع بوزن متغير تحتاج مسارات متقدمة منفصلة.",
+          examplesTitle: "أمثلة سريعة",
+          caseHeading: "كيف تبيع الصنف؟",
+          setupHeading: "كيف تسجله؟",
+          examples: {
+            single: {
+              case: "قنينة ماء منفردة",
+              setup: "الوحدة الأساسية: قنينة. بدون تعبئة خارجية.",
+            },
+            carton: {
+              case: "كرتونة 12 قنينة",
+              setup: "الوحدة الأساسية: قنينة. التعبئة الخارجية: كرتونة × 12.",
+            },
+            pack: {
+              case: "باكيت مناديل يباع كاملًا",
+              setup: "الوحدة الأساسية: باكيت كامل. بدون تعبئة خارجية.",
+            },
+          },
         },
         importGuideBulkTip:
           "عندك 1,000 أو 50,000 منتج؟ لا تعبّي عمودي التتبع إذا أغلب المنتجات على الافتراضي؛ اتركهما فارغين وحدد فقط الصفوف المختلفة.",
@@ -2252,6 +2269,23 @@ export const resources = {
           outer: "Outer packaging = a larger fixed grouping of the same item. Example: if you sell individual bottles and cartons of 12, choose Carton and enter 12.",
           none: "No outer package means this product is managed as a single base unit, even if it is a sealed box or pack. Enter the base-unit price; leave outer-packaging price and barcode blank.",
           limits: "This workflow supports one extra fixed-count packaging level. Pallet hierarchies, mixed-product packs, and variable-weight sales require separate advanced workflows.",
+          examplesTitle: "Quick examples",
+          caseHeading: "How do you sell it?",
+          setupHeading: "How do you configure it?",
+          examples: {
+            single: {
+              case: "Single water bottle",
+              setup: "Base unit: bottle. No outer packaging.",
+            },
+            carton: {
+              case: "Carton of 12 bottles",
+              setup: "Base unit: bottle. Outer packaging: carton × 12.",
+            },
+            pack: {
+              case: "Tissue pack sold as a whole",
+              setup: "Base unit: whole pack. No outer packaging.",
+            },
+          },
         },
         importGuideBulkTip:
           "Importing 1,000 or 50,000 products? If most use the default, leave both tracking columns blank and fill only the rows that are exceptions.",
