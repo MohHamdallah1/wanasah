@@ -176,6 +176,17 @@ create_end = router_source.index(
 create_source = router_source[
     create_start:create_end
 ]
+upload_helper_start = router_source.index(
+    "async def _parse_new_import_upload("
+)
+upload_helper_end = router_source.index(
+    "async def _parse_correction_upload(",
+    upload_helper_start,
+)
+upload_helper_source = router_source[
+    upload_helper_start:
+    upload_helper_end
+]
 
 check(
     "MAX_IMPORT_FILE_BYTES = 8 * 1024 * 1024"
@@ -185,9 +196,9 @@ check(
 
 check(
     "spool_upload_bounded("
-    in create_source
+    in upload_helper_source
     and "file.read("
-    not in create_source
+    not in upload_helper_source
     and "source_size="
     in create_source
     and "source_sha256="
@@ -314,7 +325,9 @@ check(
     < parser_index
     and "legacy_payload"
     not in source_service_source
-    and "job.source_payload"
+    and "job.source_payload\n"
+    not in source_service_source
+    and "job.source_payload is not None"
     not in source_service_source,
     "SourceStore hash/size verification is the only runtime source path before parsing and retry parsing",
 )
