@@ -64,7 +64,6 @@ def package_code(
     raw_package: Any,
     *,
     has_package_column: bool,
-    has_units_column: bool,
 ) -> str | None:
     if raw_package is not None and str(
         raw_package
@@ -72,13 +71,19 @@ def package_code(
         canonical = canonical_package_value(
             raw_package,
         )
-        return normalize_package_code(canonical)
+        return normalize_package_code(
+            canonical
+        )
 
     if has_package_column:
-        return None
-
-    if has_units_column:
-        return "CARTON"
+        raise SimpleProductError(
+            "IMPORT_PACKAGE_SELECTION_REQUIRED",
+            (
+                "Choose either no outer package or an "
+                "explicit outer package type."
+            ),
+            status_code=422,
+        )
 
     return None
 
@@ -170,32 +175,74 @@ def normalize_raw_row(
     has_package_column = bool(
         mapping.get("package_uom")
     )
-    has_units_column = bool(
-        mapping.get("units_per_package")
+    raw_package = value(
+        "package_uom"
+    )
+    raw_units = value(
+        "units_per_package"
     )
     normalized_package_code = package_code(
-        value("package_uom"),
+        raw_package,
         has_package_column=has_package_column,
-        has_units_column=has_units_column,
     )
+    units_raw = str(
+        raw_units or ""
+    ).strip()
 
     if normalized_package_code is None:
+        if units_raw:
+            try:
+                units_decimal = Decimal(
+                    units_raw
+                )
+            except Exception as exc:
+                raise SimpleProductError(
+                    "IMPORT_PACKAGING_INVALID",
+                    "units_per_package is invalid.",
+                    status_code=422,
+                ) from exc
+
+            if units_decimal != Decimal(1):
+                if (
+                    raw_package is not None
+                    and str(
+                        raw_package
+                    ).strip()
+                ):
+                    raise SimpleProductError(
+                        "IMPORT_NO_PACKAGE_UNITS_INVALID",
+                        (
+                            "A product without an outer package "
+                            "must not define multiple units per package."
+                        ),
+                        status_code=422,
+                    )
+                raise SimpleProductError(
+                    "IMPORT_PACKAGE_TYPE_REQUIRED",
+                    (
+                        "An outer package type is required when "
+                        "units per package are supplied."
+                    ),
+                    status_code=422,
+                )
         units = 1
     else:
-        units_raw = str(
-            value("units_per_package") or ""
-        ).strip()
         if not units_raw:
             raise SimpleProductError(
                 "IMPORT_PACKAGING_REQUIRED",
-                "units_per_package is required for an outer package.",
+                (
+                    "units_per_package is required for "
+                    "an outer package."
+                ),
                 status_code=422,
             )
         try:
             units_decimal = Decimal(
                 units_raw
             )
-            units = int(units_decimal)
+            units = int(
+                units_decimal
+            )
         except Exception as exc:
             raise SimpleProductError(
                 "IMPORT_PACKAGING_INVALID",
@@ -205,13 +252,18 @@ def normalize_raw_row(
 
         if (
             units_decimal
-            != Decimal(units)
+            != Decimal(
+                units
+            )
             or units < 2
             or units > 1_000_000
         ):
             raise SimpleProductError(
                 "IMPORT_PACKAGING_INVALID",
-                "units_per_package must be an integer between 2 and 1,000,000.",
+                (
+                    "units_per_package must be an integer "
+                    "between 2 and 1,000,000."
+                ),
                 status_code=422,
             )
 
