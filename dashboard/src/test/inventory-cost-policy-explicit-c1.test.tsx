@@ -115,6 +115,10 @@ describe("cost method selection C1 / no phantom moving-average", () => {
     { ...selected, selection_status: "UNSELECTED" },
     { ...selected, method: "FAKE" },
     { ...selected, is_selected: "true" },
+    { ...unselected, selected_at: "2026-09-29T07:00:00" },
+    { ...selected, is_active: true, is_locked: false },
+    { ...selected, is_active: true, is_locked: true, locked_at: null },
+    { ...selected, is_active: true, is_locked: true, locked_at: "2026-09-29T07:00:00", can_change: true },
   ])("fails closed on inconsistent selection DTO (%#)", (invalid) => {
     expect(() => parseCostPolicy(invalid)).toThrow();
   });
