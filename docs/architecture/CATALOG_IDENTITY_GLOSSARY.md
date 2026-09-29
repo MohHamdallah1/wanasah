@@ -28,6 +28,6 @@
 4. The ORM names `Product` and `ProductVariant` and physical tables `products`/`product_variants` remain **unchanged**. A rename touches composite FK/RLS, migrations, SQL, APIs and Flutter/offline; terminology should not be "fixed" via a blind table rename.
 5. A master with 0 variants can be legitimate (separate master creation), but historical orphan classification requires creation audit evidence. A one-variant master is also valid; neither count indicates financial corruption by itself.
 6. Check the tenant-safe composite keys and FORCE RLS at the database, not merely ORM intent. Pricing/costing/inventory writes are owned by their own domains, never by UI or import normalization.
-7. The company costing-method selection before the first costed receipt is an independently governed business rule; this glossary makes no change to its current behavior.
+7. The company costing-method selection before the first costed receipt is an independently governed business rule. See [the one-financial-truth decision](INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md). A manufacturer lot can have multiple distinct receipt costs and may not be assigned one immutable accounting acquisition price.
 
 **Related:** `ARCHITECTURE.md`; `wa_backend/domains/simple_products/imports/README.md`; `docs/architecture/PRODUCT_VARIANT_IDENTITY_AUDIT.md`; `WANASAH_URGENT_CATALOG_INDEX_QUEUE_SCALING_PLAN_2026-09-29.md`. Actual code and explicit business policy take precedence over narrative examples.
