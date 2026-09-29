@@ -827,20 +827,34 @@ async def _close_predecessor_ranges(
     conflict = await db.scalar(
         text(
             """
+            -- Current publication has a bounded set of newly inserted
+            -- SKU/UOM prices. Isolate it once BEFORE joining older published
+            -- history: a planner starting from the entire old history can
+            -- grow superlinearly as the price book accumulates publications.
+            -- Preserve the same effective-date, tenant/book and published
+            -- overlap predicates; the GiST exclusion constraint remains
+            -- the database's authoritative final race guard.
+            WITH fresh_prices AS MATERIALIZED (
+                SELECT product_variant_id, uom_id, effectivity
+                FROM price_book_entries
+                WHERE company_id = :company_id
+                  AND price_book_id = :price_book_id
+                  AND publication_id = :publication_id
+            )
             SELECT EXISTS (
                 SELECT 1
-                FROM price_book_entries AS old
-                JOIN price_book_entries AS fresh
-                  ON fresh.company_id = old.company_id
-                 AND fresh.price_book_id = old.price_book_id
-                 AND fresh.product_variant_id = old.product_variant_id
-                 AND fresh.uom_id = old.uom_id
-                 AND fresh.publication_id = :publication_id
-                WHERE old.company_id = :company_id
-                  AND old.price_book_id = :price_book_id
-                  AND old.publication_id <> :publication_id
-                  AND old.is_published IS TRUE
-                  AND old.effectivity && fresh.effectivity
+                FROM fresh_prices AS fresh
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM price_book_entries AS old
+                    WHERE old.company_id = :company_id
+                      AND old.price_book_id = :price_book_id
+                      AND old.product_variant_id = fresh.product_variant_id
+                      AND old.uom_id = fresh.uom_id
+                      AND old.publication_id <> :publication_id
+                      AND old.is_published IS TRUE
+                      AND old.effectivity && fresh.effectivity
+                )
             )
             """
         ),
